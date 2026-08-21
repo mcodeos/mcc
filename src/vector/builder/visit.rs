@@ -1156,11 +1156,17 @@ impl<'a> McVecBuilder<'a> {
         inst: &McModuleInst,
         module_path: &str,
     ) {
-        // Ground-name classifier, aligned with the graph side (`naming::is_ground`
-        // uses the same `starts_with("GND")` prefix so `GND@72` / `GND_OUT` count).
+        // Ground-name classifier, aligned with the graph side
+        // (`naming::classify_net` / `naming::is_ground` classify by the LAST
+        // segment, so a port-member ground like `USB_VBUS_1.GND` / `vin.GND`
+        // counts even though the full name does not start with "GND").
+        // ★ M7.6: the old `starts_with("GND")` missed port-member grounds, so
+        // the builder's merged `USB_VBUS_1.GND` survived the drop below and the
+        // pass2 split groups were stacked on top — the same consumer pin ended
+        // up in TWO ground nets (`speaker` drew a duplicate, overlapping GND).
         let is_gnd_name = |name: &str| {
-            let u = name.to_uppercase();
-            u == "GND" || u.starts_with("GND")
+            let leaf = name.rsplit('.').next().unwrap_or(name);
+            crate::vector::graph::naming::is_ground(leaf)
         };
 
         // Pass2 ground nets → (name, resolved point ids, deduped, order preserved).

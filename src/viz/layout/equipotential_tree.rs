@@ -111,6 +111,23 @@ pub const CORRIDOR_DEMAND: f64 = LEAD + TWO_PIN_SYMBOL_W;
 /// `x = box.x`, drawing a wire on top of the box's left border).
 pub const TOOTH_GAP: f64 = 20.0;
 
+/// ★ M7.2: step a label symbol takes OUTWARD along its trunk when the trunk's
+/// outer end has no free stub direction.
+///
+/// The trunk ends exactly ON the outermost member's tap, and `segment_hits_box`
+/// counts grazing a box edge as a hit — so every stub off that point is
+/// rejected, `pick_stub_dir` returns `None` and `realize` used to fall straight
+/// through to `symbol_alt_node`: the INNER end, hard against the layer anchor,
+/// where the label renders on top of the IC (`usbsock` `USB_VBUS`). Walking one
+/// or two of these steps outward first is the "the chain is not expanded far
+/// enough" fix — the symbol hangs in free space and its text points outward.
+///
+/// 40 clears the half-width of every drawn two-pin glyph (see [`COL_MARGIN`]),
+/// so one step is normally enough.
+///
+/// [`COL_MARGIN`]: super::equi_column::COL_MARGIN
+pub const SYMBOL_LANE: f64 = 40.0;
+
 // ============================================================================
 // Region / Lane — direction as a first-class citizen (device_layout_v2.md)
 // ============================================================================
@@ -259,10 +276,14 @@ pub struct NetTopology {
     /// free net that found a partner is fine, one that fell back to "below the
     /// IC" is a real fallback.
     pub(crate) row_source: RowSource,
-    /// M2.5 Step 7: the unified y every Ground glyph hangs at (all ground
-    /// symbols of the layer share one band). Written by `assign_rows`, read by
-    /// `realize`; both the layout and render phases run `assign_rows`, so it is
-    /// consistent on both sides (A2 stays green).
+    /// M2.5 Step 7: the unified y every Ground glyph used to hang at.
+    ///
+    /// ★ M7.5: no longer used for placement. Pinning every ground glyph to
+    /// `max(South row) + SYMBOL_DROP` produced a vertical that grew with the
+    /// deepest free ground band and ran off the canvas; grounds now hang one
+    /// `SYMBOL_DROP` off their own trunk in the first free direction (A15').
+    /// The field is kept because it is still the cheapest way to express "align
+    /// the grounds" should that ever be wanted again, and it costs nothing.
     pub(crate) ground_band: f64,
 }
 
@@ -458,8 +479,12 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
                 }
             }
             NetKind::Signal => {
+                // ★ M7.6: skip anonymous `_net{N}` nets (the old `starts_with("__net")`
+                // never matched — the builder names them `_net5` etc., single
+                // underscore + digit). An engine-generated net has nothing
+                // meaningful to label the trunk with.
                 if !net.name.is_empty()
-                    && !net.name.starts_with("__net")
+                    && !crate::instant::mc_net::is_anon_net_name(&net.name)
                     && !terminals.iter().any(|t| matches!(t, Terminal::NetLabel(_)))
                 {
                     terminals.push(Terminal::NetLabel(net.name.clone()));
@@ -469,9 +494,15 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
                 // ★ The PortTerminal endpoint (e.g. USB_VBUS) was already
                 // extracted as a NetLabel above; do not emit a duplicate Port
                 // label that would overlap it.
-                if !terminals
-                    .iter()
-                    .any(|t| matches!(t, Terminal::Port { .. } | Terminal::NetLabel(_)))
+                //
+                // ★ M7.6: also skip anonymous `_net{N}` ports (the builder maps
+                // unnamed cross-module hops to SubModuleIO; those have no real
+                // port name to display).
+                if !net.name.is_empty()
+                    && !crate::instant::mc_net::is_anon_net_name(&net.name)
+                    && !terminals
+                        .iter()
+                        .any(|t| matches!(t, Terminal::Port { .. } | Terminal::NetLabel(_)))
                 {
                     terminals.push(Terminal::Port {
                         name: net.name.clone(),
@@ -601,6 +632,9 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
     }
 
     // Pass 1: direct rules for nets that touch the layer anchor.
+    // ★ M7.1: `strength[i]` records HOW firmly the choice is pinned, so Pass 1.5
+    // knows which of two coupled nets may be pulled across.
+    let mut strength: Vec<SideStrength> = vec![SideStrength::Balanced; topos.len()];
     for (i, topo) in topos.iter_mut().enumerate() {
         if resolved[i] {
             continue;
@@ -610,7 +644,10 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
             continue;
         }
         let region = match direct_region(graph, topo) {
-            Some(r) => r,
+            Some((r, s)) => {
+                strength[i] = s;
+                r
+            }
             // Passive / Unknown → balance: W/E with fewer pins so far.
             None => {
                 let w = west_pins.get(&topo.anchor).copied().unwrap_or(0);
@@ -629,6 +666,99 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
             Region::West => *west_pins.entry(topo.anchor).or_default() += pin_cnt,
             Region::East => *east_pins.entry(topo.anchor).or_default() += pin_cnt,
             _ => {}
+        }
+    }
+
+    // ── Pass 1.5 (★ M7.1): netlist-driven side coupling ──────────────────────
+    //
+    // The side decision must START FROM THE NETLIST, not from each pin's IO
+    // direction read in isolation. Two nets that share a TWO-PIN member form a
+    // loop through that component:
+    //
+    //     moddcdc   VDD_3V3{lp322dcdc.4, _R1.1}  ~  _net1{_R1.2, lp322dcdc.1}
+    //                 → pin 4 and pin 1 have a resistor between them
+    //     moddcdc   _net3{lp322dcdc.3, _C5.2}    ~  _net5{_C5.1, lp322dcdc.5}
+    //                 → pin 3 and pin 5 have a capacitor between them
+    //
+    // On OPPOSITE sides that component has to stretch across the whole IC (the
+    // cross-side residue A7 has tolerated since M3). On the SAME side the two
+    // nets land on adjacent bands and the component becomes one short vertical
+    // Bridge between them — which is how the schematic is meant to read.
+    //
+    // Only W/E nets on the layer anchor take part; Ground (South) and the N/S
+    // rails are positional, not side decisions. Each net moves at most once, so
+    // the pass cannot oscillate, and pairs are visited in index order, so it is
+    // deterministic (A2: still no rect is read anywhere here).
+    {
+        // A coupling may not push the two sides more than this many pins
+        // apart: the IC height is `max(west, east)` pins, so draining one side
+        // doubles the box for no gain.
+        const SIDE_IMBALANCE_MAX: isize = 2;
+
+        let pairs = coupled_net_pairs(graph, topos, layer_anchor);
+        let mut moved = vec![false; topos.len()];
+        let anchor_pins =
+            |t: &NetTopology| t.groups.first().map_or(1, |g| g.pin_ids.len()) as isize;
+        for (i, j) in pairs {
+            if !is_w_e_opposite(topos[i].lane.region, topos[j].lane.region) {
+                continue; // already the same side (or one of them is a N/S rail)
+            }
+            // The weaker pin gives way; equal strength falls back to the anchor
+            // pin's electrical rank (a source outranks a sink), `nid` last.
+            let key_i = (strength[i], anchor_io_rank(graph, &topos[i]));
+            let key_j = (strength[j], anchor_io_rank(graph, &topos[j]));
+            let (loser, winner) = match key_i.cmp(&key_j) {
+                std::cmp::Ordering::Less => (i, j),
+                std::cmp::Ordering::Greater => (j, i),
+                std::cmp::Ordering::Equal => {
+                    if topos[i].nid > topos[j].nid {
+                        (i, j)
+                    } else {
+                        (j, i)
+                    }
+                }
+            };
+            if moved[loser] || strength[loser] >= SideStrength::RailDriver {
+                continue;
+            }
+            let target = topos[winner].lane.region;
+            // Balance guard. Only Pass-1 nets are counted: Pass 2 has not run
+            // yet, so an unresolved net still carries `Lane::default()`'s East
+            // and would poison the tally.
+            let (mut w, mut e) = (0isize, 0isize);
+            for (k, t) in topos.iter().enumerate() {
+                if !resolved[k] {
+                    continue;
+                }
+                match t.lane.region {
+                    Region::West => w += anchor_pins(t),
+                    Region::East => e += anchor_pins(t),
+                    _ => {}
+                }
+            }
+            let d = anchor_pins(&topos[loser]);
+            let (w, e) = match target {
+                Region::West => (w + d, e - d),
+                _ => (w - d, e + d),
+            };
+            if (w - e).abs() > SIDE_IMBALANCE_MAX {
+                crate::vlog!(
+                    "[region] couple skipped (balance): net '{}' would make W/E {}/{}",
+                    topos[loser].net_name,
+                    w,
+                    e
+                );
+                continue;
+            }
+            crate::vlog!(
+                "[region] couple: net '{}' {:?} → {:?} (shares a 2-pin part with '{}')",
+                topos[loser].net_name,
+                topos[loser].lane.region,
+                target,
+                topos[winner].net_name
+            );
+            topos[loser].lane.region = target;
+            moved[loser] = true;
         }
     }
 
@@ -673,11 +803,68 @@ pub(crate) fn layer_anchor_id(topos: &[NetTopology]) -> i64 {
         .unwrap_or(topos.first().map(|t| t.anchor).unwrap_or(0))
 }
 
-/// Direct region rules for a net that touches the layer anchor.
-/// `None` = Passive/Unknown → caller applies the balance rule.
-fn direct_region(graph: &McVecGraph, topo: &NetTopology) -> Option<Region> {
+/// ★ M7.1: how firmly a net's West/East choice is pinned. The netlist coupling
+/// pass may only pull the WEAKER of two coupled nets across; equal strength
+/// falls back to [`anchor_io_rank`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum SideStrength {
+    /// Balance fallback — no usable IO on the anchor pin, free to move.
+    Balanced,
+    /// A feedback / sense pin. It is named after the node it MEASURES, so its
+    /// side follows whatever it is tied back to, not its own IO direction.
+    Sense,
+    /// A definite IO direction on the anchor pin.
+    Io,
+    /// A rail with a recorded driver pin on the anchor, or a Ground/N-S rail —
+    /// never moved.
+    RailDriver,
+}
+
+/// ★ M7.1: electrical precedence when two coupled nets are equally strongly
+/// pinned — the one whose anchor pin is "more of a source" keeps its side, so
+/// e.g. `LX`(Output) holds East and `FB` follows it across.
+fn anchor_io_rank(graph: &McVecGraph, topo: &NetTopology) -> u8 {
+    match anchor_pin_io(graph, topo) {
+        Some(IoDirection::Power) => 4,
+        Some(IoDirection::Output) => 3,
+        Some(IoDirection::Bidir) => 2,
+        Some(IoDirection::Input) => 1,
+        _ => 0,
+    }
+}
+
+/// ★ M7.1: is this net's anchor pin a feedback / sense pin? Plan M3.1 listed
+/// `FB` / `SENSE` / `ADJ` as a pin class of its own and M5 item 2 parked it as
+/// "semantic pin ordering"; this is that rule. A feedback pin is electrically
+/// part of the OUTPUT network (it is always tied back to it through a divider
+/// or a compensation cap), so putting it opposite the output is what makes the
+/// feedback component stretch across the whole IC.
+fn anchor_pin_is_sense(graph: &McVecGraph, topo: &NetTopology) -> bool {
+    let Some(b) = graph.boxes.iter().find(|b| b.id == topo.anchor) else {
+        return false;
+    };
+    let Some(g) = topo.groups.first() else {
+        return false;
+    };
+    g.pin_ids.iter().any(|pid| {
+        b.pins.iter().find(|p| p.id == *pid).is_some_and(|p| {
+            let n = p.description.to_ascii_uppercase();
+            n == "FB"
+                || n == "VFB"
+                || n == "ADJ"
+                || n == "VSENSE"
+                || n.starts_with("FB_")
+                || n.starts_with("SENSE")
+        })
+    })
+}
+
+/// Direct region rules for a net that touches the layer anchor, plus how firmly
+/// the choice is pinned (★ M7.1). `None` = Passive/Unknown → caller applies the
+/// balance rule (and leaves the strength at [`SideStrength::Balanced`]).
+fn direct_region(graph: &McVecGraph, topo: &NetTopology) -> Option<(Region, SideStrength)> {
     if topo.net_kind == NetKind::Ground {
-        return Some(Region::South);
+        return Some((Region::South, SideStrength::RailDriver));
     }
     if topo.net_kind == NetKind::Power {
         let driver_on_anchor = find_net(graph, topo.nid)
@@ -685,23 +872,99 @@ fn direct_region(graph: &McVecGraph, topo: &NetTopology) -> Option<Region> {
             .and_then(|r| r.driver_pin)
             .is_some_and(|dp| topo.groups.first().is_some_and(|g| g.pin_ids.contains(&dp)));
         if driver_on_anchor {
-            return Some(Region::East);
+            return Some((Region::East, SideStrength::RailDriver));
         }
         // ★ Fall back to the anchor pin IO when no rail driver is recorded
         // (module-internal rails often carry `rail: None`): an Output pin means
         // the anchor drives the rail → East; anything else enters → West.
         return match anchor_pin_io(graph, topo) {
-            Some(IoDirection::Output) | Some(IoDirection::Bidir) => Some(Region::East),
-            _ => Some(Region::West),
+            Some(IoDirection::Output) | Some(IoDirection::Bidir) => {
+                Some((Region::East, SideStrength::Io))
+            }
+            _ => Some((Region::West, SideStrength::Io)),
         };
     }
+    // ★ M7.1: a sense pin sits with the output it measures, and only weakly —
+    // the coupling pass may still pull it to whichever net it actually shares a
+    // component with.
+    if anchor_pin_is_sense(graph, topo) {
+        return Some((Region::East, SideStrength::Sense));
+    }
     match anchor_pin_io(graph, topo) {
-        Some(IoDirection::Input) => Some(Region::West),
-        Some(IoDirection::Output | IoDirection::Bidir) => Some(Region::East),
-        Some(IoDirection::Power) => Some(Region::West),
-        Some(IoDirection::Ground) => Some(Region::South),
+        Some(IoDirection::Input) => Some((Region::West, SideStrength::Io)),
+        Some(IoDirection::Output | IoDirection::Bidir) => Some((Region::East, SideStrength::Io)),
+        Some(IoDirection::Power) => Some((Region::West, SideStrength::Io)),
+        Some(IoDirection::Ground) => Some((Region::South, SideStrength::RailDriver)),
         _ => None,
     }
+}
+
+/// ★ M7.1: the two-pin member boxes a net hangs off the layer anchor. Two nets
+/// that share one of these are **coupled** — the netlist holds a loop
+/// `IC.pin_a — component — IC.pin_b`, so the two pins belong on the same side.
+fn two_pin_member_boxes(
+    graph: &McVecGraph,
+    topo: &NetTopology,
+    layer_anchor: i64,
+) -> BTreeSet<i64> {
+    topo.groups
+        .iter()
+        .filter(|g| g.box_id != layer_anchor)
+        .filter(|g| {
+            graph
+                .boxes
+                .iter()
+                .find(|b| b.id == g.box_id)
+                .is_some_and(|b| b.pins.len() == 2)
+        })
+        .map(|g| g.box_id)
+        .collect()
+}
+
+/// ★ M7.1: pairs `(i, j)`, `i < j`, of nets coupled through a shared two-pin
+/// component. Both must touch the layer anchor and be side (non-Ground) nets —
+/// a cap to ground is a Drop, not a coupling.
+///
+/// Pure topology: reads group box ids and pin COUNTS, never a rect (A2).
+pub(crate) fn coupled_net_pairs(
+    graph: &McVecGraph,
+    topos: &[NetTopology],
+    layer_anchor: i64,
+) -> Vec<(usize, usize)> {
+    let eligible: Vec<bool> = topos
+        .iter()
+        .map(|t| {
+            t.net_kind != NetKind::Ground
+                && !t.terminal_only
+                && t.groups.iter().any(|g| g.box_id == layer_anchor)
+        })
+        .collect();
+    let members: Vec<BTreeSet<i64>> = topos
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            if eligible[i] {
+                two_pin_member_boxes(graph, t, layer_anchor)
+            } else {
+                BTreeSet::new()
+            }
+        })
+        .collect();
+    let mut out = Vec::new();
+    for i in 0..topos.len() {
+        if !eligible[i] {
+            continue;
+        }
+        for j in (i + 1)..topos.len() {
+            if !eligible[j] {
+                continue;
+            }
+            if members[i].intersection(&members[j]).next().is_some() {
+                out.push((i, j));
+            }
+        }
+    }
+    out
 }
 
 /// For a net that does not touch the layer anchor: inherit the region of a net
@@ -950,6 +1213,7 @@ pub fn assign_pin_order(graph: &McVecGraph, topos: &[NetTopology], layer_anchor:
     // with VIN+CE on one net) gets its rows far apart and the tooth of the
     // non-trunk pin runs along the box edge for the whole span.
     let mut side_nets: [Vec<Vec<i64>>; 4] = Default::default();
+    let mut side_net_ids: [Vec<usize>; 4] = Default::default();
     let mut net_pos: [BTreeMap<usize, usize>; 4] = Default::default();
     for p in &anchor_box.pins {
         let Some(side) = pin_side.get(&p.id).copied() else {
@@ -960,10 +1224,58 @@ pub fn assign_pin_order(graph: &McVecGraph, topos: &[NetTopology], layer_anchor:
         let net = pin_net[&p.id];
         let pos = *net_pos[slot].entry(net).or_insert_with(|| {
             side_nets[slot].push(Vec::new());
+            side_net_ids[slot].push(net);
             side_nets[slot].len() - 1
         });
         side_nets[slot][pos].push(p.id);
     }
+
+    // ★ M7.1: two nets COUPLED through a shared two-pin part take CONSECUTIVE
+    // in-side slots. `assign_rows` hands out bands in in-side index order, so
+    // the coupling component is a short vertical Bridge only when the two nets
+    // land on adjacent bands; scattered slots turn the same part into a long
+    // wire running past every row in between. Same reasoning as the M3.5 (R3)
+    // rule above, one level up: R3 keeps ONE net's pins together, this keeps
+    // two LOOPED nets together.
+    //
+    // Walk the physical order and, whenever a net is emitted, pull its
+    // still-unemitted coupled partners in right behind it — deterministic,
+    // because both loops walk the existing order.
+    let couples = coupled_net_pairs(graph, topos, layer_anchor);
+    if !couples.is_empty() {
+        for slot in 0..4 {
+            let n = side_net_ids[slot].len();
+            if n < 3 {
+                continue; // 0/1/2 groups are adjacent whatever the order
+            }
+            let mut emitted = vec![false; n];
+            let mut order: Vec<usize> = Vec::with_capacity(n);
+            for k in 0..n {
+                if emitted[k] {
+                    continue;
+                }
+                emitted[k] = true;
+                order.push(k);
+                for m in (k + 1)..n {
+                    if emitted[m] {
+                        continue;
+                    }
+                    let (a, b) = (side_net_ids[slot][k], side_net_ids[slot][m]);
+                    if couples
+                        .iter()
+                        .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))
+                    {
+                        emitted[m] = true;
+                        order.push(m);
+                    }
+                }
+            }
+            let reordered: Vec<Vec<i64>> =
+                order.iter().map(|&k| side_nets[slot][k].clone()).collect();
+            side_nets[slot] = reordered;
+        }
+    }
+
     let mut counter = [0usize; 4];
     for slot in 0..4 {
         for net in &side_nets[slot] {
@@ -1197,50 +1509,50 @@ pub(crate) fn assign_rows(
         }
     }
 
-    let mut pin_rows: BTreeMap<i64, f64> = BTreeMap::new();
-    let mut side_rows: Vec<f64> = Vec::new();
-    for (&pid, &b) in &pin_band {
-        pin_rows.insert(pid, band_y[b]);
-        side_rows.push(band_y[b]);
-    }
-    for (i, b) in net_band.iter().enumerate() {
-        if let Some(b) = b {
-            rows[i] = Some(band_y[*b]);
-            if !is_free[i] {
-                sources[i] = Some(RowSource::SidePin);
+    // ── M3.5 (R4) + ★ M7.4: settle the band ys BEFORE deriving anything ──────
+    //
+    // A free net's band must not land on a rail row (`RAIL_GAP` 40→80 moved the
+    // South rail onto `moddcdc` 501's band, which A11 flags). The colliding
+    // band — and everything after it — shifts down until it clears the rail
+    // plus the band's own up-demand. The uniform shift preserves the pitch, so
+    // A12 still holds.
+    //
+    // ★ M7.4 — THE BUG THIS REWRITE FIXES. The shift used to run AFTER
+    // `pin_rows`, `side_rows`, `ic_top`/`ic_bottom` and the North/South rail
+    // rows had already been derived from `band_y`, and only `rows[i]` (→
+    // `lane.axis`) was re-derived afterwards. So the moment any shift happened,
+    // every layer-anchor SIDE PIN stayed `step` px away from its OWN net's
+    // trunk. `realize` then drew a long vertical tooth from the pin down to the
+    // row — "the wire out of the pin bends for no reason" — and that tooth runs
+    // straight through any member hanging on the way, which is the "half the
+    // part sits on top of a wire" symptom. The offset is uniform across every
+    // pin and every row, which is exactly what the picture shows.
+    //
+    // The cycle is (band ys → IC extent → rail rows → shift → band ys), so run
+    // it to a fixed point and derive pins, the IC extent and the rails from the
+    // settled `band_y` once, at the end. Bounded by the band count: every pass
+    // either converges or moves a band strictly down.
+    let mut ic_top = BASE_Y;
+    let mut ic_bottom = BASE_Y + 120.0;
+    for _ in 0..=band_nets.len() {
+        let side_rows: Vec<f64> = pin_band.values().map(|&b| band_y[b]).collect();
+        let (t, b) = side_row_extent(&side_rows).unwrap_or((BASE_Y, BASE_Y + 120.0));
+        ic_top = t;
+        ic_bottom = b;
+        let mut rail_rows: Vec<(f64, Region)> = Vec::new();
+        for region in [Region::North, Region::South] {
+            let Some(list) = per_side.get(&region) else {
+                continue;
+            };
+            let base = if region == Region::South {
+                ic_bottom + RAIL_GAP
+            } else {
+                ic_top - RAIL_GAP
+            };
+            for k in 0..list.len() {
+                rail_rows.push((base + k as f64 * PIN_PITCH, region));
             }
         }
-    }
-
-    let (ic_top, ic_bottom) = side_row_extent(&side_rows).unwrap_or((BASE_Y, BASE_Y + 120.0));
-
-    // North/South rails: independent rows hugging the box edge (M2.5 Step 5).
-    for region in [Region::North, Region::South] {
-        let Some(list) = per_side.get(&region) else {
-            continue;
-        };
-        let base = if region == Region::South {
-            ic_bottom + RAIL_GAP
-        } else {
-            ic_top - RAIL_GAP
-        };
-        for (k, &(_, ti, _)) in list.iter().enumerate() {
-            rows[ti] = Some(base + k as f64 * PIN_PITCH);
-            sources[ti] = Some(RowSource::EdgeRail);
-        }
-    }
-
-    // M3.5 (R4): a free net's band must not land on a rail row. `RAIL_GAP`
-    // 40→80 moved the South rail onto 501's band (both at the same y), which
-    // A11 (same row ⟹ W/E opposite) flags. Shift the colliding band — and
-    // everything after it — down until it clears the rail's row plus the band's
-    // own up-demand (so no member body hangs back over the rail). The uniform
-    // shift preserves the pitch between bands, so A12 still holds.
-    let rail_rows: Vec<(f64, Region)> = (0..n)
-        .filter(|&i| matches!(sources[i], Some(RowSource::EdgeRail)))
-        .filter_map(|i| rows[i].map(|y| (y, topos[i].lane.region)))
-        .collect();
-    loop {
         let mut moved = false;
         for i in 0..n {
             if !is_free[i] {
@@ -1264,14 +1576,35 @@ pub(crate) fn assign_rows(
             break;
         }
     }
-    // Re-derive the band rows after the shift (rails are not bands — they keep
-    // the IC-extent row the rail placement wrote).
+
+    // Everything below reads the SETTLED `band_y` — pins, trunks and the IC
+    // extent can no longer drift apart (A27 gates this).
+    let mut pin_rows: BTreeMap<i64, f64> = BTreeMap::new();
+    for (&pid, &b) in &pin_band {
+        pin_rows.insert(pid, band_y[b]);
+    }
     for (i, b) in net_band.iter().enumerate() {
         if let Some(b) = b {
-            if matches!(sources[i], Some(RowSource::EdgeRail)) {
-                continue;
-            }
             rows[i] = Some(band_y[*b]);
+            if !is_free[i] {
+                sources[i] = Some(RowSource::SidePin);
+            }
+        }
+    }
+
+    // North/South rails: independent rows hugging the box edge (M2.5 Step 5).
+    for region in [Region::North, Region::South] {
+        let Some(list) = per_side.get(&region) else {
+            continue;
+        };
+        let base = if region == Region::South {
+            ic_bottom + RAIL_GAP
+        } else {
+            ic_top - RAIL_GAP
+        };
+        for (k, &(_, ti, _)) in list.iter().enumerate() {
+            rows[ti] = Some(base + k as f64 * PIN_PITCH);
+            sources[ti] = Some(RowSource::EdgeRail);
         }
     }
 
@@ -1640,6 +1973,16 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology]) {
     use crate::viz::layout::equi_column::{allocate_columns_for_side, SideMember};
     let mut west: Vec<SideMember> = Vec::new();
     let mut east: Vec<SideMember> = Vec::new();
+    // ★ M7.1: a two-pin member belongs to BOTH of the nets it joins, so it is
+    // reachable twice here. Before the coupling pass the two owners always sat
+    // on opposite sides (a same-row pair is W/E-opposite by A11), so the two
+    // entries landed in different lists and never met. Coupled nets are now on
+    // the SAME side, where the two entries would take two different columns
+    // against a shared occupancy table and the second write would silently move
+    // the box off the first one's column — leaving a hole and a mis-aimed
+    // bridge. Allocate each member box exactly ONCE, first owner in topo order
+    // (the same order `place_members` uses, so the column matches the y).
+    let mut claimed: BTreeSet<i64> = BTreeSet::new();
     for (ti, topo) in topos.iter().enumerate() {
         let is_east = match topo.lane.region {
             Region::West => false,
@@ -1652,6 +1995,9 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology]) {
                 continue;
             };
             if b.w <= 0.0 || b.h <= 0.0 {
+                continue;
+            }
+            if !claimed.insert(group.box_id) {
                 continue;
             }
             let partner = partner_info(topos, ti, group);
@@ -1701,6 +2047,16 @@ pub enum TapRole {
     Bridge { partner: usize, dir: f64 },
     /// No partner / terminal-only partner / Ground partner — hangs off this
     /// row (pins Top/Bottom).
+    ///
+    /// ★ M7.3: `dir` is now three-valued.
+    ///   * `+1` — **pinned down**: the far pin belongs to a Ground net, and
+    ///     every ground row/band of the layer is BELOW. Flipping such a shunt
+    ///     up makes its ground pin the topmost point, so the ground tooth has
+    ///     to climb back over the body to reach the rail — the stray vertical
+    ///     above `modldo` `_C2` and `moddcdc` `_C2`.
+    ///   * `-1` — pinned up (partner row above this one).
+    ///   * ` 0` — **free**: no partner row constrains it, so
+    ///     `place_members_for_topo` may alternate it up/down for A26 balance.
     Drop { dir: f64 },
     /// Three+ pins — distributed along the trunk, pins face the trunk.
     Sink,
@@ -1786,12 +2142,18 @@ pub(crate) fn tap_role(
         0 | 1 => TapRole::InlineEnd,
         n if n >= 3 => TapRole::Sink,
         _ => match p {
-            None => TapRole::Drop { dir: 1.0 },
-            Some(p) if p.is_terminal_only || p.kind == NetKind::Ground => {
-                TapRole::Drop { dir: 1.0 }
-            }
+            // ★ M7.3: no partner at all → nothing constrains the hang
+            // direction, the balance counter owns it.
+            None => TapRole::Drop { dir: 0.0 },
+            // ★ M7.3: a GROUND partner is pinned DOWN — ground rails and the
+            // shared ground band are always below the side rows, so an upward
+            // shunt would route its ground pin back over its own body.
+            Some(p) if p.kind == NetKind::Ground => TapRole::Drop { dir: 1.0 },
+            // A terminal-only partner has no trunk of its own; its glyph hangs
+            // wherever this member ends up, so the direction stays free.
+            Some(p) if p.is_terminal_only => TapRole::Drop { dir: 0.0 },
             Some(p) => match p.row {
-                None => TapRole::Drop { dir: 1.0 },
+                None => TapRole::Drop { dir: 0.0 },
                 Some(r) if (r - my_row).abs() < 1.0 => TapRole::Series {
                     partner: p.topo_idx,
                 },
@@ -1860,6 +2222,10 @@ fn place_members_for_topo(
     drop_counter: &mut BTreeMap<i64, usize>,
 ) {
     let (_dx, dy) = topo.lane.region.outward();
+    // ★ M7.2: a W/E row has `outward().1 == 0`, so any placement written as
+    // `axis + dy * something` collapses onto the trunk itself. Name the case
+    // instead of comparing a float to zero.
+    let on_side = matches!(topo.lane.region, Region::West | Region::East);
     // M1/M2 row model: all trunks horizontal — the old `vertical_trunk` branch
     // is dead (B5), removed.
     debug_assert!(topo.lane.horizontal, "row model: all trunks are horizontal");
@@ -1954,6 +2320,14 @@ fn place_members_for_topo(
     // (created in `place_by_topology`), so shunts on the SAME row alternate
     // up/down even across DIFFERENT nets (A26). Rows are fixed before the
     // fixed point, so the order is deterministic.
+    //
+    // ★ M7.3: the counter only owns the direction of a **free** Drop
+    // (`dir == 0.0`). A Drop into a Ground net is pinned DOWN by `tap_role`,
+    // because every ground row and the shared ground band lie below the side
+    // rows; flipping it up for cosmetic balance put the member's ground pin at
+    // the TOP and forced the ground tooth to climb back over the body — the
+    // stray upward capacitor in `modldo` (`_C2`, VCC↔GND_OUT) and in `moddcdc`
+    // (`_C2`, _net1↔GND@lp322dcdc). Electrical direction beats balance.
     let row_key = (axis * 10.0).round() as i64;
 
     // Pass 2: place each member at its column centreline, keeping the M3 role
@@ -1996,12 +2370,15 @@ fn place_members_for_topo(
                 };
                 assign_shunt_slots(member_box, *entry_pin, entry_side);
             }
-            TapRole::Drop { .. } => {
+            TapRole::Drop { dir } => {
                 member_box.w = view.w;
                 member_box.h = view.h;
                 member_box.x = line_x - view.w / 2.0;
-                // M5.3: alternate the hang direction per row (see doc above).
-                let up = {
+                // ★ M7.3: a pinned direction (Ground partner, or a partner row
+                // on a known side) wins; only a free Drop alternates per row.
+                let up = if *dir != 0.0 {
+                    *dir < 0.0
+                } else {
                     let e = drop_counter.entry(row_key).or_default();
                     let up = *e % 2 == 1;
                     *e += 1;
@@ -2023,14 +2400,35 @@ fn place_members_for_topo(
             TapRole::InlineEnd => {
                 member_box.w = view.w;
                 member_box.h = view.h;
-                let side2 = if k % 2 == 0 { -1.0 } else { 1.0 };
-                member_box.x = line_x + side2 * (view.w / 2.0 + MEMBER_GAP);
-                member_box.y = axis + dy * (view.h / 2.0 + MEMBER_GAP);
-                member_box.geom_locked = true;
-                for ep in &mut member_box.entry_points {
-                    ep.side = inner_side;
+                // ★ M7.2: on a W/E row `dy == 0`, so the old
+                // `axis + dy * (h/2 + MEMBER_GAP)` put the box's TOP EDGE
+                // exactly on the trunk and left its mid-edge pin h/2 below it —
+                // `realize` then drew the tap segment straight down the box's
+                // own border ("the bus runs over the component", `usbsock`
+                // TP1). Worse, the trunk's outer end then coincided with that
+                // box, `segment_hits_box` counts grazing as a hit, every stub
+                // direction was rejected and the net's label fell back onto the
+                // IC. Hang the body off the row instead (pin on top, one LEAD
+                // of wire): nothing straddles a W/E trunk any more, so the
+                // outer end is clean and `realize`'s outward walk can find it.
+                if on_side {
+                    member_box.x = line_x - view.w / 2.0;
+                    member_box.y = axis + LEAD;
+                    member_box.geom_locked = true;
+                    for ep in &mut member_box.entry_points {
+                        ep.side = EntrySide::Top;
+                    }
+                    assign_pin_slots(member_box, EntrySide::Top);
+                } else {
+                    let side2 = if k % 2 == 0 { -1.0 } else { 1.0 };
+                    member_box.x = line_x + side2 * (view.w / 2.0 + MEMBER_GAP);
+                    member_box.y = axis + dy * (view.h / 2.0 + MEMBER_GAP);
+                    member_box.geom_locked = true;
+                    for ep in &mut member_box.entry_points {
+                        ep.side = inner_side;
+                    }
+                    assign_pin_slots(member_box, inner_side);
                 }
-                assign_pin_slots(member_box, inner_side);
             }
             TapRole::Sink => {
                 if member_box.w <= 0.0 {
@@ -2040,12 +2438,24 @@ fn place_members_for_topo(
                     member_box.h = 20.0;
                 }
                 member_box.x = line_x - member_box.w / 2.0;
-                member_box.y = axis + dy * MEMBER_GAP;
-                member_box.geom_locked = true;
-                for ep in &mut member_box.entry_points {
-                    ep.side = inner_side;
+                // ★ M7.2: same straddle rule as InlineEnd — a W/E Sink used to
+                // sit with its top edge on the trunk (`dy == 0`) and its pins on
+                // the Left/Right edge, so every tap ran along the box border.
+                if on_side {
+                    member_box.y = axis + LEAD;
+                    member_box.geom_locked = true;
+                    for ep in &mut member_box.entry_points {
+                        ep.side = EntrySide::Top;
+                    }
+                    assign_pin_slots(member_box, EntrySide::Top);
+                } else {
+                    member_box.y = axis + dy * MEMBER_GAP;
+                    member_box.geom_locked = true;
+                    for ep in &mut member_box.entry_points {
+                        ep.side = inner_side;
+                    }
+                    assign_pin_slots(member_box, inner_side);
                 }
-                assign_pin_slots(member_box, inner_side);
             }
         }
     }
@@ -2490,45 +2900,6 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
                     Terminal::NetLabel(n) => n.clone(),
                     Terminal::Port { name } => name.clone(),
                 };
-                // M2.5 Step 7: Ground glyphs drop straight down to the shared
-                // ground band (all grounds of the layer align). The stub is an
-                // L (horizontal lead + vertical drop at a box-free x) so it
-                // stays connected and clears member boxes.
-                if kind == TreeSymbolKind::Ground {
-                    let gx = vertical_ground_x(graph, px, py, topo.ground_band);
-                    symbols.push(TreeSymbol {
-                        kind: TreeSymbolKind::Ground,
-                        x: gx,
-                        y: topo.ground_band,
-                        label: String::new(),
-                        dir: (0.0, 1.0),
-                        text_side: 1.0, // Ground has no text; value irrelevant
-                        net_id: topo.nid,
-                    });
-                    if (gx - px).abs() > 0.5 {
-                        add_segment(
-                            &Segment {
-                                x1: px,
-                                y1: py,
-                                x2: gx,
-                                y2: py,
-                            },
-                            &mut segments,
-                            &mut degree_map,
-                        );
-                    }
-                    add_segment(
-                        &Segment {
-                            x1: gx,
-                            y1: py,
-                            x2: gx,
-                            y2: topo.ground_band,
-                        },
-                        &mut segments,
-                        &mut degree_map,
-                    );
-                    continue;
-                }
                 let (dir, sx, sy) = match pick_stub_dir(graph, &segments, (px, py)) {
                     Some(d) => (d, px + d.0 * SYMBOL_DROP, py + d.1 * SYMBOL_DROP),
                     None => ((0.0, 1.0), px, py + SYMBOL_DROP),
@@ -2680,44 +3051,49 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
         ) {
             continue;
         }
-        // M2.5 Step 7: Ground glyphs drop straight down to the shared ground
-        // band (all grounds of the layer align). The stub is an L: a short
-        // horizontal lead along the trunk, then a vertical drop at a box-free x
-        // (keeps `no_dangling_segments` + `terminal_wires_clear_of_boxes`).
-        if sym.kind == TreeSymbolKind::Ground {
-            sym.dir = (0.0, 1.0);
-            let gx = vertical_ground_x(graph, node_x, axis, topo.ground_band);
-            sym.x = gx;
-            sym.y = topo.ground_band;
-            if (gx - node_x).abs() > 0.5 {
-                add_segment(
-                    &Segment {
-                        x1: node_x,
-                        y1: axis,
-                        x2: gx,
-                        y2: axis,
-                    },
-                    &mut segments,
-                    &mut degree_map,
-                );
+        // ★ M7.2: a label hangs off the trunk's OUTER end. Ending the trunk
+        // exactly on the outermost member's tap leaves NO free direction there
+        // — `segment_hits_box` counts grazing along a box edge as a hit, so
+        // every stub off that point is rejected and the old code fell straight
+        // through to `symbol_alt_node`: the INNER end, hard against the layer
+        // anchor, where the label renders on top of the IC (`usbsock`
+        // `USB_VBUS`). Walk OUTWARD in `SYMBOL_LANE` steps first, extending the
+        // trunk with a short lead, and only consider the inner end after that.
+        //
+        // This is the "the chain is not expanded far enough" fix. It lives here
+        // rather than in `envelop_lanes` on purpose: a step is taken only when
+        // it actually buys a free direction, so the trunk never grows an end
+        // with nothing attached to it (A3). Only W/E trunks step — N/S rails
+        // have `outward().0 == 0` and would spin on the same point.
+        let outward = topo.lane.region.outward().0;
+        let mut walked: Option<((f64, f64), (f64, f64))> = None;
+        let steps = match topo.lane.region {
+            Region::West | Region::East => 3,
+            _ => 1,
+        };
+        for step in 0..steps {
+            let ax = node_x + outward * step as f64 * SYMBOL_LANE;
+            // The lead itself must be clear of every component box.
+            if step > 0
+                && graph.boxes.iter().any(|b| {
+                    !matches!(
+                        b.kind,
+                        BoxKind::PowerLabel | BoxKind::Dot | BoxKind::PortTerminal
+                    ) && segment_hits_box(node_x, node_y, ax, node_y, b.x, b.y, b.w, b.h)
+                })
+            {
+                break;
             }
-            add_segment(
-                &Segment {
-                    x1: gx,
-                    y1: axis,
-                    x2: gx,
-                    y2: topo.ground_band,
-                },
-                &mut segments,
-                &mut degree_map,
-            );
-            continue;
+            if let Some(dir) = pick_stub_dir(graph, &segments, (ax, node_y)) {
+                walked = Some(((ax, node_y), dir));
+                break;
+            }
         }
         // Try the outer end first; if every direction there is crowded (a member
         // box hugs the trunk end), fall back to the inner end so the symbol
         // still finds a clean spot instead of drawing through the crowd.
-        let (attach, dir) = match pick_stub_dir(graph, &segments, (node_x, node_y)) {
-            Some(dir) => ((node_x, node_y), Some(dir)),
+        let (attach, dir) = match walked {
+            Some((a, d)) => (a, Some(d)),
             None => {
                 let (alt_x, alt_y) = symbol_alt_node(topo.lane.region, axis, lane.span);
                 match pick_stub_dir(graph, &segments, (alt_x, alt_y)) {
@@ -2730,11 +3106,38 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
                 }
             }
         };
+        // The lead that carries the trunk out to a walked attach point.
+        if (attach.0 - node_x).abs() > 0.5 && (attach.1 - node_y).abs() < 0.5 && walked.is_some() {
+            add_segment(
+                &Segment {
+                    x1: node_x,
+                    y1: node_y,
+                    x2: attach.0,
+                    y2: node_y,
+                },
+                &mut segments,
+                &mut degree_map,
+            );
+        }
         // ★ M3.5 (R1, fixed): the text points away from the trunk body, using
         // the end the symbol ACTUALLY attached to (outer or alt), not the
         // region — `symbol_alt_node` fallback and N/S spans disagree with the
         // region-based guess.
-        sym.text_side = text_side_away_from(attach.0, lane.span);
+        //
+        // ★ M7.2: "away from the trunk body" is not enough on the alt-node
+        // path. The alt node is the INNER end, i.e. right against the layer
+        // anchor, and it is by construction on the anchor side of the span
+        // midpoint — so `text_side_away_from(attach, span)` aimed the text
+        // straight INTO the IC (`usbsock` `USB_VBUS`). Whenever the symbol sits
+        // beside the anchor box, the anchor decides: a symbol left of the IC
+        // always writes left, one right of it always writes right. The span
+        // rule still governs terminal-only nets and N/S trunks that straddle
+        // the anchor.
+        sym.text_side = match anchor_box {
+            Some(ab) if attach.0 <= ab.x => -1.0,
+            Some(ab) if attach.0 >= ab.x + ab.w => 1.0,
+            _ => text_side_away_from(attach.0, lane.span),
+        };
         if let Some(dir) = dir {
             sym.dir = dir;
             sym.x = attach.0 + dir.0 * SYMBOL_DROP;
@@ -2809,31 +3212,6 @@ fn pick_stub_dir(graph: &McVecGraph, segments: &[Segment], node: (f64, f64)) -> 
         return Some((dx, dy));
     }
     None
-}
-
-/// M2.5 Step 7: find an x where the vertical ground stub `(x, from_y) →
-/// (x, to_y)` clears every component box, starting from the preferred x and
-/// stepping outward. The glyph still lands on the shared ground band; only the
-/// stub's x is nudged so it does not draw through a member (`terminal_wires_clear_of_boxes`).
-fn vertical_ground_x(graph: &McVecGraph, node_x: f64, from_y: f64, to_y: f64) -> f64 {
-    for k in 0..=24 {
-        for dx in [k as f64 * PIN_PITCH, -(k as f64 * PIN_PITCH)] {
-            let x = node_x + dx;
-            let hits = graph.boxes.iter().any(|b| {
-                if matches!(
-                    b.kind,
-                    BoxKind::PowerLabel | BoxKind::Dot | BoxKind::PortTerminal
-                ) {
-                    return false;
-                }
-                segment_hits_box(x, from_y, x, to_y, b.x, b.y, b.w, b.h)
-            });
-            if !hits {
-                return x;
-            }
-        }
-    }
-    node_x
 }
 
 /// Does the axis-aligned segment (ax,ay)-(bx,by) pass through the interior of
@@ -3013,9 +3391,13 @@ fn build_symbols(topo: &NetTopology, lane: Lane, graph: &McVecGraph) -> Vec<Tree
     for term in &topo.terminals {
         match term {
             Terminal::Ground => {
-                // M2.5 Step 7: Ground symbols hang at the shared ground band,
-                // below the trunk's outer end. realize wires the vertical stub.
-                let (x, y) = (nx, topo.ground_band);
+                // ★ M7.5: seed like every other terminal — one SYMBOL_DROP off
+                // the trunk's outer end. Up to M6 the glyph was pinned to the
+                // shared `ground_band` (max South row + SYMBOL_DROP), which on a
+                // layer with a deep free ground band produced a metres-long
+                // vertical that ran off the canvas. `realize` re-picks a free
+                // direction and wires the short stub.
+                let (x, y) = (nx, ny + SYMBOL_DROP);
                 symbols.push(TreeSymbol {
                     kind: TreeSymbolKind::Ground,
                     x,
@@ -3226,7 +3608,19 @@ pub fn fit_content_to_canvas(graph: &mut McVecGraph) -> (f64, f64) {
         return (200.0, 100.0); // no content
     };
     let shift_x = margin - min_x;
-    let shift_y = margin - min_y;
+    // ★ M7.4: never shift Y. `assign_rows` writes absolute `BASE_Y`-derived
+    // rows and the render replay (`build_all_trees`) replays them on the
+    // (X-shifted) graph, so any vertical box shift moves every layer-anchor pin
+    // off its OWN trunk by exactly `shift_y` — the uniform offset that put
+    // `moddcdc`'s EN/LX pins 50px above their rows, with the tooth running
+    // through the members. Content is always placed at positive y (rows start
+    // at `BASE_Y`), so it already fits the `0 0` viewBox vertically; only the
+    // horizontal fit (West members at negative x) is required.
+    let shift_y: f64 = 0.0;
+    crate::vlog!(
+        "[fit] layer '{}' bbox x[{min_x:.0},{max_x:.0}] y[{min_y:.0},{max_y:.0}] shift=({shift_x:.0},{shift_y:.0})",
+        graph.name
+    );
     if shift_x.abs() > 0.01 || shift_y.abs() > 0.01 {
         for b in &mut graph.boxes {
             b.x += shift_x;
@@ -3239,7 +3633,15 @@ pub fn fit_content_to_canvas(graph: &mut McVecGraph) -> (f64, f64) {
     }
 
     let w = (max_x - min_x) + 2.0 * margin;
-    let h = (max_y - min_y) + 2.0 * margin;
+    // ★ M7.6: the viewBox starts at `0 0` and fit no longer Y-shifts (see the
+    // `shift_y = 0` note above), so content occupies `[min_y, max_y]` with
+    // `min_y` left where the layout put it. `max_y - min_y + 2*margin` only
+    // covered the content when `min_y == margin`; with a positive `min_y`
+    // (moddcdc starts at y=80) the canvas came up short and the bottom row —
+    // a ground glyph — was clipped by `min_y - margin`. The canvas must reach
+    // the content bottom plus one margin: `max_y + margin` (the top padding is
+    // `min_y` itself, which is always positive).
+    let h = max_y + margin;
     // Modest floor so tiny layers still get a usable "paper".
     (w.max(300.0), h.max(200.0))
 }

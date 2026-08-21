@@ -77,7 +77,7 @@ use super::equipotential_tree::{
     member_pin_point, net_corridor_demand, partner_info, point_on_segment, realize, resolve_lanes,
     segment_hits_box, slot_of, slot_point, tap_role, EquiTree, Lane, NetTopology, PinGroup, Region,
     RowSource, TapRole, Terminal, TreeSymbol, TreeSymbolKind, LABEL_CHAR_W, LABEL_PAD, ROW_CLEAR,
-    TOOTH_GAP,
+    SYMBOL_DROP, TOOTH_GAP,
 };
 
 // ============================================================================
@@ -680,6 +680,7 @@ pub fn audit_equi_tree(graph: &McVecGraph, layout_topos: &[NetTopology]) -> Equi
         check_a24_no_wire_crossings(graph, layout_topos),
         check_a25_label_clear_of_members(graph, layout_topos, &trees),
         check_a26_shunt_balance(graph, layout_topos),
+        check_a27_pin_on_its_row(graph, layout_topos),
     ];
 
     EquiAudit { checks }
@@ -1369,20 +1370,35 @@ fn check_a14_label_fit(graph: &McVecGraph) -> Check {
 /// band (M2.5 Step 7). Before the fix, terminal-only grounds each picked a free
 /// stub direction locally, so two grounds on one layer sat half a page apart.
 fn check_a15_ground_band(trees: &[EquiTree]) -> Check {
-    let mut c = Check::new("A15", "ground glyphs share one band", Milestone::M2);
-    let glyphs: Vec<(f64, f64)> = trees
-        .iter()
-        .flat_map(|t| t.symbols.iter())
-        .filter(|s| s.kind == TreeSymbolKind::Ground)
-        .map(|s| (s.x, s.y))
-        .collect();
-    if glyphs.len() >= 2 {
-        let lo = glyphs.iter().map(|(_, y)| *y).fold(f64::MAX, f64::min);
-        let hi = glyphs.iter().map(|(_, y)| *y).fold(f64::MIN, f64::max);
-        if hi - lo > 1.0 {
-            for (x, y) in &glyphs {
+    let mut c = Check::new("A15", "ground stub is short", Milestone::M2);
+    // ★ M7.5: the rule flipped. Up to M6 every ground glyph was pinned to one
+    // shared band (`max(South row) + SYMBOL_DROP`) and this check enforced that
+    // alignment — but on a layer whose free ground net sits far below the IC the
+    // shared band is far below everything, so the connecting vertical grew until
+    // it ran off the canvas. Short wire beats aligned glyph: a ground now hangs
+    // one SYMBOL_DROP off its own trunk in the first free direction, and this
+    // check enforces THAT instead.
+    for tree in trees {
+        for sym in tree.symbols.iter() {
+            if sym.kind != TreeSymbolKind::Ground {
+                continue;
+            }
+            // The stub is the segment that ends on the glyph. No such segment
+            // means the glyph sits directly on its attach node (the degenerate
+            // `pick_stub_dir` == None path) — length 0, trivially fine.
+            let stub = tree
+                .segments
+                .iter()
+                .filter(|g| {
+                    (g.x1 - sym.x).abs() < 1.0 && (g.y1 - sym.y).abs() < 1.0
+                        || (g.x2 - sym.x).abs() < 1.0 && (g.y2 - sym.y).abs() < 1.0
+                })
+                .map(|g| (g.x2 - g.x1).abs() + (g.y2 - g.y1).abs())
+                .fold(f64::MAX, f64::min);
+            if stub < f64::MAX && stub > SYMBOL_DROP + 1.0 {
                 c.fail(format!(
-                    "ground glyph at ({x:.0},{y:.0}) — band range {lo:.0}..{hi:.0}"
+                    "ground glyph of '{}' at ({:.0},{:.0}) hangs on a {stub:.0}px wire (max {:.0})",
+                    tree.net_name, sym.x, sym.y, SYMBOL_DROP
                 ));
             }
         }
@@ -1852,6 +1868,14 @@ fn check_a25_label_clear_of_members(
 /// M5.0 (A26): on any single trunk row with >= 2 shunt (Drop) members, the
 /// number hanging UP vs DOWN must differ by at most 1. Guards against a row's
 /// decoupling caps piling all on one side of the trunk.
+///
+/// ★ M7.3: only **free** Drops (`dir == 0.0`) are counted. A Drop into a Ground
+/// net is pinned DOWN by `tap_role` — the ground rails and the shared ground
+/// band are always below the side rows, so hanging it up for cosmetic balance
+/// forces the ground tooth back over the member's own body. Counting pinned
+/// Drops here would demand exactly that (it is what flipped `modldo` `_C2` and
+/// `moddcdc` `_C2` upward), so the check now measures only the freedom the
+/// placer actually has.
 fn check_a26_shunt_balance(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
     let mut c = Check::new("A26", "shunt up/down balance on a row", Milestone::M5);
     // row-key(axis*10) -> (up_count, down_count)
@@ -1866,8 +1890,11 @@ fn check_a26_shunt_balance(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
                 continue;
             };
             let role = tap_role(b, topo.lane.axis, partner_info(topos, idx, group));
-            if !matches!(role, TapRole::Drop { .. }) {
+            let TapRole::Drop { dir } = role else {
                 continue;
+            };
+            if dir != 0.0 {
+                continue; // pinned by electrics, not free to balance
             }
             let cy = b.y + b.h / 2.0;
             let entry = per_row.entry(row_key).or_default();
@@ -1884,6 +1911,61 @@ fn check_a26_shunt_balance(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
             c.fail(format!(
                 "row y={:.0} has {up} up / {down} down shunts (imbalanced)",
                 row_key as f64 / 10.0
+            ));
+        }
+    }
+    c
+}
+
+// ── M7.4: A27 ──────────────────────────────────────────────
+
+/// ★ M7.4 (A27): a West/East net's trunk row sits ON one of its layer-anchor
+/// pins.
+///
+/// This is the check whose absence let the row desync ship. A2 compares the
+/// layout lane against the render replay — both were wrong in the SAME way, so
+/// A2 stayed green while every pin sat a constant offset above its own trunk and
+/// `realize` drew a long tooth from the pin down to the row, through whatever
+/// member hung in between. Nothing in A1..A26 relates a placed pin's y back to
+/// `lane.axis`; A27 does exactly that and nothing else.
+///
+/// A net with several pins on one side legitimately reaches the extra ones
+/// through a tooth (`ldo` POWER_SYS = VIN + CE), so the requirement is that at
+/// least ONE of its anchor pins lands on the row — not all of them.
+fn check_a27_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A27", "IC side pin sits on its net's row", Milestone::M6);
+    let layer_anchor = layer_anchor_id(topos);
+    let Some(ab) = graph.boxes.iter().find(|b| b.id == layer_anchor) else {
+        return c;
+    };
+    for topo in topos {
+        if topo.terminal_only {
+            continue;
+        }
+        if !matches!(topo.lane.region, Region::West | Region::East) {
+            continue;
+        }
+        let Some(g) = topo.groups.first() else {
+            continue;
+        };
+        if g.box_id != layer_anchor {
+            continue;
+        }
+        let mut best = f64::MAX;
+        for &pid in &g.pin_ids {
+            let Some(slot) = slot_of(ab, pid) else {
+                continue;
+            };
+            if !matches!(slot.side, EntrySide::Left | EntrySide::Right) {
+                continue;
+            }
+            let (_px, py) = slot_point(ab, slot);
+            best = best.min((py - topo.lane.axis).abs());
+        }
+        if best < f64::MAX && best > 1.0 {
+            c.fail(format!(
+                "net '{}' (nid={}) row y={:.0} but its nearest anchor pin is {best:.0}px away",
+                topo.net_name, topo.nid, topo.lane.axis
             ));
         }
     }
@@ -2470,9 +2552,13 @@ mod tests {
         // the IC grew from 200 to 240 — the price of the visible lead-wire
         // segments (the M3.2 `<= 200` win is partially traded back, accepted in
         // the R4 plan for the correct Bridge/Drop geometry).
+        //
+        // ★ M7.1: the netlist coupling moved FB from West to East, so the IC
+        // dropped from 3 West bands to 2 (West VIN/EN, East LX/FB) and the box
+        // shrank from 240 to 140. The bound is tightened to lock that in.
         assert!(
-            anchor.h <= 240.0,
-            "lp322dcdc height {:.0} exceeds the M3.5 bound (240, R4 LEAD)",
+            anchor.h <= 160.0,
+            "lp322dcdc height {:.0} exceeds the M7.1 bound (160, 2 bands)",
             anchor.h
         );
 
@@ -2522,6 +2608,14 @@ mod tests {
         // The two-pin passive is id 1, the IC id 2: `select_anchor_deterministic`
         // breaks pin-count ties by larger box id, so the IC anchors both nets and
         // CAP_1 stays a member (the thing we want to classify as Series).
+        //
+        // ★ M7.1: NET_A and NET_B share CAP_1, so the coupling pass would pull
+        // the weaker net (IN) across to the OUT side and CAP_1 would become a
+        // Bridge. NET_B carries two anchor pins, so the post-move imbalance
+        // stays above `SIDE_IMBALANCE_MAX`, the move is refused, and the two
+        // nets stay on opposite sides on the same band — the one path where a
+        // genuine Series (and its horizontal orientation) is still reachable.
+        // The long pin labels keep the IC wider than its 2-row height.
         g.boxes
             .push(two_pin(1, "CAP_1", "CAP", Symbol::Capacitor, 11, 12));
         g.boxes.push(mk_box(
@@ -2531,19 +2625,25 @@ mod tests {
             BoxKind::MultiPin,
             Symbol::Ic,
             &[
-                (21, "1", "IN", IoDirection::Input),
-                (22, "2", "OUT", IoDirection::Output),
+                (21, "1", "INPUT_A", IoDirection::Input),
+                (22, "2", "OUTPUT_B", IoDirection::Output),
+                (23, "3", "OUTPUT_C", IoDirection::Output),
             ],
         ));
         g.nets
             .push(net(301, "NET_A", NetKind::Signal, &[(2, 21), (1, 11)]));
-        g.nets
-            .push(net(302, "NET_B", NetKind::Signal, &[(2, 22), (1, 12)]));
+        g.nets.push(net(
+            302,
+            "NET_B",
+            NetKind::Signal,
+            &[(2, 22), (2, 23), (1, 12)],
+        ));
 
         let mut topos = build_topology(&g);
         place_by_topology(&mut g, &mut topos);
 
-        // Both IC nets share one band (W/E opposite) → the member is a Series.
+        // The coupled IN net stays West and the OUT net stays East on the same
+        // band → the member is a Series.
         let tap_role_of = |box_name: &str| -> String {
             let b = g.boxes.iter().find(|b| b.name == box_name).unwrap();
             let (idx, topo) = topos
