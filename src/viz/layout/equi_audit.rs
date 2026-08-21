@@ -110,6 +110,11 @@ pub enum Milestone {
     M5,
     /// Regression + fallbacks.
     M6,
+    /// ★ M11: the row END BUDGET (A31) and the label stub (A32). The fixtures
+    /// still call `assert_clean_through(M6)`, so these two are REPORTED and not
+    /// enforced; advancing a fixture to `M7` is the one-line change that turns
+    /// them on.
+    M7,
 }
 
 impl fmt::Display for Milestone {
@@ -683,6 +688,8 @@ pub fn audit_equi_tree(graph: &McVecGraph, layout_topos: &[NetTopology]) -> Equi
         check_a28_along_is_collinear(graph, layout_topos),
         check_a29_run_spans_disjoint(layout_topos),
         check_a30_satellite_pins_on_rows(graph, layout_topos),
+        check_a31_row_end_budget(graph, layout_topos, &trees),
+        check_a32_label_has_a_stub(layout_topos, &trees),
     ];
 
     EquiAudit { checks }
@@ -835,6 +842,20 @@ pub fn dangling_segments(topo: &NetTopology, tree: &EquiTree, graph: &McVecGraph
             for &pid in &grp.pin_ids {
                 if let Some(s) = slot_of(b, pid) {
                     pin_points.push(slot_point(b, s));
+                }
+            }
+            // ★ M10.3: a two-pin member is a WIRE-CONTINUATION (Along/Series).
+            // Its far pin is owned by the PARTNER net, yet this net's trunk
+            // legitimately reaches it when the wire runs on past the member
+            // (a Series cap whose row still carries further members beyond).
+            // A segment ending there is connected through the body, not dangling.
+            if b.pins.len() == 2 {
+                for p in &b.pins {
+                    if !grp.pin_ids.contains(&p.id) {
+                        if let Some(s) = slot_of(b, p.id) {
+                            pin_points.push(slot_point(b, s));
+                        }
+                    }
                 }
             }
         }
@@ -1535,6 +1556,13 @@ fn symbol_text_bbox(sym: &TreeSymbol) -> (f64, f64, f64, f64) {
     let font_size = 10.0;
     let w = sym.label.chars().count() as f64 * font_size * 0.6;
     let h = font_size;
+    // ★ M8.7: a vertical label is rotated -90 deg, so its span is a column — a
+    // vertical run of ~width reading UPWARD off `sym.y`, horizontal extent ~ one
+    // glyph height. Share this shape with the renderer / content bbox so A17
+    // neither false-positives nor misses a vertical glyph.
+    if sym.vertical {
+        return (sym.x - font_size / 2.0, sym.y - w, font_size, w);
+    }
     let (bx, by) = if sym.text_side < 0.0 {
         (sym.x - 4.0 - w, sym.y - h / 2.0)
     } else {
@@ -2013,6 +2041,17 @@ fn check_a28_along_is_collinear(graph: &McVecGraph, topos: &[NetTopology]) -> Ch
                 .enumerate()
                 .find(|(j, o)| *j != idx && o.groups.iter().any(|g| g.box_id == group.box_id));
             let Some((_, other)) = other else { continue };
+            // ★ M10.3: a TERMINAL-ONLY partner owns no row of its own — its
+            // glyph hangs off this part's far pin, so there is no second row to
+            // be collinear with, and its `lane.axis` is the untouched default
+            // (`resolve_lane_for_topo` returns early for terminal-only nets).
+            // Comparing it was harmless only while no fixture had a Series into
+            // one; M8.6 (`speaker` VDD_3V3) and M10.3 (every ground adopted as a
+            // run's outer end) both do. Widening an assertion is worth a second
+            // look — this is the one relaxation in the round.
+            if other.terminal_only {
+                continue;
+            }
             if (other.lane.axis - topo.lane.axis).abs() > 1.0 {
                 c.fail(format!(
                     "'{}' lies along the wire between '{}' (row {:.0}) and '{}' (row {:.0}) — not collinear",
@@ -2097,15 +2136,148 @@ fn check_a30_satellite_pins_on_rows(graph: &McVecGraph, topos: &[NetTopology]) -
     c
 }
 
+// ── M11: A31 / A32 ──────────────────────────────────────────────────────────
+
+/// ★ M11 (A31): a row has at most TWO horizontal ends.
+///
+/// > an equipotential point has exactly TWO horizontal things on it: a start
+/// > (pin / label / component) and an end (pin / label / component).
+///
+/// The subtlety is WHAT gets counted. Not parts — **directions**. A parallel
+/// bundle (several parts joining the SAME pair of nets) leaves the row once, in
+/// one direction, stacked in y over one column interval, so it is ONE end:
+///
+/// ```text
+///   lpa.1 ─[R1]─ ┬─[R2]─┬─ VCC       R1, R2, R3 are all horizontal,
+///                └─[R3]─┘            but the middle net has 2 ends:
+///                                    inner = R1, outer = the {R2,R3} bundle
+/// ```
+///
+/// So the count is: the net's own anchor pin (the inner end, at most one), plus
+/// one per DISTINCT partner net reached through an `Along` part, plus a
+/// satellite component sitting on this row (M9 — "ends at a component"), plus
+/// every terminal glyph drawn horizontally (`|dir.0| > 0`).
+///
+/// Three or more means two things want the same end of the same wire. That is
+/// the fan-out `equi_chain`'s end budget prevents, and the shape a netlist LOOP
+/// still produces: `pin ─[R1]─ X ─[R2]─ Y` plus a part straight from `pin` to
+/// `Y` is one run whose chord has nowhere vertical to go, both of its nets being
+/// on this row. That case is a known gap — this report is how it stays visible
+/// instead of quietly drawing a wire over a part.
+fn check_a31_row_end_budget(
+    graph: &McVecGraph,
+    topos: &[NetTopology],
+    trees: &[EquiTree],
+) -> Check {
+    let mut c = Check::new(
+        "A31",
+        "a row has at most two horizontal ends",
+        Milestone::M7,
+    );
+    let layer_anchor = layer_anchor_id(topos);
+    for (idx, topo) in topos.iter().enumerate() {
+        if topo.terminal_only || !matches!(topo.lane.region, Region::West | Region::East) {
+            continue;
+        }
+        let mut ends: Vec<String> = Vec::new();
+        if topo.groups.iter().any(|g| g.box_id == layer_anchor) {
+            ends.push("its anchor pin".to_string());
+        }
+        let mut partners: BTreeSet<i64> = BTreeSet::new();
+        for group in topo.groups.iter().skip(1) {
+            let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
+                continue;
+            };
+            if b.pins.len() >= 3 {
+                // A satellite is a non-anchor multi-pin box with Left/Right
+                // slots; the M7.6 `Sink` shape puts its pins on Top/Bottom, so
+                // the two never collide (same test as A30).
+                if b.id != layer_anchor
+                    && b.slots
+                        .iter()
+                        .any(|s| matches!(s.side, EntrySide::Left | EntrySide::Right))
+                {
+                    ends.push(format!("component '{}'", b.name));
+                }
+                continue;
+            }
+            let p = partner_info(topos, idx, group);
+            if !matches!(tap_role(b, topo, p.clone()), TapRole::Series { .. }) {
+                continue;
+            }
+            let Some(p) = p else { continue };
+            // One entry per PARTNER NET: a parallel bundle is one end.
+            if partners.insert(topos[p.topo_idx].nid) {
+                ends.push(format!("part '{}'", b.name));
+            }
+        }
+        for sym in trees.get(idx).map(|t| t.symbols.as_slice()).unwrap_or(&[]) {
+            if sym.dir.0.abs() > 0.5 {
+                ends.push(match sym.kind {
+                    TreeSymbolKind::Ground => "a ground glyph".to_string(),
+                    _ => format!("label '{}'", sym.label),
+                });
+            }
+        }
+        if ends.len() > 2 {
+            c.fail(format!(
+                "'{}' has {} horizontal ends on one row: {}",
+                topo.net_name,
+                ends.len(),
+                ends.join(", ")
+            ));
+        }
+    }
+    c
+}
+
+/// ★ M11 (A32): a name is pulled OFF its wire on a stub.
+///
+/// A `NetLabel` / `BusLabel` / `PortLabel` glyph sitting ON its own trunk is the
+/// `speaker` `US_SPEAKER_MUTE` defect: M8.7 parked it 4px off the row, so the
+/// bus circle landed on the junction dot and the name read as text painted onto
+/// the wire. Either the glyph is a full `SYMBOL_DROP` off the row, or it is out
+/// past the end of the span — a name written along the wire beyond its last
+/// member is the normal horizontal case and is fine.
+fn check_a32_label_has_a_stub(topos: &[NetTopology], trees: &[EquiTree]) -> Check {
+    let mut c = Check::new("A32", "a label is pulled off its wire", Milestone::M7);
+    for (idx, topo) in topos.iter().enumerate() {
+        if topo.terminal_only || !topo.lane.horizontal {
+            continue;
+        }
+        let (lo, hi) = (
+            topo.lane.span.0.min(topo.lane.span.1),
+            topo.lane.span.0.max(topo.lane.span.1),
+        );
+        for sym in trees.get(idx).map(|t| t.symbols.as_slice()).unwrap_or(&[]) {
+            if !matches!(
+                sym.kind,
+                TreeSymbolKind::NetLabel | TreeSymbolKind::BusLabel | TreeSymbolKind::PortLabel
+            ) {
+                continue;
+            }
+            let off_the_row = (sym.y - topo.lane.axis).abs() >= SYMBOL_DROP - 1.0;
+            let past_the_end = sym.x < lo - 0.5 || sym.x > hi + 0.5;
+            if !off_the_row && !past_the_end {
+                c.fail(format!(
+                    "label '{}' of '{}' sits on its own trunk at ({:.0},{:.0}), row {:.0}",
+                    sym.label, topo.net_name, sym.x, sym.y, topo.lane.axis
+                ));
+            }
+        }
+    }
+    c
+}
+
 // ============================================================================
 // Fixtures
 // ============================================================================
 
 /// `moddcdc` — the LP3220 buck reference used as the M0..M6 golden.
 ///
-/// Netlist as reported by the module dump (10 nets, 20 connections). Note the
-/// **five separate `GND` nets**: `rails.rs` explodes ground into per-consumer
-/// flags on purpose, and the target schematic draws five independent ground
+/// Netlist as reported by the module dump (11 nets, 20 connections). Note the
+/// **six separate `GND` nets**: `rails.rs` explodes ground into per-consumer
+/// flags on purpose, and the target schematic draws six independent ground
 /// symbols. Nothing downstream may coalesce them.
 ///
 /// ID plan (stable — golden diffs depend on it):
@@ -2117,6 +2289,9 @@ fn check_a30_satellite_pins_on_rows(graph: &McVecGraph, topos: &[NetTopology]) -
 ///   41..45   GND labels     pins 411..451
 ///   46       VCC_1V2 label  pin 461
 ///   47       VDD_3V3 label  pin 471
+///   48       GND label      pin 481 (CAP_2's own ground — M10.3)
+///   501      GND @ CAP_1    511 GND @ CAP_2
+///   502..504 GND @ CAP_3/4/RES_3   505 GND @ lp322dcdc.2
 /// ```
 #[cfg(test)]
 pub(crate) mod fixture {
@@ -2248,14 +2423,15 @@ pub(crate) mod fixture {
         }
         g.boxes.push(label(46, "VCC_1V2", 461, false));
         g.boxes.push(label(47, "VDD_3V3", 471, false));
+        // ★ M10.3: per-consumer grounds, like real `moddcdc` (rails.rs explodes
+        // ground into per-consumer flags). M9 merged C1 and C2 onto one net
+        // (501), which makes the EN run adopt C1's ground too and drag the C1
+        // shunt onto EN's row — the "shared GND" trap the M11 plan flags.
+        g.boxes.push(label(48, "GND", 481, true));
 
-        // GND ~ CAP_1.2 ~ CAP_2.2
-        g.nets.push(net(
-            501,
-            "GND",
-            NetKind::Ground,
-            &[(41, 411), (11, 112), (12, 122)],
-        ));
+        // GND ~ CAP_1.2 (stays South: VDD_3V3 is a named run, so C1 keeps dropping)
+        g.nets
+            .push(net(501, "GND", NetKind::Ground, &[(41, 411), (11, 112)]));
         // GND ~ CAP_3.2
         g.nets
             .push(net(502, "GND", NetKind::Ground, &[(42, 421), (13, 132)]));
@@ -2303,6 +2479,9 @@ pub(crate) mod fixture {
             NetKind::Signal,
             &[(22, 222), (1, 105), (23, 231), (15, 151)],
         ));
+        // GND ~ CAP_2.2 (adopted as the EN run's outer end, M10.3)
+        g.nets
+            .push(net(511, "GND", NetKind::Ground, &[(48, 481), (12, 122)]));
 
         g
     }
@@ -2629,25 +2808,25 @@ mod tests {
     fn moddcdc_topology_shape() {
         let (g, topos) = placed();
 
-        // 10 nets in, 10 topologies out — nothing may be dropped or split.
+        // 11 nets in, 11 topologies out — nothing may be dropped or split.
         assert_eq!(
             topos.len(),
-            10,
-            "expected 10 topologies, got {}\n{}",
+            11,
+            "expected 11 topologies, got {}\n{}",
             topos.len(),
             dump_layout_model(&g, &topos)
         );
 
-        // The five GND nets stay five. If this ever reads 1, something
+        // The six GND nets stay six. If this ever reads 1, something
         // coalesced the per-consumer ground flags.
         let gnd = topos.iter().filter(|t| t.net_name == "GND").count();
-        assert_eq!(gnd, 5, "the five per-consumer GND nets must stay separate");
+        assert_eq!(gnd, 6, "the six per-consumer GND nets must stay separate");
 
-        // nids survive the topology build (added at M0 so the five GNDs are
+        // nids survive the topology build (added at M0 so the six GNDs are
         // distinguishable).
         let mut nids: Vec<i64> = topos.iter().map(|t| t.nid).collect();
         nids.sort();
-        assert_eq!(nids, (501..=510).collect::<Vec<_>>());
+        assert_eq!(nids, (501..=511).collect::<Vec<_>>());
     }
 
     /// M2.5 Step 8: A1 must be falsifiable — it counts `RowSource::IslandFallback`,
@@ -2663,12 +2842,13 @@ mod tests {
             "A1 must be green when no island fallback"
         );
 
-        // Force 501 (a free net that normally inherits a partner row) to look
-        // like an island fallback — A1 must flag it as rows_fallback.
+        // Force 506 (the free net that normally inherits a partner row) to look
+        // like an island fallback — A1 must flag it as rows_fallback. (501 is
+        // terminal-only now and carries no row, so it cannot exercise the flag.)
         let mut g2 = g;
         let mut topos2 = build_topology(&g2);
         place_by_topology(&mut g2, &mut topos2);
-        let idx = topos2.iter().position(|t| t.nid == 501).unwrap();
+        let idx = topos2.iter().position(|t| t.nid == 506).unwrap();
         topos2[idx].row_source = RowSource::IslandFallback;
         let red = check_a1_rows(&topos2);
         assert!(
@@ -2697,17 +2877,18 @@ mod tests {
             "layer anchor must be the IC"
         );
 
-        // 3 single-group GND nets (502/503/504) are terminal-only: no trunk.
+        // 5 single-group GND nets (501/502/503/504/511) are terminal-only:
+        // no trunk. (505 is the IC ground pin net, a real net.)
         let terminal_only = view.nets.iter().filter(|n| n.terminal_only).count();
         assert_eq!(
-            terminal_only, 3,
-            "M2: 502/503/504 are terminal-only (no trunk), got {terminal_only}:\n{view}"
+            terminal_only, 5,
+            "M2: the per-consumer GND nets are terminal-only (no trunk), got {terminal_only}:\n{view}"
         );
 
-        // The 2 multi-group free nets (501/506) are NOT "passive-anchored adrift":
-        // every one must have inherited a row from a partner (`501←507`,
-        // `506←510`) instead of the accidental y of wherever its anchor landed
-        // or an island fallback below the IC.
+        // The 1 multi-group free net (506) is NOT "passive-anchored adrift":
+        // it must have inherited a row from a partner (`506←510`) instead of
+        // the accidental y of wherever its anchor landed or an island fallback
+        // below the IC.
         let free: Vec<&NetView> = view
             .nets
             .iter()
@@ -2715,8 +2896,8 @@ mod tests {
             .collect();
         assert_eq!(
             free.len(),
-            2,
-            "M2: free nets are 501/506, got {}:\n{view}",
+            1,
+            "M2: the free net is 506, got {}:\n{view}",
             free.len()
         );
         let free_net_passive_anchored = free
@@ -2728,18 +2909,18 @@ mod tests {
             "M2: every free net must inherit a partner row:\n{view}"
         );
 
-        // ★ Ungated ground rule: every Ground net hangs South. Before the Pass 0
-        // hoist, only the anchor-touching 505 was South and the other four
-        // inherited W/E from a partner net; now all five must be South. The
-        // region is a pure function of net kind, so this is a hard invariant.
+        // ★ Ungated ground rule: every Ground net starts South, and only the
+        // two ADOPTED ones (M10.3) leave it — 511 rides the EN run (West) and
+        // 504 rides the FB run (East). 501/502/503 stay South and 505 is the
+        // IC's own ground rail.
         let south = view
             .nets
             .iter()
             .filter(|n| n.region == Region::South)
             .count();
         assert_eq!(
-            south, 5,
-            "all five GND nets must hang South (ungated ground rule), got {south}:\n{view}"
+            south, 4,
+            "four GND nets must hang South (501/502/503/505), got {south}:\n{view}"
         );
     }
 
@@ -2802,7 +2983,15 @@ mod tests {
             b("RES_1").h > b("RES_1").w,
             "RES_1 must be vertical (Bridge)"
         );
-        for cap in ["CAP_1", "CAP_2", "CAP_3", "CAP_4"] {
+        // ★ M10.3: CAP_2 is now horizontal — the EN run adopts its ground, so
+        // the cap lies ALONG the row and terminates in a horizontal GND glyph.
+        assert!(
+            b("CAP_2").w > b("CAP_2").h,
+            "CAP_2 must be horizontal (EN run adopts its ground), got w={} h={}",
+            b("CAP_2").w,
+            b("CAP_2").h
+        );
+        for cap in ["CAP_1", "CAP_3", "CAP_4"] {
             let c = b(cap);
             assert!(c.h > c.w, "{cap} must be vertical, got w={} h={}", c.w, c.h);
         }

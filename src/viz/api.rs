@@ -208,28 +208,34 @@ fn render_layer_recursive(
     };
 
     // ── Phase 1–2: layout + route via the single-layouter pipeline ──
-    let canvas = if graph.boxes.is_empty() {
+    // `canvas` is the SVG viewBox SIZE `(w, h)` (consumed by label placement,
+    // metrics and `layer.canvas`); `viewbox_origin` is the viewBox top-left
+    // `(x, y)` — M10's content fit starts it at the true content top, which is
+    // negative when a vertical label reads upward off a high row.
+    let (canvas, viewbox_origin) = if graph.boxes.is_empty() {
         crate::vlog!(
             "[viz::api] layer {} '{}' is empty, skipping layout",
             bid,
             name
         );
-        (200.0, 100.0)
+        ((200.0, 100.0), (0.0, 0.0))
     } else if graph.layer_style == crate::vector::graph::LayerStyle::Device {
         // ── ★ F2: Device pipeline — equipotential tree layout only ──
         crate::viz::layout::equipotential_tree::layout_device_layer(&mut graph);
         // ★ Content-adaptive canvas: fit every box + tree segment + symbol
-        // (including negative-x West trunks) into the `0 0 W H` SVG viewBox by
-        // shifting the content to the margin and sizing the paper to the content.
+        // (including negative-x West trunks and upward-reading vertical labels)
+        // into the SVG viewBox, starting at the TRUE content top.
         let cv = crate::viz::layout::equipotential_tree::fit_content_to_canvas(&mut graph);
         crate::vlog!(
-            "[viz::api] layer {} '{}' device canvas={}x{}",
+            "[viz::api] layer {} '{}' device canvas={}x{} origin=({},{})",
             bid,
             name,
+            cv.2 as i32,
+            cv.3 as i32,
             cv.0 as i32,
             cv.1 as i32
         );
-        cv
+        ((cv.2, cv.3), (cv.0, cv.1))
     } else {
         let layouter_name = candidates.first().map(|c| c.name()).unwrap_or("none");
 
@@ -395,7 +401,9 @@ fn render_layer_recursive(
             }
         }
 
-        cv
+        // Non-device layouts live at positive coordinates already, so their
+        // viewBox keeps the `0 0` origin.
+        (cv, (0.0, 0.0))
     };
 
     // ★ P7-4f: apply_net_labels is called only once in select.rs (before route).
@@ -477,7 +485,7 @@ fn render_layer_recursive(
     super::route::wire_hops::apply_wire_hops(&mut graph);
 
     // ── Phase 3: render ──
-    let svg = renderer.render(&graph, canvas);
+    let svg = renderer.render(&graph, canvas, viewbox_origin);
     crate::vlog!(
         "[viz::api] layer {} '{}' render done: {} bytes (algo={})",
         bid,
