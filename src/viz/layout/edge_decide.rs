@@ -18,6 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vector::graph::McVecGraph;
+use crate::vector::model::dock::PortGroupCtx;
 
 /// A block-diagram edge connecting two boxes.
 #[derive(Debug, Clone)]
@@ -28,9 +29,10 @@ pub struct BlockEdge {
     pub lane_count: usize,
     pub kind: EdgeKind,
     pub source_span: Option<crate::semantic::common::SourcePos>,
-    /// ★ P9-A2: port group for edge merging.
-    /// Non-empty when this edge belongs to a port group (e.g., SPI, I2C).
-    pub port_group: Option<String>,
+    /// ★ §8.9.6: structured group context for edge merging.
+    /// `Some` when this edge belongs to a port group (e.g., SPI, I2C); the
+    /// group `name` is the R-M merge key and the edge label.
+    pub port_group: Option<PortGroupCtx>,
     /// ★ B2: whether this edge is bidirectional (e.g., SPI bus).
     /// Set to true when the original nets had edges in both directions.
     pub bidirectional: bool,
@@ -336,14 +338,14 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
                 edge.from_box,
                 edge.to_box,
                 edge.kind,
-                edge.port_group.clone(),
+                edge.port_group.as_ref().and_then(|g| g.name.clone()),
             )
         } else {
             (
                 edge.to_box,
                 edge.from_box,
                 edge.kind,
-                edge.port_group.clone(),
+                edge.port_group.as_ref().and_then(|g| g.name.clone()),
             )
         };
 
@@ -355,13 +357,18 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
             }
             // Preserve bidirectional flag
             merged[idx].bidirectional = merged[idx].bidirectional || edge.bidirectional;
-            // Use port_group as the label
-            merged[idx].label = merged[idx].port_group.clone().unwrap_or_default();
+            // Use the group name as the label
+            merged[idx].label = merged[idx]
+                .port_group
+                .as_ref()
+                .and_then(|g| g.name.as_deref())
+                .unwrap_or_default()
+                .to_string();
         } else {
-            // Use port_group as the label
+            // Use the group name as the label
             let mut e = edge;
             if let Some(ref pg) = e.port_group {
-                e.label = pg.clone();
+                e.label = pg.name.clone().unwrap_or_default();
             }
             seen_pairs.insert(pair, merged.len());
             merged.push(e);
@@ -456,13 +463,17 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
     // 1. Trace edges with port_group (provenance)
     for edge in &merged {
         if let Some(ref pg) = edge.port_group {
+            let pg_name = pg.name.as_deref().unwrap_or("");
             if let Some(ref pos) = edge.source_span {
                 eprintln!(
                     "[trace] {}: edge '{}' <- {}:{}  (port_group={})",
-                    layer, pg, pos.uri, pos.offset, pg
+                    layer, pg_name, pos.uri, pos.offset, pg_name
                 );
             } else {
-                eprintln!("[trace] {}: edge '{}'  (port_group={})", layer, pg, pg);
+                eprintln!(
+                    "[trace] {}: edge '{}'  (port_group={})",
+                    layer, pg_name, pg_name
+                );
             }
         }
         if edge.lane_count > 1 {

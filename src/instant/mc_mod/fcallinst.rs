@@ -30,6 +30,7 @@ use crate::semantic::component::McComponent;
 use crate::semantic::mc_func::{McFuncReturn, McFunction};
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::module::McModule;
+use crate::vector::model::dock::DockKind;
 use crate::McIds;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1069,7 +1070,17 @@ impl McModuleInst {
             // "MIC"). RAII (§7.11(2)): restored right after the boundary
             // connection, so an early error cannot leak the group into the
             // next connection.
-            self.with_port_group(Some(declared_port_name.clone()), |this| {
+            let port_kind = self
+                .find_submodule(inst_name)
+                .and_then(|sub| sub.ports.iter().find(|p| p.name == declared_port_name))
+                .map(|p| {
+                    if p.bus_members.is_empty() {
+                        DockKind::Plain
+                    } else {
+                        DockKind::Bus
+                    }
+                });
+            self.with_port_group(Some(declared_port_name.clone()), port_kind, |this| {
                 this.create_connection(left, right, ConnDir::Undirected, None)
             })?;
 

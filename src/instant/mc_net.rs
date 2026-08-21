@@ -12,7 +12,8 @@
 //! - `InstError`      - Instantiation Error
 //! - `NetTable`       - Network Table (union-find)
 
-use crate::semantic::common::{ConnDir, IOType};
+use crate::semantic::common::{ConnDir, ConnOp, IOType};
+use crate::vector::model::dock::PortGroupCtx;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -233,6 +234,13 @@ pub struct ConnectionInst {
     /// Source connector direction (from `->` / `-` / `+`)
     pub dir: ConnDir,
 
+    /// Connection operator that produced this connection: `Series` for
+    /// `-`/`->`/`<-`, `Parallel` for `+`. `None` when the operator is unknown
+    /// (engine-generated projection links, e.g. interface / bus member nets).
+    /// Carried through to `ConnPair` / `NetShape` so downstream can tell a
+    /// series net from a parallel one without reverse-engineering the shape.
+    pub op: Option<ConnOp>,
+
     /// Bus lane index (0=first lane, 1=second...). None for scalar connections.
     pub lane: Option<u16>,
 
@@ -246,9 +254,10 @@ pub struct ConnectionInst {
     /// connection (§7.11(3)).
     pub source_span: Option<crate::semantic::common::SourcePos>,
 
-    /// ★ P9-A2: port group that produced this connection.
-    /// For bus lanes, all lanes of the same bus share the same port_group.
-    pub port_group: Option<String>,
+    /// ★ §8.9.6: structured group context of this connection lane (group name,
+    /// lane member, coarse kind), decided at the AST layer. All lanes of the
+    /// same bus share the same `name` / `kind` but carry distinct `member`s.
+    pub port_group: Option<PortGroupCtx>,
 
     /// Expansion provenance: index into the owning module's `ExpansionLog`.
     /// None = created at module top level (no active expansion).
@@ -310,6 +319,7 @@ impl ConnectionInst {
             points,
             net_name,
             dir: ConnDir::Undirected,
+            op: None,
             lane: None,
             via: None,
             source_span: None,
@@ -321,6 +331,13 @@ impl ConnectionInst {
     /// Set source connector direction
     pub fn with_dir(mut self, dir: ConnDir) -> Self {
         self.dir = dir;
+        self
+    }
+
+    /// Set the connection operator (`Series` for `-`/`->`/`<-`, `Parallel`
+    /// for `+`). `None` means the operator is unknown (projection links).
+    pub fn with_op(mut self, op: ConnOp) -> Self {
+        self.op = Some(op);
         self
     }
 
@@ -342,9 +359,9 @@ impl ConnectionInst {
         self
     }
 
-    /// ★ P9-A2: Set port group for edge merging
-    pub fn with_port_group(mut self, port_group: String) -> Self {
-        self.port_group = Some(port_group);
+    /// ★ §8.9.6: Set the structured group context of this connection lane.
+    pub fn with_port_group(mut self, ctx: PortGroupCtx) -> Self {
+        self.port_group = Some(ctx);
         self
     }
 

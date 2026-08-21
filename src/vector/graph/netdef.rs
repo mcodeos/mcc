@@ -30,6 +30,7 @@
 
 use super::boxdef::Wire;
 use super::kinds::{EdgeType, NetKind};
+use crate::vector::model::dock::DockRef;
 use std::fmt;
 
 // ============================================================================
@@ -135,8 +136,6 @@ pub struct VizNet {
     pub endpoints: Vec<EndpointRef>,
     /// Route result (filled by router, `None` when not routed)
     pub route: Option<Route>,
-    /// Unified source position in the AST (for diagnostic source-line reporting), §7.11(3).
-    pub src_pos: Option<crate::semantic::common::SourcePos>,
     /// ★ P7-3: power net spec (None = ordinary signal net). Copied by fromblock from
     /// McVecNet.rail, resolved by viz/project.rs from port declarations
     /// (class + driver_pin + volt).
@@ -144,9 +143,12 @@ pub struct VizNet {
     /// ★ P8-2 (G16): source span for bidirectional traceability.
     /// `(file, line)` — which source file and line created this net.
     pub source_span: Option<crate::semantic::common::SourcePos>,
-    /// ★ P9-A2: port group that produced this net.
+    /// ★ §8.9.6: structured group context that produced this net.
     /// Used by R-M edge merge to group bus lanes.
-    pub port_group: Option<String>,
+    pub port_group: Option<crate::vector::model::dock::PortGroupCtx>,
+    /// ★ §8.9.4: back-reference to the coarse `PortDock` this fine net belongs
+    /// to (dock id + lane index), copied from `McVecNet.dock`.
+    pub dock: Option<DockRef>,
 }
 
 impl VizNet {
@@ -165,10 +167,10 @@ impl VizNet {
             role,
             endpoints,
             route: None,
-            src_pos: None,
             rail: None,
             source_span: None,
             port_group: None,
+            dock: None,
         }
     }
 

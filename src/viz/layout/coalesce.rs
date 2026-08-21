@@ -153,7 +153,9 @@ pub fn coalesce_equipotential_nets(graph: &mut McVecGraph) -> usize {
 
         let nid = idxs.iter().map(|&i| old[i].nid).min().unwrap_or(0);
         let mut merged = VizNet::new(nid, name, kind, NetRole::Signal, endpoints);
-        merged.src_pos = idxs.iter().find_map(|&i| old[i].src_pos.clone());
+        // source span of the first member net that carries one (the legacy
+        // src_pos was merged here; source_span is the unified traceability field)
+        merged.source_span = idxs.iter().find_map(|&i| old[i].source_span.clone());
 
         crate::vlog!(
             "[coalesce] node '{}' ← {} net(s): {:?}",

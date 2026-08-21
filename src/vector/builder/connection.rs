@@ -23,6 +23,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::super::model::netshape::{GroupRole, LaneRef, NetShape, PairDir};
 use super::super::model::{McVec, McVecNet};
+use crate::semantic::common::ConnOp;
+use crate::vector::model::dock::PortGroupCtx;
 
 // ============================================================================
 // Internal Data Types
@@ -37,12 +39,17 @@ pub(crate) struct ConnPair {
     pub lane: Option<LaneRef>,
     /// Arrow direction in the source
     pub dir: PairDir,
+    /// Connection operator that produced this pair (`Series` for `-`/`->`/`<-`,
+    /// `Parallel` for `+`); `None` when unknown (projection links). Copied from
+    /// `ConnectionInst.op` in visit.rs and surfaced on `NetShape.op`.
+    pub op: Option<ConnOp>,
     /// Which two-terminal device this segment passes through
     pub via: Option<i64>,
     /// ★ P9-A2: source span for traceability
     pub source_span: Option<crate::semantic::common::SourcePos>,
-    /// ★ P9-A2: port group for edge merging
-    pub port_group: Option<String>,
+    /// ★ §8.9.6: structured group context (group name, lane member, coarse
+    /// kind) copied from `ConnectionInst.port_group`.
+    pub port_group: Option<PortGroupCtx>,
 }
 
 impl ConnPair {
@@ -56,6 +63,7 @@ impl ConnPair {
             via: None,
             source_span: None,
             port_group: None,
+            op: None,
         }
     }
 
@@ -69,6 +77,7 @@ impl ConnPair {
             via: None,
             source_span: None,
             port_group: None,
+            op: None,
         }
     }
 
@@ -82,6 +91,7 @@ impl ConnPair {
             via: None,
             source_span: None,
             port_group: None,
+            op: None,
         }
     }
 
@@ -101,17 +111,24 @@ impl ConnPair {
             via,
             source_span: None,
             port_group: None,
+            op: None,
         }
     }
 
-    /// ★ P9-A2: Set provenance metadata (source_span + port_group)
+    /// ★ §8.9.6: Set provenance metadata (source_span + structured group)
     pub(crate) fn with_meta(
         mut self,
         source_span: Option<crate::semantic::common::SourcePos>,
-        port_group: Option<String>,
+        port_group: Option<PortGroupCtx>,
     ) -> Self {
         self.source_span = source_span;
         self.port_group = port_group;
+        self
+    }
+
+    /// Set the connection operator carried from `ConnectionInst.op`
+    pub(crate) fn with_op(mut self, op: ConnOp) -> Self {
+        self.op = Some(op);
         self
     }
 }
@@ -203,14 +220,36 @@ fn build_net_shape(dir: PairDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape
     let series_chain: Vec<i64> = pairs.iter().filter_map(|p| p.via).collect();
 
     // lane: take the first lane info from any pair
-    let lane: Option<LaneRef> = pairs.iter().find_map(|p| p.lane.clone());
+    let mut lane: Option<LaneRef> = pairs.iter().find_map(|p| p.lane.clone());
+    // ── §8.9.6.7: align LaneRef.name with the AST-layer PortGroupCtx.member ──
+    // The lane member name is a shape derivation (bracket split in visit.rs);
+    // the group member is the connection identity decided at the AST layer.
+    // When the lane carries no name, take the structured member as the
+    // authority so the two sources never disagree.
+    if let Some(ref mut l) = lane {
+        if l.name.is_none() {
+            l.name = pairs
+                .first()
+                .and_then(|p| p.port_group.as_ref())
+                .and_then(|g| g.member.clone());
+        }
+    }
+
+    // op: the source operator (series `-`/`->` or parallel `+`), taken from
+    // the first pair that carries one
+    let op: Option<ConnOp> = pairs.iter().find_map(|p| p.op);
+
+    // order: source-order endpoint sequence (deduplicated)
+    let order = collect_unique_ordered(pairs);
 
     NetShape {
         groups,
         dir,
         lane,
         series_chain,
-        src_pos: None,
+        op,
+        anchor: None,
+        order,
     }
 }
 
@@ -268,7 +307,9 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
         dir,
         lane: Some(lane),
         series_chain: pairs.iter().filter_map(|p| p.via).collect(),
-        src_pos: None,
+        op: pairs.iter().find_map(|p| p.op),
+        anchor: None,
+        order: collect_unique_ordered(pairs),
     };
     Some(McVecNet::with_shape(nid, name.to_string(), vecs, shape))
 }
@@ -469,4 +510,41 @@ fn collect_unique_ordered(pairs: &[ConnPair]) -> Vec<i64> {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// §8.9.4: the series operator written in the source (`-`/`->`) must be
+    /// carried through ConnPair → NetShape.op, and the source-order endpoint
+    /// sequence must land in NetShape.order.
+    #[test]
+    fn series_shape_carries_op_and_order() {
+        let pairs = vec![
+            ConnPair::plain_with_dir(1, 2, PairDir::LtoR).with_op(ConnOp::Series),
+            ConnPair::plain_with_dir(2, 3, PairDir::LtoR).with_op(ConnOp::Series),
+        ];
+        let nets = vec![McVec::single(1), McVec::single(2), McVec::single(3)];
+        let shape = build_net_shape(PairDir::LtoR, &pairs, &nets);
+        assert_eq!(shape.op, Some(ConnOp::Series));
+        assert_eq!(shape.order, vec![1, 2, 3]);
+        assert!(shape.is_informative());
+        assert_eq!(shape.anchor, None);
+    }
+
+    /// §8.9.4: a parallel `+` net keeps `Parallel` and the left-aligned merge
+    /// order (the anchor `10` appears once, deduplicated at the front).
+    #[test]
+    fn parallel_shape_keeps_op() {
+        let pairs = vec![
+            ConnPair::plain_with_dir(10, 11, PairDir::Undirected).with_op(ConnOp::Parallel),
+            ConnPair::plain_with_dir(10, 12, PairDir::Undirected).with_op(ConnOp::Parallel),
+        ];
+        let nets = vec![McVec::single(10), McVec::single(11), McVec::single(12)];
+        let shape = build_net_shape(PairDir::Undirected, &pairs, &nets);
+        assert_eq!(shape.op, Some(ConnOp::Parallel));
+        assert_eq!(shape.order, vec![10, 11, 12]);
+        assert!(shape.is_informative());
+    }
 }

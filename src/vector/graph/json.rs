@@ -134,6 +134,23 @@ impl McVecGraph {
                 json_escape(&n.name),
                 n.kind
             ));
+            // ★ §8.9.6: structured port group context (group name / member / kind)
+            // carried through the whole pipeline; missing for free nets.
+            if let Some(ref pg) = n.port_group {
+                out.push_str(&format!(
+                    "{s}\"port_group\": {{\"name\": {}{s}\"member\": {}{s}\"kind\": \"{}\"}}",
+                    json_opt_str(&pg.name),
+                    json_opt_str(&pg.member),
+                    pg.kind.label()
+                ));
+            }
+            // ★ §8.9.4: fine net → coarse dock back-reference
+            if let Some(d) = n.dock {
+                out.push_str(&format!(
+                    "\"dock\": {{\"id\": {}{s}\"lane\": {}}}{s}",
+                    d.id, d.lane
+                ));
+            }
             out.push_str("\"endpoints\": [");
             for (j, ep) in n.endpoints.iter().enumerate() {
                 out.push_str(&format!(
@@ -183,6 +200,64 @@ impl McVecGraph {
         }
         out.push_str(&format!("{i1}]{s}{nl}"));
 
+        // ── ★ §8.9.4: port_docks (coarse bus/interface docks of this layer) ──────
+        out.push_str(&format!("{i1}\"port_docks\": ["));
+        if !self.port_docks.is_empty() {
+            out.push_str(nl);
+        }
+        for (i, d) in self.port_docks.iter().enumerate() {
+            out.push_str(&format!(
+                "{i2}{{\"id\": {}{s}\"name\": \"{}\"{s}\"kind\": \"{}\"{s}\"op\": {}{s}",
+                d.id,
+                json_escape(&d.name),
+                d.kind,
+                match d.op {
+                    Some(crate::semantic::common::ConnOp::Series) => "\"-\"",
+                    Some(crate::semantic::common::ConnOp::Parallel) => "\"+\"",
+                    None => "null",
+                },
+            ));
+            // left / right dock ends
+            out.push_str(&format!(
+                "\"left\": {{\"instance\": {}{s}\"port\": \"{}\"{s}\"iface\": {}{s}\"io\": {}}}{s}",
+                json_opt_str(&d.left.instance),
+                json_escape(&d.left.port),
+                json_opt_str(&d.left.iface_class),
+                d.left
+                    .io
+                    .as_ref()
+                    .map(|t| format!("\"{t:?}\""))
+                    .unwrap_or_else(|| "null".to_string()),
+            ));
+            out.push_str(&format!(
+                "\"right\": {{\"instance\": {}{s}\"port\": \"{}\"{s}\"iface\": {}{s}\"io\": {}}}{s}",
+                json_opt_str(&d.right.instance),
+                json_escape(&d.right.port),
+                json_opt_str(&d.right.iface_class),
+                d.right.io.as_ref().map(|t| format!("\"{t:?}\"")).unwrap_or_else(|| "null".to_string()),
+            ));
+            // fine layer: per-member pin2pin links
+            out.push_str("\"members\": [");
+            for (j, m) in d.members.iter().enumerate() {
+                out.push_str(&format!(
+                    "{{\"member\": \"{}\"{s}\"lane\": {}{s}\"left_pin\": {}{s}\"right_pin\": {}}}",
+                    json_escape(&m.member),
+                    m.lane,
+                    m.left_pin,
+                    m.right_pin
+                ));
+                if j + 1 < d.members.len() {
+                    out.push(',');
+                }
+            }
+            out.push_str("]}");
+            if i + 1 < self.port_docks.len() {
+                out.push(',');
+            }
+            out.push_str(nl);
+        }
+        out.push_str(&format!("{i1}]{s}{nl}"));
+
         // ── children (sub-graphs, recursive) ──────────────────────────────────────────
         out.push_str(&format!("{i1}\"children\": ["));
         if !self.sub_graphs.is_empty() {
@@ -216,4 +291,12 @@ pub fn json_escape(s: &str) -> String {
         }
     }
     out
+}
+
+/// Serialize an `Option<String>` as a JSON string literal or `null`
+fn json_opt_str(s: &Option<String>) -> String {
+    match s {
+        Some(v) => format!("\"{}\"", json_escape(v)),
+        None => "null".to_string(),
+    }
 }

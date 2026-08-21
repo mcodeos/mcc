@@ -811,27 +811,37 @@ fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<S
     }
 
     lines.push("Connections:".to_string());
-    for conn in &inst.connections {
-        let net = conn.effective_net_name();
-        if net == "NC" {
-            continue;
-        }
-        let points: Vec<&str> = conn
-            .points
-            .iter()
-            .filter(|p| p.path != "NC")
-            .map(|p| p.path.as_str())
-            .collect();
-        if points.is_empty() {
-            continue;
-        }
-        let sep = match conn.dir {
-            mcc::ConnDir::LtoR => " -> ",
-            mcc::ConnDir::RtoL => " <- ",
-            _ => " - ",
-        };
-        lines.push(format!("  {net} : {}", points.join(sep)));
-    }
+    // §8.9.5 layered display: bus/interface connections (carrying a
+    // `port_group`) render as coarse dock lines with indented per-member
+    // pin2pin lines underneath; plain connections render flat as before.
+    let views: Vec<crate::cmds::common::ConnView> = inst
+        .connections
+        .iter()
+        .filter_map(|conn| {
+            let net = conn.effective_net_name();
+            if net == "NC" {
+                return None;
+            }
+            let points: Vec<String> = conn
+                .points
+                .iter()
+                .filter(|p| p.path != "NC")
+                .map(|p| p.path.clone())
+                .collect();
+            if points.is_empty() {
+                return None;
+            }
+            Some(crate::cmds::common::ConnView {
+                net,
+                points,
+                dir: format!("{:?}", conn.dir),
+                // §8.9.6: structured group context (name/member/kind), None
+                // for plain connections.
+                port_group: conn.port_group.clone(),
+            })
+        })
+        .collect();
+    lines.extend(crate::cmds::common::render_layered_conns(&views, "  "));
 
     for sub in &inst.sub_modules {
         lines.push(String::new());
@@ -902,6 +912,10 @@ fn dianlu_sections(inst: &mcc::McModuleInst, path: &str) -> Vec<Value> {
                 "net": net,
                 "points": points,
                 "dir": format!("{:?}", conn.dir),
+                // §8.9.6: structured group context (name/member/kind),
+                // present only for bus/interface member connections so
+                // downstream can layer.
+                "port_group": conn.port_group.as_ref().map(|pg| pg.to_json_value()),
             }))
         })
         .collect();

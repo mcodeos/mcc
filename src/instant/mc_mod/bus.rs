@@ -110,8 +110,12 @@ impl McModuleInst {
                     full_members: Vec::new(),
                 };
 
-                // Recursively expand sub-members (member is Vec<String>)
-                points.extend(self.expand_node_element(&member_elem));
+                // §8.9.6.7: stamp the structured lane member name on each
+                // expanded point so downstream per-lane port-group identity
+                // is structured (never a dotted-path string split).
+                for p in self.expand_node_element(&member_elem) {
+                    points.push(p.with_member_name(member_name));
+                }
             }
             points
         }
@@ -152,7 +156,11 @@ impl McModuleInst {
                     member: Vec::new(),
                     full_members: Vec::new(),
                 };
-                points.extend(self.expand_node_element_to_points(&sub_elem)?);
+                // §8.9.6.7: stamp the structured lane member name on each
+                // expanded point (mirror of expand_node_element above).
+                for p in self.expand_node_element_to_points(&sub_elem)? {
+                    points.push(p.with_member_name(member_name));
+                }
             }
             Ok(points)
         }
