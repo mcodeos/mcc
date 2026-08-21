@@ -17,7 +17,7 @@ use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::{eval_binary, ConnDir, ConnOp, IOType, Shape, ShapeError};
+use crate::semantic::common::{ConnDir, ConnOp, IOType, Shape};
 use crate::semantic::component::mc_pins::McPinPort;
 use crate::semantic::mc_inst::McInstance;
 use crate::vector::model::trunk::TrunkKind;
@@ -454,6 +454,29 @@ impl McModuleInst {
         }
     }
 
+    /// §5 port width of `member` on the given side, for the transpose-bridge
+    /// check in `wire_chain_lane_by_lane`. Mirrors lane-by-lane semantics:
+    /// Multiple / Parallel / Bus span one lane per element, a Transposed
+    /// member spans its full-width transposed column (the merged left + right
+    /// pins, i.e. the transposed result), a Node endpoint spans its port
+    /// element count, and any other member (single endpoint, FuncCall, Lead)
+    /// spans one lane. Zero means the side is unresolved and the pair is
+    /// skipped by the caller.
+    fn member_port_width(&mut self, member: &McPhrase, right: bool) -> usize {
+        match member {
+            McPhrase::Transposed(_) => self.get_left_points(member).map(|p| p.len()).unwrap_or(0),
+            McPhrase::Endpoint(McEndpoint::Node { .. }) => {
+                let pts = if right {
+                    self.get_right_points(member)
+                } else {
+                    self.get_left_points(member)
+                };
+                pts.map(|p| p.len()).unwrap_or(0)
+            }
+            _ => self.member_lane_width(member),
+        }
+    }
+
     // ── M11.1 / M11.2 / M11.4: Lane-by-lane wiring for chains containing
     // pass-through (_) or bridge passives (CAP').
     //
@@ -503,6 +526,36 @@ impl McModuleInst {
                             &[&e],
                         ),
                     );
+                }
+            }
+        }
+
+        // ── Strict §5 transpose-bridge legality (vec-dianlu.md §5.3) ──
+        // A transposed operand is first transposed to its full-width column —
+        // `get_left_points` / `get_right_points` merge the inner left + right
+        // pins, which is already the transposed result — and the §5.2 series
+        // check runs on that result. There is no pair-by-min / lane-hang
+        // carve-out: each adjacent pair must span the same width. Any width
+        // mismatch is an illegal operation (E4007) and the chain generates no
+        // connections. A zero width (unresolved side) skips the pair, since
+        // Pass1 already validated the phrase-level shape.
+        let has_transposed = members.iter().any(|m| Self::phrase_contains_transposed(m));
+        if has_transposed {
+            for i in 0..members.len().saturating_sub(1) {
+                let lw = self.member_port_width(&members[i], true);
+                let rw = self.member_port_width(&members[i + 1], false);
+                if lw == 0 || rw == 0 {
+                    continue;
+                }
+                if lw != rw {
+                    self.record_error(
+                        crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                            &[],
+                        ),
+                    );
+                    return Ok(());
                 }
             }
         }
@@ -1769,45 +1822,36 @@ impl McModuleInst {
                 //         l_kind, r_kind, dl, dr
                 //     );
                 // }
-                let trans_involved = matches!(left_member, McPhrase::Transposed(_))
-                    || matches!(right_member, McPhrase::Transposed(_));
-                // ── §4 operator evaluation (eval.md §4.1 series): unified entry
-                // for shape evaluation of adjacent members ──
-                // The adjacent-pair logic of all three stmt.rs paths (shunt /
-                // lane-by-lane / adjacency) converges on this shape check +
-                // create_connection.
                 let lhs_shape = Shape::vvec(left_points.len());
                 let rhs_shape = Shape::vvec(right_points.len());
-                match eval_binary(ConnOp::Series, lhs_shape, rhs_shape) {
-                    Ok(_) => {
-                        // Row counts match: pair the whole group
-                        // (create_connection does 1:1 / broadcast / interface expansion internally)
-                        this.create_connection(left_points, right_points, dir, None)?;
-                    }
-                    // Transposed bridge passive (§4 deviation): row counts differ
-                    // but a transposed member is involved; pair by min, hanging
-                    // each pin on its corresponding lane (eval.md §4.1 node vs
-                    // vector bridging semantics)
-                    Err(ShapeError::RowMismatch { .. })
-                        if trans_involved
-                            && !left_points.is_empty()
-                            && !right_points.is_empty() =>
-                    {
-                        let n = left_points.len().min(right_points.len());
-                        for (l, r) in left_points
-                            .into_iter()
-                            .take(n)
-                            .zip(right_points.into_iter().take(n))
-                        {
-                            this.create_connection(vec![l], vec![r], dir, None)?;
-                        }
-                    }
-                    // Row count mismatch (non-transposed): a genuine vector
-                    // alignment error — create_connection records E4007 and
-                    // still pairs by min so the netlist stays buildable.
-                    Err(_) => {
-                        this.create_connection(left_points, right_points, dir, None)?;
-                    }
+                // ── §5.2 series legality (vec-dianlu.md): unified check shared
+                // with Pass1 (`opcheck`), so the two passes can never drift.
+                // A transposed member is first transposed to its full-width
+                // column — its point list (`get_right_points` /
+                // `get_left_points` merge the inner left + right pins) is
+                // already the transposed result — so this check runs on the
+                // transposed result with no pair-by-min / lane-hang carve-out.
+                // Legal: equal rows only. Illegal: unequal rows — including the
+                // single-point broadcast `1*1` vs `N*1` (`X -> [A, B]`) and any
+                // transposed mismatch — report the error and generate no
+                // connection statement (no truncation / pair-by-min recovery).
+                let verdict = crate::semantic::opcheck::check_series(lhs_shape, rhs_shape);
+                if matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_)) {
+                    // Row counts match: pair the whole group (create_connection
+                    // does 1:1 / interface expansion internally).
+                    this.create_connection(left_points, right_points, dir, None)?;
+                } else {
+                    // Illegal §5.2 operation (unequal rows — including the
+                    // single-point broadcast `1*1` vs `N*1` and transposed
+                    // mismatches): report the error and generate no statement —
+                    // the row mismatch is not truncated into a partial pairing.
+                    this.record_error(
+                        crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                            &[],
+                        ),
+                    );
                 }
             }
             Ok(())
@@ -2060,10 +2104,10 @@ impl McModuleInst {
             } else {
                 // Dimension mismatch (double-end but different widths): a
                 // row-count mismatch that slipped past Pass1 (e.g. dynamic
-                // pins / interface expansion). Upgraded from a warning to an
-                // error (vec-dianlu.md §5.1 left-alignment); the operand is
-                // still merged into the anchor's left net so the netlist
-                // stays buildable.
+                // pins / interface expansion). Report the error
+                // (vec-dianlu.md §5.1 left-alignment) and generate no
+                // connection for this operand — it is not merged into the
+                // left/right net, so no statement is emitted for it.
                 if !dim_mismatch_reported {
                     self.record_error(
                         crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
@@ -2074,8 +2118,7 @@ impl McModuleInst {
                     );
                     dim_mismatch_reported = true;
                 }
-                left_net.extend(lp.iter().cloned());
-                left_net.extend(rp.iter().cloned());
+                // skip: do not extend left_net / right_net with this operand
             }
         }
 
