@@ -836,29 +836,98 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
             |t: &NetTopology| t.groups.first().map_or(1, |g| g.pin_ids.len()) as isize;
         let claims = satellite_side_claims(graph, topos, layer_anchor);
         let mut yielded = vec![false; topos.len()];
+        let mut moved_here = vec![false; topos.len()];
+        // The balance tally, recomputed on demand: only Pass-1 nets count, since
+        // an unresolved net still carries `Lane::default()`'s East.
+        let tally = |topos: &[NetTopology], resolved: &[bool]| -> (isize, isize) {
+            let (mut w, mut e) = (0isize, 0isize);
+            for (k, t) in topos.iter().enumerate() {
+                if !resolved[k] {
+                    continue;
+                }
+                match t.lane.region {
+                    Region::West => w += anchor_pins(t),
+                    Region::East => e += anchor_pins(t),
+                    _ => {}
+                }
+            }
+            (w, e)
+        };
         for (region, keep) in claims {
             let opposite = match region {
                 Region::West => Region::East,
                 _ => Region::West,
             };
+
+            // ── ★ M13.1: PULL the bridge closure IN, before pushing anything out
+            //
+            // M10.2 only ever pushed: nets with no business next to the satellite
+            // yielded its side. It never asked the opposite question — whether a
+            // net that DOES have business there is stranded on the far side.
+            //
+            // `mic`: `MIC.P` runs to `wm7121.1`, and `MIC.N` is bridged to `MIC.P`
+            // through `C1`. `direct_region` reads `mic.2` in isolation, sees an
+            // input, and files it West; the microphone's differential pair then
+            // straddles the IC and `C1` has to reach across it.
+            //
+            // > when placing a pin, look not only at whether it connects to another
+            // > component, but also at whether its BRIDGE reaches a pin that belongs
+            // > to that other component.
+            //
+            // Which is what `keep` already is — `satellite_side_claims` closes the
+            // shared nets under `coupled_net_pairs`, so `MIC.N` is in it. The
+            // closure was being used only as a veto ("do not push these out"); as
+            // an attractor it puts the whole differential pair on the side facing
+            // the part it talks to, and `C1` becomes one short Bridge between two
+            // adjacent rows, drawn between the two components.
+            //
+            // Same three guards as the push: a `RailDriver` never moves, a net
+            // moves at most once, and the side balance may not tip past
+            // `SIDE_IMBALANCE_MAX`.
             for i in 0..topos.len() {
-                if yielded[i] || keep.contains(&i) || !resolved[i] {
+                if moved_here[i] || !resolved[i] || !keep.contains(&i) {
+                    continue;
+                }
+                if !is_w_e_opposite(topos[i].lane.region, region)
+                    || strength[i] >= SideStrength::RailDriver
+                {
+                    continue;
+                }
+                let (w, e) = tally(topos, &resolved);
+                let d = anchor_pins(&topos[i]);
+                let (w, e) = match region {
+                    Region::West => (w + d, e - d),
+                    _ => (w - d, e + d),
+                };
+                if (w - e).abs() > SIDE_IMBALANCE_MAX {
+                    crate::vlog!(
+                        "[region] satellite pull skipped (balance): net '{}' would make W/E {}/{}",
+                        topos[i].net_name,
+                        w,
+                        e
+                    );
+                    continue;
+                }
+                crate::vlog!(
+                    "[region] satellite pull: net '{}' {:?} → {:?} (bridged to a net the \
+                     component on {:?} shares)",
+                    topos[i].net_name,
+                    topos[i].lane.region,
+                    region,
+                    region
+                );
+                topos[i].lane.region = region;
+                moved_here[i] = true;
+            }
+
+            for i in 0..topos.len() {
+                if yielded[i] || moved_here[i] || keep.contains(&i) || !resolved[i] {
                     continue;
                 }
                 if topos[i].lane.region != region || strength[i] >= SideStrength::RailDriver {
                     continue;
                 }
-                let (mut w, mut e) = (0isize, 0isize);
-                for (k, t) in topos.iter().enumerate() {
-                    if !resolved[k] {
-                        continue;
-                    }
-                    match t.lane.region {
-                        Region::West => w += anchor_pins(t),
-                        Region::East => e += anchor_pins(t),
-                        _ => {}
-                    }
-                }
+                let (w, e) = tally(topos, &resolved);
                 let d = anchor_pins(&topos[i]);
                 let (w, e) = match opposite {
                     Region::West => (w + d, e - d),
@@ -883,6 +952,7 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
                 );
                 topos[i].lane.region = opposite;
                 yielded[i] = true;
+                moved_here[i] = true;
             }
         }
     }
@@ -1056,7 +1126,23 @@ fn direct_region(graph: &McVecGraph, topo: &NetTopology) -> Option<(Region, Side
         Some(IoDirection::Input) => Some((Region::West, SideStrength::Io)),
         Some(IoDirection::Output | IoDirection::Bidir) => Some((Region::East, SideStrength::Io)),
         Some(IoDirection::Power) => Some((Region::West, SideStrength::Io)),
-        Some(IoDirection::Ground) => Some((Region::South, SideStrength::RailDriver)),
+        // ★ M13.2: a pin DECLARED as ground whose NET is not a ground net.
+        //
+        // The `net_kind == Ground` arm at the top of this function has already
+        // taken every real ground, so reaching here means the netlist says
+        // otherwise: `mic.3` and `mic.4` are the microphone's GND pins, but each
+        // one goes through an ESD diode first, so `_net2` / `_net3` are ordinary
+        // signal nets. Sending them South on the strength of the pin's NAME gave
+        // them a rail below the IC while `assign_anchor_slots` kept their pins on
+        // the West edge — the wire then left the pin westward, ran the full
+        // height of the box down the left margin and came back east along the
+        // rail to reach a diode parked under the canvas. (A27, "a pin lies on its
+        // own net's row", is exactly this defect; `mic` is not one of the four
+        // fixtures, so nothing was watching.)
+        //
+        // A ground-declared pin on a signal net is a RETURN pin. West, and only
+        // `Io`-weak, so the coupling passes can still move it.
+        Some(IoDirection::Ground) => Some((Region::West, SideStrength::Io)),
         _ => None,
     }
 }
