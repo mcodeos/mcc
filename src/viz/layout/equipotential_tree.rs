@@ -957,6 +957,72 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         }
     }
 
+    // ── Pass 1.6b (★ M14.4): a SATELLITE's own nets take their side from the
+    // satellite, not from whoever they happen to inherit from ─────────────────
+    //
+    // A satellite's non-shared nets touch no anchor pin, so Pass 1 skips them
+    // and Pass 2 hands them whatever a member-sharing neighbour happens to have.
+    // That is a coin flip, and on `mic` it lands wrong: `MIC.N` inherits West
+    // from `MIC.P`, so `place_members_for_topo` grows its members WESTWARD from
+    // `mic.2` — straight back through the microphone.
+    //
+    // The satellite already knows the answer. A pin that FACES the parent has
+    // its wire in the GAP between the two components, so its net's members grow
+    // toward the parent: the side OPPOSITE the satellite's own. A pin pointing
+    // AWAY grows away, on the satellite's side. So:
+    //
+    //     mic (West of wm7121)
+    //       mic.2 MIC.N  facing → East → C1 / _R1 land in the gap  ★ "in between"
+    //       mic.3 _net2  away   → West → its ESD diode sits west of mic
+    //
+    // Pure topology: reads the satellite plan and the parent's region, no rect.
+    {
+        for (sat, region) in satellite_plan_for(graph, topos, layer_anchor) {
+            let facing_region = match region {
+                Region::West => Region::East,
+                _ => Region::West,
+            };
+            let facing_nets: BTreeSet<usize> = sat
+                .bridged
+                .iter()
+                .copied()
+                .filter(|&n| topos.get(n).is_some_and(|t| t.net_kind != NetKind::Ground))
+                .collect();
+            let away_nets: BTreeSet<usize> = sat
+                .away
+                .iter()
+                .filter_map(|&pid| {
+                    topos.iter().position(|t| {
+                        t.groups
+                            .iter()
+                            .any(|g| g.box_id == sat.box_id && g.pin_ids.contains(&pid))
+                    })
+                })
+                .filter(|&n| topos[n].net_kind != NetKind::Ground && !topos[n].terminal_only)
+                .collect();
+            for (n, r) in facing_nets
+                .into_iter()
+                .map(|n| (n, facing_region))
+                .chain(away_nets.into_iter().map(|n| (n, region)))
+            {
+                // Never touch a net that owns an anchor pin — Pass 1 decided it,
+                // and the satellite has no standing to overrule the IC.
+                if resolved[n] || topos[n].groups.iter().any(|g| g.box_id == layer_anchor) {
+                    continue;
+                }
+                crate::vlog!(
+                    "[region] satellite net: '{}' → {:?} (pin on '{}', {:?} of the anchor)",
+                    topos[n].net_name,
+                    r,
+                    sat.box_id,
+                    region
+                );
+                topos[n].lane.region = r;
+                resolved[n] = true;
+            }
+        }
+    }
+
     // ── Pass 1.75 (★ M10.3): an ADOPTED ground lives on its run's ROW ────────
     //
     // Pass 0 sends every Ground net South unconditionally. That is right for a
@@ -1263,10 +1329,43 @@ fn satellite_nets(graph: &McVecGraph, topos: &[NetTopology], layer_anchor: i64) 
         .map(|t| t.net_kind == NetKind::Ground)
         .collect();
     let comps = comp_views(graph, topos);
-    super::equi_place::plan_satellites(&comps, &net_is_ground, layer_anchor)
+    let bridged = bridged_net_pairs(graph, topos);
+    super::equi_place::plan_satellites(&comps, &net_is_ground, &bridged, layer_anchor)
         .into_iter()
         .flat_map(|s| s.shared)
         .collect()
+}
+
+/// ★ M14.1: the two-pin relation over NET INDICES — `(a, b)` for every two-pin
+/// box joining two distinct non-ground nets.
+///
+/// `coupled_net_pairs` answers a narrower question (both nets must own a pin on
+/// the LAYER ANCHOR), which is exactly why it could not help here: `MIC.N` hangs
+/// off `mic`, and `mic` is a satellite, so the pair `(MIC.P, MIC.N)` was never
+/// even generated. This one asks only "is there a part between them".
+fn bridged_net_pairs(graph: &McVecGraph, topos: &[NetTopology]) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    for b in &graph.boxes {
+        if b.pins.len() != 2 {
+            continue;
+        }
+        let mut nets: Vec<usize> = topos
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| {
+                t.net_kind != NetKind::Ground && t.groups.iter().any(|g| g.box_id == b.id)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        nets.sort_unstable();
+        nets.dedup();
+        if nets.len() == 2 {
+            out.push((nets[0], nets[1]));
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
 }
 
 /// ★ M10.2: which W/E side each satellite component occupies, and the set of
@@ -1291,9 +1390,10 @@ fn satellite_side_claims(
         .map(|t| t.net_kind == NetKind::Ground)
         .collect();
     let comps = comp_views(graph, topos);
+    let bridged = bridged_net_pairs(graph, topos);
     let pairs = coupled_net_pairs(graph, topos, layer_anchor);
     let mut out: Vec<(Region, BTreeSet<usize>)> = Vec::new();
-    for sat in super::equi_place::plan_satellites(&comps, &net_is_ground, layer_anchor) {
+    for sat in super::equi_place::plan_satellites(&comps, &net_is_ground, &bridged, layer_anchor) {
         let (mut w, mut e) = (0usize, 0usize);
         for &nn in &sat.shared {
             match topos.get(nn).map(|t| t.lane.region) {
@@ -1489,7 +1589,8 @@ fn satellite_plan_for(
         }
     }
 
-    plan_satellites(&comps, &net_is_ground, layer_anchor)
+    let bridged = bridged_net_pairs(graph, topos);
+    plan_satellites(&comps, &net_is_ground, &bridged, layer_anchor)
         .into_iter()
         .filter_map(|sat| {
             // Majority region over the shared nets; W/E only.
@@ -1560,6 +1661,28 @@ fn place_satellites(
         }
         rows.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
 
+        // ★ M14.3: the same lookup for the away side. M14.2 gives these nets a
+        // row of their own next to the satellite, so most of them have one. A
+        // net qualifies only when it actually owns a W/E trunk — `lane.horizontal`
+        // is `true` by default even for a terminal-only ground with no lane, and
+        // handing that zero-axis to two GND pins would stack them on one offset.
+        let away_rows: Vec<(i64, f64)> = away
+            .iter()
+            .filter_map(|&pid| {
+                topos
+                    .iter()
+                    .find(|t| {
+                        t.groups
+                            .iter()
+                            .any(|g| g.box_id == sat.box_id && g.pin_ids.contains(&pid))
+                    })
+                    .filter(|t| {
+                        !t.terminal_only && matches!(t.lane.region, Region::West | Region::East)
+                    })
+                    .map(|t| (pid, t.lane.axis))
+            })
+            .collect();
+
         let connected: BTreeSet<i64> = topos
             .iter()
             .flat_map(|t| t.groups.iter())
@@ -1576,8 +1699,15 @@ fn place_satellites(
         };
         let away_side = opposite_side(facing_side);
 
-        let lo = rows.iter().map(|&(_, y)| y).fold(f64::MAX, f64::min);
-        let hi = rows.iter().map(|&(_, y)| y).fold(f64::MIN, f64::max);
+        // ★ M14.3: the box has to cover the away rows as well, or an away pin's
+        // offset clamps to the edge and lands off its trunk.
+        let all_y = rows
+            .iter()
+            .chain(away_rows.iter())
+            .map(|&(_, y)| y)
+            .collect::<Vec<f64>>();
+        let lo = all_y.iter().copied().fold(f64::MAX, f64::min);
+        let hi = all_y.iter().copied().fold(f64::MIN, f64::max);
         let box_y = lo - PIN_MARGIN;
         let box_h = ((hi - lo) + 2.0 * PIN_MARGIN)
             .max(rows.len() as f64 * PIN_PITCH + 2.0 * PIN_MARGIN)
@@ -1611,15 +1741,25 @@ fn place_satellites(
                 connected: connected.contains(&pid),
             });
         }
+        // ★ M14.3: an away pin whose net HAS a row sits ON it, exactly like a
+        // facing pin. Spreading them evenly down the far edge was the other half
+        // of the `mic` defect: `mic.3` / `mic.4` were parked at 1/3 and 2/3 of
+        // the box while `_net2` / `_net3` ran somewhere else entirely, so the
+        // wire had to leave the pin, find the trunk, and come back (A27).
         let n = away.len();
         for (k, &pid) in away.iter().enumerate() {
             let name = box_pin_name(b, pid);
+            let row_y = away_rows.iter().find(|&&(p, _)| p == pid).map(|&(_, y)| y);
+            let offset = match row_y {
+                Some(y) => ((y - box_y) / box_h).clamp(0.0, 1.0),
+                None => (k as f64 + 1.0) / (n as f64 + 1.0),
+            };
             b.slots.push(PinSlot {
                 pin_id: pid,
                 number: (rows.len() + k) as u32,
                 name,
                 side: away_side,
-                offset: (k as f64 + 1.0) / (n as f64 + 1.0),
+                offset,
                 connected: connected.contains(&pid),
             });
         }
@@ -2453,6 +2593,73 @@ pub(crate) fn assign_rows(
     // M3.2 Pass 3 (cycle break): a trunk-bearing net still unassigned here had
     // no shareable partner (a row-inheritance cycle). Open a fresh band below,
     // log it, and do NOT count it as a fallback (A1 only counts islands).
+    // ── ★ M14.2: a SATELLITE's own nets get rows NEXT TO IT ──────────────────
+    //
+    // A net that touches no anchor pin and shares no run has, until now, fallen
+    // through to the cycle break below — a fresh band under the IC. On a layer
+    // whose satellite carries most of the interesting netlist that is three of
+    // four nets: `mic`'s `MIC.N`, `_net2` and `_net3` all got trunks below the
+    // canvas while their pins stayed on the microphone, so every one of them was
+    // drawn as a wire down the left margin and back. (A27 is exactly this, and
+    // it never ran here — `mic` is not one of the four fixtures.)
+    //
+    // The satellite is a small IC in its own right: stack its unrowed nets under
+    // its shared row in PHYSICAL PIN ORDER, one `PIN_PITCH` apart, so the box
+    // ends up with one pin per row like any other component. A candidate that
+    // would land on an existing row steps down until it is clear, which keeps
+    // the allocation deterministic without needing to know the band layout.
+    for (sat, _region) in satellite_plan_for(graph, topos, layer_anchor) {
+        let net_of = |pid: i64| -> Option<usize> {
+            topos.iter().position(|t| {
+                t.groups
+                    .iter()
+                    .any(|g| g.box_id == sat.box_id && g.pin_ids.contains(&pid))
+            })
+        };
+        let pin_order: Vec<i64> = graph
+            .boxes
+            .iter()
+            .find(|b| b.id == sat.box_id)
+            .map(|b| b.pins.iter().map(|p| p.id).collect())
+            .unwrap_or_default();
+        // The shared row anchors the stack; without one there is nothing to be
+        // adjacent to and the cycle break stays in charge.
+        let Some(base) = pin_order
+            .iter()
+            .filter_map(|&pid| net_of(pid))
+            .filter_map(|n| rows[n])
+            .fold(None, |acc: Option<f64>, y| {
+                Some(acc.map_or(y, |a| a.min(y)))
+            })
+        else {
+            continue;
+        };
+        let mut k = 0usize;
+        for pid in pin_order {
+            let Some(n) = net_of(pid) else { continue };
+            if rows[n].is_some() || topos[n].terminal_only || topos[n].net_kind == NetKind::Ground {
+                continue;
+            }
+            k += 1;
+            let mut y = base + k as f64 * PIN_PITCH;
+            while rows
+                .iter()
+                .any(|r| r.is_some_and(|other| (other - y).abs() < PIN_PITCH * 0.5))
+            {
+                y += PIN_PITCH;
+            }
+            crate::vlog!(
+                "[equi-tree] satellite row: net '{}' → {:.0} (pin {} on box {})",
+                topos[n].net_name,
+                y,
+                pid,
+                sat.box_id
+            );
+            rows[n] = Some(y);
+            sources[n] = Some(RowSource::Partner(sat.box_id));
+        }
+    }
+
     let mut cycle_open = ic_bottom + RAIL_GAP;
     for (i, t) in topos.iter().enumerate() {
         if t.terminal_only || rows[i].is_some() {
