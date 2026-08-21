@@ -55,31 +55,58 @@ fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
 
     match sym.kind {
         TreeSymbolKind::Ground => {
-            let bar_w1 = 20.0;
-            let bar_w2 = 14.0;
-            let bar_w3 = 8.0;
-            let bar_gap = 4.0;
+            let bar1 = 20.0;
+            let bar2 = 14.0;
+            let bar3 = 8.0;
+            let gap = 4.0;
             let x = sym.x;
             let y = sym.y;
-
-            format!(
-                r##"  <line x1="{x1:.1}" y1="{y:.1}" x2="{x2:.1}" y2="{y:.1}" stroke="{color}" stroke-width="1.5"/>
+            let horizontal = sym.dir.0.abs() > sym.dir.1.abs();
+            // ★ M9: a ground glyph hangs off the trunk in the free direction
+            // `pick_stub_dir` chose. When that direction is horizontal — a
+            // satellite's away-side ground pin, or a GND net that runs left/right
+            // — stack the bars along the SAME axis instead of forcing them down;
+            // a forced-down glyph on a horizontal stub was exactly the "GND must
+            // be vertical" limitation that pushed pins and labels into overlaps.
+            if horizontal {
+                let s = if sym.dir.0 < 0.0 { -1.0 } else { 1.0 };
+                format!(
+                    r##"  <line x1="{x0:.1}" y1="{y1:.1}" x2="{x0:.1}" y2="{y2:.1}" stroke="{color}" stroke-width="1.5"/>
+  <line x1="{x0:.1}" y1="{y3:.1}" x2="{x0:.1}" y2="{y4:.1}" stroke="{color}" stroke-width="1.5"/>
+  <line x1="{x0:.1}" y1="{y5:.1}" x2="{x0:.1}" y2="{y6:.1}" stroke="{color}" stroke-width="1.5"/>
+  <line x1="{x:.1}" y1="{y:.1}" x2="{x1:.1}" y2="{y:.1}" stroke="{color}" stroke-width="1.5"/>"##,
+                    x = x,
+                    x0 = x + s * gap,
+                    x1 = x + s * (bar1 / 2.0),
+                    y = y,
+                    y1 = y - bar1 / 2.0,
+                    y2 = y + bar1 / 2.0,
+                    y3 = y - bar2 / 2.0,
+                    y4 = y + bar2 / 2.0,
+                    y5 = y - bar3 / 2.0,
+                    y6 = y + bar3 / 2.0,
+                    color = color,
+                )
+            } else {
+                format!(
+                    r##"  <line x1="{x1:.1}" y1="{y:.1}" x2="{x2:.1}" y2="{y:.1}" stroke="{color}" stroke-width="1.5"/>
   <line x1="{x3:.1}" y1="{y2:.1}" x2="{x4:.1}" y2="{y2:.1}" stroke="{color}" stroke-width="1.5"/>
   <line x1="{x5:.1}" y1="{y3:.1}" x2="{x6:.1}" y2="{y3:.1}" stroke="{color}" stroke-width="1.5"/>
   <line x1="{x:.1}" y1="{y0:.1}" x2="{x:.1}" y2="{y:.1}" stroke="{color}" stroke-width="1.5"/>"##,
-                x = x,
-                x1 = x - bar_w1 / 2.0,
-                x2 = x + bar_w1 / 2.0,
-                x3 = x - bar_w2 / 2.0,
-                x4 = x + bar_w2 / 2.0,
-                x5 = x - bar_w3 / 2.0,
-                x6 = x + bar_w3 / 2.0,
-                y0 = y - bar_gap,
-                y = y,
-                y2 = y + bar_gap,
-                y3 = y + 2.0 * bar_gap,
-                color = color,
-            )
+                    x = x,
+                    x1 = x - bar1 / 2.0,
+                    x2 = x + bar1 / 2.0,
+                    x3 = x - bar2 / 2.0,
+                    x4 = x + bar2 / 2.0,
+                    x5 = x - bar3 / 2.0,
+                    x6 = x + bar3 / 2.0,
+                    y0 = y - gap,
+                    y = y,
+                    y2 = y + gap,
+                    y3 = y + 2.0 * gap,
+                    color = color,
+                )
+            }
         }
         TreeSymbolKind::NetLabel | TreeSymbolKind::Power => {
             // M3.5 (R1): text side comes from `text_side` (net region), NOT from
