@@ -26,6 +26,7 @@ pub mod entry_points;
 pub mod equi_audit;
 pub mod equi_chain;
 pub mod equi_column;
+pub mod equi_place;
 pub mod equipotential_tree;
 pub mod facade;
 pub mod flow;

@@ -132,16 +132,12 @@ fn apply_reserved_overrides(b: &mut McVecBox) {
 
 /// ★ C1b: extract component value from class name and symbol.
 ///
-/// When the component declaration doesn't provide a value parameter,
-/// derive a sensible default from the component type:
-///   - Resistor → "0R" (default 0 ohms)
-///   - Others → None (value unavailable)
-fn extract_component_value(_class_name: &str, symbol: &Symbol) -> Option<String> {
-    if symbol == &Symbol::Resistor {
-        Some("0R".to_string())
-    } else {
-        None
-    }
+/// When the component declaration doesn't provide a value parameter, there is
+/// nothing real to print — earlier code invented "0R" for every default resistor,
+/// which cluttered the schematic with a bogus value. Return `None` and let the
+/// renderer draw only the designator.
+fn extract_component_value(_class_name: &str, _symbol: &Symbol) -> Option<String> {
+    None
 }
 
 /// ★ Reserved interface ①: query a component class's custom pin layout.
