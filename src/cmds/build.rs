@@ -1274,4 +1274,64 @@ module top {
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
     }
+
+    // ── D8 ARRAY-INSTANCE BRACKET REFERENCE (problem A) ──────────────────
+    // A plain Series statement referencing a declared array of instances by
+    // its bracket form (`cap[4:5] -> PWR{VCC, GND}`) must re-link to the
+    // already-declared instances cap4/cap5 instead of being quarantined as
+    // `@_phantom_N` (0 connections, silent drop).
+
+    #[test]
+    fn d8_array_instance_bracket_reference_relinks() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let fixture = r#"
+component CAP {
+    pins = [
+        io [1,2] = NODE{P, N}
+    ]
+}
+module top {
+    io PWR{VCC, GND};
+    cap[4:5]::CAP();
+    cap[4:5] -> PWR{VCC, GND};
+}
+"#;
+        let (diags, build_err) = build_fixture(fixture);
+        assert!(
+            build_err.is_none(),
+            "D8 build should succeed. Build err: {:?}",
+            build_err
+        );
+        assert!(
+            !has_code(&diags, mcc::errcodes::NET_DROPPED_STATEMENT),
+            "D8 DROPPED_STATEMENT should NOT fire for an existing array-instance bracket ref. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+
+        // The bracket-form reference must land both array members on the
+        // other side's bus net (cap4.2 / cap5.2 on PWR.VCC), proving the
+        // re-link produced real connections instead of a phantom drop.
+        mcc::mcc_init_no_lib();
+        mcc::mcc_set_system_root(std::path::Path::new(""));
+        let uri = "/mcc/snippet.mc".to_string();
+        mcc::mcc_clear_workspace();
+        mcc::mcc_load_from_string(&uri, fixture);
+        let ident = McIds::from("top");
+        let inst = mcc::mcc_build(&ident, &uri).expect("mcc_build");
+        let vcc = inst
+            .nets
+            .iter()
+            .find(|(name, _)| name == "PWR.VCC")
+            .map(|(_, pts)| pts);
+        assert!(
+            vcc.is_some(),
+            "D8 PWR.VCC net missing. Nets: {:?}",
+            inst.nets.iter().map(|(n, _)| n).collect::<Vec<_>>()
+        );
+        let paths: Vec<&str> = vcc.unwrap().iter().map(|p| p.path.as_str()).collect();
+        assert!(
+            paths.contains(&"cap4.2") && paths.contains(&"cap5.2"),
+            "D8 both array instances must connect to PWR.VCC. PWR.VCC points: {paths:?}"
+        );
+    }
 }

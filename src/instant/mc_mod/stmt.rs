@@ -1664,6 +1664,9 @@ impl McModuleInst {
     /// Helper method extracted from `process_stmt`, handling Group / normal
     /// member connection dispatch. On failure the caller `process_stmt` catches
     /// and records the diagnosis.
+    ///
+    /// Also re-links bracket-form array instance references (`cap[4:5] -> ...`)
+    /// to the already-declared instances; see the re-link block in the body.
     fn try_connect_adjacent(
         &mut self,
         left_member: &McPhrase,
@@ -1706,6 +1709,43 @@ impl McModuleInst {
                 McPhrase::Endpoint(e) => format!("Endpoint({e:?})"),
                 _ => format!("{:?}", std::mem::discriminant(right_member)),
             };
+
+            // ── Array-form instance reference re-link ─────────────────────────
+            // Plain Series statements (`cap[4:5] -> PWR{VCC, GND}` / `cap[4] -> GND`)
+            // do not pass through the FuncCall path (stmt.rs resolve_array_caller_to_existing),
+            // so the bracket literal used to fall straight into node_to_netpoint and get
+            // quarantined as `@_phantom_N`, silently dropping the reference to the
+            // already-declared array instances. Re-link the bracket form to the
+            // existing instances here and connect each one to the other side.
+            if let Some(array_names) = this.resolve_array_caller_to_existing(left_member) {
+                let right_points = this.get_left_points(right_member)?;
+                for name in array_names {
+                    let left_points = match this.find_component(&name) {
+                        Some(comp) => comp.get_right_pin().map(|p| vec![p]).unwrap_or_default(),
+                        None => Vec::new(),
+                    };
+                    if left_points.is_empty() {
+                        continue;
+                    }
+                    this.create_connection(left_points, right_points.clone(), dir, None)?;
+                }
+                return Ok(());
+            }
+            if let Some(array_names) = this.resolve_array_caller_to_existing(right_member) {
+                let left_points = this.get_right_points(left_member)?;
+                for name in array_names {
+                    let right_points = match this.find_component(&name) {
+                        Some(comp) => comp.get_left_pin().map(|p| vec![p]).unwrap_or_default(),
+                        None => Vec::new(),
+                    };
+                    if right_points.is_empty() {
+                        continue;
+                    }
+                    this.create_connection(left_points.clone(), right_points, dir, None)?;
+                }
+                return Ok(());
+            }
+
             let left_is_group = matches!(left_member, McPhrase::Group { .. });
             let right_is_group = matches!(right_member, McPhrase::Group { .. });
 
@@ -3356,7 +3396,10 @@ impl McModuleInst {
             if name.contains('[') {
                 let ids = McIds::from(name.as_str());
                 let expanded = ids.expand();
-                if expanded.len() > 1 {
+                // Accept a single expanded name too (e.g. `cap[4]` -> ["cap4"]),
+                // guarded by the all_exist check below. The `> 1` gate rejected
+                // single-index references, leaving them quarantined as phantom.
+                if !expanded.is_empty() {
                     let all_exist = expanded
                         .iter()
                         .all(|n| self.components.iter().any(|c| &c.name == n));
