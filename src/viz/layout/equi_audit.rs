@@ -67,16 +67,17 @@
 //!   one for all five. M2 switched it to a nid lookup (`NetTopology.nid`),
 //!   which is unique.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::vector::graph::{BoxKind, EntrySide, McVecBox, McVecGraph, NetKind};
 
 use super::equipotential_tree::{
     assign_regions, assign_rows, build_topology, envelop_lanes, is_w_e_opposite, layer_anchor_id,
-    member_pin_point, net_corridor_demand, point_on_segment, realize, resolve_lanes,
-    segment_hits_box, slot_of, slot_point, EquiTree, Lane, NetTopology, PinGroup, Region,
-    RowSource, Terminal, TreeSymbolKind, LABEL_CHAR_W, LABEL_PAD, ROW_CLEAR,
+    member_pin_point, net_corridor_demand, partner_info, point_on_segment, realize, resolve_lanes,
+    segment_hits_box, slot_of, slot_point, tap_role, EquiTree, Lane, NetTopology, PinGroup, Region,
+    RowSource, TapRole, Terminal, TreeSymbol, TreeSymbolKind, LABEL_CHAR_W, LABEL_PAD, ROW_CLEAR,
+    SYMBOL_DROP, TOOTH_GAP,
 };
 
 // ============================================================================
@@ -100,6 +101,9 @@ pub enum Milestone {
     M2,
     /// `TapRole` replaces `MemberRole`.
     M3,
+    /// Rendering-overlap patch: R1–R4 + A17/A18 (label text side, edge-label
+    /// spacing, tooth gap, rail/lead spacing).
+    M3_5,
     /// Column model (`resolve_columns` / `rank.rs`).
     M4,
     /// Typography + terminals.
@@ -272,13 +276,12 @@ fn build_net_view(
         let role = if is_anchor {
             None
         } else {
-            let p = topo_idx
-                .and_then(|idx| super::equipotential_tree::partner_info(_topos, idx, group));
-            Some(
-                super::equipotential_tree::tap_role(b, lane.axis, p)
+            topo_idx.map(|idx| {
+                let p = super::equipotential_tree::partner_info(_topos, idx, group);
+                super::equipotential_tree::tap_role(b, &_topos[idx], p)
                     .short()
-                    .to_string(),
-            )
+                    .to_string()
+            })
         };
         taps.push(TapView {
             box_id: b.id,
@@ -667,6 +670,18 @@ pub fn audit_equi_tree(graph: &McVecGraph, layout_topos: &[NetTopology]) -> Equi
         check_a13_pin_overlap(graph),
         check_a14_label_fit(graph),
         check_a15_ground_band(&trees),
+        check_a16_ground_count_conservation(graph, layout_topos, &trees),
+        check_a17_text_overlap(graph, &trees),
+        check_a18_wire_collinear_edge(graph, &trees),
+        check_a21_members_do_not_overlap(graph, layout_topos),
+        check_a22_spanning_member_in_span(graph, layout_topos),
+        check_a23_shunt_near_anchor_pin(graph, layout_topos),
+        check_a24_no_wire_crossings(graph, layout_topos),
+        check_a25_label_clear_of_members(graph, layout_topos, &trees),
+        check_a26_shunt_balance(graph, layout_topos),
+        check_a27_pin_on_its_row(graph, layout_topos),
+        check_a28_along_is_collinear(graph, layout_topos),
+        check_a29_run_spans_disjoint(layout_topos),
     ];
 
     EquiAudit { checks }
@@ -946,12 +961,18 @@ fn check_a6_bridge_same_col() -> Check {
 
 /// No segment may cross a box that is not one of its own net's members.
 /// Label-kind boxes are excluded — they render as tree symbols, not rects.
+///
+/// M3.5: `since` moved M5 → M3 (it was computed but never gated, so the
+/// R4-class edge-pressures slipped through). The ONE tolerated class at M3.5 is
+/// a wire grazing a **cross-side spanning member** (two owners on W/E- or
+/// N/S-opposite sides) — those are reported as `(tolerated)` details and are
+/// cleared by M4's column model, per the M3/M3.5 criteria.
 fn check_a7_wire_through_box(
     graph: &McVecGraph,
     topos: &[NetTopology],
     trees: &[EquiTree],
 ) -> Check {
-    let mut c = Check::new("A7", "no wire passes through a foreign box", Milestone::M5);
+    let mut c = Check::new("A7", "no wire passes through a foreign box", Milestone::M3);
     for (topo, tree) in topos.iter().zip(trees.iter()) {
         let own: Vec<i64> = topo.groups.iter().map(|g| g.box_id).collect();
         for (i, seg) in tree.segments.iter().enumerate() {
@@ -969,9 +990,9 @@ fn check_a7_wire_through_box(
                     continue;
                 }
                 if segment_hits_box(seg.x1, seg.y1, seg.x2, seg.y2, b.x, b.y, b.w, b.h) {
-                    // M3: report the pair (SeriesHi, SeriesLo) a crossed member
-                    // belongs to, so the only tolerated residual class — a wire
-                    // grazing a cross-side spanning member — is identifiable.
+                    // Report the pair (SeriesHi, SeriesLo) a crossed member
+                    // belongs to, and decide whether it is the tolerated
+                    // cross-side class or a real defect.
                     let owners: Vec<&NetTopology> = topos
                         .iter()
                         .filter(|t| t.groups.iter().any(|g| g.box_id == b.id))
@@ -1001,10 +1022,20 @@ fn check_a7_wire_through_box(
                     } else {
                         String::new()
                     };
-                    c.fail(format!(
+                    let msg = format!(
                         "net '{}' (nid={}) seg#{i} crosses '{}' (id={}){pair}",
                         topo.net_name, topo.nid, b.name, b.id
-                    ));
+                    );
+                    let cross_side = owners.len() == 2
+                        && is_opposite_sides(owners[0].lane.region, owners[1].lane.region);
+                    if cross_side {
+                        // M3.5: tolerated — M4's column model clears this class.
+                        if c.details.len() < 24 {
+                            c.details.push(format!("(tolerated) {msg}"));
+                        }
+                    } else {
+                        c.fail(msg);
+                    }
                 }
             }
         }
@@ -1012,15 +1043,33 @@ fn check_a7_wire_through_box(
     c
 }
 
+/// Opposite-side region pair: W↔E or N↔S (the cross-side member class that
+/// A7 tolerates until M4's column model).
+fn is_opposite_sides(a: Region, b: Region) -> bool {
+    match (a, b) {
+        (Region::West, Region::East)
+        | (Region::East, Region::West)
+        | (Region::North, Region::South)
+        | (Region::South, Region::North) => true,
+        _ => false,
+    }
+}
+
 // ── A8 ──────────────────────────────────────────────────────────────────────
 
 /// A net with three or more tap points is a comb and must show at least one
 /// junction dot; without one it has degenerated into disconnected strokes.
+///
+/// M3.5: taps count the DRAWN structure only — `tree.symbols.len()` instead of
+/// `topo.terminals.len()`, because a terminal whose label box already exists
+/// (`has_label_box`) is suppressed and never drawn, so counting it inflated the
+/// tap count (ldo VCC: 3 "taps" but actually a 2-point VOUT→CAP_2 line, no
+/// junction needed).
 fn check_a8_junction_present(topos: &[NetTopology], trees: &[EquiTree]) -> Check {
     let mut c = Check::new("A8", "multi-tap nets carry a junction dot", Milestone::M5);
     for (topo, tree) in topos.iter().zip(trees.iter()) {
         let taps: usize =
-            topo.groups.iter().map(|g| g.pin_ids.len()).sum::<usize>() + topo.terminals.len();
+            topo.groups.iter().map(|g| g.pin_ids.len()).sum::<usize>() + tree.symbols.len();
         if taps >= 3 && tree.junction_dots.is_empty() && tree.segments.len() > 1 {
             c.fail(format!(
                 "net '{}' (nid={}) has {taps} taps, {} segments, 0 junction dots",
@@ -1152,8 +1201,13 @@ fn check_a11_same_row_opposite(layout_topos: &[NetTopology]) -> Check {
     let trunk: Vec<&NetTopology> = layout_topos.iter().filter(|t| !t.terminal_only).collect();
     for (i, a) in trunk.iter().enumerate() {
         for b in trunk.iter().skip(i + 1) {
+            // ★ M8.2: a RUN is collinear by construction — all of its nets share
+            // one row on one side, which is what lets the parts between them lie
+            // ALONG it. Same row is legal for a W/E-opposite pair (M3) OR for two
+            // nets of the same run.
             if (a.lane.axis - b.lane.axis).abs() < 0.5
                 && !is_w_e_opposite(a.lane.region, b.lane.region)
+                && a.run_root != b.run_root
             {
                 c.fail(format!(
                     "'{}' (nid={}) and '{}' (nid={}) share row {:.0} but are {:?}/{:?}",
@@ -1266,26 +1320,51 @@ fn check_a14_label_fit(graph: &McVecGraph) -> Check {
         }
         let mut left = 0usize;
         let mut right = 0usize;
+        let mut top = 0usize;
+        let mut bottom = 0usize;
+        let mut top_n = 0usize;
+        let mut bottom_n = 0usize;
         for s in &b.slots {
             let n = s.name.chars().count();
             match s.side {
                 EntrySide::Left => left = left.max(n),
                 EntrySide::Right => right = right.max(n),
-                _ => {}
+                EntrySide::Top => {
+                    top = top.max(n);
+                    top_n += 1;
+                }
+                EntrySide::Bottom => {
+                    bottom = bottom.max(n);
+                    bottom_n += 1;
+                }
             }
         }
-        // A box with no Left/Right pins (e.g. a vertical two-pin passive whose
-        // pins are Top/Bottom) has no side labels to fit — skip it, otherwise
-        // `2*LABEL_PAD` alone would "overflow" a 20-wide cap.
-        if left == 0 && right == 0 {
-            continue;
+        // L/R: the box must fit the two longest side labels plus padding.
+        // (A box with no Left/Right pins — a vertical two-pin passive — has no
+        // side labels to fit, so this check is skipped for it.)
+        if left > 0 || right > 0 {
+            let need = (left + right) as f64 * LABEL_CHAR_W + 2.0 * LABEL_PAD;
+            if need > b.w {
+                c.fail(format!(
+                    "box '{}' (id={}) needs width {:.0} for its labels, box is {:.0}",
+                    b.name, b.id, need, b.w
+                ));
+            }
         }
-        let need = (left + right) as f64 * LABEL_CHAR_W + 2.0 * LABEL_PAD;
-        if need > b.w {
-            c.fail(format!(
-                "box '{}' (id={}) needs width {:.0} for its labels, box is {:.0}",
-                b.name, b.id, need, b.w
-            ));
+        // M3.5 (R2): top/bottom pins are spread along the box width at
+        // `(i+1)/(n+1)`; the slot spacing must fit the widest edge label, else
+        // adjacent labels overlap (`SHIELD3SHIELD4` on a 5-pin bottom edge).
+        for (n, widest, edge) in [(top_n, top, "top"), (bottom_n, bottom, "bottom")] {
+            if n > 1 && widest > 0 {
+                let spacing = b.w / (n as f64 + 1.0);
+                let need = widest as f64 * LABEL_CHAR_W;
+                if spacing < need {
+                    c.fail(format!(
+                        "box '{}' (id={}) {edge} edge: {} pins, widest label {widest} chars needs {need:.0}px/slot, spacing is {spacing:.0}",
+                        b.name, b.id, n
+                    ));
+                }
+            }
         }
     }
     c
@@ -1297,20 +1376,669 @@ fn check_a14_label_fit(graph: &McVecGraph) -> Check {
 /// band (M2.5 Step 7). Before the fix, terminal-only grounds each picked a free
 /// stub direction locally, so two grounds on one layer sat half a page apart.
 fn check_a15_ground_band(trees: &[EquiTree]) -> Check {
-    let mut c = Check::new("A15", "ground glyphs share one band", Milestone::M2);
-    let glyphs: Vec<(f64, f64)> = trees
+    let mut c = Check::new("A15", "ground stub is short", Milestone::M2);
+    // ★ M7.5: the rule flipped. Up to M6 every ground glyph was pinned to one
+    // shared band (`max(South row) + SYMBOL_DROP`) and this check enforced that
+    // alignment — but on a layer whose free ground net sits far below the IC the
+    // shared band is far below everything, so the connecting vertical grew until
+    // it ran off the canvas. Short wire beats aligned glyph: a ground now hangs
+    // one SYMBOL_DROP off its own trunk in the first free direction, and this
+    // check enforces THAT instead.
+    for tree in trees {
+        for sym in tree.symbols.iter() {
+            if sym.kind != TreeSymbolKind::Ground {
+                continue;
+            }
+            // The stub is the segment that ends on the glyph. No such segment
+            // means the glyph sits directly on its attach node (the degenerate
+            // `pick_stub_dir` == None path) — length 0, trivially fine.
+            let stub = tree
+                .segments
+                .iter()
+                .filter(|g| {
+                    (g.x1 - sym.x).abs() < 1.0 && (g.y1 - sym.y).abs() < 1.0
+                        || (g.x2 - sym.x).abs() < 1.0 && (g.y2 - sym.y).abs() < 1.0
+                })
+                .map(|g| (g.x2 - g.x1).abs() + (g.y2 - g.y1).abs())
+                .fold(f64::MAX, f64::min);
+            if stub < f64::MAX && stub > SYMBOL_DROP + 1.0 {
+                c.fail(format!(
+                    "ground glyph of '{}' at ({:.0},{:.0}) hangs on a {stub:.0}px wire (max {:.0})",
+                    tree.net_name, sym.x, sym.y, SYMBOL_DROP
+                ));
+            }
+        }
+    }
+    c
+}
+
+// ── A16 ─────────────────────────────────────────────────────────────────────
+
+/// A16: ground-net count conservation across the whole pipeline —
+/// `(ground nets in the graph) == (ground topologies) == (ground glyphs drawn)`.
+/// This is the M6 end-to-end witness that `coalesce_equipotential_nets` (and the
+/// rail synthesis) never folds distinct per-consumer ground nets into one, which
+/// would short the decoupling caps and drop ground glyphs. `coalesce` is what
+/// the plan/m6.md M6.0 guards; the fixture here bypasses coalesce, so A16 locks
+/// the *downstream* invariant (topo == glyph) on top of it.
+fn check_a16_ground_count_conservation(
+    graph: &McVecGraph,
+    topos: &[NetTopology],
+    trees: &[EquiTree],
+) -> Check {
+    let mut c = Check::new("A16", "ground net count conserved", Milestone::M6);
+    let graph_gnd = graph
+        .nets
+        .iter()
+        .filter(|n| n.kind == NetKind::Ground)
+        .count();
+    let topo_gnd = topos
+        .iter()
+        .filter(|t| t.net_kind == NetKind::Ground)
+        .count();
+    let glyph_gnd = trees
         .iter()
         .flat_map(|t| t.symbols.iter())
-        .filter(|s| s.kind == TreeSymbolKind::Ground)
-        .map(|s| (s.x, s.y))
+        .filter(|s| matches!(s.kind, TreeSymbolKind::Ground))
+        .count();
+    if graph_gnd != topo_gnd {
+        c.fail(format!(
+            "ground nets in graph ({graph_gnd}) != ground topologies ({topo_gnd})"
+        ));
+    }
+    if topo_gnd != glyph_gnd {
+        c.fail(format!(
+            "ground topologies ({topo_gnd}) != ground glyphs drawn ({glyph_gnd})"
+        ));
+    }
+    c
+}
+
+// ── A17 / A18 ───────────────────────────────────────────────────────────────
+
+/// M3.5 (A17): a terminal symbol's label TEXT must not overlap any box, any
+/// wire of a DIFFERENT net, nor another symbol's label text. The text bbox is
+/// estimated by [`symbol_text_bbox`] (shared by every sub-check so it cannot
+/// drift from the renderer).
+fn check_a17_text_overlap(graph: &McVecGraph, trees: &[EquiTree]) -> Check {
+    let mut c = Check::new(
+        "A17",
+        "symbol text overlaps no box / foreign wire",
+        Milestone::M3_5,
+    );
+    for (tidx, tree) in trees.iter().enumerate() {
+        for sym in &tree.symbols {
+            if sym.label.is_empty() {
+                continue;
+            }
+            let (bx, by, w, h) = symbol_text_bbox(sym);
+            for b in &graph.boxes {
+                if b.w <= 0.0 || b.h <= 0.0 {
+                    continue;
+                }
+                if rects_overlap(bx, by, w, h, b.x, b.y, b.w, b.h) {
+                    c.fail(format!(
+                        "net '{}' label '{}' text box ({bx:.0},{by:.0} {w:.0}x{h:.0}) overlaps box '{}' (id={})",
+                        tree.net_name, sym.label, b.name, b.id
+                    ));
+                }
+            }
+            for (tid2, tree2) in trees.iter().enumerate() {
+                if tid2 == tidx {
+                    continue;
+                }
+                for seg in &tree2.segments {
+                    if segment_hits_box(seg.x1, seg.y1, seg.x2, seg.y2, bx, by, w, h) {
+                        c.fail(format!(
+                            "net '{}' label '{}' text box overlaps a wire of net '{}'",
+                            tree.net_name, sym.label, tree2.net_name
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    // M3.5: text vs text — two TreeSymbol labels pressed together (A14 only
+    // covers pin labels, not symbol labels). Compare every labelled symbol
+    // against every later one, including same-net pairs (a net carries at most
+    // one label, so a same-net hit is still a real duplicate).
+    let labeled: Vec<(usize, &TreeSymbol, &EquiTree)> = trees
+        .iter()
+        .enumerate()
+        .flat_map(|(ti, t)| {
+            t.symbols
+                .iter()
+                .filter(|s| !s.label.is_empty())
+                .map(move |s| (ti, s, t))
+        })
         .collect();
-    if glyphs.len() >= 2 {
-        let lo = glyphs.iter().map(|(_, y)| *y).fold(f64::MAX, f64::min);
-        let hi = glyphs.iter().map(|(_, y)| *y).fold(f64::MIN, f64::max);
-        if hi - lo > 1.0 {
-            for (x, y) in &glyphs {
+    for (k, (_, sym, tree)) in labeled.iter().enumerate() {
+        let (bx, by, w, h) = symbol_text_bbox(sym);
+        for (_, sym2, tree2) in labeled.iter().skip(k + 1) {
+            let (bx2, by2, w2, h2) = symbol_text_bbox(sym2);
+            if rects_overlap(bx, by, w, h, bx2, by2, w2, h2) {
                 c.fail(format!(
-                    "ground glyph at ({x:.0},{y:.0}) — band range {lo:.0}..{hi:.0}"
+                    "net '{}' label '{}' text overlaps net '{}' label '{}'",
+                    tree.net_name, sym.label, tree2.net_name, sym2.label
+                ));
+            }
+        }
+    }
+    c
+}
+
+/// Estimated text bounding box of a terminal symbol, matching the renderer
+/// (font 10px, ~0.6×char width, anchored by `text_side`: `-1` → "end" at x-4
+/// extends left, `+1` → "start" at x+4 extends right; y centred).
+fn symbol_text_bbox(sym: &TreeSymbol) -> (f64, f64, f64, f64) {
+    let font_size = 10.0;
+    let w = sym.label.chars().count() as f64 * font_size * 0.6;
+    let h = font_size;
+    let (bx, by) = if sym.text_side < 0.0 {
+        (sym.x - 4.0 - w, sym.y - h / 2.0)
+    } else {
+        (sym.x + 4.0, sym.y - h / 2.0)
+    };
+    (bx, by, w, h)
+}
+
+/// M3.5 (A18): no wire may run COLLINEAR with a box edge for a significant
+/// distance — e.g. a West pin's tooth used to coincide with `x = box.x` and
+/// draw a wire on top of the box border for the whole span (R3). `TOOTH_GAP`
+/// moves anchor teeth outward; this check pins the invariant. Only segments
+/// whose collinear overlap with the edge EXCEEDS `TOOTH_GAP` are flagged — the
+/// short `TOOTH_GAP` pin leads and a terminal symbol's brief stub connection
+/// are intentional, not edge-running.
+fn check_a18_wire_collinear_edge(graph: &McVecGraph, trees: &[EquiTree]) -> Check {
+    let mut c = Check::new(
+        "A18",
+        "no wire runs collinear with a box edge",
+        Milestone::M3_5,
+    );
+    let eps = 1.0;
+    for tree in trees {
+        for seg in &tree.segments {
+            for b in &graph.boxes {
+                if b.w <= 0.0 || b.h <= 0.0 {
+                    continue;
+                }
+                if (seg.x1 - seg.x2).abs() < eps {
+                    // vertical segment: collinear with the box's left/right edge
+                    for ex in [b.x, b.x + b.w] {
+                        if (seg.x1 - ex).abs() < eps {
+                            let ys = seg.y1.min(seg.y2);
+                            let ye = seg.y1.max(seg.y2);
+                            let overlap = ye.min(b.y + b.h) - ys.max(b.y);
+                            if overlap > TOOTH_GAP {
+                                c.fail(format!(
+                                    "net '{}' segment ({:.0},{:.0})-({:.0},{:.0}) runs {overlap:.0}px along the vertical edge x={ex:.0} of box '{}' (id={})",
+                                    tree.net_name, seg.x1, seg.y1, seg.x2, seg.y2, b.name, b.id
+                                ));
+                            }
+                        }
+                    }
+                }
+                if (seg.y1 - seg.y2).abs() < eps {
+                    // horizontal segment: collinear with the box's top/bottom edge
+                    for ey in [b.y, b.y + b.h] {
+                        if (seg.y1 - ey).abs() < eps {
+                            let xs = seg.x1.min(seg.x2);
+                            let xe = seg.x1.max(seg.x2);
+                            let overlap = xe.min(b.x + b.w) - xs.max(b.x);
+                            if overlap > TOOTH_GAP {
+                                c.fail(format!(
+                                    "net '{}' segment ({:.0},{:.0})-({:.0},{:.0}) runs {overlap:.0}px along the horizontal edge y={ey:.0} of box '{}' (id={})",
+                                    tree.net_name, seg.x1, seg.y1, seg.x2, seg.y2, b.name, b.id
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    c
+}
+
+/// Two axis-aligned rects overlap (inclusive).
+fn rects_overlap(x0: f64, y0: f64, w0: f64, h0: f64, x1: f64, y1: f64, w1: f64, h1: f64) -> bool {
+    x0 < x1 + w1 && x1 < x0 + w0 && y0 < y1 + h1 && y1 < y0 + h0
+}
+
+// ── A21 / A22 / A23 ─────────────────────────────────────────────────────────
+
+/// M4.0 (A21): no two member boxes may occupy the same place — horizontal AND
+/// vertical overlap (both > 4px) on the same row is a column collision. This is
+/// the *baseline* check for M4's column allocator: it is expected to be red
+/// before M4 (frac placement `(i+1)/(n+1)` can stack two members at one x) and
+/// green after `place_members_by_columns`. Not gated until M4.
+fn check_a21_members_do_not_overlap(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A21", "same-row members do not collide", Milestone::M4);
+    let member_ids: BTreeSet<i64> = topos
+        .iter()
+        .flat_map(|t| t.groups.iter().skip(1).map(|g| g.box_id))
+        .collect();
+    let boxes: Vec<&McVecBox> = graph
+        .boxes
+        .iter()
+        .filter(|b| member_ids.contains(&b.id) && b.geom_locked && b.w > 0.0 && b.h > 0.0)
+        .collect();
+    let eps = 4.0;
+    for (k, a) in boxes.iter().enumerate() {
+        for b in boxes.iter().skip(k + 1) {
+            if a.id == b.id {
+                continue;
+            }
+            let wx = a.x.max(a.x + a.w).min(b.x.max(b.x + b.w))
+                - a.x.min(a.x + a.w).max(b.x.min(b.x + b.w));
+            let wy = a.y.max(a.y + a.h).min(b.y.max(b.y + b.h))
+                - a.y.min(a.y + a.h).max(b.y.min(b.y + b.h));
+            if wx > eps && wy > eps {
+                c.fail(format!(
+                    "members '{}' (id={}) and '{}' (id={}) collide: {}x{} overlap",
+                    a.name, a.id, b.name, b.id, wx as i64, wy as i64
+                ));
+            }
+        }
+    }
+    c
+}
+
+/// M4.0 (A22): a cross-row (vertical) member — a two-pin box shared by two nets
+/// on different rows — must sit inside BOTH rows' trunk spans. This is the
+/// baseline for M4's cross-row column alignment: before M4 the two rows are enveloped
+/// independently and a vertical member can drift outside one of them. Not gated
+/// until M4.
+fn check_a22_spanning_member_in_span(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new(
+        "A22",
+        "cross-row member sits in both trunk spans",
+        Milestone::M4,
+    );
+    // box_id → (nid, span_lo, span_hi, row_axis) for every net that owns it.
+    let mut owner: BTreeMap<i64, Vec<(i64, f64, f64, f64)>> = BTreeMap::new();
+    for t in topos {
+        if t.terminal_only || t.groups.len() < 2 {
+            continue;
+        }
+        let (lo, hi) = t.lane.span;
+        for g in t.groups.iter().skip(1) {
+            owner
+                .entry(g.box_id)
+                .or_default()
+                .push((t.nid, lo, hi, t.lane.axis));
+        }
+    }
+    for (box_id, owners) in owner {
+        // a two-pin member shared by two nets = a spanning part.
+        if owners.len() < 2 {
+            continue;
+        }
+        let Some(b) = graph.boxes.iter().find(|b| b.id == box_id) else {
+            continue;
+        };
+        let xc = b.x + b.w / 2.0;
+        let dist = owners
+            .iter()
+            .filter_map(|&(nid, lo, hi, _)| {
+                if nid == 0 || (lo - hi).abs() < 1e-6 {
+                    // a degenerate/span-only net in one of the two; check x vs
+                    // the one real span only.
+                    None
+                } else {
+                    Some((lo, hi))
+                }
+            })
+            .collect::<Vec<(f64, f64)>>();
+        if dist.len() < 2 {
+            continue;
+        }
+        for (lo, hi) in &dist {
+            let (slo, shi) = if lo < hi { (*lo, *hi) } else { (*hi, *lo) };
+            if !(xc >= slo - 4.0 && xc <= shi + 4.0) {
+                c.fail(format!(
+                    "cross-row member '{}' (id={}) centre x={xc:.0} outside a span [{slo:.0},{shi:.0}]",
+                    b.name, box_id
+                ));
+            }
+        }
+    }
+    c
+}
+
+/// M4.0 (A23): a decoupling ("Shunt") member — a two-pin vertical hang whose
+/// partner is Ground or terminal-only — must sit within `2 * MEMBER_GAP` of the
+/// anchor pin it decouples. Baseline for M4's pin-hugging shunt placement. Not gated until M4.
+fn check_a23_shunt_near_anchor_pin(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A23", "shunt sits next to its decoupled pin", Milestone::M4);
+    const MEMBER_GAP_LOCAL: f64 = 60.0;
+    let limit = 2.0 * MEMBER_GAP_LOCAL;
+    for t in topos {
+        if t.terminal_only || t.groups.len() < 2 {
+            continue;
+        }
+        let Some(anchor_box) = graph.boxes.iter().find(|b| b.id == t.anchor) else {
+            continue;
+        };
+        // anchor tap pin x = first pin slot of the anchor group.
+        let anchor_pin_x = t
+            .groups
+            .first()
+            .and_then(|g| g.pin_ids.first())
+            .and_then(|&pid| slot_of(anchor_box, pid))
+            .map(|s| slot_point(anchor_box, s).0);
+        let Some(pin_x) = anchor_pin_x else {
+            continue;
+        };
+        // A decoupling member: two-pin vertical hang on this net.
+        for g in t.groups.iter().skip(1) {
+            let Some(b) = graph.boxes.iter().find(|b| b.id == g.box_id) else {
+                continue;
+            };
+            if g.pin_ids.len() != 2 {
+                continue;
+            }
+            let xc = b.x + b.w / 2.0;
+            if (xc - pin_x).abs() > limit {
+                c.fail(format!(
+                    "member '{}' (id={}) centre x={xc:.0} is {:.0}px from anchor pin {pin_x:.0} (> {limit:.0})",
+                    b.name, b.id, (xc - pin_x).abs()
+                ));
+            }
+        }
+    }
+    c
+}
+
+// ── M5.0: A24 / A25 / A26 ─────────────────────────────────────────────────
+
+/// M5.0 (A24): two members on the SAME side must not cross. If net A's anchor
+/// tap sits left of net B's anchor tap but A's member column lands right of
+/// B's column, the two connecting teeth cross into an X on the trunk. So for
+/// every pair (i, j) on the same side where `anchor_pin_x[i] < anchor_pin_x[j]`
+/// we require `member_centre_x[i] <= member_centre_x[j]`.
+///
+/// `anchor_pin_x` is the net's anchor-edge x (`b.x` for West, `b.x + b.w` for
+/// East) — the exact base the column allocator grows members from, so ordering
+/// by it reproduces the allocator's decision order. InlineEnd members sit AT
+/// their tap and are exempt; their lateral offset is ornamental, not a tooth.
+fn check_a24_no_wire_crossings(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A24", "same-side members do not cross", Milestone::M5);
+    // (region, anchor_edge_x, member_centre_x, box_id, box_name)
+    let mut entries: Vec<(Region, f64, f64, i64, String)> = Vec::new();
+    for (idx, topo) in topos.iter().enumerate() {
+        if topo.terminal_only {
+            continue;
+        }
+        match topo.lane.region {
+            Region::West | Region::East => {}
+            _ => continue,
+        }
+        let anchor_edge = {
+            let ab = graph.boxes.iter().find(|b| b.id == topo.anchor);
+            match topo.lane.region {
+                Region::West => ab.map(|b| b.x).unwrap_or(0.0),
+                _ => ab.map(|b| b.x + b.w).unwrap_or(0.0),
+            }
+        };
+        for group in topo.groups.iter().skip(1) {
+            let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
+                continue;
+            };
+            let role = tap_role(b, topo, partner_info(topos, idx, group));
+            if matches!(role, TapRole::InlineEnd) {
+                continue;
+            }
+            entries.push((
+                topo.lane.region,
+                anchor_edge,
+                b.x + b.w / 2.0,
+                b.id,
+                b.name.clone(),
+            ));
+        }
+    }
+    for region in [Region::West, Region::East] {
+        let mut side: Vec<&(Region, f64, f64, i64, String)> =
+            entries.iter().filter(|e| e.0 == region).collect();
+        // Order by anchor tap x — the allocator's decision order on this side.
+        side.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.3.cmp(&b.3)));
+        for w in side.windows(2) {
+            let a = w[0];
+            let b = w[1];
+            // Same anchor edge: same column start; not a crossing.
+            if (a.1 - b.1).abs() < 0.5 {
+                continue;
+            }
+            if a.2 > b.2 + 0.5 {
+                c.fail(format!(
+                    "crossing: '{}' (id={}) anchor_x={:.0} col_x={:.0} ; '{}' (id={}) anchor_x={:.0} col_x={:.0}",
+                    a.4, a.3, a.1, a.2, b.4, b.3, b.1, b.2
+                ));
+            }
+        }
+    }
+    c
+}
+
+/// M5.0 (A25): a terminal symbol's label TEXT must not overlap a MEMBER box of
+/// a DIFFERENT net. A17 already covers text-vs-IC-box and text-vs-foreign-wire;
+/// A25 is the complementary member-box check (the M5.2 nudger's target).
+fn check_a25_label_clear_of_members(
+    graph: &McVecGraph,
+    topos: &[NetTopology],
+    trees: &[EquiTree],
+) -> Check {
+    let mut c = Check::new(
+        "A25",
+        "label text clears foreign member boxes",
+        Milestone::M5,
+    );
+    // box_id -> set of owning nets from the NON-anchor (member) groups.
+    let mut member_owner: BTreeMap<i64, BTreeSet<i64>> = BTreeMap::new();
+    for t in topos {
+        for g in t.groups.iter().skip(1) {
+            member_owner.entry(g.box_id).or_default().insert(t.nid);
+        }
+    }
+    // (net_name, symbol) for every labelled symbol, in tree order.
+    let labelled: Vec<(&str, &TreeSymbol)> = trees
+        .iter()
+        .flat_map(|t| {
+            t.symbols
+                .iter()
+                .filter(|s| !s.label.is_empty())
+                .map(|s| (t.net_name.as_str(), s))
+        })
+        .collect();
+    for (net_name, sym) in &labelled {
+        let (bx, by, w, h) = symbol_text_bbox(sym);
+        for (&bid, owners) in &member_owner {
+            if owners.contains(&sym.net_id) {
+                continue; // own net's member box — allowed
+            }
+            let Some(b) = graph.boxes.iter().find(|bb| bb.id == bid) else {
+                continue;
+            };
+            if rects_overlap(bx, by, w, h, b.x, b.y, b.w, b.h) {
+                c.fail(format!(
+                    "net '{}' label '{}' text box overlaps foreign member '{}' (id={})",
+                    net_name, sym.label, b.name, b.id
+                ));
+            }
+        }
+    }
+    c
+}
+
+/// M5.0 (A26): on any single trunk row with >= 2 shunt (Drop) members, the
+/// number hanging UP vs DOWN must differ by at most 1. Guards against a row's
+/// decoupling caps piling all on one side of the trunk.
+///
+/// ★ M7.3: only **free** Drops (`dir == 0.0`) are counted. A Drop into a Ground
+/// net is pinned DOWN by `tap_role` — the ground rails and the shared ground
+/// band are always below the side rows, so hanging it up for cosmetic balance
+/// forces the ground tooth back over the member's own body. Counting pinned
+/// Drops here would demand exactly that (it is what flipped `modldo` `_C2` and
+/// `moddcdc` `_C2` upward), so the check now measures only the freedom the
+/// placer actually has.
+fn check_a26_shunt_balance(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A26", "shunt up/down balance on a row", Milestone::M5);
+    // row-key(axis*10) -> (up_count, down_count)
+    let mut per_row: BTreeMap<i64, (usize, usize)> = BTreeMap::new();
+    for (idx, topo) in topos.iter().enumerate() {
+        if topo.terminal_only {
+            continue;
+        }
+        let row_key = (topo.lane.axis * 10.0).round() as i64;
+        for group in topo.groups.iter().skip(1) {
+            let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
+                continue;
+            };
+            let role = tap_role(b, topo, partner_info(topos, idx, group));
+            let TapRole::Drop { dir } = role else {
+                continue;
+            };
+            if dir != 0.0 {
+                continue; // pinned by electrics, not free to balance
+            }
+            let cy = b.y + b.h / 2.0;
+            let entry = per_row.entry(row_key).or_default();
+            if cy < topo.lane.axis {
+                entry.0 += 1;
+            } else {
+                entry.1 += 1;
+            }
+        }
+    }
+    for (row_key, (up, down)) in per_row {
+        let total = up + down;
+        if total >= 2 && (up as isize - down as isize).abs() > 1 {
+            c.fail(format!(
+                "row y={:.0} has {up} up / {down} down shunts (imbalanced)",
+                row_key as f64 / 10.0
+            ));
+        }
+    }
+    c
+}
+
+// ── M7.4: A27 ──────────────────────────────────────────────
+
+/// ★ M7.4 (A27): a West/East net's trunk row sits ON one of its layer-anchor
+/// pins.
+///
+/// This is the check whose absence let the row desync ship. A2 compares the
+/// layout lane against the render replay — both were wrong in the SAME way, so
+/// A2 stayed green while every pin sat a constant offset above its own trunk and
+/// `realize` drew a long tooth from the pin down to the row, through whatever
+/// member hung in between. Nothing in A1..A26 relates a placed pin's y back to
+/// `lane.axis`; A27 does exactly that and nothing else.
+///
+/// A net with several pins on one side legitimately reaches the extra ones
+/// through a tooth (`ldo` POWER_SYS = VIN + CE), so the requirement is that at
+/// least ONE of its anchor pins lands on the row — not all of them.
+fn check_a27_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A27", "IC side pin sits on its net's row", Milestone::M6);
+    let layer_anchor = layer_anchor_id(topos);
+    let Some(ab) = graph.boxes.iter().find(|b| b.id == layer_anchor) else {
+        return c;
+    };
+    for topo in topos {
+        if topo.terminal_only {
+            continue;
+        }
+        if !matches!(topo.lane.region, Region::West | Region::East) {
+            continue;
+        }
+        let Some(g) = topo.groups.first() else {
+            continue;
+        };
+        if g.box_id != layer_anchor {
+            continue;
+        }
+        let mut best = f64::MAX;
+        for &pid in &g.pin_ids {
+            let Some(slot) = slot_of(ab, pid) else {
+                continue;
+            };
+            if !matches!(slot.side, EntrySide::Left | EntrySide::Right) {
+                continue;
+            }
+            let (_px, py) = slot_point(ab, slot);
+            best = best.min((py - topo.lane.axis).abs());
+        }
+        if best < f64::MAX && best > 1.0 {
+            c.fail(format!(
+                "net '{}' (nid={}) row y={:.0} but its nearest anchor pin is {best:.0}px away",
+                topo.net_name, topo.nid, topo.lane.axis
+            ));
+        }
+    }
+    c
+}
+
+// ── M8: A28 / A29 ───────────────────────────────────────────
+
+/// ★ M8 (A28): the two nets of an ALONG part are collinear.
+///
+/// An Along part is drawn IN the wire, so both of its nets must sit on the same
+/// row; otherwise the "one straight line with a component inserted" reading
+/// breaks and the part's two pins point at two different rows.
+fn check_a28_along_is_collinear(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A28", "Along part's two nets share a row", Milestone::M6);
+    for (idx, topo) in topos.iter().enumerate() {
+        if topo.terminal_only {
+            continue;
+        }
+        for group in topo.groups.iter().skip(1) {
+            let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
+                continue;
+            };
+            let p = partner_info(topos, idx, group);
+            if !matches!(tap_role(b, topo, p), TapRole::Series { .. }) {
+                continue;
+            }
+            let other = topos
+                .iter()
+                .enumerate()
+                .find(|(j, o)| *j != idx && o.groups.iter().any(|g| g.box_id == group.box_id));
+            let Some((_, other)) = other else { continue };
+            if (other.lane.axis - topo.lane.axis).abs() > 1.0 {
+                c.fail(format!(
+                    "'{}' lies along the wire between '{}' (row {:.0}) and '{}' (row {:.0}) — not collinear",
+                    b.name, topo.net_name, topo.lane.axis, other.net_name, other.lane.axis
+                ));
+            }
+        }
+    }
+    c
+}
+
+/// ★ M8 (A29): the trunks of one RUN tile the row — they never overlap.
+///
+/// Two nets of a run are separated by the part between them, so their spans meet
+/// on its pins rather than running through each other. An overlap means the
+/// prefix sum in `chain_origins` under-reserved and one net's members are
+/// sitting on its neighbour's wire.
+fn check_a29_run_spans_disjoint(topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A29", "run trunks do not overlap", Milestone::M6);
+    for (i, a) in topos.iter().enumerate() {
+        if a.terminal_only {
+            continue;
+        }
+        for b in topos.iter().skip(i + 1) {
+            if b.terminal_only || a.run_root != b.run_root || a.nid == b.nid {
+                continue;
+            }
+            let alo = a.lane.span.0.min(a.lane.span.1);
+            let ahi = a.lane.span.0.max(a.lane.span.1);
+            let blo = b.lane.span.0.min(b.lane.span.1);
+            let bhi = b.lane.span.0.max(b.lane.span.1);
+            if alo.max(blo) + 1.0 < ahi.min(bhi) {
+                c.fail(format!(
+                    "'{}' [{alo:.0},{ahi:.0}] and '{}' [{blo:.0},{bhi:.0}] are one run but their trunks overlap",
+                    a.net_name, b.net_name
                 ));
             }
         }
@@ -1601,6 +2329,110 @@ pub(crate) mod fixture {
 
         g
     }
+
+    /// `series_bridge_shunt` — the M4.5 buck-converter witness for the column
+    /// model (A21 / A22 / A23).
+    ///
+    /// A switching buck exercises the column allocator's two reachable
+    /// two-pin roles side by side on one picture:
+    ///   * **Drop (shunt)** — `CAP_IN` (VIN→GND) and `CAP_OUT` (VOUT→GND)
+    ///     hug their decoupled anchor pin (A23);
+    ///   * **Bridge** — `IND` (SW→VOUT, free East net on a lower row) and
+    ///     `R_FB` (VOUT↔FB) span two trunk rows and must sit inside BOTH
+    ///     trunks' spans (A22);
+    /// and A21 asserts none of them collide — the exact regression the
+    /// per-net frac placement produced. A true `Series` (same-row partner)
+    /// is structurally unreachable in the RowAllocator (a free net always
+    /// lands strictly below its partner band), so Bridge/Drop are the
+    /// exhaustive vertical cases the allocator must handle.
+    ///
+    /// ID plan:
+    /// ```text
+    ///   1        conv          pins 101..105 = VIN, GND, SW, FB, EN
+    ///   11       CAP_IN        pins 111 / 112
+    ///   12       CAP_EN        pins 121 / 122
+    ///   13       CAP_OUT       pins 131 / 132
+    ///   21       R_FB          pins 211 / 212
+    ///   31       IND           pins 311 / 312
+    /// ```
+    pub(crate) fn build_series_bridge_graph() -> McVecGraph {
+        let mut g = McVecGraph::new(3000, "series_bridge_shunt".into());
+        g.layer_style = LayerStyle::Device;
+
+        // A 5-pin buck (EN, GND, SW, FB, VIN) mirrors moddcdc's proven-clean
+        // side balance: three West rows (EN / FB / VIN) + one East (SW), with
+        // VIN placed at the BOTTOM West slot so its long input-shunt tooth
+        // hangs below the other West labels (A17). Row order is pin order.
+        g.boxes.push(mk_box(
+            1,
+            "conv",
+            "BUCK",
+            BoxKind::MultiPin,
+            Symbol::Ic,
+            &[
+                (101, "1", "EN", IoDirection::Input),
+                (102, "2", "GND", IoDirection::Ground),
+                (103, "3", "SW", IoDirection::Output),
+                (104, "4", "FB", IoDirection::Input),
+                (105, "5", "VIN", IoDirection::Power),
+            ],
+        ));
+        // Input shunt: VIN → GND.
+        g.boxes
+            .push(two_pin(11, "CAP_IN", "CAP", Symbol::Capacitor, 111, 112));
+        // Enable shunt: EN → GND.
+        g.boxes
+            .push(two_pin(12, "CAP_EN", "CAP", Symbol::Capacitor, 121, 122));
+        // Output shunt: VOUT → GND.
+        g.boxes
+            .push(two_pin(13, "CAP_OUT", "CAP", Symbol::Capacitor, 131, 132));
+        // Feedback divider: VOUT → FB.
+        g.boxes
+            .push(two_pin(21, "R_FB", "RES", Symbol::Resistor, 211, 212));
+        // Output inductor: SW → VOUT (the bridge across two rows).
+        g.boxes
+            .push(two_pin(31, "IND", "IND", Symbol::Inductor, 311, 312));
+        // Port labels so the power nets carry a visible terminal.
+        g.boxes.push(label(41, "VDD", 411, false));
+        g.boxes.push(label(42, "GND", 421, true));
+
+        // GND (input): conv.102 + VIN/EN shunts + label. Per-consumer ground,
+        // like moddcdc — the output cap's ground is a SEPARATE net so VOUT
+        // inherits East (from SW) instead of South, mirroring a real buck.
+        g.nets.push(net(
+            601,
+            "GND",
+            NetKind::Ground,
+            &[(1, 102), (11, 112), (12, 122), (42, 421)],
+        ));
+        // GND_B (output): output shunt alone → terminal-only per-consumer ground.
+        g.nets.push(net(606, "GND", NetKind::Ground, &[(13, 132)]));
+        // VIN (Power, West): conv.105 + input shunt + label.
+        g.nets.push(net(
+            602,
+            "VIN",
+            NetKind::Power,
+            &[(1, 105), (11, 111), (41, 411)],
+        ));
+        // EN (Signal, West): conv.101 + enable shunt.
+        g.nets
+            .push(net(607, "EN", NetKind::Signal, &[(1, 101), (12, 121)]));
+        // SW (Signal, East): conv.103 + inductor.
+        g.nets
+            .push(net(603, "SW", NetKind::Signal, &[(1, 103), (31, 311)]));
+        // VOUT (free, East): inductor + output shunt + feedback divider.
+        g.nets.push(net(
+            604,
+            "VOUT",
+            NetKind::Power,
+            &[(31, 312), (13, 131), (21, 211)],
+        ));
+        // FB (Signal, West): conv.104 + feedback divider.
+        g.nets
+            .push(net(605, "FB", NetKind::Signal, &[(1, 104), (21, 212)]));
+
+        g
+    }
 }
 
 // ============================================================================
@@ -1610,7 +2442,7 @@ pub(crate) mod fixture {
 #[cfg(test)]
 mod tests {
     use super::super::equipotential_tree::place_by_topology;
-    use super::fixture::{build_ldo_graph, build_moddcdc_graph};
+    use super::fixture::{build_ldo_graph, build_moddcdc_graph, build_series_bridge_graph};
     use super::*;
 
     /// Run the pipeline once and hand back everything the observatory needs.
@@ -1765,11 +2597,10 @@ mod tests {
         write_dump("moddcdc.M0", &body);
         eprintln!("{body}");
 
-        // Enforced at M3: A1/A2/A2b/A10/A11/A12/A13/A14/A15 and A4 (the
-        // two-pin passive orientation). A7/A8 (due M5) are computed and
-        // printed but tolerated — A7's only residuals are the cross-side
-        // spanning pair (VCC_1V2↔__net_5) the M3 spec allows.
-        audit.assert_clean_through(Milestone::M3);
+        // Enforced through M3_5: A1/A2/A2b/A10-A15, A4 and A17/A18. M4 adds
+        // A21/A22/A23 (column model). M5 adds A24/A25/A26. M6 adds A16 (ground
+        // count conservation) — all green on moddcdc.
+        audit.assert_clean_through(Milestone::M6);
     }
 
     /// M3 fixture assertions (plan M3 completion criteria).
@@ -1784,16 +2615,24 @@ mod tests {
     #[test]
     fn moddcdc_m3_fixture_assertions() {
         let (g, topos) = placed();
-        let audit = audit_equi_tree(&g, &topos);
+        let _audit = audit_equi_tree(&g, &topos);
 
         let anchor = g
             .boxes
             .iter()
             .find(|b| b.id == layer_anchor_id(&topos))
             .expect("layer anchor box");
+        // M3.5 (R4): `LEAD` 0 → 20 raised the corridor demand (`LEAD + h`), so
+        // the IC grew from 200 to 240 — the price of the visible lead-wire
+        // segments (the M3.2 `<= 200` win is partially traded back, accepted in
+        // the R4 plan for the correct Bridge/Drop geometry).
+        //
+        // ★ M7.1: the netlist coupling moved FB from West to East, so the IC
+        // dropped from 3 West bands to 2 (West VIN/EN, East LX/FB) and the box
+        // shrank from 240 to 140. The bound is tightened to lock that in.
         assert!(
-            anchor.h <= 200.0,
-            "lp322dcdc height {:.0} exceeds the M2.5 <= 200 target",
+            anchor.h <= 160.0,
+            "lp322dcdc height {:.0} exceeds the M7.1 bound (160, 2 bands)",
             anchor.h
         );
 
@@ -1813,8 +2652,19 @@ mod tests {
         }
         let ind = b("IND_1");
         assert!(
-            ind.h > ind.w,
-            "IND_1 must be vertical (Bridge LX→VCC_1V2); horizontal would violate A11"
+            ind.w > ind.h,
+            "IND_1 must be horizontal (Along: LX → VCC_1V2), got w={} h={}",
+            ind.w,
+            ind.h
+        );
+        let net3 = topos.iter().find(|t| t.net_name == "__net_3").unwrap();
+        let vcc = topos.iter().find(|t| t.net_name == "VCC_1V2").unwrap();
+        assert_eq!(net3.run_root, vcc.run_root, "LX and VCC_1V2 are one run");
+        assert!(
+            (net3.lane.axis - vcc.lane.axis).abs() < 1.0,
+            "a run is collinear: {} vs {}",
+            net3.lane.axis,
+            vcc.lane.axis
         );
 
         // A4 is green on this fixture (structural: every 2-pin passive got
@@ -1834,7 +2684,6 @@ mod tests {
     #[test]
     fn series_member_is_horizontal() {
         use super::fixture::{mk_box, net, two_pin};
-        use crate::vector::graph::boxdef::{BoxPin, IoSummary, PortDir};
         use crate::vector::graph::netdef::IoDirection;
         use crate::vector::graph::symbol::Symbol;
         use crate::vector::graph::LayerStyle;
@@ -1844,6 +2693,14 @@ mod tests {
         // The two-pin passive is id 1, the IC id 2: `select_anchor_deterministic`
         // breaks pin-count ties by larger box id, so the IC anchors both nets and
         // CAP_1 stays a member (the thing we want to classify as Series).
+        //
+        // ★ M7.1: NET_A and NET_B share CAP_1, so the coupling pass would pull
+        // the weaker net (IN) across to the OUT side and CAP_1 would become a
+        // Bridge. NET_B carries two anchor pins, so the post-move imbalance
+        // stays above `SIDE_IMBALANCE_MAX`, the move is refused, and the two
+        // nets stay on opposite sides on the same band — the one path where a
+        // genuine Series (and its horizontal orientation) is still reachable.
+        // The long pin labels keep the IC wider than its 2-row height.
         g.boxes
             .push(two_pin(1, "CAP_1", "CAP", Symbol::Capacitor, 11, 12));
         g.boxes.push(mk_box(
@@ -1853,19 +2710,25 @@ mod tests {
             BoxKind::MultiPin,
             Symbol::Ic,
             &[
-                (21, "1", "IN", IoDirection::Input),
-                (22, "2", "OUT", IoDirection::Output),
+                (21, "1", "INPUT_A", IoDirection::Input),
+                (22, "2", "OUTPUT_B", IoDirection::Output),
+                (23, "3", "OUTPUT_C", IoDirection::Output),
             ],
         ));
         g.nets
             .push(net(301, "NET_A", NetKind::Signal, &[(2, 21), (1, 11)]));
-        g.nets
-            .push(net(302, "NET_B", NetKind::Signal, &[(2, 22), (1, 12)]));
+        g.nets.push(net(
+            302,
+            "NET_B",
+            NetKind::Signal,
+            &[(2, 22), (2, 23), (1, 12)],
+        ));
 
         let mut topos = build_topology(&g);
         place_by_topology(&mut g, &mut topos);
 
-        // Both IC nets share one band (W/E opposite) → the member is a Series.
+        // The coupled IN net stays West and the OUT net stays East on the same
+        // band → the member is a Series.
         let tap_role_of = |box_name: &str| -> String {
             let b = g.boxes.iter().find(|b| b.name == box_name).unwrap();
             let (idx, topo) = topos
@@ -1881,7 +2744,7 @@ mod tests {
                 .unwrap();
             super::super::equipotential_tree::tap_role(
                 b,
-                topo.lane.axis,
+                topo,
                 super::super::equipotential_tree::partner_info(&topos, idx, group),
             )
             .short()
@@ -1904,6 +2767,107 @@ mod tests {
         );
     }
 
+    /// M3.5 (R2): long bottom-edge pin labels must not overlap. A 5-pin South
+    /// edge with 7-char labels used to get `box_w = 5*PIN_PITCH + 40 = 240` →
+    /// slot spacing `240/6 = 40 < 49` (`SHIELD3`), so the labels overlapped and
+    /// A14 (which only checked Left/Right) stayed silent. The box must now
+    /// widen to fit the edge labels.
+    #[test]
+    fn bottom_labels_do_not_overlap() {
+        use super::fixture::{mk_box, net};
+        use crate::vector::graph::netdef::IoDirection;
+        use crate::vector::graph::symbol::Symbol;
+        use crate::vector::graph::LayerStyle;
+
+        let mut g = McVecGraph::new(4000, "shield".into());
+        g.layer_style = LayerStyle::Device;
+        g.boxes.push(mk_box(
+            1,
+            "usbsock",
+            "USB",
+            BoxKind::MultiPin,
+            Symbol::Ic,
+            &[
+                (1, "SHIELD1", "", IoDirection::Ground),
+                (2, "SHIELD2", "", IoDirection::Ground),
+                (3, "SHIELD3", "", IoDirection::Ground),
+                (4, "SHIELD4", "", IoDirection::Ground),
+                (5, "SHIELD5", "", IoDirection::Ground),
+            ],
+        ));
+        // Each Ground pin on its own net → five South rails.
+        for i in 1..=5 {
+            g.nets
+                .push(net(500 + i as i64, "GND", NetKind::Ground, &[(1, i)]));
+        }
+
+        let mut topos = build_topology(&g);
+        place_by_topology(&mut g, &mut topos);
+
+        let a14 = check_a14_label_fit(&g);
+        assert!(
+            matches!(a14.status, CheckStatus::Pass),
+            "A14 must pass with widened bottom slots:\n{}",
+            dump_layout_model(&g, &topos)
+        );
+    }
+
+    /// M3.5 (R3): a multi-pin net's same-side pins must land on ADJACENT row
+    /// slots. IC pins 1=A 2=B 3=A (all West) interleave A's pins with B's; the
+    /// R3 grouping in `assign_pin_order` makes A's two pins consecutive so the
+    /// stray pin's tooth does not span another net's row.
+    #[test]
+    fn same_net_pins_are_adjacent() {
+        use super::fixture::{mk_box, net, two_pin};
+        use crate::vector::graph::netdef::IoDirection;
+        use crate::vector::graph::symbol::Symbol;
+        use crate::vector::graph::LayerStyle;
+
+        let mut g = McVecGraph::new(5000, "adj".into());
+        g.layer_style = LayerStyle::Device;
+        g.boxes.push(mk_box(
+            1,
+            "ic",
+            "IC",
+            BoxKind::MultiPin,
+            Symbol::Ic,
+            &[
+                (1, "1", "A1", IoDirection::Input),
+                (2, "2", "B1", IoDirection::Input),
+                (3, "3", "A2", IoDirection::Input),
+            ],
+        ));
+        g.boxes
+            .push(two_pin(2, "CAP_1", "CAP", Symbol::Capacitor, 21, 22));
+        g.nets.push(net(
+            301,
+            "NET_A",
+            NetKind::Signal,
+            &[(1, 1), (1, 3), (2, 21)],
+        ));
+        g.nets
+            .push(net(302, "NET_B", NetKind::Signal, &[(1, 2), (2, 22)]));
+
+        let mut topos = build_topology(&g);
+        place_by_topology(&mut g, &mut topos);
+
+        let ic = g.boxes.iter().find(|b| b.id == 1).unwrap();
+        let mut west: Vec<(i64, f64)> = ic
+            .slots
+            .iter()
+            .filter(|s| s.side == EntrySide::Left)
+            .map(|s| (s.pin_id, slot_point(ic, s).1))
+            .collect();
+        west.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let p1 = west.iter().position(|(pid, _)| *pid == 1).unwrap();
+        let p3 = west.iter().position(|(pid, _)| *pid == 3).unwrap();
+        assert!(
+            (p1 as i64 - p3 as i64).abs() == 1,
+            "NET_A's two West pins must be on adjacent rows, got positions {p1} and {p3} in {:?}",
+            west
+        );
+    }
+
     /// M2.5 Step 1: freeze the `ldo` regression state as a golden BEFORE any
     /// fix lands, so every later step can diff against it. At this point the
     /// dump is expected to show the broken geometry (two IC pins on one row,
@@ -1920,7 +2884,65 @@ mod tests {
         write_dump("ldo.M2", &body);
         eprintln!("{body}");
 
-        audit.assert_clean_through(Milestone::M3);
+        // M6.3 final acceptance: the whole audit through M6 (A16-A26).
+        audit.assert_clean_through(Milestone::M6);
+    }
+
+    /// M4.5: the `series_bridge_shunt` fixture is the dedicated witness for the
+    /// column model. It combines both reachable two-pin roles — `Drop` decoupling
+    /// shunts (`CAP_IN`, `CAP_OUT`) and cross-row `Bridge` members (`IND`, `R_FB`)
+    /// — on one picture, and asserts the full M4 audit (A21 no-overlap, A22
+    /// in-both-spans, A23 shunt-near-pin, plus every earlier invariant) is clean.
+    #[test]
+    fn series_bridge_shunt_fixture() {
+        let mut g = build_series_bridge_graph();
+        let mut topos = build_topology(&g);
+        place_by_topology(&mut g, &mut topos);
+        let audit = audit_equi_tree(&g, &topos);
+
+        // ★ M4.5 final acceptance: the whole audit is now enforced through M4.
+        audit.assert_clean_through(Milestone::M4);
+
+        // The bridge members must be >w (vertical) and the shunts must be near
+        // their anchor pin — a cross-check that the fixture really puts the
+        // column model under load (A22 / A23 are non-vacuous).
+        // ★ M8: the output inductor extends SW outward into VOUT, so it lies ALONG
+        // the row (w>h); the feedback divider joins VOUT ↔ FB across two rows
+        // and stays a vertical Bridge (h>w). Both are load-bearing for the
+        // column model (A22 / A23 are non-vacuous).
+        let b = |name: &str| {
+            g.boxes
+                .iter()
+                .find(|b| b.name == name)
+                .unwrap_or_else(|| panic!("missing box {name}"))
+        };
+        let ind = b("IND");
+        assert!(
+            ind.w > ind.h,
+            "IND must be Along (w>h, SW run continues into VOUT), got w={} h={}",
+            ind.w,
+            ind.h
+        );
+        let rfb = b("R_FB");
+        assert!(
+            rfb.h > rfb.w,
+            "R_FB must be a vertical Bridge (h>w), got w={} h={}",
+            rfb.w,
+            rfb.h
+        );
+        // Every member centre drifts at most COL_STEP (20) from its column
+        // slot: two members sharing a column would collide. The A21 PASS above
+        // is the ground truth; these orientational checks make it legible.
+        let shunts = ["CAP_IN", "CAP_OUT"];
+        for s in shunts {
+            let bb = b(s);
+            assert!(
+                bb.h > bb.w,
+                "{s} must be a vertical Drop shunt (h>w), got w={} h={}",
+                bb.w,
+                bb.h
+            );
+        }
     }
 
     /// The dump must be a pure function of the placed graph: two projections of
@@ -1948,5 +2970,146 @@ mod tests {
         let after: Vec<(i64, f64, f64, f64, f64)> =
             g.boxes.iter().map(|b| (b.id, b.x, b.y, b.w, b.h)).collect();
         assert_eq!(before, after, "audit/dump mutated box geometry");
+    }
+
+    /// M6.2 — structural regression snapshot (R1–R5). NOT pixel comparison: it
+    /// pins the semantic structure of the "good" layout so any future change
+    /// has to consciously re-generate this baseline. Adapted from plan/m6.md to
+    /// the real graph/topo model (`layout.ic_pins` etc. do not exist).
+    #[test]
+    fn m6_regression_structure() {
+        let (g, topos) = placed();
+        let trees: Vec<EquiTree> = topos.iter().map(|t| realize(t, &g)).collect();
+
+        // R1: every IC pin slot sits inside the IC box bounds (tolerance 1.0).
+        let ic = g
+            .boxes
+            .iter()
+            .find(|b| b.id == layer_anchor_id(&topos))
+            .expect("layer anchor box");
+        for slot in &ic.slots {
+            let (px, py) = slot_point(ic, slot);
+            assert!(
+                px >= ic.x - 1.0 && px <= ic.x + ic.w + 1.0,
+                "IC pin {} x={:.1} outside box x [{:.1},{:.1}]",
+                slot.pin_id,
+                px,
+                ic.x,
+                ic.x + ic.w
+            );
+            assert!(
+                py >= ic.y - 1.0 && py <= ic.y + ic.h + 1.0,
+                "IC pin {} y={:.1} outside box y [{:.1},{:.1}]",
+                slot.pin_id,
+                py,
+                ic.y,
+                ic.y + ic.h
+            );
+        }
+
+        // R2: every member centre is within 3 * MEMBER_GAP of the NEAREST trunk that
+        // owns it. A two-pin passive is a member of two nets (the net it hangs
+        // from and the one it decouples/bridges to); geometrically it sits at
+        // the row of the net that PLACED it, which is one of its owners — so
+        // "nearest owner trunk" is the meaningful bound (a cap hanging off the
+        // VDD row is 250px from the GND rail by design).
+        let tol = 3.0 * 60.0;
+        // box_id -> owner trunk ys (non-terminal owners only).
+        let mut owner_rows: BTreeMap<i64, Vec<f64>> = BTreeMap::new();
+        for topo in &topos {
+            if topo.terminal_only {
+                continue;
+            }
+            for group in topo.groups.iter().skip(1) {
+                owner_rows
+                    .entry(group.box_id)
+                    .or_default()
+                    .push(topo.lane.axis);
+            }
+        }
+        for (&box_id, rows) in &owner_rows {
+            let Some(b) = g.boxes.iter().find(|bb| bb.id == box_id) else {
+                continue;
+            };
+            let cy = b.y + b.h / 2.0;
+            let delta = rows
+                .iter()
+                .map(|&y| (cy - y).abs())
+                .fold(f64::MAX, f64::min);
+            assert!(
+                delta <= tol + 0.5,
+                "member '{}' (id={}) is {delta:.0}px (>{tol:.0}) from every owner trunk {:?}",
+                b.name,
+                b.id,
+                rows
+            );
+        }
+
+        // R3: the IC box does not overlap any member box.
+        for topo in &topos {
+            for group in topo.groups.iter().skip(1) {
+                let Some(b) = g.boxes.iter().find(|bb| bb.id == group.box_id) else {
+                    continue;
+                };
+                let overlap =
+                    ic.x < b.x + b.w && ic.x + ic.w > b.x && ic.y < b.y + b.h && ic.y + ic.h > b.y;
+                assert!(
+                    !overlap,
+                    "IC box overlaps member '{}' (id={})",
+                    b.name, b.id
+                );
+            }
+        }
+
+        // R4: IC box is not degenerate (labels would clip / pins would stack).
+        assert!(ic.w >= 80.0, "IC box width {:.0} too narrow", ic.w);
+        assert!(ic.h >= 40.0, "IC box height {:.0} too short", ic.h);
+
+        // R5: the rendered SVG is well-formed — no NaN/Infinity, sane size, and
+        // non-degenerate (positive width/height) after fit-to-content.
+        let mut svg = String::from("<svg>");
+        use crate::viz::render::equipotential_tree_render::render_equi_tree;
+        for tree in &trees {
+            svg.push_str(&render_equi_tree(tree));
+        }
+        svg.push_str("</svg>");
+        assert!(!svg.contains("NaN"), "NaN in SVG coordinates");
+        assert!(!svg.contains("Infinity"), "Infinity in SVG coordinates");
+        assert!(!svg.contains("-inf") && !svg.contains("inf"), "inf in SVG");
+        // Content extent (boxes + segments) must be a sane schematic size.
+        let mut xs: Vec<f64> = Vec::new();
+        let mut ys: Vec<f64> = Vec::new();
+        for b in &g.boxes {
+            xs.push(b.x);
+            xs.push(b.x + b.w);
+            ys.push(b.y);
+            ys.push(b.y + b.h);
+        }
+        for t in &trees {
+            for s in &t.segments {
+                xs.push(s.x1);
+                xs.push(s.x2);
+                ys.push(s.y1);
+                ys.push(s.y2);
+            }
+        }
+        let (x0, x1) = (
+            xs.iter().cloned().fold(f64::MAX, f64::min),
+            xs.iter().cloned().fold(f64::MIN, f64::max),
+        );
+        let (y0, y1) = (
+            ys.iter().cloned().fold(f64::MAX, f64::min),
+            ys.iter().cloned().fold(f64::MIN, f64::max),
+        );
+        let w = x1 - x0;
+        let h = y1 - y0;
+        assert!(
+            w >= 200.0 && w <= 5000.0,
+            "layout width {w:.0} out of sane range"
+        );
+        assert!(
+            h >= 200.0 && h <= 5000.0,
+            "layout height {h:.0} out of sane range"
+        );
     }
 }

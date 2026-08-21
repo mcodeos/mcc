@@ -284,8 +284,14 @@ fn projection_audit_md_is_written() {
         md.contains("| c | main | V5V.VCC | main.V5V.VCC"),
         "should have the rule c pseudo-endpoint record:\n{md}"
     );
+    // ★ M6.5: `build_mc_vec` now re-partitions sub-module ground nets from the
+    //   pass2 `split_ground_nets` grouping, so the mic layer carries more nets
+    //   into the projection (12 → 8) than the old merged-ground baseline (5 → 4).
+    // ★ M7.6: the ground classifier is now leaf-based (`is_ground("GND"@../..`),
+    //   so port-member grounds no longer duplicate the pass2 split groups and
+    //   the count settles at 10 → 7.
     assert!(
-        md.contains("| mic | 5 | 4 |"),
-        "the layer summary table should contain mic 5→4:\n{md}"
+        md.contains("| mic | 10 | 7 |"),
+        "the layer summary table should contain mic 10→7:\n{md}"
     );
 }

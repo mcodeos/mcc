@@ -34,7 +34,7 @@ use crate::instant::mc_mod::McModuleInst;
 use crate::vector::graph::extract_last_segment;
 
 use super::super::model::dock::{DockEnd, DockRef, MemberLink, PortDock};
-use super::super::model::McVecBlock;
+use super::super::model::{McVec, McVecBlock, McVecNet};
 use super::report::{
     BuildMode, BuilderError, BuilderReport, DroppedNet, PartialNet, ResolutionOutcome,
 };
@@ -296,6 +296,18 @@ impl<'a> McVecBuilder<'a> {
         let (nets, docks) = self.build_nets_from_connections(inst, &my_path);
         block.nets = nets;
         block.port_docks = docks;
+
+        // ★ M6.5: ground nets follow the pass2 `split_ground_nets` grouping
+        // (per writing line / reference form), NOT the builder's merged single
+        // GND net. The pass2 net table (`inst.nets`, split during
+        // `build_net_table`) is the source of truth for how many ground symbols
+        // a module draws: each distinct pass2 ground net (`GND`, `GND@72`,
+        // `GND_OUT`, `GND@lp322dcdc` …) becomes its own net → its own glyph.
+        // Only sub-modules (device layers) — the root/block layer keeps its
+        // merged ground net, which the projection audit expects.
+        if my_path.contains('.') {
+            self.override_ground_nets_from_pass2(&mut block, inst, &my_path);
+        }
 
         // 4. Recursively process sub-modules
         if !inst.sub_modules.is_empty() {
@@ -1219,6 +1231,70 @@ impl<'a> McVecBuilder<'a> {
     // ========================================================================
     // Internal helpers
     // ========================================================================
+
+    /// ★ M6.5: replace the builder's merged ground net(s) with the pass2
+    /// [`McModuleInst::sorted_nets`] grouping (which already ran
+    /// `split_ground_nets`). The builder's own path groups ground connections by
+    /// net name then FIX-B merges by shared pin, collapsing every local ground
+    /// into one `GND` net and losing the port-member names (`GND_OUT`); the
+    /// pass2 table keeps them distinct per writing line / reference form, and
+    /// each such net must draw its own ground symbol.
+    fn override_ground_nets_from_pass2(
+        &self,
+        block: &mut McVecBlock,
+        inst: &McModuleInst,
+        module_path: &str,
+    ) {
+        // Ground-name classifier, aligned with the graph side
+        // (`naming::classify_net` / `naming::is_ground` classify by the LAST
+        // segment, so a port-member ground like `USB_VBUS_1.GND` / `vin.GND`
+        // counts even though the full name does not start with "GND").
+        // ★ M7.6: the old `starts_with("GND")` missed port-member grounds, so
+        // the builder's merged `USB_VBUS_1.GND` survived the drop below and the
+        // pass2 split groups were stacked on top — the same consumer pin ended
+        // up in TWO ground nets (`speaker` drew a duplicate, overlapping GND).
+        let is_gnd_name = |name: &str| {
+            let leaf = name.rsplit('.').next().unwrap_or(name);
+            crate::vector::graph::naming::is_ground(leaf)
+        };
+
+        // Pass2 ground nets → (name, resolved point ids, deduped, order preserved).
+        let mut pass2_grounds: Vec<(String, Vec<i64>)> = Vec::new();
+        for (name, pts) in inst.sorted_nets() {
+            if !is_gnd_name(name) {
+                continue;
+            }
+            let mut ids: Vec<i64> = Vec::new();
+            for p in pts {
+                let outcome = resolve_netpoint_v2(self.inst_table, p, module_path, name);
+                for id in outcome.ids {
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
+                }
+            }
+            pass2_grounds.push((name.to_string(), ids));
+        }
+
+        // Drop the builder's ground nets (also by ground name), keep the rest.
+        let kept: Vec<McVecNet> = std::mem::take(&mut block.nets)
+            .into_iter()
+            .filter(|n| !is_gnd_name(&n.name))
+            .collect();
+        block.nets = kept;
+
+        // Re-add the pass2 ground nets. Unresolvable ones (stub labels with no
+        // real pin) are skipped — nothing to draw.
+        let mut next_nid = block.nets.iter().map(|n| n.nid).max().unwrap_or(0) + 1;
+        for (name, ids) in pass2_grounds {
+            if ids.is_empty() {
+                continue;
+            }
+            let nets: Vec<McVec> = ids.iter().map(|&id| McVec::single(id)).collect();
+            block.nets.push(McVecNet::new(next_nid, name, nets));
+            next_nid += 1;
+        }
+    }
 
     /// Allocate next net ID
     fn next_net_id(&mut self) -> i64 {

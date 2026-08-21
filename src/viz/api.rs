@@ -221,8 +221,7 @@ fn render_layer_recursive(
         // ★ Content-adaptive canvas: fit every box + tree segment + symbol
         // (including negative-x West trunks) into the `0 0 W H` SVG viewBox by
         // shifting the content to the margin and sizing the paper to the content.
-        let trees = crate::viz::layout::equipotential_tree::build_all_trees(&graph);
-        let cv = crate::viz::layout::equipotential_tree::fit_content_to_canvas(&mut graph, &trees);
+        let cv = crate::viz::layout::equipotential_tree::fit_content_to_canvas(&mut graph);
         crate::vlog!(
             "[viz::api] layer {} '{}' device canvas={}x{}",
             bid,
