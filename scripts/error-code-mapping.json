@@ -2330,13 +2330,6 @@
       "desc": "All pins have the same IO type."
     },
     {
-      "old": 3308,
-      "site": "hw.rs",
-      "new": 5508,
-      "name": "HW_MISSING_NAME_ATTR",
-      "desc": "Missing 'name' attribute."
-    },
-    {
       "old": 3309,
       "site": "hw.rs",
       "new": 5509,
@@ -5168,15 +5161,6 @@
         "new": 5507,
         "name": "HW_ALL_SAME_IO_TYPE",
         "desc": "All pins have the same IO type."
-      }
-    ],
-    "3308": [
-      {
-        "old": 3308,
-        "site": "hw.rs",
-        "new": 5508,
-        "name": "HW_MISSING_NAME_ATTR",
-        "desc": "Missing 'name' attribute."
       }
     ],
     "3309": [

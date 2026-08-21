@@ -1195,9 +1195,6 @@ pub const HW_IFACE_ROLE_UNBOUND: u32 = 5506;
 /// All pins have the same IO type.
 pub const HW_ALL_SAME_IO_TYPE: u32 = 5507;
 
-/// Missing 'name' attribute.
-pub const HW_MISSING_NAME_ATTR: u32 = 5508;
-
 /// Has a name but no description.
 pub const HW_NAME_WITHOUT_DESC: u32 = 5509;
 
@@ -1598,7 +1595,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(HW_NC_PINS_CONTIGUOUS, "Consecutive NC pins.", "Consecutive NC pins."),
     entry!(HW_IFACE_ROLE_UNBOUND, "Interface role is never bound.", "Interface role is never bound."),
     entry!(HW_ALL_SAME_IO_TYPE, "All pins have the same IO type.", "All pins have the same IO type."),
-    entry!(HW_MISSING_NAME_ATTR, "Missing 'name' attribute.", "Missing 'name' attribute."),
     entry!(HW_NAME_WITHOUT_DESC, "Has a name but no description.", "Has a name but no description."),
     entry!(HW_FUNC_PARAM_SHADOWS_PIN, "Function parameter shadows a pin name.", "Function parameter shadows a pin name."),
     entry!(HW_IFACE_NEVER_BOUND, "Interface is defined but never bound.", "Interface is defined but never bound."),

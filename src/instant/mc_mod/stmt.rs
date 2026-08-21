@@ -188,9 +188,12 @@ impl McModuleInst {
             let trunk_kind = Self::extract_trunk_kind(&members[0])
                 .or_else(|| members.iter().rev().find_map(Self::extract_trunk_kind))
                 .or_else(|| trunk.as_ref().map(|_| TrunkKind::Plain));
-            let trunk_iface = self
-                .extract_trunk_iface(&members[0])
-                .or_else(|| members.iter().rev().find_map(|m| self.extract_trunk_iface(m)));
+            let trunk_iface = self.extract_trunk_iface(&members[0]).or_else(|| {
+                members
+                    .iter()
+                    .rev()
+                    .find_map(|m| self.extract_trunk_iface(m))
+            });
             return self.with_trunk(trunk, trunk_kind, trunk_iface, |this| {
                 this.wire_chain_lane_by_lane(&members, dir)
             });
@@ -1620,12 +1623,10 @@ impl McModuleInst {
     /// interface class (§8.9.4 data flow: `McPinPort::Interface` → name).
     fn extract_trunk_iface(&self, phrase: &McPhrase) -> Option<String> {
         if let McPhrase::Multiple(items) = phrase {
-            return items
-                .iter()
-                .find_map(|it| match it {
-                    McPhrase::Endpoint(McEndpoint::Single(ir)) => self.iface_class_of(ir),
-                    _ => None,
-                });
+            return items.iter().find_map(|it| match it {
+                McPhrase::Endpoint(McEndpoint::Single(ir)) => self.iface_class_of(ir),
+                _ => None,
+            });
         }
         let ir = match phrase {
             McPhrase::Endpoint(McEndpoint::Single(ir)) => ir,
