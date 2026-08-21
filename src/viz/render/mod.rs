@@ -72,13 +72,23 @@ use crate::vector::graph::{McVecBox, McVecGraph};
 pub struct SvgRenderer;
 
 impl SvgRenderer {
-    pub fn render(graph: &McVecGraph, canvas_w: f64, canvas_h: f64) -> String {
+    pub fn render(
+        graph: &McVecGraph,
+        viewbox_x: f64,
+        viewbox_y: f64,
+        canvas_w: f64,
+        canvas_h: f64,
+    ) -> String {
         let mut svg = String::new();
 
         svg.push_str(&format!(
-            r##"<svg viewBox="0 0 {canvas_w:.0} {canvas_h:.0}" xmlns="http://www.w3.org/2000/svg"
+            r##"<svg viewBox="{vx:.0} {vy:.0} {vw:.0} {vh:.0}" xmlns="http://www.w3.org/2000/svg"
      font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-     style="background:transparent">"##
+     style="background:transparent">"##,
+            vx = viewbox_x,
+            vy = viewbox_y,
+            vw = canvas_w,
+            vh = canvas_h
         ));
         svg.push('\n');
 

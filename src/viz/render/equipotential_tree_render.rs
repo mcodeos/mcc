@@ -70,14 +70,23 @@ fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
             // be vertical" limitation that pushed pins and labels into overlaps.
             if horizontal {
                 let s = if sym.dir.0 < 0.0 { -1.0 } else { 1.0 };
+                // ★ M10.0: the three bars must STEP OUTWARD, one `gap` apart —
+                // the exact mirror of the vertical branch below (bars at y,
+                // y+gap, y+2*gap). M9 emitted all three at `x0`, so they landed
+                // COLLINEAR and only the longest was visible: `speaker`'s
+                // `USB_VBUS_1.GND ~ spk.3 ~ spk.4` came out as a lone vertical
+                // tick at the end of a wire — "the GND symbol was not drawn".
+                // The cosmetic lead is drawn INWARD (`x3`) so it no longer runs
+                // out through the bars it is supposed to stop at.
                 format!(
                     r##"  <line x1="{x0:.1}" y1="{y1:.1}" x2="{x0:.1}" y2="{y2:.1}" stroke="{color}" stroke-width="1.5"/>
-  <line x1="{x0:.1}" y1="{y3:.1}" x2="{x0:.1}" y2="{y4:.1}" stroke="{color}" stroke-width="1.5"/>
-  <line x1="{x0:.1}" y1="{y5:.1}" x2="{x0:.1}" y2="{y6:.1}" stroke="{color}" stroke-width="1.5"/>
-  <line x1="{x:.1}" y1="{y:.1}" x2="{x1:.1}" y2="{y:.1}" stroke="{color}" stroke-width="1.5"/>"##,
-                    x = x,
-                    x0 = x + s * gap,
-                    x1 = x + s * (bar1 / 2.0),
+  <line x1="{x1:.1}" y1="{y3:.1}" x2="{x1:.1}" y2="{y4:.1}" stroke="{color}" stroke-width="1.5"/>
+  <line x1="{x2:.1}" y1="{y5:.1}" x2="{x2:.1}" y2="{y6:.1}" stroke="{color}" stroke-width="1.5"/>
+  <line x1="{x3:.1}" y1="{y:.1}" x2="{x0:.1}" y2="{y:.1}" stroke="{color}" stroke-width="1.5"/>"##,
+                    x0 = x,
+                    x1 = x + s * gap,
+                    x2 = x + s * 2.0 * gap,
+                    x3 = x - s * gap,
                     y = y,
                     y1 = y - bar1 / 2.0,
                     y2 = y + bar1 / 2.0,
@@ -113,6 +122,21 @@ fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
             // `dir` — after M1 flipped the trunks horizontal, `pick_stub_dir`
             // prefers down/up so `dir.0` was always 0.0 and labels always wrote
             // right (a West symbol's text ran back along the trunk into the IC).
+            //
+            // ★ M8.7: a VERTICAL label is rotated -90 deg, reading UPWARD off
+            // the trunk so its glyph clears the Along member sharing the row.
+            if sym.vertical {
+                return format!(
+                    r##"  <text x="0" y="0" transform="translate({x:.1} {y:.1}) rotate(-90)"
+       text-anchor="start" font-size="10" font-weight="600" fill="{color}"
+       dominant-baseline="central">{label}</text>
+"##,
+                    x = sym.x,
+                    y = sym.y,
+                    color = color,
+                    label = escape_xml(&sym.label),
+                );
+            }
             let (tx, anchor) = if sym.text_side < 0.0 {
                 (sym.x - 4.0, "end")
             } else {
@@ -135,6 +159,17 @@ fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
             // bbox estimate matches what is actually drawn (a centered "middle"
             // anchor would extend half a label width to both sides and let A17
             // go false-green for a PortLabel pressed against another glyph).
+            if sym.vertical {
+                return format!(
+                    r##"  <text x="0" y="0" transform="translate({x:.1} {y:.1}) rotate(-90)"
+       text-anchor="start" font-size="10" font-weight="600" fill="#7B1FA2"
+       dominant-baseline="central">{label}</text>
+"##,
+                    x = sym.x,
+                    y = sym.y,
+                    label = escape_xml(&sym.label),
+                );
+            }
             let (tx, anchor) = if sym.text_side < 0.0 {
                 (sym.x - 4.0, "end")
             } else {
@@ -155,6 +190,22 @@ fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
             // M3.5 (R1): text side from `text_side` (net region), not `dir.0`
             // (see the NetLabel branch above).
             let r = 6.0;
+            // ★ M8.7: vertical bus label — keep the circle, read the name upward.
+            if sym.vertical {
+                return format!(
+                    r##"  <circle cx="{x:.1}" cy="{y:.1}" r="{r:.1}" fill="none" stroke="{color}" stroke-width="1.5"/>
+  <text x="{x:.1}" y="{ys:.1}" transform="rotate(-90 {x:.1} {ys:.1})"
+       text-anchor="start" font-size="10" font-weight="600" fill="{color}"
+       dominant-baseline="central">{label}</text>
+"##,
+                    x = sym.x,
+                    y = sym.y,
+                    ys = sym.y - r,
+                    r = r,
+                    color = color,
+                    label = escape_xml(&sym.label),
+                );
+            }
             let (tx, anchor) = if sym.text_side < 0.0 {
                 (sym.x - r - 4.0, "end")
             } else {

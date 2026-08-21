@@ -106,6 +106,14 @@ pub const ROW_CLEAR: f64 = 20.0;
 /// stub instead of sitting flush against the rail/trunk.
 pub const LEAD: f64 = 20.0;
 
+/// ★ M8.8: how far a W/E single-pin member (a test point) hangs DOWN off its
+/// row. `assign_rows` keeps the power rows at the top of a layer, so a signal
+/// row that sits one `LEAD` under them (the `speaker` VO2 test point under the
+/// VDD trunk) reads as a wall. Hanging the test point a little lower frees the
+/// band under the power rows. Only InlineEnd (test points) — grounded shunts
+/// (Drop) are pinned by the fixture contracts and must stay at `LEAD`.
+pub const SIDE_HANG: f64 = LEAD + 30.0;
+
 /// The vertical corridor a 2-pin Bridge/Drop member needs below/above its row:
 /// its body (`TWO_PIN_SYMBOL_W` tall) plus the `LEAD` wire to the trunk. The
 /// next band must clear `LEAD + h`, otherwise its trunk would run collinear
@@ -292,6 +300,18 @@ pub struct NetTopology {
     /// ★ M8.2: hops from the run root (0 = the root). Orders the run outward:
     /// depth `d` sits strictly further from the anchor than depth `d - 1`.
     pub(crate) run_depth: usize,
+    /// ★ M11.3: this net's OUTER horizontal end is occupied by something
+    /// physical — the `Along` part that continues the wire, or a satellite
+    /// component's facing pin. A name on such a row cannot be written ALONG the
+    /// wire (it would be painted onto the part), so `realize` pulls it off on a
+    /// vertical stub instead. Written by `assign_rows` from
+    /// [`super::equi_chain::NetEnds`], right next to `run_root`/`run_depth`, so
+    /// the layout and the render replay derive it identically (A2 stays green).
+    ///
+    /// Up to M10 that decision was GEOMETRIC (`text_collides`): the glyph went
+    /// vertical only once its text happened to overlap a box, so the same
+    /// netlist rendered two ways depending on how long a name was.
+    pub(crate) outer_end_taken: bool,
     /// M2.5 Step 7: the unified y every Ground glyph used to hang at.
     ///
     /// ★ M7.5: no longer used for placement. Pinning every ground glyph to
@@ -568,6 +588,7 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
         row_source: RowSource::IslandFallback,
         run_root: net.nid,
         run_depth: 0,
+        outer_end_taken: false,
         ground_band: 0.0,
     })
 }
@@ -801,6 +822,122 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         }
     }
 
+    // ── Pass 1.6 (★ M10.2): the satellite side belongs to the shared nets ────
+    //
+    // `lpa.VDD` is an `IoDirection::Power` pin, so `direct_region` puts it WEST —
+    // and `spk` is ALSO west, because that is where the two shared output nets
+    // (`_net8` at VO1, `_net9` at VO2) live. The power net has nothing to do with
+    // `spk`: forcing it through the same corridor stacks its rail label, its
+    // decoupling cap, the two ESD diodes and the two test points into one column
+    // band, which is how `VDD_3V3` ended up behind `_DIO_ESD2` and `TP1`.
+    //
+    // The rule is the one M9 already applies to the SATELLITE's own pins
+    // (`facing` / `away`), pointed at the ANCHOR's pins instead: **a pin that has
+    // to reach the other component goes between the two components; one that does
+    // not gets pushed to the far side.**
+    //
+    // Only nets outside the satellite's COUPLING CLOSURE move: `IN.N` shares a
+    // feedback resistor with `VO1`, so it stays west even though it is not itself
+    // a shared net (moving it would stretch that resistor across the whole IC —
+    // exactly the cross-side residue M7.1 exists to kill). `RailDriver` strength
+    // never moves, and the same `SIDE_IMBALANCE_MAX` guard applies.
+    //
+    // A no-op on a layer with no satellite (`plan_satellites` returns empty), so
+    // `moddcdc` / `modldo` / buck do not move a pixel.
+    {
+        const SIDE_IMBALANCE_MAX: isize = 2;
+        let anchor_pins =
+            |t: &NetTopology| t.groups.first().map_or(1, |g| g.pin_ids.len()) as isize;
+        let claims = satellite_side_claims(graph, topos, layer_anchor);
+        let mut yielded = vec![false; topos.len()];
+        for (region, keep) in claims {
+            let opposite = match region {
+                Region::West => Region::East,
+                _ => Region::West,
+            };
+            for i in 0..topos.len() {
+                if yielded[i] || keep.contains(&i) || !resolved[i] {
+                    continue;
+                }
+                if topos[i].lane.region != region || strength[i] >= SideStrength::RailDriver {
+                    continue;
+                }
+                let (mut w, mut e) = (0isize, 0isize);
+                for (k, t) in topos.iter().enumerate() {
+                    if !resolved[k] {
+                        continue;
+                    }
+                    match t.lane.region {
+                        Region::West => w += anchor_pins(t),
+                        Region::East => e += anchor_pins(t),
+                        _ => {}
+                    }
+                }
+                let d = anchor_pins(&topos[i]);
+                let (w, e) = match opposite {
+                    Region::West => (w + d, e - d),
+                    _ => (w - d, e + d),
+                };
+                if (w - e).abs() > SIDE_IMBALANCE_MAX {
+                    crate::vlog!(
+                        "[region] satellite yield skipped (balance): net '{}' would make W/E {}/{}",
+                        topos[i].net_name,
+                        w,
+                        e
+                    );
+                    continue;
+                }
+                crate::vlog!(
+                    "[region] satellite yield: net '{}' {:?} → {:?} (shares nothing with the \
+                     component on {:?})",
+                    topos[i].net_name,
+                    region,
+                    opposite,
+                    region
+                );
+                topos[i].lane.region = opposite;
+                yielded[i] = true;
+            }
+        }
+    }
+
+    // ── Pass 1.75 (★ M10.3): an ADOPTED ground lives on its run's ROW ────────
+    //
+    // Pass 0 sends every Ground net South unconditionally. That is right for a
+    // net hanging off a real IC GND pin, and wrong for the "cap into a ground
+    // glyph" shape: the chain analyser has decided that such a ground is the
+    // OUTER END of a W/E run (`equi_chain` step 3.5), so it has to share that
+    // run's row or the part between them cannot be collinear.
+    //
+    // `chain_plan_for` is pure topology (net kind, groups, pin IO, endpoint box
+    // kinds, satellite membership) and reads no region, so running it here —
+    // before `assign_rows` runs it again — cannot produce a different answer.
+    // A2 is untouched.
+    {
+        let chain = chain_plan_for(graph, topos, layer_anchor);
+        let adopt: Vec<(usize, Region)> = (0..topos.len())
+            .filter(|&i| topos[i].net_kind == NetKind::Ground)
+            .filter_map(|i| {
+                let r = chain.region.get(i).copied().flatten()?;
+                if r == i || !resolved[r] {
+                    return None;
+                }
+                match topos[r].lane.region {
+                    reg @ (Region::West | Region::East) => Some((i, reg)),
+                    _ => None,
+                }
+            })
+            .collect();
+        for (i, reg) in adopt {
+            crate::vlog!(
+                "[region] ground '{}' adopted as a run end → {:?} (was South)",
+                topos[i].net_name,
+                reg
+            );
+            topos[i].lane.region = reg;
+        }
+    }
+
     // Pass 2: inheritance — nets not touching the layer anchor share a member
     // box with a regioned net; inherit its region. Iterate to a fixed point
     // (a net's partner may itself be resolved by inheritance).
@@ -1002,6 +1139,117 @@ pub(crate) fn coupled_net_pairs(
                 out.push((i, j));
             }
         }
+    }
+    out
+}
+
+/// ★ M11.2: every multi-pin box of this layer, as [`equi_place`] sees it.
+///
+/// Shared by [`satellite_side_claims`] (M10.2) and [`chain_plan_for`] (M11.2):
+/// the chain analyser has to know which nets END at another component before it
+/// can decide what is allowed to extend horizontally, and the region pass has to
+/// know which side that component took. Same input, same function, so the two
+/// can never disagree.
+///
+/// Pure topology — pin→net membership only, no rect.
+///
+/// [`equi_place`]: super::equi_place
+fn comp_views(graph: &McVecGraph, topos: &[NetTopology]) -> Vec<super::equi_place::CompView> {
+    use super::equi_place::CompView;
+    let mut comps: Vec<CompView> = Vec::new();
+    for b in &graph.boxes {
+        if b.pins.len() < 3 {
+            continue;
+        }
+        let mut pins: Vec<(i64, usize)> = Vec::new();
+        for p in &b.pins {
+            if let Some(nn) = topos.iter().position(|t| {
+                t.groups
+                    .iter()
+                    .any(|g| g.box_id == b.id && g.pin_ids.contains(&p.id))
+            }) {
+                pins.push((p.id, nn));
+            }
+        }
+        if !pins.is_empty() {
+            comps.push(CompView { box_id: b.id, pins });
+        }
+    }
+    comps
+}
+
+/// ★ M11.2: the nets a SATELLITE component sits on — "ends at a component".
+///
+/// M9.2 places a satellite past every member of its side and puts its facing
+/// pins on the shared nets' rows, so such a net's OUTER end is spent on a box
+/// before any two-pin part gets a look at it. Handing that to `equi_chain` is
+/// what stops a run trying to continue horizontally THROUGH a component, and
+/// what keeps a rail label from being written on top of one.
+fn satellite_nets(graph: &McVecGraph, topos: &[NetTopology], layer_anchor: i64) -> BTreeSet<usize> {
+    let net_is_ground: Vec<bool> = topos
+        .iter()
+        .map(|t| t.net_kind == NetKind::Ground)
+        .collect();
+    let comps = comp_views(graph, topos);
+    super::equi_place::plan_satellites(&comps, &net_is_ground, layer_anchor)
+        .into_iter()
+        .flat_map(|s| s.shared)
+        .collect()
+}
+
+/// ★ M10.2: which W/E side each satellite component occupies, and the set of
+/// nets that have an electrical reason to stay on that side.
+///
+/// The side is the majority region of the nets shared with the parent (the same
+/// vote `satellite_plan_for` makes later, on the same inputs). The keep-set is
+/// the shared nets closed under [`coupled_net_pairs`]: a net tied to a shared net
+/// through a two-pin part is part of that side's loop and must not be pulled
+/// across.
+///
+/// Pure topology — `plan_satellites` reads pin→net membership and net kind only,
+/// and the vote reads `lane.region`, which Pass 1/1.5 has already written. No
+/// rect, so A2 is untouched.
+fn satellite_side_claims(
+    graph: &McVecGraph,
+    topos: &[NetTopology],
+    layer_anchor: i64,
+) -> Vec<(Region, BTreeSet<usize>)> {
+    let net_is_ground: Vec<bool> = topos
+        .iter()
+        .map(|t| t.net_kind == NetKind::Ground)
+        .collect();
+    let comps = comp_views(graph, topos);
+    let pairs = coupled_net_pairs(graph, topos, layer_anchor);
+    let mut out: Vec<(Region, BTreeSet<usize>)> = Vec::new();
+    for sat in super::equi_place::plan_satellites(&comps, &net_is_ground, layer_anchor) {
+        let (mut w, mut e) = (0usize, 0usize);
+        for &nn in &sat.shared {
+            match topos.get(nn).map(|t| t.lane.region) {
+                Some(Region::West) => w += 1,
+                Some(Region::East) => e += 1,
+                _ => {}
+            }
+        }
+        if w == 0 && e == 0 {
+            continue;
+        }
+        let region = if w >= e { Region::West } else { Region::East };
+        let mut keep: BTreeSet<usize> = sat.shared.iter().copied().collect();
+        loop {
+            let before = keep.len();
+            for &(i, j) in &pairs {
+                if keep.contains(&i) {
+                    keep.insert(j);
+                }
+                if keep.contains(&j) {
+                    keep.insert(i);
+                }
+            }
+            if keep.len() == before {
+                break;
+            }
+        }
+        out.push((region, keep));
     }
     out
 }
@@ -1550,9 +1798,13 @@ pub(crate) fn chain_plan_for(
     layer_anchor: i64,
 ) -> super::equi_chain::ChainPlan {
     use super::equi_chain::{NetView, PartView};
+    // ★ M11.2: computed ONCE — `plan_satellites` walks the component graph and
+    // this function runs twice per layer (Pass 1.75 and `assign_rows`).
+    let sat_nets = satellite_nets(graph, topos, layer_anchor);
     let nets: Vec<NetView> = topos
         .iter()
-        .map(|t| {
+        .enumerate()
+        .map(|(i, t)| {
             let is_ground = t.net_kind == NetKind::Ground;
             let anchor_pin = if is_ground {
                 None
@@ -1571,6 +1823,14 @@ pub(crate) fn chain_plan_for(
                 anchor_pin,
                 is_ground,
                 is_endpoint: net_is_endpoint(graph, t),
+                // ★ M10.3: a ground net that owns a real GND pin on the layer
+                // anchor belongs to the South rail — its shunts drop and its
+                // pins stay on the Bottom edge (`ground_pins_on_south`). Only a
+                // ground reached PURELY through a part ("the far end of this cap
+                // is ground") may act as a label.
+                ground_adoptable: is_ground && !t.groups.iter().any(|g| g.box_id == layer_anchor),
+                // ★ M11.2: the row already ends at another component.
+                ends_at_component: sat_nets.contains(&i),
             }
         })
         .collect();
@@ -1792,6 +2052,8 @@ pub(crate) fn assign_rows(
             Some(r) => nids.get(r).copied().unwrap_or(t.nid),
             None => t.nid,
         };
+        // ★ M11.3: and whether anything physical already owns its outer end.
+        t.outer_end_taken = chain.outer_end_taken(i);
     }
     // IC-anchored trunk-bearing nets: every anchor pin on the layer anchor
     // enters its region bucket independently (M2.5 Step 2) — a net with two IC
@@ -1859,7 +2121,15 @@ pub(crate) fn assign_rows(
             if net_band[i].is_some() || topos[i].terminal_only {
                 continue;
             }
-            if topos[i].net_kind == NetKind::Ground || topos[i].run_root == topos[i].nid {
+            if topos[i].run_root == topos[i].nid {
+                continue;
+            }
+            // ★ M10.3: a ground net shares a run's band only when it was ADOPTED
+            // as that run's outer end, which Pass 1.75 records by moving it off
+            // South. A South ground still gets its row from the edge rail.
+            if topos[i].net_kind == NetKind::Ground
+                && !matches!(topos[i].lane.region, Region::West | Region::East)
+            {
                 continue;
             }
             let Some(root) = topos.iter().position(|t| t.nid == topos[i].run_root) else {
@@ -1944,6 +2214,13 @@ pub(crate) fn assign_rows(
             if pin_count == 2 {
                 match find_partner(topos, i, group) {
                     None => down[bi] = down[bi].max(CORRIDOR_DEMAND),
+                    // ★ M10.3: a partner on MY RUN lies ALONG the row and books
+                    // no vertical corridor at all. This arm has to come FIRST
+                    // because an adopted ground is terminal-only, so it never
+                    // gets a band and `net_band[j]` cannot see it — the old arm
+                    // charged a full CORRIDOR_DEMAND and pushed the next row
+                    // 80px down for a wire that is horizontal.
+                    Some((_, other)) if other.run_root == t.run_root => {}
                     Some((_, other))
                         if other.terminal_only || other.net_kind == NetKind::Ground =>
                     {
@@ -2467,9 +2744,11 @@ fn net_anchor_pin_x(graph: &McVecGraph, topo: &NetTopology) -> f64 {
 /// pass, no fixed point, which is the whole reason x does not come from the
 /// column allocator here.
 ///
-/// A branching run (two Along parts off one net) is linearised in
-/// `(depth, nid)` order: the branches end up one after another along the row.
-/// Not pretty, but never overlapping.
+/// ★ M11: a run can no longer BRANCH. `equi_chain` hands each net's outer end to
+/// exactly one bundle of parts, so a run is a PATH and `(depth, nid)` order is
+/// the order the parts physically sit in. Up to M10 a fan-out claimed every
+/// neighbour and this loop queued the branches nose-to-tail along one row —
+/// never overlapping, but reading as a chain that is not in the netlist.
 ///
 /// Returns `(nid -> origin x, [(Along part box id, centre x)])`. Runs after
 /// `place_members_for_topo`, so member widths are final; it reads rects, which
@@ -2493,6 +2772,21 @@ fn chain_origins(
 
     for (_root, mut members) in runs {
         members.sort_by_key(|&i| (topos[i].run_depth, topos[i].nid));
+        // ★ M11: a path — depths strictly increase. A repeat means something
+        // wrote `run_depth` behind `equi_chain`'s back; the prefix sum below
+        // would then hand two nets the same origin. Reported, not fatal: the
+        // layout still comes out, just crowded.
+        if let Some(w) = members
+            .windows(2)
+            .find(|w| topos[w[0]].run_depth >= topos[w[1]].run_depth)
+        {
+            crate::vlog!(
+                "[chain] run is not a path: '{}' and '{}' share depth {}",
+                topos[w[0]].net_name,
+                topos[w[1]].net_name,
+                topos[w[0]].run_depth
+            );
+        }
         let Some(&first) = members.first() else {
             continue;
         };
@@ -2664,7 +2958,7 @@ impl TapRole {
 /// The net a member's OTHER pin connects to, plus that net's row.
 #[derive(Debug, Clone)]
 pub(crate) struct PartnerInfo {
-    topo_idx: usize,
+    pub(crate) topo_idx: usize,
     row: Option<f64>,
     kind: NetKind,
     is_terminal_only: bool,
@@ -2737,10 +3031,6 @@ pub(crate) fn tap_role(
             // ★ M7.3: no partner at all → nothing constrains the hang
             // direction, the balance counter owns it.
             None => TapRole::Drop { dir: 0.0 },
-            // ★ M7.3: a GROUND partner is pinned DOWN — ground rails and the
-            // shared ground band are always below the side rows, so an upward
-            // shunt would route its ground pin back over its own body.
-            Some(p) if p.kind == NetKind::Ground => TapRole::Drop { dir: 1.0 },
             // ★ M8.3: same RUN ⇒ the part extends this endpoint outward, so it
             // lies ALONG the row and both nets are collinear. This is the branch
             // that makes `Series` reachable at all — under the M7 row-delta rule
@@ -2752,11 +3042,21 @@ pub(crate) fn tap_role(
             // terminal-only (`speaker` `VDD_3V3` = one group + its rail label).
             // The part INTO it lies ALONG the row (the mute `_R1`), so a same-run
             // partner is Series even when it owns no trunk of its own.
+            //
+            // ★ M10.3 — and it must now come before the GROUND guard too. A
+            // ground adopted as this run's outer end (`equi_chain` step 3.5)
+            // carries this run's `run_root`, which is precisely the statement
+            // "the cap lies along the row and the glyph is its far end".
             Some(p) if p.run_root == me.run_root && me.net_kind != NetKind::Ground => {
                 TapRole::Series {
                     partner: p.topo_idx,
                 }
             }
+            // ★ M7.3: a GROUND partner that was NOT adopted is pinned DOWN —
+            // ground rails and the shared ground band are always below the side
+            // rows, so an upward shunt would route its ground pin back over its
+            // own body.
+            Some(p) if p.kind == NetKind::Ground => TapRole::Drop { dir: 1.0 },
             // A terminal-only partner OUTSIDE the run has no trunk of its own;
             // its glyph hangs wherever this member ends up, so the direction
             // stays free.
@@ -3046,7 +3346,10 @@ fn place_members_for_topo(
                 // outer end is clean and `realize`'s outward walk can find it.
                 if on_side {
                     member_box.x = line_x - view.w / 2.0;
-                    member_box.y = axis + LEAD;
+                    // ★ M8.8: a W/E test point hangs a little lower so the
+                    // left/right signal band clears the power rows above
+                    // (speaker `TP1` under the VDD trunk).
+                    member_box.y = axis + SIDE_HANG;
                     member_box.geom_locked = true;
                     for ep in &mut member_box.entry_points {
                         ep.side = EntrySide::Top;
@@ -3553,6 +3856,12 @@ pub struct TreeSymbol {
     /// from FOREIGN nets (A25) and lets `push_labels_clear` (M5.2) avoid
     /// pushing a label into its own net's member boxes.
     pub net_id: i64,
+    /// ★ M8.7: render the label text VERTICALLY (rotated -90 degrees, rising
+    /// off the trunk). A run-end label whose horizontal text span would sit on
+    /// top of an ALONG member lying on the same row (e.g. the mute name pasted
+    /// over the series resistor it names) is turned vertical so its glyph
+    /// clears the row instead of overlapping the part.
+    pub vertical: bool,
 }
 
 /// M3.5 (R1, fixed): which side a label's text sits on. The text must point
@@ -3728,10 +4037,30 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
                     // junction — A8 wants a dot on it.
                     junction_dots.push((ax0, ay0));
                 }
-                let (dir, sx, sy) = match pick_stub_dir(graph, &segments, (ax0, ay0)) {
-                    Some(d) => (d, ax0 + d.0 * SYMBOL_DROP, ay0 + d.1 * SYMBOL_DROP),
-                    None => ((0.0, 1.0), ax0, ay0 + SYMBOL_DROP),
+                // ★ M11.4: an ADOPTED ground (M10.3) is the OUTER END of a
+                // row. Its glyph has to keep going the way the wire was going,
+                // or "a row has a start and an end" stops reading as a wire.
+                // Ask for that direction FIRST and let it walk outward when the
+                // first try is blocked; only then fall back to the generic
+                // four-direction search. See [`terminal_stub`].
+                let outward = match topo.lane.region {
+                    r @ (Region::West | Region::East) => Some(r.outward()),
+                    _ => None,
                 };
+                let ((ax, ay), dir, lead) = terminal_stub(graph, &segments, (ax0, ay0), outward);
+                if lead {
+                    add_segment(
+                        &Segment {
+                            x1: ax0,
+                            y1: ay0,
+                            x2: ax,
+                            y2: ay,
+                        },
+                        &mut segments,
+                        &mut degree_map,
+                    );
+                }
+                let (sx, sy) = (ax + dir.0 * SYMBOL_DROP, ay + dir.1 * SYMBOL_DROP);
                 let kind = match term {
                     Terminal::Ground => TreeSymbolKind::Ground,
                     Terminal::NetLabel(name) => {
@@ -3758,11 +4087,12 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
                     dir,
                     text_side: text_side_away_from(sx, (abx, abx + abw)),
                     net_id: topo.nid,
+                    vertical: false,
                 });
                 add_segment(
                     &Segment {
-                        x1: ax0,
-                        y1: ay0,
+                        x1: ax,
+                        y1: ay,
                         x2: sx,
                         y2: sy,
                     },
@@ -4056,7 +4386,76 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
             Some(ab) if attach.0 >= ab.x + ab.w => 1.0,
             _ => text_side_away_from(attach.0, lane.span),
         };
-        if let Some(dir) = dir {
+        // ★ M8.7: a run-end label whose HORIZONTAL text span would sit on top
+        // of an ALONG member lying on this same row (e.g. the mute name pasted
+        // over the series resistor it names) is turned VERTICAL so its glyph
+        // rises off the trunk instead of overlapping the part. Only W/E trunks
+        // (horizontal) can host an Along member on the row — N/S rails cannot.
+        let is_label = matches!(
+            sym.kind,
+            TreeSymbolKind::NetLabel | TreeSymbolKind::BusLabel | TreeSymbolKind::PortLabel
+        );
+        let text_collides = if is_label && !sym.label.is_empty() {
+            let label_w = sym.label.len() as f64 * 7.0;
+            let (ls0, ls1) = if sym.text_side < 0.0 {
+                (attach.0 - 4.0 - label_w, attach.0 - 4.0)
+            } else {
+                (attach.0 + 4.0, attach.0 + 4.0 + label_w)
+            };
+            const BAND: f64 = 20.0; // vertical band around the trunk row
+            graph.boxes.iter().any(|b| {
+                if b.w <= 0.0
+                    || b.h <= 0.0
+                    || matches!(
+                        b.kind,
+                        BoxKind::PowerLabel | BoxKind::Dot | BoxKind::PortTerminal
+                    )
+                {
+                    return false;
+                }
+                ls0 < b.x + b.w && ls1 > b.x && axis - BAND < b.y + b.h && axis + BAND > b.y
+            })
+        } else {
+            false
+        };
+        // ★ M11.3: two triggers now. `text_collides` is the geometric one M8.7
+        // added; `outer_end_taken` is the TOPOLOGICAL one — the run continues
+        // through a part, or the row ends at a satellite, so the outer end was
+        // never the label's to take (A31). A union, so nothing that reads
+        // correctly today changes; it only adds cases that used to depend on
+        // how long a name happened to be.
+        let vertical_now = (text_collides || topo.outer_end_taken)
+            && matches!(topo.lane.region, Region::West | Region::East);
+        if vertical_now {
+            // ★ M10.1: a label that cannot lie along the row still has to be
+            // PULLED OFF it on a real wire — that stub is the drawing convention
+            // that says "this wire is named" / "this is a bus". M8.7 parked the
+            // glyph 4px off the trunk, so the bus circle merged with the junction
+            // dot underneath it and `speaker`'s `US_SPEAKER_MUTE` read as a name
+            // painted onto the wire with no stub at all. Use the full
+            // SYMBOL_DROP, preferring UP — a row's members hang DOWN.
+            let vdir = if stub_dir_is_free(graph, &segments, attach, (0.0, -1.0)) {
+                (0.0, -1.0)
+            } else if stub_dir_is_free(graph, &segments, attach, (0.0, 1.0)) {
+                (0.0, 1.0)
+            } else {
+                (0.0, -1.0)
+            };
+            sym.vertical = true;
+            sym.dir = vdir;
+            sym.x = attach.0 + vdir.0 * SYMBOL_DROP;
+            sym.y = attach.1 + vdir.1 * SYMBOL_DROP;
+            add_segment(
+                &Segment {
+                    x1: attach.0,
+                    y1: attach.1,
+                    x2: sym.x,
+                    y2: sym.y,
+                },
+                &mut segments,
+                &mut degree_map,
+            );
+        } else if let Some(dir) = dir {
             sym.dir = dir;
             sym.x = attach.0 + dir.0 * SYMBOL_DROP;
             sym.y = attach.1 + dir.1 * SYMBOL_DROP;
@@ -4107,29 +4506,97 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
 /// every direction is blocked (e.g. a member box crowds the node).
 fn pick_stub_dir(graph: &McVecGraph, segments: &[Segment], node: (f64, f64)) -> Option<(f64, f64)> {
     for (dx, dy) in [(0.0, 1.0), (0.0, -1.0), (-1.0, 0.0), (1.0, 0.0)] {
-        let ex = node.0 + dx * SYMBOL_DROP;
-        let ey = node.1 + dy * SYMBOL_DROP;
-        let hits_box = graph.boxes.iter().any(|b| {
-            if matches!(
-                b.kind,
-                BoxKind::PowerLabel | BoxKind::Dot | BoxKind::PortTerminal
-            ) {
-                return false;
-            }
-            segment_hits_box(node.0, node.1, ex, ey, b.x, b.y, b.w, b.h)
-        });
-        if hits_box {
-            continue;
+        if stub_dir_is_free(graph, segments, node, (dx, dy)) {
+            return Some((dx, dy));
         }
-        let overlaps = segments
-            .iter()
-            .any(|s| segments_overlap(node.0, node.1, ex, ey, s.x1, s.y1, s.x2, s.y2));
-        if overlaps {
-            continue;
-        }
-        return Some((dx, dy));
     }
     None
+}
+
+/// ★ M10.1: is a `SYMBOL_DROP`-long stub out of `node` in direction `dir` clear
+/// of every component box and of every segment already drawn for this net?
+///
+/// Extracted from [`pick_stub_dir`] so a caller that needs a SPECIFIC direction
+/// (the vertical label stub, the outward ground stub) can ask about that one
+/// direction instead of re-deriving the geometry or taking whatever
+/// `pick_stub_dir` happened to prefer.
+pub(crate) fn stub_dir_is_free(
+    graph: &McVecGraph,
+    segments: &[Segment],
+    node: (f64, f64),
+    dir: (f64, f64),
+) -> bool {
+    let ex = node.0 + dir.0 * SYMBOL_DROP;
+    let ey = node.1 + dir.1 * SYMBOL_DROP;
+    let hits_box = graph.boxes.iter().any(|b| {
+        if matches!(
+            b.kind,
+            BoxKind::PowerLabel | BoxKind::Dot | BoxKind::PortTerminal
+        ) {
+            return false;
+        }
+        segment_hits_box(node.0, node.1, ex, ey, b.x, b.y, b.w, b.h)
+    });
+    if hits_box {
+        return false;
+    }
+    !segments
+        .iter()
+        .any(|s| segments_overlap(node.0, node.1, ex, ey, s.x1, s.y1, s.x2, s.y2))
+}
+
+/// ★ M11.4: where a TERMINAL-ONLY net's glyph hangs, and whether the wire had to
+/// be extended to get there.
+///
+/// Three tiers, each a fallback for the one before it:
+///
+/// 1. **outward along the row** — the M10.3 case. An adopted ground IS the row's
+///    outer end, so its glyph continues in the direction the wire was already
+///    travelling. If that direction is blocked at the attach point, walk out in
+///    `SYMBOL_LANE` steps (max 3) and retry, extending the wire with a short
+///    lead — the same escape M7.2 gave trunk-end labels when `segment_hits_box`
+///    ("grazing an edge counts as a hit") left no free direction at the node
+///    itself. The lead is a SEPARATE segment, so A15, which measures the
+///    segment that ends ON the glyph, still sees a `SYMBOL_DROP` stub.
+/// 2. **the generic four-direction search** (`pick_stub_dir`: down → up → left →
+///    right). Where a cap whose outer end butts against a satellite ends up —
+///    the glyph drops off the far pin instead. Uglier, still connected.
+/// 3. **outward anyway**, with no free direction at all (a degenerate layer).
+///    Prefer the row's own direction over the old hard-coded `(0,1)`: dropping a
+///    horizontal row's terminal DOWN lands it in the next row's corridor, which
+///    is the one place it must never go.
+///
+/// Returns `(attach, dir, needs_lead)`.
+fn terminal_stub(
+    graph: &McVecGraph,
+    segments: &[Segment],
+    node: (f64, f64),
+    outward: Option<(f64, f64)>,
+) -> ((f64, f64), (f64, f64), bool) {
+    if let Some(d) = outward {
+        for step in 0..3 {
+            let ax = node.0 + d.0 * step as f64 * SYMBOL_LANE;
+            let ay = node.1 + d.1 * step as f64 * SYMBOL_LANE;
+            // The lead itself must be clear of every component box.
+            if step > 0
+                && graph.boxes.iter().any(|b| {
+                    !matches!(
+                        b.kind,
+                        BoxKind::PowerLabel | BoxKind::Dot | BoxKind::PortTerminal
+                    ) && segment_hits_box(node.0, node.1, ax, ay, b.x, b.y, b.w, b.h)
+                })
+            {
+                break;
+            }
+            if stub_dir_is_free(graph, segments, (ax, ay), d) {
+                return ((ax, ay), d, step > 0);
+            }
+        }
+    }
+    if let Some(d) = pick_stub_dir(graph, segments, node) {
+        return (node, d, false);
+    }
+    (node, outward.unwrap_or((0.0, 1.0)), false)
 }
 
 /// Does the axis-aligned segment (ax,ay)-(bx,by) pass through the interior of
@@ -4324,6 +4791,7 @@ fn build_symbols(topo: &NetTopology, lane: Lane, graph: &McVecGraph) -> Vec<Tree
                     dir: (0.0, 1.0),
                     text_side: 1.0, // Ground has no text; value irrelevant
                     net_id: topo.nid,
+                    vertical: false,
                 });
             }
             Terminal::NetLabel(name) => {
@@ -4353,6 +4821,7 @@ fn build_symbols(topo: &NetTopology, lane: Lane, graph: &McVecGraph) -> Vec<Tree
                     // the ACTUAL attach point (outer end or alt end).
                     text_side: 1.0,
                     net_id: topo.nid,
+                    vertical: false,
                 });
             }
             Terminal::Port { name } => {
@@ -4367,6 +4836,7 @@ fn build_symbols(topo: &NetTopology, lane: Lane, graph: &McVecGraph) -> Vec<Tree
                     // text_side from the attach point.
                     text_side: 1.0,
                     net_id: topo.nid,
+                    vertical: false,
                 });
             }
         }
@@ -4501,18 +4971,20 @@ pub fn build_all_trees(graph: &McVecGraph) -> Vec<EquiTree> {
 
 /// ★ Content-adaptive canvas (fix "circuit clipped at negative coordinates").
 ///
-/// The SVG viewBox is `0 0 W H`, so any content with a negative x/y (West
+/// The SVG viewBox starts at `0 0`, so any content with a negative x/y (West
 /// trunks, left-side caps, symbols above the anchor) is silently clipped by the
 /// current canvas logic which only grows the max (positive) extent. Here we:
 ///   1. compute the bounding box of ALL rendered content (boxes + tree segments
 ///      + junction dots + symbols, min and max in both axes),
-///   2. shift every box so the content starts at the canvas margin (brings
-///      negative-x/y content back into the visible `0 0 W H` viewBox),
-///   3. return a canvas sized to the content (`content + 2×margin`).
+///   2. shift every box in X so the content starts at the canvas margin,
+///   3. return the SVG viewBox `(x, y, w, h)` sized to the content
+///      (`content + 2×margin`), starting at the TRUE content top so nothing —
+///      including M8.7/M10.1 vertical labels that read UPWARD off their trunk —
+///      hangs off the canvas edge.
 ///
 /// The render phase calls `build_all_trees` again on the shifted graph, so the
 /// re-derived trees are consistent with the shifted boxes.
-pub fn fit_content_to_canvas(graph: &mut McVecGraph) -> (f64, f64) {
+pub fn fit_content_to_canvas(graph: &mut McVecGraph) -> (f64, f64, f64, f64) {
     let margin = crate::viz::layout::normalize::CANVAS_MARGIN;
 
     // ★ Single-pass fit. NOTE: this must be ONE shift — the renderer re-derives
@@ -4523,7 +4995,7 @@ pub fn fit_content_to_canvas(graph: &mut McVecGraph) -> (f64, f64) {
     // (M6.5 fallback), so a single shift is sufficient.
     let trees = build_all_trees(graph);
     let Some((min_x, min_y, max_x, max_y)) = content_bbox(graph, &trees) else {
-        return (200.0, 100.0); // no content
+        return (0.0, 0.0, 200.0, 100.0); // no content
     };
     let shift_x = margin - min_x;
     // ★ M7.4: never shift Y. `assign_rows` writes absolute `BASE_Y`-derived
@@ -4531,9 +5003,9 @@ pub fn fit_content_to_canvas(graph: &mut McVecGraph) -> (f64, f64) {
     // (X-shifted) graph, so any vertical box shift moves every layer-anchor pin
     // off its OWN trunk by exactly `shift_y` — the uniform offset that put
     // `moddcdc`'s EN/LX pins 50px above their rows, with the tooth running
-    // through the members. Content is always placed at positive y (rows start
-    // at `BASE_Y`), so it already fits the `0 0` viewBox vertically; only the
-    // horizontal fit (West members at negative x) is required.
+    // through the members. Instead of moving the boxes, the viewBox below starts
+    // at the true content top, so a negative `min_y` (a vertical label rising
+    // above its row) is given room instead of being clipped.
     let shift_y: f64 = 0.0;
     crate::vlog!(
         "[fit] layer '{}' bbox x[{min_x:.0},{max_x:.0}] y[{min_y:.0},{max_y:.0}] shift=({shift_x:.0},{shift_y:.0})",
@@ -4550,18 +5022,22 @@ pub fn fit_content_to_canvas(graph: &mut McVecGraph) -> (f64, f64) {
         }
     }
 
-    let w = (max_x - min_x) + 2.0 * margin;
-    // ★ M7.6: the viewBox starts at `0 0` and fit no longer Y-shifts (see the
-    // `shift_y = 0` note above), so content occupies `[min_y, max_y]` with
-    // `min_y` left where the layout put it. `max_y - min_y + 2*margin` only
-    // covered the content when `min_y == margin`; with a positive `min_y`
-    // (moddcdc starts at y=80) the canvas came up short and the bottom row —
-    // a ground glyph — was clipped by `min_y - margin`. The canvas must reach
-    // the content bottom plus one margin: `max_y + margin` (the top padding is
-    // `min_y` itself, which is always positive).
-    let h = max_y + margin;
+    // ★ M10.x: the viewBox starts at the TRUE content top (not `0`). `min_y`
+    // can now be negative — M8.7/M10.1 vertical labels read UPWARD off their
+    // trunk, so a long label on a high row rises above y=0. The old `max_y +
+    // margin` height with a `0 0` viewBox clipped everything above y=0; instead
+    // the canvas gets a symmetric margin on every side and nothing is cut off.
+    let viewbox_x = 0.0; // after the X shift above, content min_x == margin
+    let viewbox_y = min_y - margin;
+    let viewbox_w = (max_x - min_x) + 2.0 * margin;
+    let viewbox_h = (max_y - min_y) + 2.0 * margin;
     // Modest floor so tiny layers still get a usable "paper".
-    (w.max(300.0), h.max(200.0))
+    (
+        viewbox_x,
+        viewbox_y,
+        viewbox_w.max(300.0),
+        viewbox_h.max(200.0),
+    )
 }
 
 /// Bounding box of every rendered element: boxes, tree segments, junction dots
@@ -4606,6 +5082,17 @@ fn content_bbox(graph: &McVecGraph, trees: &[EquiTree]) -> Option<(f64, f64, f64
                 max_x = max_x.max(sym.x + 10.0);
                 min_y = min_y.min(sym.y - 4.0);
                 max_y = max_y.max(sym.y + 8.0);
+                continue;
+            }
+            // ★ M8.7: a VERTICAL label is rotated -90 deg (reads upward off the
+            // trunk), so its extent is a column — a vertical run of ~label-width
+            // above `sym.y`, with a horizontal span of roughly one glyph height.
+            if sym.vertical {
+                let label_w = sym.label.len() as f64 * 7.0;
+                min_x = min_x.min(sym.x - 6.0);
+                max_x = max_x.max(sym.x + 6.0);
+                min_y = min_y.min(sym.y - label_w - 6.0);
+                max_y = max_y.max(sym.y + 6.0);
                 continue;
             }
             // BusLabel: a circle of radius 6 at `(sym.x, sym.y)` plus text that
@@ -4964,6 +5451,24 @@ mod tests {
                             EntrySide::Right => (b.x + b.w, b.y + b.h * s.offset),
                         };
                         pin_points.push((px, py));
+                    }
+                }
+                // ★ M10.3: a two-pin member is a WIRE-CONTINUATION (Along/Series).
+                // Its far pin is owned by the PARTNER net, yet this net's trunk
+                // legitimately reaches it when the wire runs on past the member.
+                if b.pins.len() == 2 {
+                    for p in &b.pins {
+                        if !grp.pin_ids.contains(&p.id) {
+                            if let Some(s) = slot_of(b, p.id) {
+                                let (px, py) = match s.side {
+                                    EntrySide::Top => (b.x + b.w * s.offset, b.y),
+                                    EntrySide::Bottom => (b.x + b.w * s.offset, b.y + b.h),
+                                    EntrySide::Left => (b.x, b.y + b.h * s.offset),
+                                    EntrySide::Right => (b.x + b.w, b.y + b.h * s.offset),
+                                };
+                                pin_points.push((px, py));
+                            }
+                        }
                     }
                 }
             }

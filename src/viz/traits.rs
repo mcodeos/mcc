@@ -43,7 +43,11 @@ pub trait Router {
 }
 
 pub trait Renderer {
-    fn render(&self, graph: &McVecGraph, canvas: (f64, f64)) -> String;
+    /// Render the graph to an SVG string. `canvas` is the viewBox SIZE
+    /// `(w, h)`; `origin` is the viewBox top-left `(x, y)` — the M10 content-fit
+    /// starts the viewBox at the true content top (which may be negative for
+    /// upward-reading vertical labels), so the origin is not always `(0, 0)`.
+    fn render(&self, graph: &McVecGraph, canvas: (f64, f64), origin: (f64, f64)) -> String;
 
     fn name(&self) -> &'static str {
         "unnamed_renderer"
@@ -61,8 +65,8 @@ pub trait Renderer {
 pub struct DefaultRenderer;
 
 impl Renderer for DefaultRenderer {
-    fn render(&self, graph: &McVecGraph, canvas: (f64, f64)) -> String {
-        crate::viz::render::SvgRenderer::render(graph, canvas.0, canvas.1)
+    fn render(&self, graph: &McVecGraph, canvas: (f64, f64), origin: (f64, f64)) -> String {
+        crate::viz::render::SvgRenderer::render(graph, origin.0, origin.1, canvas.0, canvas.1)
     }
 
     fn name(&self) -> &'static str {
