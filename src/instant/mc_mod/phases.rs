@@ -656,7 +656,7 @@ impl McModuleInst {
             self.current_stmt_span = stmt_span;
         }
         // Clear after loop to avoid stale span leaking into post-stmt checks.
-        // `current_link` needs no reset here: every producer is RAII
+        // `current_trunk` needs no reset here: every producer is RAII
         // guarded (§7.11(2)) and restores it on exit.
         self.current_stmt_span = None;
 

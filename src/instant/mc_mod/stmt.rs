@@ -18,6 +18,7 @@ use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{eval_binary, ConnDir, ConnOp, IOType, Shape, ShapeError};
+use crate::semantic::component::mc_pins::McPinPort;
 use crate::semantic::mc_inst::McInstance;
 use crate::vector::model::trunk::TrunkKind;
 use std::collections::HashSet;
@@ -182,12 +183,15 @@ impl McModuleInst {
             // Extract it from the chain members (driver side first, then the
             // far side) and wire inside it, so bus member lanes carry their
             // trunk identity and render as a trunk.
-            let trunk = Self::extract_link_group(&members[0])
-                .or_else(|| members.iter().rev().find_map(Self::extract_link_group));
-            let trunk_kind = Self::extract_link_kind(&members[0])
-                .or_else(|| members.iter().rev().find_map(Self::extract_link_kind))
+            let trunk = Self::extract_trunk_group(&members[0])
+                .or_else(|| members.iter().rev().find_map(Self::extract_trunk_group));
+            let trunk_kind = Self::extract_trunk_kind(&members[0])
+                .or_else(|| members.iter().rev().find_map(Self::extract_trunk_kind))
                 .or_else(|| trunk.as_ref().map(|_| TrunkKind::Plain));
-            return self.with_link(trunk, trunk_kind, |this| {
+            let trunk_iface = self
+                .extract_trunk_iface(&members[0])
+                .or_else(|| members.iter().rev().find_map(|m| self.extract_trunk_iface(m)));
+            return self.with_trunk(trunk, trunk_kind, trunk_iface, |this| {
                 this.wire_chain_lane_by_lane(&members, dir)
             });
         }
@@ -1434,8 +1438,8 @@ impl McModuleInst {
     ///
     /// For `flash.SPI` or `mic.MIC`, the trunk group is the Interface/Bus name
     /// (e.g., "SPI", "MIC"). Returns `None` for non-port-group phrases.
-    fn extract_link_group(phrase: &McPhrase) -> Option<String> {
-        let r = Self::extract_link_group_inner(phrase);
+    fn extract_trunk_group(phrase: &McPhrase) -> Option<String> {
+        let r = Self::extract_trunk_group_inner(phrase);
         mcc_dbg!(
             "inst::mod",
             "[PG-DBG] module={} phrase={:?} -> {:?}",
@@ -1446,7 +1450,7 @@ impl McModuleInst {
         r
     }
 
-    fn extract_link_group_inner(phrase: &McPhrase) -> Option<String> {
+    fn extract_trunk_group_inner(phrase: &McPhrase) -> Option<String> {
         match phrase {
             McPhrase::Endpoint(McEndpoint::Single(ref ir)) => {
                 // For Endpoint, only use Interface/Bus base name or member name.
@@ -1529,7 +1533,7 @@ impl McModuleInst {
             McInstance::Bus(b) => {
                 // §8.9.6.3 form 1: a curly bus `MIC{P,N}` groups by its bus
                 // NAME; the members are lanes (stamped per-lane downstream,
-                // see group.rs::refine_lane_link). The old join("_")
+                // see group.rs::refine_lane_trunk). The old join("_")
                 // conflated members into one pseudo-name and lost the group
                 // identity.
                 Some(b.name().to_string())
@@ -1559,10 +1563,10 @@ impl McModuleInst {
     }
 
     /// ★ §8.9.4: Extract the coarse `TrunkKind` of a trunk group phrase, mirroring
-    /// `extract_link_group`'s traversal so `PortTrunk.kind` never needs to be
+    /// `extract_trunk_group`'s traversal so `Trunk.kind` never needs to be
     /// re-derived downstream.
-    fn extract_link_kind(phrase: &McPhrase) -> Option<TrunkKind> {
-        // §8.9.6.7: mirror of extract_link_group — `MIC{P,N}` appears as a
+    fn extract_trunk_kind(phrase: &McPhrase) -> Option<TrunkKind> {
+        // §8.9.6.7: mirror of extract_trunk_group — `MIC{P,N}` appears as a
         // Multiple of member-carrying bus endpoints, so a Multiple contributes
         // a Bus/Interface kind only when at least one endpoint carries one
         // (the same member-carrying rule as the group extractor).
@@ -1605,6 +1609,55 @@ impl McModuleInst {
         }
     }
 
+    /// ★ §8.9.4: Extract the standardized interface class (e.g. `UART.TTL`)
+    /// of an interface trunk group phrase, mirroring `extract_trunk_kind`'s
+    /// traversal so `TrunkEnd.iface_class` never needs to be re-derived
+    /// downstream. Non-interface phrases (bus / list / plain) yield `None`.
+    ///
+    /// Interface member lanes arrive flattened as a bus whose dotted member
+    /// keeps the interface port name (e.g. `U_MCU{UART0.TX}`); the owner
+    /// component's pin table resolves that port name back to the bound
+    /// interface class (§8.9.4 data flow: `McPinPort::Interface` → name).
+    fn extract_trunk_iface(&self, phrase: &McPhrase) -> Option<String> {
+        if let McPhrase::Multiple(items) = phrase {
+            return items
+                .iter()
+                .find_map(|it| match it {
+                    McPhrase::Endpoint(McEndpoint::Single(ir)) => self.iface_class_of(ir),
+                    _ => None,
+                });
+        }
+        let ir = match phrase {
+            McPhrase::Endpoint(McEndpoint::Single(ir)) => ir,
+            McPhrase::Member(_base, McEndpoint::Single(ir)) => ir,
+            _ => return None,
+        };
+        self.iface_class_of(ir)
+    }
+
+    /// Interface class of one endpoint ref: a direct `McInstance::Interface`
+    /// yields its bound class; a flattened bus member lane (`U_MCU{UART0.TX}`)
+    /// resolves the dotted member's port segment against the owner
+    /// component's pin table.
+    fn iface_class_of(&self, ir: &McInstanceRef) -> Option<String> {
+        match &ir.base {
+            McInstance::Interface(i) => Some(i.base_name()),
+            McInstance::Bus(b) => {
+                let member = b.member.first().or_else(|| b.full_members.first())?;
+                let port_name = member.split('.').next()?;
+                if port_name.is_empty() {
+                    return None;
+                }
+                let comp = self.find_component(b.name())?;
+                match comp.def.pins.names_to_id.get(port_name) {
+                    Some(McPinPort::Interface(iface)) => Some(iface.base_name()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Try to connect adjacent members
     ///
     /// Helper method extracted from `process_stmt`, handling Group / normal
@@ -1620,12 +1673,15 @@ impl McModuleInst {
         // Prefer the left member (driver side), fall back to the right member.
         // RAII (§7.11(2)): the group is restored on every exit path (including
         // early `Err` returns), so it can never leak into the next connection.
-        let trunk = Self::extract_link_group(left_member)
-            .or_else(|| Self::extract_link_group(right_member));
-        let trunk_kind = Self::extract_link_kind(left_member)
-            .or_else(|| Self::extract_link_kind(right_member))
+        let trunk = Self::extract_trunk_group(left_member)
+            .or_else(|| Self::extract_trunk_group(right_member));
+        let trunk_kind = Self::extract_trunk_kind(left_member)
+            .or_else(|| Self::extract_trunk_kind(right_member))
             .or_else(|| trunk.as_ref().map(|_| TrunkKind::Plain));
-        self.with_link(trunk, trunk_kind, |this| {
+        let trunk_iface = self
+            .extract_trunk_iface(left_member)
+            .or_else(|| self.extract_trunk_iface(right_member));
+        self.with_trunk(trunk, trunk_kind, trunk_iface, |this| {
             // ── P1-diag: detailed adjacent wiring diagnostic ─────────────────────────────────
             let _l_kind = match left_member {
                 McPhrase::FuncCall(f) => format!(

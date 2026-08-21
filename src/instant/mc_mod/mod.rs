@@ -131,12 +131,18 @@ pub struct McModuleInst {
     /// Set when processing a connection that involves a port group (e.g., flash.SPI, mic.MIC).
     /// Used by `make_conn_with_provenance` to tag connections with their trunk group.
     /// Cleared when the connection line is fully processed.
-    pub(super) current_link: Option<String>,
+    pub(super) current_trunk: Option<String>,
 
-    /// ★ §8.9.4: coarse kind of `current_link` (`Bus`/`Interface`/`List`/`Plain`),
-    /// recorded at the source so `PortTrunk.kind` does not have to be re-derived.
-    /// RAII-managed together with `current_link` by `with_link`.
-    pub(super) current_link_kind: Option<TrunkKind>,
+    /// ★ §8.9.4: coarse kind of `current_trunk` (`Bus`/`Interface`/`List`/`Plain`),
+    /// recorded at the source so `Trunk.kind` does not have to be re-derived.
+    /// RAII-managed together with `current_trunk` by `with_trunk`.
+    pub(super) current_trunk_kind: Option<TrunkKind>,
+
+    /// ★ §8.9.4: standardized interface class of `current_trunk` (e.g.
+    /// `UART.TTL`) when the port is an interface binding; carried into
+    /// `TrunkCtx.iface_class` → `TrunkEnd.iface_class`. RAII-managed with
+    /// `current_trunk` / `current_trunk_kind` by `with_trunk`.
+    pub(super) current_trunk_iface: Option<String>,
 
     /// Component class names whose instantiation failed (any instance of this class).
     /// Used to skip stmts that reference failed components.
@@ -248,8 +254,9 @@ impl McModuleInst {
             bridge_passive_names: HashSet::new(),
             current_stmt_span: None,
             current_func_span: None,
-            current_link: None,
-            current_link_kind: None,
+            current_trunk: None,
+            current_trunk_kind: None,
+            current_trunk_iface: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
@@ -288,8 +295,9 @@ impl McModuleInst {
             bridge_passive_names: HashSet::new(),
             current_stmt_span: None,
             current_func_span: None,
-            current_link: None,
-            current_link_kind: None,
+            current_trunk: None,
+            current_trunk_kind: None,
+            current_trunk_iface: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
@@ -688,24 +696,29 @@ impl McModuleInst {
         r
     }
 
-    /// Run `f` with the given `current_link` / `current_link_kind`
-    /// active and restore the previous values on every exit (RAII §7.11(2)).
-    /// The group is a connection-time hint read by `make_conn_with_provenance`;
-    /// a leaked group would mis-attribute the *next* connection's port group,
-    /// so the save/restore must survive early returns inside `f`.
-    pub(super) fn with_link<R>(
+    /// Run `f` with the given `current_trunk` / `current_trunk_kind` /
+    /// `current_trunk_iface` active and restore the previous values on every
+    /// exit (RAII §7.11(2)). The group is a connection-time hint read by
+    /// `make_conn_with_provenance`; a leaked group would mis-attribute the
+    /// *next* connection's port group, so the save/restore must survive early
+    /// returns inside `f`.
+    pub(super) fn with_trunk<R>(
         &mut self,
         group: Option<String>,
         kind: Option<TrunkKind>,
+        iface_class: Option<String>,
         f: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        let saved_group = self.current_link.take();
-        let saved_kind = self.current_link_kind.take();
-        self.current_link = group;
-        self.current_link_kind = kind;
+        let saved_group = self.current_trunk.take();
+        let saved_kind = self.current_trunk_kind.take();
+        let saved_iface = self.current_trunk_iface.take();
+        self.current_trunk = group;
+        self.current_trunk_kind = kind;
+        self.current_trunk_iface = iface_class;
         let r = f(self);
-        self.current_link = saved_group;
-        self.current_link_kind = saved_kind;
+        self.current_trunk = saved_group;
+        self.current_trunk_kind = saved_kind;
+        self.current_trunk_iface = saved_iface;
         r
     }
 

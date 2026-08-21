@@ -26,7 +26,7 @@ use std::fmt;
 
 use super::boxdef::{McVecBox, PortDir, ZoneBorder};
 use super::netdef::{McVecEdge, NetRole, VizNet};
-use crate::vector::model::trunk::PortTrunk;
+use crate::vector::model::trunk::Trunk;
 
 // ============================================================================
 // McVecGraph
@@ -51,7 +51,7 @@ pub struct McVecGraph {
     /// ★ §8.9.4: coarse bus/interface trunks of this layer (copied from the
     /// source `McVecBlock.port_trunks` by fromblock; recursive alongside
     /// `sub_graphs`, so each layer carries its own trunks)
-    pub port_trunks: Vec<PortTrunk>,
+    pub port_trunks: Vec<Trunk>,
     /// Sub-graphs (recursive sub-modules, implementable as expandable)
     pub sub_graphs: Vec<McVecGraph>,
     /// ★ FIX (sub-graph): whether multi-endpoint single-driver nets in this layer use

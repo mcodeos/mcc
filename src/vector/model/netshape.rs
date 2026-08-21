@@ -97,7 +97,7 @@ impl fmt::Display for LaneRef {
 /// `BusLanes` was removed in the §8.9.2-4 cleanup: production `build_net_shape`
 /// only ever produced `Scalar`/`Broadcast` from the vec length, so the variant
 /// was never created. Bus/interface identity and per-member pin2pin now live in
-/// the coarse `PortTrunk` layer (vec-dianlu.md §8.9.4), not in the flat groups.
+/// the coarse `Trunk` layer (vec-dianlu.md §8.9.4), not in the flat groups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupRole {
     /// Single point: `GND`, `R1.1`

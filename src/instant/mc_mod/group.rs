@@ -174,18 +174,24 @@ impl McModuleInst {
                 )),
                 (None, None) => None,
             };
-        // ★ §8.9.6: structured group context. Prefer `current_link`
+        // ★ §8.9.6: structured group context. Prefer `current_trunk`
         // (set from source code context), fall back to `trunk_from_points`;
         // the coarse kind rides along inside `TrunkCtx`.
         let trunk: Option<TrunkCtx> = self
-            .current_link
+            .current_trunk
             .clone()
-            .map(|g| TrunkCtx::from_group_member(&g, self.current_link_kind))
+            .map(|g| {
+                TrunkCtx::from_group_member(
+                    &g,
+                    self.current_trunk_kind,
+                    self.current_trunk_iface.clone(),
+                )
+            })
             .or_else(|| {
                 let mut all_pts: Vec<&NetPoint> = Vec::new();
                 all_pts.extend(left_points.iter());
                 all_pts.extend(right_points.iter());
-                trunk_from_points(&all_pts).map(|g| TrunkCtx::from_group_member(&g, None))
+                trunk_from_points(&all_pts).map(|g| TrunkCtx::from_group_member(&g, None, None))
             });
         // ★ P9-A2: log provenance (debug only, uncomment to trace)
         // if trunk.is_some() || source_span.is_some() {
@@ -223,8 +229,8 @@ impl McModuleInst {
                 // §8.9.6.7: refine the connection-level context into the
                 // per-lane identity (member from the point's structured
                 // member name), so bus member lanes render as a trunk.
-                if let Some(refined) = refine_lane_link(Some(pg.clone()), &conn.points) {
-                    conn = conn.with_link(refined);
+                if let Some(refined) = refine_lane_trunk(Some(pg.clone()), &conn.points) {
+                    conn = conn.with_trunk(refined);
                 }
             }
             conn
@@ -490,16 +496,22 @@ impl McModuleInst {
                 )),
                 (None, None) => None,
             };
-        // ★ §8.9.6: structured group context. Prefer `current_link`
+        // ★ §8.9.6: structured group context. Prefer `current_trunk`
         // (set from source code context), fall back to `trunk_from_points`
         // (extracted from point paths); the coarse kind rides along.
         let trunk: Option<TrunkCtx> = self
-            .current_link
+            .current_trunk
             .clone()
-            .map(|g| TrunkCtx::from_group_member(&g, self.current_link_kind))
+            .map(|g| {
+                TrunkCtx::from_group_member(
+                    &g,
+                    self.current_trunk_kind,
+                    self.current_trunk_iface.clone(),
+                )
+            })
             .or_else(|| {
                 let pts: Vec<&NetPoint> = points.iter().collect();
-                trunk_from_points(&pts).map(|g| TrunkCtx::from_group_member(&g, None))
+                trunk_from_points(&pts).map(|g| TrunkCtx::from_group_member(&g, None, None))
             });
         let mut conn = ConnectionInst::new(id, points).with_dir(dir);
         if let Some(l) = lane {
@@ -511,8 +523,8 @@ impl McModuleInst {
         if let Some(ref pg) = trunk {
             // §8.9.6.7: refine into the per-lane identity (mirror of
             // create_connection's mk_conn).
-            if let Some(refined) = refine_lane_link(Some(pg.clone()), &conn.points) {
-                conn = conn.with_link(refined);
+            if let Some(refined) = refine_lane_trunk(Some(pg.clone()), &conn.points) {
+                conn = conn.with_trunk(refined);
             }
         }
         conn
@@ -824,7 +836,7 @@ pub(super) fn trunk_from_points(points: &[&NetPoint]) -> Option<String> {
 /// when the point provably belongs to the group (path starts with
 /// `"<group>."`), never a blind last-segment split. Plain connections keep
 /// their context untouched.
-pub(super) fn refine_lane_link(ctx: Option<TrunkCtx>, points: &[NetPoint]) -> Option<TrunkCtx> {
+pub(super) fn refine_lane_trunk(ctx: Option<TrunkCtx>, points: &[NetPoint]) -> Option<TrunkCtx> {
     let mut pg = ctx?;
     if pg.kind == TrunkKind::Plain {
         return Some(pg);

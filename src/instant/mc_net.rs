@@ -360,7 +360,7 @@ impl ConnectionInst {
     }
 
     /// ★ §8.9.6: Set the structured trunk context of this connection lane.
-    pub fn with_link(mut self, ctx: TrunkCtx) -> Self {
+    pub fn with_trunk(mut self, ctx: TrunkCtx) -> Self {
         self.trunk = Some(ctx);
         self
     }

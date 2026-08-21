@@ -977,8 +977,8 @@ fn conn_key(c: &Value) -> String {
 }
 
 /// Convert a connection JSON value to the shared §8.9.5 view. The JSON
-/// `trunk` object (`{"name", "member", "kind"}`) is decoded back into a
-/// structured [`TrunkCtx`]; missing / malformed → None.
+/// `trunk` object (`{"name", "member", "kind", "iface_class"}`) is decoded
+/// back into a structured [`TrunkCtx`]; missing / malformed → None.
 fn conn_view(c: &Value) -> common::ConnView {
     let trunk = c["trunk"].as_object().map(|o| TrunkCtx {
         name: o.get("name").and_then(|v| v.as_str()).map(str::to_string),
@@ -988,6 +988,10 @@ fn conn_view(c: &Value) -> common::ConnView {
             .and_then(|v| v.as_str())
             .map(kind_from_label)
             .unwrap_or(TrunkKind::Plain),
+        iface_class: o
+            .get("iface_class")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
     });
     common::ConnView {
         net: c["net"].as_str().unwrap_or("").to_string(),

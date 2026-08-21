@@ -146,7 +146,7 @@ pub struct VizNet {
     /// ★ §8.9.6: structured trunk context that produced this net.
     /// Used by R-M edge merge to group bus lanes.
     pub trunk: Option<crate::vector::model::trunk::TrunkCtx>,
-    /// ★ §8.9.4: back-reference to the coarse `PortTrunk` this fine net belongs
+    /// ★ §8.9.4: back-reference to the coarse `Trunk` this fine net belongs
     /// to (trunk id + lane index), copied from `McVecNet.trunk_ref`.
     pub trunk_ref: Option<TrunkRef>,
     /// ★ §8.9.2: topology shape (op / dir / anchor / order), copied from
