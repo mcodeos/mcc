@@ -8,7 +8,7 @@ use super::super::{
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
     basic::mc_fcall::{McFuncCall, ReturnShape},
     basic::mc_group::McGroup,
-    common::{representative, ConnDir, ConnOp, IOType, McCMIE, Shape},
+    common::{eval_binary, representative, ConnDir, ConnOp, IOType, McCMIE, Shape, ShapeError},
     component::Mc2Component,
     mc_func::HasFindInst,
     mc_inst::McInstance,
@@ -24,10 +24,8 @@ use crate::{
     refdef::types::SymbolKind,
     semantic::{
         basic::{mc_opd::McOpd, mc_param::McParamValue},
-        component::mc_pins::McPinPort,
         context::resolve_cmie,
         instref::validate_inst_reference,
-        mc_ifs::Mc2Interface,
     },
     McIds,
 };
@@ -208,6 +206,7 @@ impl McPhrase {
                     match opdc {
                         McOpd::Id(ids) => {
                             let ids_str = ids.to_string();
+                            let _is_curly = ids.is_curly_bracket();
                             // eprintln!(
                             //     "[PHRASE_DEBUG] OPD Id: ids={:?}, is_curly={}",
                             //     ids_str, is_curly
@@ -1663,19 +1662,19 @@ impl McPhrase {
                 }
 
                 // §5.1 parallel `+` is left-aligned: the left ports must always
-                // match one-to-one. A transposed operand is first transposed to
-                // its full-width column (its effective port is the merged inner
-                // left + right element list), and the §5.1 left-alignment check
-                // runs on that transposed result — there is no transpose
-                // carve-out (opcheck is shared with Pass2).
-                let opd1_left = eval_port_elems(&opd1, false, context);
-                let opd2_left = eval_port_elems(&opd2, false, context);
+                // match one-to-one.
+                // A transpose bridge (`XTAL{X1,X2} + R442'`) defers the
+                // alignment to Pass2: a transposed operand's effective width is
+                // its whole point list, which the phrase layer cannot express
+                // as a row count (see `is_connectable`).
+                let trans_bridge = matches!(opd1, McPhrase::Transposed(_))
+                    || matches!(opd2, McPhrase::Transposed(_));
                 if !is_connectable(
                     ConnOp::Parallel,
                     ConnDir::Undirected,
-                    &opd1_left,
-                    &opd2_left,
-                    crate::semantic::opcheck::ParallelAlign::Left,
+                    &opd1.get_left(),
+                    &opd2.get_left(),
+                    trans_bridge,
                 ) {
                     dlog_error(
                         crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
@@ -1691,19 +1690,15 @@ impl McPhrase {
                 // independent right port (row vector / node, left != right).
                 // When only one side does (single node / column vector, left ==
                 // right), the right side merges into the result without
-                // alignment (vec-dianlu.md §5.1). A transposed operand is a
-                // column after transposition (left == right), so it never
-                // carries an independent right port.
-                let opd1_right = eval_port_elems(&opd1, true, context);
-                let opd2_right = eval_port_elems(&opd2, true, context);
-                if opd1_left != opd1_right
-                    && opd2_left != opd2_right
+                // alignment (vec-dianlu.md §5.1).
+                if opd1.get_left() != opd1.get_right()
+                    && opd2.get_left() != opd2.get_right()
                     && !is_connectable(
                         ConnOp::Parallel,
                         ConnDir::Undirected,
-                        &opd1_right,
-                        &opd2_right,
-                        crate::semantic::opcheck::ParallelAlign::Right,
+                        &opd1.get_right(),
+                        &opd2.get_right(),
+                        trans_bridge,
                     )
                 {
                     dlog_error(
@@ -1815,16 +1810,15 @@ impl McPhrase {
                     return None;
                 }
 
-                // §4.1 series evaluation: opd1.right ↔ opd2.left (- is Undirected, take op1).
-                // A transposed operand is first transposed to its full-width
-                // column, then the §5.2 check runs on the transposed result —
-                // no transpose carve-out.
+                // §4.1 series evaluation: opd1.right ↔ opd2.left (- is Undirected, take op1)
+                let trans_bridge = matches!(opd1, McPhrase::Transposed(_))
+                    || matches!(opd2, McPhrase::Transposed(_));
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::Undirected,
-                    &eval_port_elems(&opd1, true, context),
-                    &eval_port_elems(&opd2, false, context),
-                    crate::semantic::opcheck::ParallelAlign::Left,
+                    &opd1.get_right(),
+                    &opd2.get_left(),
+                    trans_bridge,
                 ) {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
@@ -1882,16 +1876,15 @@ impl McPhrase {
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
-                // §4.3 series evaluation: opd1.right ↔ opd2.left (-> is LtoR, take op2).
-                // A transposed operand is first transposed to its full-width
-                // column, then the §5.2 check runs on the transposed result —
-                // no transpose carve-out.
+                // §4.3 series evaluation: opd1.right ↔ opd2.left (-> is LtoR, take op2)
+                let trans_bridge = matches!(opd1, McPhrase::Transposed(_))
+                    || matches!(opd2, McPhrase::Transposed(_));
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::LtoR,
-                    &eval_port_elems(&opd1, true, context),
-                    &eval_port_elems(&opd2, false, context),
-                    crate::semantic::opcheck::ParallelAlign::Left,
+                    &opd1.get_right(),
+                    &opd2.get_left(),
+                    trans_bridge,
                 ) {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
@@ -1966,16 +1959,15 @@ impl McPhrase {
                 // Note: swap order here for shape inference, because data flow is opd2 -> opd1
                 let (opd2, opd1) = infer_shape_and_upgrade(opd2, opd1, context);
 
-                // §4.4 series evaluation (leftward): opd2.right ↔ opd1.left (<- is RtoL, take op1).
-                // A transposed operand is first transposed to its full-width
-                // column, then the §5.2 check runs on the transposed result —
-                // no transpose carve-out.
+                // §4.4 series evaluation (leftward): opd2.right ↔ opd1.left (<- is RtoL, take op1)
+                let trans_bridge = matches!(opd2, McPhrase::Transposed(_))
+                    || matches!(opd1, McPhrase::Transposed(_));
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::RtoL,
-                    &eval_port_elems(&opd2, true, context),
-                    &eval_port_elems(&opd1, false, context),
-                    crate::semantic::opcheck::ParallelAlign::Left,
+                    &opd2.get_right(),
+                    &opd1.get_left(),
+                    trans_bridge,
                 ) {
                     dlog_error(
                         crate::errcodes::CONN_LEFT_ARROW_SHAPE_MISMATCH,
@@ -3603,431 +3595,29 @@ fn check_transpose_allowed(opd: &McPhrase) -> Result<(), usize> {
     }
 }
 
-/// Member-count expansion of a multi-member `Mc2Interface` (e.g. a 2-pin
-/// XTAL::XTAL port, or PDM[CLK, DATA] / {VDD, GND}): returns one bus element
-/// per interface member, mirroring the Pass2 P2-4 point expansion
-/// (mc_mod/points.rs). Single-member interfaces fall back to the plain
-/// interface name so the Pass1 shape view matches the Pass2 point count.
-fn interface_elems(iface: &Mc2Interface) -> Vec<McBus> {
-    if let Some(members) = iface.name.list_members() {
-        if members.len() >= 2 {
-            return members.into_iter().map(|m| McBus::new(&m)).collect();
-        }
-    }
-    if let Some((prefix, members)) = iface.name.as_bus() {
-        if members.len() >= 2 {
-            return members
-                .into_iter()
-                .map(|m| McBus::new(&format!("{prefix}.{m}")))
-                .collect();
-        }
-    }
-    let pin_names: Vec<String> = iface
-        .base
-        .pins
-        .pins
-        .values()
-        .filter_map(|p| p.names.first().cloned())
-        .collect();
-    if pin_names.len() >= 2 {
-        let port_name = iface.name.to_string();
-        return pin_names
-            .into_iter()
-            .map(|m| McBus::new(&format!("{port_name}.{m}")))
-            .collect();
-    }
-    vec![McBus::new(&iface.name.to_string())]
-}
-
-/// Expand a dotted component pin reference (`uC.UART0`, `ldo.VIN`) to its
-/// member elements when the referenced pin is a registered multi-member port.
-/// Pass2 expands such a port to one real point per member, so the Pass1
-/// opcheck view must present the same width — otherwise a strict §5 row-count
-/// check rejects a legal chain whose component side Pass2 will expand to N
-/// points. Returns None when the reference is not a multi-member component
-/// port (the caller falls back to its default single-point width).
-fn component_port_elems(
-    context: &mut dyn HasFindInst,
-    base: &str,
-    member: &str,
-) -> Option<Vec<McBus>> {
-    let c = match context.find_inst(base) {
-        Some(McInstance::Component(c)) => c,
-        _ => return None,
-    };
-    let port = c.base.pins.names_to_id.get(member)?;
-    let elems: Vec<McBus> = match port {
-        McPinPort::Bus(b) if b.member.len() >= 2 => b
-            .member
-            .iter()
-            .map(|m| McBus::new(&format!("{base}.{member}.{m}")))
-            .collect(),
-        McPinPort::List(_, members) if members.len() >= 2 => members
-            .iter()
-            .map(|m| McBus::new(&format!("{base}.{member}.{m}")))
-            .collect(),
-        McPinPort::Multi(ids) if ids.len() >= 2 => ids
-            .iter()
-            .map(|m| McBus::new(&format!("{base}.{member}.{m}")))
-            .collect(),
-        McPinPort::Interface(iface) => {
-            let elems = interface_elems(iface);
-            if elems.len() >= 2 {
-                elems
-            } else {
-                return None;
-            }
-        }
-        _ => return None,
-    };
-    if elems.len() >= 2 {
-        Some(elems)
-    } else {
-        None
-    }
-}
-
-/// Base instance name of a phrase when it is, or resolves through, an
-/// endpoint / method call: `X6` -> "X6", `X6.setup(...)` -> "X6".
-/// Used by the Member / FuncCall branches to resolve a chained member
-/// (`.XTAL`, `.I2C0`) against the port set of the base instance.
-fn base_instance_name(phrase: &McPhrase) -> Option<String> {
-    match phrase {
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef { base, .. })) => match base {
-            McInstance::Component(c) => Some(c.name.base_name()),
-            McInstance::Label(l) => Some(l.clone()),
-            McInstance::Module(m) => Some(m.name.base_name()),
-            _ => None,
-        },
-        McPhrase::FuncCall(fc) => fc.caller.as_deref().and_then(base_instance_name),
-        _ => None,
-    }
-}
-
-/// Expand a dotted module port reference (`usbsocket.vin`, `modldo.vout`) to
-/// its member elements when the referenced port is a declared multi-member
-/// interface port. Pass2 expands such a port to one real point per member
-/// (mc_mod/points.rs expand_port_lanes), so the Pass1 opcheck view must present
-/// the same width. Returns None when the reference is not a multi-member module
-/// port (the caller falls back to its default single-point width).
-fn module_port_elems(
-    context: &mut dyn HasFindInst,
-    base: &str,
-    member: &str,
-) -> Option<Vec<McBus>> {
-    let m = match context.find_inst(base) {
-        Some(McInstance::Module(m)) => m,
-        _ => return None,
-    };
-    // Match by base name: a port may be stored under its curly / vector form
-    // (`vin{POWER_SYS, GND}`, `[VDD_3V3, GND]`) while the reference uses the
-    // plain name (`vin`). Take the port with the most effective members.
-    let base_member = member
-        .split(|c| c == '{' || c == '[')
-        .next()
-        .unwrap_or(member);
-    let mut best: Option<Vec<McBus>> = None;
-    let mut best_len = 0usize;
-    for (name, port) in m.base.insts.iter() {
-        let name_base = name.split(|c| c == '{' || c == '[').next().unwrap_or(name);
-        if name_base != base_member {
-            continue;
-        }
-        let elems: Vec<McBus> = match port {
-            McInstance::Interface(iface) => interface_elems(iface),
-            _ => {
-                let bracket: Vec<String> = name
-                    .strip_prefix('[')
-                    .and_then(|s| s.strip_suffix(']'))
-                    .map(|s| {
-                        s.split(',')
-                            .map(|x| x.trim().to_string())
-                            .filter(|x| !x.is_empty())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if bracket.len() >= 2 {
-                    bracket.into_iter().map(|m| McBus::new(&m)).collect()
-                } else {
-                    Vec::new()
-                }
-            }
-        };
-        if elems.len() >= 2 && elems.len() > best_len {
-            best_len = elems.len();
-            best = Some(elems);
-        }
-    }
-    best
-}
-
-/// Single-sided port bus list of `phrase` used for Pass1 operator
-/// evaluation (vec-dianlu.md §5.3): a `Transposed` operand is first
-/// transposed to its full-width column — the inner left and right elements
-/// are merged in order and exposed on **both** ports (mirroring the Pass2
-/// expansion in `mc_mod/points.rs`) — so the shape fed to `opcheck` is the
-/// transposed result, not the pre-transpose single port. There is no
-/// pair-by-min / lane-hang carve-out for transposed operands. Non-transposed
-/// operands delegate to `get_left()` / `get_right()`, except that multi-member
-/// interfaces and component port references present their full member count so
-/// the Pass1 check sees the same width Pass2 will expand.
-fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst) -> Vec<McBus> {
-    match phrase {
-        // A transposed operand is first transposed to its full-width column: the
-        // inner left and right elements are merged in order and exposed on both
-        // ports (mirroring the Pass2 expansion in mc_mod/points.rs), so the shape
-        // fed to opcheck is the transposed result.
-        McPhrase::Transposed(inner) => {
-            let mut all = inner.get_left();
-            all.extend(inner.get_right());
-            all
-        }
-        // A Series exposes the port of its head (left) / tail (right). Recurse so
-        // a transposed head/tail is transposed to its full-width column first
-        // (the pre-transpose single port of e.g. `A -> CAP'` must not be fed to
-        // opcheck as the chain's right port).
-        McPhrase::Series(phrases, _) => {
-            let edge = if right {
-                phrases.last()
-            } else {
-                phrases.first()
-            };
-            match edge {
-                Some(e) => eval_port_elems(e, right, context),
-                None => {
-                    // empty series: mirror get_left/get_right sentinel
-                    if right {
-                        phrase.get_right()
-                    } else {
-                        phrase.get_left()
-                    }
-                }
-            }
-        }
-        // A Parallel exposes the port of its first operand (mirroring
-        // get_left/get_right and the Pass2 anchoring on opds[0]); recurse for a
-        // transposed first operand.
-        McPhrase::Parallel(opds) => match opds.first() {
-            Some(first) => eval_port_elems(first, right, context),
-            None => {
-                if right {
-                    phrase.get_right()
-                } else {
-                    phrase.get_left()
-                }
-            }
-        },
-        // A multi-member Interface (e.g. a 2-pin XTAL::XTAL port, or
-        // PDM[CLK, DATA] / {VDD, GND}) presents its full member count, not the
-        // 1*1 shorthand that get_left/get_right return for `McInstance::Interface`
-        // (the interface name only). Pass2 expands such an interface to one real
-        // point per member (mc_mod/points.rs P2-4), so the Pass1 opcheck view must
-        // present the same width — otherwise a strict §5 row-count check rejects a
-        // legal chain whose interface side Pass2 will expand to N points.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-            base: McInstance::Interface(ref iface),
-            ..
-        })) => interface_elems(iface),
-        // A whole-module reference (e.g. `V3V3 -> moddcdc`) exposes the module's
-        // input / output ports. Each port presents its declared width: a vector
-        // port (`in [VDD_3V3, GND]`, or an Interface with multiple members)
-        // contributes one element per member — Pass2 expands it to one lane per
-        // member (mc_mod/points.rs expand_port_lanes) — while scalar ports keep
-        // the single-point width that get_left/get_right expose. This keeps the
-        // Pass1 opcheck view aligned with the Pass2 expansion count.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-            base: McInstance::Module(ref m),
-            ..
-        })) => {
-            let ports = if right {
-                m.base.insts.get_all_outputs()
-            } else {
-                m.base.insts.get_all_inputs()
-            };
-            let mut elems: Vec<McBus> = Vec::new();
-            for port in ports {
-                match port {
-                    McInstance::Interface(iface) => {
-                        let port_elems = interface_elems(iface);
-                        if port_elems.len() >= 2 {
-                            elems.extend(port_elems);
-                        } else {
-                            elems.push(McBus::new(&port.get_name()));
-                        }
-                    }
-                    _ => {
-                        // Bracket / curly vector name (`[A, B]`) carries the
-                        // declared members; anything else is a scalar port.
-                        let name = port.get_name();
-                        let members: Vec<String> = name
-                            .strip_prefix('[')
-                            .and_then(|s| s.strip_suffix(']'))
-                            .or_else(|| name.strip_prefix('{').and_then(|s| s.strip_suffix('}')))
-                            .map(|s| {
-                                s.split(',')
-                                    .map(|x| x.trim().to_string())
-                                    .filter(|x| !x.is_empty())
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        if members.len() >= 2 {
-                            elems.extend(members.into_iter().map(|m| McBus::new(&m)));
-                        } else {
-                            elems.push(McBus::new(&name));
-                        }
-                    }
-                }
-            }
-            elems
-        }
-        // `base.member` component port reference (e.g. `ldo.VIN`, `uC.UART0`):
-        // Pass1 collapses these to a plain Label (1*1). When `base` resolves to
-        // a known component instance and `member` is a registered multi-member
-        // port, present the port's full member count — Pass2 expands the port to
-        // one point per member — so the strict §5 check does not reject a legal
-        // chain whose component side Pass2 will expand to N points.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-            base: McInstance::Label(ref label),
-            ..
-        })) => {
-            if let Some((base, member)) = label.split_once('.') {
-                if let Some(elems) = component_port_elems(context, base, member) {
-                    return elems;
-                }
-                if let Some(elems) = module_port_elems(context, base, member) {
-                    return elems;
-                }
-            }
-            // §8.9.6.3 shape by use: a scalar-declared module port (e.g.
-            // `io UART0`) is not shape-locked at the declaration site — its
-            // width is inferred from the connection context and Pass2 expands
-            // the port lanes accordingly. Present an empty (unknown-width)
-            // shape so the strict §5 opcheck does not reject the statement
-            // before Pass2 can upgrade the port. Internal labels and function
-            // parameters keep their fixed 1*1 shape.
-            if !label.contains('.') && context.is_declared_port(label) {
-                return Vec::new();
-            }
-            vec![McBus::new(label)]
-        }
-        // Bypass the 2-member Bus pass-through in get_left/get_right (which
-        // collapses `{A, B}` to a single element so the bus "can connect to
-        // anything single"): under the strict §5 row-count rule a 2-member bus is
-        // a 2*1 column — Pass2 expands it to two real points — so the Pass1
-        // opcheck view must present the real member count, otherwise a transposed
-        // 2*1 bridge is rejected against a falsely collapsed 1*1 bus.
-        //
-        // A dotted component pin reference can also arrive as a Bus — either
-        // the member_ref form `Bus("uC", ["UART0"])` or the combined-name form
-        // `Bus("uC.UART0", [])` — and must present the port's full member count
-        // the same way the Label branch does.
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-            base: McInstance::Bus(ref bus),
-            ..
-        })) => {
-            let base_member: Option<(&str, &str)> =
-                if bus.member.len() == 1 && !bus.name.contains('.') {
-                    Some((bus.name.as_str(), bus.member[0].as_str()))
-                } else if bus.member.is_empty() {
-                    bus.name.split_once('.')
-                } else {
-                    None
-                };
-            if let Some((base, member)) = base_member {
-                if let Some(elems) = component_port_elems(context, base, member) {
-                    return elems;
-                }
-                if let Some(elems) = module_port_elems(context, base, member) {
-                    return elems;
-                }
-            }
-            Vec::from(bus.clone())
-        }
-        // A chained member on a method call (`X6.setup(...).XTAL`,
-        // `uC.i2c(...).I2C0`) that resolves to a multi-member port of the
-        // caller component: Pass2 expands it to one point per member, so the
-        // Pass1 opcheck view must present the same width.
-        McPhrase::FuncCall(fc) => {
-            if let Some(member) = &fc.dot_member {
-                if let Some(base) = fc.caller.as_deref().and_then(base_instance_name) {
-                    if let Some(elems) = component_port_elems(context, &base, member) {
-                        return elems;
-                    }
-                }
-            }
-            let r = if right {
-                fc.right.clone()
-            } else {
-                fc.left.clone()
-            };
-            if !r.is_empty() {
-                r
-            } else if right {
-                phrase.get_right()
-            } else {
-                phrase.get_left()
-            }
-        }
-        // A chained member on a composite phrase — `X6.setup(GND, NC).XTAL`
-        // parses as Member(FuncCall, XTAL): the member names a port of the
-        // base instance and Pass2 expands it to one point per member, so the
-        // Pass1 opcheck view must present the same width.
-        McPhrase::Member(inner, ep) => {
-            let member = match ep {
-                McEndpoint::Single(McInstanceRef {
-                    base: McInstance::Label(l),
-                    ..
-                }) => Some(l.clone()),
-                _ => None,
-            };
-            if let (Some(member), Some(base)) = (member, base_instance_name(inner)) {
-                if let Some(elems) = component_port_elems(context, &base, &member) {
-                    return elems;
-                }
-            }
-            if right {
-                phrase.get_right()
-            } else {
-                phrase.get_left()
-            }
-        }
-        _ => {
-            let r = if right {
-                phrase.get_right()
-            } else {
-                phrase.get_left()
-            };
-            r
-        }
-    }
-}
-
 /// Pass1 operator evaluation entry point (eval.md §3/§4): the shared
 /// "connectable" check for the four operator branches `-`/`+`/`->`/`<-`.
-/// Shape constraints follow the §5 legal-operation table via
-/// [`opcheck`](crate::semantic::opcheck) (the same module Pass2 uses); the
+/// Shape constraints follow the §4 evaluation table ([`eval_binary`]); the
 /// single-port (1*1) representative side is determined by [`representative`]
 /// per the §4 notes.
 ///
 /// Wildcards kept:
 /// - Empty set (unresolved FuncCall return value) → pass;
 /// - `<error` placeholder marker → pass;
-/// - Both sides 1*1 → pass (single-port representative rule).
-/// - Series `1*1` vs `N*1` → **row-count mismatch** (single-point broadcast
-///   `X -> [A, B]` / `[A, B] -> GND` is not a §5 operation; no broadcast
-///   carve-out), reported by the operator handlers (E4007) unless the side
-///   count is unknown.
+/// - Series single point (1 row) vs N-row → pass: a single point broadcasts to
+///   the other side's rows at Pass2 (group / DC bus / interface expansion
+///   semantics), so only a genuine N:M mismatch (both sides ≥ 2 rows) is
+///   rejected here.
 /// - Parallel single point (1 row) vs N-row (N ≥ 2) → **row-count mismatch**,
-///   reported by the operator handlers (E4005) — the §5.1 left-alignment rule.
-///   A transposed operand is first transposed to its full-width column by the
-///   caller ([`eval_port_elems`]) before this check runs, so there is no
-///   transpose carve-out here.
+///   reported by the operator handlers (E4005) unless `trans_bridge` is set
+///   (transposed operand, aligned at Pass2) — the §5.1 left-alignment rule.
+///   For single-port (both sides 1 row), the representative side is recorded.
 fn is_connectable(
     op: ConnOp,
     dir: ConnDir,
     lhs: &[McBus],
     rhs: &[McBus],
-    align: crate::semantic::opcheck::ParallelAlign,
+    trans_bridge: bool,
 ) -> bool {
     // Empty shape means "unknown/unresolved" (e.g. FuncCall return value), treated as connectable
     if lhs.is_empty() || rhs.is_empty() {
@@ -4044,11 +3634,6 @@ fn is_connectable(
     let lhs_shape = shape_of_bus_list(lhs);
     let rhs_shape = shape_of_bus_list(rhs);
 
-    mcc_dbg!(
-        "sem::conds",
-        "[SHAPE-DBG] op={op:?} dir={dir:?} lhs={lhs_shape} rhs={rhs_shape} lhs_buses={lhs:?} rhs_buses={rhs:?}"
-    );
-
     // §4 single-port (1*1) representative rule (eval.md §4 note): a single-port
     // connection has no left/right distinction, so one representative is chosen —
     // `+`/`-`/`<-` take operand 1 (op1), `->` takes operand 2 (op2).
@@ -4064,24 +3649,35 @@ fn is_connectable(
         return true;
     }
 
-    // §5 legal-operation table (opcheck — shared with Pass2):
-    // - Series (§5.2): lhs.right x rhs.left row counts must match; unequal
-    //   rows (including `1*1` vs `N*1`) are rejected — no broadcast carve-out.
-    // - Parallel (§5.1): the `align` side (left ports, or the right ports
-    //   when both operands carry an independent right port) must have equal
-    //   rows; no broadcast carve-out.
-    match op {
-        ConnOp::Series => {
-            matches!(
-                crate::semantic::opcheck::check_series(lhs_shape, rhs_shape),
-                crate::semantic::opcheck::OpCheck::Legal(_)
-            )
+    // A single point (1 row) has an undetermined shape at the phrase stage (it
+    // may be a 1*1 node, a broadcast anchor, or an interface awaiting
+    // expansion). For series it stays a pass — Pass2 materializes the
+    // broadcast (the original wildcard semantics, relied on by real examples
+    // like `X -> [A, B]` fan-out); for parallel it is a §5.1 left-alignment
+    // row-count mismatch that must be reported (Gap 1, e.g. `1*1 + N*1`).
+    //
+    // `trans_bridge` keeps the parallel single-point pass for transpose
+    // bridges: a transposed operand's effective width is its whole point list
+    // (e.g. `R442'` is a 2*1 bridge), which get_left() at the phrase stage
+    // cannot express as a row count — the alignment is materialized by Pass2
+    // (implicit-transpose pairing / pair-by-min).
+    if op == ConnOp::Parallel {
+        if trans_bridge && (lhs_shape.rows <= 1 || rhs_shape.rows <= 1) {
+            return true;
         }
-        ConnOp::Parallel => {
-            matches!(
-                crate::semantic::opcheck::check_parallel(lhs_shape, rhs_shape, align),
-                crate::semantic::opcheck::OpCheck::Legal(_)
-            )
+    } else if lhs_shape.rows <= 1 || rhs_shape.rows <= 1 {
+        return true;
+    }
+
+    // §4 four-operator evaluation table: row counts must match, columns take the larger
+    match eval_binary(op, lhs_shape, rhs_shape) {
+        Ok(_) => true,
+        Err(ShapeError::RowMismatch { lhs: l, rhs: r }) => {
+            dlog_trace(
+                0,
+                &format!("[vec] shape mismatch at phrase stage: {l} vs {r}"),
+            );
+            false
         }
     }
 }
