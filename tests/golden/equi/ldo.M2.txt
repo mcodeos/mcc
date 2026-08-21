@@ -47,4 +47,6 @@ nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)    
   PASS  [A25] label text clears foreign member boxes   due:M5
   PASS  [A26] shunt up/down balance on a row           due:M5
   PASS  [A27] IC side pin sits on its net's row        due:M6
+  PASS  [A28] Along part's two nets share a row        due:M6
+  PASS  [A29] run trunks do not overlap                due:M6
 

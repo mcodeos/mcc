@@ -276,13 +276,12 @@ fn build_net_view(
         let role = if is_anchor {
             None
         } else {
-            let p = topo_idx
-                .and_then(|idx| super::equipotential_tree::partner_info(_topos, idx, group));
-            Some(
-                super::equipotential_tree::tap_role(b, lane.axis, p)
+            topo_idx.map(|idx| {
+                let p = super::equipotential_tree::partner_info(_topos, idx, group);
+                super::equipotential_tree::tap_role(b, &_topos[idx], p)
                     .short()
-                    .to_string(),
-            )
+                    .to_string()
+            })
         };
         taps.push(TapView {
             box_id: b.id,
@@ -681,6 +680,8 @@ pub fn audit_equi_tree(graph: &McVecGraph, layout_topos: &[NetTopology]) -> Equi
         check_a25_label_clear_of_members(graph, layout_topos, &trees),
         check_a26_shunt_balance(graph, layout_topos),
         check_a27_pin_on_its_row(graph, layout_topos),
+        check_a28_along_is_collinear(graph, layout_topos),
+        check_a29_run_spans_disjoint(layout_topos),
     ];
 
     EquiAudit { checks }
@@ -1200,8 +1201,13 @@ fn check_a11_same_row_opposite(layout_topos: &[NetTopology]) -> Check {
     let trunk: Vec<&NetTopology> = layout_topos.iter().filter(|t| !t.terminal_only).collect();
     for (i, a) in trunk.iter().enumerate() {
         for b in trunk.iter().skip(i + 1) {
+            // ★ M8.2: a RUN is collinear by construction — all of its nets share
+            // one row on one side, which is what lets the parts between them lie
+            // ALONG it. Same row is legal for a W/E-opposite pair (M3) OR for two
+            // nets of the same run.
             if (a.lane.axis - b.lane.axis).abs() < 0.5
                 && !is_w_e_opposite(a.lane.region, b.lane.region)
+                && a.run_root != b.run_root
             {
                 c.fail(format!(
                     "'{}' (nid={}) and '{}' (nid={}) share row {:.0} but are {:?}/{:?}",
@@ -1779,7 +1785,7 @@ fn check_a24_no_wire_crossings(graph: &McVecGraph, topos: &[NetTopology]) -> Che
             let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
                 continue;
             };
-            let role = tap_role(b, topo.lane.axis, partner_info(topos, idx, group));
+            let role = tap_role(b, topo, partner_info(topos, idx, group));
             if matches!(role, TapRole::InlineEnd) {
                 continue;
             }
@@ -1889,7 +1895,7 @@ fn check_a26_shunt_balance(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
             let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
                 continue;
             };
-            let role = tap_role(b, topo.lane.axis, partner_info(topos, idx, group));
+            let role = tap_role(b, topo, partner_info(topos, idx, group));
             let TapRole::Drop { dir } = role else {
                 continue;
             };
@@ -1967,6 +1973,74 @@ fn check_a27_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> Check 
                 "net '{}' (nid={}) row y={:.0} but its nearest anchor pin is {best:.0}px away",
                 topo.net_name, topo.nid, topo.lane.axis
             ));
+        }
+    }
+    c
+}
+
+// ── M8: A28 / A29 ───────────────────────────────────────────
+
+/// ★ M8 (A28): the two nets of an ALONG part are collinear.
+///
+/// An Along part is drawn IN the wire, so both of its nets must sit on the same
+/// row; otherwise the "one straight line with a component inserted" reading
+/// breaks and the part's two pins point at two different rows.
+fn check_a28_along_is_collinear(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A28", "Along part's two nets share a row", Milestone::M6);
+    for (idx, topo) in topos.iter().enumerate() {
+        if topo.terminal_only {
+            continue;
+        }
+        for group in topo.groups.iter().skip(1) {
+            let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
+                continue;
+            };
+            let p = partner_info(topos, idx, group);
+            if !matches!(tap_role(b, topo, p), TapRole::Series { .. }) {
+                continue;
+            }
+            let other = topos
+                .iter()
+                .enumerate()
+                .find(|(j, o)| *j != idx && o.groups.iter().any(|g| g.box_id == group.box_id));
+            let Some((_, other)) = other else { continue };
+            if (other.lane.axis - topo.lane.axis).abs() > 1.0 {
+                c.fail(format!(
+                    "'{}' lies along the wire between '{}' (row {:.0}) and '{}' (row {:.0}) — not collinear",
+                    b.name, topo.net_name, topo.lane.axis, other.net_name, other.lane.axis
+                ));
+            }
+        }
+    }
+    c
+}
+
+/// ★ M8 (A29): the trunks of one RUN tile the row — they never overlap.
+///
+/// Two nets of a run are separated by the part between them, so their spans meet
+/// on its pins rather than running through each other. An overlap means the
+/// prefix sum in `chain_origins` under-reserved and one net's members are
+/// sitting on its neighbour's wire.
+fn check_a29_run_spans_disjoint(topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A29", "run trunks do not overlap", Milestone::M6);
+    for (i, a) in topos.iter().enumerate() {
+        if a.terminal_only {
+            continue;
+        }
+        for b in topos.iter().skip(i + 1) {
+            if b.terminal_only || a.run_root != b.run_root || a.nid == b.nid {
+                continue;
+            }
+            let alo = a.lane.span.0.min(a.lane.span.1);
+            let ahi = a.lane.span.0.max(a.lane.span.1);
+            let blo = b.lane.span.0.min(b.lane.span.1);
+            let bhi = b.lane.span.0.max(b.lane.span.1);
+            if alo.max(blo) + 1.0 < ahi.min(bhi) {
+                c.fail(format!(
+                    "'{}' [{alo:.0},{ahi:.0}] and '{}' [{blo:.0},{bhi:.0}] are one run but their trunks overlap",
+                    a.net_name, b.net_name
+                ));
+            }
         }
     }
     c
@@ -2578,8 +2652,19 @@ mod tests {
         }
         let ind = b("IND_1");
         assert!(
-            ind.h > ind.w,
-            "IND_1 must be vertical (Bridge LX→VCC_1V2); horizontal would violate A11"
+            ind.w > ind.h,
+            "IND_1 must be horizontal (Along: LX → VCC_1V2), got w={} h={}",
+            ind.w,
+            ind.h
+        );
+        let net3 = topos.iter().find(|t| t.net_name == "__net_3").unwrap();
+        let vcc = topos.iter().find(|t| t.net_name == "VCC_1V2").unwrap();
+        assert_eq!(net3.run_root, vcc.run_root, "LX and VCC_1V2 are one run");
+        assert!(
+            (net3.lane.axis - vcc.lane.axis).abs() < 1.0,
+            "a run is collinear: {} vs {}",
+            net3.lane.axis,
+            vcc.lane.axis
         );
 
         // A4 is green on this fixture (structural: every 2-pin passive got
@@ -2659,7 +2744,7 @@ mod tests {
                 .unwrap();
             super::super::equipotential_tree::tap_role(
                 b,
-                topo.lane.axis,
+                topo,
                 super::super::equipotential_tree::partner_info(&topos, idx, group),
             )
             .short()
@@ -2821,21 +2906,30 @@ mod tests {
         // The bridge members must be >w (vertical) and the shunts must be near
         // their anchor pin — a cross-check that the fixture really puts the
         // column model under load (A22 / A23 are non-vacuous).
+        // ★ M8: the output inductor extends SW outward into VOUT, so it lies ALONG
+        // the row (w>h); the feedback divider joins VOUT ↔ FB across two rows
+        // and stays a vertical Bridge (h>w). Both are load-bearing for the
+        // column model (A22 / A23 are non-vacuous).
         let b = |name: &str| {
             g.boxes
                 .iter()
                 .find(|b| b.name == name)
                 .unwrap_or_else(|| panic!("missing box {name}"))
         };
-        for br in ["IND", "R_FB"] {
-            let bb = b(br);
-            assert!(
-                bb.h > bb.w,
-                "{br} must be a vertical Bridge (h>w), got w={} h={}",
-                bb.w,
-                bb.h
-            );
-        }
+        let ind = b("IND");
+        assert!(
+            ind.w > ind.h,
+            "IND must be Along (w>h, SW run continues into VOUT), got w={} h={}",
+            ind.w,
+            ind.h
+        );
+        let rfb = b("R_FB");
+        assert!(
+            rfb.h > rfb.w,
+            "R_FB must be a vertical Bridge (h>w), got w={} h={}",
+            rfb.w,
+            rfb.h
+        );
         // Every member centre drifts at most COL_STEP (20) from its column
         // slot: two members sharing a column would collide. The A21 PASS above
         // is the ground truth; these orientational checks make it legible.
