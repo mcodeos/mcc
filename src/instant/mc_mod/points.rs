@@ -103,14 +103,8 @@ fn resolve_bare_member_pid(
         0 => None,
         1 => Some(hits.remove(0)),
         _ => {
-            // ── [P2-AMBIG-PROBE] delete after verification: same alias lands on multiple pids ──
-            // Indicates multiple buses in the source share a same-named member but different
-            // physical pins (e.g., two GNDs). Take the smallest pid and print for manual
-            // review to see if a more specific interface-segment spelling is needed.
-            mcc_dbg!(
-                "inst::points",
-                "[P2-AMBIG] alias rest={rest:?} last={last:?} -> pids {hits:?} (take smallest)"
-            );
+            // Multiple buses in the source share a same-named member but different
+            // physical pins (e.g., two GNDs). Take the smallest pid.
             hits.sort_by(|a, b| {
                 a.parse::<i64>()
                     .unwrap_or(0)
@@ -1330,13 +1324,6 @@ impl McModuleInst {
                     });
                 let resolved_pid: Option<String> = single_hit.or_else(|| {
                     let r = resolve_bare_member_pid(&comp.def.pins, rest, last);
-                    // ── [P2-RECOVER-PROBE] delete after verification: before the fix these rest
-                    //    values would fall back to the string "first_part.rest" without union;
-                    //    now they recover to pid. Run once and watch the printed aliases to
-                    //    confirm P2 was indeed truly not-unioning before.
-                    if let Some(ref pid) = r {
-                        mcc_dbg!("inst::points", "[P2-RECOVER] {first_part}.{rest} -> {first_part}.{pid} (unresolved before fix)");
-                    }
                     r
                 });
                 let resolved = resolved_pid
@@ -1879,11 +1866,6 @@ impl McModuleInst {
                     id
                 }
                 _ => {
-                    // ── [P2-AMBIG-PROBE] delete after verification: same-named member lands on multiple different pids ──
-                    mcc_dbg!(
-                        "inst::points",
-                        "[P2-AMBIG] {inst}: member={member:?} -> pids {hits:?} (take smallest)"
-                    );
                     hits.sort_by(|a, b| {
                         a.parse::<i64>()
                             .unwrap_or(0)

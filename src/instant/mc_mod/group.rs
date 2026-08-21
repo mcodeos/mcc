@@ -14,7 +14,7 @@ use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::{ConnDir, ConnOp, Shape, ShapeMatcher};
+use crate::semantic::common::{ConnDir, ConnOp};
 use crate::vector::model::trunk::{TrunkCtx, TrunkKind};
 
 /// D5 BUS_ORDER_MISMATCH: process-level count of mismatched bus bits.
@@ -148,18 +148,6 @@ impl McModuleInst {
         // → §3 rejects, handled by the recovery branch below: 1:N broadcast
         // (group / DC bus / interface expansion semantics) or
         // N:M truncation (genuine misalignment → E4007 diagnostic).
-        let lhs_shape = Shape::vvec(left_size);
-        let rhs_shape = Shape::vvec(right_size);
-        let shape_match = ShapeMatcher::match_shape(lhs_shape, rhs_shape);
-        mcc_dbg!(
-            "inst::mod",
-            "[P2-4-CONN] create_connection shape check: {lhs_shape} x {rhs_shape} -> {}",
-            if shape_match.is_ok() {
-                "ok"
-            } else {
-                "row-mismatch"
-            }
-        );
 
         // ★ P9-A2: compute source_span and trunk once for this connection
         // Decision A (§7.1): source_span carries a **byte offset**, not a line

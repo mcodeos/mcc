@@ -1811,17 +1811,16 @@ impl McModuleInst {
             } else {
                 let left_points = this.get_right_points(left_member)?;
                 let right_points = this.get_left_points(right_member)?;
-                // ── [P4-ADJ] temporary probe (commented)
-                // if matches!(left_member, McPhrase::Parallel(_))
-                //     || matches!(right_member, McPhrase::Parallel(_))
-                // {
-                //     let dl: Vec<String> = left_points.iter().map(|p| p.path.clone()).collect();
-                //     let dr: Vec<String> = right_points.iter().map(|p| p.path.clone()).collect();
-                //     eprintln!(
-                //         "[P4-ADJ] L={} R={} | get_right(L)={:?} get_left(R)={:?}",
-                //         l_kind, r_kind, dl, dr
-                //     );
-                // }
+                // Explicit empty-port guard: a single-ended member or an
+                // `<error` endpoint expands to an empty point list. This is not
+                // an "unknown shape" to wildcard through opcheck — there is
+                // simply nothing to connect (`create_connection` no-ops on an
+                // empty side). Return early so `Shape::vvec` only receives
+                // `len >= 1` and never relies on the `Shape::vvec(0) ==
+                // Shape::unknown` coincidence as an implicit wildcard.
+                if left_points.is_empty() || right_points.is_empty() {
+                    return Ok(());
+                }
                 let lhs_shape = Shape::vvec(left_points.len());
                 let rhs_shape = Shape::vvec(right_points.len());
                 // ── §5.2 series legality (vec-dianlu.md): unified check shared

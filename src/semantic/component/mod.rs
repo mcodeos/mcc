@@ -134,22 +134,6 @@ impl McComponent {
                     .collect();
                 pin_nodes.iter().for_each(|x| new_comp.pins.parse(x));
 
-                // ── [P2-DEF] temporary probe: commented out
-                // if comp_name.to_string().contains("comp.sub") {
-                //     let body_types: Vec<u16> = body_nodes.iter().map(|x| x.get_type()).collect();
-                //     let pin_node_types: Vec<u16> =
-                //         pin_nodes.iter().map(|x| x.get_type()).collect();
-                //     eprintln!(
-                //         "[P2-DEF] comp={} body_node_types={:?}",
-                //         comp_name.to_string(), body_types
-                //     );
-                //     eprintln!(
-                //         "[P2-DEF] comp={} pin_nodes_found={} pin_node_types={:?} static_count_after_parse={}",
-                //         comp_name.to_string(), pin_nodes.len(), pin_node_types,
-                //         new_comp.pins.count()
-                //     );
-                // }
-
                 //5. functions (parse header + body with context)
                 // Use raw pointer to avoid conflicting borrows of new_comp
                 let context =

@@ -516,7 +516,13 @@ fn check_phrase_member_refs(
 
                 // Check component pins
                 if let Some(pins) = comp_pins.get(&class_name) {
-                    if !pins.contains(port_name) && !port_name.contains('.') {
+                    // `port_name` may carry an interface member in curly form
+                    // (e.g. `lpa.IN.N` displays as `lpa.IN{N}`), which lives in
+                    // the pin set under its dotted name (`IN.N`) or base name
+                    // (`IN`), not as `IN{N}`. Skip it exactly like a
+                    // multi-segment dotted reference; Pass1/Pass2 validate the
+                    // member against the full pin table.
+                    if !pins.contains(port_name) && !port_name.contains(['.', '{']) {
                         acc.push(CheckResult {
                             check_name: "interface",
                             severity: CheckSeverity::Warning,
@@ -540,7 +546,7 @@ fn check_phrase_member_refs(
 
                 // Check interface ports
                 if let Some(ports) = iface_ports.get(&class_name) {
-                    if !ports.contains(port_name) && !port_name.contains('.') {
+                    if !ports.contains(port_name) && !port_name.contains(['.', '{']) {
                         acc.push(CheckResult {
                             check_name: "interface",
                             severity: CheckSeverity::Warning,
@@ -559,7 +565,7 @@ fn check_phrase_member_refs(
 
                 // Check module ports
                 if let Some(ports) = mod_ports.get(&class_name) {
-                    if !ports.contains(port_name) && !port_name.contains('.') {
+                    if !ports.contains(port_name) && !port_name.contains(['.', '{']) {
                         acc.push(CheckResult {
                             check_name: "interface",
                             severity: CheckSeverity::Warning,
