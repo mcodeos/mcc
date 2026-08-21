@@ -22,7 +22,73 @@
 
 use std::fmt;
 
-use crate::semantic::common::{ConnOp, IOType};
+use crate::semantic::common::{ConnDir, ConnOp, IOType};
+
+/// §8.9.4 member access chain: one segment of a structured path
+/// (vec-dianlu.md member access chain). Re-structures a dotted net path like
+/// `uC.I2C0.SCL` into `[Ida("uC"), Dot("I2C0"), Dot("SCL")]`, keeping the
+/// intermediate hops that a flat `(instance, member)` pair would drop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathSegment {
+    /// Bare identifier, e.g. `uC` / `I2C0`
+    Ida(String),
+    /// Dot access `.SCL`
+    Dot(String),
+    /// Integer member `1`
+    Int(i64),
+    /// Slice `1:4`
+    Slice { from: i64, to: i64 },
+    /// Curly group `mos101{1|2,3}`
+    Curly(Vec<PathSegment>),
+    /// Square group `Label[1,2]`
+    Square(Vec<PathSegment>),
+}
+
+impl PathSegment {
+    /// Re-structure a dotted net path into a segment chain. The first segment
+    /// becomes [`PathSegment::Ida`], each `.X` hop becomes [`PathSegment::Dot`].
+    /// Curly/square/slice structure is not recoverable from the flattened
+    /// string; those segments require AST passthrough of `McIds.segments`.
+    pub fn parse_dotted(path: &str) -> Vec<PathSegment> {
+        let mut parts = path.split('.');
+        let mut out = Vec::new();
+        if let Some(first) = parts.next() {
+            if !first.is_empty() {
+                out.push(PathSegment::Ida(first.to_string()));
+            }
+            for seg in parts {
+                out.push(PathSegment::Dot(seg.to_string()));
+            }
+        }
+        out
+    }
+}
+
+impl fmt::Display for PathSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PathSegment::Ida(s) | PathSegment::Dot(s) => write!(f, "{s}"),
+            PathSegment::Int(i) => write!(f, "{i}"),
+            PathSegment::Slice { from, to } => write!(f, "{from}:{to}"),
+            PathSegment::Curly(v) => write!(
+                f,
+                "{{{}}}",
+                v.iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            PathSegment::Square(v) => write!(
+                f,
+                "[{}]",
+                v.iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+        }
+    }
+}
 
 /// What kind of source object produced this link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,10 +123,16 @@ impl fmt::Display for LinkKind {
 
 /// One side of a link: the owning instance + the port name.
 ///
-/// `instance == None` means the module-port boundary (the port is declared on
+/// `box_id == None` means the module-port boundary (the port is declared on
 /// the module itself; its mate lives in the sub-graph or the parent layer).
+/// `instance` is a display name (`Some("uC")` for a component, `None` for a
+/// module port), kept alongside the stable `box_id` (vec-dianlu.md §8.9.4 add-2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkEnd {
+    /// Stable id of the owning instance (InstTable entry, aligned with
+    /// [`EndpointRef::box_id`](crate::vector::graph::netdef::EndpointRef));
+    /// `None` for a module port declaration (boundary).
+    pub box_id: Option<i64>,
     /// Owning instance display name (last path segment, e.g. `uC`); `None` for
     /// a module port declaration.
     pub instance: Option<String>,
@@ -71,6 +143,17 @@ pub struct LinkEnd {
     pub iface_class: Option<String>,
     /// Port direction / IO type when known
     pub io: Option<IOType>,
+    /// Structured member access chain of the port (`uC.I2C0` -> Ida/Dot), when
+    /// reconstructable from the net path (vec-dianlu.md §8.9.4 member access chain).
+    pub path: Vec<PathSegment>,
+}
+
+impl LinkEnd {
+    /// Whether this end is a module-port boundary (`box_id == None`), per
+    /// §8.9.4 add-3: the mate of a boundary end lives inside the sub-module.
+    pub fn is_boundary(&self) -> bool {
+        self.box_id.is_none()
+    }
 }
 
 impl fmt::Display for LinkEnd {
@@ -89,6 +172,16 @@ pub struct MemberLane {
     pub member: String,
     /// Stable lane index (position in the left-aligned merge order)
     pub lane: u16,
+    /// Member's own arrow direction (`TX -> RX` vs `RX -> TX` can differ per
+    /// lane), from the pair that produced this lane.
+    pub dir: ConnDir,
+    /// Structured member access chain (idx/ids), when reconstructable from
+    /// the net path; `alias` keeps an idx alias's original token (e.g.
+    /// `GPIO1`) before expansion.
+    pub path: Vec<PathSegment>,
+    /// idx alias original text (e.g. `GPIO1`); `None` when not an idx alias
+    /// or not yet tracked (needs AST passthrough of `McIds.segments`).
+    pub alias: Option<String>,
     /// Pin id (InstTable entry) of the lopd side member
     pub left_pin: i64,
     /// Pin id (InstTable entry) of the ropd side member
@@ -99,10 +192,11 @@ impl fmt::Display for MemberLane {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}#{}: {left} -> {right}",
+            "{}#{}: {left} {dir} {right}",
             self.member,
             self.lane,
             left = self.left_pin,
+            dir = self.dir,
             right = self.right_pin
         )
     }
@@ -119,6 +213,13 @@ pub struct PortLink {
     pub kind: LinkKind,
     /// Connection operator that produced the link (`Series` for `->`, `Parallel` for `+`)
     pub op: Option<ConnOp>,
+    /// Overall arrow direction of the link (majority over the member lanes)
+    pub dir: ConnDir,
+    /// Left-alignment anchor of a parallel link (the left main endpoint);
+    /// `None` for series links.
+    pub anchor: Option<i64>,
+    /// Combination order: member lane sequence (left-aligned merge order)
+    pub order: Vec<u16>,
     /// lopd (left operand) side
     pub left: LinkEnd,
     /// ropd (right operand) side
@@ -135,6 +236,9 @@ impl PortLink {
             name,
             kind,
             op: None,
+            dir: ConnDir::Undirected,
+            anchor: None,
+            order: Vec::new(),
             left,
             right,
             members: Vec::new(),
@@ -144,15 +248,20 @@ impl PortLink {
 
 impl fmt::Display for PortLink {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op = match self.op {
+            Some(ConnOp::Series) => "-",
+            Some(ConnOp::Parallel) => "+",
+            None => "",
+        };
+        let dir = if self.dir.is_directed() {
+            self.dir.to_string()
+        } else {
+            String::new()
+        };
         write!(
             f,
-            "[{kind}{op} {name}] {left} <-> {right}",
+            "[{kind}{op}{dir} {name}] {left} <-> {right}",
             kind = self.kind,
-            op = match self.op {
-                Some(ConnOp::Series) => "-",
-                Some(ConnOp::Parallel) => "+",
-                None => "",
-            },
             name = self.name,
             left = self.left,
             right = self.right,

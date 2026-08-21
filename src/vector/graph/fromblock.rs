@@ -1387,6 +1387,9 @@ fn generate_viznets_from_block(
                                         if let Some(d) = net.link_ref {
                                             out.last_mut().unwrap().link_ref = Some(d);
                                         }
+                                        if let Some(shape) = &net.shape {
+                                            out.last_mut().unwrap().shape = Some(shape.clone());
+                                        }
                                     }
                                     crate::velog!(
                                         "[graph] ✓ expanded collapsed bus/port '{}' -> {} signal nets",
@@ -1470,6 +1473,9 @@ fn generate_viznets_from_block(
                             }
                             if let Some(d) = net.link_ref {
                                 out.last_mut().unwrap().link_ref = Some(d);
+                            }
+                            if let Some(shape) = &net.shape {
+                                out.last_mut().unwrap().shape = Some(shape.clone());
                             }
                         }
                         continue; // already split by member -> skip whole Bus construction below
@@ -1571,6 +1577,9 @@ fn generate_viznets_from_block(
         }
         if let Some(d) = net.link_ref {
             out.last_mut().unwrap().link_ref = Some(d);
+        }
+        if let Some(shape) = &net.shape {
+            out.last_mut().unwrap().shape = Some(shape.clone());
         }
     }
 

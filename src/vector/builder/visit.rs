@@ -40,20 +40,11 @@ use super::report::{
 };
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 
-use super::super::model::netshape::{LaneRef, PairDir, ShapeStats};
+use super::super::model::netshape::{LaneRef, ShapeStats};
 use super::connection::{merge_pairs_to_vecnet, ConnPair, NetGroupMap};
 use super::debug;
 use super::resolve::resolve_netpoint_v2;
-use crate::semantic::common::ConnDir;
-
-/// Map the source connector direction to PairDir
-fn conn_dir_to_pair_dir(d: ConnDir) -> PairDir {
-    match d {
-        ConnDir::LtoR => PairDir::LtoR,
-        ConnDir::RtoL => PairDir::RtoL,
-        ConnDir::Undirected => PairDir::Undirected,
-    }
-}
+use crate::semantic::common::{ConnDir, ConnOp};
 
 /// Attach per-connection provenance to a ConnPair: the source operator
 /// (`ConnectionInst.op`, series `-`/`->`/`<-` vs parallel `+`) plus source
@@ -807,7 +798,7 @@ impl<'a> McVecBuilder<'a> {
                                 pair[0],
                                 pair[1],
                                 LaneRef::new(k as u16, member_name_for_lane.clone()),
-                                conn_dir_to_pair_dir(conn.dir),
+                                conn.dir,
                             ),
                             conn,
                         ));
@@ -878,7 +869,7 @@ impl<'a> McVecBuilder<'a> {
                         }
                         let seg_name = segment_net_name(inst_table, &net_name, &seg, k);
                         let group = net_groups.entry(seg_name).or_default();
-                        let pair_dir = conn_dir_to_pair_dir(conn.dir);
+                        let pair_dir = conn.dir;
                         for pair in seg.windows(2) {
                             if let Some(lane) = conn.lane {
                                 group.push(pair_with_conn_meta(
@@ -910,7 +901,7 @@ impl<'a> McVecBuilder<'a> {
                         .flat_map(|pr| pr.ids.iter().copied())
                         .collect();
                     let group = net_groups.entry(net_name).or_default();
-                    let pair_dir = conn_dir_to_pair_dir(conn.dir);
+                    let pair_dir = conn.dir;
                     for pair in all_ids.windows(2) {
                         if let Some(lane) = conn.lane {
                             group.push(pair_with_conn_meta(
@@ -1189,6 +1180,7 @@ impl<'a> McVecBuilder<'a> {
                             let right = link_end_from_id(self.inst_table, pairs[0].right, &base);
                             let mut link = PortLink::new(id, base.clone(), kind, left, right);
                             link.op = pairs.iter().find_map(|p| p.op);
+                            link.dir = pairs.first().map(|p| p.dir).unwrap_or(ConnDir::Undirected);
                             links.push(link);
                             link_ids.insert(base.clone(), id);
                             id
@@ -1208,9 +1200,24 @@ impl<'a> McVecBuilder<'a> {
                             .iter()
                             .any(|m| m.lane == lane && m.member == member)
                         {
+                            // §8.9.5: lane's own arrow direction comes from the
+                            // pair that produced it (per-member dir may differ).
+                            let lane_dir = pairs[0].dir;
+                            // §8.9.4 member access chain: re-structure the lopd member's
+                            // dotted net path (uC.I2C0.SCL -> Ida/Dot chain).
+                            let lane_path = self
+                                .inst_table
+                                .get_entry(pairs[0].left as u32)
+                                .map(|e| {
+                                    crate::vector::model::link::PathSegment::parse_dotted(&e.path)
+                                })
+                                .unwrap_or_default();
                             link.members.push(MemberLane {
                                 member,
                                 lane,
+                                dir: lane_dir,
+                                path: lane_path,
+                                alias: None,
                                 left_pin: pairs[0].left,
                                 right_pin: pairs[0].right,
                             });
@@ -1223,6 +1230,17 @@ impl<'a> McVecBuilder<'a> {
             }
 
             result.push(mcvec_net);
+        }
+
+        // §8.9.5: link-level combination order (member lane sequence) and the
+        // parallel left-alignment anchor, filled after all members are known.
+        for link in links.iter_mut() {
+            link.order = link.members.iter().map(|m| m.lane).collect();
+            link.anchor = if link.op == Some(ConnOp::Parallel) {
+                link.members.first().map(|m| m.left_pin)
+            } else {
+                None
+            };
         }
 
         (result, links)
@@ -1365,15 +1383,20 @@ fn segment_net_name(inst_table: &InstTable, base: &str, seg: &[i64], k: usize) -
 fn link_end_from_id(table: &InstTable, id: i64, base: &str) -> LinkEnd {
     if id < 0 {
         return LinkEnd {
+            box_id: None,
             instance: None,
             port: String::new(),
             iface_class: None,
             io: None,
+            path: Vec::new(),
         };
     }
     match table.get_entry(id as u32) {
         Some(e) => {
             // Instance = owning parent's leaf name (None for the top module).
+            // box_id = the owning instance's stable id (§8.9.4 add-2); None when
+            // the pin belongs to a module port declaration (boundary, add-3).
+            let box_id = e.parent_id.map(|pid| pid as i64);
             let instance = e
                 .parent_id
                 .and_then(|pid| table.get_entry(pid))
@@ -1390,17 +1413,23 @@ fn link_end_from_id(table: &InstTable, id: i64, base: &str) -> LinkEnd {
                 e.path.rsplit('.').next().unwrap_or("").to_string()
             };
             LinkEnd {
+                box_id,
                 instance,
                 port,
                 iface_class: None,
                 io: Some(e.io_type.clone()),
+                // §8.9.4 member access chain: re-structure the dotted net path so the
+                // intermediate hops (uC.I2C0.SCL -> uC / I2C0 / SCL) survive.
+                path: crate::vector::model::link::PathSegment::parse_dotted(&e.path),
             }
         }
         None => LinkEnd {
+            box_id: None,
             instance: None,
             port: String::new(),
             iface_class: None,
             io: None,
+            path: Vec::new(),
         },
     }
 }

@@ -450,6 +450,9 @@ fn project_nets(
         // ★ §8.9.4: propagate the coarse link back-reference (link ids stay
         // valid because the link table is carried over verbatim)
         net.link_ref = nets[sorted[0]].link_ref;
+        // ★ §8.9.2: propagate the topology shape so fine-net output can keep
+        // op / anchor / order semantics even after projection merging.
+        net.shape = nets[sorted[0]].shape.clone();
         out.push(net);
     }
 

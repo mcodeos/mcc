@@ -374,7 +374,7 @@ fn compute_fidelity(
         // NOTE (PR-3): nets_dropped / nets_partial are still hardcoded to 0 here —
         // the topology reconstruction that could drop a leaf lives upstream in
         // connection.rs (`merge_pairs_to_vecnet`).
-        // ★ M0-C BLOCKED: once M0-A provides PairDir, driver/load semantics can be
+        // ★ M0-C BLOCKED: once M0-A provides ConnDir, driver/load semantics can be
         //   derived by majority vote over ConnPair.dir; real dropped/partial counts
         //   can then be wired up.
         nets_dropped: 0,

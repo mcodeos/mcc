@@ -149,6 +149,10 @@ pub struct VizNet {
     /// ★ §8.9.4: back-reference to the coarse `PortLink` this fine net belongs
     /// to (link id + lane index), copied from `McVecNet.link_ref`.
     pub link_ref: Option<LinkRef>,
+    /// ★ §8.9.2: topology shape (op / dir / anchor / order), copied from
+    /// `McVecNet.shape` by fromblock. Lets the frontend draw the net using
+    /// the same coarse-level semantics as the coarse `port_links`.
+    pub shape: Option<crate::vector::model::netshape::NetShape>,
 }
 
 impl VizNet {
@@ -171,6 +175,7 @@ impl VizNet {
             source_span: None,
             link: None,
             link_ref: None,
+            shape: None,
         }
     }
 
