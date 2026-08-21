@@ -1080,7 +1080,7 @@ impl McModuleInst {
                         TrunkKind::Bus
                     }
                 });
-            self.with_link(Some(declared_port_name.clone()), port_kind, |this| {
+            self.with_trunk(Some(declared_port_name.clone()), port_kind, None, |this| {
                 this.create_connection(left, right, ConnDir::Undirected, None)
             })?;
 

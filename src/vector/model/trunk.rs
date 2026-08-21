@@ -2,22 +2,22 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! [`PortTrunk`] — coarse-grained bus / interface trunk layer
+//! [`Trunk`] — coarse-grained bus / interface trunk layer
 //!
 //! Net delivery is two-level (vec-dianlu.md §8.9.4):
 //!
-//! - **Trunk layer** (the coarse grouped connection): one [`PortTrunk`] per
+//! - **Trunk layer** (the coarse grouped connection): one [`Trunk`] per
 //!   bus/interface trunk in the source — "`uC.UART0` ↔ `J_DEBUG.UART0`". It
 //!   carries the trunk identity (`kind`, `iface_class`), the two `TrunkEnd`s
 //!   (lopd / ropd sides), and the connection semantics (`op` / `dir` / `order`)
 //!   of the trunk itself.
-//! - **Lane layer** (the per-member connection): [`PortTrunk::members`] — one
+//! - **Lane layer** (the per-member connection): [`Trunk::members`] — one
 //!   [`MemberLane`] per member lane, giving the pin2pin relation (`TX ↔ RX`)
 //!   with the member name and the two pin ids.
 //!
 //! Flat [`McVecNet`]s stay untouched; each net that belongs to a trunk points
 //! back via a [`TrunkRef`] so downstream can navigate trunk → lane or lane →
-//! trunk. The trunk list is recursive (one `Vec<PortTrunk>` per graph layer,
+//! trunk. The trunk list is recursive (one `Vec<Trunk>` per graph layer,
 //! following `sub_graphs`), which covers module nesting.
 
 use std::fmt;
@@ -205,7 +205,7 @@ impl fmt::Display for MemberLane {
 
 /// Trunk layer: one bus / interface trunk between two `TrunkEnd`s.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PortTrunk {
+pub struct Trunk {
     /// Stable trunk id (grouping key for the member nets)
     pub id: i64,
     /// Trunk display name (usually the port group name, e.g. `UART0` / `SPI`)
@@ -229,7 +229,7 @@ pub struct PortTrunk {
     pub members: Vec<MemberLane>,
 }
 
-impl PortTrunk {
+impl Trunk {
     /// Create a trunk with the given coarse identity and empty member list.
     pub fn new(id: i64, name: String, kind: TrunkKind, left: TrunkEnd, right: TrunkEnd) -> Self {
         Self {
@@ -247,7 +247,7 @@ impl PortTrunk {
     }
 }
 
-impl fmt::Display for PortTrunk {
+impl fmt::Display for Trunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let op = match self.op {
             Some(ConnOp::Series) => "-",
@@ -289,6 +289,10 @@ pub struct TrunkCtx {
     pub member: Option<String>,
     /// Coarse kind of the trunk (`Bus` / `Interface` / `List` / `Plain`).
     pub kind: TrunkKind,
+    /// Standardized interface class when the trunk is an interface binding
+    /// (e.g. `UART.TTL`), carried to `TrunkEnd.iface_class` (§8.9.4). `None`
+    /// for buses / lists / plain connections.
+    pub iface_class: Option<String>,
 }
 
 impl TrunkCtx {
@@ -299,28 +303,35 @@ impl TrunkCtx {
     ///
     /// A dot is only treated as the name/member separator when it is not the
     /// first or last character, so plain names like `V3V3` or `1` stay whole.
-    pub fn from_group_member(group: &str, kind: Option<TrunkKind>) -> Self {
+    pub fn from_group_member(
+        group: &str,
+        kind: Option<TrunkKind>,
+        iface_class: Option<String>,
+    ) -> Self {
         match group.rfind('.') {
             Some(d) if d > 0 && d + 1 < group.len() => Self {
                 name: Some(group[..d].to_string()),
                 member: Some(group[d + 1..].to_string()),
                 kind: kind.unwrap_or(TrunkKind::Bus),
+                iface_class,
             },
             _ => Self {
                 name: Some(group.to_string()),
                 member: None,
                 kind: kind.unwrap_or(TrunkKind::Bus),
+                iface_class,
             },
         }
     }
 
-    /// Structured JSON form `{"name": ..., "member": ..., "kind": ...}`
+    /// Structured JSON form `{"name", "member", "kind", "iface_class"}`
     /// shared by every serialized output (graph JSON, `show` / `verify`).
     pub fn to_json_value(&self) -> serde_json::Value {
         serde_json::json!({
             "name": self.name,
             "member": self.member,
             "kind": self.kind.label(),
+            "iface_class": self.iface_class,
         })
     }
 }
@@ -328,7 +339,7 @@ impl TrunkCtx {
 /// Back-reference from a flat `McVecNet` to its coarse trunk (if any).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TrunkRef {
-    /// Trunk id (index into `Vec<PortTrunk>` of the same graph layer)
+    /// Trunk id (index into `Vec<Trunk>` of the same graph layer)
     pub id: i64,
     /// Lane of this net inside the trunk (member index)
     pub lane: u16,

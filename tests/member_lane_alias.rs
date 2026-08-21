@@ -106,3 +106,77 @@ fn canonical_member_is_not_an_alias() {
     assert_eq!(trunk.members[0].member, "SCLK");
     assert_eq!(trunk.members[0].alias, None);
 }
+
+/// §8.9.4: interface binding (`UART0::UART.TTL(DCE)`) must carry the
+/// standardized interface class (`UART.TTL`) onto both `TrunkEnd`s — even
+/// though the member lanes arrive flattened as a bus whose dotted member keeps
+/// the interface port name (extract_trunk_iface resolves it via the owner
+/// component's pin table).
+const IFACE_CLASS_SOURCE: &str = r#"
+interface UART.TTL(role)
+{
+    pins = [
+        1 = TX, "Transmit"
+        2 = RX, "Receive"
+    ]
+    role DCE {
+        name = "UART.TTL DCE"
+        pins = [
+            1 = TX, "Transmit"
+            2 = RX, "Receive"
+        ]
+        peer = DTE
+    }
+    role DTE {
+        name = "UART.TTL DTE"
+        pins = [
+            1 = RX, "Receive"
+            2 = TX, "Transmit"
+        ]
+        peer = DCE
+    }
+}
+
+component IFACE_DEV
+{
+    pins = [
+        io [1:2] = UART0::UART.TTL(DCE)
+        ps 3 = GND
+    ]
+}
+module main(ps GND)
+{
+    IFACE_DEV U1
+    U1.UART0.TX -> NET_A
+    U1.UART0.RX -> NET_B
+    NET_A -> GND
+    NET_B -> GND
+}
+"#;
+
+#[test]
+fn interface_binding_iface_class_flows_to_trunk_ends() {
+    let block = build_block(IFACE_CLASS_SOURCE);
+    let trunks = &block.port_trunks;
+    assert_eq!(
+        trunks.len(),
+        1,
+        "expected one UART0 trunk group, got {trunks:#?}"
+    );
+    let trunk = &trunks[0];
+    assert_eq!(trunk.name, "U1");
+    assert_eq!(trunk.members.len(), 2, "expected TX + RX lanes");
+    assert_eq!(
+        trunk.left.iface_class.as_deref(),
+        Some("UART.TTL"),
+        "left trunk end must carry the standardized interface class"
+    );
+    assert_eq!(
+        trunk.right.iface_class.as_deref(),
+        Some("UART.TTL"),
+        "right trunk end must carry the standardized interface class"
+    );
+    // Members keep their canonical names, not synthesized aliases.
+    assert_eq!(trunk.members[0].member, "TX");
+    assert_eq!(trunk.members[1].member, "RX");
+}

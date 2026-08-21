@@ -13,7 +13,7 @@
 use std::fmt;
 
 use super::net::McVecNet;
-use super::trunk::PortTrunk;
+use super::trunk::Trunk;
 
 /// Vectorized block
 #[derive(Debug, Clone)]
@@ -30,7 +30,7 @@ pub struct McVecBlock {
     pub nets: Vec<McVecNet>,
     /// ★ §8.9.4: coarse bus/interface trunks of this block (one per source
     /// trunk, each aggregating the fine member pin2pin lanes)
-    pub port_trunks: Vec<PortTrunk>,
+    pub port_trunks: Vec<Trunk>,
 }
 
 impl McVecBlock {

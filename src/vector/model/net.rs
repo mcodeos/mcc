@@ -101,7 +101,7 @@ pub struct McVecNet {
     /// ★ §8.9.6: structured trunk context that produced this net.
     /// `None` is a legal value; do not fill with heuristics.
     pub trunk: Option<crate::vector::model::trunk::TrunkCtx>,
-    /// ★ §8.9.4: back-reference to the coarse `PortTrunk` this fine net belongs
+    /// ★ §8.9.4: back-reference to the coarse `Trunk` this fine net belongs
     /// to (trunk id + lane index). `None` = free net not covered by any trunk.
     pub trunk_ref: Option<TrunkRef>,
 }

@@ -33,7 +33,7 @@ use crate::instant::insttab::{InstKind, InstOrigin, InstTable};
 use crate::instant::mc_mod::McModuleInst;
 use crate::vector::graph::extract_last_segment;
 
-use super::super::model::trunk::{MemberLane, PortTrunk, TrunkEnd, TrunkRef};
+use super::super::model::trunk::{MemberLane, Trunk, TrunkEnd, TrunkRef};
 use super::super::model::{McVec, McVecBlock, McVecNet};
 use super::report::{
     BuildMode, BuilderError, BuilderReport, DroppedNet, PartialNet, ResolutionOutcome,
@@ -510,7 +510,7 @@ impl<'a> McVecBuilder<'a> {
         &mut self,
         inst: &McModuleInst,
         module_path: &str,
-    ) -> (Vec<super::super::model::McVecNet>, Vec<PortTrunk>) {
+    ) -> (Vec<super::super::model::McVecNet>, Vec<Trunk>) {
         // Step 1: Group by net_name, collect all connection pairs
         let mut net_groups: NetGroupMap = NetGroupMap::new();
 
@@ -1129,14 +1129,14 @@ impl<'a> McVecBuilder<'a> {
         // ── §8.9.4: coarse trunk aggregation ─────────────────────────────────────
         // Each fine net whose pairs carry one shared structured group context
         // (`TrunkCtx`, same name + kind) is a member of a coarse
-        // `PortTrunk`. Trunks are keyed by the pure group name (e.g. "SPI0"), so
+        // `Trunk`. Trunks are keyed by the pure group name (e.g. "SPI0"), so
         // all member nets of one port-pair aggregate into a single trunk even
         // when the source writes per-member connections. Trunk ids are assigned
         // in first-seen order over net_groups (a BTreeMap → deterministic), and
         // each member net gets a `TrunkRef { id, lane }` back-pointer.
         let mut trunk_ids: HashMap<String, i64> = HashMap::new();
-        let mut next_link_id: i64 = 0;
-        let mut trunks: Vec<PortTrunk> = Vec::new();
+        let mut next_trunk_id: i64 = 0;
+        let mut trunks: Vec<Trunk> = Vec::new();
         for (net_name, pairs) in net_groups {
             // ★ P7-4 diagnostic: group details (name + pairs), for cross-build diff
             crate::vlog!(
@@ -1181,13 +1181,18 @@ impl<'a> McVecBuilder<'a> {
                     let trunk_id = match trunk_ids.get(&base) {
                         Some(&id) => id,
                         None => {
-                            let id = next_link_id;
-                            next_link_id += 1;
+                            let id = next_trunk_id;
+                            next_trunk_id += 1;
                             let left = trunk_end_from_id(self.inst_table, pairs[0].left, &base);
                             let right = trunk_end_from_id(self.inst_table, pairs[0].right, &base);
-                            let mut trunk = PortTrunk::new(id, base.clone(), kind, left, right);
+                            let mut trunk = Trunk::new(id, base.clone(), kind, left, right);
                             trunk.op = pairs.iter().find_map(|p| p.op);
                             trunk.dir = pairs.first().map(|p| p.dir).unwrap_or(ConnDir::Undirected);
+                            // §8.9.4: carry the standardized interface class
+                            // (e.g. "UART.TTL") onto both trunk ends; Bus/List/
+                            // Plain trunks have no class (None).
+                            trunk.left.iface_class = pg.iface_class.clone();
+                            trunk.right.iface_class = pg.iface_class.clone();
                             trunks.push(trunk);
                             trunk_ids.insert(base.clone(), id);
                             id
