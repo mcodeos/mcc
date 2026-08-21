@@ -7,7 +7,7 @@
 // P1-1: arithmetic operators (`*` / `/` / `~` / `:`) on connection lines used
 //       to fall into the generic E4008 "Unexpected AST node type" message.
 //       Now they report an operator-specific "not supported in connection
-//       lines" diagnostic instead of being mistaken for an AST shape bug.
+//       statements" diagnostic instead of being mistaken for an AST shape bug.
 //
 // P1-2: `McOpd::new` used to fall through to `_ => None` for direct
 //       MCAST_OPD_DOT / MCAST_OPD_CURLY / MCAST_OPD_CURLY_MN nodes, silently
@@ -53,7 +53,7 @@ module main
     let diags = mcc::mcc_diagnose_all();
     let has_specific = diags
         .iter()
-        .any(|d| d.code == 4008 && d.msg.contains("not supported in connection lines"));
+        .any(|d| d.code == 4008 && d.msg.contains("not supported in connection statements"));
     assert!(
         has_specific,
         "expected operator-specific E4008, got: {:?}",

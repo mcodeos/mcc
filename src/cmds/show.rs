@@ -812,7 +812,7 @@ fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<S
 
     lines.push("Connections:".to_string());
     // §8.9.5 layered display: bus/interface connections (carrying a
-    // `port_group`) render as coarse dock lines with indented per-member
+    // `link`) render as coarse link lines with indented per-member
     // pin2pin lines underneath; plain connections render flat as before.
     let views: Vec<crate::cmds::common::ConnView> = inst
         .connections
@@ -837,7 +837,7 @@ fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<S
                 dir: format!("{:?}", conn.dir),
                 // §8.9.6: structured group context (name/member/kind), None
                 // for plain connections.
-                port_group: conn.port_group.clone(),
+                link: conn.link.clone(),
             })
         })
         .collect();
@@ -915,7 +915,7 @@ fn dianlu_sections(inst: &mcc::McModuleInst, path: &str) -> Vec<Value> {
                 // §8.9.6: structured group context (name/member/kind),
                 // present only for bus/interface member connections so
                 // downstream can layer.
-                "port_group": conn.port_group.as_ref().map(|pg| pg.to_json_value()),
+                "link": conn.link.as_ref().map(|pg| pg.to_json_value()),
             }))
         })
         .collect();
@@ -1421,18 +1421,18 @@ fn dump_component(name: &str, comp: &mcc::McComponent) -> Value {
         })
         .collect();
 
-    // Funcs (with body lines)
+    // Funcs (with body stmts)
     let funcs: Vec<Value> = comp
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f.body_lines_display();
+            let body_stmts: Vec<String> = f.body_stmts_display();
             json!({
                 "name": f.name.to_string(),
                 "params": f.params.names_full_annotated(),
                 "returns": f.returns.kind_str(),
                 "called_time": f.called_time,
-                "body_lines": body_lines,
+                "body_stmts": body_stmts,
             })
         })
         .collect();
@@ -1506,21 +1506,21 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
     // Insts (ports + sub-instances)
     let instances = instances_json(&module.insts, None);
 
-    // Lines (connection phrases)
-    let lines: Vec<String> = module.lines.iter().map(|l| l.to_string()).collect();
+    // Stmts (connection phrases)
+    let stmts: Vec<String> = module.stmts.iter().map(|l| l.to_string()).collect();
 
     // Funcs
     let funcs: Vec<Value> = module
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f.body_lines_display();
+            let body_stmts: Vec<String> = f.body_stmts_display();
             json!({
                 "name": f.name.to_string(),
                 "params": f.params.names_full_annotated(),
                 "returns": f.returns.kind_str(),
                 "called_time": f.called_time,
-                "body_lines": body_lines,
+                "body_stmts": body_stmts,
             })
         })
         .collect();
@@ -1531,7 +1531,7 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
         .iter_defs_with_span()
         .map(|(name, span)| json!({"name": name, "span": {"start": span.start, "end": span.end}}))
         .collect();
-    // LSP goto-def data: port reference positions in net lines
+    // LSP goto-def data: port reference positions in net stmts
     let refs: Vec<Value> = module
         .params
         .iter_net_refs()
@@ -1546,8 +1546,8 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
         "params": params,
         "params_with_defaults": params_with_defaults,
         "instances": instances,
-        "lines_count": module.lines.len(),
-        "lines": lines,
+        "stmts_count": module.stmts.len(),
+        "stmts": stmts,
         "funcs": funcs,
         "defs": defs,
         "refs": refs,

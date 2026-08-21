@@ -513,14 +513,14 @@ pub const PARAM_DECLARE_IFACE_PINS: u32 = 3111;
 /// Missing function name in a function call.
 pub const FUNC_CALL_MISSING_NAME: u32 = 3131;
 
-/// A connection line failed to parse.
-pub const CONN_LINE_PARSE_FAILED: u32 = 3132;
+/// A connection statement failed to parse.
+pub const CONN_STMT_PARSE_FAILED: u32 = 3132;
 
 /// Invalid function body node.
 pub const FUNC_BODY_INVALID: u32 = 3133;
 
-/// A connection line was dropped because McPhrase::new returned None.
-pub const FUNC_LINE_DROPPED: u32 = 3134;
+/// A connection statement was dropped because McPhrase::new returned None.
+pub const FUNC_STMT_DROPPED: u32 = 3134;
 
 /// Function call parse failure.
 pub const FCALL_PARSE_FAILED: u32 = 3135;
@@ -608,7 +608,7 @@ pub const CONN_PARALLEL_SHAPE_MISMATCH: u32 = 4005;
 /// Shape mismatch in a -> connection.
 pub const CONN_SERIES_SHAPE_MISMATCH: u32 = 4007;
 
-/// The operator is not supported in connection lines; use '+' for parallel, '-' / '->' for series.
+/// The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for series.
 pub const CONN_OPERATOR_UNSUPPORTED: u32 = 4008;
 
 /// Unexpected AST node type in a phrase.
@@ -827,11 +827,11 @@ pub const INST_IFACE_INSTANTIATE_FAILED: u32 = 4153;
 /// Sub-module instantiation failed.
 pub const INST_SUBMODULE_INSTANTIATE_FAILED: u32 = 4154;
 
-/// Line references a component class whose instantiation failed; the whole line is skipped.
-pub const INST_LINE_SKIP_FAILED_CLASS: u32 = 4155;
+/// Statement references a component class whose instantiation failed; the whole statement is skipped.
+pub const INST_STMT_SKIP_FAILED_CLASS: u32 = 4155;
 
-/// A connection line failed to expand.
-pub const INST_LINE_PARSE_FAILED: u32 = 4156;
+/// A connection statement failed to expand.
+pub const INST_STMT_PARSE_FAILED: u32 = 4156;
 
 /// Expanded builtin two-pin pair failed.
 pub const INST_BUILTIN_TWOPIN_EXPAND_FAILED: u32 = 4157;
@@ -845,8 +845,8 @@ pub const INST_ADJACENT_CONNECT_FAILED: u32 = 4159;
 /// A `.Cap(_)` shunt member failed to process.
 pub const INST_SHUNT_PROCESS_FAILED: u32 = 4160;
 
-/// A module-level function body line failed.
-pub const INST_FUNC_BODY_LINE_FAILED: u32 = 4161;
+/// A module-level function body statement failed.
+pub const INST_FUNC_BODY_STMT_FAILED: u32 = 4161;
 
 /// Failed to instantiate a FuncCall during lane-by-lane wiring.
 pub const INST_LANE_FUNCCALL_FAILED: u32 = 4162;
@@ -876,7 +876,7 @@ pub const INST_OUTPUT_PORT_COUNT_MISMATCH: u32 = 4171;
 pub const INST_POWER_PORT_UNBOUND: u32 = 4172;
 
 /// A constructor function body line failed.
-pub const INST_CTOR_BODY_LINE_FAILED: u32 = 4173;
+pub const INST_CTOR_BODY_STMT_FAILED: u32 = 4173;
 
 /// Constructor parameter binding failed.
 pub const INST_CTOR_PARAM_BIND_FAILED: u32 = 4174;
@@ -1130,7 +1130,7 @@ pub const RANGE_SINGLE_ELEMENT: u32 = 5408;
 /// IDX key has multiple slice specifications.
 pub const IDX_MULTIPLE_SLICE_SPEC: u32 = 5409;
 
-/// 'this' used in a top-level net line; it is only valid inside instance/function contexts.
+/// 'this' used in a top-level net statement; it is only valid inside instance/function contexts.
 pub const EXPR_THIS_TOP_LEVEL: u32 = 5410;
 
 /// Net connects only to '_' placeholder; the connection has no effect.
@@ -1371,9 +1371,9 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARAM_INST_LOOKUP_FAILED, "Instance::class lookup failed; the binding is treated as a plain pin alias.", "'{0}::{1}' lookup failed; treating '{0}' as plain pin alias. If you intended an interface binding, check that '{1}' is defined (and `use`d, if from a library)."),
     entry!(PARAM_DECLARE_IFACE_PINS, "Interface pin count does not match the number of declared pin IDs.", "Interface '{0}' declares {1} pin(s) (members: {2}) but {3} pin ID(s) given; the counts must match. Use a range like `a:b` to declare exactly {1} pin(s)."),
     entry!(FUNC_CALL_MISSING_NAME, "Missing function name in a function call.", "Missing function name in a function call."),
-    entry!(CONN_LINE_PARSE_FAILED, "A connection line failed to parse.", "connection line failed to parse"),
+    entry!(CONN_STMT_PARSE_FAILED, "A connection statement failed to parse.", "connection statement failed to parse"),
     entry!(FUNC_BODY_INVALID, "Invalid function body node.", "Invalid function body node."),
-    entry!(FUNC_LINE_DROPPED, "A connection line was dropped because McPhrase::new returned None.", "Connection line dropped (McPhrase::new returned None): `{0}`"),
+    entry!(FUNC_STMT_DROPPED, "A connection statement was dropped because McPhrase::new returned None.", "Connection statement dropped (McPhrase::new returned None): `{0}`"),
     entry!(FCALL_PARSE_FAILED, "Function call parse failure.", "Cannot chain `.{0}` after `{1}(...)`: function `{2}` returns a bus/label (endpoint), not `this`. Only functions that return `this` can be chained."),
     // ---- section ----
     entry!(INST_EXPR_PARSE_FAILED, "Failed to parse an instance in an expression context.", "Failed to parse MCAST_INSTANCE in expression context"),
@@ -1402,7 +1402,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CONN_CANNOT_TRANSPOSE, "The transpose operator is not allowed at this position.", "Cannot transpose"),
     entry!(CONN_PARALLEL_SHAPE_MISMATCH, "Shape mismatch in a parallel connection.", "Shape mismatch in parallel connection"),
     entry!(CONN_SERIES_SHAPE_MISMATCH, "Shape mismatch in a -> connection.", "Shape mismatch in -> connection"),
-    entry!(CONN_OPERATOR_UNSUPPORTED, "The operator is not supported in connection lines; use '+' for parallel, '-' / '->' for series.", "node={0} Operator '{1}' is not supported in connection lines; use '+' for parallel, '-' / '->' for series"),
+    entry!(CONN_OPERATOR_UNSUPPORTED, "The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for series.", "node={0} Operator '{1}' is not supported in connection statements; use '+' for parallel, '-' / '->' for series"),
     entry!(PHRASE_AST_TYPE_UNEXPECTED, "Unexpected AST node type in a phrase.", "node={0} Unexpected AST node type {1} in McPhrase::new"),
     entry!(CONN_NO_PORTS_COMPONENT, "No ports found in the component.", "No ports found in the component."),
     entry!(CONN_NO_PORTS_MODULE, "No ports found in the module.", "No ports found in the module."),
@@ -1474,13 +1474,13 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_METHOD_FALLBACK, "Instance method could not be resolved; passed through instead.", "Unrecognized function call '{0}' in module '{1}' — treated as pass-through (class not loaded or name misspelled)"),
     entry!(INST_IFACE_INSTANTIATE_FAILED, "Interface instantiation failed.", "Interface instantiation failed: {0}"),
     entry!(INST_SUBMODULE_INSTANTIATE_FAILED, "Sub-module instantiation failed.", "Sub-module '{0}' instantiation failed: {1}"),
-    entry!(INST_LINE_SKIP_FAILED_CLASS, "Line references a component class whose instantiation failed; the whole line is skipped.", "Line references a component class whose instantiation failed; skipping entire line."),
-    entry!(INST_LINE_PARSE_FAILED, "A connection line failed to expand.", "Connection line #{0} failed: {1}"),
+    entry!(INST_STMT_SKIP_FAILED_CLASS, "Statement references a component class whose instantiation failed; the whole statement is skipped.", "Statement references a component class whose instantiation failed; skipping entire statement."),
+    entry!(INST_STMT_PARSE_FAILED, "A connection statement failed to expand.", "Connection statement #{0} failed: {1}"),
     entry!(INST_BUILTIN_TWOPIN_EXPAND_FAILED, "Expanded builtin two-pin pair failed.", "Expanded builtin twopin pair failed: {0}"),
-    entry!(INST_MEMBER_PROCESS_FAILED, "A member of a connection line failed to process.", "Member processing failed: {0}"),
+    entry!(INST_MEMBER_PROCESS_FAILED, "A member of a connection statement failed to process.", "Member processing failed: {0}"),
     entry!(INST_ADJACENT_CONNECT_FAILED, "Connection between adjacent members of a series failed.", "Connection between members #{0} and #{1} failed: {2}"),
     entry!(INST_SHUNT_PROCESS_FAILED, "A `.Cap(_)` shunt member failed to process.", "`.Cap(_)` shunt: {0}"),
-    entry!(INST_FUNC_BODY_LINE_FAILED, "A module-level function body line failed.", "Module-level function '{0}' body line failed: {1}"),
+    entry!(INST_FUNC_BODY_STMT_FAILED, "A module-level function body statement failed.", "Module-level function '{0}' body statement failed: {1}"),
     entry!(INST_LANE_FUNCCALL_FAILED, "Failed to instantiate a FuncCall during lane-by-lane wiring.", "Failed to instantiate FuncCall in lane-by-lane wiring: {0}"),
     entry!(INST_LANE_TRANSPOSED_FAILED, "Failed to instantiate a Transposed member during lane-by-lane wiring.", "Failed to instantiate Transposed in lane-by-lane: {0}"),
     entry!(SHAPE_TRANSPOSE_LIMIT, "Transpose operand must be 1*1 / 1*2 / 2*1 / 2*2 (eval.md §5.5).", "Transpose operand has {0} rows; only 1*1, 1*2, 2*1 or 2*2 shapes can be transposed."),
@@ -1495,7 +1495,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_INPUT_PORT_COUNT_MISMATCH, "Module input port count mismatch in a function call.", "Module '{0}' ({1}) input port count mismatch: {2} connections vs {3} input ports"),
     entry!(INST_OUTPUT_PORT_COUNT_MISMATCH, "Module output port count mismatch in a function call.", "Module '{0}' ({1}) output port count mismatch: {2} connections vs {3} output ports"),
     entry!(INST_POWER_PORT_UNBOUND, "Sub-module DC power port is never connected (missing power argument?).", "Sub-module instance '{0}' DC power port '{1}' is never connected (missing power argument?)"),
-    entry!(INST_CTOR_BODY_LINE_FAILED, "A constructor function body line failed.", "Constructor '{0}' body line failed: {1}"),
+    entry!(INST_CTOR_BODY_STMT_FAILED, "A constructor function body statement failed.", "Constructor '{0}' body statement failed: {1}"),
     entry!(INST_CTOR_PARAM_BIND_FAILED, "Constructor parameter binding failed.", "Constructor '{0}' on '{1}' param bind: {2}"),
     entry!(INST_ARG_UNBOUND_DETAILED, "Instance argument has no formal port to bind (with module/bound details).", "Instance '{0}' arg '{1}' has no formal port to bind (module='{2}', {3}/{4} formal ports already bound)"),
     // ---- section ----
@@ -1577,7 +1577,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(RANGE_REVERSED, "Range appears reversed; did you mean the opposite order?", "Range appears reversed; did you mean the opposite order?"),
     entry!(RANGE_SINGLE_ELEMENT, "Range expands to a single element.", "Range expands to a single element."),
     entry!(IDX_MULTIPLE_SLICE_SPEC, "IDX key has multiple slice specifications.", "IDX key has multiple slice specifications."),
-    entry!(EXPR_THIS_TOP_LEVEL, "'this' used in a top-level net line; it is only valid inside instance/function contexts.", "'this' used in a top-level net line; it is only valid inside instance/function contexts."),
+    entry!(EXPR_THIS_TOP_LEVEL, "'this' used in a top-level net statement; it is only valid inside instance/function contexts.", "'this' used in a top-level net statement; it is only valid inside instance/function contexts."),
     entry!(EXPR_PLACEHOLDER_ONLY, "Net connects only to '_' placeholder; the connection has no effect.", "Net connects only to '_' placeholder; the connection has no effect."),
     entry!(ATTR_SELF_REFERENTIAL, "Attribute value equals its own key; likely a copy-paste mistake.", "Attribute value equals its own key; likely a copy-paste mistake."),
     // ---- section ----

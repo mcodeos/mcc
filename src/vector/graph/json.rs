@@ -136,18 +136,18 @@ impl McVecGraph {
             ));
             // ★ §8.9.6: structured port group context (group name / member / kind)
             // carried through the whole pipeline; missing for free nets.
-            if let Some(ref pg) = n.port_group {
+            if let Some(ref pg) = n.link {
                 out.push_str(&format!(
-                    "{s}\"port_group\": {{\"name\": {}{s}\"member\": {}{s}\"kind\": \"{}\"}}",
+                    "{s}\"link\": {{\"name\": {}{s}\"member\": {}{s}\"kind\": \"{}\"}}",
                     json_opt_str(&pg.name),
                     json_opt_str(&pg.member),
                     pg.kind.label()
                 ));
             }
-            // ★ §8.9.4: fine net → coarse dock back-reference
-            if let Some(d) = n.dock {
+            // ★ §8.9.4: fine net -> coarse link back-reference
+            if let Some(d) = n.link_ref {
                 out.push_str(&format!(
-                    "\"dock\": {{\"id\": {}{s}\"lane\": {}}}{s}",
+                    "\"link_ref\": {{\"id\": {}{s}\"lane\": {}}}{s}",
                     d.id, d.lane
                 ));
             }
@@ -200,12 +200,12 @@ impl McVecGraph {
         }
         out.push_str(&format!("{i1}]{s}{nl}"));
 
-        // ── ★ §8.9.4: port_docks (coarse bus/interface docks of this layer) ──────
-        out.push_str(&format!("{i1}\"port_docks\": ["));
-        if !self.port_docks.is_empty() {
+        // ── ★ §8.9.4: port_links (coarse bus/interface links of this layer) ──────
+        out.push_str(&format!("{i1}\"port_links\": ["));
+        if !self.port_links.is_empty() {
             out.push_str(nl);
         }
-        for (i, d) in self.port_docks.iter().enumerate() {
+        for (i, d) in self.port_links.iter().enumerate() {
             out.push_str(&format!(
                 "{i2}{{\"id\": {}{s}\"name\": \"{}\"{s}\"kind\": \"{}\"{s}\"op\": {}{s}",
                 d.id,
@@ -217,7 +217,7 @@ impl McVecGraph {
                     None => "null",
                 },
             ));
-            // left / right dock ends
+            // left / right link ends
             out.push_str(&format!(
                 "\"left\": {{\"instance\": {}{s}\"port\": \"{}\"{s}\"iface\": {}{s}\"io\": {}}}{s}",
                 json_opt_str(&d.left.instance),
@@ -236,7 +236,7 @@ impl McVecGraph {
                 json_opt_str(&d.right.iface_class),
                 d.right.io.as_ref().map(|t| format!("\"{t:?}\"")).unwrap_or_else(|| "null".to_string()),
             ));
-            // fine layer: per-member pin2pin links
+            // fine layer: per-member pin2pin lanes
             out.push_str("\"members\": [");
             for (j, m) in d.members.iter().enumerate() {
                 out.push_str(&format!(
@@ -251,7 +251,7 @@ impl McVecGraph {
                 }
             }
             out.push_str("]}");
-            if i + 1 < self.port_docks.len() {
+            if i + 1 < self.port_links.len() {
                 out.push(',');
             }
             out.push_str(nl);

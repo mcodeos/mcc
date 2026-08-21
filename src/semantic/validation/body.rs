@@ -138,9 +138,9 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
 // ============================================================================
 
 /// In MCode, `return` is only valid inside `func` bodies. A `return` in a
-/// module's top-level net lines or component attribute body is an error.
+/// module's top-level net stmts or component attribute body is an error.
 fn check_return_outside_function(acc: &mut CheckAccumulator) {
-    // ── Module top-level body lines ──
+    // ── Module top-level body stmts ──
     {
         let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
@@ -150,8 +150,8 @@ fn check_return_outside_function(acc: &mut CheckAccumulator) {
             }
             let m = entry.value();
 
-            // Check top-level module body lines (not inside functions)
-            for phrase in &m.lines {
+            // Check top-level module body stmts (not inside functions)
+            for phrase in &m.stmts {
                 let text = format!("{}", phrase);
                 if text_contains_keyword(&text, "return") {
                     acc.push(CheckResult {
@@ -174,7 +174,7 @@ fn check_return_outside_function(acc: &mut CheckAccumulator) {
     }
 
     // ── Component top-level body (attributes) ──
-    // Component bodies are parsed into structured attrs/pins/funcs, not raw lines.
+    // Component bodies are parsed into structured attrs/pins/funcs, not raw stmts.
     // A `return` in a component attr value would be unusual but checking attr
     // value text would produce false positives. Skip component-level check —
     // the parser would catch `return` as a syntax error in component context.
@@ -217,7 +217,7 @@ fn check_return_with_literal(acc: &mut CheckAccumulator) {
             let m = entry.value();
             let mod_span = Some(m.span.start..m.span.end);
             for func in m.funcs.iter() {
-                for phrase in &func.lines {
+                for phrase in &func.stmts {
                     let text = format!("{}", phrase);
                     check_return_literal_in_text(
                         &text,
@@ -242,7 +242,7 @@ fn check_return_with_literal(acc: &mut CheckAccumulator) {
             let comp = entry.value();
             let comp_span = Some(comp.span.start..comp.span.end);
             for func in comp.funcs.iter() {
-                for phrase in &func.lines {
+                for phrase in &func.stmts {
                     let text = format!("{}", phrase);
                     check_return_literal_in_text(
                         &text,
@@ -332,7 +332,7 @@ fn check_empty_bracket_list(acc: &mut CheckAccumulator) {
         }
         let m = entry.value();
 
-        for phrase in &m.lines {
+        for phrase in &m.stmts {
             let text = format!("{}", phrase);
             // Look for `[] ::` pattern
             if text.contains("[] ::") || text.contains("[]::") {
@@ -371,7 +371,7 @@ fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
         }
         let m = entry.value();
 
-        for phrase in &m.lines {
+        for phrase in &m.stmts {
             let text = format!("{}", phrase);
             // Look for `this ::` pattern (with optional whitespace)
             let cleaned: String = text.chars().filter(|c| !c.is_whitespace()).collect();
@@ -572,16 +572,16 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
             continue;
         }
 
-        // Collect all names referenced in net connection lines and function bodies.
+        // Collect all names referenced in net connection stmts and function bodies.
         // Walk the McPhrase AST directly instead of formatting to text and splitting,
         // because text-based splitting corrupts names when parentheses, brackets, or
         // function-call commas are present (e.g. `GND)` instead of `GND`).
         let mut referenced: HashSet<String> = HashSet::new();
-        for phrase in &m.lines {
+        for phrase in &m.stmts {
             collect_referenced_names(phrase, &mut referenced);
         }
         for func in m.funcs.iter() {
-            for phrase in &func.lines {
+            for phrase in &func.stmts {
                 collect_referenced_names(phrase, &mut referenced);
             }
         }

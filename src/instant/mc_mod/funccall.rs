@@ -172,7 +172,7 @@ impl McModuleInst {
         // ── ★ P0-2: alias fallback ─────────────────────────────────────────────
         // In an example project, `dio1 = DIO.ESD()` registers with CMIE as class.name == "DIO.ESD",
         // but when .mc code uses bare `ESD(...)`, func_name == "ESD", mcb_get_cmie
-        // can't find it → returns PassThrough → line.rs generates `@?ESD_N` stub
+        // can't find it → returns PassThrough → stmt.rs generates `@?ESD_N` stub
         // → downstream resolve can't find `@?ESD_N.1` → entire net is swallowed by
         // dropped_nets (viz.md A1).
         //

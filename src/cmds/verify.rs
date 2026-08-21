@@ -19,7 +19,7 @@ use crate::cmds::{common, manifest};
 use anyhow::Result;
 use mcc::cli::{OutputFormat, VerifyArgs};
 use mcc::hierarchy;
-use mcc::vector::model::dock::{DockKind, PortGroupCtx};
+use mcc::vector::model::link::{LinkCtx, LinkKind};
 use mcc::{InstOrigin, McModuleInst, Span};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -57,7 +57,7 @@ struct ConnEntry {
     dir: String,
     /// §8.9.6 structured group context (name/member/kind), decided at the
     /// AST layer; None for plain connections.
-    port_group: Option<mcc::vector::model::dock::PortGroupCtx>,
+    link: Option<mcc::vector::model::link::LinkCtx>,
 }
 
 /// Join connection endpoints with the separator that reflects the source
@@ -358,7 +358,7 @@ fn record_tree_node(
                 "net": c.effective_net_name(),
                 "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
                 "dir": format!("{:?}", c.dir),
-                "port_group": c.port_group.as_ref().map(|pg| pg.to_json_value()),
+                "link": c.link.as_ref().map(|pg| pg.to_json_value()),
             })
         })
         .collect();
@@ -403,8 +403,8 @@ fn record_tree_node(
 }
 
 fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usize)) {
-    let lines = &inst.def.lines;
-    let spans = &inst.def.line_spans;
+    let stmts = &inst.def.stmts;
+    let stmt_spans = &inst.def.stmt_spans;
 
     // Build a byte-offset -> line-number map from the module's own source
     // file so expanded connections (tagged by `source_span`, decision A §7.1
@@ -414,7 +414,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     let content = std::fs::read_to_string(&def_file).ok();
     let mut src_by_line: BTreeMap<u32, usize> = BTreeMap::new();
     if let Some(c) = &content {
-        for (i, sp) in spans.iter().enumerate() {
+        for (i, sp) in stmt_spans.iter().enumerate() {
             src_by_line.insert(hierarchy::line_of_byte(c, sp.start as usize), i);
         }
     }
@@ -504,7 +504,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                         "net": c.effective_net_name(),
                         "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
                         "dir": format!("{:?}", c.dir),
-                        "port_group": c.port_group.as_ref().map(|pg| pg.to_json_value()),
+                        "link": c.link.as_ref().map(|pg| pg.to_json_value()),
                     });
                     sub_expansions
                         .entry(pos.offset)
@@ -516,7 +516,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         }
     }
 
-    let mut per_stmt: Vec<Vec<ConnEntry>> = (0..lines.len()).map(|_| Vec::new()).collect();
+    let mut conns_by_stmt: Vec<Vec<ConnEntry>> = (0..stmts.len()).map(|_| Vec::new()).collect();
     let mut untraced: Vec<String> = Vec::new();
     let mut cross_file: Vec<Value> = Vec::new();
     // Cross-file body connections attributed to a declaration line (e.g. a
@@ -530,7 +530,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
             net: conn.effective_net_name(),
             points: conn.points.iter().map(|p| p.path.clone()).collect(),
             dir: format!("{:?}", conn.dir),
-            port_group: conn.port_group.clone(),
+            link: conn.link.clone(),
         };
         match &conn.source_span {
             // No source span: engine-internal projection link (interface / bus
@@ -567,7 +567,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                             if let Some(c) = &content {
                                 let ln = hierarchy::line_of_byte(c, tc.offset as usize);
                                 if let Some(&idx) = src_by_line.get(&ln) {
-                                    per_stmt[idx].push(entry.clone());
+                                    conns_by_stmt[idx].push(entry.clone());
                                     attributed = true;
                                 } else {
                                     declare_conns.entry(ln).or_insert_with(|| {
@@ -585,8 +585,8 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                                             "net": entry.net.clone(),
                                             "points": entry.points.clone(),
                                             "dir": entry.dir.clone(),
-                                            "port_group": entry
-                                                .port_group
+                                            "link": entry
+                                                .link
                                                 .as_ref()
                                                 .map(|pg| pg.to_json_value()),
                                         }));
@@ -606,7 +606,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                         "net": entry.net,
                         "points": entry.points,
                         "dir": entry.dir,
-                        "port_group": entry.port_group.as_ref().map(|pg| pg.to_json_value()),
+                        "link": entry.link.as_ref().map(|pg| pg.to_json_value()),
                         "source": format!("{}:{}", pos.uri, line),
                     }));
                 } else if content.is_some() {
@@ -615,7 +615,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                     let ln =
                         hierarchy::line_of_byte(content.as_ref().unwrap(), pos.offset as usize);
                     match src_by_line.get(&ln) {
-                        Some(&idx) => per_stmt[idx].push(entry),
+                        Some(&idx) => conns_by_stmt[idx].push(entry),
                         None if conn.expansion_id.is_some() => {
                             // Attributed to an expansion record (its
                             // call_site / def_site locates it); not a module
@@ -625,7 +625,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                             "net": entry.net,
                             "points": entry.points,
                             "dir": entry.dir,
-                            "port_group": entry.port_group.as_ref().map(|pg| pg.to_json_value()),
+                            "link": entry.link.as_ref().map(|pg| pg.to_json_value()),
                             "line": ln,
                         })),
                     }
@@ -642,22 +642,22 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     // against their body-expansion records instead of being blanket-exempt
     // (§5.1): a body-expanding record with no products is a genuine empty
     // expansion (P2-8 `skipped` records are deliberate).
-    let mut per_line: Vec<Value> = Vec::with_capacity(lines.len());
+    let mut per_stmt: Vec<Value> = Vec::with_capacity(stmts.len());
     let mut no_expansion = 0usize;
-    for (i, phrase) in lines.iter().enumerate() {
+    for (i, phrase) in stmts.iter().enumerate() {
         let has_funccall = phrase_contains_funccall(phrase);
-        let conns: Vec<Value> = per_stmt[i]
+        let conns: Vec<Value> = conns_by_stmt[i]
             .iter()
             .map(|c| {
                 json!({
                     "net": c.net,
                     "points": c.points,
                     "dir": c.dir,
-                    "port_group": c.port_group.as_ref().map(|pg| pg.to_json_value()),
+                    "link": c.link.as_ref().map(|pg| pg.to_json_value()),
                 })
             })
             .collect();
-        let stmt_off = spans.get(i).map(|sp| sp.start as u32);
+        let stmt_off = stmt_spans.get(i).map(|sp| sp.start as u32);
         let empty_expansion = stmt_off
             .and_then(|off| stmt_records.get(&off))
             .map(|recs| {
@@ -728,8 +728,8 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         } else {
             Vec::new()
         };
-        per_line.push(json!({
-            "line": line_of_span(&content, spans.get(i)),
+        per_stmt.push(json!({
+            "line": line_of_span(&content, stmt_spans.get(i)),
             "text": format!("{phrase}"),
             "funcall": has_funccall,
             "funcall_empty": funcall_empty,
@@ -740,16 +740,16 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     }
 
     let report = json!({
-        "statements": lines.len(),
+        "statements": stmts.len(),
         "expanded": inst.connections.len(),
-        "per_line": per_line,
+        "per_stmt": per_stmt,
         "untraced": untraced,
         "cross_file": cross_file,
         "declare_conns": declare_conns.into_values().collect::<Vec<_>>(),
         "unattributed": unattributed,
     });
     let counts = (
-        lines.len(),
+        stmts.len(),
         inst.connections.len(),
         untraced.len(),
         no_expansion,
@@ -977,17 +977,17 @@ fn conn_key(c: &Value) -> String {
 }
 
 /// Convert a connection JSON value to the shared §8.9.5 view. The JSON
-/// `port_group` object (`{"name", "member", "kind"}`) is decoded back into a
-/// structured [`PortGroupCtx`]; missing / malformed → None.
+/// `link` object (`{"name", "member", "kind"}`) is decoded back into a
+/// structured [`LinkCtx`]; missing / malformed → None.
 fn conn_view(c: &Value) -> common::ConnView {
-    let port_group = c["port_group"].as_object().map(|o| PortGroupCtx {
+    let link = c["link"].as_object().map(|o| LinkCtx {
         name: o.get("name").and_then(|v| v.as_str()).map(str::to_string),
         member: o.get("member").and_then(|v| v.as_str()).map(str::to_string),
         kind: o
             .get("kind")
             .and_then(|v| v.as_str())
             .map(kind_from_label)
-            .unwrap_or(DockKind::Plain),
+            .unwrap_or(LinkKind::Plain),
     });
     common::ConnView {
         net: c["net"].as_str().unwrap_or("").to_string(),
@@ -1000,17 +1000,17 @@ fn conn_view(c: &Value) -> common::ConnView {
             })
             .unwrap_or_default(),
         dir: c["dir"].as_str().unwrap_or("").to_string(),
-        port_group,
+        link,
     }
 }
 
-/// Reverse of [`DockKind::label`]; unknown labels map to `Plain`.
-fn kind_from_label(s: &str) -> DockKind {
+/// Reverse of [`LinkKind::label`]; unknown labels map to `Plain`.
+fn kind_from_label(s: &str) -> LinkKind {
     match s {
-        "bus" => DockKind::Bus,
-        "ifs" => DockKind::Interface,
-        "list" => DockKind::List,
-        _ => DockKind::Plain,
+        "bus" => LinkKind::Bus,
+        "ifs" => LinkKind::Interface,
+        "list" => LinkKind::List,
+        _ => LinkKind::Plain,
     }
 }
 
@@ -1109,7 +1109,7 @@ fn render_branches(out: &mut String, prefix: &str, branches: &[Branch]) {
                     }
                 }
                 if let Some(conns) = node["connections"].as_array() {
-                    // §8.9.5 layered rendering (docks for bus/interface
+                    // §8.9.5 layered rendering (links for bus/interface
                     // groups, flat lines otherwise).
                     let views: Vec<common::ConnView> = conns.iter().map(conn_view).collect();
                     for t in common::render_layered_conns(&views, "") {
@@ -1239,7 +1239,7 @@ fn render_module_text(out: &mut String, m: &Value) {
         "  Connections ({} statements -> {} expanded):",
         conn["statements"], conn["expanded"]
     );
-    if let Some(arr) = conn["per_line"].as_array() {
+    if let Some(arr) = conn["per_stmt"].as_array() {
         for line in arr {
             let ln = line["line"]
                 .as_u64()
@@ -1285,7 +1285,7 @@ fn render_module_text(out: &mut String, m: &Value) {
                     });
                 }
                 if let Some(conns) = line["connections"].as_array() {
-                    // §8.9.5: group bus/interface connections into docks so a
+                    // §8.9.5: group bus/interface connections into links so a
                     // tree leaf can be a coarse header or a member pin2pin row.
                     let views: Vec<common::ConnView> = conns
                         .iter()
@@ -1300,7 +1300,7 @@ fn render_module_text(out: &mut String, m: &Value) {
                 continue;
             }
             if let Some(conns) = line["connections"].as_array() {
-                // §8.9.5 layered rendering (docks for bus/interface groups,
+                // §8.9.5 layered rendering (links for bus/interface groups,
                 // flat lines otherwise).
                 let views: Vec<common::ConnView> = conns.iter().map(conn_view).collect();
                 for text in common::render_layered_conns(&views, "           ") {

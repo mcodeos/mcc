@@ -501,7 +501,7 @@ fn check_param_pin_name_collision(acc: &mut CheckAccumulator) {
 }
 
 // ============================================================================
-// M6-extended: Completely empty module (no params, insts, lines, funcs)
+// M6-extended: Completely empty module (no params, insts, stmts, funcs)
 // ============================================================================
 
 /// A module with no content at all is almost certainly a stub or mistake.
@@ -515,17 +515,17 @@ fn check_empty_module(acc: &mut CheckAccumulator) {
         let m = entry.value();
         let has_params = !m.params.is_empty();
         let has_insts = !m.insts.is_empty();
-        let has_lines = !m.lines.is_empty();
+        let has_stmts = !m.stmts.is_empty();
         let has_funcs = !m.funcs.is_empty();
 
-        if !has_params && !has_insts && !has_lines && !has_funcs {
+        if !has_params && !has_insts && !has_stmts && !has_funcs {
             acc.push(CheckResult {
                 check_name: "conds",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.clone()),
                 span: Some(m.span.start..m.span.end),
                 message: format!(
-                    "Module '{}' has no params, instances, net lines, or functions. \
+                    "Module '{}' has no params, instances, net statements, or functions. \
                      Is this a stub?",
                     entry.key().ident
                 ),

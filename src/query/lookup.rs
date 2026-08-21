@@ -1044,16 +1044,16 @@ pub fn mcb_get_module_with_diagnostics(
 
     // 1. First try the standard path
     if let Some(McCMIE::Module(module)) = mcb_get_cmie(class_name, uri) {
-        if module.lines.is_empty() && module.insts.iter().count() == 0 {
+        if module.stmts.is_empty() && module.insts.iter().count() == 0 {
             diags.push(
-                "⚠️  mcb_get_cmie returned an empty module (lines=0, symbols=0), trying fallback"
+                "⚠️  mcb_get_cmie returned an empty module (stmts=0, symbols=0), trying fallback"
                     .to_string(),
             );
             // Standard path returned an empty module, go to fallback
         } else {
             diags.push(format!(
-                "✅ mcb_get_cmie success: lines={}, symbols={}",
-                module.lines.len(),
+                "✅ mcb_get_cmie success: stmts={}, symbols={}",
+                module.stmts.len(),
                 module.insts.iter().count()
             ));
             return (Some(module), diags);
@@ -1075,8 +1075,8 @@ pub fn mcb_get_module_with_diagnostics(
         .map(|e| e.value().clone());
     if let Some(module) = fallback {
         diags.push(format!(
-            "✅ fallback controlled module lookup success: lines={}, symbols={}",
-            module.lines.len(),
+            "✅ fallback controlled module lookup success: stmts={}, symbols={}",
+            module.stmts.len(),
             module.insts.iter().count()
         ));
         return (Some(module), diags);
@@ -1089,10 +1089,10 @@ pub fn mcb_get_module_with_diagnostics(
     diags.push(format!("Registered modules ({}):", modules.len()));
     for entry in modules.iter() {
         diags.push(format!(
-            "  - {} @ {} (lines={}, symbols={})",
+            "  - {} @ {} (stmts={}, symbols={})",
             entry.key().ident,
             entry.key().uri,
-            entry.value().lines.len(),
+            entry.value().stmts.len(),
             entry.value().insts.iter().count()
         ));
     }

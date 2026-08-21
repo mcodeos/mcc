@@ -121,7 +121,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
         }
         let m = entry.value();
         for func in entry.value().funcs.iter() {
-            if func.lines.is_empty() && func.insts.is_empty() {
+            if func.stmts.is_empty() && func.insts.is_empty() {
                 let func_span = func.span.clone().unwrap_or(m.span.start..m.span.end);
                 acc.push(CheckResult {
                     check_name: "extra",
@@ -143,7 +143,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
         }
         let comp = entry.value();
         for func in entry.value().funcs.iter() {
-            if func.lines.is_empty() && func.insts.is_empty() {
+            if func.stmts.is_empty() && func.insts.is_empty() {
                 let func_span = func.span.clone().unwrap_or(comp.span.start..comp.span.end);
                 acc.push(CheckResult {
                     check_name: "extra",
@@ -487,10 +487,10 @@ fn check_dry_functions(acc: &mut CheckAccumulator) {
         let mut seen: std::collections::HashMap<u64, Vec<&str>> = std::collections::HashMap::new();
         for func in comp.funcs.iter() {
             let mut h = DefaultHasher::new();
-            func.lines.len().hash(&mut h);
+            func.stmts.len().hash(&mut h);
             // Hash the McPhrase Display output as a body fingerprint
-            for line in &func.lines {
-                format!("{}", line).hash(&mut h);
+            for stmt in &func.stmts {
+                format!("{}", stmt).hash(&mut h);
             }
             let hash = h.finish();
             let name = func.name.to_string();
@@ -627,7 +627,7 @@ fn check_port_direction_mismatch(acc: &mut CheckAccumulator) {
             continue;
         }
         let m = entry.value();
-        for phrase in &m.lines {
+        for phrase in &m.stmts {
             let text = format!("{}", phrase);
             let parts: Vec<&str> = text.split("->").collect();
             if parts.len() < 2 {
@@ -734,7 +734,7 @@ fn check_body_literal_as_arg(acc: &mut CheckAccumulator) {
         }
         let m = entry.value();
 
-        for phrase in &m.lines {
+        for phrase in &m.stmts {
             let text = format!("{}", phrase);
 
             // Look for `({` patterns — a body literal block being passed as an
@@ -789,7 +789,7 @@ fn check_module_func_unused_params(acc: &mut CheckAccumulator) {
             if func.params.is_empty() {
                 continue;
             }
-            if func.lines.is_empty() && func.insts.is_empty() {
+            if func.stmts.is_empty() && func.insts.is_empty() {
                 // Already caught by R4 (empty function body) — skip
                 continue;
             }
@@ -803,7 +803,7 @@ fn check_module_func_unused_params(acc: &mut CheckAccumulator) {
 
             // Collect all identifiers referenced in the function body
             let mut used_names: HashSet<String> = HashSet::new();
-            for phrase in &func.lines {
+            for phrase in &func.stmts {
                 let text = format!("{}", phrase);
                 for word in text.split_whitespace() {
                     let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');

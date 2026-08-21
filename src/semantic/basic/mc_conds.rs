@@ -639,84 +639,84 @@ impl McConds {
 }
 
 // ============================================================================
-// McFuncConds — parsed conditional blocks, storing McPhrase lines for evaluation at instantiation time
+// McFuncConds — parsed conditional blocks, storing McPhrase stmts for evaluation at instantiation time
 // ============================================================================
 
 /// A single parsed conditional branch
 #[derive(Debug, Clone)]
 pub struct McCondBlock {
     pub condition: McCondition,
-    pub lines: Vec<McPhrase>,
+    pub stmts: Vec<McPhrase>,
 }
 
 /// A parsed collection of conditional blocks (if/else if/else)
 #[derive(Debug, Clone)]
 pub struct McFuncConds {
     pub if_blocks: Vec<McCondBlock>,
-    pub else_lines: Vec<McPhrase>,
+    pub else_stmts: Vec<McPhrase>,
 }
 
 impl McFuncConds {
-    /// Parse McPhrase lines from McConds and the given context
+    /// Parse McPhrase stmts from McConds and the given context
     pub fn from_conds(
         conds: &McConds,
         context: &mut dyn crate::semantic::mc_func::HasFindInst,
     ) -> Self {
         let mut if_blocks = Vec::new();
-        let mut else_lines = Vec::new();
+        let mut else_stmts = Vec::new();
 
         for cond in &conds.if_blocks {
-            let mut lines = Vec::new();
-            // The block is an AstNode; parse its content into McPhrase lines
-            Self::parse_block_lines(&cond.block, context, &mut lines);
+            let mut stmts = Vec::new();
+            // The block is an AstNode; parse its content into McPhrase stmts
+            Self::parse_block_stmts(&cond.block, context, &mut stmts);
             if_blocks.push(McCondBlock {
                 condition: cond.condition.clone(),
-                lines,
+                stmts,
             });
         }
 
         if let Some(else_block) = &conds.else_block {
-            Self::parse_block_lines(else_block, context, &mut else_lines);
+            Self::parse_block_stmts(else_block, context, &mut else_stmts);
         }
 
         McFuncConds {
             if_blocks,
-            else_lines,
+            else_stmts,
         }
     }
 
-    /// Parse an AstNode block into McPhrase lines
-    fn parse_block_lines(
+    /// Parse an AstNode block into McPhrase stmts
+    fn parse_block_stmts(
         block: &AstNode,
         context: &mut dyn crate::semantic::mc_func::HasFindInst,
-        lines: &mut Vec<McPhrase>,
+        stmts: &mut Vec<McPhrase>,
     ) {
         // The block can be:
         // - MCAST_COND_BLOCK: has subnodes, parse each child as a phrase
-        // - MCAST_NET: a single connection line
-        // - MCAST_ATTRIBUTE_PIN / MCAST_ATTRIBUTE: single line
+        // - MCAST_NET: a single connection stmt
+        // - MCAST_ATTRIBUTE_PIN / MCAST_ATTRIBUTE: single stmt
         match block.get_type() {
             MCAST_COND_BLOCK => {
                 if let Some(subnodes) = block.get_sub_node() {
                     for child in subnodes.iter() {
                         let child_type = child.get_type();
                         if child_type == MCAST_NET {
-                            // A NET node may contain a DECLARE or a connection line
+                            // A NET node may contain a DECLARE or a connection stmt
                             if let Some(net_sub) = child.get_sub_node() {
                                 if net_sub.get_type() == MCAST_DECLARE {
                                     continue; // skip declarations in cond blocks
                                 }
                                 if let Some(phrase) = McPhrase::new(&net_sub, context) {
-                                    lines.push(phrase);
+                                    stmts.push(phrase);
                                 }
                             }
                         } else if child_type == MCAST_ATTRIBUTE_PIN
                             || child_type == MCAST_ATTRIBUTE_PINADD
                             || child_type == MCAST_ATTRIBUTE
                         {
-                            // Single line attribute
+                            // Single stmt attribute
                             if let Some(phrase) = McPhrase::new(&child, context) {
-                                lines.push(phrase);
+                                stmts.push(phrase);
                             }
                         }
                     }
@@ -725,31 +725,31 @@ impl McFuncConds {
             MCAST_NET => {
                 if let Some(net_sub) = block.get_sub_node() {
                     if let Some(phrase) = McPhrase::new(&net_sub, context) {
-                        lines.push(phrase);
+                        stmts.push(phrase);
                     }
                 }
             }
             MCAST_ATTRIBUTE_PIN | MCAST_ATTRIBUTE_PINADD | MCAST_ATTRIBUTE => {
                 if let Some(phrase) = McPhrase::new(block, context) {
-                    lines.push(phrase);
+                    stmts.push(phrase);
                 }
             }
             _ => {
                 // Try to parse the block directly as a phrase
                 if let Some(phrase) = McPhrase::new(block, context) {
-                    lines.push(phrase);
+                    stmts.push(phrase);
                 }
             }
         }
     }
 
-    /// Evaluate conditions against parameter bindings and return matching lines
+    /// Evaluate conditions against parameter bindings and return matching stmts
     pub fn evaluate(&self, params: &[(McIds, String)]) -> &[McPhrase] {
         for cond_block in &self.if_blocks {
             if McConds::check_condition(&cond_block.condition, params) {
-                return &cond_block.lines;
+                return &cond_block.stmts;
             }
         }
-        &self.else_lines
+        &self.else_stmts
     }
 }

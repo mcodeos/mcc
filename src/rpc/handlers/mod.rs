@@ -220,12 +220,12 @@ pub(crate) fn run_pass1(
                     info!(target: "crate::pass1", "|  {:<15} {}", type_name, key);
                 }
                 info!(target: "crate::pass1", "|");
-                info!(target: "crate::pass1", "| Lines ({} connections)", module_def.lines.len());
+                info!(target: "crate::pass1", "| Stmts ({} connections)", module_def.stmts.len());
                 info!(target: "crate::pass1", "|-----------------------------------------------------------------");
-                if module_def.lines.is_empty() {
+                if module_def.stmts.is_empty() {
                     info!(target: "crate::pass1", "|   (no connections)");
                 } else {
-                    for (i, _line) in module_def.lines.iter().enumerate() {
+                    for (i, _stmt) in module_def.stmts.iter().enumerate() {
                         info!(target: "crate::pass1", "|");
                         info!(target: "crate::pass1", "|   +--- Series[{}] ----------", i);
                     }
@@ -1423,16 +1423,16 @@ pub fn find_func_by_path(name: &str) -> Option<crate::semantic::mc_func::McFunct
 /// Build a phrase-level net map from a function body (no Pass2 — funcs depend
 /// on parameters and a calling context that are not available standalone).
 ///
-/// Each connection line in `func.lines` becomes one net entry named `line_N`
-/// (1-based), whose points are the endpoint names referenced by that line.
+/// Each connection stmt in `func.stmts` becomes one net entry named `stmt_N`
+/// (1-based), whose points are the endpoint names referenced by that stmt.
 pub fn func_nets_map(func: &crate::semantic::mc_func::McFunction) -> BTreeMap<String, Vec<String>> {
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (i, line) in func.lines.iter().enumerate() {
+    for (i, stmt) in func.stmts.iter().enumerate() {
         let mut names: std::collections::HashSet<String> = std::collections::HashSet::new();
-        crate::semantic::validation::body::collect_referenced_names(line, &mut names);
+        crate::semantic::validation::body::collect_referenced_names(stmt, &mut names);
         let mut points: Vec<String> = names.into_iter().collect();
         points.sort();
-        nets.insert(format!("line_{}", i + 1), points);
+        nets.insert(format!("stmt_{}", i + 1), points);
     }
     nets
 }
@@ -1867,13 +1867,13 @@ pub(crate) fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &s
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f.body_lines_display();
+            let body_stmts: Vec<String> = f.body_stmts_display();
             json!({
                 "name": f.name.to_string(),
                 "params": f.params.names_full_annotated(),
                 "returns": f.returns.kind_str(),
                 "called_time": f.called_time,
-                "body_lines": body_lines,
+                "body_stmts": body_stmts,
             })
         })
         .collect();
@@ -1938,18 +1938,18 @@ pub(crate) fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) 
         .map(|(id, default)| json!({"name": id.to_string(), "default": default}))
         .collect();
     let instances: Vec<Value> = instances_json(&module.insts, None);
-    let lines: Vec<String> = module.lines.iter().map(|l| l.to_string()).collect();
+    let stmts: Vec<String> = module.stmts.iter().map(|l| l.to_string()).collect();
     let funcs: Vec<Value> = module
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f.body_lines_display();
+            let body_stmts: Vec<String> = f.body_stmts_display();
             json!({
                 "name": f.name.to_string(),
                 "params": f.params.names_full_annotated(),
                 "returns": f.returns.kind_str(),
                 "called_time": f.called_time,
-                "body_lines": body_lines,
+                "body_stmts": body_stmts,
             })
         })
         .collect();
@@ -1961,8 +1961,8 @@ pub(crate) fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) 
         "params": params,
         "params_with_defaults": params_with_defaults,
         "instances": instances,
-        "lines_count": module.lines.len(),
-        "lines": lines,
+        "stmts_count": module.stmts.len(),
+        "stmts": stmts,
         "funcs": funcs,
     })
 }

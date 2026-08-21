@@ -52,7 +52,7 @@ pub fn render_entity(e: &Value, show_span: bool) -> String {
             instances(&mut out, e, show_span);
             defs(&mut out, e, show_span);
             refs(&mut out, e, show_span);
-            lines(&mut out, e);
+            stmts(&mut out, e);
             funcs(&mut out, e);
         }
         "interface" => {
@@ -225,7 +225,7 @@ pub fn attrs(out: &mut String, e: &Value) {
     }
 }
 
-/// Render `funcs` array (name, params, returns, body_lines).
+/// Render `funcs` array (name, params, returns, body_stmts).
 pub fn funcs(out: &mut String, e: &Value) {
     if let Some(arr) = e["funcs"].as_array() {
         if !arr.is_empty() {
@@ -238,7 +238,7 @@ pub fn funcs(out: &mut String, e: &Value) {
                     .unwrap_or_default();
                 let returns = f["returns"].as_str().unwrap_or("");
                 out.push_str(&format!("    {}({}) -> {}\n", fname, p.join(", "), returns));
-                if let Some(body) = f["body_lines"].as_array() {
+                if let Some(body) = f["body_stmts"].as_array() {
                     for l in body {
                         out.push_str(&format!("      {}\n", compact_val(l)));
                     }
@@ -308,11 +308,11 @@ pub fn instances(out: &mut String, e: &Value, show_span: bool) {
     }
 }
 
-/// Render `lines` array (module connection phrases).
-pub fn lines(out: &mut String, e: &Value) {
-    if let Some(arr) = e["lines"].as_array() {
+/// Render `stmts` array (module connection phrases).
+pub fn stmts(out: &mut String, e: &Value) {
+    if let Some(arr) = e["stmts"].as_array() {
         if !arr.is_empty() {
-            out.push_str(&format!("  lines ({}):\n", arr.len()));
+            out.push_str(&format!("  stmts ({}):\n", arr.len()));
             for l in arr {
                 out.push_str(&format!("    {}\n", compact_val(l)));
             }
@@ -361,7 +361,7 @@ pub fn defs(out: &mut String, e: &Value, show_span: bool) {
     }
 }
 
-/// Render `refs` array (LSP reference spans in net lines).
+/// Render `refs` array (LSP reference spans in net stmts).
 /// `show_span` controls the per-ref span.
 pub fn refs(out: &mut String, e: &Value, show_span: bool) {
     if let Some(arr) = e["refs"].as_array() {

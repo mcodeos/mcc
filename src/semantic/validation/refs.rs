@@ -28,7 +28,7 @@ impl ValidationCheck for RefIntegrityCheck {
 }
 
 /// B1: component functions that declare parameters but have an empty body
-/// (no lines, no instances). The function signature exists but no implementation
+/// (no stmts, no instances). The function signature exists but no implementation
 /// is provided — likely incomplete or stub code.
 fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
     let comps = &crate::db::cmie::tables::WORKSPACE.components;
@@ -40,7 +40,7 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
         let comp = entry.value();
         let comp_name = entry.key().ident.to_string();
         for func in comp.funcs.iter() {
-            if !func.params.is_empty() && func.lines.is_empty() && func.insts.is_empty() {
+            if !func.params.is_empty() && func.stmts.is_empty() && func.insts.is_empty() {
                 let param_names = func.params.names().join(", ");
                 let func_span = func.span.clone().unwrap_or(comp.span.start..comp.span.end);
                 acc.push(CheckResult {

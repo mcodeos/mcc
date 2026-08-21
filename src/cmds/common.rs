@@ -6,7 +6,7 @@
 //! directory project mode), top-module resolution, and guarded Pass2 builds.
 
 use crate::cmds::manifest;
-use mcc::vector::model::dock::{DockKind, PortGroupCtx};
+use mcc::vector::model::link::{LinkCtx, LinkKind};
 use std::path::{Path, PathBuf};
 
 /// Load the CLI target into the engine and return the entry URI plus the
@@ -98,14 +98,14 @@ pub fn build_pass2(top: &str, uri: &str) -> Result<mcc::McModuleInst, String> {
 
 /// One connection row for layered rendering. `dir` is the source direction
 /// tag (`"LtoR"` / `"RtoL"` / anything else = undirected, the `{:?}` form of
-/// `ConnDir`); `port_group` is the structured group context (§8.9.6) decided
+/// `ConnDir`); `link` is the structured group context (§8.9.6) decided
 /// at the AST layer — `None` (or `kind == Plain`) for plain connections,
 /// `Some` with a member name for bus/interface member lanes.
 pub struct ConnView {
     pub net: String,
     pub points: Vec<String>,
     pub dir: String,
-    pub port_group: Option<PortGroupCtx>,
+    pub link: Option<LinkCtx>,
 }
 
 /// Join connection endpoints with the separator that reflects the source
@@ -123,26 +123,26 @@ fn join_conn_points(points: &[String], dir: &str) -> String {
 ///
 /// Bus/interface member lanes carry a structured group context with
 /// `kind != Plain` and a resolved `member` (§8.9.6) and are grouped into
-/// coarse docks by the group `name`: each dock renders one header line
+/// coarse links by the group `name`: each link renders one header line
 /// (`[bus] SPI0`) followed by one indented member line per member lane.
 /// Connections without a group context (scalar labels / plain pins like
 /// `V3V3`, `GND`, `1`) render as single lines, preserving the flat view.
-/// `indent` prefixes every dock / plain line (member lines get one level
+/// `indent` prefixes every link / plain line (member lines get one level
 /// more).
 pub fn render_layered_conns(conns: &[ConnView], indent: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
-    // First-seen ordered docks: (name, kind, [(member, points, dir)])
-    let mut docks: Vec<(String, DockKind, Vec<(String, Vec<String>, String)>)> = Vec::new();
+    // First-seen ordered links: (name, kind, [(member, points, dir)])
+    let mut links: Vec<(String, LinkKind, Vec<(String, Vec<String>, String)>)> = Vec::new();
     for c in conns {
-        match &c.port_group {
-            Some(pg) if pg.kind != DockKind::Plain && pg.member.is_some() => {
+        match &c.link {
+            Some(pg) if pg.kind != LinkKind::Plain && pg.member.is_some() => {
                 let base = pg.name.clone().unwrap_or_else(|| c.net.clone());
                 let member = pg.member.clone().unwrap_or_else(|| c.net.clone());
-                match docks.iter_mut().find(|(b, _, _)| *b == base) {
+                match links.iter_mut().find(|(b, _, _)| *b == base) {
                     Some((_, _, members)) => {
                         members.push((member, c.points.clone(), c.dir.clone()));
                     }
-                    None => docks.push((
+                    None => links.push((
                         base,
                         pg.kind,
                         vec![(member, c.points.clone(), c.dir.clone())],
@@ -156,7 +156,7 @@ pub fn render_layered_conns(conns: &[ConnView], indent: &str) -> Vec<String> {
             )),
         }
     }
-    for (base, kind, members) in docks {
+    for (base, kind, members) in links {
         lines.push(format!("{indent}[{}] {base}", kind.label()));
         for (member, points, dir) in members {
             lines.push(format!(

@@ -1767,8 +1767,8 @@ mod m11_diagnostic_tests {
             kind: NetKind::Signal,
             route: None,
             source_span: None,
-            port_group: None,
-            dock: None,
+            link: None,
+            link_ref: None,
         }
     }
 

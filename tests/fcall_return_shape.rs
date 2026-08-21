@@ -43,7 +43,7 @@ fn find_component<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McCom
 }
 
 /// Helper: recursively find the first FuncCall with the given function name
-/// in the module's parsed lines (`inst.def.lines`).
+/// in the module's parsed stmts (`inst.def.stmts`).
 fn find_funccall<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McFuncCall {
     fn walk<'a>(phrase: &'a mcc::McPhrase, name: &str) -> Option<&'a mcc::McFuncCall> {
         match phrase {
@@ -70,10 +70,10 @@ fn find_funccall<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McFunc
         }
     }
     inst.def
-        .lines
+        .stmts
         .iter()
         .find_map(|l| walk(l, name))
-        .unwrap_or_else(|| panic!("FuncCall '{}' not found in module lines", name))
+        .unwrap_or_else(|| panic!("FuncCall '{}' not found in module stmts", name))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

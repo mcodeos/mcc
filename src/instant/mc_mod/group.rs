@@ -15,7 +15,7 @@ use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, ConnOp, Shape, ShapeMatcher};
-use crate::vector::model::dock::{DockKind, PortGroupCtx};
+use crate::vector::model::link::{LinkCtx, LinkKind};
 
 /// D5 BUS_ORDER_MISMATCH: process-level count of mismatched bus bits.
 /// When all pairs in a bus connection have mismatched member names, D5 fires and
@@ -161,11 +161,11 @@ impl McModuleInst {
             }
         );
 
-        // ★ P9-A2: compute source_span and port_group once for this connection
+        // ★ P9-A2: compute source_span and link once for this connection
         // Decision A (§7.1): source_span carries a **byte offset**, not a line
         // number; display layers convert offset → line via the owning file.
         let source_span: Option<crate::semantic::common::SourcePos> =
-            match (&self.current_func_span, &self.current_line_span) {
+            match (&self.current_func_span, &self.current_stmt_span) {
                 // Func-body expansion context (func may live in another file)
                 (Some(spos), _) => Some(spos.clone()),
                 (None, Some(s)) => Some(crate::semantic::common::SourcePos::new(
@@ -174,33 +174,33 @@ impl McModuleInst {
                 )),
                 (None, None) => None,
             };
-        // ★ §8.9.6: structured group context. Prefer `current_port_group`
-        // (set from source code context), fall back to `port_group_from_points`;
-        // the coarse kind rides along inside `PortGroupCtx`.
-        let port_group: Option<PortGroupCtx> = self
-            .current_port_group
+        // ★ §8.9.6: structured group context. Prefer `current_link`
+        // (set from source code context), fall back to `link_from_points`;
+        // the coarse kind rides along inside `LinkCtx`.
+        let link: Option<LinkCtx> = self
+            .current_link
             .clone()
-            .map(|g| PortGroupCtx::from_group_member(&g, self.current_port_kind))
+            .map(|g| LinkCtx::from_group_member(&g, self.current_link_kind))
             .or_else(|| {
                 let mut all_pts: Vec<&NetPoint> = Vec::new();
                 all_pts.extend(left_points.iter());
                 all_pts.extend(right_points.iter());
-                port_group_from_points(&all_pts).map(|g| PortGroupCtx::from_group_member(&g, None))
+                link_from_points(&all_pts).map(|g| LinkCtx::from_group_member(&g, None))
             });
         // ★ P9-A2: log provenance (debug only, uncomment to trace)
-        // if port_group.is_some() || source_span.is_some() {
+        // if link.is_some() || source_span.is_some() {
         //     eprintln!(
-        //         "[P9-A2] create_connection in '{}': source_span={:?}, port_group={:?}, pts={:?}",
+        //         "[P9-A2] create_connection in '{}': source_span={:?}, link={:?}, pts={:?}",
         //         self.name,
         //         source_span,
-        //         port_group,
+        //         link,
         //         left_points.iter().map(|p| &p.path).collect::<Vec<_>>()
         //     );
         // } else {
         //     eprintln!(
-        //         "[P9-A2] create_connection in '{}': NO provenance (current_line_span={:?}), pts={:?}",
+        //         "[P9-A2] create_connection in '{}': NO provenance (current_stmt_span={:?}), pts={:?}",
         //         self.name,
-        //         self.current_line_span.as_ref().map(|s| (s.start, s.end)),
+        //         self.current_stmt_span.as_ref().map(|s| (s.start, s.end)),
         //         left_points.iter().map(|p| (&p.path, &p.member_name)).collect::<Vec<_>>()
         //     );
         // }
@@ -208,7 +208,7 @@ impl McModuleInst {
         // Helper to create ConnectionInst with consistent lane+dir+op+provenance.
         // `create_connection` is the series-entry (all callers connect adjacent
         // phrase members with `-`/`->`/`<-`); `+` goes through
-        // `wire_parallel_internal` (line.rs), which tags Parallel explicitly.
+        // `wire_parallel_internal` (stmt.rs), which tags Parallel explicitly.
         let mk_conn = |id, pts: Vec<NetPoint>, dir: ConnDir, lane: Option<u16>| -> ConnectionInst {
             let mut conn = ConnectionInst::new(id, pts)
                 .with_dir(dir)
@@ -219,12 +219,12 @@ impl McModuleInst {
             if let Some(pos) = &source_span {
                 conn = conn.with_source_span(pos.clone());
             }
-            if let Some(ref pg) = port_group {
+            if let Some(ref pg) = link {
                 // §8.9.6.7: refine the connection-level context into the
                 // per-lane identity (member from the point's structured
-                // member name), so bus member lanes render as a dock.
-                if let Some(refined) = refine_lane_port_group(Some(pg.clone()), &conn.points) {
-                    conn = conn.with_port_group(refined);
+                // member name), so bus member lanes render as a link.
+                if let Some(refined) = refine_lane_link(Some(pg.clone()), &conn.points) {
+                    conn = conn.with_link(refined);
                 }
             }
             conn
@@ -269,7 +269,7 @@ impl McModuleInst {
                     // module definition's span start, so the diagnostic points
                     // near the actual source rather than (1,1).
                     let fallback = self
-                        .current_line_span
+                        .current_stmt_span
                         .as_ref()
                         .map(|s| s.offset as i32)
                         .unwrap_or(self.def.span.start as i32);
@@ -340,7 +340,7 @@ impl McModuleInst {
                 // Use the first left point's src_pos for error location;
                 // fall back to the current line's span, then the module's.
                 let fallback = self
-                    .current_line_span
+                    .current_stmt_span
                     .as_ref()
                     .map(|s| s.offset as i32)
                     .unwrap_or(self.def.span.start as i32);
@@ -461,11 +461,11 @@ impl McModuleInst {
         Ok(())
     }
 
-    /// ★ P9-A2: Create a ConnectionInst with provenance (source_span + port_group)
+    /// ★ P9-A2: Create a ConnectionInst with provenance (source_span + link)
     /// from the current context.
     ///
-    /// `source_span` is derived from `current_line_span` (set by phases.rs before
-    /// processing each source line). `port_group` is extracted from the common
+    /// `source_span` is derived from `current_stmt_span` (set by phases.rs before
+    /// processing each source line). `link` is extracted from the common
     /// parent segment of the dot-separated point paths.
     ///
     /// This is the canonical factory for ConnectionInst — call sites that directly
@@ -481,7 +481,7 @@ impl McModuleInst {
         // Decision A (§7.1): source_span carries a byte offset (see the other
         // construction site in this file).
         let source_span: Option<crate::semantic::common::SourcePos> =
-            match (&self.current_func_span, &self.current_line_span) {
+            match (&self.current_func_span, &self.current_stmt_span) {
                 // Func-body expansion context (func may live in another file)
                 (Some(spos), _) => Some(spos.clone()),
                 (None, Some(s)) => Some(crate::semantic::common::SourcePos::new(
@@ -490,16 +490,16 @@ impl McModuleInst {
                 )),
                 (None, None) => None,
             };
-        // ★ §8.9.6: structured group context. Prefer `current_port_group`
-        // (set from source code context), fall back to `port_group_from_points`
+        // ★ §8.9.6: structured group context. Prefer `current_link`
+        // (set from source code context), fall back to `link_from_points`
         // (extracted from point paths); the coarse kind rides along.
-        let port_group: Option<PortGroupCtx> = self
-            .current_port_group
+        let link: Option<LinkCtx> = self
+            .current_link
             .clone()
-            .map(|g| PortGroupCtx::from_group_member(&g, self.current_port_kind))
+            .map(|g| LinkCtx::from_group_member(&g, self.current_link_kind))
             .or_else(|| {
                 let pts: Vec<&NetPoint> = points.iter().collect();
-                port_group_from_points(&pts).map(|g| PortGroupCtx::from_group_member(&g, None))
+                link_from_points(&pts).map(|g| LinkCtx::from_group_member(&g, None))
             });
         let mut conn = ConnectionInst::new(id, points).with_dir(dir);
         if let Some(l) = lane {
@@ -508,11 +508,11 @@ impl McModuleInst {
         if let Some(pos) = &source_span {
             conn = conn.with_source_span(pos.clone());
         }
-        if let Some(ref pg) = port_group {
+        if let Some(ref pg) = link {
             // §8.9.6.7: refine into the per-lane identity (mirror of
             // create_connection's mk_conn).
-            if let Some(refined) = refine_lane_port_group(Some(pg.clone()), &conn.points) {
-                conn = conn.with_port_group(refined);
+            if let Some(refined) = refine_lane_link(Some(pg.clone()), &conn.points) {
+                conn = conn.with_link(refined);
             }
         }
         conn
@@ -778,7 +778,7 @@ fn is_ground_name(s: &str) -> bool {
 ///
 /// This is NOT a heuristic guess — the path segments come directly from
 /// the source code's dot-separated identifiers.
-pub(super) fn port_group_from_points(points: &[&NetPoint]) -> Option<String> {
+pub(super) fn link_from_points(points: &[&NetPoint]) -> Option<String> {
     if points.len() < 2 {
         return None;
     }
@@ -824,12 +824,9 @@ pub(super) fn port_group_from_points(points: &[&NetPoint]) -> Option<String> {
 /// when the point provably belongs to the group (path starts with
 /// `"<group>."`), never a blind last-segment split. Plain connections keep
 /// their context untouched.
-pub(super) fn refine_lane_port_group(
-    ctx: Option<PortGroupCtx>,
-    points: &[NetPoint],
-) -> Option<PortGroupCtx> {
+pub(super) fn refine_lane_link(ctx: Option<LinkCtx>, points: &[NetPoint]) -> Option<LinkCtx> {
     let mut pg = ctx?;
-    if pg.kind == DockKind::Plain {
+    if pg.kind == LinkKind::Plain {
         return Some(pg);
     }
     if let Some(member) = points.iter().find_map(|p| p.member_name.clone()) {

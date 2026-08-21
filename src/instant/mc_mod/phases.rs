@@ -6,7 +6,7 @@
 //!
 //! - Phase 1: Interface instantiation (ports + Iter-5.B member label injection)
 //! - Phase 3: Declared instance instantiation (components / sub-modules / labels)
-//! - Phase 4: Connection line processing entry
+//! - Phase 4: Connection stmt processing entry
 
 use super::expand::pair_members_to_lanes;
 use super::FailedRecord;
@@ -37,7 +37,7 @@ impl McModuleInst {
     // ### Problem origin
     //
     // Source `main.mc`:
-    //   line: V3V3 -> dcdc.[VDD_3V3, GND]    # Parent module main
+    //   stmt: V3V3 -> dcdc.[VDD_3V3, GND]    # Parent module main
     // Sub-module `power.mc` POWER_DCDC:
     //   port: in  [VDD_3V3, GND]::DC()
     //
@@ -97,7 +97,7 @@ impl McModuleInst {
     // One intuitive approach: additionally push a `ConnectionInst` in the sub-module,
     // bundling port literal path (`[VDD_3V3,GND]`) and each member label (`VDD_3V3`,
     // `GND`) into the same connection, letting union-find locally merge them into one net.
-    // This way when body line writes `[VDD_3V3, GND] -> ...` and reaches the port
+    // This way when body stmt writes `[VDD_3V3, GND] -> ...` and reaches the port
     // literal path, it also propagates to member labels.
     //
     // **But this creates electrical shorts**: POWER_DCDC has two bracket-list ports
@@ -133,10 +133,10 @@ impl McModuleInst {
     //     True fix needs to touch `mc_inst.rs::parse_declare` to preserve `inst_ids`
     //     or curly members, outside phases.rs scope.
     //
-    //   * Sub-module internal body line `[VDD_3V3, GND] -> dcdc{Vin, GND}`
+    //   * Sub-module internal body stmt `[VDD_3V3, GND] -> dcdc{Vin, GND}`
     //     still won't expand — lines 164-168 of `mc_phrase.rs` makes pure bracket fall to
     //     `add_label(ids.to_string())`, becoming a single Label. Plus 1 vs 2
-    //     adjacency shape issue, entire body line is missing. Iter-5.E vector expansion scope.
+    //     adjacency shape issue, entire body stmt is missing. Iter-5.E vector expansion scope.
 
     pub(super) fn instantiate_interface(&mut self) -> Result<(), InstError> {
         // ── First clone port list to release immutable borrow of self.def ──────────
@@ -269,7 +269,7 @@ impl McModuleInst {
             let port = PortInst::with_members(&port_name, iotype.clone(), bus_members.clone());
             self.ports.push(port);
 
-            // Inject member labels so that connection lines can reference them
+            // Inject member labels so that connection stmts can reference them
             for member in &bus_members {
                 self.labels.insert(
                     member.clone(),
@@ -393,7 +393,7 @@ impl McModuleInst {
         // ── Step A2: curly form additional register prefix bus + dotted label ────────
         //
         // This is not a "bridge", just declaring "`dc` is a bus with VDD_3V3 / GND members",
-        // so that `node_to_netpoint` step 2.3 / step 3 can resolve body line `dc.VDD_3V3` reference
+        // so that `node_to_netpoint` step 2.3 / step 3 can resolve body stmt `dc.VDD_3V3` reference
         // by bus semantics. Does not append to `self.connections`, does not cause any union-find merges.
         if let Some(prefix) = dotted_prefix.as_ref() {
             if !prefix.is_empty() && !dotted_members.is_empty() {
@@ -504,7 +504,7 @@ impl McModuleInst {
                                     self.failed_records.push(FailedRecord {
                                         module: self.name.clone(),
                                         src_line: self
-                                            .current_line_span
+                                            .current_stmt_span
                                             .as_ref()
                                             .map(|s| (s.offset / 1000) as usize),
                                         component_name: c.name.to_string(),
@@ -589,80 +589,80 @@ impl McModuleInst {
     }
 
     // ========================================================================
-    // Phase 1-2-4: Connection line processing
+    // Phase 1-2-4: Connection stmt processing
     // ========================================================================
 
-    pub(super) fn instantiate_lines_resilient(&mut self) {
-        let lines = self.def.lines.clone();
-        let line_spans = self.def.line_spans.clone();
-        for (_i, _l) in lines.iter().enumerate() {}
-        for (idx, line) in lines.iter().enumerate() {
+    pub(super) fn instantiate_stmts_resilient(&mut self) {
+        let stmts = self.def.stmts.clone();
+        let stmt_spans = self.def.stmt_spans.clone();
+        for (_i, _l) in stmts.iter().enumerate() {}
+        for (idx, stmt) in stmts.iter().enumerate() {
             // ── Iter-6.S4.3 ──────────────────────────────────────────────
-            // **per-line auto_inst_map scope reset**
+            // **per-stmt auto_inst_map scope reset**
             //
             // Background: auto_inst_map uses McPhrase pointer address as key, associating
             // process_member_internal's product (instance name) with resolve_funccall_*
             // query. This pointer-key mechanism is only safe **within the lifetime of a single McPhrase tree** —
-            // after process_line call returns, the McPhrase nodes from the previous line
-            // are freed, their addresses may be reused by newly allocated McPhrase in the next line.
+            // after process_stmt call returns, the McPhrase nodes from the previous stmt
+            // are freed, their addresses may be reused by newly allocated McPhrase in the next stmt.
             // At this point old entry is a dangling reference, hitting it by new address **points to wrong instance**.
             //
             // Triggering example (captured in practice after Iter-6.S4 fix):
-            //   line N:   `mcu.setup().add_caps().i2c().do_flash(flash)`
+            //   stmt N:   `mcu.setup().add_caps().i2c().do_flash(flash)`
             //             — Iter-6.S4 fallback wrote 4 stale entries
             //             (Note: that insert has been removed by Iter-6.S4.2, but dispatch
             //             success path, iterated calls, builtin twopin and other locations still write)
-            //   line N+1: `mic(V3V3).MIC -> mcu{...} -> speaker{...}`
-            //             — mic FuncCall new address collides with line N's old address
+            //   stmt N+1: `mic(V3V3).MIC -> mcu{...} -> speaker{...}`
+            //             — mic FuncCall new address collides with stmt N's old address
             //             — resolve_funccall_right finds "mcu"
             //             — mic.MIC incorrectly resolved as mcu.DAC_OUT/SPK_MUTE
             //             — 5 independent signals shorted into one super net
             //
-            // Fix: clear before starting each line in top-level connections loop.
+            // Fix: clear before starting each stmt in top-level connections loop.
             //
-            // **Note: can only clear here at top-level loop**, not at process_line entry —
+            // **Note: can only clear here at top-level loop**, not at process_stmt entry —
             // because instantiate_user_func / instantiate_instance_method
-            // **recursively call** process_line (to expand function body), that layer must share the outer
-            // auto_inst_map. Here at the true "line boundary", recursive calls are already in
-            // deeper process_line call stack, not affected by this clear.
+            // **recursively call** process_stmt (to expand function body), that layer must share the outer
+            // auto_inst_map. Here at the true "stmt boundary", recursive calls are already in
+            // deeper process_stmt call stack, not affected by this clear.
             //
-            // Side effect tracking: there is no McPhrase sharing between top-level lines
-            // (each line is an independent AST subtree), so clear won't lose any entries
-            // that **should be shared across lines**. The overall instantiation results (components / sub_modules /
+            // Side effect tracking: there is no McPhrase sharing between top-level stmts
+            // (each stmt is an independent AST subtree), so clear won't lose any entries
+            // that **should be shared across stmts**. The overall instantiation results (components / sub_modules /
             // connections) are in other fields of self, not in auto_inst_map, unaffected by clear.
             self.auto_inst_map.clear();
 
-            // ★ Set current line span for diagnostic position reporting.
+            // ★ Set current stmt span for diagnostic position reporting.
             //   Used as fallback when NetPoint.src_pos is unavailable (e.g., E2003/E2005).
-            let line_span = line_spans.get(idx).map(|s| {
+            let stmt_span = stmt_spans.get(idx).map(|s| {
                 crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.start as u32)
             });
-            self.current_line_span = line_span.clone();
+            self.current_stmt_span = stmt_span.clone();
 
-            if let Err(e) = self.process_line(line) {
-                // ★ Single connection line failure doesn't interrupt, record diagnostics then continue processing subsequent lines
+            if let Err(e) = self.process_stmt(stmt) {
+                // ★ Single connection stmt failure doesn't interrupt, record diagnostics then continue processing subsequent stmts
                 self.record_warning(
-                    crate::errcodes::INST_LINE_PARSE_FAILED,
+                    crate::errcodes::INST_STMT_PARSE_FAILED,
                     crate::errcodes::format_msg(
-                        crate::errcodes::INST_LINE_PARSE_FAILED,
+                        crate::errcodes::INST_STMT_PARSE_FAILED,
                         &[&idx as &dyn std::fmt::Display, &e],
                     ),
                 );
             }
-            // ★ Restore the current line span: recursive expansions (user
+            // ★ Restore the current stmt span: recursive expansions (user
             // funcs / instance methods) overwrite it, so without this restore
             // connections created after the recursion (e.g. a transposed
-            // declareb) are attributed to the callee's line instead.
-            self.current_line_span = line_span;
+            // declareb) are attributed to the callee's stmt instead.
+            self.current_stmt_span = stmt_span;
         }
-        // Clear after loop to avoid stale span leaking into post-line checks.
-        // `current_port_group` needs no reset here: every producer is RAII
+        // Clear after loop to avoid stale span leaking into post-stmt checks.
+        // `current_link` needs no reset here: every producer is RAII
         // guarded (§7.11(2)) and restores it on exit.
-        self.current_line_span = None;
+        self.current_stmt_span = None;
 
-        // ── P2-C2: After all body lines processed, project accumulated bus members to bare ports ──
+        // ── P2-C2: After all body stmts processed, project accumulated bus members to bare ports ──
         // NOTE: These post-processing steps are now invoked from instantiate() after
-        // auto_invoke_module_funcs(), so they cover both regular lines and auto-invoked closures.
+        // auto_invoke_module_funcs(), so they cover both regular stmts and auto-invoked closures.
         // self.infer_bare_port_members_from_buses();  // moved to instantiate()
         // self.dedup_connections();                    // moved to instantiate()
         // self.check_unbound_param_ports();            // moved to instantiate()
@@ -947,7 +947,7 @@ impl McModuleInst {
     ///
     /// Used for the path of "declared sub-module called again with args" (funccall.rs's
     /// `rebind_submodule_params`), e.g. main.mc's `mic(V3V3).MIC` — mic was declared
-    /// without args (`MIC_SIP mic`), the real arg `V3V3` is given in the body line.
+    /// without args (`MIC_SIP mic`), the real arg `V3V3` is given in the body stmt.
     ///
     /// Key differences from `bind_actual_args_to_ports` (declared args path):
     ///   * **formal filter relaxed**: no longer only `[...]`. Any "non-Out and with ≥2 members
@@ -1145,12 +1145,12 @@ impl McModuleInst {
 
     /// ── Root cause A companion diagnostic: "multi-member DC power port containing ground is never reached by any connection" ──────
     ///
-    /// Runs at the end of `instantiate_lines_resilient` (after declared-arg binding + body line's
+    /// Runs at the end of `instantiate_stmts_resilient` (after declared-arg binding + body stmt's
     /// rebind connections have been merged into self.connections).
     ///
     /// **Only** targets multi-member power ports containing ground (members >= 2 and at least one is a ground name), purpose:
     ///   * Catch truly floating cases like `SPEAKER_M speaker` where the source omits the power arg
-    ///     (`dc{VDD_3V3,GND}` neither has a declared arg, nor is called via `speaker(...)` in the body line);
+    ///     (`dc{VDD_3V3,GND}` neither has a declared arg, nor is called via `speaker(...)` in the body stmt);
     ///   * Exclude **groundless** signal bus ports like `port1{A,B,C,D}` (no false positives);
     ///   * Exclude ldo's scalar `vin` (no members, not in scope, its grounding is a separate matter).
     ///
@@ -1284,7 +1284,7 @@ impl McModuleInst {
         skip.insert("GND".to_string());
 
         // Expand body (constructor func always treated as no-return / Implicit, ignore returns)
-        // ── P4-b: isolate anonymous instance entries across body lines within the same func ──
+        // ── P4-b: isolate anonymous instance entries across body stmts within the same func ──
         // ── Expansion provenance: ComponentCtor (same-name constructor func body) ──
         // Nested under the enclosing declare / construction record when present;
         // body products expand in the current module, tagged with this record.
@@ -1297,19 +1297,19 @@ impl McModuleInst {
         );
         let conn_start = self.connections.len(); // ← P4 backstop start point
         let outer_auto_inst = self.auto_inst_map.clone();
-        for (_li, line) in func.lines.iter().enumerate() {
+        for (_li, stmt) in func.stmts.iter().enumerate() {
             self.auto_inst_map = outer_auto_inst.clone();
-            // Attribute anonymous instances/connections of this body line
-            // to its exact source line in the func's own file. RAII
+            // Attribute anonymous instances/connections of this body stmt
+            // to its exact source stmt in the func's own file. RAII
             // (§7.11(2)): restore happens on every exit.
-            self.with_func_line(&func, Some(_li), |this| {
-                let substituted = Self::substitute_line(line, &bindings, None);
-                let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
-                if let Err(e) = this.process_line(&prefixed) {
+            self.with_func_stmt(&func, Some(_li), |this| {
+                let substituted = Self::substitute_stmt(stmt, &bindings, None);
+                let prefixed = Self::prefix_instance_stmt_with_skip(&substituted, inst_name, &skip);
+                if let Err(e) = this.process_stmt(&prefixed) {
                     this.record_warning(
-                        crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
+                        crate::errcodes::INST_CTOR_BODY_STMT_FAILED,
                         crate::errcodes::format_msg(
-                            crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
+                            crate::errcodes::INST_CTOR_BODY_STMT_FAILED,
                             &[&last, &e],
                         ),
                     );
@@ -1351,7 +1351,7 @@ impl McModuleInst {
     }
 
     /// ── §8.9.6.6 step 2: pass1 usage-shape collection ───────────────────────
-    /// Scan the module body (declared connection lines + user-func bodies) for
+    /// Scan the module body (declared connection stmts + user-func bodies) for
     /// bus-like uses of `port_name` and return the member union. Called before
     /// port instantiation so a scalar-declared port (e.g. `out spi1`) can be
     /// upgraded to a bus when the body uses it as one.
@@ -1374,12 +1374,12 @@ impl McModuleInst {
         let collect = |phrase: &McPhrase, out: &mut Vec<String>| {
             Self::collect_usage_members_in_phrase(phrase, port_name, out);
         };
-        for line in self.def.lines.iter() {
-            collect(line, &mut union);
+        for stmt in self.def.stmts.iter() {
+            collect(stmt, &mut union);
         }
         for func in self.def.funcs.iter() {
-            for line in func.lines.iter() {
-                collect(line, &mut union);
+            for stmt in func.stmts.iter() {
+                collect(stmt, &mut union);
             }
         }
         if union.len() >= 2 {
@@ -1413,8 +1413,8 @@ impl McModuleInst {
                 Self::collect_usage_members_in_phrase(p, port_name, out);
             }
             Closure(c) => {
-                for line in &c.body {
-                    Self::collect_usage_members_in_phrase(line, port_name, out);
+                for stmt in &c.body {
+                    Self::collect_usage_members_in_phrase(stmt, port_name, out);
                 }
             }
             FuncCall(fc) => {

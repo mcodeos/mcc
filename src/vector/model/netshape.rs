@@ -39,7 +39,7 @@ use std::fmt;
 
 use crate::semantic::common::ConnOp;
 
-use super::dock::{DockKind, PortGroupCtx};
+use super::link::{LinkCtx, LinkKind};
 
 // ============================================================================
 // PairDir —— arrow direction in the source
@@ -135,7 +135,7 @@ impl fmt::Display for LaneRef {
 /// `BusLanes` was removed in the §8.9.2-4 cleanup: production `build_net_shape`
 /// only ever produced `Scalar`/`Broadcast` from the vec length, so the variant
 /// was never created. Bus/interface identity and per-member pin2pin now live in
-/// the coarse `PortDock` layer (vec-dianlu.md §8.9.4), not in the flat groups.
+/// the coarse `PortLink` layer (vec-dianlu.md §8.9.4), not in the flat groups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupRole {
     /// Single point: `GND`, `R1.1`
@@ -320,12 +320,12 @@ pub struct ShapeStats {
 impl ShapeStats {
     /// Observe one net's shape and its AST-layer group context.
     ///
-    /// §8.9.6.7: the structured group kind (`port_group.kind != Plain`) is the
+    /// §8.9.6.7: the structured group kind (`link.kind != Plain`) is the
     /// authority for bus classification; the width heuristic
     /// (`is_bus_lane()` / `bus_width() >= 2`) only applies when no group
     /// context is available. A net without a shape but with a bus group
     /// identity is still counted as a bus (not left "uncovered").
-    pub fn observe(&mut self, name: &str, shape: Option<&NetShape>, group: Option<&PortGroupCtx>) {
+    pub fn observe(&mut self, name: &str, shape: Option<&NetShape>, group: Option<&LinkCtx>) {
         self.total += 1;
         match shape {
             Some(s) => {
@@ -336,7 +336,7 @@ impl ShapeStats {
                     PairDir::Undirected => self.dir_undirected += 1,
                 }
                 let is_bus = match group {
-                    Some(g) => g.kind != DockKind::Plain,
+                    Some(g) => g.kind != LinkKind::Plain,
                     None => s.is_bus_lane() || s.bus_width() >= 2,
                 };
                 if is_bus {
@@ -349,7 +349,7 @@ impl ShapeStats {
                 // No shape, but the group identity already says bus — classify
                 // it as a bus instead of leaving it uncovered.
                 if let Some(g) = group {
-                    if g.kind != DockKind::Plain {
+                    if g.kind != LinkKind::Plain {
                         self.bus_nets += 1;
                         return;
                     }

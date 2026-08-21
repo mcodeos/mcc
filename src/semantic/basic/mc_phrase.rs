@@ -2138,11 +2138,11 @@ impl McPhrase {
             }
             MCAST_IOTYPE_RETURN => None,
 
-            // ── P1-1: arithmetic / range operators on connection lines ──────
+            // ── P1-1: arithmetic / range operators on connection stmts ──────
             // mca.y accepts `A * B` / `A / B` / `A ~ B` / `A : B` as mc_phrase,
             // but only `+` (parallel) and `-` / `->` (series) have connection
             // semantics. These four fall through to the generic E1110 today;
-            // give an operator-specific diagnostic instead so the dropped line
+            // give an operator-specific diagnostic instead so the dropped stmt
             // is not confused with an AST shape bug.
             MCAST_OPD_MULTI | MCAST_OPD_DIVID | MCAST_OPD_TILDE | MCAST_OPD_COLON => {
                 let op = match node.get_type() {

@@ -97,7 +97,7 @@ const TWOPIN_CLASS_KEYWORDS: &[&str] = &[
 /// For example, `ESD(...)` in `.mc` code is a shorthand, the actual CMIE registration is `DIO.ESD`.
 /// Before going through `mcb_get_cmie` lookup, use this table to replace the shorthand with the
 /// canonical name, otherwise the query fails
-/// -> `instantiate_funccall` returns `PassThrough` -> line.rs generates `@?ESD_N` stub
+/// -> `instantiate_funccall` returns `PassThrough` -> stmt.rs generates `@?ESD_N` stub
 /// -> subsequent resolve can't find `@?ESD_N.1` -> entire net lost (viz.md A1 diagnostic chain).
 ///
 /// **Note**: `Pullup` / `Pulldown` are chain-methods (caller.Pullup(...)), going through

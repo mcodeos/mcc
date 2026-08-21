@@ -8,8 +8,8 @@
 //!
 //! ## Module split (after refactoring)
 //! - `mod.rs`         —— Type definitions, construction, `instantiate()` top-level flow, diagnostics, Display, ID counter
-//! - `phases.rs`      —— Phase 1/3 entry (interfaces, declarations, connection lines)
-//! - `line.rs`        —— Single line expansion/dispatch (process_line / process_member_internal)
+//! - `phases.rs`      —— Phase 1/3 entry (interfaces, declarations, connection stmts)
+//! - `stmt.rs`        —— Single stmt expansion/dispatch (process_stmt / process_member_internal)
 //! - `points.rs`      —— Endpoint extraction (get_left/right_points, node_to_netpoint)
 //! - `bus.rs`         —— Bus handling (ensure_bus / curly-mn parsing)
 //! - `group.rs`       —— Group / Transposed handling + create_connection
@@ -26,9 +26,9 @@ mod fcallinst;
 mod funccall;
 pub(crate) mod group;
 mod iterated;
-mod line;
 mod phases;
 mod points;
+mod stmt;
 mod subst;
 
 use super::mc_bus::McBusInst;
@@ -41,7 +41,7 @@ use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::IOType;
 use crate::semantic::mc_func::McFunction;
 use crate::semantic::module::McModule;
-use crate::vector::model::dock::DockKind;
+use crate::vector::model::link::LinkKind;
 use crate::{current_uri, McURI};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -113,33 +113,33 @@ pub struct McModuleInst {
     /// ★ M11.3: set of component instance names that are Transposed (bridge passive)
     pub(super) bridge_passive_names: HashSet<String>,
 
-    /// Current connection line's source span (for diagnostic position reporting).
-    /// Updated when processing each top-level connection line in `instantiate_lines_resilient`.
+    /// Current connection stmt's source span (for diagnostic position reporting).
+    /// Updated when processing each top-level connection stmt in `instantiate_stmts_resilient`.
     /// Used as fallback when NetPoint.src_pos is unavailable.
     /// Unified [`SourcePos`] — uri + byte offset (§7.11(3)).
-    pub(super) current_line_span: Option<crate::semantic::common::SourcePos>,
+    pub(super) current_stmt_span: Option<crate::semantic::common::SourcePos>,
 
     /// Func-body expansion provenance. Set by the func-body
     /// expansion sites (user funcs / component methods / constructors / module
     /// closures) before processing each body line. Takes precedence over
-    /// `current_line_span` when attributing anonymous instance names and
-    /// connection source lines, because the func may live in another file.
+    /// `current_stmt_span` when attributing anonymous instance names and
+    /// connection source stmts, because the func may live in another file.
     /// Unified [`SourcePos`] — uri + byte offset (§7.11(3)).
     pub(super) current_func_span: Option<crate::semantic::common::SourcePos>,
 
-    /// ★ P9-A2: Current port group name for provenance tracking.
+    /// ★ P9-A2: Current link group name for provenance tracking.
     /// Set when processing a connection that involves a port group (e.g., flash.SPI, mic.MIC).
-    /// Used by `make_conn_with_provenance` to tag connections with their port group.
+    /// Used by `make_conn_with_provenance` to tag connections with their link group.
     /// Cleared when the connection line is fully processed.
-    pub(super) current_port_group: Option<String>,
+    pub(super) current_link: Option<String>,
 
-    /// ★ §8.9.4: coarse kind of `current_port_group` (`Bus`/`Interface`/`List`/`Plain`),
-    /// recorded at the source so `PortDock.kind` does not have to be re-derived.
-    /// RAII-managed together with `current_port_group` by `with_port_group`.
-    pub(super) current_port_kind: Option<DockKind>,
+    /// ★ §8.9.4: coarse kind of `current_link` (`Bus`/`Interface`/`List`/`Plain`),
+    /// recorded at the source so `PortLink.kind` does not have to be re-derived.
+    /// RAII-managed together with `current_link` by `with_link`.
+    pub(super) current_link_kind: Option<LinkKind>,
 
     /// Component class names whose instantiation failed (any instance of this class).
-    /// Used to skip lines that reference failed components.
+    /// Used to skip stmts that reference failed components.
     pub(super) failed_classes: HashSet<String>,
 
     /// Structured failure records for known_missing.md (G4 baseline).
@@ -246,10 +246,10 @@ impl McModuleInst {
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
-            current_line_span: None,
+            current_stmt_span: None,
             current_func_span: None,
-            current_port_group: None,
-            current_port_kind: None,
+            current_link: None,
+            current_link_kind: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
@@ -286,10 +286,10 @@ impl McModuleInst {
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
-            current_line_span: None,
+            current_stmt_span: None,
             current_func_span: None,
-            current_port_group: None,
-            current_port_kind: None,
+            current_link: None,
+            current_link_kind: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
@@ -336,7 +336,7 @@ impl McModuleInst {
     /// Unified [`SourcePos`] (uri + byte offset, §7.11(3)); None when no
     /// statement is being processed.
     pub(super) fn current_call_site(&self) -> Option<crate::semantic::common::SourcePos> {
-        self.current_line_span
+        self.current_stmt_span
             .as_ref()
             .map(|s| crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.offset))
     }
@@ -353,7 +353,7 @@ impl McModuleInst {
     /// Execute instantiation
     ///
     /// Uses a fault-tolerant strategy: errors in each phase are recorded into `diagnostics` instead of interrupting the flow.
-    /// Even if some sub-modules/connection lines fail, still try to complete the net table construction.
+    /// Even if some sub-modules/connection stmts fail, still try to complete the net table construction.
     /// The caller checks results via `has_errors()` / `all_diagnostics()`.
     ///
     /// ## Flow
@@ -387,8 +387,8 @@ impl McModuleInst {
         // 2. Process instances declared in the symbol table (components and sub-modules) — per-instance fault tolerance
         self.instantiate_declarations_resilient();
 
-        // 3. Process connection lines — per-line fault tolerance
-        self.instantiate_lines_resilient();
+        // 3. Process connection stmts — per-stmt fault tolerance
+        self.instantiate_stmts_resilient();
 
         // 3.5 Auto-invoke module-level parameterless functions (closures)
         // Module-level functions like `func i2c() { ... }` with no parameters
@@ -396,7 +396,7 @@ impl McModuleInst {
         // (e.g. `func do_flash(spi)`) must be explicitly called.
         self.auto_invoke_module_funcs();
 
-        // 3.6 Post-processing (moved from instantiate_lines_resilient to cover auto-invoked closures)
+        // 3.6 Post-processing (moved from instantiate_stmts_resilient to cover auto-invoked closures)
         self.infer_bare_port_members_from_buses();
         self.validate_expanded_net_points();
         self.dedup_connections();
@@ -437,14 +437,14 @@ impl McModuleInst {
             if arity > 0 {
                 continue; // skip parameterized functions
             }
-            if func.lines.is_empty() {
+            if func.stmts.is_empty() {
                 continue;
             }
             mcc_dbg!(
                 "inst::mod",
-                "[P2-4-AUTO] auto-invoking module func '{}' with {} body lines",
+                "[P2-4-AUTO] auto-invoking module func '{}' with {} body stmts",
                 func.name,
-                func.lines.len()
+                func.stmts.len()
             );
             // ── Expansion provenance: AutoInvoke (call_site = None, no user
             //    call statement; products attach to the module node) ──
@@ -455,29 +455,29 @@ impl McModuleInst {
                 None,
                 Self::func_def_site(&func),
             );
-            for (li, line) in func.lines.iter().enumerate() {
+            for (li, stmt) in func.stmts.iter().enumerate() {
                 mcc_dbg!(
                     "inst::mod",
-                    "[P2-4-AUTO-DBG] module '{}' func '{}' processing line: {:?}",
+                    "[P2-4-AUTO-DBG] module '{}' func '{}' processing stmt: {:?}",
                     self.name,
                     func.name,
-                    std::mem::discriminant(line)
+                    std::mem::discriminant(stmt)
                 );
-                // Attribute anonymous instances/connections of this body line
-                // to its exact source line in the func's own file (RAII:
-                // `with_func_line` restores `current_func_span` on every exit).
-                self.with_func_line(&func, Some(li), |this| {
-                    if let Err(e) = this.process_line(line) {
+                // Attribute anonymous instances/connections of this body stmt
+                // to its exact source stmt in the func's own file (RAII:
+                // `with_func_stmt` restores `current_func_span` on every exit).
+                self.with_func_stmt(&func, Some(li), |this| {
+                    if let Err(e) = this.process_stmt(stmt) {
                         mcc_dbg!(
                             "inst::mod",
-                            "[P2-4-AUTO-DBG] module '{}' func '{}' line FAILED: {e}",
+                            "[P2-4-AUTO-DBG] module '{}' func '{}' stmt FAILED: {e}",
                             this.name,
                             func.name
                         );
                         this.record_warning(
-                            crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
+                            crate::errcodes::INST_FUNC_BODY_STMT_FAILED,
                             crate::errcodes::format_msg(
-                                crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
+                                crate::errcodes::INST_FUNC_BODY_STMT_FAILED,
                                 &[&func.name, &e],
                             ),
                         );
@@ -639,24 +639,24 @@ impl McModuleInst {
         }
     }
 
-    /// Enter a func-body line context: attribute anonymous instances and
-    /// connection provenance to the exact source line of the construction in
-    /// the func's own file (per-body-line offset when available, else the
+    /// Enter a func-body stmt context: attribute anonymous instances and
+    /// connection provenance to the exact source stmt of the construction in
+    /// the func's own file (per-body-stmt offset when available, else the
     /// func's definition offset). Sets `current_func_span` to the **byte
     /// offset** (decision A, §7.1); consumers convert offset → line for
     /// display. Returns the previous context so the caller can restore it
-    /// after processing the line — prefer [`Self::with_func_line`] instead,
+    /// after processing the stmt — prefer [`Self::with_func_stmt`] instead,
     /// which restores on all exits (including early errors).
-    pub(super) fn enter_func_line(
+    pub(super) fn enter_func_stmt(
         &mut self,
         func: &McFunction,
-        line_idx: Option<usize>,
+        stmt_idx: Option<usize>,
     ) -> Option<crate::semantic::common::SourcePos> {
         let prev = self.current_func_span.clone();
         let uri = func.source_uri().cloned();
         self.current_func_span = match uri {
             Some(u) => {
-                if let Some(off) = line_idx.and_then(|i| func.line_offsets.get(i)) {
+                if let Some(off) = stmt_idx.and_then(|i| func.stmt_offsets.get(i)) {
                     Some(crate::semantic::common::SourcePos::new(
                         u.clone(),
                         *off as u32,
@@ -672,40 +672,40 @@ impl McModuleInst {
         prev
     }
 
-    /// Run `f` with the func-body line context active and restore the
+    /// Run `f` with the func-body stmt context active and restore the
     /// previous context on every exit (RAII §7.11(2)): early `return` /
     /// `Err` inside `f` can no longer leak a stale `current_func_span` into
     /// subsequent connections.
-    pub(super) fn with_func_line<R>(
+    pub(super) fn with_func_stmt<R>(
         &mut self,
         func: &McFunction,
-        line_idx: Option<usize>,
+        stmt_idx: Option<usize>,
         f: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        let saved = self.enter_func_line(func, line_idx);
+        let saved = self.enter_func_stmt(func, stmt_idx);
         let r = f(self);
         self.current_func_span = saved;
         r
     }
 
-    /// Run `f` with the given `current_port_group` / `current_port_kind`
+    /// Run `f` with the given `current_link` / `current_link_kind`
     /// active and restore the previous values on every exit (RAII §7.11(2)).
     /// The group is a connection-time hint read by `make_conn_with_provenance`;
     /// a leaked group would mis-attribute the *next* connection's port group,
     /// so the save/restore must survive early returns inside `f`.
-    pub(super) fn with_port_group<R>(
+    pub(super) fn with_link<R>(
         &mut self,
         group: Option<String>,
-        kind: Option<DockKind>,
+        kind: Option<LinkKind>,
         f: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        let saved_group = self.current_port_group.take();
-        let saved_kind = self.current_port_kind.take();
-        self.current_port_group = group;
-        self.current_port_kind = kind;
+        let saved_group = self.current_link.take();
+        let saved_kind = self.current_link_kind.take();
+        self.current_link = group;
+        self.current_link_kind = kind;
         let r = f(self);
-        self.current_port_group = saved_group;
-        self.current_port_kind = saved_kind;
+        self.current_link = saved_group;
+        self.current_link_kind = saved_kind;
         r
     }
 
@@ -714,7 +714,7 @@ impl McModuleInst {
     /// Consecutive constructions on the same source line are still
     /// distinguishable by offset (decision A, §7.1).
     fn current_offset(&self) -> u32 {
-        match (&self.current_func_span, &self.current_line_span) {
+        match (&self.current_func_span, &self.current_stmt_span) {
             (Some(spos), _) => spos.offset,
             (None, Some(s)) => s.offset,
             (None, None) => 0,

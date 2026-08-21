@@ -32,10 +32,10 @@ pub struct McModule {
     pub name: McIds,
     pub params: McParamDeclares,
     pub insts: McInstances,
-    pub lines: Vec<McPhrase>,
-    /// Source span for each connection line in `lines` (parallel array).
+    pub stmts: Vec<McPhrase>,
+    /// Source span for each connection stmt in `stmts` (parallel array).
     /// Used for diagnostic position reporting during instantiation.
-    pub line_spans: Vec<crate::ast::ast_semantic::Span>,
+    pub stmt_spans: Vec<crate::ast::ast_semantic::Span>,
     pub funcs: McFunctions,
     pub uri: McURI,
     /// Source span for LSP goto-definition (byte range in `uri`).
@@ -77,8 +77,8 @@ impl McModule {
                 params: McParamDeclares::new(),
                 funcs: McFunctions::new(),
                 insts: McInstances::new(),
-                lines: Vec::new(),
-                line_spans: Vec::new(),
+                stmts: Vec::new(),
+                stmt_spans: Vec::new(),
                 uri: uri.clone(),
                 span: crate::ast::ast_semantic::Span { start, end },
                 anon_counter: 1,
@@ -97,10 +97,10 @@ impl McModule {
             // (eval.md §8.1) can be resolved against the complete funcs table.
             // `this`/implicit → caller shape preserved; `return <expr>` → [0|N].
             {
-                let lines = std::mem::take(&mut module.lines);
-                for mut line in lines {
-                    McFuncCall::fill_return_shapes(&mut line, &module);
-                    module.lines.push(line);
+                let stmts = std::mem::take(&mut module.stmts);
+                for mut stmt in stmts {
+                    McFuncCall::fill_return_shapes(&mut stmt, &module);
+                    module.stmts.push(stmt);
                 }
             }
 
@@ -124,8 +124,8 @@ impl McModule {
             name: McIds::from(name),
             params: McParamDeclares::new(),
             insts: McInstances::new(),
-            lines: Vec::new(),
-            line_spans: Vec::new(),
+            stmts: Vec::new(),
+            stmt_spans: Vec::new(),
             funcs: McFunctions::new(),
             uri: McURI::default(),
             span: crate::ast::ast_semantic::Span {
@@ -274,20 +274,20 @@ impl McModule {
                                         &self.name.to_string(),
                                     );
                                     // Track source span for diagnostic position reporting
-                                    let line_start = subnode.get_pos() as usize;
-                                    let line_end = line_start + subnode.get_len() as usize;
-                                    self.line_spans.push(crate::ast::ast_semantic::Span {
-                                        start: line_start,
-                                        end: line_end,
+                                    let stmt_start = subnode.get_pos() as usize;
+                                    let stmt_end = stmt_start + subnode.get_len() as usize;
+                                    self.stmt_spans.push(crate::ast::ast_semantic::Span {
+                                        start: stmt_start,
+                                        end: stmt_end,
                                     });
-                                    self.lines.push(net);
+                                    self.stmts.push(net);
                                 }
                                 None => {
                                     dlog_error(
-                                        crate::errcodes::CONN_LINE_PARSE_FAILED,
+                                        crate::errcodes::CONN_STMT_PARSE_FAILED,
                                         &clause,
                                         &crate::errcodes::format_msg(
-                                            crate::errcodes::CONN_LINE_PARSE_FAILED,
+                                            crate::errcodes::CONN_STMT_PARSE_FAILED,
                                             &[],
                                         ),
                                     );
@@ -427,13 +427,13 @@ impl McModule {
                 }
             }
 
-            // ★ Inline labels: register bare names referenced in net lines that
+            // ★ Inline labels: register bare names referenced in net stmts that
             // are not ports/params/instances as Inline labels, so `show
             // instances` lists them (e.g. `GND` in `... -> GND`).
             let mut net_labels: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
-            for line in &self.lines {
-                crate::semantic::validation::body::collect_net_label_names(line, &mut net_labels);
+            for stmt in &self.stmts {
+                crate::semantic::validation::body::collect_net_label_names(stmt, &mut net_labels);
             }
             for name in net_labels {
                 if !Self::is_plain_label_candidate(&name) {
@@ -708,9 +708,9 @@ impl McModule {
     pub(crate) fn add_component(&mut self, name: String, comp: Mc2Component) -> McPhrase {
         let inst = McInstance::Component(Arc::new(comp));
         // ── P2-10: anonymous components (names starting with @) are created
-        // inline in connection lines. They must NOT be stored in insts,
+        // inline in connection stmts. They must NOT be stored in insts,
         // otherwise instantiate_declarations_resilient will create them as
-        // declarations with no connections, duplicating the line-created ones.
+        // declarations with no connections, duplicating the stmt-created ones.
         if !name.starts_with('@') {
             self.insts.create_inst(&name, inst.clone());
         }
@@ -1899,9 +1899,9 @@ impl std::fmt::Display for McModule {
             }
         }
 
-        writeln!(f, "  Lines:")?;
-        for line in &self.lines {
-            writeln!(f, "    {line}")?;
+        writeln!(f, "  Stmts:")?;
+        for stmt in &self.stmts {
+            writeln!(f, "    {stmt}")?;
         }
         Ok(())
     }

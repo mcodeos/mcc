@@ -12,8 +12,8 @@
 //! 1. `[P1-IN ]` —— Pass1 input snapshot when entering `instantiate()`
 //!    - Module name / def_uri / parameter declarations (with bound values)
 //!    - `def.insts`: all declared instances (Component / Module / Bus / ports...)
-//!    - `def.lines.len()` + each line's Debug form
-//!    - `def.funcs`: all user functions (name + parameter signature + function body line count)
+//!    - `def.stmts.len()` + each stmt's Debug form
+//!    - `def.funcs`: all user functions (name + parameter signature + function body stmt count)
 //! 2. `[P2-OUT]` —— Pass2 output at end of instantiation
 //!    - ports / components / sub_modules
 //!    - buses / labels / auto_inst_map (FuncCall→instance association)
@@ -21,7 +21,7 @@
 //!    - diagnostics (count by level)
 //! 3. `[P1→P2]` —— Pass1↔Pass2 reconciliation
 //!    - whether each Component/Module in pass1 has an instance in pass2
-//!    - whether each pass1 line produced at least one connection / sub_module
+//!    - whether each pass1 stmt produced at least one connection / sub_module
 //!    - whether pass1 funcs can be found expanded in auto_inst_map
 //!    - any missing → `[P2-MISSING]` line, grep to locate
 //!
@@ -154,36 +154,36 @@ impl McModuleInst {
             "{p} insts     : {comp_count} component(s), {module_count} module(s), {bus_count} bus/label(s), {other_count} other"
         );
 
-        // ---- Connection lines ----
+        // ---- Connection stmts ----
         mcc_dbg!(
             "inst::dump",
-            "{} lines     : {} total",
+            "{} stmts     : {} total",
             p,
-            self.def.lines.len()
+            self.def.stmts.len()
         );
-        for (i, line) in self.def.lines.iter().enumerate() {
+        for (i, stmt) in self.def.stmts.iter().enumerate() {
             // Output in Debug form — truncated to a reasonable length to avoid flooding
-            let dbg = format!("{line:?}");
+            let dbg = format!("{stmt:?}");
             let truncated = if dbg.len() > 200 {
                 format!("{}…(+{}b)", &dbg[..200], dbg.len() - 200)
             } else {
                 dbg
             };
-            mcc_dbg!("inst::dump", "{p}   line[{i:>3}] {truncated}");
+            mcc_dbg!("inst::dump", "{p}   stmt[{i:>3}] {truncated}");
         }
 
         // ---- User functions ----
         let mut func_count = 0usize;
         for func in self.def.funcs.iter() {
             let nparams = func.params.iter().count();
-            let nlines = func.lines.len();
+            let nstmts = func.stmts.len();
             mcc_dbg!(
                 "inst::dump",
-                "{}   func    {} ({} params, {} body lines)",
+                "{}   func    {} ({} params, {} body stmts)",
                 p,
                 func.name,
                 nparams,
-                nlines
+                nstmts
             );
             func_count += 1;
         }
@@ -486,10 +486,10 @@ impl McModuleInst {
             );
         }
 
-        // 3.2 Whether each line produced connection / sub_module / component
+        // 3.2 Whether each stmt produced connection / sub_module / component
         //     Rough check only: if pass2 simultaneously has connections=0, auto_inst_map=0, sub_modules
-        //     delta also 0, then lines>0 but no products — lines were likely silently swallowed.
-        let lines_count = self.def.lines.len();
+        //     delta also 0, then stmts>0 but no products — stmts were likely silently swallowed.
+        let stmts_count = self.def.stmts.len();
         let conn_count = self.connections.len();
         let auto_map_count = self.auto_inst_map.len();
         let inline_subs = self
@@ -502,11 +502,11 @@ impl McModuleInst {
             })
             .count();
         mcc_dbg!("inst::dump", 
-            "{p} lines      : pass1={lines_count}  →  pass2: connections={conn_count}, auto_inst={auto_map_count}, inline_subs={inline_subs}"
+            "{p} stmts     : pass1={stmts_count}  →  pass2: connections={conn_count}, auto_inst={auto_map_count}, inline_subs={inline_subs}"
         );
-        if lines_count > 0 && conn_count == 0 && auto_map_count == 0 && inline_subs == 0 {
+        if stmts_count > 0 && conn_count == 0 && auto_map_count == 0 && inline_subs == 0 {
             mcc_dbg!("inst::dump", 
-                "{m} {lines_count} line(s) declared but pass2 produced no connections / inst-map / inline subs"
+                "{m} {stmts_count} stmt(s) declared but pass2 produced no connections / inst-map / inline subs"
             );
         }
 

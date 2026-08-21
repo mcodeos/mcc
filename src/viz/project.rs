@@ -104,7 +104,7 @@ fn project_block_inner(
     let mut out = McVecBlock::new(block.bid, block.name.clone());
     out.insts = block.insts.clone();
     out.nets = project_nets(block, table, &block.name, log);
-    out.port_docks = block.port_docks.clone();
+    out.port_links = block.port_links.clone();
     out.blocks = block
         .blocks
         .iter()
@@ -444,12 +444,12 @@ fn project_nets(
         let mut net = McVecNet::new(nets[sorted[0]].nid, name_src, vec![McVec::new(real)]);
         net.rail = rail;
         net.boundary = boundary;
-        // ★ P9-A2.5: propagate source_span and port_group from the first net in the group
+        // ★ P9-A2.5: propagate source_span and link from the first net in the group
         net.source_span = nets[sorted[0]].source_span.clone();
-        net.port_group = nets[sorted[0]].port_group.clone();
-        // ★ §8.9.4: propagate the coarse dock back-reference (dock ids stay
-        // valid because the dock table is carried over verbatim)
-        net.dock = nets[sorted[0]].dock;
+        net.link = nets[sorted[0]].link.clone();
+        // ★ §8.9.4: propagate the coarse link back-reference (link ids stay
+        // valid because the link table is carried over verbatim)
+        net.link_ref = nets[sorted[0]].link_ref;
         out.push(net);
     }
 

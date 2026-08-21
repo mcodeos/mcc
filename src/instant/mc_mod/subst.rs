@@ -12,7 +12,7 @@
 //! - `substitute_node_element(s)`   —— substitute formal with actual in a single McBus / McBus list
 //! - `node_elements_to_bus`         —— Vec<McBus> -> single McBus (with members)
 //! - `substitute_param_value`       —— recursively substitute inside McParamValue (FuncCall nested scenario)
-//! - `substitute_phrase` / `substitute_line` —— substitute throughout the McPhrase tree
+//! - `substitute_phrase` / `substitute_stmt` —— substitute throughout the McPhrase tree
 
 use super::expand::ExpansionContext;
 use super::McModuleInst;
@@ -35,7 +35,7 @@ impl McModuleInst {
     /// Convert McParamValue to McBus(s)
     ///
     /// Transforms function actual-parameter values into node elements
-    /// usable in connection lines.
+    /// usable in connection stmts.
     pub(super) fn param_value_to_node_elements(value: &McParamValue) -> Vec<McBus> {
         match value {
             McParamValue::Ids(ids) => {
@@ -544,7 +544,7 @@ impl McModuleInst {
     }
 
     /// Substitute formal parameters in an McPhrase (delegates to substitute_phrase)
-    pub(super) fn substitute_line(
+    pub(super) fn substitute_stmt(
         phrase: &McPhrase,
         bindings: &McParamBindings,
         expansion_ctx: Option<&ExpansionContext>,
