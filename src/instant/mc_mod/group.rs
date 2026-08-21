@@ -384,7 +384,7 @@ impl McModuleInst {
                 .next()
                 .ok_or_else(|| InstError::Other("expected 1 left point".into()))?;
             // ── P2: scalar ↔ DC bus → role-aligned, no broadcast (prevent power-to-ground short) ──
-            if Self::is_dc_power_bus(&right_points) && !is_ground_name(last_seg(&l.path)) {
+            if Self::is_dc_power_bus(&right_points) {
                 self.connect_scalar_to_dc_bus(&l, &right_points);
             } else if let Some(expanded) = self.try_member_passthrough_scalar(&l, &right_points) {
                 // ── P2/A2: bare submodule port expanded by peer member then per-bit zip ──
@@ -403,7 +403,7 @@ impl McModuleInst {
                 .into_iter()
                 .next()
                 .ok_or_else(|| InstError::Other("expected 1 right point".into()))?;
-            if Self::is_dc_power_bus(&left_points) && !is_ground_name(last_seg(&r.path)) {
+            if Self::is_dc_power_bus(&left_points) {
                 self.connect_scalar_to_dc_bus(&r, &left_points);
             } else if let Some(expanded) = self.try_member_passthrough_scalar(&r, &left_points) {
                 // ── P2/A2: same as above, scalar on the right ──
@@ -534,6 +534,7 @@ impl McModuleInst {
     /// Power-rail members ← scalar (representing that power net); ground members ← global GND.
     /// Covers `usbsocket.vin -> V5V`: V5V~vin.POWER_SYS, vin.GND~GND (no short).
     fn connect_scalar_to_dc_bus(&mut self, scalar: &NetPoint, bus: &[NetPoint]) {
+        let scalar_is_ground = is_ground_point(scalar);
         for p in bus {
             // Prefer member_name for role detection: interface member points carry
             // the member (e.g. ldo.VOUT.GND → member_name "GND") while the path is
@@ -545,14 +546,26 @@ impl McModuleInst {
                 .unwrap_or("");
             let id = self.next_conn_id();
             if is_ground_name(last) {
-                let gnd = self.node_to_netpoint(&McBus::new("GND"));
-                self.add_connection(self.make_conn_with_provenance(
-                    id,
-                    vec![p.clone(), gnd],
-                    ConnDir::Undirected,
-                    None,
-                ));
-            } else {
+                if scalar_is_ground {
+                    // Ground scalar (bare `GND` or `s.GND` → pid `s.2` with
+                    // member_name "GND") lands on the bus ground member — wiring
+                    // it to the power member would short the rail to ground.
+                    self.add_connection(self.make_conn_with_provenance(
+                        id,
+                        vec![scalar.clone(), p.clone()],
+                        ConnDir::Undirected,
+                        None,
+                    ));
+                } else {
+                    let gnd = self.node_to_netpoint(&McBus::new("GND"));
+                    self.add_connection(self.make_conn_with_provenance(
+                        id,
+                        vec![p.clone(), gnd],
+                        ConnDir::Undirected,
+                        None,
+                    ));
+                }
+            } else if !scalar_is_ground {
                 self.add_connection(self.make_conn_with_provenance(
                     id,
                     vec![scalar.clone(), p.clone()],
@@ -780,6 +793,18 @@ fn is_ground_name(s: &str) -> bool {
     matches!(u.as_str(), "GND" | "VSS" | "AGND" | "DGND" | "PGND")
         || u.starts_with("GND")
         || u.starts_with("VSS")
+}
+
+/// Ground check for a NetPoint that prefers `member_name` over the path leaf.
+/// Component pin alias paths are unified to pin-id paths at construction
+/// (`s.GND` → `s.2`), so the path leaf loses the rail name while
+/// `member_name` keeps it (`Some("GND")`).
+fn is_ground_point(p: &NetPoint) -> bool {
+    let name = p
+        .member_name
+        .as_deref()
+        .unwrap_or_else(|| p.path.rsplit('.').next().unwrap_or(&p.path));
+    is_ground_name(name)
 }
 
 /// Extract the common port group from a set of NetPoint paths.
