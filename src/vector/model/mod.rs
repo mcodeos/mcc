@@ -15,8 +15,11 @@ pub mod netshape;
 pub mod vec;
 
 // Top-level exports, users can write `use crate::vector::model::McVec;`
+/// Arrow direction type (semantic/common.rs), unified with the former
+/// vector-layer `PairDir` (vec-dianlu.md §8.9.7-F).
+pub use crate::semantic::common::ConnDir;
 pub use block::McVecBlock;
-pub use link::{LinkEnd, LinkKind, LinkRef, MemberLane, PortLink};
+pub use link::{LinkEnd, LinkKind, LinkRef, MemberLane, PathSegment, PortLink};
 pub use net::{BoundaryInfo, ConnectionType, McVecNet, RailClass, RailSpec};
-pub use netshape::{GroupRole, LaneRef, NetShape, PairDir, ShapeStats};
+pub use netshape::{GroupRole, LaneRef, NetShape, ShapeStats};
 pub use vec::McVec;

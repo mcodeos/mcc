@@ -57,6 +57,13 @@ impl IOType {
 /// - `->` → [`ConnDir::LtoR`]
 /// - `<-` → [`ConnDir::RtoL`] (kept, not yet fully supported)
 /// - `-` / `+` → [`ConnDir::Undirected`]
+///
+/// §8.9.2: unified with the vector-layer `PairDir` in §8.9.7-F — the former
+/// `PairDir` enum is gone, every layer uses this `ConnDir`. The direction
+/// anchor of the layout search lives here; without
+/// it every edge in cases like `t4_current` is Neutral, the optimal solution
+/// and its mirror image cost exactly the same, and only lexicographic order
+/// breaks the tie —— that is the true identity of the "mirror bug".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConnDir {
     /// Left to right
@@ -66,6 +73,31 @@ pub enum ConnDir {
     /// Undirected (`-` / `+`)
     #[default]
     Undirected,
+}
+
+impl ConnDir {
+    /// Reverse direction (used when swapping a pair's left/right)
+    pub fn flipped(self) -> Self {
+        match self {
+            ConnDir::LtoR => ConnDir::RtoL,
+            ConnDir::RtoL => ConnDir::LtoR,
+            ConnDir::Undirected => ConnDir::Undirected,
+        }
+    }
+
+    pub fn is_directed(self) -> bool {
+        !matches!(self, ConnDir::Undirected)
+    }
+}
+
+impl std::fmt::Display for ConnDir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConnDir::LtoR => write!(f, "->"),
+            ConnDir::RtoL => write!(f, "<-"),
+            ConnDir::Undirected => write!(f, "--"),
+        }
+    }
 }
 
 pub enum McCMIE {
@@ -703,6 +735,18 @@ pub fn representative(op: ConnOp, dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape
         // Series `<-` extends leftward; parallel `+` merges onto the left main.
         (ConnOp::Series, ConnDir::RtoL) | (ConnOp::Parallel, _) => lhs,
     }
+}
+
+/// §8.9.4 step 4 shared anchor rule (vec-dianlu.md): the left-alignment anchor
+/// of a parallel `+` connection is the **left main operand** (operand 1) —
+/// the point-level mirror of [`representative`]`(Parallel, ..) -> lhs`.
+///
+/// Pass1 (`representative`) and the vector layer (`NetShape.anchor`) express
+/// the same rule through this helper, so the two can never drift: for a
+/// parallel net the anchor is simply its first ordered endpoint (the left
+/// main of the merge order), and for series nets there is no anchor.
+pub fn parallel_anchor(ordered: &[i64]) -> Option<i64> {
+    ordered.first().copied()
 }
 
 /// §4 four-operator evaluation table: given `(op, lhs, rhs)`, compute the

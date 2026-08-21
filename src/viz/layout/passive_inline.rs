@@ -1769,6 +1769,7 @@ mod m11_diagnostic_tests {
             source_span: None,
             link: None,
             link_ref: None,
+            shape: None,
         }
     }
 

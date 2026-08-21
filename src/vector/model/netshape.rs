@@ -37,59 +37,21 @@
 
 use std::fmt;
 
-use crate::semantic::common::ConnOp;
+use crate::semantic::common::{ConnDir, ConnOp};
 
 use super::link::{LinkCtx, LinkKind};
 
 // ============================================================================
-// PairDir —— arrow direction in the source
+// ConnDir —— arrow direction in the source
 // ============================================================================
-
-/// Direction of a connection segment in the source.
-///
-/// Corresponds to `mcrule.md §10.1`:
-/// - `->` directed series -> [`PairDir::LtoR`]
-/// - `<-` reversed (marked as "reserved, not yet fully supported" in the rules doc) -> [`PairDir::RtoL`]
-/// - `-` series / `+` parallel -> [`PairDir::Undirected`]
-///
-/// ★ This is the directional anchor of the layout search. Without it, every edge in cases like
-/// `t4_current` is Neutral, the optimal solution and its mirror image cost exactly the same,
-/// and only lexicographic order breaks the tie —— that is the true identity of the "mirror bug".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PairDir {
-    /// left -> right
-    LtoR,
-    /// right -> left
-    RtoL,
-    /// undirected (`-` / `+`), or unknown origin
-    #[default]
-    Undirected,
-}
-
-impl PairDir {
-    /// Reverse direction (used when swapping a ConnPair's left/right)
-    pub fn flipped(self) -> Self {
-        match self {
-            PairDir::LtoR => PairDir::RtoL,
-            PairDir::RtoL => PairDir::LtoR,
-            PairDir::Undirected => PairDir::Undirected,
-        }
-    }
-
-    pub fn is_directed(self) -> bool {
-        !matches!(self, PairDir::Undirected)
-    }
-}
-
-impl fmt::Display for PairDir {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PairDir::LtoR => write!(f, "->"),
-            PairDir::RtoL => write!(f, "<-"),
-            PairDir::Undirected => write!(f, "--"),
-        }
-    }
-}
+//
+// `ConnDir` (semantic/common.rs) is the single arrow-direction type. It was
+// unified with the former vector-layer `ConnDir` (vec-dianlu.md §8.9.7-F);
+// the two enums were structurally identical and only linked by
+// `conn_dir_to_pair_dir`.
+// - `->` directed series -> [`ConnDir::LtoR`]
+// - `<-` reversed (marked as "reserved, not yet fully supported" in the rules doc) -> [`ConnDir::RtoL`]
+// - `-` series / `+` parallel -> [`ConnDir::Undirected`]
 
 // ============================================================================
 // LaneRef —— which lane of the vector
@@ -179,7 +141,7 @@ pub struct NetShape {
     pub groups: Vec<GroupRole>,
 
     /// Overall direction of the whole line (majority when segments on the same line disagree)
-    pub dir: PairDir,
+    pub dir: ConnDir,
 
     /// The lane this net belongs to (which lane of a bus); None for scalar nets
     pub lane: Option<LaneRef>,
@@ -199,9 +161,11 @@ pub struct NetShape {
     /// the merged point pairs.
     pub op: Option<ConnOp>,
 
-    /// Left-alignment anchor of a parallel connection: the source position of
-    /// the left main operand (lopd[0]). `None` for series nets and for
-    /// parallel nets whose anchor is not tracked yet (engine projection).
+    /// Left-alignment anchor of a parallel connection: the first ordered
+    /// endpoint, i.e. the left main operand (lopd[0]). `None` for series nets.
+    /// Filled in `build_net_shape` via the shared `parallel_anchor` rule
+    /// (vec-dianlu.md §8.9.4 step 4), so Pass1's `representative()`
+    /// (`Parallel -> lhs`) and the vector layer can never drift.
     pub anchor: Option<i64>,
 
     /// Combination order: the endpoint sequence of the net in source order
@@ -331,9 +295,9 @@ impl ShapeStats {
             Some(s) => {
                 self.from_source += 1;
                 match s.dir {
-                    PairDir::LtoR => self.dir_ltr += 1,
-                    PairDir::RtoL => self.dir_rtl += 1,
-                    PairDir::Undirected => self.dir_undirected += 1,
+                    ConnDir::LtoR => self.dir_ltr += 1,
+                    ConnDir::RtoL => self.dir_rtl += 1,
+                    ConnDir::Undirected => self.dir_undirected += 1,
                 }
                 let is_bus = match group {
                     Some(g) => g.kind != LinkKind::Plain,
@@ -403,10 +367,10 @@ mod tests {
 
     #[test]
     fn dir_flip() {
-        assert_eq!(PairDir::LtoR.flipped(), PairDir::RtoL);
-        assert_eq!(PairDir::Undirected.flipped(), PairDir::Undirected);
-        assert!(PairDir::LtoR.is_directed());
-        assert!(!PairDir::Undirected.is_directed());
+        assert_eq!(ConnDir::LtoR.flipped(), ConnDir::RtoL);
+        assert_eq!(ConnDir::Undirected.flipped(), ConnDir::Undirected);
+        assert!(ConnDir::LtoR.is_directed());
+        assert!(!ConnDir::Undirected.is_directed());
     }
 
     #[test]
@@ -414,7 +378,7 @@ mod tests {
         // A fully empty shape should be stored as None; don't create an intermediate state of "has a shape but no information"
         assert!(!NetShape::default().is_informative());
         let s = NetShape {
-            dir: PairDir::LtoR,
+            dir: ConnDir::LtoR,
             ..Default::default()
         };
         assert!(s.is_informative());
@@ -439,7 +403,7 @@ mod tests {
     fn stats_coverage() {
         let mut st = ShapeStats::default();
         let s = NetShape {
-            dir: PairDir::LtoR,
+            dir: ConnDir::LtoR,
             ..Default::default()
         };
         st.total_nets = 2;

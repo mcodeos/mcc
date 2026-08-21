@@ -21,9 +21,9 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use super::super::model::netshape::{GroupRole, LaneRef, NetShape, PairDir};
+use super::super::model::netshape::{GroupRole, LaneRef, NetShape};
 use super::super::model::{McVec, McVecNet};
-use crate::semantic::common::ConnOp;
+use crate::semantic::common::{parallel_anchor, ConnDir, ConnOp};
 use crate::vector::model::link::LinkCtx;
 
 // ============================================================================
@@ -38,7 +38,7 @@ pub(crate) struct ConnPair {
     /// Which lane of the vector; None for scalar connections. From the `for k in 0..max_w` loop in visit.rs.
     pub lane: Option<LaneRef>,
     /// Arrow direction in the source
-    pub dir: PairDir,
+    pub dir: ConnDir,
     /// Connection operator that produced this pair (`Series` for `-`/`->`/`<-`,
     /// `Parallel` for `+`); `None` when unknown (projection links). Copied from
     /// `ConnectionInst.op` in visit.rs and surfaced on `NetShape.op`.
@@ -59,7 +59,7 @@ impl ConnPair {
             left,
             right,
             lane: None,
-            dir: PairDir::Undirected,
+            dir: ConnDir::Undirected,
             via: None,
             source_span: None,
             link: None,
@@ -68,7 +68,7 @@ impl ConnPair {
     }
 
     /// Construction with direction but no provenance
-    pub(crate) fn plain_with_dir(left: i64, right: i64, dir: PairDir) -> Self {
+    pub(crate) fn plain_with_dir(left: i64, right: i64, dir: ConnDir) -> Self {
         Self {
             left,
             right,
@@ -82,7 +82,7 @@ impl ConnPair {
     }
 
     /// Construction with a lane
-    pub(crate) fn laned(left: i64, right: i64, lane: LaneRef, dir: PairDir) -> Self {
+    pub(crate) fn laned(left: i64, right: i64, lane: LaneRef, dir: ConnDir) -> Self {
         Self {
             left,
             right,
@@ -100,7 +100,7 @@ impl ConnPair {
         left: i64,
         right: i64,
         lane: LaneRef,
-        dir: PairDir,
+        dir: ConnDir,
         via: Option<i64>,
     ) -> Self {
         Self {
@@ -203,7 +203,7 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
 }
 
 /// Build a complete NetShape from pairs and the already-computed vecs.
-fn build_net_shape(dir: PairDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape {
+fn build_net_shape(dir: ConnDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape {
     // groups: one entry per McVec, derived from vec length
     let groups: Vec<GroupRole> = nets
         .iter()
@@ -242,13 +242,21 @@ fn build_net_shape(dir: PairDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape
     // order: source-order endpoint sequence (deduplicated)
     let order = collect_unique_ordered(pairs);
 
+    // anchor: §8.9.4 step 4 — the left main of a parallel `+` net is its first
+    // ordered endpoint (shared `parallel_anchor` rule; None for series nets)
+    let anchor = if op == Some(ConnOp::Parallel) {
+        parallel_anchor(&order)
+    } else {
+        None
+    };
+
     NetShape {
         groups,
         dir,
         lane,
         series_chain,
         op,
-        anchor: None,
+        anchor,
         order,
     }
 }
@@ -258,15 +266,15 @@ fn build_net_shape(dir: PairDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape
 // ============================================================================
 
 /// Compute the majority direction from pairs
-fn majority_dir(pairs: &[ConnPair]) -> PairDir {
-    let ltr = pairs.iter().filter(|p| p.dir == PairDir::LtoR).count();
-    let rtl = pairs.iter().filter(|p| p.dir == PairDir::RtoL).count();
+fn majority_dir(pairs: &[ConnPair]) -> ConnDir {
+    let ltr = pairs.iter().filter(|p| p.dir == ConnDir::LtoR).count();
+    let rtl = pairs.iter().filter(|p| p.dir == ConnDir::RtoL).count();
     if ltr > rtl {
-        PairDir::LtoR
+        ConnDir::LtoR
     } else if rtl > ltr {
-        PairDir::RtoL
+        ConnDir::RtoL
     } else {
-        PairDir::Undirected
+        ConnDir::Undirected
     }
 }
 
@@ -288,28 +296,35 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
     let lane = pairs.iter().find_map(|p| p.lane.clone())?;
 
     // Direction: majority vote
-    let ltr = pairs.iter().filter(|p| p.dir == PairDir::LtoR).count();
-    let rtl = pairs.iter().filter(|p| p.dir == PairDir::RtoL).count();
+    let ltr = pairs.iter().filter(|p| p.dir == ConnDir::LtoR).count();
+    let rtl = pairs.iter().filter(|p| p.dir == ConnDir::RtoL).count();
     let dir = if ltr > rtl {
-        PairDir::LtoR
+        ConnDir::LtoR
     } else if rtl > ltr {
-        PairDir::RtoL
+        ConnDir::RtoL
     } else {
-        PairDir::Undirected
+        ConnDir::Undirected
     };
 
     // Endpoint order: walk the chain along each pair's left→right, no order_chain start guessing
     let chain = order_by_direction(pairs, dir)?;
     let vecs: Vec<McVec> = chain.into_iter().map(McVec::single).collect();
 
+    let order = collect_unique_ordered(pairs);
+    let op = pairs.iter().find_map(|p| p.op);
     let shape = NetShape {
         groups: vec![super::super::model::netshape::GroupRole::Scalar; vecs.len()],
         dir,
         lane: Some(lane),
         series_chain: pairs.iter().filter_map(|p| p.via).collect(),
-        op: pairs.iter().find_map(|p| p.op),
-        anchor: None,
-        order: collect_unique_ordered(pairs),
+        op,
+        // §8.9.4 step 4: parallel left main = first ordered endpoint
+        anchor: if op == Some(ConnOp::Parallel) {
+            parallel_anchor(&order)
+        } else {
+            None
+        },
+        order,
     };
     Some(McVecNet::with_shape(nid, name.to_string(), vecs, shape))
 }
@@ -332,7 +347,7 @@ fn pick_chain_start(adj: &HashMap<i64, Vec<i64>>) -> Option<i64> {
 }
 
 /// Order the chain along directed edges: start from the first left, walk left→right.
-fn order_by_direction(pairs: &[ConnPair], _dir: PairDir) -> Option<Vec<i64>> {
+fn order_by_direction(pairs: &[ConnPair], _dir: ConnDir) -> Option<Vec<i64>> {
     if pairs.is_empty() {
         return Some(vec![]);
     }
@@ -522,29 +537,31 @@ mod tests {
     #[test]
     fn series_shape_carries_op_and_order() {
         let pairs = vec![
-            ConnPair::plain_with_dir(1, 2, PairDir::LtoR).with_op(ConnOp::Series),
-            ConnPair::plain_with_dir(2, 3, PairDir::LtoR).with_op(ConnOp::Series),
+            ConnPair::plain_with_dir(1, 2, ConnDir::LtoR).with_op(ConnOp::Series),
+            ConnPair::plain_with_dir(2, 3, ConnDir::LtoR).with_op(ConnOp::Series),
         ];
         let nets = vec![McVec::single(1), McVec::single(2), McVec::single(3)];
-        let shape = build_net_shape(PairDir::LtoR, &pairs, &nets);
+        let shape = build_net_shape(ConnDir::LtoR, &pairs, &nets);
         assert_eq!(shape.op, Some(ConnOp::Series));
         assert_eq!(shape.order, vec![1, 2, 3]);
         assert!(shape.is_informative());
         assert_eq!(shape.anchor, None);
     }
 
-    /// §8.9.4: a parallel `+` net keeps `Parallel` and the left-aligned merge
-    /// order (the anchor `10` appears once, deduplicated at the front).
+    /// §8.9.4: a parallel `+` net keeps `Parallel`, the left-aligned merge
+    /// order (the anchor `10` appears once, deduplicated at the front) and the
+    /// left-main anchor (`10`).
     #[test]
     fn parallel_shape_keeps_op() {
         let pairs = vec![
-            ConnPair::plain_with_dir(10, 11, PairDir::Undirected).with_op(ConnOp::Parallel),
-            ConnPair::plain_with_dir(10, 12, PairDir::Undirected).with_op(ConnOp::Parallel),
+            ConnPair::plain_with_dir(10, 11, ConnDir::Undirected).with_op(ConnOp::Parallel),
+            ConnPair::plain_with_dir(10, 12, ConnDir::Undirected).with_op(ConnOp::Parallel),
         ];
         let nets = vec![McVec::single(10), McVec::single(11), McVec::single(12)];
-        let shape = build_net_shape(PairDir::Undirected, &pairs, &nets);
+        let shape = build_net_shape(ConnDir::Undirected, &pairs, &nets);
         assert_eq!(shape.op, Some(ConnOp::Parallel));
         assert_eq!(shape.order, vec![10, 11, 12]);
+        assert_eq!(shape.anchor, Some(10));
         assert!(shape.is_informative());
     }
 }

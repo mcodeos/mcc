@@ -129,7 +129,7 @@ impl McVecGraph {
         }
         for (i, n) in self.nets.iter().enumerate() {
             out.push_str(&format!(
-                "{i2}{{\"nid\": {}{s}\"name\": \"{}\"{s}\"kind\": \"{}\"{s}",
+                "{i2}{{\"nid\": {}{s}\"name\": \"{}\"{s}\"kind\": \"{}\"",
                 n.nid,
                 json_escape(&n.name),
                 n.kind
@@ -147,11 +147,30 @@ impl McVecGraph {
             // ★ §8.9.4: fine net -> coarse link back-reference
             if let Some(d) = n.link_ref {
                 out.push_str(&format!(
-                    "\"link_ref\": {{\"id\": {}{s}\"lane\": {}}}{s}",
+                    "{s}\"link_ref\": {{\"id\": {}{s}\"lane\": {}}}",
                     d.id, d.lane
                 ));
             }
-            out.push_str("\"endpoints\": [");
+            // ★ §8.9.2: topology shape (op / anchor / order), same semantics as
+            // the coarse port_links so the frontend can draw fine nets alike.
+            if let Some(shape) = &n.shape {
+                let op = match shape.op {
+                    Some(crate::semantic::common::ConnOp::Series) => "\"-\"",
+                    Some(crate::semantic::common::ConnOp::Parallel) => "\"+\"",
+                    None => "null",
+                };
+                let order = shape
+                    .order
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                out.push_str(&format!(
+                    "{s}\"shape\": {{\"op\": {op}{s}\"anchor\": {}{s}\"order\": [{order}]}}",
+                    json_opt_i64(&shape.anchor)
+                ));
+            }
+            out.push_str(&format!("{s}\"endpoints\": ["));
             for (j, ep) in n.endpoints.iter().enumerate() {
                 out.push_str(&format!(
                     "{{\"box\":{}{s}\"pin\":{}{s}\"name\":\"{}\"}}",
@@ -206,8 +225,19 @@ impl McVecGraph {
             out.push_str(nl);
         }
         for (i, d) in self.port_links.iter().enumerate() {
+            let dir = match d.dir {
+                crate::semantic::common::ConnDir::LtoR => "\"->\"",
+                crate::semantic::common::ConnDir::RtoL => "\"<-\"",
+                crate::semantic::common::ConnDir::Undirected => "null",
+            };
+            let order = d
+                .order
+                .iter()
+                .map(|l| l.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
             out.push_str(&format!(
-                "{i2}{{\"id\": {}{s}\"name\": \"{}\"{s}\"kind\": \"{}\"{s}\"op\": {}{s}",
+                "{i2}{{\"id\": {}{s}\"name\": \"{}\"{s}\"kind\": \"{}\"{s}\"op\": {}{s}\"dir\": {}{s}\"anchor\": {}{s}\"order\": [{}]{s}",
                 d.id,
                 json_escape(&d.name),
                 d.kind,
@@ -216,10 +246,14 @@ impl McVecGraph {
                     Some(crate::semantic::common::ConnOp::Parallel) => "\"+\"",
                     None => "null",
                 },
+                dir,
+                json_opt_i64(&d.anchor),
+                order,
             ));
             // left / right link ends
             out.push_str(&format!(
-                "\"left\": {{\"instance\": {}{s}\"port\": \"{}\"{s}\"iface\": {}{s}\"io\": {}}}{s}",
+                "\"left\": {{\"box_id\": {}{s}\"instance\": {}{s}\"port\": \"{}\"{s}\"iface\": {}{s}\"io\": {}{s}\"path\": \"{}\"}}{s}",
+                json_opt_i64(&d.left.box_id),
                 json_opt_str(&d.left.instance),
                 json_escape(&d.left.port),
                 json_opt_str(&d.left.iface_class),
@@ -228,23 +262,33 @@ impl McVecGraph {
                     .as_ref()
                     .map(|t| format!("\"{t:?}\""))
                     .unwrap_or_else(|| "null".to_string()),
+                path_display(&d.left.path),
             ));
             out.push_str(&format!(
-                "\"right\": {{\"instance\": {}{s}\"port\": \"{}\"{s}\"iface\": {}{s}\"io\": {}}}{s}",
+                "\"right\": {{\"box_id\": {}{s}\"instance\": {}{s}\"port\": \"{}\"{s}\"iface\": {}{s}\"io\": {}{s}\"path\": \"{}\"}}{s}",
+                json_opt_i64(&d.right.box_id),
                 json_opt_str(&d.right.instance),
                 json_escape(&d.right.port),
                 json_opt_str(&d.right.iface_class),
                 d.right.io.as_ref().map(|t| format!("\"{t:?}\"")).unwrap_or_else(|| "null".to_string()),
+                path_display(&d.right.path),
             ));
             // fine layer: per-member pin2pin lanes
             out.push_str("\"members\": [");
             for (j, m) in d.members.iter().enumerate() {
                 out.push_str(&format!(
-                    "{{\"member\": \"{}\"{s}\"lane\": {}{s}\"left_pin\": {}{s}\"right_pin\": {}}}",
+                    "{{\"member\": \"{}\"{s}\"lane\": {}{s}\"dir\": {}{s}\"left_pin\": {}{s}\"right_pin\": {}{s}\"path\": \"{}\"{s}\"alias\": {}}}",
                     json_escape(&m.member),
                     m.lane,
+                    match m.dir {
+                        crate::semantic::common::ConnDir::LtoR => "\"->\"",
+                        crate::semantic::common::ConnDir::RtoL => "\"<-\"",
+                        crate::semantic::common::ConnDir::Undirected => "null",
+                    },
                     m.left_pin,
-                    m.right_pin
+                    m.right_pin,
+                    path_display(&m.path),
+                    json_opt_str(&m.alias),
                 ));
                 if j + 1 < d.members.len() {
                     out.push(',');
@@ -299,4 +343,21 @@ fn json_opt_str(s: &Option<String>) -> String {
         Some(v) => format!("\"{}\"", json_escape(v)),
         None => "null".to_string(),
     }
+}
+
+/// Serialize an `Option<i64>` as a JSON number literal or `null`
+fn json_opt_i64(v: &Option<i64>) -> String {
+    match v {
+        Some(n) => n.to_string(),
+        None => "null".to_string(),
+    }
+}
+
+/// Serialize a structured [`PathSegment`] chain as a dotted path string
+/// (uC.I2C0.SCL), mirroring its `Display` form.
+fn path_display(path: &[crate::vector::model::link::PathSegment]) -> String {
+    path.iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+        .join(".")
 }
