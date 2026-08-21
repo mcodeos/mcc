@@ -258,6 +258,11 @@ pub struct ChainPlan {
     pub depth: Vec<usize>,
     /// ★ M11: net idx → what owns each of its two horizontal ends.
     pub ends: Vec<NetEnds>,
+    /// ★ M12.1: ground nets that are a COLUMN — a shared ground node with two
+    /// or more parts into it. Every one of those parts lies ALONG its own net's
+    /// row and stops at the node's x; the node's own short vertical strings the
+    /// cold pins together and carries the single glyph. See [`analyse`] step 3.6.
+    pub ground_column: std::collections::BTreeSet<usize>,
     /// part `box_id` → orientation.
     pub orientation: BTreeMap<i64, PartOrientation>,
 }
@@ -292,6 +297,11 @@ impl ChainPlan {
     /// The two ends of a net, or a fully-free pair for an unknown index.
     pub fn ends_of(&self, i: usize) -> NetEnds {
         self.ends.get(i).copied().unwrap_or_default()
+    }
+
+    /// ★ M12.1: is this ground net a COLUMN (see [`ChainPlan::ground_column`])?
+    pub fn is_ground_column(&self, i: usize) -> bool {
+        self.ground_column.contains(&i)
     }
 }
 
@@ -462,6 +472,59 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         ground_taken.insert(g);
     }
 
+    // ── Step 3.6 (★ M12.1): an adopted ground with TWO+ parts is a COLUMN ────
+    //
+    // `moddcdc`: `GND@lp322dcdc ~ _C1.2 ~ _C2.2` — ONE ground node, two caps, on
+    // two DIFFERENT rows (`VDD_3V3` and `_net1`). Step 3.5 gives the node to
+    // `_net1`'s run, so `C2` lies along the EN row and ends in the glyph. `C1`
+    // then had nowhere to be but vertical, and the ground tooth reaching it had
+    // to climb from the EN row down past the Vin row — a wire straight through
+    // another net's trunk.
+    //
+    // The fix is to stop thinking of a ground node as a ROW. **It is a COLUMN.**
+    // Every part into it lies along ITS OWN row and stops at the node's x; the
+    // node's own short vertical joins those cold pins and carries the one glyph.
+    // So once a ground is adopted anywhere, every OTHER part into it goes
+    // horizontal too.
+    //
+    // The only thing that can refuse is a row whose outer end is spent on
+    // something physical — another part, or a satellite. A NAME yields, and is
+    // redrawn on a vertical stub (M10.1 / M11.3): that is exactly the
+    // "VDD_3V3 bus is thrown vertical, pointing down" the plan calls for.
+    let mut ground_column: BTreeSet<usize> = BTreeSet::new();
+    let mut column_parts: BTreeSet<i64> = BTreeSet::new();
+    for &g in &ground_taken {
+        let live_parts: Vec<usize> = incident[g]
+            .iter()
+            .copied()
+            .filter(|&p| {
+                let (a, b) = parts[p].nets;
+                a < n && b < n && a != b
+            })
+            .collect();
+        if live_parts.len() < 2 {
+            continue;
+        }
+        ground_column.insert(g);
+        for p in live_parts {
+            let (a, b) = parts[p].nets;
+            let live = if a == g { b } else { a };
+            if live >= n || live == g || nets[live].is_ground {
+                continue;
+            }
+            // A part or a component already owns that end — that row keeps its
+            // shunt vertical, and the column simply has one fewer arm.
+            if matches!(ends[live].outer, EndUse::Part(_) | EndUse::Component) {
+                if ends[live].outer == EndUse::Part(parts[p].box_id) {
+                    column_parts.insert(parts[p].box_id);
+                }
+                continue;
+            }
+            ends[live].outer = EndUse::Part(parts[p].box_id);
+            column_parts.insert(parts[p].box_id);
+        }
+    }
+
     // ── Step 3.9 (★ M11.3): names take whatever outer ends are left ──────────
     // A name that finds its end already spent does NOT lose its glyph — it is
     // drawn on a vertical stub instead (M10.1). `outer_end_taken` is how the
@@ -484,6 +547,11 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         // still a Shunt.
         let o = if a >= n || b >= n {
             PartOrientation::Shunt
+        } else if column_parts.contains(&p.box_id) {
+            // ★ M12.1: an arm of a ground COLUMN. Horizontal on its own row,
+            // deliberately NOT collinear with the ground's row — the column's
+            // vertical closes the loop. A28 exempts it.
+            PartOrientation::Along
         } else {
             match (region[a], region[b]) {
                 // Same run — a tree edge, or a parallel sibling of one (a back
@@ -506,6 +574,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         region,
         depth,
         ends,
+        ground_column,
         orientation,
     }
 }
@@ -1018,6 +1087,39 @@ mod tests {
         assert_eq!(plan.orientation_of(1), PartOrientation::Along);
         assert_eq!(plan.orientation_of(2), PartOrientation::Along);
         assert_eq!(plan.orientation_of(3), PartOrientation::Across);
+    }
+
+    /// ★ M12.1 — **one ground node, two caps, two rows.** `moddcdc`'s
+    /// `GND@lp322dcdc ~ _C1.2 ~ _C2.2`: once `_net1`'s run adopts the node, the
+    /// node is a COLUMN, so `C1` on the `VDD_3V3` row goes horizontal too and
+    /// the rail label loses the end it was holding (and is redrawn vertically).
+    #[test]
+    fn a_shared_ground_becomes_a_column() {
+        //  0 VDD_3V3 (Power pin, NAMED)   1 _net1 (EN pin)   2 the shared ground
+        let nets = vec![pin_labelled(4, 104), pin(1, 101), gnd_free()];
+        let parts = vec![part(11, 0, 2), part(12, 1, 2)];
+        let plan = analyse(&nets, &parts);
+        assert_eq!(plan.orientation_of(12), PartOrientation::Along, "C2");
+        assert_eq!(plan.orientation_of(11), PartOrientation::Along, "C1");
+        assert!(plan.is_ground_column(2));
+        assert_eq!(plan.ends_of(0).outer, EndUse::Part(11));
+        assert!(
+            plan.outer_end_taken(0),
+            "VDD_3V3 lost the end, so its label leaves vertically"
+        );
+    }
+
+    /// A ground with only ONE part is not a column: the name keeps the end and
+    /// the cap drops. This is what holds `moddcdc` `C3`/`C4` vertical.
+    #[test]
+    fn a_private_ground_is_not_a_column() {
+        let nets = vec![pin(3, 103), label(), gnd_free(), gnd_free()];
+        let parts = vec![part(31, 0, 1), part(13, 1, 2), part(14, 1, 3)];
+        let plan = analyse(&nets, &parts);
+        assert_eq!(plan.orientation_of(31), PartOrientation::Along);
+        assert_eq!(plan.orientation_of(13), PartOrientation::Shunt);
+        assert_eq!(plan.orientation_of(14), PartOrientation::Shunt);
+        assert!(plan.ground_column.is_empty());
     }
 
     /// ★ M11.2 — a ground is adopted at the run's TIP, never in its middle.
