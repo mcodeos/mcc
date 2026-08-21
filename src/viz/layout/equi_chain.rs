@@ -103,9 +103,19 @@ pub struct NetView {
     ///
     /// [`Shunt`]: PartOrientation::Shunt
     pub is_ground: bool,
-    /// Carries a NetLabel / Port / rail glyph. Only used to seed nets that no
-    /// pin can reach, so an isolated island still gets a deterministic root.
-    pub has_label: bool,
+    /// This net is an ENDPOINT in its own right: the netlist puts an explicit
+    /// label / port box on it, or it is a power rail.
+    ///
+    /// ★ M8.6 — two jobs. It seeds nets that no pin can reach (an isolated
+    /// island still gets a deterministic root), and it **stops a run**: an
+    /// endpoint is where the wire is named and where the label glyph is drawn,
+    /// so parts hanging off it are hanging off the END of the run, not
+    /// extending it. See [`analyse`].
+    ///
+    /// Auto-named internal nodes (`_net7`) are NOT endpoints — they are just
+    /// the wire between two parts, which is what lets a multi-part series chain
+    /// stay one run.
+    pub is_endpoint: bool,
 }
 
 /// The analysis result.
@@ -185,6 +195,16 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         let mut queue: VecDeque<usize> = VecDeque::new();
         queue.push_back(s);
         while let Some(cur) = queue.pop_front() {
+            // ★ M8.6: a run STOPS when it ARRIVES at an endpoint. `VCC_1V2` is
+            // reached through `L1` — so `L1` lies along the row — but the rail is
+            // where the wire is named and where its label is drawn, so `C3`/`C4`
+            // hang OFF that end rather than extending it further outward. The
+            // test is "arrived at", not "is an endpoint": a run's own ROOT is
+            // very often labelled too (`US_SPEAKER_MUTE` carries both `lpa.1`
+            // and a bus label), and it must still grow.
+            if cur != s && nets[cur].is_endpoint {
+                continue;
+            }
             for &p in &incident[cur] {
                 let (a, b) = parts[p].nets;
                 let other = if a == cur { b } else { a };
@@ -202,12 +222,12 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
     }
 
     // ── Step 3: fallback roots for whatever no pin could reach ───────────────
-    // Label-carrying nets first (an island rail reads better rooted at its
-    // label), then anything left, both in index order.
+    // Endpoint nets first (an island rail reads better rooted at its label),
+    // then anything left, both in index order.
     let unclaimed = |region: &[Option<usize>], i: usize| !nets[i].is_ground && region[i].is_none();
     let roots: Vec<usize> = (0..n)
-        .filter(|&i| unclaimed(&region, i) && nets[i].has_label)
-        .chain((0..n).filter(|&i| unclaimed(&region, i) && !nets[i].has_label))
+        .filter(|&i| unclaimed(&region, i) && nets[i].is_endpoint)
+        .chain((0..n).filter(|&i| unclaimed(&region, i) && !nets[i].is_endpoint))
         .collect();
     for r in roots {
         if region[r].is_some() {
@@ -217,6 +237,9 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         let mut queue: VecDeque<usize> = VecDeque::new();
         queue.push_back(r);
         while let Some(cur) = queue.pop_front() {
+            if cur != r && nets[cur].is_endpoint {
+                continue;
+            }
             for &p in &incident[cur] {
                 let (a, b) = parts[p].nets;
                 let other = if a == cur { b } else { a };
@@ -269,21 +292,28 @@ mod tests {
         NetView {
             anchor_pin: Some((rank, id)),
             is_ground: false,
-            has_label: false,
+            is_endpoint: false,
         }
     }
     fn gnd() -> NetView {
         NetView {
             anchor_pin: None,
             is_ground: true,
-            has_label: false,
+            is_endpoint: false,
         }
     }
     fn label() -> NetView {
         NetView {
             anchor_pin: None,
             is_ground: false,
-            has_label: true,
+            is_endpoint: true,
+        }
+    }
+    fn pin_labelled(rank: u8, id: i64) -> NetView {
+        NetView {
+            anchor_pin: Some((rank, id)),
+            is_ground: false,
+            is_endpoint: true,
         }
     }
     fn plain() -> NetView {
@@ -390,5 +420,37 @@ mod tests {
         assert_eq!(plan.region[0], Some(1));
         assert_eq!(plan.orientation_of(7), PartOrientation::Along);
         assert_eq!(plan.orientation_of(8), PartOrientation::Shunt);
+    }
+
+    /// ★ M8.6 `speaker`: `US_SPEAKER_MUTE ~ _R1.2 ~ lpa.1` and
+    /// `VDD_3V3 ~ _R1.1`. One end of `R1` is a pin, the other a bare rail label
+    /// with nothing else on it — the resistor extends the pin outward, so it
+    /// lies ALONG the row. The pin net is itself labelled (it is a bus), which
+    /// must not stop its own run.
+    #[test]
+    fn pin_to_bare_rail_is_along() {
+        let nets = vec![pin_labelled(1, 101), label()];
+        let parts = vec![part(1, 0, 1)];
+        let plan = analyse(&nets, &parts);
+        assert_eq!(plan.orientation_of(1), PartOrientation::Along);
+        assert!(plan.shares_row(0, 1));
+    }
+
+    /// ★ M8.6: the run ends where the wire is named. `pin → L → rail` is Along,
+    /// but a further part off the rail hangs OFF that end — it does not extend
+    /// the run another hop outward.
+    #[test]
+    fn run_stops_at_an_endpoint() {
+        //  0 pin net    1 rail (endpoint)    2 some other node
+        let nets = vec![pin(3, 103), label(), plain()];
+        let parts = vec![part(1, 0, 1), part(2, 1, 2)];
+        let plan = analyse(&nets, &parts);
+        assert_eq!(plan.orientation_of(1), PartOrientation::Along);
+        assert_eq!(
+            plan.orientation_of(2),
+            PartOrientation::Across,
+            "the rail is where the run ends; the next part hangs off it"
+        );
+        assert!(!plan.shares_row(1, 2));
     }
 }

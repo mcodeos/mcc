@@ -71,4 +71,5 @@ nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)    
   PASS  [A27] IC side pin sits on its net's row        due:M6
   PASS  [A28] Along part's two nets share a row        due:M6
   PASS  [A29] run trunks do not overlap                due:M6
+  PASS  [A30] satellite facing pin sits on its row     due:M6
 
