@@ -784,6 +784,11 @@ impl McModuleInst {
 
         // ── Ground net re-partition: GND by writing line + reference form ──
         self.split_ground_nets();
+
+        // ── A net must have at least 2 points ──
+        // A single node is not a net; drop any 1-point residue (e.g. a lone
+        // ground label whose pins were all pulled into local GND groups).
+        self.nets.retain(|(_, pts)| pts.len() >= 2);
     }
 
     // ========================================================================
@@ -1010,7 +1015,11 @@ impl McModuleInst {
             //   - line group: "GND@<line>"       — passives on one label/bus
             //                                     ground statement
             let mut out: Vec<(String, Vec<NetPoint>)> = Vec::new();
-            if !central.is_empty() {
+            // Central group: only emit when it has >= 2 points. A lone ground
+            // label (e.g. `GND` / `dc.GND` with all its pins pulled into local
+            // groups) is a single node, not a net — it must not surface as a
+            // `GND (1 pts) (stub)`.
+            if central.len() >= 2 {
                 central.sort_by(|a, b| a.path.cmp(&b.path));
                 out.push(("GND".to_string(), central));
             }
