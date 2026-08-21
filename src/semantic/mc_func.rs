@@ -110,21 +110,6 @@ pub trait HasFindInst {
     fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance>;
     fn gen_anon_name(&mut self, classname: &str) -> String;
 
-    /// True when `name` is a declared port of the enclosing scope (an `io` /
-    /// `in` / `out` declaration carrying a concrete IOType), as opposed to an
-    /// internal label or function parameter.
-    ///
-    /// The Pass1 vector-circuit opcheck uses this to apply the shape-by-use
-    /// rule (§8.9.6.3): a scalar-declared port is not shape-locked at the
-    /// declaration site — its width is inferred from the connection context,
-    /// so the port reference must present an unknown (empty) shape instead of
-    /// a fixed 1*1. Internal labels keep their declared single-point shape.
-    ///
-    /// Default implementation returns `false` (not a port).
-    fn is_declared_port(&self, _name: &str) -> bool {
-        false
-    }
-
     /// Record the source span for an already-created instance.
     /// Used so diagnostics on anonymous instances (e.g. `@CAP2`) can point at
     /// the actual usage position instead of the enclosing module start.
@@ -251,14 +236,6 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
 
     fn upgrade_label_to_bus(&mut self, name: &str) -> bool {
         self.parent.upgrade_label_to_bus(name)
-    }
-
-    fn is_declared_port(&self, name: &str) -> bool {
-        // Func params are bound at the call site — their net width is not
-        // fixed at the definition site, so they follow the shape-by-use rule
-        // the same way scalar module ports do (the Pass2 param binding
-        // resolves the actual member width).
-        self.param_names.iter().any(|p| p == name) || self.parent.is_declared_port(name)
     }
 
     fn uri(&self) -> &crate::McURI {
