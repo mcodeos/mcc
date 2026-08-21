@@ -196,8 +196,10 @@ fn emitted_codes_are_registered() {
 fn transpose_shape_limit_emitted_and_legal_transposes_pass() {
     let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
 
-    // Bad: series whose left endpoint is a 3-row vector — cannot be transposed.
-    let bad = "module main { ([A, B, C] - X)' }";
+    // Bad: a legal series of 3-row column vectors cannot be transposed.
+    // (`[A, B, C] - X` would be an illegal `3*1 -> 1*1` broadcast and be
+    // rejected earlier with E4007, so the transpose is never reached.)
+    let bad = "module main { ([A, B, C] - [D, E, F])' }";
     mcc::mcc_init_no_lib();
     mcc::mcc_set_system_root(std::path::Path::new(""));
     mcc::mcc_clear_workspace();

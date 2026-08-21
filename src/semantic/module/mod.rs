@@ -782,6 +782,14 @@ impl HasFindInst for McModule {
             .map(|r| (r.inst, r.span))
     }
 
+    fn is_declared_port(&self, name: &str) -> bool {
+        // A declared port carries a concrete IOType (`io` / `in` / `out`);
+        // internal labels and params are registered with IOType::None.
+        self.insts
+            .get_with_iotype(name)
+            .is_some_and(|(io, _)| !matches!(io, IOType::None))
+    }
+
     fn add_label_at(
         &mut self,
         name: String,
