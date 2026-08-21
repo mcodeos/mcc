@@ -746,12 +746,15 @@ impl McModuleInst {
                             );
                         }
                     } else if let Some(sub) = self.find_submodule(owner) {
-                        // Sub-module port reference — verify port exists in sub-module
+                        // Sub-module port reference — verify the port reference
+                        // resolves structurally (exact port name, bare member of
+                        // a bus port, or `port.member` against the member group
+                        // registered at instantiation; see `is_valid_port_ref`).
                         let port_name = pt
                             .path
                             .strip_prefix(&format!("{owner}."))
                             .unwrap_or(&pt.path);
-                        if !port_name.is_empty() && !sub.is_port(port_name) {
+                        if !port_name.is_empty() && !sub.is_valid_port_ref(port_name) {
                             let available: Vec<&str> =
                                 sub.ports.iter().map(|p| p.name.as_str()).collect();
                             crate::db::diagnostic::diagnostic::diagnostic_log(

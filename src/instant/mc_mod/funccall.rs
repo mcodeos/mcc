@@ -640,8 +640,9 @@ impl McModuleInst {
         let is_pull =
             last_seg.eq_ignore_ascii_case("Pullup") || last_seg.eq_ignore_ascii_case("Pulldown");
         if is_pull && targets.len() >= 2 {
-            let is_rail = |p: &NetPoint| -> bool {
-                let name = p.path.rsplit('.').next().unwrap_or(&p.path);
+            // Rail-name check shared by the direct path segment and the
+            // declared names re-resolved from a numeric pin id.
+            let is_rail_name = |name: &str| -> bool {
                 let upper = name.to_uppercase();
                 // Power rails
                 upper.starts_with("VDD")
@@ -659,7 +660,27 @@ impl McModuleInst {
                     || upper == "AGND"
                     || upper == "DGND"
                     || upper == "PGND"
-                    || matches!(p.iotype, IOType::Power)
+            };
+            let is_rail = |p: &NetPoint| -> bool {
+                let name = p.path.rsplit('.').next().unwrap_or(&p.path);
+                if is_rail_name(name) || matches!(p.iotype, IOType::Power) {
+                    return true;
+                }
+                // Pin-id form (`uC.5`): component pin alias paths are unified
+                // to pin-id paths before this check, so `uC.VDD` arrives as
+                // `uC.5`. Re-resolve the numeric pin id to its declared names
+                // (and IOType) and re-check the rail patterns.
+                if name.chars().all(|c| c.is_ascii_digit()) {
+                    if let Some((owner, _)) = p.path.rsplit_once('.') {
+                        if let Some(comp) = self.find_component(owner) {
+                            if let Some(pin) = comp.def.pins.pins.get(name) {
+                                return pin.names.iter().any(|n| is_rail_name(n))
+                                    || matches!(pin.iotype, IOType::Power);
+                            }
+                        }
+                    }
+                }
+                false
             };
             let t1_is_rail = is_rail(&targets[0]);
             let t2_is_rail = is_rail(&targets[1]);
