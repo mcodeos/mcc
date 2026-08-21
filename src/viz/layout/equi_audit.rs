@@ -682,6 +682,7 @@ pub fn audit_equi_tree(graph: &McVecGraph, layout_topos: &[NetTopology]) -> Equi
         check_a27_pin_on_its_row(graph, layout_topos),
         check_a28_along_is_collinear(graph, layout_topos),
         check_a29_run_spans_disjoint(layout_topos),
+        check_a30_satellite_pins_on_rows(graph, layout_topos),
     ];
 
     EquiAudit { checks }
@@ -1677,6 +1678,14 @@ fn check_a22_spanning_member_in_span(graph: &McVecGraph, topos: &[NetTopology]) 
         let Some(b) = graph.boxes.iter().find(|b| b.id == box_id) else {
             continue;
         };
+        // ★ M7.6: A22's contract is a TWO-PIN spanning part sitting in both
+        // trunk spans. A multi-pin Sink (connector / second IC) has its tap pin
+        // at `(i+1)/(n+1)` along a wide body — off-centre by construction — so
+        // requiring its CENTRE inside the short trunk span is a false positive
+        // (`speaker` `spk` centre x=240 vs trunk span [200,218]).
+        if b.pins.len() != 2 {
+            continue;
+        }
         let xc = b.x + b.w / 2.0;
         let dist = owners
             .iter()
@@ -2039,6 +2048,48 @@ fn check_a29_run_spans_disjoint(topos: &[NetTopology]) -> Check {
                 c.fail(format!(
                     "'{}' [{alo:.0},{ahi:.0}] and '{}' [{blo:.0},{bhi:.0}] are one run but their trunks overlap",
                     a.net_name, b.net_name
+                ));
+            }
+        }
+    }
+    c
+}
+
+// ── M9: A30 ─────────────────────────────────────────────────────────────────
+
+/// ★ M9 (A30): a SATELLITE component's facing pin sits on its net's row.
+///
+/// The point of placing a component beside the anchor, instead of hanging it off
+/// one row, is that every shared net becomes a straight horizontal wire. That
+/// only holds if the pin is ON the row; a pin one band off drags the wire around
+/// the box, which is the `speaker` `_net9` defect this milestone exists to fix.
+///
+/// Satellites are exactly the non-anchor multi-pin boxes with Left/Right slots:
+/// the M7.6 `Sink` shape puts its pins on Top/Bottom, so the two never collide.
+fn check_a30_satellite_pins_on_rows(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A30", "satellite facing pin sits on its row", Milestone::M6);
+    let layer_anchor = layer_anchor_id(topos);
+    for b in &graph.boxes {
+        if b.id == layer_anchor || b.pins.len() < 3 {
+            continue;
+        }
+        for slot in b.slots.iter() {
+            if !matches!(slot.side, EntrySide::Left | EntrySide::Right) {
+                continue;
+            }
+            let owner = topos.iter().find(|t| {
+                t.groups
+                    .iter()
+                    .any(|g| g.box_id == b.id && g.pin_ids.contains(&slot.pin_id))
+            });
+            let Some(t) = owner.filter(|t| t.lane.horizontal && !t.terminal_only) else {
+                continue;
+            };
+            let py = b.y + b.h * slot.offset;
+            if (py - t.lane.axis).abs() > 1.0 {
+                c.fail(format!(
+                    "'{}' pin {} is at y={py:.0} but its net '{}' runs at {:.0}",
+                    b.name, slot.name, t.net_name, t.lane.axis
                 ));
             }
         }
@@ -2433,6 +2484,109 @@ pub(crate) mod fixture {
 
         g
     }
+
+    /// ★ M7.6 `two_anchor` — a layer with TWO multi-pin components.
+    ///
+    /// Every fixture up to M7 had exactly one: `lp322dcdc`, `ldo`, the buck.
+    /// So `assign_anchor_slots` (label-driven size, pins over four sides,
+    /// `connected` from the topology) was exercised, and the `TapRole::Sink`
+    /// path that every OTHER multi-pin box takes never was. The real `speaker`
+    /// layer has an amplifier AND a speaker connector, and the connector came
+    /// out an 89×20 box with four pins 18px apart, two "GND" labels printed on
+    /// top of each other and every pin marked NC — with A14 fully capable of
+    /// catching it and no fixture to run it on. This is that fixture.
+    ///
+    /// Trimmed from `speaker`: `lpa` drives `spk` through its two outputs, the
+    /// connector's other two pins are ground.
+    ///
+    /// ```text
+    ///   1      lpa   pins 1..4     = VDD, GND, VO1, VO2
+    ///   2      spk   pins 101..104 = 1, 2, GND, GND
+    ///   11     CAP_1 pins 111 / 112
+    ///   41..43 GND labels     51 VDD_3V3 label
+    /// ```
+    pub(crate) fn build_two_anchor_graph() -> McVecGraph {
+        let mut g = McVecGraph::new(3000, "speaker".into());
+        g.layer_style = LayerStyle::Device;
+
+        // The AMPLIFIER holds pin numbers 1..4 (the LOW end). `lpa` and `spk`
+        // both connect the one-pin nets `__net_8`/`__net_9`, and the layer-anchor
+        // tie-break is "lowest source line wins" (`select_anchor_deterministic`),
+        // so `lpa` must carry the lower numbers to stay the layer anchor and
+        // leave `spk` as the `TapRole::Sink` under test.
+        g.boxes.push(mk_box(
+            1,
+            "lpa",
+            "LPA4871",
+            BoxKind::MultiPin,
+            Symbol::Ic,
+            &[
+                (1, "1", "VDD", IoDirection::Power),
+                (2, "2", "GND", IoDirection::Ground),
+                (3, "3", "VO1", IoDirection::Output),
+                (4, "4", "VO2", IoDirection::Output),
+                // A second ground pin: a real power amp carries one, and it puts
+                // `lpa` one net-endpoint ahead of `spk` so the layer-anchor
+                // degree tie-break keeps the amplifier (not the connector) as the
+                // layer anchor; `spk` then stays the `TapRole::Sink` under test.
+                (5, "5", "GND", IoDirection::Ground),
+            ],
+        ));
+        // The connector: two signal pins, two ground pins with the SAME label.
+        // Four pins on one edge at `(i+1)/(n+1)` is what used to overlap.
+        g.boxes.push(mk_box(
+            2,
+            "spk",
+            "SPEAKER.PHB2AWB",
+            BoxKind::MultiPin,
+            Symbol::Ic,
+            &[
+                (101, "1", "OUTP", IoDirection::Passive),
+                (102, "2", "OUTN", IoDirection::Passive),
+                (103, "3", "GND", IoDirection::Ground),
+                (104, "4", "GND", IoDirection::Ground),
+            ],
+        ));
+        g.boxes
+            .push(two_pin(11, "CAP_1", "CAP", Symbol::Capacitor, 111, 112));
+        for (id, pin) in [(41, 411), (42, 421), (43, 431)] {
+            g.boxes.push(label(id, "GND", pin, true));
+        }
+        g.boxes.push(label(51, "VDD_3V3", 511, false));
+
+        // lpa.VDD ~ CAP_1.1 ~ VDD_3V3
+        g.nets.push(net(
+            701,
+            "VDD_3V3",
+            NetKind::Power,
+            &[(1, 1), (11, 111), (51, 511)],
+        ));
+        // lpa.VO1 ~ spk.1   /   lpa.VO2 ~ spk.2
+        // Single-underscore `_net8`/`_net9` (like the real speaker) so the
+        // auto-name guard keeps them label-less — a NetLabel would sit on the
+        // satellite's facing pin.
+        g.nets
+            .push(net(702, "_net8", NetKind::Signal, &[(1, 3), (2, 101)]));
+        g.nets
+            .push(net(703, "_net9", NetKind::Signal, &[(1, 4), (2, 102)]));
+        // Grounds, per consumer.
+        g.nets.push(net(
+            704,
+            "GND",
+            NetKind::Ground,
+            &[(41, 411), (1, 2), (1, 5)],
+        ));
+        g.nets.push(net(
+            705,
+            "GND",
+            NetKind::Ground,
+            &[(42, 421), (2, 103), (2, 104)],
+        ));
+        g.nets
+            .push(net(706, "GND", NetKind::Ground, &[(43, 431), (11, 112)]));
+
+        g
+    }
 }
 
 // ============================================================================
@@ -2441,8 +2595,10 @@ pub(crate) mod fixture {
 
 #[cfg(test)]
 mod tests {
-    use super::super::equipotential_tree::place_by_topology;
-    use super::fixture::{build_ldo_graph, build_moddcdc_graph, build_series_bridge_graph};
+    use super::super::equipotential_tree::{place_by_topology, MIN_BOX_W, MIN_SINK_H};
+    use super::fixture::{
+        build_ldo_graph, build_moddcdc_graph, build_series_bridge_graph, build_two_anchor_graph,
+    };
     use super::*;
 
     /// Run the pipeline once and hand back everything the observatory needs.
@@ -2943,6 +3099,79 @@ mod tests {
                 bb.h
             );
         }
+    }
+
+    /// ★ M7.6: the second multi-pin component must be drawn like a component.
+    ///
+    /// Guards the four things that were broken on `speaker`: a real box size, a
+    /// pin distribution that keeps the labels apart, ground pins on the edge the
+    /// rail is on, and `connected` taken from the topology rather than from the
+    /// (empty) `entry_points`.
+    #[test]
+    fn two_anchor_fixture() {
+        let mut g = build_two_anchor_graph();
+        let mut topos = build_topology(&g);
+        place_by_topology(&mut g, &mut topos);
+
+        let anchor = layer_anchor_id(&topos);
+        assert_eq!(anchor, 1, "the amplifier is the layer anchor");
+
+        let spk = g.boxes.iter().find(|b| b.id == 2).expect("spk placed");
+        assert!(
+            spk.w >= MIN_BOX_W && spk.h >= MIN_SINK_H,
+            "spk collapsed to {:.0}x{:.0}",
+            spk.w,
+            spk.h
+        );
+        assert_eq!(spk.slots.len(), 4, "every pin gets a slot");
+        assert!(
+            spk.slots.iter().all(|s| s.connected),
+            "all four pins are in a net — none may render as NC"
+        );
+        // ★ M9: `spk` is a SATELLITE, not a Sink. The two pins it shares with `lpa`
+        // (101/102) sit on ONE edge facing `lpa`; spk's own ground pins (103/104)
+        // sit on the OPPOSITE edge, away from the connection — NOT crammed into
+        // the gap between the two components.
+        let side_of = |pid: i64| {
+            spk.slots
+                .iter()
+                .find(|s| s.pin_id == pid)
+                .unwrap_or_else(|| panic!("spk pin {pid} has a slot"))
+                .side
+        };
+        let facing_edge = side_of(101);
+        assert!(
+            matches!(facing_edge, EntrySide::Left | EntrySide::Right),
+            "the shared pins must face lpa on a W/E edge, got {facing_edge:?}"
+        );
+        assert_eq!(side_of(102), facing_edge, "both shared pins share one edge");
+        let away_edge = side_of(103);
+        assert!(
+            away_edge != facing_edge && matches!(away_edge, EntrySide::Left | EntrySide::Right),
+            "spk's own ground must sit on the far edge, got facing={facing_edge:?} away={away_edge:?}"
+        );
+        assert_eq!(side_of(104), away_edge, "ground pins share the far edge");
+        // Each shared net is a straight wire: the pin is ON the row.
+        for pid in [101, 102] {
+            let s = spk.slots.iter().find(|s| s.pin_id == pid).unwrap();
+            let t = topos
+                .iter()
+                .find(|t| {
+                    t.groups
+                        .iter()
+                        .any(|g| g.box_id == 2 && g.pin_ids.contains(&pid))
+                })
+                .unwrap();
+            let py = spk.y + spk.h * s.offset;
+            assert!(
+                (py - t.lane.axis).abs() < 1.0,
+                "pin {pid} at {py:.0} is off its row {:.0}",
+                t.lane.axis
+            );
+        }
+
+        let audit = audit_equi_tree(&g, &topos);
+        audit.assert_clean_through(Milestone::M6);
     }
 
     /// The dump must be a pure function of the placed graph: two projections of
