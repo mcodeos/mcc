@@ -2,22 +2,22 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! [`PortLink`] — coarse-grained bus / interface link layer
+//! [`PortTrunk`] — coarse-grained bus / interface trunk layer
 //!
 //! Net delivery is two-level (vec-dianlu.md §8.9.4):
 //!
-//! - **Link layer** (the coarse grouped connection): one [`PortLink`] per
-//!   bus/interface link in the source — "`uC.UART0` ↔ `J_DEBUG.UART0`". It
-//!   carries the link identity (`kind`, `iface_class`), the two `LinkEnd`s
+//! - **Trunk layer** (the coarse grouped connection): one [`PortTrunk`] per
+//!   bus/interface trunk in the source — "`uC.UART0` ↔ `J_DEBUG.UART0`". It
+//!   carries the trunk identity (`kind`, `iface_class`), the two `TrunkEnd`s
 //!   (lopd / ropd sides), and the connection semantics (`op` / `dir` / `order`)
-//!   of the link itself.
-//! - **Lane layer** (the per-member connection): [`PortLink::members`] — one
+//!   of the trunk itself.
+//! - **Lane layer** (the per-member connection): [`PortTrunk::members`] — one
 //!   [`MemberLane`] per member lane, giving the pin2pin relation (`TX ↔ RX`)
 //!   with the member name and the two pin ids.
 //!
-//! Flat [`McVecNet`]s stay untouched; each net that belongs to a link points
-//! back via a [`LinkRef`] so downstream can navigate link → lane or lane →
-//! link. The link list is recursive (one `Vec<PortLink>` per graph layer,
+//! Flat [`McVecNet`]s stay untouched; each net that belongs to a trunk points
+//! back via a [`TrunkRef`] so downstream can navigate trunk → lane or lane →
+//! trunk. The trunk list is recursive (one `Vec<PortTrunk>` per graph layer,
 //! following `sub_graphs`), which covers module nesting.
 
 use std::fmt;
@@ -90,9 +90,9 @@ impl fmt::Display for PathSegment {
     }
 }
 
-/// What kind of source object produced this link.
+/// What kind of source object produced this trunk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkKind {
+pub enum TrunkKind {
     /// A component/module bus port (`SPI{CS,SCLK,MOSI,MISO}`, `[VDD,GND]`)
     Bus,
     /// A standardized interface (`UART.TTL`, `I2C`, `SPI`) bound via `::`
@@ -103,32 +103,32 @@ pub enum LinkKind {
     Plain,
 }
 
-impl LinkKind {
+impl TrunkKind {
     /// Human-readable label for displays
     pub fn label(self) -> &'static str {
         match self {
-            LinkKind::Bus => "bus",
-            LinkKind::Interface => "ifs",
-            LinkKind::List => "list",
-            LinkKind::Plain => "plain",
+            TrunkKind::Bus => "bus",
+            TrunkKind::Interface => "ifs",
+            TrunkKind::List => "list",
+            TrunkKind::Plain => "plain",
         }
     }
 }
 
-impl fmt::Display for LinkKind {
+impl fmt::Display for TrunkKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.label())
     }
 }
 
-/// One side of a link: the owning instance + the port name.
+/// One side of a trunk: the owning instance + the port name.
 ///
 /// `box_id == None` means the module-port boundary (the port is declared on
 /// the module itself; its mate lives in the sub-graph or the parent layer).
 /// `instance` is a display name (`Some("uC")` for a component, `None` for a
 /// module port), kept alongside the stable `box_id` (vec-dianlu.md §8.9.4 add-2).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LinkEnd {
+pub struct TrunkEnd {
     /// Stable id of the owning instance (InstTable entry, aligned with
     /// [`EndpointRef::box_id`](crate::vector::graph::netdef::EndpointRef));
     /// `None` for a module port declaration (boundary).
@@ -148,7 +148,7 @@ pub struct LinkEnd {
     pub path: Vec<PathSegment>,
 }
 
-impl LinkEnd {
+impl TrunkEnd {
     /// Whether this end is a module-port boundary (`box_id == None`), per
     /// §8.9.4 add-3: the mate of a boundary end lives inside the sub-module.
     pub fn is_boundary(&self) -> bool {
@@ -156,7 +156,7 @@ impl LinkEnd {
     }
 }
 
-impl fmt::Display for LinkEnd {
+impl fmt::Display for TrunkEnd {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.instance {
             Some(i) => write!(f, "{i}.{}", self.port),
@@ -165,7 +165,7 @@ impl fmt::Display for LinkEnd {
     }
 }
 
-/// Lane layer: one member lane of the link, pin2pin.
+/// Lane layer: one member lane of the trunk, pin2pin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberLane {
     /// Member name, e.g. `TX` / `RX` / `SCLK` / `MISO`
@@ -179,8 +179,9 @@ pub struct MemberLane {
     /// the net path; `alias` keeps an idx alias's original token (e.g.
     /// `GPIO1`) before expansion.
     pub path: Vec<PathSegment>,
-    /// idx alias original text (e.g. `GPIO1`); `None` when not an idx alias
-    /// or not yet tracked (needs AST passthrough of `McIds.segments`).
+    /// idx alias original text (e.g. `GPIO1`), kept from the source `McIds`
+    /// token that was expanded to the canonical pin path (e.g. `main.U1.1`);
+    /// `None` when the member was written in canonical form.
     pub alias: Option<String>,
     /// Pin id (InstTable entry) of the lopd side member
     pub left_pin: i64,
@@ -202,35 +203,35 @@ impl fmt::Display for MemberLane {
     }
 }
 
-/// Link layer: one bus / interface link between two `LinkEnd`s.
+/// Trunk layer: one bus / interface trunk between two `TrunkEnd`s.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PortLink {
-    /// Stable link id (grouping key for the member nets)
+pub struct PortTrunk {
+    /// Stable trunk id (grouping key for the member nets)
     pub id: i64,
-    /// Link display name (usually the port group name, e.g. `UART0` / `SPI`)
+    /// Trunk display name (usually the port group name, e.g. `UART0` / `SPI`)
     pub name: String,
-    /// Coarse identity of the link
-    pub kind: LinkKind,
-    /// Connection operator that produced the link (`Series` for `->`, `Parallel` for `+`)
+    /// Coarse identity of the trunk
+    pub kind: TrunkKind,
+    /// Connection operator that produced the trunk (`Series` for `->`, `Parallel` for `+`)
     pub op: Option<ConnOp>,
-    /// Overall arrow direction of the link (majority over the member lanes)
+    /// Overall arrow direction of the trunk (majority over the member lanes)
     pub dir: ConnDir,
-    /// Left-alignment anchor of a parallel link (the left main endpoint);
-    /// `None` for series links.
+    /// Left-alignment anchor of a parallel trunk (the left main endpoint);
+    /// `None` for series trunks.
     pub anchor: Option<i64>,
     /// Combination order: member lane sequence (left-aligned merge order)
     pub order: Vec<u16>,
     /// lopd (left operand) side
-    pub left: LinkEnd,
+    pub left: TrunkEnd,
     /// ropd (right operand) side
-    pub right: LinkEnd,
+    pub right: TrunkEnd,
     /// Lane layer: per-member pin2pin lanes
     pub members: Vec<MemberLane>,
 }
 
-impl PortLink {
-    /// Create a link with the given coarse identity and empty member list.
-    pub fn new(id: i64, name: String, kind: LinkKind, left: LinkEnd, right: LinkEnd) -> Self {
+impl PortTrunk {
+    /// Create a trunk with the given coarse identity and empty member list.
+    pub fn new(id: i64, name: String, kind: TrunkKind, left: TrunkEnd, right: TrunkEnd) -> Self {
         Self {
             id,
             name,
@@ -246,7 +247,7 @@ impl PortLink {
     }
 }
 
-impl fmt::Display for PortLink {
+impl fmt::Display for PortTrunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let op = match self.op {
             Some(ConnOp::Series) => "-",
@@ -269,28 +270,28 @@ impl fmt::Display for PortLink {
     }
 }
 
-/// §8.9.6: structured link context of one connection lane, decided at the
+/// §8.9.6: structured trunk context of one connection lane, decided at the
 /// AST layer (from the source phrase) instead of re-derived by string
 /// heuristics in the render layer.
 ///
 /// The legacy `port_group` string merged the group name and the member name
 /// into one dotted string (`"SPI0.CS"`), while scalar labels (`"V3V3"`) had
-/// no dot. [`LinkCtx`] splits that string into pure parts and carries
-/// the coarse [`LinkKind`], so every layer — instant → Pass2 → JSON output →
-/// render — consumes the same structured link info.
+/// no dot. [`TrunkCtx`] splits that string into pure parts and carries
+/// the coarse [`TrunkKind`], so every layer — instant → Pass2 → JSON output →
+/// render — consumes the same structured trunk info.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LinkCtx {
+pub struct TrunkCtx {
     /// Pure group name without any member suffix, e.g. `SPI0` / `UART0` /
     /// `V3V3`. `None` for anonymous groups.
     pub name: Option<String>,
     /// Member name of this lane, e.g. `CS` / `TX`. `None` for non-member
     /// (scalar label / plain pin) connections.
     pub member: Option<String>,
-    /// Coarse kind of the link (`Bus` / `Interface` / `List` / `Plain`).
-    pub kind: LinkKind,
+    /// Coarse kind of the trunk (`Bus` / `Interface` / `List` / `Plain`).
+    pub kind: TrunkKind,
 }
 
-impl LinkCtx {
+impl TrunkCtx {
     /// Build from the legacy combined group string plus the coarse kind.
     ///
     /// - `"SPI0.CS"` → `{ name: "SPI0", member: Some("CS"), kind }`
@@ -298,17 +299,17 @@ impl LinkCtx {
     ///
     /// A dot is only treated as the name/member separator when it is not the
     /// first or last character, so plain names like `V3V3` or `1` stay whole.
-    pub fn from_group_member(group: &str, kind: Option<LinkKind>) -> Self {
+    pub fn from_group_member(group: &str, kind: Option<TrunkKind>) -> Self {
         match group.rfind('.') {
             Some(d) if d > 0 && d + 1 < group.len() => Self {
                 name: Some(group[..d].to_string()),
                 member: Some(group[d + 1..].to_string()),
-                kind: kind.unwrap_or(LinkKind::Bus),
+                kind: kind.unwrap_or(TrunkKind::Bus),
             },
             _ => Self {
                 name: Some(group.to_string()),
                 member: None,
-                kind: kind.unwrap_or(LinkKind::Bus),
+                kind: kind.unwrap_or(TrunkKind::Bus),
             },
         }
     }
@@ -324,11 +325,11 @@ impl LinkCtx {
     }
 }
 
-/// Back-reference from a flat `McVecNet` to its coarse link (if any).
+/// Back-reference from a flat `McVecNet` to its coarse trunk (if any).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LinkRef {
-    /// Link id (index into `Vec<PortLink>` of the same graph layer)
+pub struct TrunkRef {
+    /// Trunk id (index into `Vec<PortTrunk>` of the same graph layer)
     pub id: i64,
-    /// Lane of this net inside the link (member index)
+    /// Lane of this net inside the trunk (member index)
     pub lane: u16,
 }

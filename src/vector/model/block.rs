@@ -12,8 +12,8 @@
 
 use std::fmt;
 
-use super::link::PortLink;
 use super::net::McVecNet;
+use super::trunk::PortTrunk;
 
 /// Vectorized block
 #[derive(Debug, Clone)]
@@ -28,9 +28,9 @@ pub struct McVecBlock {
     pub insts: Vec<i64>,
     /// All electrical nets in this block
     pub nets: Vec<McVecNet>,
-    /// ★ §8.9.4: coarse bus/interface links of this block (one per source
-    /// link, each aggregating the fine member pin2pin lanes)
-    pub port_links: Vec<PortLink>,
+    /// ★ §8.9.4: coarse bus/interface trunks of this block (one per source
+    /// trunk, each aggregating the fine member pin2pin lanes)
+    pub port_trunks: Vec<PortTrunk>,
 }
 
 impl McVecBlock {
@@ -42,7 +42,7 @@ impl McVecBlock {
             blocks: vec![],
             insts: vec![],
             nets: vec![],
-            port_links: vec![],
+            port_trunks: vec![],
         }
     }
 

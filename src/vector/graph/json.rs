@@ -136,23 +136,23 @@ impl McVecGraph {
             ));
             // ★ §8.9.6: structured port group context (group name / member / kind)
             // carried through the whole pipeline; missing for free nets.
-            if let Some(ref pg) = n.link {
+            if let Some(ref pg) = n.trunk {
                 out.push_str(&format!(
-                    "{s}\"link\": {{\"name\": {}{s}\"member\": {}{s}\"kind\": \"{}\"}}",
+                    "{s}\"trunk\": {{\"name\": {}{s}\"member\": {}{s}\"kind\": \"{}\"}}",
                     json_opt_str(&pg.name),
                     json_opt_str(&pg.member),
                     pg.kind.label()
                 ));
             }
-            // ★ §8.9.4: fine net -> coarse link back-reference
-            if let Some(d) = n.link_ref {
+            // ★ §8.9.4: fine net -> coarse trunk back-reference
+            if let Some(d) = n.trunk_ref {
                 out.push_str(&format!(
-                    "{s}\"link_ref\": {{\"id\": {}{s}\"lane\": {}}}",
+                    "{s}\"trunk_ref\": {{\"id\": {}{s}\"lane\": {}}}",
                     d.id, d.lane
                 ));
             }
             // ★ §8.9.2: topology shape (op / anchor / order), same semantics as
-            // the coarse port_links so the frontend can draw fine nets alike.
+            // the coarse port_trunks so the frontend can draw fine nets alike.
             if let Some(shape) = &n.shape {
                 let op = match shape.op {
                     Some(crate::semantic::common::ConnOp::Series) => "\"-\"",
@@ -219,12 +219,12 @@ impl McVecGraph {
         }
         out.push_str(&format!("{i1}]{s}{nl}"));
 
-        // ── ★ §8.9.4: port_links (coarse bus/interface links of this layer) ──────
-        out.push_str(&format!("{i1}\"port_links\": ["));
-        if !self.port_links.is_empty() {
+        // ── ★ §8.9.4: port_trunks (coarse bus/interface trunks of this layer) ──────
+        out.push_str(&format!("{i1}\"port_trunks\": ["));
+        if !self.port_trunks.is_empty() {
             out.push_str(nl);
         }
-        for (i, d) in self.port_links.iter().enumerate() {
+        for (i, d) in self.port_trunks.iter().enumerate() {
             let dir = match d.dir {
                 crate::semantic::common::ConnDir::LtoR => "\"->\"",
                 crate::semantic::common::ConnDir::RtoL => "\"<-\"",
@@ -250,7 +250,7 @@ impl McVecGraph {
                 json_opt_i64(&d.anchor),
                 order,
             ));
-            // left / right link ends
+            // left / right trunk ends
             out.push_str(&format!(
                 "\"left\": {{\"box_id\": {}{s}\"instance\": {}{s}\"port\": \"{}\"{s}\"iface\": {}{s}\"io\": {}{s}\"path\": \"{}\"}}{s}",
                 json_opt_i64(&d.left.box_id),
@@ -295,7 +295,7 @@ impl McVecGraph {
                 }
             }
             out.push_str("]}");
-            if i + 1 < self.port_links.len() {
+            if i + 1 < self.port_trunks.len() {
                 out.push(',');
             }
             out.push_str(nl);
@@ -355,7 +355,7 @@ fn json_opt_i64(v: &Option<i64>) -> String {
 
 /// Serialize a structured [`PathSegment`] chain as a dotted path string
 /// (uC.I2C0.SCL), mirroring its `Display` form.
-fn path_display(path: &[crate::vector::model::link::PathSegment]) -> String {
+fn path_display(path: &[crate::vector::model::trunk::PathSegment]) -> String {
     path.iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>()

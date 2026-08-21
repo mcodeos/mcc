@@ -41,7 +41,7 @@ use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::IOType;
 use crate::semantic::mc_func::McFunction;
 use crate::semantic::module::McModule;
-use crate::vector::model::link::LinkKind;
+use crate::vector::model::trunk::TrunkKind;
 use crate::{current_uri, McURI};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -127,16 +127,16 @@ pub struct McModuleInst {
     /// Unified [`SourcePos`] — uri + byte offset (§7.11(3)).
     pub(super) current_func_span: Option<crate::semantic::common::SourcePos>,
 
-    /// ★ P9-A2: Current link group name for provenance tracking.
+    /// ★ P9-A2: Current trunk group name for provenance tracking.
     /// Set when processing a connection that involves a port group (e.g., flash.SPI, mic.MIC).
-    /// Used by `make_conn_with_provenance` to tag connections with their link group.
+    /// Used by `make_conn_with_provenance` to tag connections with their trunk group.
     /// Cleared when the connection line is fully processed.
     pub(super) current_link: Option<String>,
 
     /// ★ §8.9.4: coarse kind of `current_link` (`Bus`/`Interface`/`List`/`Plain`),
-    /// recorded at the source so `PortLink.kind` does not have to be re-derived.
+    /// recorded at the source so `PortTrunk.kind` does not have to be re-derived.
     /// RAII-managed together with `current_link` by `with_link`.
-    pub(super) current_link_kind: Option<LinkKind>,
+    pub(super) current_link_kind: Option<TrunkKind>,
 
     /// Component class names whose instantiation failed (any instance of this class).
     /// Used to skip stmts that reference failed components.
@@ -696,7 +696,7 @@ impl McModuleInst {
     pub(super) fn with_link<R>(
         &mut self,
         group: Option<String>,
-        kind: Option<LinkKind>,
+        kind: Option<TrunkKind>,
         f: impl FnOnce(&mut Self) -> R,
     ) -> R {
         let saved_group = self.current_link.take();

@@ -13,7 +13,7 @@
 //! - `NetTable`       - Network Table (union-find)
 
 use crate::semantic::common::{ConnDir, ConnOp, IOType};
-use crate::vector::model::link::LinkCtx;
+use crate::vector::model::trunk::TrunkCtx;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -236,7 +236,7 @@ pub struct ConnectionInst {
 
     /// Connection operator that produced this connection: `Series` for
     /// `-`/`->`/`<-`, `Parallel` for `+`. `None` when the operator is unknown
-    /// (engine-generated projection links, e.g. interface / bus member nets).
+    /// (engine-generated projection trunks, e.g. interface / bus member nets).
     /// Carried through to `ConnPair` / `NetShape` so downstream can tell a
     /// series net from a parallel one without reverse-engineering the shape.
     pub op: Option<ConnOp>,
@@ -254,10 +254,10 @@ pub struct ConnectionInst {
     /// connection (§7.11(3)).
     pub source_span: Option<crate::semantic::common::SourcePos>,
 
-    /// ★ §8.9.6: structured link context of this connection lane (link name,
+    /// ★ §8.9.6: structured trunk context of this connection lane (trunk name,
     /// lane member, coarse kind), decided at the AST layer. All lanes of the
-    /// same link share the same `name` / `kind` but carry distinct `member`s.
-    pub link: Option<LinkCtx>,
+    /// same trunk share the same `name` / `kind` but carry distinct `member`s.
+    pub trunk: Option<TrunkCtx>,
 
     /// Expansion provenance: index into the owning module's `ExpansionLog`.
     /// None = created at module top level (no active expansion).
@@ -323,7 +323,7 @@ impl ConnectionInst {
             lane: None,
             via: None,
             source_span: None,
-            link: None,
+            trunk: None,
             expansion_id: None,
         }
     }
@@ -335,7 +335,7 @@ impl ConnectionInst {
     }
 
     /// Set the connection operator (`Series` for `-`/`->`/`<-`, `Parallel`
-    /// for `+`). `None` means the operator is unknown (projection links).
+    /// for `+`). `None` means the operator is unknown (projection trunks).
     pub fn with_op(mut self, op: ConnOp) -> Self {
         self.op = Some(op);
         self
@@ -359,9 +359,9 @@ impl ConnectionInst {
         self
     }
 
-    /// ★ §8.9.6: Set the structured link context of this connection lane.
-    pub fn with_link(mut self, ctx: LinkCtx) -> Self {
-        self.link = Some(ctx);
+    /// ★ §8.9.6: Set the structured trunk context of this connection lane.
+    pub fn with_link(mut self, ctx: TrunkCtx) -> Self {
+        self.trunk = Some(ctx);
         self
     }
 

@@ -30,7 +30,7 @@ use crate::semantic::component::McComponent;
 use crate::semantic::mc_func::{McFuncReturn, McFunction};
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::module::McModule;
-use crate::vector::model::link::LinkKind;
+use crate::vector::model::trunk::TrunkKind;
 use crate::McIds;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -156,7 +156,7 @@ impl McModuleInst {
                     }
                 }
             };
-        // ★ M0-B-E: mark the funcall origin (back-link to the ComponentCtor
+        // ★ M0-B-E: mark the funcall origin (back-trunk to the ComponentCtor
         // expansion record, §7.4)
         inst.origin = InstOrigin::FuncCall {
             fn_name: type_name.clone(),
@@ -391,7 +391,7 @@ impl McModuleInst {
 
         // ── Expansion provenance: ModuleCall (parent-side leaf record, §4.1-B7) ──
         // The sub-module's own interior expands on its own ExpansionLog
-        // (module-local id space, §7.9-2); `sub_target` links the parent record
+        // (module-local id space, §7.9-2); `sub_target` trunks the parent record
         // to the sub-module instance path.
         let eidx = self.expansion.begin(
             ExpansionKind::ModuleCall,
@@ -1066,7 +1066,7 @@ impl McModuleInst {
             } else {
                 self.expand_node_element(&McBus::new(&boundary_name))
             };
-            // ★ P9-A2: link from the declared port name (e.g. "SPI",
+            // ★ P9-A2: trunk from the declared port name (e.g. "SPI",
             // "MIC"). RAII (§7.11(2)): restored right after the boundary
             // connection, so an early error cannot leak the group into the
             // next connection.
@@ -1075,9 +1075,9 @@ impl McModuleInst {
                 .and_then(|sub| sub.ports.iter().find(|p| p.name == declared_port_name))
                 .map(|p| {
                     if p.bus_members.is_empty() {
-                        LinkKind::Plain
+                        TrunkKind::Plain
                     } else {
-                        LinkKind::Bus
+                        TrunkKind::Bus
                     }
                 });
             self.with_link(Some(declared_port_name.clone()), port_kind, |this| {

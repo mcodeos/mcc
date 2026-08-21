@@ -836,7 +836,7 @@ mod tests {
                 lane_count: 1,
                 kind: EdgeKind::Signal,
                 source_span: None,
-                link: None,
+                trunk: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -846,7 +846,7 @@ mod tests {
                 lane_count: 1,
                 kind: EdgeKind::Power,
                 source_span: None,
-                link: None,
+                trunk: None,
                 bidirectional: false,
             },
         ];
@@ -869,7 +869,7 @@ mod tests {
                 lane_count: 1,
                 kind: EdgeKind::Signal,
                 source_span: None,
-                link: None,
+                trunk: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -879,7 +879,7 @@ mod tests {
                 lane_count: 1,
                 kind: EdgeKind::Power,
                 source_span: None,
-                link: None,
+                trunk: None,
                 bidirectional: false,
             },
         ];
@@ -925,7 +925,7 @@ mod tests {
                 lane_count: 1,
                 kind: EdgeKind::Signal,
                 source_span: None,
-                link: None,
+                trunk: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -935,7 +935,7 @@ mod tests {
                 lane_count: 1,
                 kind: EdgeKind::Signal,
                 source_span: None,
-                link: None,
+                trunk: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -945,7 +945,7 @@ mod tests {
                 lane_count: 1,
                 kind: EdgeKind::Signal,
                 source_span: None,
-                link: None,
+                trunk: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -955,7 +955,7 @@ mod tests {
                 lane_count: 1,
                 kind: EdgeKind::Power,
                 source_span: None,
-                link: None,
+                trunk: None,
                 bidirectional: false,
             },
         ];
@@ -1034,7 +1034,7 @@ mod tests {
             lane_count: 1,
             kind: EdgeKind::Signal,
             source_span: None,
-            link: None,
+            trunk: None,
             bidirectional: false,
         }];
 
