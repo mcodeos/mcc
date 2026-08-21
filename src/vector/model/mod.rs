@@ -9,12 +9,14 @@
 //! - [`block`] —— [`McVecBlock`] (hierarchical block)
 
 pub mod block;
+pub mod dock;
 pub mod net;
 pub mod netshape;
 pub mod vec;
 
 // Top-level exports, users can write `use crate::vector::model::McVec;`
 pub use block::McVecBlock;
+pub use dock::{DockEnd, DockKind, DockRef, MemberLink, PortDock};
 pub use net::{BoundaryInfo, ConnectionType, McVecNet, RailClass, RailSpec};
 pub use netshape::{GroupRole, LaneRef, NetShape, PairDir, ShapeStats};
 pub use vec::McVec;

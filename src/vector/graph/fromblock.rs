@@ -321,6 +321,8 @@ fn build_mc_vec_graph_inner(
 
     let mut graph = McVecGraph::new(block.bid, root_name.clone());
     graph.is_root = is_top_level;
+    // ★ §8.9.4: coarse bus/interface docks carried over from the semantic layer
+    graph.port_docks = block.port_docks.clone();
 
     // ── ★ P7-9: build pin_parent map (member port id → parent port group id) ──
     // Used by the facade pass to collapse member ports (SCL/SDA → I2C0) to port groups.
@@ -1200,12 +1202,10 @@ fn generate_viznets_from_block(
         }
         let left_n = match &shape.groups[0] {
             GroupRole::Broadcast(n) => *n,
-            GroupRole::BusLanes(n) => *n,
             GroupRole::Scalar => 1,
         };
         let right_n = match &shape.groups[1] {
             GroupRole::Broadcast(n) => *n,
-            GroupRole::BusLanes(n) => *n,
             GroupRole::Scalar => 1,
         };
         if left_n == right_n && left_n > 1 {
@@ -1388,6 +1388,9 @@ fn generate_viznets_from_block(
                                         if let Some(ref pg) = net.port_group {
                                             out.last_mut().unwrap().port_group = Some(pg.clone());
                                         }
+                                        if let Some(d) = net.dock {
+                                            out.last_mut().unwrap().dock = Some(d);
+                                        }
                                     }
                                     crate::velog!(
                                         "[graph] ✓ expanded collapsed bus/port '{}' -> {} signal nets",
@@ -1468,6 +1471,9 @@ fn generate_viznets_from_block(
                             }
                             if let Some(ref pg) = net.port_group {
                                 out.last_mut().unwrap().port_group = Some(pg.clone());
+                            }
+                            if let Some(d) = net.dock {
+                                out.last_mut().unwrap().dock = Some(d);
                             }
                         }
                         continue; // already split by member -> skip whole Bus construction below
@@ -1566,6 +1572,9 @@ fn generate_viznets_from_block(
         }
         if let Some(ref pg) = net.port_group {
             out.last_mut().unwrap().port_group = Some(pg.clone());
+        }
+        if let Some(d) = net.dock {
+            out.last_mut().unwrap().dock = Some(d);
         }
     }
 

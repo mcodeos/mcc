@@ -41,6 +41,7 @@ use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::IOType;
 use crate::semantic::mc_func::McFunction;
 use crate::semantic::module::McModule;
+use crate::vector::model::dock::DockKind;
 use crate::{current_uri, McURI};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -131,6 +132,11 @@ pub struct McModuleInst {
     /// Used by `make_conn_with_provenance` to tag connections with their port group.
     /// Cleared when the connection line is fully processed.
     pub(super) current_port_group: Option<String>,
+
+    /// ★ §8.9.4: coarse kind of `current_port_group` (`Bus`/`Interface`/`List`/`Plain`),
+    /// recorded at the source so `PortDock.kind` does not have to be re-derived.
+    /// RAII-managed together with `current_port_group` by `with_port_group`.
+    pub(super) current_port_kind: Option<DockKind>,
 
     /// Component class names whose instantiation failed (any instance of this class).
     /// Used to skip lines that reference failed components.
@@ -243,6 +249,7 @@ impl McModuleInst {
             current_line_span: None,
             current_func_span: None,
             current_port_group: None,
+            current_port_kind: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
@@ -282,6 +289,7 @@ impl McModuleInst {
             current_line_span: None,
             current_func_span: None,
             current_port_group: None,
+            current_port_kind: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
@@ -680,20 +688,24 @@ impl McModuleInst {
         r
     }
 
-    /// Run `f` with the given `current_port_group` active and restore the
-    /// previous group on every exit (RAII §7.11(2)). The group is a
-    /// connection-time hint read by `make_conn_with_provenance`; a leaked
-    /// group would mis-attribute the *next* connection's port group, so the
-    /// save/restore must survive early returns inside `f`.
+    /// Run `f` with the given `current_port_group` / `current_port_kind`
+    /// active and restore the previous values on every exit (RAII §7.11(2)).
+    /// The group is a connection-time hint read by `make_conn_with_provenance`;
+    /// a leaked group would mis-attribute the *next* connection's port group,
+    /// so the save/restore must survive early returns inside `f`.
     pub(super) fn with_port_group<R>(
         &mut self,
         group: Option<String>,
+        kind: Option<DockKind>,
         f: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        let saved = self.current_port_group.take();
+        let saved_group = self.current_port_group.take();
+        let saved_kind = self.current_port_kind.take();
         self.current_port_group = group;
+        self.current_port_kind = kind;
         let r = f(self);
-        self.current_port_group = saved;
+        self.current_port_group = saved_group;
+        self.current_port_kind = saved_kind;
         r
     }
 

@@ -1766,9 +1766,9 @@ mod m11_diagnostic_tests {
                 .collect(),
             kind: NetKind::Signal,
             route: None,
-            src_pos: None,
             source_span: None,
             port_group: None,
+            dock: None,
         }
     }
 

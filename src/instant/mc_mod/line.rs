@@ -19,6 +19,7 @@ use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{eval_binary, ConnDir, ConnOp, IOType, Shape, ShapeError};
 use crate::semantic::mc_inst::McInstance;
+use crate::vector::model::dock::DockKind;
 use std::collections::HashSet;
 
 // ── M11.4: lane item for position-aware bridge pin collection ──
@@ -176,7 +177,19 @@ impl McModuleInst {
             );
         }
         if needs_lane_by_lane {
-            return self.wire_chain_lane_by_lane(&members, dir);
+            // §8.9.6.7: the lane-by-lane path bypasses try_connect_adjacent,
+            // so the AST-layer group context is never established there.
+            // Extract it from the chain members (driver side first, then the
+            // far side) and wire inside it, so bus member lanes carry their
+            // port-group identity and render as a dock.
+            let port_group = Self::extract_port_group(&members[0])
+                .or_else(|| members.iter().rev().find_map(Self::extract_port_group));
+            let port_kind = Self::extract_port_kind(&members[0])
+                .or_else(|| members.iter().rev().find_map(Self::extract_port_kind))
+                .or_else(|| port_group.as_ref().map(|_| DockKind::Plain));
+            return self.with_port_group(port_group, port_kind, |this| {
+                this.wire_chain_lane_by_lane(&members, dir)
+            });
         }
 
         // handle adjacent member connections — per-pair fault-tolerant
@@ -1422,6 +1435,18 @@ impl McModuleInst {
     /// For `flash.SPI` or `mic.MIC`, the port group is the Interface/Bus name
     /// (e.g., "SPI", "MIC"). Returns `None` for non-port-group phrases.
     fn extract_port_group(phrase: &McPhrase) -> Option<String> {
+        let r = Self::extract_port_group_inner(phrase);
+        mcc_dbg!(
+            "inst::mod",
+            "[PG-DBG] module={} phrase={:?} -> {:?}",
+            "?",
+            phrase,
+            r
+        );
+        r
+    }
+
+    fn extract_port_group_inner(phrase: &McPhrase) -> Option<String> {
         match phrase {
             McPhrase::Endpoint(McEndpoint::Single(ref ir)) => {
                 // For Endpoint, only use Interface/Bus base name or member name.
@@ -1434,6 +1459,55 @@ impl McModuleInst {
             // because the member is stored as Label("DAC_OUT").
             McPhrase::Member(_base, McEndpoint::Single(ref ir)) => {
                 Self::extract_pg_from_iref(ir, true)
+            }
+            // §8.9.6.7: `MIC{P,N}` expands (M11.5 expand_multi_member_buses or
+            // the parser's dot_or_curly) into a Multiple of per-member bus
+            // endpoints. Two shapes arrive here:
+            //   Form A — member carried separately: Bus{name:"MIC", member:["P"]}
+            //   Form B — flattened dotted path:      Bus{name:"MIC.P", member:[]}
+            // The group is the shared base name ("MIC"); both forms reduce to
+            // it (form B by dropping the last dot segment — §8.9.6.3 form 1
+            // member access). Require a consistent group across all endpoints
+            // so a mixed net does not get a false dock.
+            McPhrase::Multiple(items) => {
+                let groups: Vec<String> = items
+                    .iter()
+                    .filter_map(|it| match it {
+                        McPhrase::Endpoint(McEndpoint::Single(ir)) => {
+                            Self::extract_pg_from_multiple_endpoint(ir)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                let first = groups.first()?;
+                if groups.iter().all(|g| g == first) {
+                    Some(first.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// §8.9.6.7: group identity of one endpoint inside a `Multiple`.
+    /// An interface endpoint uses its interface name; a bus endpoint
+    /// contributes when it carries member(s) (form A) or is a flattened
+    /// dotted member path (form B). Labels, funcalls and bare scalar buses
+    /// contribute nothing.
+    fn extract_pg_from_multiple_endpoint(
+        ir: &crate::semantic::basic::mc_endpoint::McInstanceRef,
+    ) -> Option<String> {
+        match &ir.base {
+            McInstance::Interface(_) => Self::extract_pg_from_iref(ir, false),
+            McInstance::Bus(b) => {
+                if !b.member.is_empty() || !b.full_members.is_empty() {
+                    Some(b.name().to_string())
+                } else {
+                    b.name()
+                        .rsplit_once('.')
+                        .map(|(base, _member)| base.to_string())
+                }
             }
             _ => None,
         }
@@ -1453,13 +1527,12 @@ impl McModuleInst {
                 _ => None,
             }),
             McInstance::Bus(b) => {
-                if !b.member.is_empty() {
-                    // Use member name as port_group (e.g., Bus(mcu513[MIC]) → "MIC")
-                    Some(b.member.join("_"))
-                } else {
-                    // Bus without members: use bus name as-is (e.g., Bus(flash.SPI) → "flash.SPI")
-                    Some(b.name().to_string())
-                }
+                // §8.9.6.3 form 1: a curly bus `MIC{P,N}` groups by its bus
+                // NAME; the members are lanes (stamped per-lane downstream,
+                // see group.rs::refine_lane_port_group). The old join("_")
+                // conflated members into one pseudo-name and lost the group
+                // identity.
+                Some(b.name().to_string())
             }
             _ => None,
         };
@@ -1485,6 +1558,53 @@ impl McModuleInst {
         None
     }
 
+    /// ★ §8.9.4: Extract the coarse `DockKind` of a port group phrase, mirroring
+    /// `extract_port_group`'s traversal so `PortDock.kind` never needs to be
+    /// re-derived downstream.
+    fn extract_port_kind(phrase: &McPhrase) -> Option<DockKind> {
+        // §8.9.6.7: mirror of extract_port_group — `MIC{P,N}` appears as a
+        // Multiple of member-carrying bus endpoints, so a Multiple contributes
+        // a Bus/Interface kind only when at least one endpoint carries one
+        // (the same member-carrying rule as the group extractor).
+        if let McPhrase::Multiple(items) = phrase {
+            return items.iter().find_map(|it| match it {
+                McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
+                    McInstance::Interface(_) => Some(DockKind::Interface),
+                    McInstance::Bus(b) => {
+                        if !b.member.is_empty()
+                            || !b.full_members.is_empty()
+                            || b.name().contains('.')
+                        {
+                            Some(DockKind::Bus)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                },
+                _ => None,
+            });
+        }
+        let ir = match phrase {
+            McPhrase::Endpoint(McEndpoint::Single(ir)) => ir,
+            McPhrase::Member(_base, McEndpoint::Single(ir)) => ir,
+            _ => return None,
+        };
+        match &ir.base {
+            McInstance::Interface(_) => Some(DockKind::Interface),
+            McInstance::Bus(_) => Some(DockKind::Bus),
+            _ => {
+                // Member access (`mcu513.MIC`) is a bracket/list member; a bare
+                // label fallback has no coarse identity.
+                if !ir.members.is_empty() {
+                    Some(DockKind::List)
+                } else {
+                    Some(DockKind::Plain)
+                }
+            }
+        }
+    }
+
     /// Try to connect adjacent members
     ///
     /// Helper method extracted from `process_line`, handling Group / normal
@@ -1502,7 +1622,10 @@ impl McModuleInst {
         // early `Err` returns), so it can never leak into the next connection.
         let port_group = Self::extract_port_group(left_member)
             .or_else(|| Self::extract_port_group(right_member));
-        self.with_port_group(port_group, |this| {
+        let port_kind = Self::extract_port_kind(left_member)
+            .or_else(|| Self::extract_port_kind(right_member))
+            .or_else(|| port_group.as_ref().map(|_| DockKind::Plain));
+        self.with_port_group(port_group, port_kind, |this| {
             // ── P1-diag: detailed adjacent wiring diagnostic ─────────────────────────────────
             let _l_kind = match left_member {
                 McPhrase::FuncCall(f) => format!(
@@ -1879,24 +2002,20 @@ impl McModuleInst {
                         .collect();
                     if lane.len() >= 2 {
                         let id = self.next_conn_id();
-                        self.add_connection(self.make_conn_with_provenance(
-                            id,
-                            lane,
-                            ConnDir::Undirected,
-                            None,
-                        ));
+                        self.add_connection(
+                            self.make_conn_with_provenance(id, lane, ConnDir::Undirected, None)
+                                .with_op(ConnOp::Parallel),
+                        );
                     }
                 }
             } else {
                 // Anchor is 1 wide / indivisible (e.g. dimension mismatch degenerate path):
                 // all endpoints in the same net
                 let id = self.next_conn_id();
-                self.add_connection(self.make_conn_with_provenance(
-                    id,
-                    left_net.clone(),
-                    ConnDir::Undirected,
-                    None,
-                ));
+                self.add_connection(
+                    self.make_conn_with_provenance(id, left_net.clone(), ConnDir::Undirected, None)
+                        .with_op(ConnOp::Parallel),
+                );
             }
         }
 
@@ -1916,22 +2035,18 @@ impl McModuleInst {
                         .collect();
                     if lane.len() >= 2 {
                         let id = self.next_conn_id();
-                        self.add_connection(self.make_conn_with_provenance(
-                            id,
-                            lane,
-                            ConnDir::Undirected,
-                            None,
-                        ));
+                        self.add_connection(
+                            self.make_conn_with_provenance(id, lane, ConnDir::Undirected, None)
+                                .with_op(ConnOp::Parallel),
+                        );
                     }
                 }
             } else {
                 let id = self.next_conn_id();
-                self.add_connection(self.make_conn_with_provenance(
-                    id,
-                    right_net,
-                    ConnDir::Undirected,
-                    None,
-                ));
+                self.add_connection(
+                    self.make_conn_with_provenance(id, right_net, ConnDir::Undirected, None)
+                        .with_op(ConnOp::Parallel),
+                );
             }
         }
 

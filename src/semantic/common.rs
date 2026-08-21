@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::{Arc, LazyLock, Mutex};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IOType {
     In,
     Out,
@@ -692,6 +692,8 @@ pub enum ConnOp {
 ///
 /// Where it lands:
 /// - `+`: Pass2 `wire_parallel_internal` anchors on opd[0] ("take operand 1");
+///   this is the same left-main rule that later fills `NetShape.anchor`
+///   (vec-dianlu.md §8.9.4) — the parallel left-alignment anchor.
 /// - `-`/`->`: the series chain head/tail, output end is the right operand;
 /// - `<-`: the RtoL chain target is the left operand.
 pub fn representative(op: ConnOp, dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape {

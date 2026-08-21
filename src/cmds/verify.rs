@@ -19,6 +19,7 @@ use crate::cmds::{common, manifest};
 use anyhow::Result;
 use mcc::cli::{OutputFormat, VerifyArgs};
 use mcc::hierarchy;
+use mcc::vector::model::dock::{DockKind, PortGroupCtx};
 use mcc::{InstOrigin, McModuleInst, Span};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -54,6 +55,9 @@ struct ConnEntry {
     /// Source connector direction, rendered as the separator between points
     /// (`->` for LtoR, `<-` for RtoL, `-` for undirected).
     dir: String,
+    /// §8.9.6 structured group context (name/member/kind), decided at the
+    /// AST layer; None for plain connections.
+    port_group: Option<mcc::vector::model::dock::PortGroupCtx>,
 }
 
 /// Join connection endpoints with the separator that reflects the source
@@ -354,6 +358,7 @@ fn record_tree_node(
                 "net": c.effective_net_name(),
                 "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
                 "dir": format!("{:?}", c.dir),
+                "port_group": c.port_group.as_ref().map(|pg| pg.to_json_value()),
             })
         })
         .collect();
@@ -499,6 +504,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                         "net": c.effective_net_name(),
                         "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
                         "dir": format!("{:?}", c.dir),
+                        "port_group": c.port_group.as_ref().map(|pg| pg.to_json_value()),
                     });
                     sub_expansions
                         .entry(pos.offset)
@@ -524,6 +530,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
             net: conn.effective_net_name(),
             points: conn.points.iter().map(|p| p.path.clone()).collect(),
             dir: format!("{:?}", conn.dir),
+            port_group: conn.port_group.clone(),
         };
         match &conn.source_span {
             // No source span: engine-internal projection link (interface / bus
@@ -578,6 +585,10 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                                             "net": entry.net.clone(),
                                             "points": entry.points.clone(),
                                             "dir": entry.dir.clone(),
+                                            "port_group": entry
+                                                .port_group
+                                                .as_ref()
+                                                .map(|pg| pg.to_json_value()),
                                         }));
                                     attributed = true;
                                 }
@@ -595,6 +606,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                         "net": entry.net,
                         "points": entry.points,
                         "dir": entry.dir,
+                        "port_group": entry.port_group.as_ref().map(|pg| pg.to_json_value()),
                         "source": format!("{}:{}", pos.uri, line),
                     }));
                 } else if content.is_some() {
@@ -613,6 +625,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                             "net": entry.net,
                             "points": entry.points,
                             "dir": entry.dir,
+                            "port_group": entry.port_group.as_ref().map(|pg| pg.to_json_value()),
                             "line": ln,
                         })),
                     }
@@ -635,7 +648,14 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         let has_funccall = phrase_contains_funccall(phrase);
         let conns: Vec<Value> = per_stmt[i]
             .iter()
-            .map(|c| json!({"net": c.net, "points": c.points, "dir": c.dir}))
+            .map(|c| {
+                json!({
+                    "net": c.net,
+                    "points": c.points,
+                    "dir": c.dir,
+                    "port_group": c.port_group.as_ref().map(|pg| pg.to_json_value()),
+                })
+            })
             .collect();
         let stmt_off = spans.get(i).map(|sp| sp.start as u32);
         let empty_expansion = stmt_off
@@ -956,18 +976,42 @@ fn conn_key(c: &Value) -> String {
     format!("{}|{}", c["net"].as_str().unwrap_or(""), pts.join(","))
 }
 
-/// `[net] : a -> b` text of a connection value, honoring the retained
-/// source direction (`LtoR`/`RtoL`/`Undirected`, see §11 strict vector order).
-fn conn_text(c: &Value) -> String {
-    let pts: Vec<&str> = c["points"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|p| p.as_str()).collect())
-        .unwrap_or_default();
-    format!(
-        "[{}] : {}",
-        c["net"].as_str().unwrap_or(""),
-        render_conn_points(&pts, c["dir"].as_str().unwrap_or(""))
-    )
+/// Convert a connection JSON value to the shared §8.9.5 view. The JSON
+/// `port_group` object (`{"name", "member", "kind"}`) is decoded back into a
+/// structured [`PortGroupCtx`]; missing / malformed → None.
+fn conn_view(c: &Value) -> common::ConnView {
+    let port_group = c["port_group"].as_object().map(|o| PortGroupCtx {
+        name: o.get("name").and_then(|v| v.as_str()).map(str::to_string),
+        member: o.get("member").and_then(|v| v.as_str()).map(str::to_string),
+        kind: o
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .map(kind_from_label)
+            .unwrap_or(DockKind::Plain),
+    });
+    common::ConnView {
+        net: c["net"].as_str().unwrap_or("").to_string(),
+        points: c["points"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|p| p.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        dir: c["dir"].as_str().unwrap_or("").to_string(),
+        port_group,
+    }
+}
+
+/// Reverse of [`DockKind::label`]; unknown labels map to `Plain`.
+fn kind_from_label(s: &str) -> DockKind {
+    match s {
+        "bus" => DockKind::Bus,
+        "ifs" => DockKind::Interface,
+        "list" => DockKind::List,
+        _ => DockKind::Plain,
+    }
 }
 
 /// Collect every connection key inside a record node (its own products plus
@@ -1065,17 +1109,25 @@ fn render_branches(out: &mut String, prefix: &str, branches: &[Branch]) {
                     }
                 }
                 if let Some(conns) = node["connections"].as_array() {
-                    for c in conns {
-                        children.push(Branch::Leaf(conn_text(c)));
+                    // §8.9.5 layered rendering (docks for bus/interface
+                    // groups, flat lines otherwise).
+                    let views: Vec<common::ConnView> = conns.iter().map(conn_view).collect();
+                    for t in common::render_layered_conns(&views, "") {
+                        children.push(Branch::Leaf(t));
                     }
                 }
                 if let Some(subs) = node["sub_connections"].as_array() {
                     for c in subs {
                         let sub = c["sub"].as_str().unwrap_or("");
-                        let mut t = conn_text(c);
+                        let mut lines =
+                            common::render_layered_conns(std::slice::from_ref(&conn_view(c)), "");
                         // mark as merged sub-module body (auxiliary context)
-                        t = t.replace("]", format!("] (sub {sub})").as_str());
-                        children.push(Branch::Leaf(t));
+                        if let Some(first) = lines.first_mut() {
+                            *first = format!("{first} (sub {sub})");
+                        }
+                        for t in lines {
+                            children.push(Branch::Leaf(t));
+                        }
                     }
                 }
                 let child_prefix = format!("{prefix}{cont}");
@@ -1233,32 +1285,26 @@ fn render_module_text(out: &mut String, m: &Value) {
                     });
                 }
                 if let Some(conns) = line["connections"].as_array() {
-                    for c in conns {
-                        if !used.contains(&conn_key(c)) {
-                            branches.push(Branch::Leaf(conn_text(c)));
-                        }
+                    // §8.9.5: group bus/interface connections into docks so a
+                    // tree leaf can be a coarse header or a member pin2pin row.
+                    let views: Vec<common::ConnView> = conns
+                        .iter()
+                        .filter(|c| !used.contains(&conn_key(c)))
+                        .map(conn_view)
+                        .collect();
+                    for text in common::render_layered_conns(&views, "") {
+                        branches.push(Branch::Leaf(text));
                     }
                 }
                 render_branches(out, "           ", &branches);
                 continue;
             }
             if let Some(conns) = line["connections"].as_array() {
-                for c in conns {
-                    let pts = c["points"]
-                        .as_array()
-                        .map(|p| {
-                            render_conn_points(
-                                &p.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>(),
-                                c["dir"].as_str().unwrap_or(""),
-                            )
-                        })
-                        .unwrap_or_default();
-                    let _ = writeln!(
-                        out,
-                        "           [{}] : {}",
-                        c["net"].as_str().unwrap_or(""),
-                        pts
-                    );
+                // §8.9.5 layered rendering (docks for bus/interface groups,
+                // flat lines otherwise).
+                let views: Vec<common::ConnView> = conns.iter().map(conn_view).collect();
+                for text in common::render_layered_conns(&views, "           ") {
+                    let _ = writeln!(out, "{text}");
                 }
             }
             // §7.3: sub-module body expansion merged into this call site
@@ -1298,22 +1344,9 @@ fn render_module_text(out: &mut String, m: &Value) {
                 .unwrap_or_default();
             let _ = writeln!(out, "    {ln:<6} {}", e["text"].as_str().unwrap_or(""));
             if let Some(conns) = e["conns"].as_array() {
-                for c in conns {
-                    let pts = c["points"]
-                        .as_array()
-                        .map(|p| {
-                            render_conn_points(
-                                &p.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>(),
-                                c["dir"].as_str().unwrap_or(""),
-                            )
-                        })
-                        .unwrap_or_default();
-                    let _ = writeln!(
-                        out,
-                        "           [{}] : {}",
-                        c["net"].as_str().unwrap_or(""),
-                        pts
-                    );
+                let views: Vec<common::ConnView> = conns.iter().map(conn_view).collect();
+                for text in common::render_layered_conns(&views, "           ") {
+                    let _ = writeln!(out, "{text}");
                 }
             }
         }

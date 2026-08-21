@@ -37,6 +37,10 @@
 
 use std::fmt;
 
+use crate::semantic::common::ConnOp;
+
+use super::dock::{DockKind, PortGroupCtx};
+
 // ============================================================================
 // PairDir —— arrow direction in the source
 // ============================================================================
@@ -127,13 +131,17 @@ impl fmt::Display for LaneRef {
 ///
 /// Note the difference from `ConnectionType`: `ConnectionType` is the **inferred** topology,
 /// while this is the role **written in the source**.
+///
+/// `BusLanes` was removed in the §8.9.2-4 cleanup: production `build_net_shape`
+/// only ever produced `Scalar`/`Broadcast` from the vec length, so the variant
+/// was never created. Bus/interface identity and per-member pin2pin now live in
+/// the coarse `PortDock` layer (vec-dianlu.md §8.9.4), not in the flat groups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupRole {
     /// Single point: `GND`, `R1.1`
     Scalar,
-    /// N lanes of a bus: `MIC{P,N}`, `[VDD_3V3, GND]`
-    BusLanes(usize),
-    /// Broadcast source: 1 point to N points ("1-to-N broadcast" in `mcrule.md §10.4`)
+    /// Broadcast source: 1 point to N points ("1-to-N broadcast" in `mcrule.md §10.4`),
+    /// or an N-member bus group (`MIC{P,N}`, `[VDD_3V3, GND]`) — width is N.
     Broadcast(usize),
 }
 
@@ -141,13 +149,8 @@ impl GroupRole {
     pub fn width(self) -> usize {
         match self {
             GroupRole::Scalar => 1,
-            GroupRole::BusLanes(n) => n,
-            GroupRole::Broadcast(_) => 1,
+            GroupRole::Broadcast(n) => n,
         }
-    }
-
-    pub fn is_bus(self) -> bool {
-        matches!(self, GroupRole::BusLanes(n) if n >= 2)
     }
 }
 
@@ -155,7 +158,6 @@ impl fmt::Display for GroupRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             GroupRole::Scalar => write!(f, "1"),
-            GroupRole::BusLanes(n) => write!(f, "bus{n}"),
             GroupRole::Broadcast(n) => write!(f, "1→{n}"),
         }
     }
@@ -190,8 +192,23 @@ pub struct NetShape {
     /// - `M3` quotient graph decides whether an edge is an SP belt or a direct belt
     pub series_chain: Vec<i64>,
 
-    /// Unified source position that produced this net (for diagnostics), §7.11(3).
-    pub src_pos: Option<crate::semantic::common::SourcePos>,
+    /// Connection operator that produced this net (`Series` for `-`/`->`/`<-`,
+    /// `Parallel` for `+`); `None` when unknown. Copied from `ConnPair.op`,
+    /// which is itself copied from `ConnectionInst.op` in visit.rs. Downstream
+    /// can tell a series net from a parallel one without re-deriving it from
+    /// the merged point pairs.
+    pub op: Option<ConnOp>,
+
+    /// Left-alignment anchor of a parallel connection: the source position of
+    /// the left main operand (lopd[0]). `None` for series nets and for
+    /// parallel nets whose anchor is not tracked yet (engine projection).
+    pub anchor: Option<i64>,
+
+    /// Combination order: the endpoint sequence of the net in source order
+    /// (left-to-right along the phrase chain, deduplicated). For a parallel
+    /// `A + B + C` this is the left-aligned merge order of the members; for a
+    /// series chain `P0 -> P1 -> P2` it is `[P0, P1, P2]`.
+    pub order: Vec<i64>,
 }
 
 impl NetShape {
@@ -210,12 +227,15 @@ impl NetShape {
         !self.series_chain.is_empty()
     }
 
-    /// Whether it carries any real information —— a fully empty shape is equivalent to None; don't store it
+    /// Whether it carries any real information —— a fully empty shape is equivalent to None; don't store it.
+    /// `order` is a derived projection of the pairs (any net has endpoints), so
+    /// it does not participate; only the source-written `op` does.
     pub fn is_informative(&self) -> bool {
         !self.groups.is_empty()
             || self.dir.is_directed()
             || self.lane.is_some()
             || !self.series_chain.is_empty()
+            || self.op.is_some()
     }
 }
 
@@ -223,11 +243,21 @@ impl fmt::Display for NetShape {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let g: Vec<String> = self.groups.iter().map(|x| x.to_string()).collect();
         write!(f, "{} {}", g.join(" "), self.dir)?;
+        if let Some(op) = &self.op {
+            let sym = match op {
+                ConnOp::Series => "-",
+                ConnOp::Parallel => "+",
+            };
+            write!(f, " {sym}")?;
+        }
         if let Some(l) = &self.lane {
             write!(f, " lane{l}")?;
         }
         if !self.series_chain.is_empty() {
             write!(f, " via{:?}", self.series_chain)?;
+        }
+        if !self.order.is_empty() {
+            write!(f, " order{:?}", self.order)?;
         }
         Ok(())
     }
@@ -288,7 +318,14 @@ pub struct ShapeStats {
 }
 
 impl ShapeStats {
-    pub fn observe(&mut self, name: &str, shape: Option<&NetShape>) {
+    /// Observe one net's shape and its AST-layer group context.
+    ///
+    /// §8.9.6.7: the structured group kind (`port_group.kind != Plain`) is the
+    /// authority for bus classification; the width heuristic
+    /// (`is_bus_lane()` / `bus_width() >= 2`) only applies when no group
+    /// context is available. A net without a shape but with a bus group
+    /// identity is still counted as a bus (not left "uncovered").
+    pub fn observe(&mut self, name: &str, shape: Option<&NetShape>, group: Option<&PortGroupCtx>) {
         self.total += 1;
         match shape {
             Some(s) => {
@@ -298,13 +335,25 @@ impl ShapeStats {
                     PairDir::RtoL => self.dir_rtl += 1,
                     PairDir::Undirected => self.dir_undirected += 1,
                 }
-                if s.is_bus_lane() || s.bus_width() >= 2 {
+                let is_bus = match group {
+                    Some(g) => g.kind != DockKind::Plain,
+                    None => s.is_bus_lane() || s.bus_width() >= 2,
+                };
+                if is_bus {
                     self.bus_nets += 1;
                     self.max_bus_width = self.max_bus_width.max(s.bus_width());
                 }
             }
             None => {
                 self.inferred += 1;
+                // No shape, but the group identity already says bus — classify
+                // it as a bus instead of leaving it uncovered.
+                if let Some(g) = group {
+                    if g.kind != DockKind::Plain {
+                        self.bus_nets += 1;
+                        return;
+                    }
+                }
                 if self.uncovered.len() < 32 {
                     self.uncovered.push(name.to_string());
                 }
@@ -374,11 +423,10 @@ mod tests {
     #[test]
     fn bus_width() {
         let s = NetShape {
-            groups: vec![GroupRole::BusLanes(2), GroupRole::BusLanes(2)],
+            groups: vec![GroupRole::Broadcast(2), GroupRole::Broadcast(2)],
             ..Default::default()
         };
         assert_eq!(s.bus_width(), 2);
-        assert!(s.groups[0].is_bus());
 
         let scalar = NetShape {
             groups: vec![GroupRole::Scalar, GroupRole::Scalar],
@@ -395,8 +443,8 @@ mod tests {
             ..Default::default()
         };
         st.total_nets = 2;
-        st.observe("a", Some(&s));
-        st.observe("b", None);
+        st.observe("a", Some(&s), None);
+        st.observe("b", None, None);
         assert!((st.coverage() - 0.5).abs() < 1e-9);
         assert_eq!(st.uncovered, vec!["b".to_string()]);
     }

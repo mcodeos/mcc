@@ -12,6 +12,7 @@
 
 use std::fmt;
 
+use super::dock::PortDock;
 use super::net::McVecNet;
 
 /// Vectorized block
@@ -27,6 +28,9 @@ pub struct McVecBlock {
     pub insts: Vec<i64>,
     /// All electrical nets in this block
     pub nets: Vec<McVecNet>,
+    /// ★ §8.9.4: coarse bus/interface docks of this block (one per source dock,
+    /// each aggregating the fine member pin2pin links)
+    pub port_docks: Vec<PortDock>,
 }
 
 impl McVecBlock {
@@ -38,6 +42,7 @@ impl McVecBlock {
             blocks: vec![],
             insts: vec![],
             nets: vec![],
+            port_docks: vec![],
         }
     }
 
