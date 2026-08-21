@@ -527,8 +527,7 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
 // HW7: Component metadata completeness
 // ============================================================================
 
-/// Every component should have basic documentation attributes:
-/// `name` (human-readable name) and ideally `description`.
+/// Every component should ideally have a `description` attribute.
 /// Missing metadata makes library browsing and BOM generation harder.
 fn check_component_metadata(acc: &mut CheckAccumulator) {
     let comps = &crate::db::cmie::tables::WORKSPACE.components;
@@ -541,24 +540,6 @@ fn check_component_metadata(acc: &mut CheckAccumulator) {
 
         let has_name = comp.attrs.iter().any(|a| a.id.to_string() == "name");
         let has_desc = comp.attrs.iter().any(|a| a.id.to_string() == "description");
-
-        if !has_name && !comp.name.to_string().is_empty() {
-            // The component's MCode identifier (e.g., "RES") is different
-            // from its human-readable name (e.g., "Resistor").
-            // Having both is best practice for BOM generation.
-            acc.push(CheckResult {
-                check_name: "hw",
-                severity: CheckSeverity::Hint,
-                uri: Some(uri.clone()),
-                span: Some(comp.span.start..comp.span.end),
-                message: format!(
-                    "Component '{}' has no 'name' attribute. \
-                     Consider adding `name = \"Human Readable Name\"` for BOM/documentation.",
-                    comp.name
-                ),
-                code: crate::errcodes::HW_MISSING_NAME_ATTR,
-            });
-        }
 
         if has_name && !has_desc && comp.pins.pins.len() > 2 {
             acc.push(CheckResult {

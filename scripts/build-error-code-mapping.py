@@ -712,8 +712,6 @@ M = [
      "Interface role is never bound."),
     (3307, "hw.rs", 5507, "HW_ALL_SAME_IO_TYPE",
      "All pins have the same IO type."),
-    (3308, "hw.rs", 5508, "HW_MISSING_NAME_ATTR",
-     "Missing 'name' attribute."),
     (3309, "hw.rs", 5509, "HW_NAME_WITHOUT_DESC",
      "Has a name but no description."),
     (3310, "hw.rs", 5510, "HW_FUNC_PARAM_SHADOWS_PIN",

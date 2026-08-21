@@ -338,7 +338,6 @@
   "5505": "Consecutive NC pins.",
   "5506": "Interface role is never bound.",
   "5507": "All pins have the same IO type.",
-  "5508": "Missing 'name' attribute.",
   "5509": "Has a name but no description.",
   "5510": "Function parameter shadows a pin name.",
   "5511": "Interface is defined but never bound.",

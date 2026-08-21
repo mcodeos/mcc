@@ -29,8 +29,8 @@ pub fn mcb_parse_all_modules() {
     // parse_pass1_modules_full() loop below) and re-runs every PostParse
     // validator (including ImportsCheck, which re-emits USE_* 2xxx) over ALL
     // files. Neither step clears what a previous round emitted, so diagnostics
-    // accumulate across load_project/sem calls — observed as E5508 per file
-    // doubling 5 -> 10 -> 15 — and stale resolution errors (E3157/E3071)
+    // accumulate across load_project/sem calls — doubling per round — and
+    // stale resolution errors (E3157/E3071)
     // emitted during a round where the mcode library was not yet loaded
     // survive forever.
     //
