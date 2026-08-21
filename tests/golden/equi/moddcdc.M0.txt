@@ -2,42 +2,42 @@
 
 nid   net         kind    region ori  anchor        plcd   src     row      span              term  terminals
 --------------------------------------------------------------------------------------------------------------
-501   GND         Ground  South  H    CAP_2         yes    p:507   340      (-40, -40)              GND⏚
+501   GND         Ground  South  H    CAP_2         yes    p:507   400      (-40, 0)                GND⏚
 502   GND         Ground  South  H    CAP_3         NO     —       0        (0, 0)            only  GND⏚
 503   GND         Ground  South  H    CAP_4         NO     —       0        (0, 0)            only  GND⏚
 504   GND         Ground  South  H    RES_3         NO     —       0        (0, 0)            only  GND⏚
-505   GND         Ground  South  H    lp322dcdc*    yes    rail    320      (140, 140)              GND⏚
-506   VCC_1V2     Power   East   H    IND_1         yes    p:510   460      (-40, 450)              ○VCC_1V2
-507   VDD_3V3     Power   West   H    lp322dcdc*    yes    side    180      (-40, 80)               ○VDD_3V3
-508   __net_1     Signal  West   H    lp322dcdc*    yes    side    100      (-40, 80)               
-509   __net_3     Signal  East   H    lp322dcdc*    yes    side    100      (200, 320)              
-510   __net_5     Signal  West   H    lp322dcdc*    yes    side    260      (-40, 260)              
+505   GND         Ground  South  H    lp322dcdc*    yes    rail    300      (140, 140)              GND⏚
+506   VCC_1V2     Power   East   H    IND_1         yes    p:509   100      (352, 488)              ○VCC_1V2
+507   VDD_3V3     Power   West   H    lp322dcdc*    yes    side    200      (0, 80)                 ○VDD_3V3
+508   __net_1     Signal  West   H    lp322dcdc*    yes    side    100      (-40, 80)               ○__net_1
+509   __net_3     Signal  East   H    lp322dcdc*    yes    side    100      (200, 292)              ○__net_3
+510   __net_5     Signal  East   H    lp322dcdc*    yes    side    200      (200, 408)              ○__net_5
 
 nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)            ori  pins   plcd
 --------------------------------------------------------------------------------------------------------------
-501   GND         CAP_2      *   —        —    (-40, 340)      (-50, 100, 20, 60)       V    TB     yes
-501   GND         CAP_1          Bridge   —    (-40, 240)      (-50, 180, 20, 60)       V    TB     yes
-502   GND         CAP_3      *   —        —    (390, 0)        (380, 460, 20, 60)       V    TB     yes
-503   GND         CAP_4      *   —        —    (450, 0)        (440, 460, 20, 60)       V    TB     yes
-504   GND         RES_3      *   —        —    (20, 0)         (10, 260, 20, 60)        V    TB     yes
-505   GND         lp322dcdc  *   —        —    (140, 320)      (80, 80, 120, 200)       V    LLLRB  yes
-506   VCC_1V2     IND_1      *   —        —    (320, 460)      (310, 100, 20, 60)       V    TB     yes
-506   VCC_1V2     CAP_3          Drop     —    (390, 460)      (380, 460, 20, 60)       V    TB     yes
-506   VCC_1V2     CAP_4          Drop     —    (450, 460)      (440, 460, 20, 60)       V    TB     yes
-506   VCC_1V2     RES_2          Bridge   —    (-40, 320)      (-50, 260, 20, 60)       V    BT     yes
-507   VDD_3V3     lp322dcdc  *   —        —    (80, 180)       (80, 80, 120, 200)       V    LLLRB  yes
-507   VDD_3V3     CAP_1          Drop     —    (-40, 180)      (-50, 180, 20, 60)       V    TB     yes
-507   VDD_3V3     RES_1          Bridge   —    (20, 180)       (10, 120, 20, 60)        V    BT     yes
-508   __net_1     lp322dcdc  *   —        —    (80, 100)       (80, 80, 120, 200)       V    LLLRB  yes
-508   __net_1     CAP_2          Drop     —    (-40, 100)      (-50, 100, 20, 60)       V    TB     yes
-508   __net_1     RES_1          Bridge   —    (20, 120)       (10, 120, 20, 60)        V    BT     yes
-509   __net_3     lp322dcdc  *   —        —    (200, 100)      (80, 80, 120, 200)       V    LLLRB  yes
-509   __net_3     CAP_5          Bridge   —    (260, 100)      (250, 100, 20, 60)       V    BT     yes
-509   __net_3     IND_1          Bridge   —    (320, 100)      (310, 100, 20, 60)       V    TB     yes
-510   __net_5     lp322dcdc  *   —        —    (80, 260)       (80, 80, 120, 200)       V    LLLRB  yes
-510   __net_5     CAP_5          Bridge   —    (260, 160)      (250, 100, 20, 60)       V    BT     yes
-510   __net_5     RES_2          Bridge   —    (-40, 260)      (-50, 260, 20, 60)       V    BT     yes
-510   __net_5     RES_3          Drop     —    (20, 260)       (10, 260, 20, 60)        V    TB     yes
+501   GND         CAP_2      *   —        —    (-40, 400)      (-50, 120, 20, 60)       V    TB     yes
+501   GND         CAP_1          Bridge   —    (0, 280)        (-10, 220, 20, 60)       V    TB     yes
+502   GND         CAP_3      *   —        —    (448, 0)        (438, 120, 20, 60)       V    TB     yes
+503   GND         CAP_4      *   —        —    (488, 0)        (478, 120, 20, 60)       V    TB     yes
+504   GND         RES_3      *   —        —    (280, 0)        (270, 220, 20, 60)       V    TB     yes
+505   GND         lp322dcdc  *   —        —    (140, 300)      (80, 80, 120, 140)       V    LLRRB  yes
+506   VCC_1V2     IND_1      *   —        —    (352, 100)      (292, 90, 60, 20)        H    LR     yes
+506   VCC_1V2     CAP_3          Drop     —    (448, 120)      (438, 120, 20, 60)       V    TB     yes
+506   VCC_1V2     CAP_4          Drop     —    (488, 120)      (478, 120, 20, 60)       V    TB     yes
+506   VCC_1V2     RES_2          Bridge   —    (408, 120)      (398, 120, 20, 60)       V    TB     yes
+507   VDD_3V3     lp322dcdc  *   —        —    (80, 200)       (80, 80, 120, 140)       V    LLRRB  yes
+507   VDD_3V3     CAP_1          Drop     —    (0, 220)        (-10, 220, 20, 60)       V    TB     yes
+507   VDD_3V3     RES_1          Bridge   —    (40, 180)       (30, 120, 20, 60)        V    BT     yes
+508   __net_1     lp322dcdc  *   —        —    (80, 100)       (80, 80, 120, 140)       V    LLRRB  yes
+508   __net_1     CAP_2          Drop     —    (-40, 120)      (-50, 120, 20, 60)       V    TB     yes
+508   __net_1     RES_1          Bridge   —    (40, 120)       (30, 120, 20, 60)        V    BT     yes
+509   __net_3     lp322dcdc  *   —        —    (200, 100)      (80, 80, 120, 140)       V    LLRRB  yes
+509   __net_3     CAP_5          Bridge   —    (240, 120)      (230, 120, 20, 60)       V    BT     yes
+509   __net_3     IND_1          Series   —    (292, 100)      (292, 90, 60, 20)        H    LR     yes
+510   __net_5     lp322dcdc  *   —        —    (200, 200)      (80, 80, 120, 140)       V    LLRRB  yes
+510   __net_5     CAP_5          Bridge   —    (240, 180)      (230, 120, 20, 60)       V    BT     yes
+510   __net_5     RES_2          Bridge   —    (408, 180)      (398, 120, 20, 60)       V    TB     yes
+510   __net_5     RES_3          Drop     —    (280, 220)      (270, 220, 20, 60)       V    TB     yes
 
 
 == EQUI-TREE AUDIT ==
@@ -50,9 +50,7 @@ nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)    
           column model does not exist yet
   skip  [A6] bridge endpoints share a column          due:M4
           column model does not exist yet
-  FAIL  [A7] no wire passes through a foreign box     due:M5
-          net 'GND' (nid=501) seg#1 crosses 'RES_2' (id=22) (SeriesHi=VCC_1V2:506, SeriesLo=__net_5:510)
-          net 'GND' (nid=501) seg#2 crosses 'RES_2' (id=22) (SeriesHi=VCC_1V2:506, SeriesLo=__net_5:510)
+  PASS  [A7] no wire passes through a foreign box     due:M3
   PASS  [A8] multi-tap nets carry a junction dot      due:M5
   PASS  [A9] one ground glyph per ground net          due:M0
   PASS  [A10] same-side rows exclusive, no foreign member due:M2
@@ -60,5 +58,17 @@ nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)    
   PASS  [A12] row bands do not overlap                 due:M3
   PASS  [A13] no overlapping pin slots                 due:M2
   PASS  [A14] pin labels fit inside the box            due:M2
-  PASS  [A15] ground glyphs share one band             due:M2
+  PASS  [A15] ground stub is short                     due:M2
+  PASS  [A16] ground net count conserved               due:M6
+  PASS  [A17] symbol text overlaps no box / foreign wire due:M3_5
+  PASS  [A18] no wire runs collinear with a box edge   due:M3_5
+  PASS  [A21] same-row members do not collide          due:M4
+  PASS  [A22] cross-row member sits in both trunk spans due:M4
+  PASS  [A23] shunt sits next to its decoupled pin     due:M4
+  PASS  [A24] same-side members do not cross           due:M5
+  PASS  [A25] label text clears foreign member boxes   due:M5
+  PASS  [A26] shunt up/down balance on a row           due:M5
+  PASS  [A27] IC side pin sits on its net's row        due:M6
+  PASS  [A28] Along part's two nets share a row        due:M6
+  PASS  [A29] run trunks do not overlap                due:M6
 

@@ -796,6 +796,11 @@ impl McModuleInst {
 
         // ── Ground net re-partition: GND by writing line + reference form ──
         self.split_ground_nets();
+
+        // ── A net must have at least 2 points ──
+        // A single node is not a net; drop any 1-point residue (e.g. a lone
+        // ground label whose pins were all pulled into local GND groups).
+        self.nets.retain(|(_, pts)| pts.len() >= 2);
     }
 
     // ========================================================================
@@ -886,10 +891,16 @@ impl McModuleInst {
                     if label_grounds.is_empty() && others.is_empty() {
                         return None;
                     }
-                    let line = c.source_span.as_ref().map(|p| p.offset).unwrap_or(0);
+                    // Real source line number (byte offset -> line via the
+                    // line index; guards are pushed during Pass2 by mcb_pass2).
+                    let line = c.source_span.as_ref().map(|p| {
+                        crate::db::infra::context::lookup_line_col(&p.uri, p.offset)
+                            .map(|(l, _)| l)
+                            .unwrap_or(0)
+                    });
                     Some(Touch {
                         id: c.id,
-                        line,
+                        line: line.unwrap_or(0),
                         label_grounds,
                         others,
                     })
@@ -935,6 +946,24 @@ impl McModuleInst {
                 component_owners.contains(owner_of(o))
             };
 
+            // src -> the source line where it is directly wired to a label
+            // ground (e.g. `lp322dcdc.2` wired to `GND` on line 112). Passives
+            // hung on the SAME line as that direct wiring belong to the central
+            // group (one statement = one local ground, e.g. the USB socket
+            // `(usbsock.5 + ... + usbsock.9) + TP3 -> vin.GND` is a single GND);
+            // only passives hung from a DIFFERENT statement form a pin-key group.
+            let mut src_line: HashMap<String, u32> = HashMap::new();
+            for t in &touches {
+                if t.label_grounds.is_empty() {
+                    continue;
+                }
+                for o in &t.others {
+                    if comp_sources.contains(o) && !src_line.contains_key(o) {
+                        src_line.insert(o.clone(), t.line);
+                    }
+                }
+            }
+
             // Central group: all ground sources (the real ground nodes).
             let mut pin_groups: std::collections::BTreeMap<String, Vec<NetPoint>> =
                 std::collections::BTreeMap::new();
@@ -954,7 +983,13 @@ impl McModuleInst {
                     };
                     if t.label_grounds.is_empty() {
                         if let Some(src) = t.others.iter().find(|o2| comp_sources.contains(*o2)) {
-                            pin_groups.entry(src.clone()).or_default().push(np);
+                            // Same statement as the source's own ground wiring:
+                            // stays in the central group (no pin-key split).
+                            let same_line =
+                                src_line.get(src).copied() == Some(t.line) && t.line != 0;
+                            if !same_line {
+                                pin_groups.entry(src.clone()).or_default().push(np);
+                            }
                         }
                     } else {
                         line_groups.entry((t.line, t.id)).or_default().push(np);
@@ -984,27 +1019,46 @@ impl McModuleInst {
                 .collect();
 
             // Rebuild the split nets. Every group carries its own local GND
-            // symbol (a synthetic NetPoint whose path is "GND"), so each is a
-            // complete >=2-point net. All groups are named "GND".
+            // symbol with a DISTINCT identity and name, so the InstTable can
+            // resolve each to its own label (no shared "GND" node):
+            //   - central   : "GND"              — the real ground sources
+            //   - pin group : "GND@<component>"  — passives on one component
+            //                                     ground pin (pin key)
+            //   - line group: "GND@<line>"       — passives on one label/bus
+            //                                     ground statement
             let mut out: Vec<(String, Vec<NetPoint>)> = Vec::new();
-            if !central.is_empty() {
+            // Central group: only emit when it has >= 2 points. A lone ground
+            // label (e.g. `GND` / `dc.GND` with all its pins pulled into local
+            // groups) is a single node, not a net — it must not surface as a
+            // `GND (1 pts) (stub)`.
+            if central.len() >= 2 {
                 central.sort_by(|a, b| a.path.cmp(&b.path));
                 out.push(("GND".to_string(), central));
             }
-            for (_src, mut np) in pin_groups {
+            for (src, mut np) in pin_groups {
                 np.sort_by(|a, b| a.path.cmp(&b.path));
                 if !np.is_empty() {
-                    let mut grp = vec![NetPoint::new("GND", IOType::None)];
+                    let name = format!("GND@{}", owner_of(&src));
+                    let gnd = NetPoint::new(&name, IOType::None);
+                    self.labels.insert(name.clone(), gnd.clone());
+                    let mut grp = vec![gnd];
                     grp.append(&mut np);
-                    out.push(("GND".to_string(), grp));
+                    out.push((name, grp));
                 }
             }
-            for (_key, mut np) in line_groups {
+            for ((line, id), mut np) in line_groups {
                 np.sort_by(|a, b| a.path.cmp(&b.path));
                 if !np.is_empty() {
-                    let mut grp = vec![NetPoint::new("GND", IOType::None)];
+                    let name = if line >= 2 {
+                        format!("GND@{}", line)
+                    } else {
+                        format!("GND@c{}", id)
+                    };
+                    let gnd = NetPoint::new(&name, IOType::None);
+                    self.labels.insert(name.clone(), gnd.clone());
+                    let mut grp = vec![gnd];
                     grp.append(&mut np);
-                    out.push(("GND".to_string(), grp));
+                    out.push((name, grp));
                 }
             }
 
