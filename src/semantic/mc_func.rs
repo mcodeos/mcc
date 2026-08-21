@@ -334,11 +334,11 @@ pub struct McFunction {
     /// Set by [`parse_body`] when it encounters a `return` statement.
     pub returns: McFuncReturn,
     pub insts: McInstances,
-    pub lines: Vec<McPhrase>,
-    /// Source byte offset of each body line, parallel to `lines`. Used by
+    pub stmts: Vec<McPhrase>,
+    /// Source byte offset of each body stmt, parallel to `stmts`. Used by
     /// Pass2 func-body expansion to attribute anonymous instance names and
-    /// connection provenance to the exact source line of the construction.
-    pub line_offsets: Vec<u32>,
+    /// connection provenance to the exact source stmt of the construction.
+    pub stmt_offsets: Vec<u32>,
     /// Conditional blocks (if/else if/else) parsed from the function body.
     /// Lines are pre-parsed into McPhrase; evaluated at instantiation time
     /// against actual parameter values.
@@ -353,7 +353,7 @@ pub struct McFunction {
 
 impl McFunction {
     /// The file this function was parsed from. `None` only if the body was
-    /// never parsed, which means there are no body lines to expand.
+    /// never parsed, which means there are no body stmts to expand.
     pub fn source_uri(&self) -> Option<&crate::McURI> {
         self.uri.as_ref()
     }
@@ -377,8 +377,8 @@ impl McFunction {
             params: McParamDeclares::new(),
             returns: McFuncReturn::Implicit,
             insts: McInstances::new(),
-            lines: Vec::new(),
-            line_offsets: Vec::new(),
+            stmts: Vec::new(),
+            stmt_offsets: Vec::new(),
             conds: Vec::new(),
             called_time: 0,
             anon_counter: 1,
@@ -481,8 +481,8 @@ impl McFunction {
                             //   NET → IOTYPE_RETURN(→ X | sibling X)        (typical)
                             //   NET → IOTYPE_RETURN  (bare `return`)
                             // Sniff for the marker first; if found, divert
-                            // the line into the return slot instead of pushing
-                            // it onto `self.lines`.
+                            // the stmt into the return slot instead of pushing
+                            // it onto `self.stmts`.
                             if Self::find_return_marker(&subnode).is_some() {
                                 self.handle_return(&mut wrapper, &body_node, &subnode);
                                 continue;
@@ -510,28 +510,28 @@ impl McFunction {
                             }
                             match McPhrase::new(&subnode, &mut wrapper) {
                                 Some(net) => {
-                                    // Keep the source byte offset of this body line
-                                    // parallel to `lines` so Pass2 can attribute
-                                    // anonymous instances / connections to the exact line.
-                                    self.line_offsets.push(subnode.get_pos() as u32);
-                                    self.lines.push(net);
+                                    // Keep the source byte offset of this body stmt
+                                    // parallel to `stmts` so Pass2 can attribute
+                                    // anonymous instances / connections to the exact stmt.
+                                    self.stmt_offsets.push(subnode.get_pos() as u32);
+                                    self.stmts.push(net);
                                 }
                                 None => {
                                     // ── P1 fix: no longer silently discarded ────────────────────
-                                    // Previously `None => {}` silently swallowed unresolvable connection lines,
-                                    // causing whole line to disappear from netlist but errors=0/warnings=0
+                                    // Previously `None => {}` silently swallowed unresolvable connection stmts,
+                                    // causing whole stmt to disappear from netlist but errors=0/warnings=0
                                     // (typical: `MIC{P,N} -> cap[4:5]::CAP() -> uC.ADC{P,N}`).
                                     // Now upgraded to Warning (non-fatal, doesn't break errors=0 gate),
-                                    // with reconstructed source text, making any "whole-line evaporation" immediately visible.
-                                    let line_txt = subnode
+                                    // with reconstructed source text, making any "whole-stmt evaporation" immediately visible.
+                                    let stmt_txt = subnode
                                         .to_string()
                                         .unwrap_or_else(|| "<unprintable>".to_string());
                                     dlog_warning(
-                                        crate::errcodes::FUNC_LINE_DROPPED,
+                                        crate::errcodes::FUNC_STMT_DROPPED,
                                         &subnode,
                                         &crate::errcodes::format_msg(
-                                            crate::errcodes::FUNC_LINE_DROPPED,
-                                            &[&line_txt],
+                                            crate::errcodes::FUNC_STMT_DROPPED,
+                                            &[&stmt_txt],
                                         ),
                                     );
                                 }
@@ -555,14 +555,14 @@ impl McFunction {
                         // Parse conditional blocks (if/else if/else)
                         // The body_node is a COND_IF node; use McConds to parse
                         // the condition structure, then convert to McFuncConds
-                        // with pre-parsed McPhrase lines.
+                        // with pre-parsed McPhrase stmts.
                         use crate::semantic::basic::mc_conds::{McConds, McFuncConds};
                         if let Some(raw_conds) = McConds::new(&body_node) {
                             // ★ LSP: Record net refs inside if/else blocks so
-                            // identifiers on conditional net lines (e.g.
+                            // identifiers on conditional net stmts (e.g.
                             // `GPIO[2]`, `GND`) resolve for goto-definition.
-                            // Top-level lines are handled by the MCAST_NET
-                            // branch above; conditional lines were missing.
+                            // Top-level stmts are handled by the MCAST_NET
+                            // branch above; conditional stmts were missing.
                             {
                                 let scope = self
                                     .insts
@@ -587,14 +587,14 @@ impl McFunction {
                                 }
                             }
                             let parsed = McFuncConds::from_conds(&raw_conds, &mut wrapper);
-                            if !parsed.if_blocks.is_empty() || !parsed.else_lines.is_empty() {
+                            if !parsed.if_blocks.is_empty() || !parsed.else_stmts.is_empty() {
                                 if self.name.to_string().contains("i2c") {
                                     mcc_dbg!(
                                         "sem::fcall",
-                                        "[COND-PARSE] func={} if_blocks={} else_lines={}",
+                                        "[COND-PARSE] func={} if_blocks={} else_stmts={}",
                                         self.name,
                                         parsed.if_blocks.len(),
-                                        parsed.else_lines.len()
+                                        parsed.else_stmts.len()
                                     );
                                 }
                                 self.conds.push(parsed);
@@ -630,22 +630,22 @@ impl McFunction {
     // return-statement helpers
     // ========================================================================
 
-    /// Render the function body for display: plain connection lines followed
-    /// by conditional blocks (`if cond` / `else`, branch lines indented).
-    /// The model stores lines and conds separately, so source interleaving is
-    /// not preserved; conds are appended after the plain lines.
-    pub fn body_lines_display(&self) -> Vec<String> {
-        let mut lines: Vec<String> = self.lines.iter().map(|l| l.to_string()).collect();
+    /// Render the function body for display: plain connection stmts followed
+    /// by conditional blocks (`if cond` / `else`, branch stmts indented).
+    /// The model stores stmts and conds separately, so source interleaving is
+    /// not preserved; conds are appended after the plain stmts.
+    pub fn body_stmts_display(&self) -> Vec<String> {
+        let mut lines: Vec<String> = self.stmts.iter().map(|l| l.to_string()).collect();
         for c in &self.conds {
             for blk in &c.if_blocks {
                 lines.push(format!("if {}", blk.condition));
-                for l in &blk.lines {
+                for l in &blk.stmts {
                     lines.push(format!("    {}", l));
                 }
             }
-            if !c.else_lines.is_empty() {
+            if !c.else_stmts.is_empty() {
                 lines.push("else".to_string());
-                for l in &c.else_lines {
+                for l in &c.else_stmts {
                     lines.push(format!("    {}", l));
                 }
             }

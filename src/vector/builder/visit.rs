@@ -33,7 +33,7 @@ use crate::instant::insttab::{InstKind, InstOrigin, InstTable};
 use crate::instant::mc_mod::McModuleInst;
 use crate::vector::graph::extract_last_segment;
 
-use super::super::model::dock::{DockEnd, DockRef, MemberLink, PortDock};
+use super::super::model::link::{LinkEnd, LinkRef, MemberLane, PortLink};
 use super::super::model::{McVec, McVecBlock, McVecNet};
 use super::report::{
     BuildMode, BuilderError, BuilderReport, DroppedNet, PartialNet, ResolutionOutcome,
@@ -61,7 +61,7 @@ fn conn_dir_to_pair_dir(d: ConnDir) -> PairDir {
 /// the source instead of reverse-engineering it from the merged shape.
 fn pair_with_conn_meta(mut p: ConnPair, conn: &crate::instant::mc_net::ConnectionInst) -> ConnPair {
     p.op = conn.op;
-    p.with_meta(conn.source_span.clone(), conn.port_group.clone())
+    p.with_meta(conn.source_span.clone(), conn.link.clone())
 }
 
 // ============================================================================
@@ -141,7 +141,7 @@ impl<'a> McVecBuilder<'a> {
                 // classification is structured (kind != Plain), not just the
                 // width heuristic.
                 self.shape_stats
-                    .observe(&net.name, net.shape.as_ref(), net.port_group.as_ref());
+                    .observe(&net.name, net.shape.as_ref(), net.link.as_ref());
             }
         }
         for sub in &block.blocks {
@@ -293,9 +293,9 @@ impl<'a> McVecBuilder<'a> {
         }
 
         // 3. Build McVecNet from connections
-        let (nets, docks) = self.build_nets_from_connections(inst, &my_path);
+        let (nets, links) = self.build_nets_from_connections(inst, &my_path);
         block.nets = nets;
-        block.port_docks = docks;
+        block.port_links = links;
 
         // ★ M6.5: ground nets follow the pass2 `split_ground_nets` grouping
         // (per writing line / reference form), NOT the builder's merged single
@@ -519,7 +519,7 @@ impl<'a> McVecBuilder<'a> {
         &mut self,
         inst: &McModuleInst,
         module_path: &str,
-    ) -> (Vec<super::super::model::McVecNet>, Vec<PortDock>) {
+    ) -> (Vec<super::super::model::McVecNet>, Vec<PortLink>) {
         // Step 1: Group by net_name, collect all connection pairs
         let mut net_groups: NetGroupMap = NetGroupMap::new();
 
@@ -1135,17 +1135,17 @@ impl<'a> McVecBuilder<'a> {
 
         // Step 2: Generate McVecNet for each group
         let mut result = Vec::with_capacity(net_groups.len());
-        // ── §8.9.4: coarse dock aggregation ─────────────────────────────────────
+        // ── §8.9.4: coarse link aggregation ─────────────────────────────────────
         // Each fine net whose pairs carry one shared structured group context
-        // (`PortGroupCtx`, same name + kind) is a member of a coarse
-        // `PortDock`. Docks are keyed by the pure group name (e.g. "SPI0"), so
-        // all member nets of one port-pair aggregate into a single dock even
-        // when the source writes per-member connections. Dock ids are assigned
+        // (`LinkCtx`, same name + kind) is a member of a coarse
+        // `PortLink`. Links are keyed by the pure group name (e.g. "SPI0"), so
+        // all member nets of one port-pair aggregate into a single link even
+        // when the source writes per-member connections. Link ids are assigned
         // in first-seen order over net_groups (a BTreeMap → deterministic), and
-        // each member net gets a `DockRef { id, lane }` back-pointer.
-        let mut dock_ids: HashMap<String, i64> = HashMap::new();
-        let mut next_dock_id: i64 = 0;
-        let mut docks: Vec<PortDock> = Vec::new();
+        // each member net gets a `LinkRef { id, lane }` back-pointer.
+        let mut link_ids: HashMap<String, i64> = HashMap::new();
+        let mut next_link_id: i64 = 0;
+        let mut links: Vec<PortLink> = Vec::new();
         for (net_name, pairs) in net_groups {
             // ★ P7-4 diagnostic: group details (name + pairs), for cross-build diff
             crate::vlog!(
@@ -1157,18 +1157,18 @@ impl<'a> McVecBuilder<'a> {
             let nid = self.next_net_id();
             let mut mcvec_net = merge_pairs_to_vecnet(nid, net_name.clone(), &pairs);
 
-            // ── dock attachment (informational, never drops/merges nets) ──
-            if let Some(pg) = pairs.first().and_then(|p| p.port_group.clone()) {
+            // ── link attachment (informational, never drops/merges nets) ──
+            if let Some(pg) = pairs.first().and_then(|p| p.link.clone()) {
                 // FIX-B may have merged groups of different port groups; only
-                // dock when every pair agrees on the same group identity
+                // link when every pair agrees on the same group identity
                 // (name + kind).
                 let all_same = pairs.iter().all(|p| {
-                    p.port_group.as_ref().map(|g| (g.name.as_deref(), g.kind))
+                    p.link.as_ref().map(|g| (g.name.as_deref(), g.kind))
                         == Some((pg.name.as_deref(), pg.kind))
                 });
-                // §8.9.6: only real bus/interface member lanes form docks —
+                // §8.9.6: only real bus/interface member lanes form links —
                 // scalar labels / plain pins (member == None) stay free nets,
-                // matching the render-layer dock criterion.
+                // matching the render-layer link criterion.
                 if pg.member.is_some() && all_same {
                     // Member name of this net: explicit lane member > group
                     // member > the net name itself.
@@ -1177,38 +1177,38 @@ impl<'a> McVecBuilder<'a> {
                         .find_map(|p| p.lane.as_ref().and_then(|l| l.name.clone()))
                         .or_else(|| pg.member.clone())
                         .unwrap_or_else(|| net_name.clone());
-                    // Dock key = pure group name (already member-free).
+                    // Link key = pure group name (already member-free).
                     let base = pg.name.clone().unwrap_or_else(|| net_name.clone());
                     let kind = pg.kind;
-                    let dock_id = match dock_ids.get(&base) {
+                    let link_id = match link_ids.get(&base) {
                         Some(&id) => id,
                         None => {
-                            let id = next_dock_id;
-                            next_dock_id += 1;
-                            let left = dock_end_from_id(self.inst_table, pairs[0].left, &base);
-                            let right = dock_end_from_id(self.inst_table, pairs[0].right, &base);
-                            let mut dock = PortDock::new(id, base.clone(), kind, left, right);
-                            dock.op = pairs.iter().find_map(|p| p.op);
-                            docks.push(dock);
-                            dock_ids.insert(base.clone(), id);
+                            let id = next_link_id;
+                            next_link_id += 1;
+                            let left = link_end_from_id(self.inst_table, pairs[0].left, &base);
+                            let right = link_end_from_id(self.inst_table, pairs[0].right, &base);
+                            let mut link = PortLink::new(id, base.clone(), kind, left, right);
+                            link.op = pairs.iter().find_map(|p| p.op);
+                            links.push(link);
+                            link_ids.insert(base.clone(), id);
                             id
                         }
                     };
                     let mut lane_used: Option<u16> = None;
-                    if let Some(dock) = docks.iter_mut().find(|d| d.id == dock_id) {
+                    if let Some(link) = links.iter_mut().find(|d| d.id == link_id) {
                         // Lane index: source lane when present (bracket mode),
-                        // else the member's position within the dock.
+                        // else the member's position within the link.
                         let lane = pairs
                             .iter()
                             .find_map(|p| p.lane.as_ref().map(|l| l.index))
-                            .unwrap_or(dock.members.len() as u16);
+                            .unwrap_or(link.members.len() as u16);
                         lane_used = Some(lane);
-                        if !dock
+                        if !link
                             .members
                             .iter()
                             .any(|m| m.lane == lane && m.member == member)
                         {
-                            dock.members.push(MemberLink {
+                            link.members.push(MemberLane {
                                 member,
                                 lane,
                                 left_pin: pairs[0].left,
@@ -1217,7 +1217,7 @@ impl<'a> McVecBuilder<'a> {
                         }
                     }
                     if let Some(lane) = lane_used {
-                        mcvec_net.dock = Some(DockRef { id: dock_id, lane });
+                        mcvec_net.link_ref = Some(LinkRef { id: link_id, lane });
                     }
                 }
             }
@@ -1225,7 +1225,7 @@ impl<'a> McVecBuilder<'a> {
             result.push(mcvec_net);
         }
 
-        (result, docks)
+        (result, links)
     }
 
     // ========================================================================
@@ -1354,17 +1354,17 @@ fn segment_net_name(inst_table: &InstTable, base: &str, seg: &[i64], k: usize) -
     format!("{base}~{k}")
 }
 
-/// Derive a coarse [`DockEnd`] from an InstTable entry id: the owning instance
+/// Derive a coarse [`LinkEnd`] from an InstTable entry id: the owning instance
 /// (parent's leaf name) and the port name. `base` is the port base name
 /// (e.g. "UART0", "SPI0"). The port is read from the pin's dotted class name
 /// when present (interface member pins register as "SPI0.CS" → "SPI0"),
 /// falling back to `base` when the path carries it, then to the entry's own
 /// leaf segment ("J_DEBUG.1" → "1"). Synthetic ids (< 0) and unknown entries
-/// yield an empty end — the dock layer is informational and must never block
+/// yield an empty end — the link layer is informational and must never block
 /// net building.
-fn dock_end_from_id(table: &InstTable, id: i64, base: &str) -> DockEnd {
+fn link_end_from_id(table: &InstTable, id: i64, base: &str) -> LinkEnd {
     if id < 0 {
-        return DockEnd {
+        return LinkEnd {
             instance: None,
             port: String::new(),
             iface_class: None,
@@ -1389,14 +1389,14 @@ fn dock_end_from_id(table: &InstTable, id: i64, base: &str) -> DockEnd {
             } else {
                 e.path.rsplit('.').next().unwrap_or("").to_string()
             };
-            DockEnd {
+            LinkEnd {
                 instance,
                 port,
                 iface_class: None,
                 io: Some(e.io_type.clone()),
             }
         }
-        None => DockEnd {
+        None => LinkEnd {
             instance: None,
             port: String::new(),
             iface_class: None,

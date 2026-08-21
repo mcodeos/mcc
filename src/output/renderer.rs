@@ -12,7 +12,7 @@ pub trait OutputRenderer {
     fn pass1_definitions(&self, modules: usize, components: usize, interfaces: usize);
     fn module_ports(&self, module_def: &McModule);
     fn module_symbols(&self, module_def: &McModule);
-    fn module_lines(&self, module_def: &McModule);
+    fn module_stmts(&self, module_def: &McModule);
 
     fn pass2_header(&self, top_name: &str);
     fn pass2_failed(&self, err: &str);
@@ -54,7 +54,7 @@ impl OutputRenderer for SilentRenderer {
     fn pass1_definitions(&self, _: usize, _: usize, _: usize) {}
     fn module_ports(&self, _: &McModule) {}
     fn module_symbols(&self, _: &McModule) {}
-    fn module_lines(&self, _: &McModule) {}
+    fn module_stmts(&self, _: &McModule) {}
     fn pass2_header(&self, _: &str) {}
     fn pass2_failed(&self, _: &str) {}
     fn instances(&self, _: &MccProjectTree, _: usize) {}
@@ -146,14 +146,14 @@ impl OutputRenderer for TextRenderer {
         }
     }
 
-    fn module_lines(&self, module_def: &McModule) {
-        println!(" lines ({}):", module_def.lines.len());
-        if module_def.lines.is_empty() {
+    fn module_stmts(&self, module_def: &McModule) {
+        println!(" stmts ({}):", module_def.stmts.len());
+        if module_def.stmts.is_empty() {
             println!("   (none)");
         } else {
-            for (i, line) in module_def.lines.iter().enumerate() {
+            for (i, stmt) in module_def.stmts.iter().enumerate() {
                 println!("   Series[{}]:", i);
-                crate::cmds::print::print_phrase_members(line, "     ");
+                crate::cmds::print::print_phrase_members(stmt, "     ");
             }
         }
     }

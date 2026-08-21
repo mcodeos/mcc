@@ -8,7 +8,7 @@
 //! - `instantiate_module_construction`     —— Inline sub-module call (`PowerDomain(dc24v)`)
 //! - `instantiate_user_func`               —— User function body expansion (`func input(sin) { ... }`)
 //! - `instantiate_instance_method`         —— Instance method (`uC.power(...)`)
-//! - `prefix_instance_line/phrase/node_element` —— Label prefixing in instance method bodies
+//! - `prefix_instance_stmt/phrase/node_element` —— Label prefixing in instance method bodies
 
 use super::expand::ExpansionContext;
 use super::funccall::FuncCallInst;
@@ -30,14 +30,14 @@ use crate::semantic::component::McComponent;
 use crate::semantic::mc_func::{McFuncReturn, McFunction};
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::module::McModule;
-use crate::vector::model::dock::DockKind;
+use crate::vector::model::link::LinkKind;
 use crate::McIds;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 // ── P2-2: thread_local side channel ──────────────────────────────────────
 // instantiate_instance_method writes to this cell when it detects
-// McFuncReturn::Endpoint, and line.rs's process_member_internal reads it
+// McFuncReturn::Endpoint, and stmt.rs's process_member_internal reads it
 // in the PassThrough path and registers it to auto_inst_map.
 thread_local! {
     pub(super) static LAST_RETURN_ENDPOINT: std::cell::RefCell<Option<String>> =
@@ -51,7 +51,7 @@ impl McModuleInst {
 
     /// Inline component construction
     ///
-    /// Handles patterns like `CAP(0.1uF, 50V)` / `Diode('SMBJ30A')` / `HDR(46)` in connection lines.
+    /// Handles patterns like `CAP(0.1uF, 50V)` / `Diode('SMBJ30A')` / `HDR(46)` in connection stmts.
     /// Automatically creates component instances, and generates connections from the FuncCall's
     /// own left/right to the component pins.
     ///
@@ -140,7 +140,7 @@ impl McModuleInst {
                         self.failed_classes.insert(type_name.clone());
                         self.failed_records.push(FailedRecord {
                             module: self.name.clone(),
-                            src_line: self.current_line_span.as_ref().and_then(|s| {
+                            src_line: self.current_stmt_span.as_ref().and_then(|s| {
                                 crate::db::infra::context::lookup_line_col(&self.def_uri, s.offset)
                                     .map(|(line, _col)| line as usize)
                             }),
@@ -306,7 +306,7 @@ impl McModuleInst {
             }
 
             // If left/right are both empty but there are IO pins, rely on adjacent
-            // connections (handled by process_line outer layer)
+            // connections (handled by process_stmt outer layer)
         } else {
             // 2-pin or no IO annotation: original logic (get_left_pin / get_right_pin)
             if !left.is_empty() {
@@ -363,7 +363,7 @@ impl McModuleInst {
 
     /// Inline module call
     ///
-    /// Handles patterns like `PowerDomain(dc24v)` / `Uart2RS485(DC.IVCC5)` in connection lines.
+    /// Handles patterns like `PowerDomain(dc24v)` / `Uart2RS485(DC.IVCC5)` in connection stmts.
     /// Automatically creates sub-module instances, recursively instantiates them,
     /// and generates interface connections.
     ///
@@ -406,7 +406,7 @@ impl McModuleInst {
         self.expansion.set_sub_target(eidx, inst_name.clone());
 
         // 3. Recursively instantiate the sub-module interior (expand its ports,
-        //    declarations, connection lines)
+        //    declarations, connection stmts)
         //    ★ On failure, record a diagnostic but keep the instance
         if let Err(e) = sub_inst.instantiate() {
             self.record_error(
@@ -568,14 +568,14 @@ impl McModuleInst {
         let bindings = McParamBindings::bind(&func_def.params, params)
             .map_err(|e| InstError::Other(format!("Func param bind: {e:?}")))?;
 
-        // 2. Expand function body lines with parameter substitution
-        if !func_def.lines.is_empty() {
-            // ── P4-b: Isolate anonymous instance entries for each body line in the same func ──
-            // Take an outer snapshot; reset before each line → @CAP/@RES entries
-            // from previous body lines do not linger, preventing member_key pointer
-            // reuse that causes the next line's .Cap()/.Pullup() to be mis-paired
-            // with the previous line's instance (root cause of VDD/VDD_CORE short
-            // circuits); entries from outer lines remain because they are in the
+        // 2. Expand function body stmts with parameter substitution
+        if !func_def.stmts.is_empty() {
+            // ── P4-b: Isolate anonymous instance entries for each body stmt in the same func ──
+            // Take an outer snapshot; reset before each stmt → @CAP/@RES entries
+            // from previous body stmts do not linger, preventing member_key pointer
+            // reuse that causes the next stmt's .Cap()/.Pullup() to be mis-paired
+            // with the previous stmt's instance (root cause of VDD/VDD_CORE short
+            // circuits); entries from outer stmts remain because they are in the
             // snapshot (preserves the chained return `X6.setup(...).XTAL`).
             let outer_auto_inst = self.auto_inst_map.clone();
             // ── Expansion provenance: UserFunc (body expansion) ──
@@ -586,21 +586,21 @@ impl McModuleInst {
                 self.current_call_site(),
                 Self::func_def_site(&func_def),
             );
-            for (_li, line) in func_def.lines.iter().enumerate() {
+            for (_li, stmt) in func_def.stmts.iter().enumerate() {
                 self.auto_inst_map = outer_auto_inst.clone();
-                // Attribute anonymous instances/connections of this body line
-                // to its exact source line in the func's own file. RAII
-                // (§7.11(2)): `with_func_line` restores `current_func_span`
-                // even when `process_line` errors and we return early.
-                self.with_func_line(&func_def, Some(_li), |this| -> Result<(), _> {
-                    // Substitute formal params -> actual args in each connection line
+                // Attribute anonymous instances/connections of this body stmt
+                // to its exact source stmt in the func's own file. RAII
+                // (§7.11(2)): `with_func_stmt` restores `current_func_span`
+                // even when `process_stmt` errors and we return early.
+                self.with_func_stmt(&func_def, Some(_li), |this| -> Result<(), _> {
+                    // Substitute formal params -> actual args in each connection stmt
                     // Also substitute 'this' with caller_inst_name
                     let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
-                        line.clone()
+                        stmt.clone()
                     } else {
-                        Self::substitute_line(line, &bindings, None)
+                        Self::substitute_stmt(stmt, &bindings, None)
                     };
-                    if let Err(e) = this.process_line(&substituted) {
+                    if let Err(e) = this.process_stmt(&substituted) {
                         this.expansion.end(eidx);
                         return Err(e);
                     }
@@ -619,17 +619,17 @@ impl McModuleInst {
                     })
                     .collect();
                 for conds in &func_def.conds {
-                    let matched_lines = conds.evaluate(&params);
-                    for line in matched_lines {
-                        // Conditional-block lines carry no per-line offset; fall
-                        // back to the func's definition line. RAII §7.11(2).
-                        self.with_func_line(&func_def, None, |this| -> Result<(), _> {
+                    let matched_stmts = conds.evaluate(&params);
+                    for stmt in matched_stmts {
+                        // Conditional-block stmts carry no per-stmt offset; fall
+                        // back to the func's definition stmt. RAII §7.11(2).
+                        self.with_func_stmt(&func_def, None, |this| -> Result<(), _> {
                             let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
-                                line.clone()
+                                stmt.clone()
                             } else {
-                                Self::substitute_line(line, &bindings, None)
+                                Self::substitute_stmt(stmt, &bindings, None)
                             };
-                            if let Err(e) = this.process_line(&substituted) {
+                            if let Err(e) = this.process_stmt(&substituted) {
                                 this.expansion.end(eidx);
                                 return Err(e);
                             }
@@ -706,7 +706,7 @@ impl McModuleInst {
         let substituted = if bindings.is_empty() && this_name.is_none() {
             endpoint_phrase.clone()
         } else {
-            Self::substitute_line(endpoint_phrase, bindings, None)
+            Self::substitute_stmt(endpoint_phrase, bindings, None)
         };
 
         // 2. Resolve to McBus list
@@ -916,22 +916,22 @@ impl McModuleInst {
                     }
                 }
             }
-            // ── P4-b: Isolate anonymous instance entries for each body line
+            // ── P4-b: Isolate anonymous instance entries for each body stmt
             //    in the same func ──
             // (This is a sub-module; snapshot-reset sub.auto_inst_map)
             let outer = sub.auto_inst_map.clone();
-            for (_li, line) in func_def.lines.iter().enumerate() {
+            for (_li, stmt) in func_def.stmts.iter().enumerate() {
                 sub.auto_inst_map = outer.clone();
-                // Attribute anonymous instances/connections of this body line
-                // to its exact source line in the func's own file. RAII
+                // Attribute anonymous instances/connections of this body stmt
+                // to its exact source stmt in the func's own file. RAII
                 // (§7.11(2)): restore happens even on early exit.
-                sub.with_func_line(func_def, Some(_li), |this| {
+                sub.with_func_stmt(func_def, Some(_li), |this| {
                     let substituted = if value_bindings.is_empty() {
-                        line.clone()
+                        stmt.clone()
                     } else {
-                        Self::substitute_line(line, &value_bindings, None)
+                        Self::substitute_stmt(stmt, &value_bindings, None)
                     };
-                    if let Err(_e) = this.process_line(&substituted) {
+                    if let Err(_e) = this.process_stmt(&substituted) {
                         // Sub-module's own diagnostics surface with flattening;
                         // here only log, do not abort
                     }
@@ -960,17 +960,17 @@ impl McModuleInst {
                 })?;
             let sub = &mut self.sub_modules[idx];
             for conds in &func_def.conds {
-                let matched_lines = conds.evaluate(&params);
-                for line in matched_lines {
-                    // Conditional-block lines carry no per-line offset; fall
-                    // back to the func's definition line. RAII §7.11(2).
-                    sub.with_func_line(func_def, None, |this| {
+                let matched_stmts = conds.evaluate(&params);
+                for stmt in matched_stmts {
+                    // Conditional-block stmts carry no per-stmt offset; fall
+                    // back to the func's definition stmt. RAII §7.11(2).
+                    sub.with_func_stmt(func_def, None, |this| {
                         let substituted = if value_bindings.is_empty() {
-                            line.clone()
+                            stmt.clone()
                         } else {
-                            Self::substitute_line(line, &value_bindings, None)
+                            Self::substitute_stmt(stmt, &value_bindings, None)
                         };
-                        if let Err(_e) = this.process_line(&substituted) {}
+                        if let Err(_e) = this.process_stmt(&substituted) {}
                     });
                 }
             }
@@ -1066,7 +1066,7 @@ impl McModuleInst {
             } else {
                 self.expand_node_element(&McBus::new(&boundary_name))
             };
-            // ★ P9-A2: port_group from the declared port name (e.g. "SPI",
+            // ★ P9-A2: link from the declared port name (e.g. "SPI",
             // "MIC"). RAII (§7.11(2)): restored right after the boundary
             // connection, so an early error cannot leak the group into the
             // next connection.
@@ -1075,12 +1075,12 @@ impl McModuleInst {
                 .and_then(|sub| sub.ports.iter().find(|p| p.name == declared_port_name))
                 .map(|p| {
                     if p.bus_members.is_empty() {
-                        DockKind::Plain
+                        LinkKind::Plain
                     } else {
-                        DockKind::Bus
+                        LinkKind::Bus
                     }
                 });
-            self.with_port_group(Some(declared_port_name.clone()), port_kind, |this| {
+            self.with_link(Some(declared_port_name.clone()), port_kind, |this| {
                 this.create_connection(left, right, ConnDir::Undirected, None)
             })?;
 
@@ -1290,23 +1290,23 @@ impl McModuleInst {
             let _ = self.ensure_bus(iface_name, member_names);
             // ── P2-7-XTAL: also register prefixed bus name ──
             // When the function body references a component interface (e.g. XTAL),
-            // prefix_instance_line_with_skip converts it to X6.XTAL as a Label.
+            // prefix_instance_stmt_with_skip converts it to X6.XTAL as a Label.
             // Register the prefixed name as a bus so lane-by-lane wiring can
             // expand it to individual pins.
             let prefixed_iface = format!("{inst_name}.{iface_name}");
             let _ = self.ensure_bus(&prefixed_iface, member_names);
         }
 
-        if func_def.lines.is_empty() {
+        if func_def.stmts.is_empty() {
             mcc_dbg!(
                 "inst::fcall",
-                "Warning: component method '{}.{}' has no parsed lines.",
+                "Warning: component method '{}.{}' has no parsed stmts.",
                 inst_name,
                 func_def.name
             );
             return Ok(());
         }
-        // ── P4-b: Isolate anonymous instance entries for each body line in the same func ──
+        // ── P4-b: Isolate anonymous instance entries for each body stmt in the same func ──
         let conn_start = self.connections.len(); // ← P4 backstop start point
         let _outer_auto_inst = self.auto_inst_map.clone();
         // ── Expansion provenance: InstanceMethod (component method, body
@@ -1318,37 +1318,37 @@ impl McModuleInst {
             self.current_call_site(),
             Self::func_def_site(func_def),
         );
-        for (_li, line) in func_def.lines.iter().enumerate() {
-            // Do not reset auto_inst_map; let it accumulate line by line inside
-            // the function body! This way components created in the previous line
-            // can still be resolved correctly in subsequent lines!
-            // RAII (§7.11(2)): `with_func_line` restores `current_func_span`
-            // even when `process_line` errors and we return early.
-            self.with_func_line(func_def, Some(_li), |this| -> Result<(), _> {
-                // Build ExpansionContext for this line (lifetime scoped per iteration)
+        for (_li, stmt) in func_def.stmts.iter().enumerate() {
+            // Do not reset auto_inst_map; let it accumulate stmt by stmt inside
+            // the function body! This way components created in the previous stmt
+            // can still be resolved correctly in subsequent stmts!
+            // RAII (§7.11(2)): `with_func_stmt` restores `current_func_span`
+            // even when `process_stmt` errors and we return early.
+            self.with_func_stmt(func_def, Some(_li), |this| -> Result<(), _> {
+                // Build ExpansionContext for this stmt (lifetime scoped per iteration)
                 let expansion_ctx = this
                     .find_component(inst_name)
                     .map(|comp| ExpansionContext::new(comp, bindings, this));
                 let substituted = if bindings.is_empty() {
-                    line.clone()
+                    stmt.clone()
                 } else {
-                    Self::substitute_line(line, bindings, expansion_ctx.as_ref())
+                    Self::substitute_stmt(stmt, bindings, expansion_ctx.as_ref())
                 };
                 // Drop expansion_ctx before mutable self borrows below
                 drop(expansion_ctx);
-                let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
+                let prefixed = Self::prefix_instance_stmt_with_skip(&substituted, inst_name, &skip);
                 // ── P2-7-XTAL: convert Labels that are known buses to Bus representations ──
-                // When prefix_instance_line_with_skip creates prefixed Labels like
+                // When prefix_instance_stmt_with_skip creates prefixed Labels like
                 // "X6.XTAL", they need to be converted to Bus("X6.XTAL", members)
                 // so that get_left_points/get_right_points can expand them to
                 // individual pin points and lane-by-lane wiring handles them correctly.
                 let expanded = this.expand_bus_labels(&prefixed);
                 mcc_dbg!(
                     "inst::fcall",
-                    "[RCM-DBG] module={} inst={inst_name} line={_li} expanded={expanded:?}",
+                    "[RCM-DBG] module={} inst={inst_name} stmt={_li} expanded={expanded:?}",
                     this.name
                 );
-                if let Err(e) = this.process_line(&expanded) {
+                if let Err(e) = this.process_stmt(&expanded) {
                     this.expansion.end(eidx);
                     return Err(e);
                 }
@@ -1377,24 +1377,24 @@ impl McModuleInst {
             let cond_conn_start = self.connections.len();
 
             for (_ci, conds) in func_def.conds.iter().enumerate() {
-                let matched_lines = conds.evaluate(&params);
-                for (_li, line) in matched_lines.iter().enumerate() {
-                    // Conditional-block lines carry no per-line offset; fall
-                    // back to the func's definition line. RAII §7.11(2).
-                    self.with_func_line(func_def, None, |this| -> Result<(), _> {
+                let matched_stmts = conds.evaluate(&params);
+                for (_li, stmt) in matched_stmts.iter().enumerate() {
+                    // Conditional-block stmts carry no per-stmt offset; fall
+                    // back to the func's definition stmt. RAII §7.11(2).
+                    self.with_func_stmt(func_def, None, |this| -> Result<(), _> {
                         let expansion_ctx = this
                             .find_component(inst_name)
                             .map(|comp| ExpansionContext::new(comp, bindings, this));
                         let substituted = if bindings.is_empty() {
-                            line.clone()
+                            stmt.clone()
                         } else {
-                            Self::substitute_line(line, bindings, expansion_ctx.as_ref())
+                            Self::substitute_stmt(stmt, bindings, expansion_ctx.as_ref())
                         };
                         drop(expansion_ctx);
                         let prefixed =
-                            Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
+                            Self::prefix_instance_stmt_with_skip(&substituted, inst_name, &skip);
                         let expanded = this.expand_bus_labels(&prefixed);
-                        this.process_line(&expanded)?;
+                        this.process_stmt(&expanded)?;
                         Ok(())
                     })?;
                 }
@@ -1451,7 +1451,7 @@ impl McModuleInst {
 
     /// ── P2-7-XTAL: Convert Labels that are known bus names to Bus representations ──
     ///
-    /// When `prefix_instance_line_with_skip` creates prefixed Labels like
+    /// When `prefix_instance_stmt_with_skip` creates prefixed Labels like
     /// "X6.XTAL", they are stored as `Endpoint(Single(Label("X6.XTAL")))`.
     /// However, `get_left_points`/`get_right_points` return empty for Labels
     /// (see points.rs lines 468-475), and `collect_one_lane_item` only adds
@@ -1557,7 +1557,7 @@ impl McModuleInst {
     ///
     /// When expanding instance method bodies, local labels need to be prefixed
     /// with the instance name to avoid conflicts with parent module labels.
-    pub(super) fn prefix_instance_line(phrase: &McPhrase, inst_name: &str) -> McPhrase {
+    pub(super) fn prefix_instance_stmt(phrase: &McPhrase, inst_name: &str) -> McPhrase {
         let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
         Self::prefix_instance_phrase_with_skip(phrase, inst_name, &empty)
     }
@@ -1572,7 +1572,7 @@ impl McModuleInst {
     ///     should not be prefixed to `uC.V1V2`
     ///   - Parent module port names (not internal pins of this component) should also
     ///     not be prefixed
-    pub(super) fn prefix_instance_line_with_skip(
+    pub(super) fn prefix_instance_stmt_with_skip(
         phrase: &McPhrase,
         inst_name: &str,
         skip: &std::collections::HashSet<String>,

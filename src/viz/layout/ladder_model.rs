@@ -69,7 +69,7 @@
 //! A rung is a chord of the ladder graph; identifying it topologically means finding
 //! faces — fragile, and unnecessary. `'` in the source *is* the authored intent, and
 //! it already reaches the box via
-//! `line.rs::bridge_passive_names → InstTable::bridge_passive_paths → from_block`.
+//! `stmt.rs::bridge_passive_names → InstTable::bridge_passive_paths → from_block`.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};

@@ -30,7 +30,7 @@
 
 use super::boxdef::Wire;
 use super::kinds::{EdgeType, NetKind};
-use crate::vector::model::dock::DockRef;
+use crate::vector::model::link::LinkRef;
 use std::fmt;
 
 // ============================================================================
@@ -143,12 +143,12 @@ pub struct VizNet {
     /// ★ P8-2 (G16): source span for bidirectional traceability.
     /// `(file, line)` — which source file and line created this net.
     pub source_span: Option<crate::semantic::common::SourcePos>,
-    /// ★ §8.9.6: structured group context that produced this net.
+    /// ★ §8.9.6: structured link context that produced this net.
     /// Used by R-M edge merge to group bus lanes.
-    pub port_group: Option<crate::vector::model::dock::PortGroupCtx>,
-    /// ★ §8.9.4: back-reference to the coarse `PortDock` this fine net belongs
-    /// to (dock id + lane index), copied from `McVecNet.dock`.
-    pub dock: Option<DockRef>,
+    pub link: Option<crate::vector::model::link::LinkCtx>,
+    /// ★ §8.9.4: back-reference to the coarse `PortLink` this fine net belongs
+    /// to (link id + lane index), copied from `McVecNet.link_ref`.
+    pub link_ref: Option<LinkRef>,
 }
 
 impl VizNet {
@@ -169,8 +169,8 @@ impl VizNet {
             route: None,
             rail: None,
             source_span: None,
-            port_group: None,
-            dock: None,
+            link: None,
+            link_ref: None,
         }
     }
 

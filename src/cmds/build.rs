@@ -1170,7 +1170,7 @@ module top {
         );
     }
 
-    // ── Arity-0 gate (line.rs instance-method dispatch) ────────────────
+    // ── Arity-0 gate (stmt.rs instance-method dispatch) ────────────────
     // A no-arg instance method called with arguments must NOT be dispatched:
     // dispatching it would silently drop the caller's args and wrongly expand
     // the no-arg body (e.g. `A -> GND_PIN` would short the pin to ground).

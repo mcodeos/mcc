@@ -59,7 +59,7 @@ fn check_closure_free_vars(acc: &mut CheckAccumulator) {
             s
         };
 
-        for phrase in &m.lines {
+        for phrase in &m.stmts {
             let text = format!("{}", phrase);
             check_closure_in_text(
                 &text,
@@ -71,9 +71,9 @@ fn check_closure_free_vars(acc: &mut CheckAccumulator) {
             );
         }
 
-        // Also check function body lines
+        // Also check function body stmts
         for func in m.funcs.iter() {
-            for phrase in &func.lines {
+            for phrase in &func.stmts {
                 let text = format!("{}", phrase);
                 let mut func_known = known_names.clone();
                 for d in func.params.iter() {

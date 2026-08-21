@@ -51,8 +51,8 @@ fn check_this_outside_instance(acc: &mut CheckAccumulator) {
             continue;
         }
         let m = entry.value();
-        // Only check top-level net lines (not func body lines)
-        for phrase in &m.lines {
+        // Only check top-level net stmts (not func body stmts)
+        for phrase in &m.stmts {
             let text = format!("{}", phrase);
             // Check for `this` as a standalone token
             for word in text.split_whitespace() {
@@ -88,7 +88,7 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
             continue;
         }
         let m = entry.value();
-        for phrase in &m.lines {
+        for phrase in &m.stmts {
             let text = format!("{}", phrase);
             if !text.contains("->") {
                 continue;
@@ -370,10 +370,10 @@ fn check_idx_key_collision(acc: &mut CheckAccumulator) {
 // Q2: `pins.X` where X not in pin table
 // ============================================================================
 
-/// Scans component function bodies and module body lines for `pins.X`
+/// Scans component function bodies and module body stmts for `pins.X`
 /// references, and verifies that X exists in the relevant pin/port table.
 fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
-    // ── Component-level: function body lines ──
+    // ── Component-level: function body stmts ──
     {
         let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
@@ -404,9 +404,9 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
 
             let comp_span = comp.span.start..comp.span.end;
 
-            // Check function body lines
+            // Check function body stmts
             for func in comp.funcs.iter() {
-                for phrase in &func.lines {
+                for phrase in &func.stmts {
                     scan_pins_refs(
                         &format!("{}", phrase),
                         &all_pin_names,
@@ -444,7 +444,7 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
         }
     }
 
-    // ── Module-level: body lines ──
+    // ── Module-level: body stmts ──
     {
         let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
@@ -464,8 +464,8 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
 
             let mod_span = m.span.start..m.span.end;
 
-            // Check module body lines
-            for phrase in &m.lines {
+            // Check module body stmts
+            for phrase in &m.stmts {
                 scan_pins_refs(
                     &format!("{}", phrase),
                     &port_names,
@@ -476,9 +476,9 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
                 );
             }
 
-            // Check function body lines within module
+            // Check function body stmts within module
             for func in m.funcs.iter() {
-                for phrase in &func.lines {
+                for phrase in &func.stmts {
                     scan_pins_refs(
                         &format!("{}", phrase),
                         &port_names,

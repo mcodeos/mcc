@@ -2,30 +2,31 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! [`PortDock`] — coarse-grained bus / interface docking layer
+//! [`PortLink`] — coarse-grained bus / interface link layer
 //!
 //! Net delivery is two-level (vec-dianlu.md §8.9.4):
 //!
-//! - **Coarse layer**: one [`PortDock`] per bus/interface dock in the source —
-//!   "`uC.UART0` ↔ `J_DEBUG.UART0`". It carries the dock identity (`kind`,
-//!   `iface_class`), the two `DockEnd`s (lopd / ropd sides), and the
-//!   connection semantics (`op` / `dir` / `order`) of the dock itself.
-//! - **Fine layer**: [`PortDock::members`] — one [`MemberLink`] per member lane,
-//!   giving the pin2pin relation (`TX ↔ RX`) with the member name and the two
-//!   pin ids.
+//! - **Link layer** (the coarse grouped connection): one [`PortLink`] per
+//!   bus/interface link in the source — "`uC.UART0` ↔ `J_DEBUG.UART0`". It
+//!   carries the link identity (`kind`, `iface_class`), the two `LinkEnd`s
+//!   (lopd / ropd sides), and the connection semantics (`op` / `dir` / `order`)
+//!   of the link itself.
+//! - **Lane layer** (the per-member connection): [`PortLink::members`] — one
+//!   [`MemberLane`] per member lane, giving the pin2pin relation (`TX ↔ RX`)
+//!   with the member name and the two pin ids.
 //!
-//! Flat [`McVecNet`]s stay untouched; each net that belongs to a dock points
-//! back via a [`DockRef`] so downstream can navigate coarse → fine or fine →
-//! coarse. The dock list is recursive (one `Vec<PortDock>` per graph layer,
+//! Flat [`McVecNet`]s stay untouched; each net that belongs to a link points
+//! back via a [`LinkRef`] so downstream can navigate link → lane or lane →
+//! link. The link list is recursive (one `Vec<PortLink>` per graph layer,
 //! following `sub_graphs`), which covers module nesting.
 
 use std::fmt;
 
 use crate::semantic::common::{ConnOp, IOType};
 
-/// What kind of source object produced this dock.
+/// What kind of source object produced this link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DockKind {
+pub enum LinkKind {
     /// A component/module bus port (`SPI{CS,SCLK,MOSI,MISO}`, `[VDD,GND]`)
     Bus,
     /// A standardized interface (`UART.TTL`, `I2C`, `SPI`) bound via `::`
@@ -36,30 +37,30 @@ pub enum DockKind {
     Plain,
 }
 
-impl DockKind {
+impl LinkKind {
     /// Human-readable label for displays
     pub fn label(self) -> &'static str {
         match self {
-            DockKind::Bus => "bus",
-            DockKind::Interface => "ifs",
-            DockKind::List => "list",
-            DockKind::Plain => "plain",
+            LinkKind::Bus => "bus",
+            LinkKind::Interface => "ifs",
+            LinkKind::List => "list",
+            LinkKind::Plain => "plain",
         }
     }
 }
 
-impl fmt::Display for DockKind {
+impl fmt::Display for LinkKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.label())
     }
 }
 
-/// One side of a dock: the owning instance + the port name.
+/// One side of a link: the owning instance + the port name.
 ///
 /// `instance == None` means the module-port boundary (the port is declared on
 /// the module itself; its mate lives in the sub-graph or the parent layer).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DockEnd {
+pub struct LinkEnd {
     /// Owning instance display name (last path segment, e.g. `uC`); `None` for
     /// a module port declaration.
     pub instance: Option<String>,
@@ -72,7 +73,7 @@ pub struct DockEnd {
     pub io: Option<IOType>,
 }
 
-impl fmt::Display for DockEnd {
+impl fmt::Display for LinkEnd {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.instance {
             Some(i) => write!(f, "{i}.{}", self.port),
@@ -81,9 +82,9 @@ impl fmt::Display for DockEnd {
     }
 }
 
-/// Fine layer: one member lane of the dock, pin2pin.
+/// Lane layer: one member lane of the link, pin2pin.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MemberLink {
+pub struct MemberLane {
     /// Member name, e.g. `TX` / `RX` / `SCLK` / `MISO`
     pub member: String,
     /// Stable lane index (position in the left-aligned merge order)
@@ -94,7 +95,7 @@ pub struct MemberLink {
     pub right_pin: i64,
 }
 
-impl fmt::Display for MemberLink {
+impl fmt::Display for MemberLane {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -107,28 +108,28 @@ impl fmt::Display for MemberLink {
     }
 }
 
-/// Coarse layer: one bus / interface dock between two `DockEnd`s.
+/// Link layer: one bus / interface link between two `LinkEnd`s.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PortDock {
-    /// Stable dock id (grouping key for the member nets)
+pub struct PortLink {
+    /// Stable link id (grouping key for the member nets)
     pub id: i64,
-    /// Dock display name (usually the port group name, e.g. `UART0` / `SPI`)
+    /// Link display name (usually the port group name, e.g. `UART0` / `SPI`)
     pub name: String,
-    /// Coarse identity of the dock
-    pub kind: DockKind,
-    /// Connection operator that produced the dock (`Series` for `->`, `Parallel` for `+`)
+    /// Coarse identity of the link
+    pub kind: LinkKind,
+    /// Connection operator that produced the link (`Series` for `->`, `Parallel` for `+`)
     pub op: Option<ConnOp>,
     /// lopd (left operand) side
-    pub left: DockEnd,
+    pub left: LinkEnd,
     /// ropd (right operand) side
-    pub right: DockEnd,
-    /// Fine layer: per-member pin2pin links
-    pub members: Vec<MemberLink>,
+    pub right: LinkEnd,
+    /// Lane layer: per-member pin2pin lanes
+    pub members: Vec<MemberLane>,
 }
 
-impl PortDock {
-    /// Create a dock with the given coarse identity and empty member list.
-    pub fn new(id: i64, name: String, kind: DockKind, left: DockEnd, right: DockEnd) -> Self {
+impl PortLink {
+    /// Create a link with the given coarse identity and empty member list.
+    pub fn new(id: i64, name: String, kind: LinkKind, left: LinkEnd, right: LinkEnd) -> Self {
         Self {
             id,
             name,
@@ -141,7 +142,7 @@ impl PortDock {
     }
 }
 
-impl fmt::Display for PortDock {
+impl fmt::Display for PortLink {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -159,28 +160,28 @@ impl fmt::Display for PortDock {
     }
 }
 
-/// §8.9.6: structured group context of one connection lane, decided at the
+/// §8.9.6: structured link context of one connection lane, decided at the
 /// AST layer (from the source phrase) instead of re-derived by string
 /// heuristics in the render layer.
 ///
 /// The legacy `port_group` string merged the group name and the member name
 /// into one dotted string (`"SPI0.CS"`), while scalar labels (`"V3V3"`) had
-/// no dot. [`PortGroupCtx`] splits that string into pure parts and carries
-/// the coarse [`DockKind`], so every layer — instant → Pass2 → JSON output →
-/// render — consumes the same structured connection info.
+/// no dot. [`LinkCtx`] splits that string into pure parts and carries
+/// the coarse [`LinkKind`], so every layer — instant → Pass2 → JSON output →
+/// render — consumes the same structured link info.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PortGroupCtx {
+pub struct LinkCtx {
     /// Pure group name without any member suffix, e.g. `SPI0` / `UART0` /
     /// `V3V3`. `None` for anonymous groups.
     pub name: Option<String>,
     /// Member name of this lane, e.g. `CS` / `TX`. `None` for non-member
     /// (scalar label / plain pin) connections.
     pub member: Option<String>,
-    /// Coarse kind of the group (`Bus` / `Interface` / `List` / `Plain`).
-    pub kind: DockKind,
+    /// Coarse kind of the link (`Bus` / `Interface` / `List` / `Plain`).
+    pub kind: LinkKind,
 }
 
-impl PortGroupCtx {
+impl LinkCtx {
     /// Build from the legacy combined group string plus the coarse kind.
     ///
     /// - `"SPI0.CS"` → `{ name: "SPI0", member: Some("CS"), kind }`
@@ -188,17 +189,17 @@ impl PortGroupCtx {
     ///
     /// A dot is only treated as the name/member separator when it is not the
     /// first or last character, so plain names like `V3V3` or `1` stay whole.
-    pub fn from_group_member(group: &str, kind: Option<DockKind>) -> Self {
+    pub fn from_group_member(group: &str, kind: Option<LinkKind>) -> Self {
         match group.rfind('.') {
             Some(d) if d > 0 && d + 1 < group.len() => Self {
                 name: Some(group[..d].to_string()),
                 member: Some(group[d + 1..].to_string()),
-                kind: kind.unwrap_or(DockKind::Bus),
+                kind: kind.unwrap_or(LinkKind::Bus),
             },
             _ => Self {
                 name: Some(group.to_string()),
                 member: None,
-                kind: kind.unwrap_or(DockKind::Bus),
+                kind: kind.unwrap_or(LinkKind::Bus),
             },
         }
     }
@@ -214,11 +215,11 @@ impl PortGroupCtx {
     }
 }
 
-/// Back-reference from a flat `McVecNet` to its coarse dock (if any).
+/// Back-reference from a flat `McVecNet` to its coarse link (if any).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DockRef {
-    /// Dock id (index into `Vec<PortDock>` of the same graph layer)
+pub struct LinkRef {
+    /// Link id (index into `Vec<PortLink>` of the same graph layer)
     pub id: i64,
-    /// Lane of this net inside the dock (member index)
+    /// Lane of this net inside the link (member index)
     pub lane: u16,
 }

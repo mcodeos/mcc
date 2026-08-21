@@ -106,13 +106,13 @@ pub fn mcb_print_lines() {
             println!("┃   - {} : {}", key, ident.get_name());
         }
 
-        // Lines
-        println!("┃ Lines ({} connections):", module_def.lines.len());
+        // Stmts
+        println!("┃ Stmts ({} connections):", module_def.stmts.len());
 
-        for (i, line) in module_def.lines.iter().enumerate() {
+        for (i, stmt) in module_def.stmts.iter().enumerate() {
             println!("┃");
-            println!("┃   ┌─── Line[{i}] ───────────────────────────────");
-            print_phrase_internal(line, "┃   │  ");
+            println!("┃   ┌─── Stmt[{i}] ───────────────────────────────");
+            print_phrase_internal(stmt, "┃   │  ");
             println!("┃   └──────────────────────────────────────────────");
         }
 
@@ -303,8 +303,8 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
             if let Some(McCMIE::Module(m)) = &found {
                 mcc_dbg!(
                     "lsp::query",
-                    "║   ✅ Module found! lines={}, symbols={}",
-                    m.lines.len(),
+                    "║   ✅ Module found! stmts={}, symbols={}",
+                    m.stmts.len(),
                     m.insts.iter().count()
                 );
             }
@@ -332,8 +332,8 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
     if let Some(McCMIE::Module(m)) = &by_name {
         mcc_dbg!(
             "lsp::query",
-            "║   ✅ Module found! lines={}, symbols={}",
-            m.lines.len(),
+            "║   ✅ Module found! stmts={}, symbols={}",
+            m.stmts.len(),
             m.insts.iter().count()
         );
     }
@@ -354,10 +354,10 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
         let val = entry.value();
         mcc_dbg!(
             "lsp::query",
-            "║   {} (uri={}) → lines={}, symbols={}",
+            "║   {} (uri={}) → stmts={}, symbols={}",
             key.ident,
             key.uri,
-            val.lines.len(),
+            val.stmts.len(),
             val.insts.iter().count()
         );
     }

@@ -224,63 +224,63 @@
     },
     {
       "old": 910,
-      "site": "line.rs:skip-failed-class",
+      "site": "stmt.rs:skip-failed-class",
       "new": 4155,
-      "name": "INST_LINE_SKIP_FAILED_CLASS",
-      "desc": "Line references a component class whose instantiation failed; the whole line is skipped."
+      "name": "INST_STMT_SKIP_FAILED_CLASS",
+      "desc": "Statement references a component class whose instantiation failed; the whole statement is skipped."
     },
     {
       "old": 910,
-      "site": "phases.rs:line-failed",
+      "site": "phases.rs:stmt-failed",
       "new": 4156,
-      "name": "INST_LINE_PARSE_FAILED",
-      "desc": "A connection line failed to expand."
+      "name": "INST_STMT_PARSE_FAILED",
+      "desc": "A connection statement failed to expand."
     },
     {
       "old": 911,
-      "site": "line.rs:builtin-twopin",
+      "site": "stmt.rs:builtin-twopin",
       "new": 4157,
       "name": "INST_BUILTIN_TWOPIN_EXPAND_FAILED",
       "desc": "Expanded builtin two-pin pair failed."
     },
     {
       "old": 911,
-      "site": "line.rs:member",
+      "site": "stmt.rs:member",
       "new": 4158,
       "name": "INST_MEMBER_PROCESS_FAILED",
-      "desc": "A member of a connection line failed to process."
+      "desc": "A member of a connection statement failed to process."
     },
     {
       "old": 912,
-      "site": "line.rs",
+      "site": "stmt.rs",
       "new": 4159,
       "name": "INST_ADJACENT_CONNECT_FAILED",
       "desc": "Connection between adjacent members of a series failed."
     },
     {
       "old": 913,
-      "site": "line.rs:shunt",
+      "site": "stmt.rs:shunt",
       "new": 4160,
       "name": "INST_SHUNT_PROCESS_FAILED",
       "desc": "A `.Cap(_)` shunt member failed to process."
     },
     {
       "old": 913,
-      "site": "mod.rs:func-line",
+      "site": "mod.rs:func-stmt",
       "new": 4161,
-      "name": "INST_FUNC_BODY_LINE_FAILED",
-      "desc": "A module-level function body line failed."
+      "name": "INST_FUNC_BODY_STMT_FAILED",
+      "desc": "A module-level function body statement failed."
     },
     {
       "old": 914,
-      "site": "line.rs",
+      "site": "stmt.rs",
       "new": 4162,
       "name": "INST_LANE_FUNCCALL_FAILED",
       "desc": "Failed to instantiate a FuncCall during lane-by-lane wiring."
     },
     {
       "old": 915,
-      "site": "line.rs",
+      "site": "stmt.rs",
       "new": 4163,
       "name": "INST_LANE_TRANSPOSED_FAILED",
       "desc": "Failed to instantiate a Transposed member during lane-by-lane wiring."
@@ -329,14 +329,14 @@
     },
     {
       "old": 940,
-      "site": "line.rs:method-fallback",
+      "site": "stmt.rs:method-fallback",
       "new": 4152,
       "name": "INST_METHOD_FALLBACK",
       "desc": "Instance method could not be resolved; passed through instead."
     },
     {
       "old": 940,
-      "site": "line.rs:chain-skip",
+      "site": "stmt.rs:chain-skip",
       "new": 4150,
       "name": "INST_CHAIN_LINK_SKIPPED",
       "desc": "A chain link was skipped because the method is not defined on the instance."
@@ -364,10 +364,10 @@
     },
     {
       "old": 942,
-      "site": "phases.rs:ctor-line",
+      "site": "phases.rs:ctor-stmt",
       "new": 4173,
-      "name": "INST_CTOR_BODY_LINE_FAILED",
-      "desc": "A constructor function body line failed."
+      "name": "INST_CTOR_BODY_STMT_FAILED",
+      "desc": "A constructor function body statement failed."
     },
     {
       "old": 942,
@@ -378,7 +378,7 @@
     },
     {
       "old": 944,
-      "site": "funccall.rs/iterated.rs/line.rs",
+      "site": "funccall.rs/iterated.rs/stmt.rs",
       "new": 4152,
       "name": "INST_METHOD_FALLBACK",
       "desc": "Instance method could not be resolved; passed through instead."
@@ -836,7 +836,7 @@
       "site": "mc_phrase.rs:operator",
       "new": 4008,
       "name": "CONN_OPERATOR_UNSUPPORTED",
-      "desc": "The operator is not supported in connection lines; use '+' for parallel, '-' / '->' for series."
+      "desc": "The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for series."
     },
     {
       "old": 1150,
@@ -1038,8 +1038,8 @@
       "old": 1301,
       "site": "module/mod.rs",
       "new": 3132,
-      "name": "CONN_LINE_PARSE_FAILED",
-      "desc": "A connection line failed to parse."
+      "name": "CONN_STMT_PARSE_FAILED",
+      "desc": "A connection statement failed to parse."
     },
     {
       "old": 1303,
@@ -1108,8 +1108,8 @@
       "old": 1309,
       "site": "mc_func.rs",
       "new": 3134,
-      "name": "FUNC_LINE_DROPPED",
-      "desc": "A connection line was dropped because McPhrase::new returned None."
+      "name": "FUNC_STMT_DROPPED",
+      "desc": "A connection statement was dropped because McPhrase::new returned None."
     },
     {
       "old": 1309,
@@ -1942,7 +1942,7 @@
       "site": "exprs.rs",
       "new": 5410,
       "name": "EXPR_THIS_TOP_LEVEL",
-      "desc": "'this' used in a top-level net line; it is only valid inside instance/function contexts."
+      "desc": "'this' used in a top-level net statement; it is only valid inside instance/function contexts."
     },
     {
       "old": 2902,
@@ -2644,39 +2644,39 @@
     "910": [
       {
         "old": 910,
-        "site": "line.rs:skip-failed-class",
+        "site": "stmt.rs:skip-failed-class",
         "new": 4155,
-        "name": "INST_LINE_SKIP_FAILED_CLASS",
-        "desc": "Line references a component class whose instantiation failed; the whole line is skipped."
+        "name": "INST_STMT_SKIP_FAILED_CLASS",
+        "desc": "Statement references a component class whose instantiation failed; the whole statement is skipped."
       },
       {
         "old": 910,
-        "site": "phases.rs:line-failed",
+        "site": "phases.rs:stmt-failed",
         "new": 4156,
-        "name": "INST_LINE_PARSE_FAILED",
-        "desc": "A connection line failed to expand."
+        "name": "INST_STMT_PARSE_FAILED",
+        "desc": "A connection statement failed to expand."
       }
     ],
     "911": [
       {
         "old": 911,
-        "site": "line.rs:builtin-twopin",
+        "site": "stmt.rs:builtin-twopin",
         "new": 4157,
         "name": "INST_BUILTIN_TWOPIN_EXPAND_FAILED",
         "desc": "Expanded builtin two-pin pair failed."
       },
       {
         "old": 911,
-        "site": "line.rs:member",
+        "site": "stmt.rs:member",
         "new": 4158,
         "name": "INST_MEMBER_PROCESS_FAILED",
-        "desc": "A member of a connection line failed to process."
+        "desc": "A member of a connection statement failed to process."
       }
     ],
     "912": [
       {
         "old": 912,
-        "site": "line.rs",
+        "site": "stmt.rs",
         "new": 4159,
         "name": "INST_ADJACENT_CONNECT_FAILED",
         "desc": "Connection between adjacent members of a series failed."
@@ -2685,23 +2685,23 @@
     "913": [
       {
         "old": 913,
-        "site": "line.rs:shunt",
+        "site": "stmt.rs:shunt",
         "new": 4160,
         "name": "INST_SHUNT_PROCESS_FAILED",
         "desc": "A `.Cap(_)` shunt member failed to process."
       },
       {
         "old": 913,
-        "site": "mod.rs:func-line",
+        "site": "mod.rs:func-stmt",
         "new": 4161,
-        "name": "INST_FUNC_BODY_LINE_FAILED",
-        "desc": "A module-level function body line failed."
+        "name": "INST_FUNC_BODY_STMT_FAILED",
+        "desc": "A module-level function body statement failed."
       }
     ],
     "914": [
       {
         "old": 914,
-        "site": "line.rs",
+        "site": "stmt.rs",
         "new": 4162,
         "name": "INST_LANE_FUNCCALL_FAILED",
         "desc": "Failed to instantiate a FuncCall during lane-by-lane wiring."
@@ -2710,7 +2710,7 @@
     "915": [
       {
         "old": 915,
-        "site": "line.rs",
+        "site": "stmt.rs",
         "new": 4163,
         "name": "INST_LANE_TRANSPOSED_FAILED",
         "desc": "Failed to instantiate a Transposed member during lane-by-lane wiring."
@@ -2780,7 +2780,7 @@
       },
       {
         "old": 940,
-        "site": "line.rs:method-fallback",
+        "site": "stmt.rs:method-fallback",
         "new": 4152,
         "name": "INST_METHOD_FALLBACK",
         "desc": "Instance method could not be resolved; passed through instead."
@@ -2805,16 +2805,16 @@
       },
       {
         "old": 942,
-        "site": "phases.rs:ctor-line",
+        "site": "phases.rs:ctor-stmt",
         "new": 4173,
-        "name": "INST_CTOR_BODY_LINE_FAILED",
-        "desc": "A constructor function body line failed."
+        "name": "INST_CTOR_BODY_STMT_FAILED",
+        "desc": "A constructor function body statement failed."
       }
     ],
     "944": [
       {
         "old": 944,
-        "site": "funccall.rs/iterated.rs/line.rs",
+        "site": "funccall.rs/iterated.rs/stmt.rs",
         "new": 4152,
         "name": "INST_METHOD_FALLBACK",
         "desc": "Instance method could not be resolved; passed through instead."
@@ -3347,7 +3347,7 @@
         "site": "mc_phrase.rs:operator",
         "new": 4008,
         "name": "CONN_OPERATOR_UNSUPPORTED",
-        "desc": "The operator is not supported in connection lines; use '+' for parallel, '-' / '->' for series."
+        "desc": "The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for series."
       },
       {
         "old": 1110,
@@ -3610,8 +3610,8 @@
         "old": 1301,
         "site": "module/mod.rs",
         "new": 3132,
-        "name": "CONN_LINE_PARSE_FAILED",
-        "desc": "A connection line failed to parse."
+        "name": "CONN_STMT_PARSE_FAILED",
+        "desc": "A connection statement failed to parse."
       }
     ],
     "1303": [
@@ -3692,8 +3692,8 @@
         "old": 1309,
         "site": "mc_func.rs",
         "new": 3134,
-        "name": "FUNC_LINE_DROPPED",
-        "desc": "A connection line was dropped because McPhrase::new returned None."
+        "name": "FUNC_STMT_DROPPED",
+        "desc": "A connection statement was dropped because McPhrase::new returned None."
       }
     ],
     "1310": [
@@ -4690,7 +4690,7 @@
         "site": "exprs.rs",
         "new": 5410,
         "name": "EXPR_THIS_TOP_LEVEL",
-        "desc": "'this' used in a top-level net line; it is only valid inside instance/function contexts."
+        "desc": "'this' used in a top-level net statement; it is only valid inside instance/function contexts."
       }
     ],
     "2902": [

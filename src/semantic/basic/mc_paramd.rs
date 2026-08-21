@@ -17,10 +17,10 @@ pub struct McParamDeclares {
     /// Definition spans for ALL parameters (never filtered — always available for goto-def).
     /// name -> Vec<Range>, multiple for bus/slice expansion.
     def_spans: HashMap<String, Vec<Range<usize>>>,
-    /// Port spans for LSP goto-definition from net lines (Category A only).
+    /// Port spans for LSP goto-definition from net stmts (Category A only).
     /// Filtered by `filter_port_spans()` after type inference.
     port_spans: HashMap<String, Vec<Range<usize>>>,
-    /// Port reference spans from net lines (for LSP goto-definition)
+    /// Port reference spans from net stmts (for LSP goto-definition)
     net_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
     /// Name of the enclosing component/module, used for scoped enum resolution.
     /// e.g., "CAP" for `component CAP`, "CAP.CER" for `component CAP.CER`.

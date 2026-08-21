@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use super::super::model::netshape::{GroupRole, LaneRef, NetShape, PairDir};
 use super::super::model::{McVec, McVecNet};
 use crate::semantic::common::ConnOp;
-use crate::vector::model::dock::PortGroupCtx;
+use crate::vector::model::link::LinkCtx;
 
 // ============================================================================
 // Internal Data Types
@@ -48,8 +48,8 @@ pub(crate) struct ConnPair {
     /// ★ P9-A2: source span for traceability
     pub source_span: Option<crate::semantic::common::SourcePos>,
     /// ★ §8.9.6: structured group context (group name, lane member, coarse
-    /// kind) copied from `ConnectionInst.port_group`.
-    pub port_group: Option<PortGroupCtx>,
+    /// kind) copied from `ConnectionInst.link`.
+    pub link: Option<LinkCtx>,
 }
 
 impl ConnPair {
@@ -62,7 +62,7 @@ impl ConnPair {
             dir: PairDir::Undirected,
             via: None,
             source_span: None,
-            port_group: None,
+            link: None,
             op: None,
         }
     }
@@ -76,7 +76,7 @@ impl ConnPair {
             dir,
             via: None,
             source_span: None,
-            port_group: None,
+            link: None,
             op: None,
         }
     }
@@ -90,7 +90,7 @@ impl ConnPair {
             dir,
             via: None,
             source_span: None,
-            port_group: None,
+            link: None,
             op: None,
         }
     }
@@ -110,7 +110,7 @@ impl ConnPair {
             dir,
             via,
             source_span: None,
-            port_group: None,
+            link: None,
             op: None,
         }
     }
@@ -119,10 +119,10 @@ impl ConnPair {
     pub(crate) fn with_meta(
         mut self,
         source_span: Option<crate::semantic::common::SourcePos>,
-        port_group: Option<PortGroupCtx>,
+        link: Option<LinkCtx>,
     ) -> Self {
         self.source_span = source_span;
-        self.port_group = port_group;
+        self.link = link;
         self
     }
 
@@ -149,13 +149,13 @@ pub(crate) type NetGroupMap = BTreeMap<String, Vec<ConnPair>>;
 pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPair]) -> McVecNet {
     // ── Extract provenance from first pair ──
     let source_span = pairs.first().and_then(|p| p.source_span.clone());
-    let port_group = pairs.first().and_then(|p| p.port_group.clone());
+    let link = pairs.first().and_then(|p| p.link.clone());
 
     // ── With lane info, build groups directly from the source shape instead of guessing by frequency ──
     if pairs.iter().any(|p| p.lane.is_some()) {
         if let Some(mut net) = build_from_lanes(nid, &net_name, pairs) {
             net.source_span = source_span;
-            net.port_group = port_group;
+            net.link = link;
             return net;
         }
         // Couldn't build (lane incomplete) → fall back to the legacy logic below, no panic
@@ -172,7 +172,7 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
         );
         net.shape = Some(build_net_shape(dir, pairs, &net.nets));
         net.source_span = source_span;
-        net.port_group = port_group;
+        net.link = link;
         return net;
     }
 
@@ -197,7 +197,7 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
     }
 
     net.source_span = source_span;
-    net.port_group = port_group;
+    net.link = link;
 
     net
 }
@@ -221,7 +221,7 @@ fn build_net_shape(dir: PairDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape
 
     // lane: take the first lane info from any pair
     let mut lane: Option<LaneRef> = pairs.iter().find_map(|p| p.lane.clone());
-    // ── §8.9.6.7: align LaneRef.name with the AST-layer PortGroupCtx.member ──
+    // ── §8.9.6.7: align LaneRef.name with the AST-layer LinkCtx.member ──
     // The lane member name is a shape derivation (bracket split in visit.rs);
     // the group member is the connection identity decided at the AST layer.
     // When the lane carries no name, take the structured member as the
@@ -230,7 +230,7 @@ fn build_net_shape(dir: PairDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape
         if l.name.is_none() {
             l.name = pairs
                 .first()
-                .and_then(|p| p.port_group.as_ref())
+                .and_then(|p| p.link.as_ref())
                 .and_then(|g| g.member.clone());
         }
     }

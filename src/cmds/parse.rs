@@ -184,7 +184,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     if let McCMIE::Module(def) = cmie {
                         renderer.module_ports(&def);
                         renderer.module_symbols(&def);
-                        renderer.module_lines(&def);
+                        renderer.module_stmts(&def);
                     }
                 }
             }
@@ -204,9 +204,9 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             if let Some(ref cmie) = cmie {
                 nodes.push(match cmie {
                     McCMIE::Module(m) => {
-                        let mut children = Vec::with_capacity(m.lines.len());
-                        for line in m.lines.iter() {
-                            children.push(phrase_to_tree_json(line, args.depth, 0));
+                        let mut children = Vec::with_capacity(m.stmts.len());
+                        for stmt in m.stmts.iter() {
+                            children.push(phrase_to_tree_json(stmt, args.depth, 0));
                         }
                         json!({
                             "kind": "module",
@@ -248,9 +248,9 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 if let Some(McCMIE::Module(m)) =
                     mcc::get_def(&ident, &McURI::from(cmie_uri.as_str()))
                 {
-                    let mut children = Vec::with_capacity(m.lines.len());
-                    for line in m.lines.iter() {
-                        children.push(phrase_to_tree_json(line, args.depth, 0));
+                    let mut children = Vec::with_capacity(m.stmts.len());
+                    for stmt in m.stmts.iter() {
+                        children.push(phrase_to_tree_json(stmt, args.depth, 0));
                     }
                     nodes.push(json!({
                         "kind": "module",

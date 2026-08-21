@@ -724,7 +724,7 @@ pub fn representative(op: ConnOp, dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape
 /// Call sites:
 /// - Pass1: `is_connectable` (shared by the four operator branches `-`/`+`/`->`/`<-`);
 /// - Pass2: `try_connect_adjacent` (the unified entry for adjacent evaluation on
-///   the three paths in line.rs).
+///   the three paths in stmt.rs).
 pub fn eval_binary(op: ConnOp, lhs: Shape, rhs: Shape) -> Result<Shape, ShapeError> {
     // §4.1-4.4 shape convergence: `-`/`+`/`->`/`<-` all require matching row
     // counts and keep the row count; op only provides semantic annotation

@@ -347,7 +347,7 @@ fn has_deprecated_attr(attrs: &crate::semantic::component::mc_attr::McAttributes
 // Cross-module: instance port member references
 // ============================================================================
 
-/// In module body lines (and function body lines), when `instance_name.port_name`
+/// In module body stmts (and function body stmts), when `instance_name.port_name`
 /// is used, verify that `port_name` actually exists as a port of `instance_name`'s
 /// component/interface/module type.
 fn check_module_member_refs(acc: &mut CheckAccumulator) {
@@ -420,8 +420,8 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
             continue;
         }
 
-        // Check module top-level body lines
-        for phrase in &m.lines {
+        // Check module top-level body stmts
+        for phrase in &m.stmts {
             check_phrase_member_refs(
                 phrase,
                 &inst_class,
@@ -435,9 +435,9 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
             );
         }
 
-        // Check function body lines within the module
+        // Check function body stmts within the module
         for func in m.funcs.iter() {
-            for phrase in &func.lines {
+            for phrase in &func.stmts {
                 check_phrase_member_refs(
                     phrase,
                     &inst_class,

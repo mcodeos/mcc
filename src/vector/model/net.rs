@@ -11,7 +11,7 @@
 
 use std::fmt;
 
-use super::dock::DockRef;
+use super::link::LinkRef;
 use super::vec::McVec;
 
 // ============================================================================
@@ -98,12 +98,12 @@ pub struct McVecNet {
     /// ★ P9-A2: source span for bidirectional traceability.
     /// `(file, line)` — which source file and line created this net.
     pub source_span: Option<crate::semantic::common::SourcePos>,
-    /// ★ §8.9.6: structured group context that produced this net.
+    /// ★ §8.9.6: structured link context that produced this net.
     /// `None` is a legal value; do not fill with heuristics.
-    pub port_group: Option<crate::vector::model::dock::PortGroupCtx>,
-    /// ★ §8.9.4: back-reference to the coarse `PortDock` this fine net belongs
-    /// to (dock id + lane index). `None` = free net not covered by any dock.
-    pub dock: Option<DockRef>,
+    pub link: Option<crate::vector::model::link::LinkCtx>,
+    /// ★ §8.9.4: back-reference to the coarse `PortLink` this fine net belongs
+    /// to (link id + lane index). `None` = free net not covered by any link.
+    pub link_ref: Option<LinkRef>,
 }
 
 /// ★ P7-8: boundary terminal info for port-level (not member-level) terminals.
@@ -132,8 +132,8 @@ impl McVecNet {
             rail: None,
             boundary: None,
             source_span: None,
-            port_group: None,
-            dock: None,
+            link: None,
+            link_ref: None,
         }
     }
 
@@ -158,8 +158,8 @@ impl McVecNet {
             rail: None,
             boundary: None,
             source_span: None,
-            port_group: None,
-            dock: None,
+            link: None,
+            link_ref: None,
         }
     }
 

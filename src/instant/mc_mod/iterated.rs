@@ -65,7 +65,7 @@ impl McModuleInst {
         // Parallel structure and feed it into the existing iteration loop.
         //
         // Cost of building the virtual Parallel: each expanded item is an
-        // Endpoint(Label(name)); the name is preserved so that process_line
+        // Endpoint(Label(name)); the name is preserved so that process_stmt
         // inside the iterated.rs loop can walk into
         // resolve_array_caller_to_existing to reuse existing instances.
         let mut synthesized_parallel: Option<Vec<McPhrase>> = None;
@@ -156,7 +156,7 @@ impl McModuleInst {
 
         for (i, item) in items.iter().enumerate() {
             // 1. Process the caller of each item (recursive instantiation)
-            if let Err(e) = self.process_line(item) {
+            if let Err(e) = self.process_stmt(item) {
                 self.expansion.end(eidx);
                 return Err(e);
             }

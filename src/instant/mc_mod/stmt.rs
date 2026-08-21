@@ -2,9 +2,9 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Connection line processing
+//! Connection statement processing
 //!
-//! - `process_line`: single line expansion + member/adjacent connection dispatch
+//! - `process_stmt`: single stmt expansion + member/adjacent connection dispatch
 //! - `phrase_to_members`: expand Series etc aggregate forms to member sequence
 //! - `try_connect_adjacent`: adjacent member pairing connections
 //! - `process_member_internal`: single member internal processing (FuncCall / Closure / Group …)
@@ -19,7 +19,7 @@ use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{eval_binary, ConnDir, ConnOp, IOType, Shape, ShapeError};
 use crate::semantic::mc_inst::McInstance;
-use crate::vector::model::dock::DockKind;
+use crate::vector::model::link::LinkKind;
 use std::collections::HashSet;
 
 // ── M11.4: lane item for position-aware bridge pin collection ──
@@ -29,17 +29,17 @@ enum LaneItem<'a> {
 }
 
 impl McModuleInst {
-    /// Process connection line - accepts McPhrase
-    pub(super) fn process_line(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
-        // ── G4: Skip lines referencing failed components ──
+    /// Process connection stmt - accepts McPhrase
+    pub(super) fn process_stmt(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
+        // ── G4: Skip stmts referencing failed components ──
         // If any FuncCall in the phrase references a class whose instantiation
-        // previously failed, skip the entire line to avoid ghost pins.
+        // previously failed, skip the entire stmt to avoid ghost pins.
         if !self.failed_classes.is_empty()
             && Self::phrase_contains_failed_class(phrase, &self.failed_classes)
         {
             self.record_warning(
-                crate::errcodes::INST_LINE_SKIP_FAILED_CLASS,
-                crate::errcodes::format_msg(crate::errcodes::INST_LINE_SKIP_FAILED_CLASS, &[]),
+                crate::errcodes::INST_STMT_SKIP_FAILED_CLASS,
+                crate::errcodes::format_msg(crate::errcodes::INST_STMT_SKIP_FAILED_CLASS, &[]),
             );
             return Ok(());
         }
@@ -123,7 +123,7 @@ impl McModuleInst {
                     } else {
                         McPhrase::Series(vec![item.clone(), fc_clone], dir)
                     };
-                    if let Err(e) = self.process_line(&pair) {
+                    if let Err(e) = self.process_stmt(&pair) {
                         self.record_warning(
                             crate::errcodes::INST_BUILTIN_TWOPIN_EXPAND_FAILED,
                             crate::errcodes::format_msg(
@@ -153,8 +153,8 @@ impl McModuleInst {
         // (adjacent connected right neighbor to pin2) + wire_builtin_twopin connected pin2 to GND → pin2
         // double-connected → rail short to ground (flash.VCC ~ GND).
         //
-        // Only when this line actually contains `.Cap(_)` (params empty / all `_`) shunt, go through special
-        // wiring below; lines without shunt fall through to original adjacency loop → zero impact on existing paths.
+        // Only when this stmt actually contains `.Cap(_)` (params empty / all `_`) shunt, go through special
+        // wiring below; stmts without shunt fall through to original adjacency loop → zero impact on existing paths.
         let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
         if shunt.iter().any(|&s| s) {
             self.wire_chain_with_shunts(&members, &shunt, dir);
@@ -181,13 +181,13 @@ impl McModuleInst {
             // so the AST-layer group context is never established there.
             // Extract it from the chain members (driver side first, then the
             // far side) and wire inside it, so bus member lanes carry their
-            // port-group identity and render as a dock.
-            let port_group = Self::extract_port_group(&members[0])
-                .or_else(|| members.iter().rev().find_map(Self::extract_port_group));
-            let port_kind = Self::extract_port_kind(&members[0])
-                .or_else(|| members.iter().rev().find_map(Self::extract_port_kind))
-                .or_else(|| port_group.as_ref().map(|_| DockKind::Plain));
-            return self.with_port_group(port_group, port_kind, |this| {
+            // link identity and render as a link.
+            let link = Self::extract_link_group(&members[0])
+                .or_else(|| members.iter().rev().find_map(Self::extract_link_group));
+            let link_kind = Self::extract_link_kind(&members[0])
+                .or_else(|| members.iter().rev().find_map(Self::extract_link_kind))
+                .or_else(|| link.as_ref().map(|_| LinkKind::Plain));
+            return self.with_link(link, link_kind, |this| {
                 this.wire_chain_lane_by_lane(&members, dir)
             });
         }
@@ -398,7 +398,7 @@ impl McModuleInst {
             McPhrase::Transposed(_) => true,
             McPhrase::Series(elems, _) => elems.iter().any(|e| Self::phrase_contains_transposed(e)),
             McPhrase::Multiple(inner) => inner.iter().any(|e| Self::phrase_contains_transposed(e)),
-            McPhrase::Parallel(lines) => lines.iter().any(|l| Self::phrase_contains_transposed(l)),
+            McPhrase::Parallel(stmts) => stmts.iter().any(|l| Self::phrase_contains_transposed(l)),
             McPhrase::Group(g) => g.opds.iter().any(|e| Self::phrase_contains_transposed(e)),
             _ => false,
         }
@@ -407,7 +407,7 @@ impl McModuleInst {
     fn member_contains_lead(member: &McPhrase) -> bool {
         match member {
             McPhrase::Multiple(inner) => inner.iter().any(|p| matches!(p, McPhrase::Lead)),
-            McPhrase::Parallel(lines) => lines.iter().any(|l| Self::member_contains_lead(l)),
+            McPhrase::Parallel(stmts) => stmts.iter().any(|l| Self::member_contains_lead(l)),
             _ => false,
         }
     }
@@ -429,7 +429,7 @@ impl McModuleInst {
     fn member_lane_width(&self, member: &McPhrase) -> usize {
         match member {
             McPhrase::Multiple(inner) => inner.len(),
-            McPhrase::Parallel(lines) => lines
+            McPhrase::Parallel(stmts) => stmts
                 .iter()
                 .map(|l| self.member_lane_width(l))
                 .max()
@@ -709,9 +709,9 @@ impl McModuleInst {
                     }
                 }
             }
-            McPhrase::Parallel(lines) => {
-                for (line_idx, line) in lines.iter().enumerate() {
-                    match line {
+            McPhrase::Parallel(stmts) => {
+                for (stmt_idx, stmt) in stmts.iter().enumerate() {
+                    match stmt {
                         McPhrase::Multiple(inner) => {
                             if lane < inner.len() {
                                 let p = &inner[lane];
@@ -721,19 +721,19 @@ impl McModuleInst {
                             }
                         }
                         McPhrase::Transposed(inner) => {
-                            if let Some(pin) = self.get_transposed_lane_pin(line, lane) {
+                            if let Some(pin) = self.get_transposed_lane_pin(stmt, lane) {
                                 items.push(LaneItem::Bridge(pin));
                             }
                             self.try_record_bridge_passive(inner);
                         }
                         _ => {
-                            // ── P2-7-XTAL fix: assign each Parallel line to its matching lane ──
+                            // ── P2-7-XTAL fix: assign each Parallel stmt to its matching lane ──
                             // In lane-by-lane wiring, a Parallel group like [CAP1, CAP2]
                             // provides one element per lane. Previously, lane==0 captured
-                            // all lines, causing duplicate component creation and leaving
+                            // all stmts, causing duplicate component creation and leaving
                             // other lanes without their assigned elements.
-                            if lane == line_idx {
-                                items.push(LaneItem::Series(line));
+                            if lane == stmt_idx {
+                                items.push(LaneItem::Series(stmt));
                             }
                         }
                     }
@@ -880,7 +880,7 @@ impl McModuleInst {
                 // ── Iter-6.S5.1 P0-2 scenario C ─────────────────────────
                 // merge adjacent same-name single-member Bus phrases.
                 //
-                // Background: parser for `Name{a, b, ...}` in certain scenarios (especially line
+                // Background: parser for `Name{a, b, ...}` in certain scenarios (especially stmt
                 // start position + Name is io/out/in declared Label-type port) expansion
                 // is inconsistent — expected to produce ONE Bus(Name, [a, b, ...]), actually
                 // produces [Bus(Name, [a]), Bus(Name, [b]), ...] multiple adjacent
@@ -888,9 +888,9 @@ impl McModuleInst {
                 //
                 // Verified case (main.mc:147):
                 //   `MIC{P,N} -> cap[4:5]::CAP(1uF) -> uC.ADC{P,N}`
-                //   - line end `uC.ADC{P,N}` parsed correctly: Bus(uC.ADC, [P, N]) single
+                //   - stmt end `uC.ADC{P,N}` parsed correctly: Bus(uC.ADC, [P, N]) single
                 //     phrase (variants log: Bus(name='uC.ADC' members=[P,N]))
-                //   - line start `MIC{P,N}` parsed incorrectly: split into two phrases
+                //   - stmt start `MIC{P,N}` parsed incorrectly: split into two phrases
                 //     [Bus(MIC, [P]), Bus(MIC, [N])]
                 //   - chain total members from expected 3 becomes 4
                 //   - adjacency wiring rules treat chain[0] = MIC.P ↔ chain[1] = MIC.N
@@ -907,7 +907,7 @@ impl McModuleInst {
                 //   - `MIC.P -> MIC.N` (dot access): names are "MIC.P" / "MIC.N"
                 //     different names, won't trigger.
                 //   - `mic{1,2} -> CAP(_).Cap(_) -> MIC{P,N}` (parser already
-                //     correctly handles line-end curly as single Bus(MIC, [P, N])): adjacent phrase
+                //     correctly handles stmt-end curly as single Bus(MIC, [P, N])): adjacent phrase
                 //     name different (mic vs MIC), won't trigger.
                 //   - `mcu{ MIC | DAC_OUT, SPK_MUTE }` (Node form): not
                 //     Single(Bus), won't trigger.
@@ -1430,12 +1430,12 @@ impl McModuleInst {
         }
     }
 
-    /// ★ P9-A2: Extract the port group name from a McPhrase.
+    /// ★ P9-A2: Extract the link group name from a McPhrase.
     ///
-    /// For `flash.SPI` or `mic.MIC`, the port group is the Interface/Bus name
+    /// For `flash.SPI` or `mic.MIC`, the link group is the Interface/Bus name
     /// (e.g., "SPI", "MIC"). Returns `None` for non-port-group phrases.
-    fn extract_port_group(phrase: &McPhrase) -> Option<String> {
-        let r = Self::extract_port_group_inner(phrase);
+    fn extract_link_group(phrase: &McPhrase) -> Option<String> {
+        let r = Self::extract_link_group_inner(phrase);
         mcc_dbg!(
             "inst::mod",
             "[PG-DBG] module={} phrase={:?} -> {:?}",
@@ -1446,16 +1446,16 @@ impl McModuleInst {
         r
     }
 
-    fn extract_port_group_inner(phrase: &McPhrase) -> Option<String> {
+    fn extract_link_group_inner(phrase: &McPhrase) -> Option<String> {
         match phrase {
             McPhrase::Endpoint(McEndpoint::Single(ref ir)) => {
                 // For Endpoint, only use Interface/Bus base name or member name.
                 // Do NOT use Label fallback — Label just means the instance name
-                // (e.g. "speaker"), not a port group.
+                // (e.g. "speaker"), not a link group.
                 Self::extract_pg_from_iref(ir, false)
             }
             // ★ P9-A2: McPhrase::Member(base, member) — e.g. mcu513.DAC_OUT
-            // The member endpoint carries the port group name. Use Label fallback
+            // The member endpoint carries the link group name. Use Label fallback
             // because the member is stored as Label("DAC_OUT").
             McPhrase::Member(_base, McEndpoint::Single(ref ir)) => {
                 Self::extract_pg_from_iref(ir, true)
@@ -1468,7 +1468,7 @@ impl McModuleInst {
             // The group is the shared base name ("MIC"); both forms reduce to
             // it (form B by dropping the last dot segment — §8.9.6.3 form 1
             // member access). Require a consistent group across all endpoints
-            // so a mixed net does not get a false dock.
+            // so a mixed net does not get a false link.
             McPhrase::Multiple(items) => {
                 let groups: Vec<String> = items
                     .iter()
@@ -1513,7 +1513,7 @@ impl McModuleInst {
         }
     }
 
-    /// Extract port group name from an McInstanceRef.
+    /// Extract link group name from an McInstanceRef.
     /// `use_label_fallback`: if true, fall back to Label name when no Interface/Bus/member.
     fn extract_pg_from_iref(
         ir: &crate::semantic::basic::mc_endpoint::McInstanceRef,
@@ -1529,7 +1529,7 @@ impl McModuleInst {
             McInstance::Bus(b) => {
                 // §8.9.6.3 form 1: a curly bus `MIC{P,N}` groups by its bus
                 // NAME; the members are lanes (stamped per-lane downstream,
-                // see group.rs::refine_lane_port_group). The old join("_")
+                // see group.rs::refine_lane_link). The old join("_")
                 // conflated members into one pseudo-name and lost the group
                 // identity.
                 Some(b.name().to_string())
@@ -1540,7 +1540,7 @@ impl McModuleInst {
             return base_name;
         }
         // For Module/Component endpoints like `mcu513.MIC`,
-        // use the first member name as the port group.
+        // use the first member name as the link group.
         if let Some(ml) = ir.members.first() {
             if let Some(m) = ml.items.first() {
                 if let crate::semantic::basic::mc_endpoint::McMember::Single(s) = m {
@@ -1558,24 +1558,24 @@ impl McModuleInst {
         None
     }
 
-    /// ★ §8.9.4: Extract the coarse `DockKind` of a port group phrase, mirroring
-    /// `extract_port_group`'s traversal so `PortDock.kind` never needs to be
+    /// ★ §8.9.4: Extract the coarse `LinkKind` of a link group phrase, mirroring
+    /// `extract_link_group`'s traversal so `PortLink.kind` never needs to be
     /// re-derived downstream.
-    fn extract_port_kind(phrase: &McPhrase) -> Option<DockKind> {
-        // §8.9.6.7: mirror of extract_port_group — `MIC{P,N}` appears as a
+    fn extract_link_kind(phrase: &McPhrase) -> Option<LinkKind> {
+        // §8.9.6.7: mirror of extract_link_group — `MIC{P,N}` appears as a
         // Multiple of member-carrying bus endpoints, so a Multiple contributes
         // a Bus/Interface kind only when at least one endpoint carries one
         // (the same member-carrying rule as the group extractor).
         if let McPhrase::Multiple(items) = phrase {
             return items.iter().find_map(|it| match it {
                 McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
-                    McInstance::Interface(_) => Some(DockKind::Interface),
+                    McInstance::Interface(_) => Some(LinkKind::Interface),
                     McInstance::Bus(b) => {
                         if !b.member.is_empty()
                             || !b.full_members.is_empty()
                             || b.name().contains('.')
                         {
-                            Some(DockKind::Bus)
+                            Some(LinkKind::Bus)
                         } else {
                             None
                         }
@@ -1591,15 +1591,15 @@ impl McModuleInst {
             _ => return None,
         };
         match &ir.base {
-            McInstance::Interface(_) => Some(DockKind::Interface),
-            McInstance::Bus(_) => Some(DockKind::Bus),
+            McInstance::Interface(_) => Some(LinkKind::Interface),
+            McInstance::Bus(_) => Some(LinkKind::Bus),
             _ => {
                 // Member access (`mcu513.MIC`) is a bracket/list member; a bare
                 // label fallback has no coarse identity.
                 if !ir.members.is_empty() {
-                    Some(DockKind::List)
+                    Some(LinkKind::List)
                 } else {
-                    Some(DockKind::Plain)
+                    Some(LinkKind::Plain)
                 }
             }
         }
@@ -1607,8 +1607,8 @@ impl McModuleInst {
 
     /// Try to connect adjacent members
     ///
-    /// Helper method extracted from `process_line`, handling Group / normal
-    /// member connection dispatch. On failure the caller `process_line` catches
+    /// Helper method extracted from `process_stmt`, handling Group / normal
+    /// member connection dispatch. On failure the caller `process_stmt` catches
     /// and records the diagnosis.
     fn try_connect_adjacent(
         &mut self,
@@ -1616,16 +1616,16 @@ impl McModuleInst {
         right_member: &McPhrase,
         dir: ConnDir,
     ) -> Result<(), InstError> {
-        // ★ P9-A2: extract port_group from source code context.
+        // ★ P9-A2: extract link from source code context.
         // Prefer the left member (driver side), fall back to the right member.
         // RAII (§7.11(2)): the group is restored on every exit path (including
         // early `Err` returns), so it can never leak into the next connection.
-        let port_group = Self::extract_port_group(left_member)
-            .or_else(|| Self::extract_port_group(right_member));
-        let port_kind = Self::extract_port_kind(left_member)
-            .or_else(|| Self::extract_port_kind(right_member))
-            .or_else(|| port_group.as_ref().map(|_| DockKind::Plain));
-        self.with_port_group(port_group, port_kind, |this| {
+        let link = Self::extract_link_group(left_member)
+            .or_else(|| Self::extract_link_group(right_member));
+        let link_kind = Self::extract_link_kind(left_member)
+            .or_else(|| Self::extract_link_kind(right_member))
+            .or_else(|| link.as_ref().map(|_| LinkKind::Plain));
+        self.with_link(link, link_kind, |this| {
             // ── P1-diag: detailed adjacent wiring diagnostic ─────────────────────────────────
             let _l_kind = match left_member {
                 McPhrase::FuncCall(f) => format!(
@@ -1676,7 +1676,7 @@ impl McModuleInst {
                     || matches!(right_member, McPhrase::Transposed(_));
                 // ── §4 operator evaluation (eval.md §4.1 series): unified entry
                 // for shape evaluation of adjacent members ──
-                // The adjacent-pair logic of all three line.rs paths (shunt /
+                // The adjacent-pair logic of all three stmt.rs paths (shunt /
                 // lane-by-lane / adjacency) converges on this shape check +
                 // create_connection.
                 let lhs_shape = Shape::vvec(left_points.len());
@@ -1749,16 +1749,16 @@ impl McModuleInst {
     /// | `R30k -> lpa.VO1 + spk.N` | R30k.1 / lpa.VO1 | spk.N single-end | spk.N → left net (R30k.1) |
     ///
     /// # Notes
-    /// - This method assumes `lines.len() >= 2`, please check before calling.
+    /// - This method assumes `stmts.len() >= 2`, please check before calling.
     /// - Single-end right net degradation avoidance: if all opds are
     ///   single-end (left/right paths equal), only generate left net, don't
     ///   repeat the right net (they have identical node sets).
-    fn wire_parallel_internal(&mut self, lines: &[McPhrase]) -> Result<(), InstError> {
+    fn wire_parallel_internal(&mut self, stmts: &[McPhrase]) -> Result<(), InstError> {
         // 1) Collect each opd's left/right endpoints
-        let mut opd_lefts: Vec<Vec<NetPoint>> = Vec::with_capacity(lines.len());
-        let mut opd_rights: Vec<Vec<NetPoint>> = Vec::with_capacity(lines.len());
+        let mut opd_lefts: Vec<Vec<NetPoint>> = Vec::with_capacity(stmts.len());
+        let mut opd_rights: Vec<Vec<NetPoint>> = Vec::with_capacity(stmts.len());
 
-        for (_idx, opd) in lines.iter().enumerate() {
+        for (_idx, opd) in stmts.iter().enumerate() {
             // ── Skip Lead placeholder ────────────────────────────────────────
             // In Parallel with `_` like `(_, A, B)`, `_` is parsed as Lead,
             // doesn't participate in parallel wiring.
@@ -1834,7 +1834,7 @@ impl McModuleInst {
 
         // [R2-DIAG2] Unconditionally print each parallel's opd form + point extraction
         {
-            let _kinds: Vec<String> = lines
+            let _kinds: Vec<String> = stmts
                 .iter()
                 .map(|o| match o {
                     McPhrase::Endpoint(_) => "Endpoint".to_string(),
@@ -1853,7 +1853,7 @@ impl McModuleInst {
 
         // 2) Anchor operand 1 (opd[0]). If opd[0]'s endpoints are empty,
         //    find the next non-empty as the anchor (Lead-skip fallback).
-        let anchor_idx = (0..lines.len()).find(|&i| !opd_lefts[i].is_empty());
+        let anchor_idx = (0..stmts.len()).find(|&i| !opd_lefts[i].is_empty());
         let anchor_idx = match anchor_idx {
             Some(i) => i,
             None => {
@@ -1880,7 +1880,7 @@ impl McModuleInst {
         // 4) Whether dimension mismatch needs a zip-mismatch error
         let mut dim_mismatch_reported = false;
 
-        for i in 0..lines.len() {
+        for i in 0..stmts.len() {
             if i == anchor_idx {
                 continue;
             }
@@ -1898,7 +1898,7 @@ impl McModuleInst {
             // be broadcast to every lane instead of distributed lane-by-lane
             // as a bridge/shunt element. Detect Transposed explicitly and
             // push lp as-is to left_net (rp == lp, so skip right_net).
-            let is_transposed = matches!(lines[i], McPhrase::Transposed(_));
+            let is_transposed = matches!(stmts[i], McPhrase::Transposed(_));
 
             if is_transposed {
                 // Transposed bridge element: lp already contains all pins
@@ -2117,32 +2117,32 @@ impl McModuleInst {
 
     pub(super) fn process_member_internal(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
         match phrase {
-            McPhrase::Parallel(lines) => {
+            McPhrase::Parallel(stmts) => {
                 // ── P1-E1 ────────────────────────────────────────────────
-                // Each item in Parallel is an independent "line". Previously
-                // here uniformly went through `self.process_line(line)`, but
-                // process_line first calls phrase_to_members to clone line, then
+                // Each item in Parallel is an independent stmt. Previously
+                // here uniformly went through `self.process_stmt(stmt)`, but
+                // process_stmt first calls phrase_to_members to clone stmt, then
                 // does process_member_internal on the cloned elements —— the
                 // auto_inst_map's key falls on the cloned address.
                 //
                 // Later, in the adjacency phase, get_left_points / get_right_points
-                // access through the **original** `&line` again, the key is
+                // access through the **original** `&stmt` again, the key is
                 // unequal, auto_inst_map can't find it, P0-4 stub / component
                 // instances are all lost. Typical symptom is `[DIO.ESD(), DIO.ESD()]`
                 // such anonymous 2-pin element column all collapses into bare
                 // `DIO` label and merges into a giant net.
                 //
                 // For "leaves" (single FuncCall / Endpoint etc.) directly call
-                // process_member_internal, keeping the address of `&line`
+                // process_member_internal, keeping the address of `&stmt`
                 // unchanged. For composite nodes (Series / Parallel nesting)
-                // still use process_line, because they themselves need adjacency
+                // still use process_stmt, because they themselves need adjacency
                 // processing, and usually don't contain anonymous construction
                 // calls that would trigger the stub mechanism.
-                for line in lines {
-                    match line {
+                for stmt in stmts {
+                    match stmt {
                         McPhrase::Series(elems, d) => {
                             // ── BUG4 fix (same as Group handler) ────────────────
-                            // Originally process_line(clone) → FuncCall in Series
+                            // Originally process_stmt(clone) → FuncCall in Series
                             // is instantiated on the cloned pointer; but outer
                             // get_left_points(Parallel) → opds[0]=Series →
                             // get_left_points(&Series.elems[0]) uses original
@@ -2154,10 +2154,10 @@ impl McModuleInst {
                             self.process_series_branch_inplace(elems, *d)?;
                         }
                         McPhrase::Parallel(_) => {
-                            self.process_line(line)?;
+                            self.process_stmt(stmt)?;
                         }
                         _ => {
-                            self.process_member_internal(line)?;
+                            self.process_member_internal(stmt)?;
                         }
                     }
                 }
@@ -2182,14 +2182,14 @@ impl McModuleInst {
                 // this part here, explicitly generates internal nets, and changes
                 // points.rs::Parallel back to only expose opds[0] endpoints
                 // (consistent with rules §10.1).
-                if lines.len() >= 2 {
-                    self.wire_parallel_internal(lines)?;
+                if stmts.len() >= 2 {
+                    self.wire_parallel_internal(stmts)?;
                 }
             }
             McPhrase::Group(ref g) => {
                 // ── BUG4 fix ──────────────────────────────────────────────
-                // Originally called process_line(p) for each branch. But the
-                // first step of process_line, phrase_to_members, will clone the
+                // Originally called process_stmt(p) for each branch. But the
+                // first step of process_stmt, phrase_to_members, will clone the
                 // branch (Group/Series/FuncCall all cloned), then do
                 // process_member_internal on the cloned elements —— FuncCall's
                 // auto_inst_map key falls on the **cloned pointer**.
@@ -2201,7 +2201,7 @@ impl McModuleInst {
                 // auto_inst_map —— unequal to the cloned pointer above → MISS →
                 // placeholder CAP.in/RES.in leaks as @_phantom (CLAUDE.md BUG4).
                 //
-                // Fix: no longer process_line(clone), but in-place process each
+                // Fix: no longer process_stmt(clone), but in-place process each
                 // branch, keeping g.opds[i] sub-pointer unchanged (same strategy
                 // as Parallel/Multiple handler):
                 //   - Series branch: process_member_internal(&series[k])
@@ -2228,7 +2228,7 @@ impl McModuleInst {
             }
             McPhrase::Transposed(inner) => {
                 // ── P0 fix (Transposed auto_inst_map pointer mismatch) ──────
-                // Originally process_line(inner) cloned the FuncCall via
+                // Originally process_stmt(inner) cloned the FuncCall via
                 // phrase_to_members, causing the auto_inst_map key to land on
                 // the cloned pointer. Later get_left_points / get_right_points
                 // on the outer Transposed member use the original pointer to
@@ -2261,7 +2261,7 @@ impl McModuleInst {
                         }
                     }
                     _ => {
-                        self.process_line(inner)?;
+                        self.process_stmt(inner)?;
                     }
                 }
             }
@@ -2273,7 +2273,7 @@ impl McModuleInst {
                     }
                 }
                 for p in &c.body {
-                    self.process_line(p)?;
+                    self.process_stmt(p)?;
                 }
                 for elem in &c.right {
                     if !elem.name.is_empty() {
@@ -2349,7 +2349,7 @@ impl McModuleInst {
                             crate::db::diagnostic::diagnostic::dlog_trace(
                                 944,
                                 &format!(
-                                    "line: iterated call '{}' → all pass-through, iterated connection dropped (module='{}')",
+                                    "stmt: iterated call '{}' → all pass-through, iterated connection dropped (module='{}')",
                                     fc.func_name,
                                     self.name,
                                 ),
@@ -2363,7 +2363,7 @@ impl McModuleInst {
                 // Array-form caller pointing to already-declared instances:
                 // for a call like `cap[4:5]::CAP(1uF)`, pass1 has already
                 // registered cap4/cap5 as independent components in
-                // self.components, but the net line's FuncCall caller is still
+                // self.components, but the net stmt's FuncCall caller is still
                 // the unexpanded "cap[4:5]" form. If we naively go through
                 // instantiate_funccall, it would treat CAP as a class
                 // constructor and create another @CAP?, misaligned with the
@@ -2406,9 +2406,9 @@ impl McModuleInst {
                 //      Lifting to here doesn't affect this invariant.
                 //   3. **Pointer stability (original Iter-3.F argument)**: use
                 //      `process_member_internal` for single-member caller instead
-                //      of `process_line`, keep `&**caller_line` address unchanged,
+                //      of `process_stmt`, keep `&**caller_stmt` address unchanged,
                 //      making auto_inst_map's pointer key match reliable.
-                //      Compound caller (Series/Parallel) still uses `process_line`
+                //      Compound caller (Series/Parallel) still uses `process_stmt`
                 //      for adjacency.
                 //
                 // Side effect tracking: after lifting, dispatch paths will see
@@ -2417,17 +2417,17 @@ impl McModuleInst {
                 // FuncCall-form caller (like `.add_caps()` after `setup()`) it
                 // recursively expands the setup body —— which is exactly the
                 // fix target.
-                if let Some(caller_line) = &fc.caller {
-                    match caller_line.as_ref() {
+                if let Some(caller_stmt) = &fc.caller {
+                    match caller_stmt.as_ref() {
                         McPhrase::FuncCall(_)
                         | McPhrase::Endpoint(_)
                         | McPhrase::Transposed(_)
                         | McPhrase::Lead
                         | McPhrase::Member(_, _) => {
-                            self.process_member_internal(caller_line.as_ref())?;
+                            self.process_member_internal(caller_stmt.as_ref())?;
                         }
                         _ => {
-                            self.process_line(caller_line.as_ref())?;
+                            self.process_stmt(caller_stmt.as_ref())?;
                         }
                     }
                 }
@@ -2454,7 +2454,7 @@ impl McModuleInst {
                 // the P1-D wire_builtin_twopin path below. Some components'
                 // funcs tables may have empty-shell methods of the same name,
                 // once entered will be treated as "Instance method has no
-                // parsed lines", completely losing builtin wiring.
+                // parsed stmts", completely losing builtin wiring.
                 if !Self::is_builtin_twopin_net_fn(&fc.func_name.to_string()) {
                     if let Some(caller_box) = &fc.caller {
                         if let Some(inst_name) = Self::extract_caller_inst_name(caller_box.as_ref())
@@ -2488,9 +2488,9 @@ impl McModuleInst {
                                 {
                                     mcc_dbg!(
                                         "inst::mod",
-                                        "[P2-4-DBG] func_def name={}, lines={}, params={}",
+                                        "[P2-4-DBG] func_def name={}, stmts={}, params={}",
                                         func_def.name,
-                                        func_def.lines.len(),
+                                        func_def.stmts.len(),
                                         func_def.params.iter().count()
                                     );
                                     let key = Self::member_key(phrase);
@@ -2631,7 +2631,7 @@ impl McModuleInst {
                             // pointer reuse**:
                             //   1. do_flash chain's 4 layers each insert one
                             //      auto_inst_map[layer_phrase_addr] = "mcu"
-                            //   2. After that line's process_line returns, the 4 McPhrase
+                            //   2. After that line's process_stmt returns, the 4 McPhrase
                             //      nodes' memory is freed
                             //   3. When next line `mic(V3V3).MIC -> ...` is parsed, new
                             //      McPhrase is allocated on the heap, at least one new
@@ -2653,9 +2653,9 @@ impl McModuleInst {
                             // no longer writes to the map.
                             //
                             // Note: the pointer reuse risk from auto_inst_map being
-                            // persistent across process_line is not further aggravated
+                            // persistent across process_stmt is not further aggravated
                             // here, the root fix is Iter-6.S4.3 adding per-line clear in
-                            // phases.rs's instantiate_lines_resilient.
+                            // phases.rs's instantiate_stmts_resilient.
                             let inst_is_component =
                                 self.components.iter().any(|c| c.name == inst_name);
                             let inst_is_submodule =
@@ -2958,7 +2958,7 @@ impl McModuleInst {
                                 //   actually registered in self.components by
                                 //   `instantiate_component_construction` via
                                 //   `auto_name(safe_type)` (and written to InstTable),
-                                //   but the same line's FuncCall dispatch through the
+                                //   but the same stmt's FuncCall dispatch through the
                                 //   dispatcher path returns PassThrough, falling to
                                 //   this P0-4 branch, which separately generates
                                 //   stub names like `@?CAP_1` via the `@?CAP` counter
@@ -3444,7 +3444,7 @@ fn is_single_ended(a: &[NetPoint], b: &[NetPoint]) -> bool {
     a_paths == b_paths
 }
 
-// ── Root cause C helper (line.rs module private; same-name function in group.rs not in this module's scope) ──────
+// ── Root cause C helper (stmt.rs module private; same-name function in group.rs not in this module's scope) ──────
 /// Get the last segment of a path (`mic.MIC.P` → `P`, `V3V3` → `V3V3`).
 fn lr_last_seg(path: &str) -> &str {
     path.rsplit('.').next().unwrap_or(path)

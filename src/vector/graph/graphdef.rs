@@ -26,7 +26,7 @@ use std::fmt;
 
 use super::boxdef::{McVecBox, PortDir, ZoneBorder};
 use super::netdef::{McVecEdge, NetRole, VizNet};
-use crate::vector::model::dock::PortDock;
+use crate::vector::model::link::PortLink;
 
 // ============================================================================
 // McVecGraph
@@ -48,10 +48,10 @@ pub struct McVecGraph {
     ///
     /// One `VizNet` per net, no limit on endpoint count. Router uses this to compute paths.
     pub nets: Vec<VizNet>,
-    /// ★ §8.9.4: coarse bus/interface docks of this layer (copied from the
-    /// source `McVecBlock.port_docks` by fromblock; recursive alongside
-    /// `sub_graphs`, so each layer carries its own docks)
-    pub port_docks: Vec<PortDock>,
+    /// ★ §8.9.4: coarse bus/interface links of this layer (copied from the
+    /// source `McVecBlock.port_links` by fromblock; recursive alongside
+    /// `sub_graphs`, so each layer carries its own links)
+    pub port_links: Vec<PortLink>,
     /// Sub-graphs (recursive sub-modules, implementable as expandable)
     pub sub_graphs: Vec<McVecGraph>,
     /// ★ FIX (sub-graph): whether multi-endpoint single-driver nets in this layer use
@@ -174,7 +174,7 @@ impl McVecGraph {
             boxes: vec![],
             edges: vec![],
             nets: vec![],
-            port_docks: vec![],
+            port_links: vec![],
             sub_graphs: vec![],
             fanout_star: false,
             islands_claimed: 0,

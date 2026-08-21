@@ -48,7 +48,7 @@
         "line": 4,
         "pos": 83
       },
-      "message": "Module 'main' has no params, instances, net lines, or functions. Is this a stub?",
+      "message": "Module 'main' has no params, instances, net statements, or functions. Is this a stub?",
       "phase": "pass0",
       "severity": "warning"
     }

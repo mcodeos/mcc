@@ -583,23 +583,23 @@ pub fn get_module_with_diagnostics(
 }
 
 // ============================================================================
-// 🆕 LineMemberInfo complete info extraction API (rendering side friendly format)
+// 🆕 StmtMemberInfo complete info extraction API (rendering side friendly format)
 // ============================================================================
 
 /// Extract structured info for all McPhrases in McModule
-pub fn get_lines_info(module: &McModule) -> Vec<LineInfo> {
-    module.lines.iter().map(phrase_to_info).collect()
+pub fn get_stmts_info(module: &McModule) -> Vec<StmtInfo> {
+    module.stmts.iter().map(phrase_to_info).collect()
 }
 
 /// Structured info for single McPhrase
 #[derive(Debug, Clone)]
-pub struct LineInfo {
-    pub members: Vec<LineMemberInfo>,
+pub struct StmtInfo {
+    pub members: Vec<StmtMemberInfo>,
 }
 
-/// Complete structured info for LineMemberInfo (corresponding to all variants)
+/// Complete structured info for StmtMemberInfo (corresponding to all variants)
 #[derive(Debug, Clone)]
-pub enum LineMemberInfo {
+pub enum StmtMemberInfo {
     Lead,
     Bus {
         elements: Vec<NodeElementInfo>,
@@ -609,16 +609,16 @@ pub enum LineMemberInfo {
         right: Vec<NodeElementInfo>,
     },
     Vector {
-        lines: Vec<LineInfo>,
+        stmts: Vec<StmtInfo>,
     },
     Parallel {
-        lines: Vec<LineInfo>,
+        stmts: Vec<StmtInfo>,
     },
     Transposed {
-        inner: Box<LineInfo>,
+        inner: Box<StmtInfo>,
     },
     FuncCall {
-        caller: Option<Box<LineInfo>>,
+        caller: Option<Box<StmtInfo>>,
         func_name: String,
         params: Vec<String>,
         left: Vec<NodeElementInfo>,
@@ -627,10 +627,10 @@ pub enum LineMemberInfo {
     Closure {
         params: Vec<String>,
         right: Vec<NodeElementInfo>,
-        body: Vec<LineInfo>,
+        body: Vec<StmtInfo>,
     },
     Group {
-        lines: Vec<LineInfo>,
+        stmts: Vec<StmtInfo>,
         left_match: bool,
         right_match: bool,
     },
@@ -647,27 +647,27 @@ pub struct NodeElementInfo {
     pub members: Vec<String>, // flattened: member name string list
 }
 
-/// Convert McPhrase to LineInfo
-fn phrase_to_info(phrase: &McPhrase) -> LineInfo {
+/// Convert McPhrase to StmtInfo
+fn phrase_to_info(phrase: &McPhrase) -> StmtInfo {
     match phrase {
         McPhrase::Series(phrases, _) => {
-            // Combine all phrases' members into one LineInfo
+            // Combine all phrases' members into one StmtInfo
             let mut all_members = Vec::new();
             for p in phrases {
                 let info = phrase_to_info(p);
                 all_members.extend(info.members);
             }
-            LineInfo {
+            StmtInfo {
                 members: all_members,
             }
         }
-        McPhrase::Parallel(phrases) => LineInfo {
-            members: vec![LineMemberInfo::Parallel {
-                lines: phrases.iter().map(phrase_to_info).collect(),
+        McPhrase::Parallel(phrases) => StmtInfo {
+            members: vec![StmtMemberInfo::Parallel {
+                stmts: phrases.iter().map(phrase_to_info).collect(),
             }],
         },
-        McPhrase::Closure(c) => LineInfo {
-            members: vec![LineMemberInfo::Closure {
+        McPhrase::Closure(c) => StmtInfo {
+            members: vec![StmtMemberInfo::Closure {
                 params: c
                     .params
                     .iter()
@@ -677,15 +677,15 @@ fn phrase_to_info(phrase: &McPhrase) -> LineInfo {
                 body: c.body.iter().map(phrase_to_info).collect(),
             }],
         },
-        McPhrase::Group(g) => LineInfo {
-            members: vec![LineMemberInfo::Group {
-                lines: g.opds.iter().map(phrase_to_info).collect(),
+        McPhrase::Group(g) => StmtInfo {
+            members: vec![StmtMemberInfo::Group {
+                stmts: g.opds.iter().map(phrase_to_info).collect(),
                 left_match: g.left_match,
                 right_match: g.right_match,
             }],
         },
-        McPhrase::FuncCall(f) => LineInfo {
-            members: vec![LineMemberInfo::FuncCall {
+        McPhrase::FuncCall(f) => StmtInfo {
+            members: vec![StmtMemberInfo::FuncCall {
                 caller: f.caller.as_ref().map(|c| Box::new(phrase_to_info(c))),
                 func_name: f.func_name.to_string(),
                 params: f
@@ -697,13 +697,13 @@ fn phrase_to_info(phrase: &McPhrase) -> LineInfo {
                 right: f.right.iter().map(node_element_to_info).collect(),
             }],
         },
-        McPhrase::Transposed(line) => LineInfo {
-            members: vec![LineMemberInfo::Transposed {
-                inner: Box::new(phrase_to_info(line)),
+        McPhrase::Transposed(phrase) => StmtInfo {
+            members: vec![StmtMemberInfo::Transposed {
+                inner: Box::new(phrase_to_info(phrase)),
             }],
         },
-        McPhrase::Lead => LineInfo { members: vec![] },
-        McPhrase::Multiple(phrases) => LineInfo {
+        McPhrase::Lead => StmtInfo { members: vec![] },
+        McPhrase::Multiple(phrases) => StmtInfo {
             members: phrases
                 .iter()
                 .flat_map(|p| phrase_to_info(p).members)
@@ -713,8 +713,8 @@ fn phrase_to_info(phrase: &McPhrase) -> LineInfo {
             ref input,
             ref output,
             ..
-        }) => LineInfo {
-            members: vec![LineMemberInfo::Node {
+        }) => StmtInfo {
+            members: vec![StmtMemberInfo::Node {
                 left: input
                     .iter()
                     .flat_map(|e| e.get_left())
@@ -727,17 +727,17 @@ fn phrase_to_info(phrase: &McPhrase) -> LineInfo {
                     .collect::<Vec<_>>(),
             }],
         },
-        McPhrase::Endpoint(ep) => LineInfo {
-            members: vec![LineMemberInfo::Endpoint {
+        McPhrase::Endpoint(ep) => StmtInfo {
+            members: vec![StmtMemberInfo::Endpoint {
                 info: ep.to_string(),
             }],
         },
         McPhrase::Member(phrase, ep) => {
             let mut members = phrase_to_info(phrase).members;
-            members.push(LineMemberInfo::Endpoint {
+            members.push(StmtMemberInfo::Endpoint {
                 info: ep.to_string(),
             });
-            LineInfo { members }
+            StmtInfo { members }
         }
     }
 }
@@ -755,19 +755,19 @@ fn node_element_to_info(elem: &McBus) -> NodeElementInfo {
 // 🆕 Debug prints
 // ============================================================================
 
-/// Print all connection line info for module (for debugging)
-pub fn print_module_lines(module: &McModule) {
+/// Print all connection stmt info for module (for debugging)
+pub fn print_module_stmts(module: &McModule) {
     mcc_dbg!(
         "parse::phrase",
-        "=== Module '{}' Lines ({}) ===",
+        "=== Module '{}' Stmts ({}) ===",
         module.name,
-        module.lines.len()
+        module.stmts.len()
     );
-    for (i, line) in module.lines.iter().enumerate() {
-        let info = phrase_to_info(line);
+    for (i, stmt) in module.stmts.iter().enumerate() {
+        let info = phrase_to_info(stmt);
         mcc_dbg!(
             "parse::phrase",
-            "  Line[{}]: {} members",
+            "  Stmt[{}]: {} members",
             i,
             info.members.len()
         );
@@ -777,17 +777,17 @@ pub fn print_module_lines(module: &McModule) {
     }
 }
 
-fn print_member_info_indent(member: &LineMemberInfo, indent: usize, idx: usize) {
+fn print_member_info_indent(member: &StmtMemberInfo, indent: usize, idx: usize) {
     let pad = " ".repeat(indent);
     match member {
-        LineMemberInfo::Lead => {
+        StmtMemberInfo::Lead => {
             mcc_dbg!("parse::phrase", "{pad}[{idx}] Lead");
         }
-        LineMemberInfo::Bus { elements } => {
+        StmtMemberInfo::Bus { elements } => {
             let names: Vec<&str> = elements.iter().map(|e| e.name.as_str()).collect();
             mcc_dbg!("parse::phrase", "{pad}[{idx}] Bus({names:?})");
         }
-        LineMemberInfo::Node { left, right } => {
+        StmtMemberInfo::Node { left, right } => {
             let l: Vec<&str> = left.iter().map(|e| e.name.as_str()).collect();
             let r: Vec<&str> = right.iter().map(|e| e.name.as_str()).collect();
             mcc_dbg!(
@@ -795,19 +795,19 @@ fn print_member_info_indent(member: &LineMemberInfo, indent: usize, idx: usize) 
                 "{pad}[{idx}] Node {{ left: {l:?}, right: {r:?} }}"
             );
         }
-        LineMemberInfo::Parallel { lines } => {
+        StmtMemberInfo::Parallel { stmts } => {
             mcc_dbg!(
                 "parse::phrase",
                 "{}[{}] Parallel({} phrases)",
                 pad,
                 idx,
-                lines.len()
+                stmts.len()
             );
         }
-        LineMemberInfo::Transposed { inner: _ } => {
+        StmtMemberInfo::Transposed { inner: _ } => {
             mcc_dbg!("parse::phrase", "{pad}[{idx}] Transposed:");
         }
-        LineMemberInfo::FuncCall {
+        StmtMemberInfo::FuncCall {
             func_name, params, ..
         } => {
             mcc_dbg!(
@@ -819,35 +819,35 @@ fn print_member_info_indent(member: &LineMemberInfo, indent: usize, idx: usize) 
                 params.len()
             );
         }
-        LineMemberInfo::Closure { params, body, .. } => {
+        StmtMemberInfo::Closure { params, body, .. } => {
             mcc_dbg!(
                 "parse::phrase",
-                "{}[{}] Closure {{ params: {}, body: {} lines }}",
+                "{}[{}] Closure {{ params: {}, body: {} stmts }}",
                 pad,
                 idx,
                 params.len(),
                 body.len()
             );
         }
-        LineMemberInfo::Group { lines, .. } => {
+        StmtMemberInfo::Group { stmts, .. } => {
             mcc_dbg!(
                 "parse::phrase",
-                "{}[{}] Group {{ {} lines }}",
+                "{}[{}] Group {{ {} stmts }}",
                 pad,
                 idx,
-                lines.len()
+                stmts.len()
             );
         }
-        LineMemberInfo::Vector { lines } => {
+        StmtMemberInfo::Vector { stmts } => {
             mcc_dbg!(
                 "parse::phrase",
-                "{}[{}] Vector({} lines)",
+                "{}[{}] Vector({} stmts)",
                 pad,
                 idx,
-                lines.len()
+                stmts.len()
             );
         }
-        LineMemberInfo::Endpoint { info } => {
+        StmtMemberInfo::Endpoint { info } => {
             mcc_dbg!("parse::phrase", "{pad}[{idx}] Endpoint({info})");
         }
     }

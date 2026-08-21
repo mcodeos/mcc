@@ -16,7 +16,7 @@ pub struct McClosure {
     pub params: McParamDeclares,
     /// Output interface
     pub right: Vec<McBus>,
-    /// Closure body (connection lines) - simplified with Vec<McPhrase>
+    /// Closure body (connection stmts) - simplified with Vec<McPhrase>
     pub body: Vec<McPhrase>,
 }
 
@@ -28,7 +28,7 @@ impl McClosure {
             .expect(crate::ast::error::message::MISSING_SUBNODE);
 
         let mut params = McParamDeclares::new();
-        let mut body_lines: Vec<McPhrase> = Vec::new();
+        let mut body_stmts: Vec<McPhrase> = Vec::new();
 
         for each in subnode.iter() {
             match each.get_type() {
@@ -43,13 +43,13 @@ impl McClosure {
                                 MCAST_NET => {
                                     if let Some(net_sub) = body_node.get_sub_node() {
                                         if let Some(phrase) = McPhrase::new(&net_sub, context) {
-                                            body_lines.push(phrase);
+                                            body_stmts.push(phrase);
                                         }
                                     }
                                 }
                                 _ => {
                                     if let Some(phrase) = McPhrase::new(&body_node, context) {
-                                        body_lines.push(phrase);
+                                        body_stmts.push(phrase);
                                     }
                                 }
                             }
@@ -59,14 +59,14 @@ impl McClosure {
 
                 _ => {
                     if let Some(phrase) = McPhrase::new(&each, context) {
-                        body_lines.push(phrase);
+                        body_stmts.push(phrase);
                     }
                 }
             }
         }
 
-        let right = if let Some(last_line) = body_lines.last() {
-            last_line.get_right()
+        let right = if let Some(last_stmt) = body_stmts.last() {
+            last_stmt.get_right()
         } else {
             vec![]
         };
@@ -74,7 +74,7 @@ impl McClosure {
         Some(McClosure {
             params,
             right,
-            body: body_lines,
+            body: body_stmts,
         })
     }
 }
