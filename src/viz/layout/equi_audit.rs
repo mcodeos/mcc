@@ -2052,6 +2052,13 @@ fn check_a28_along_is_collinear(graph: &McVecGraph, topos: &[NetTopology]) -> Ch
             if other.terminal_only {
                 continue;
             }
+            // ★ M12.1: a ground COLUMN is a node, not a row. Its arms are
+            // horizontal on their OWN rows and meet on the column's vertical, so
+            // collinearity with the node's row is not the contract here — A31's
+            // end budget is.
+            if other.ground_column {
+                continue;
+            }
             if (other.lane.axis - topo.lane.axis).abs() > 1.0 {
                 c.fail(format!(
                     "'{}' lies along the wire between '{}' (row {:.0}) and '{}' (row {:.0}) — not collinear",
@@ -2275,10 +2282,11 @@ fn check_a32_label_has_a_stub(topos: &[NetTopology], trees: &[EquiTree]) -> Chec
 
 /// `moddcdc` — the LP3220 buck reference used as the M0..M6 golden.
 ///
-/// Netlist as reported by the module dump (11 nets, 20 connections). Note the
-/// **six separate `GND` nets**: `rails.rs` explodes ground into per-consumer
-/// flags on purpose, and the target schematic draws six independent ground
-/// symbols. Nothing downstream may coalesce them.
+/// Netlist as reported by the module dump (10 nets, 20 connections). Note the
+/// **five separate `GND` nets**: `rails.rs` explodes ground into per-consumer
+/// flags on purpose, and the target schematic draws five independent ground
+/// symbols. Nothing downstream may coalesce them. `501` is the SHARED ground
+/// `GND ~ C1.2 ~ C2.2` — M12 turns it into a COLUMN (two horizontal arms).
 ///
 /// ID plan (stable — golden diffs depend on it):
 /// ```text
@@ -2289,8 +2297,7 @@ fn check_a32_label_has_a_stub(topos: &[NetTopology], trees: &[EquiTree]) -> Chec
 ///   41..45   GND labels     pins 411..451
 ///   46       VCC_1V2 label  pin 461
 ///   47       VDD_3V3 label  pin 471
-///   48       GND label      pin 481 (CAP_2's own ground — M10.3)
-///   501      GND @ CAP_1    511 GND @ CAP_2
+///   501      GND @ CAP_1 + CAP_2 (shared → M12 column)
 ///   502..504 GND @ CAP_3/4/RES_3   505 GND @ lp322dcdc.2
 /// ```
 #[cfg(test)]
@@ -2423,15 +2430,18 @@ pub(crate) mod fixture {
         }
         g.boxes.push(label(46, "VCC_1V2", 461, false));
         g.boxes.push(label(47, "VDD_3V3", 471, false));
-        // ★ M10.3: per-consumer grounds, like real `moddcdc` (rails.rs explodes
-        // ground into per-consumer flags). M9 merged C1 and C2 onto one net
-        // (501), which makes the EN run adopt C1's ground too and drag the C1
-        // shunt onto EN's row — the "shared GND" trap the M11 plan flags.
-        g.boxes.push(label(48, "GND", 481, true));
 
-        // GND ~ CAP_1.2 (stays South: VDD_3V3 is a named run, so C1 keeps dropping)
-        g.nets
-            .push(net(501, "GND", NetKind::Ground, &[(41, 411), (11, 112)]));
+        // ★ M12.1: a SHARED ground node — `GND ~ CAP_1.2 ~ CAP_2.2`. Two caps
+        // into one ground: M10.3 adopted it as the EN run's outer end, and M12
+        // turns it into a COLUMN so BOTH caps lie horizontal on their own rows
+        // (`VDD_3V3` and `_net1`) and stop at the node's x.
+        // GND ~ CAP_1.2 ~ CAP_2.2
+        g.nets.push(net(
+            501,
+            "GND",
+            NetKind::Ground,
+            &[(41, 411), (11, 112), (12, 122)],
+        ));
         // GND ~ CAP_3.2
         g.nets
             .push(net(502, "GND", NetKind::Ground, &[(42, 421), (13, 132)]));
@@ -2479,9 +2489,6 @@ pub(crate) mod fixture {
             NetKind::Signal,
             &[(22, 222), (1, 105), (23, 231), (15, 151)],
         ));
-        // GND ~ CAP_2.2 (adopted as the EN run's outer end, M10.3)
-        g.nets
-            .push(net(511, "GND", NetKind::Ground, &[(48, 481), (12, 122)]));
 
         g
     }
@@ -2808,25 +2815,25 @@ mod tests {
     fn moddcdc_topology_shape() {
         let (g, topos) = placed();
 
-        // 11 nets in, 11 topologies out — nothing may be dropped or split.
+        // 10 nets in, 10 topologies out — nothing may be dropped or split.
         assert_eq!(
             topos.len(),
-            11,
-            "expected 11 topologies, got {}\n{}",
+            10,
+            "expected 10 topologies, got {}\n{}",
             topos.len(),
             dump_layout_model(&g, &topos)
         );
 
-        // The six GND nets stay six. If this ever reads 1, something
-        // coalesced the per-consumer ground flags.
+        // The five GND nets stay five. If this ever reads 1, something
+        // coalesced the ground flags.
         let gnd = topos.iter().filter(|t| t.net_name == "GND").count();
-        assert_eq!(gnd, 6, "the six per-consumer GND nets must stay separate");
+        assert_eq!(gnd, 5, "the five GND nets must stay separate");
 
-        // nids survive the topology build (added at M0 so the six GNDs are
+        // nids survive the topology build (added at M0 so the five GNDs are
         // distinguishable).
         let mut nids: Vec<i64> = topos.iter().map(|t| t.nid).collect();
         nids.sort();
-        assert_eq!(nids, (501..=511).collect::<Vec<_>>());
+        assert_eq!(nids, (501..=510).collect::<Vec<_>>());
     }
 
     /// M2.5 Step 8: A1 must be falsifiable — it counts `RowSource::IslandFallback`,
@@ -2877,18 +2884,19 @@ mod tests {
             "layer anchor must be the IC"
         );
 
-        // 5 single-group GND nets (501/502/503/504/511) are terminal-only:
-        // no trunk. (505 is the IC ground pin net, a real net.)
+        // 3 single-group GND nets (502/503/504) are terminal-only: no trunk.
+        // (501 is the SHARED ground `GND ~ C1.2 ~ C2.2` — two real groups, so
+        // not terminal-only; M12 makes it a COLUMN. 505 is the IC ground rail.)
         let terminal_only = view.nets.iter().filter(|n| n.terminal_only).count();
         assert_eq!(
-            terminal_only, 5,
-            "M2: the per-consumer GND nets are terminal-only (no trunk), got {terminal_only}:\n{view}"
+            terminal_only, 3,
+            "M2: 502/503/504 are terminal-only (no trunk), got {terminal_only}:\n{view}"
         );
 
-        // The 1 multi-group free net (506) is NOT "passive-anchored adrift":
-        // it must have inherited a row from a partner (`506←510`) instead of
-        // the accidental y of wherever its anchor landed or an island fallback
-        // below the IC.
+        // The 2 multi-group free nets (501/506) are NOT "passive-anchored
+        // adrift": every one must have inherited a row from a partner
+        // (`501←507`, `506←510`) instead of the accidental y of wherever its
+        // anchor landed or an island fallback below the IC.
         let free: Vec<&NetView> = view
             .nets
             .iter()
@@ -2896,8 +2904,8 @@ mod tests {
             .collect();
         assert_eq!(
             free.len(),
-            1,
-            "M2: the free net is 506, got {}:\n{view}",
+            2,
+            "M2: free nets are 501/506, got {}:\n{view}",
             free.len()
         );
         let free_net_passive_anchored = free
@@ -2910,17 +2918,17 @@ mod tests {
         );
 
         // ★ Ungated ground rule: every Ground net starts South, and only the
-        // two ADOPTED ones (M10.3) leave it — 511 rides the EN run (West) and
-        // 504 rides the FB run (East). 501/502/503 stay South and 505 is the
-        // IC's own ground rail.
+        // two ADOPTED ones leave it — 501 rides the EN run as a COLUMN (West,
+        // M12.1) and 504 rides the FB run (East). 502/503 stay South and 505
+        // is the IC's own ground rail.
         let south = view
             .nets
             .iter()
             .filter(|n| n.region == Region::South)
             .count();
         assert_eq!(
-            south, 4,
-            "four GND nets must hang South (501/502/503/505), got {south}:\n{view}"
+            south, 3,
+            "three GND nets must hang South (502/503/505), got {south}:\n{view}"
         );
     }
 
@@ -2983,15 +2991,27 @@ mod tests {
             b("RES_1").h > b("RES_1").w,
             "RES_1 must be vertical (Bridge)"
         );
-        // ★ M10.3: CAP_2 is now horizontal — the EN run adopts its ground, so
-        // the cap lies ALONG the row and terminates in a horizontal GND glyph.
+        // ★ M12.1: CAP_1 and CAP_2 are now horizontal — they are the two arms
+        // of the shared ground COLUMN `GND ~ C1.2 ~ C2.2`, each lying along its
+        // own row (Vin / EN) and stopping at the column's x.
+        for cap in ["CAP_1", "CAP_2"] {
+            let c = b(cap);
+            assert!(
+                c.w > c.h,
+                "{cap} must be horizontal (ground column arm), got w={} h={}",
+                c.w,
+                c.h
+            );
+        }
+        // M10.3: CAP_1 and CAP_2 share the same cold x (the column node).
         assert!(
-            b("CAP_2").w > b("CAP_2").h,
-            "CAP_2 must be horizontal (EN run adopts its ground), got w={} h={}",
-            b("CAP_2").w,
-            b("CAP_2").h
+            (b("CAP_1").x - b("CAP_2").x).abs() < 1.0,
+            "CAP_1 x={} and CAP_2 x={} must line up on the ground column",
+            b("CAP_1").x,
+            b("CAP_2").x
         );
-        for cap in ["CAP_1", "CAP_3", "CAP_4"] {
+        // CAP_3/CAP_4 keep private grounds → stay vertical Drops off VCC_1V2.
+        for cap in ["CAP_3", "CAP_4"] {
             let c = b(cap);
             assert!(c.h > c.w, "{cap} must be vertical, got w={} h={}", c.w, c.h);
         }

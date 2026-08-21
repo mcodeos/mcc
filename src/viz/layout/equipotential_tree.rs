@@ -312,6 +312,12 @@ pub struct NetTopology {
     /// vertical only once its text happened to overlap a box, so the same
     /// netlist rendered two ways depending on how long a name was.
     pub(crate) outer_end_taken: bool,
+    /// ★ M12.1: this GROUND net is a COLUMN — a shared ground node carrying two
+    /// or more parts, each lying ALONG its own net's row and stopping at the
+    /// node's x. Such a net places none of its own members (they belong to the
+    /// live rows) and its glyph continues OUTWARD off the row it was adopted
+    /// onto. Written by `assign_rows` from [`super::equi_chain::ChainPlan`].
+    pub(crate) ground_column: bool,
     /// M2.5 Step 7: the unified y every Ground glyph used to hang at.
     ///
     /// ★ M7.5: no longer used for placement. Pinning every ground glyph to
@@ -568,6 +574,7 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
         run_root: net.nid,
         run_depth: 0,
         outer_end_taken: false,
+        ground_column: false,
         ground_band: 0.0,
     })
 }
@@ -1668,6 +1675,10 @@ pub fn place_by_topology(graph: &mut McVecGraph, topos: &mut [NetTopology]) {
     // onto one column). N/S members keep their provisional x.
     resolve_columns_for_side(graph, topos);
 
+    // ★ M12.4: with x final, a shunt that would hang DOWN through another row
+    // may flip UP instead.
+    flip_shunts_clear_of_rows(graph, topos);
+
     // ★ M9.2b: now that the member columns are final, push each satellite
     // outside them — the shared nets then run straight from the anchor pin,
     // past the members, into the satellite's facing pin.
@@ -2033,6 +2044,8 @@ pub(crate) fn assign_rows(
         };
         // ★ M11.3: and whether anything physical already owns its outer end.
         t.outer_end_taken = chain.outer_end_taken(i);
+        // ★ M12.1: and whether it is a shared ground NODE rather than a row.
+        t.ground_column = chain.is_ground_column(i);
     }
     // IC-anchored trunk-bearing nets: every anchor pin on the layer anchor
     // enters its region bucket independently (M2.5 Step 2) — a net with two IC
@@ -2200,6 +2213,9 @@ pub(crate) fn assign_rows(
                     // charged a full CORRIDOR_DEMAND and pushed the next row
                     // 80px down for a wire that is horizontal.
                     Some((_, other)) if other.run_root == t.run_root => {}
+                    // ★ M12.1: an arm of a ground COLUMN is horizontal too, even
+                    // though the node itself sits on somebody else's run.
+                    Some((_, other)) if other.ground_column => {}
                     Some((_, other))
                         if other.terminal_only || other.net_kind == NetKind::Ground =>
                     {
@@ -2789,6 +2805,26 @@ fn chain_origins(
                 foot += b.w.max(TWO_PIN_SYMBOL_H) + COL_CLEAR;
             }
             if k + 1 >= members.len() {
+                // ★ M12.3: the run's TAIL can still carry an Along part whose
+                // far net owns no trunk — an adopted terminal-only ground, or a
+                // bare rail label. Such a partner never enters `members`, so the
+                // joint loop below never saw it and the part kept whatever
+                // provisional x the per-net allocator gave it, which the
+                // side-wide pass may since have moved another member onto. Give
+                // it the same prefix-sum slot every other joint gets.
+                for group in topos[i].groups.iter().skip(1) {
+                    let Some(b) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
+                        continue;
+                    };
+                    let role = tap_role(b, &topos[i], partner_info(topos, i, group));
+                    if !matches!(role, TapRole::Series { .. }) {
+                        continue;
+                    }
+                    series_x.push((
+                        group.box_id,
+                        cursor + dir * (foot + COL_CLEAR + TWO_PIN_SYMBOL_W / 2.0),
+                    ));
+                }
                 continue;
             }
             let j = members[k + 1];
@@ -2807,7 +2843,173 @@ fn chain_origins(
             cursor += dir * (foot + COL_CLEAR + TWO_PIN_SYMBOL_W + COL_CLEAR);
         }
     }
+
+    // ★ M12.1: every arm of a ground COLUMN shares ONE x, so their cold pins
+    // line up on the node's vertical and a single glyph serves them all. Each
+    // arm's own candidate is the tail slot of its row (the same prefix sum used
+    // above); the OUTWARD-most candidate wins, because pulling an arm inward
+    // would drop it on top of a member already sitting there.
+    for (gi, g) in topos.iter().enumerate() {
+        if !g.ground_column {
+            continue;
+        }
+        let mut xs: Vec<(i64, f64)> = Vec::new();
+        let mut dir = 0.0f64;
+        for group in &g.groups {
+            let Some((li, live)) = find_partner(topos, gi, group) else {
+                continue;
+            };
+            let d = match live.lane.region {
+                Region::West => -1.0,
+                Region::East => 1.0,
+                _ => continue,
+            };
+            dir = d;
+            let base = origins
+                .get(&live.nid)
+                .copied()
+                .unwrap_or_else(|| net_anchor_pin_x(graph, live));
+            let mut foot = COL_MARGIN;
+            for m in live.groups.iter().skip(1) {
+                if m.box_id == group.box_id {
+                    continue;
+                }
+                let Some(b) = graph.boxes.iter().find(|b| b.id == m.box_id) else {
+                    continue;
+                };
+                if matches!(
+                    tap_role(b, live, partner_info(topos, li, m)),
+                    TapRole::Series { .. }
+                ) {
+                    continue;
+                }
+                foot += b.w.max(TWO_PIN_SYMBOL_H) + COL_CLEAR;
+            }
+            xs.push((
+                group.box_id,
+                base + d * (foot + COL_CLEAR + TWO_PIN_SYMBOL_W / 2.0),
+            ));
+        }
+        let Some(&(_, first)) = xs.first() else {
+            continue;
+        };
+        let mut x_col = first;
+        for &(_, x) in &xs {
+            if (x - x_col) * dir > 0.0 {
+                x_col = x;
+            }
+        }
+        for (bid, _) in xs {
+            series_x.push((bid, x_col));
+        }
+    }
     (origins, series_x)
+}
+
+/// ★ M12.4: **a vertical may hang UP.**
+///
+/// M7.3 pinned every ground shunt DOWN, on the reasoning that "every ground
+/// row/band of the layer is BELOW". M7.5 then took that away — a ground glyph
+/// now hangs one `SYMBOL_DROP` off its own trunk in the first free direction, so
+/// there is no band below to aim at any more, and the pin is now a pure
+/// preference. It is a good preference (grounds read best pointing down) but a
+/// bad rule: on `moddcdc` the output caps hang off the `VCC_1V2` row down past
+/// the `FB` row, so the FB trunk running east to its divider passes straight
+/// through both drop wires.
+///
+/// So: keep hanging down, unless down would cross another row of the SAME side
+/// inside this member's column — and only flip when there is room above, which
+/// there is exactly when nothing up there would be crossed either. Runs after
+/// `resolve_columns_for_side`, so x is final; the spans are not enveloped yet,
+/// but every tap they will be enveloped over is already placed, so the x-extent
+/// below is the same one `envelop_lanes` will arrive at.
+///
+/// Layout-only, like `resolve_columns_for_side` — the render side does not
+/// replay member placement, so A2 is not involved.
+fn flip_shunts_clear_of_rows(graph: &mut McVecGraph, topos: &[NetTopology]) {
+    use crate::viz::layout::equi_column::COL_CLEAR;
+    // The x-extent each net's trunk will be enveloped to: its anchor pins and
+    // its member taps, all of which are placed by now.
+    let extents: Vec<(f64, f64)> = topos
+        .iter()
+        .map(|t| {
+            let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+            for g in &t.groups {
+                if let Some(b) = graph.boxes.iter().find(|b| b.id == g.box_id) {
+                    if b.w <= 0.0 {
+                        continue;
+                    }
+                    lo = lo.min(b.x + b.w / 2.0);
+                    hi = hi.max(b.x + b.w / 2.0);
+                }
+            }
+            (lo, hi)
+        })
+        .collect();
+
+    let crossed = |me: usize, x: f64, lo_y: f64, hi_y: f64| -> bool {
+        topos.iter().enumerate().any(|(j, u)| {
+            if j == me || u.terminal_only || u.lane.region != topos[me].lane.region {
+                return false;
+            }
+            if !matches!(u.lane.region, Region::West | Region::East) {
+                return false;
+            }
+            if u.lane.axis <= lo_y + 1.0 || u.lane.axis >= hi_y - 1.0 {
+                return false;
+            }
+            let (lo, hi) = extents[j];
+            lo - COL_CLEAR <= x && x <= hi + COL_CLEAR
+        })
+    };
+
+    let mut flips: Vec<(i64, f64, i64)> = Vec::new();
+    for (i, t) in topos.iter().enumerate() {
+        if t.terminal_only || !matches!(t.lane.region, Region::West | Region::East) {
+            continue;
+        }
+        for group in t.groups.iter().skip(1) {
+            let Some(b) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
+                continue;
+            };
+            if b.pins.len() != 2 || b.w <= 0.0 || b.h <= 0.0 {
+                continue;
+            }
+            // Only a DROP may be flipped: a Bridge's direction is pinned by the
+            // partner's row, and a Series is horizontal to begin with.
+            let TapRole::Drop { dir } = tap_role(b, t, partner_info(topos, i, group)) else {
+                continue;
+            };
+            if dir < 0.0 || b.y < t.lane.axis {
+                continue; // already hanging up
+            }
+            let x = b.x + b.w / 2.0;
+            let down_to = b.y + b.h + SYMBOL_DROP;
+            let up_to = t.lane.axis - LEAD - b.h - SYMBOL_DROP;
+            if !crossed(i, x, t.lane.axis, down_to) {
+                continue;
+            }
+            if crossed(i, x, up_to, t.lane.axis) {
+                continue; // no better up there
+            }
+            let Some(&pid) = group.pin_ids.first() else {
+                continue;
+            };
+            crate::vlog!(
+                "[members] '{}' on net '{}' flips UP — hanging down crosses another row at x={:.0}",
+                b.name,
+                t.net_name,
+                x
+            );
+            flips.push((b.id, t.lane.axis - LEAD - b.h, pid));
+        }
+    }
+    for (bid, ny, pid) in flips {
+        if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == bid) {
+            b.y = ny;
+            assign_shunt_slots(b, pid, EntrySide::Bottom);
+        }
+    }
 }
 
 fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology]) {
@@ -2838,10 +3040,16 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology]) {
             Region::East => true,
             _ => continue,
         };
-        let anchor_pin_x = origins
+        // ★ M12.1: a ground COLUMN owns no member columns — every arm is
+        // allocated by the live net whose row it sits on.
+        if topo.ground_column {
+            continue;
+        }
+        let base_x = origins
             .get(&topo.nid)
             .copied()
             .unwrap_or_else(|| net_anchor_pin_x(graph, topo));
+        let outward = if is_east { 1.0 } else { -1.0 };
         for (gi, group) in topo.groups.iter().enumerate().skip(1) {
             let Some(b) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
                 continue;
@@ -2853,10 +3061,29 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology]) {
                 continue;
             }
             let partner = partner_info(topos, ti, group);
-            let role = tap_role(b, topo, partner);
+            let role = tap_role(b, topo, partner.clone());
             // ★ M8.4: Along parts already have their x from the prefix sum.
             if matches!(role, TapRole::Series { .. }) {
                 continue;
+            }
+            // ★ M12.2: a member shared with ANOTHER net has to clear BOTH nets'
+            // origins. `moddcdc`'s divider `_R2` belongs to `VCC_1V2` (which
+            // starts east of the inductor, being depth 1 of `LX`'s run) and to
+            // `_net5` (which starts at the FB pin). Allocating it against
+            // whichever owner came first in topo order put it at the FB origin —
+            // WEST of the inductor — so `VCC_1V2`'s trunk had to reach back over
+            // `_net3`'s trunk to get to it. That is the red wire crossing the
+            // purple one on the right of the picture, and it is an A29 (run
+            // trunks disjoint) violation as well as an A24 crossing.
+            //
+            // The outward-most origin is the only x that satisfies both.
+            let mut anchor_pin_x = base_x;
+            if let Some(p) = &partner {
+                if let Some(&po) = topos.get(p.topo_idx).and_then(|o| origins.get(&o.nid)) {
+                    if (po - anchor_pin_x) * outward > 0.0 {
+                        anchor_pin_x = po;
+                    }
+                }
             }
             let m = SideMember {
                 idx: Some((ti, gi)),
@@ -2947,6 +3174,9 @@ pub(crate) struct PartnerInfo {
     /// ★ M8.3: the partner's depth along that run — decides which of the two
     /// pins faces the anchor.
     run_depth: usize,
+    /// ★ M12.1: the partner is a ground COLUMN, so the part into it is
+    /// horizontal on MY row regardless of where the node's own row is.
+    ground_column: bool,
 }
 
 /// Find the net that shares this member box with `topos[idx]`, on a pin this
@@ -2970,6 +3200,7 @@ pub(crate) fn partner_info(
         is_terminal_only: other.terminal_only,
         run_root: other.run_root,
         run_depth: other.run_depth,
+        ground_column: other.ground_column,
     })
 }
 
@@ -3031,6 +3262,13 @@ pub(crate) fn tap_role(
                     partner: p.topo_idx,
                 }
             }
+            // ★ M12.1: a GROUND COLUMN partner. The node is a column, not a
+            // row: the part lies ALONG my row and stops at the column's x, and
+            // the node's own short vertical joins the cold pins. Deliberately
+            // NOT collinear — A28 exempts a ground-column partner.
+            Some(p) if p.ground_column && me.net_kind != NetKind::Ground => TapRole::Series {
+                partner: p.topo_idx,
+            },
             // ★ M7.3: a GROUND partner that was NOT adopted is pinned DOWN —
             // ground rails and the shared ground band are always below the side
             // rows, so an upward shunt would route its ground pin back over its
@@ -3118,6 +3356,13 @@ fn place_members_for_topo(
     // is dead (B5), removed.
     debug_assert!(topo.lane.horizontal, "row model: all trunks are horizontal");
     let axis = topo.lane.axis;
+    // ★ M12.1: a ground COLUMN places none of its own members. Each arm sits on
+    // the LIVE net's row, not on the node's, so letting the node place them
+    // first (whichever net the fixed point reaches first) would centre them on
+    // the wrong row.
+    if topo.ground_column {
+        return;
+    }
     // Distribute members along the column model (M4.2). The span is only used
     // as a fallback anchor x here; member x comes from the column allocator.
     let (span_lo, _span_hi) = topo.lane.span;
@@ -4274,6 +4519,13 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
         // with nothing attached to it (A3). Only W/E trunks step — N/S rails
         // have `outward().0 == 0` and would spin on the same point.
         let outward = topo.lane.region.outward().0;
+        // ★ M12.1: a ground COLUMN is the outer END of the row it was adopted
+        // onto, and its trunk is degenerate (every cold pin shares the node's
+        // x). `pick_stub_dir`'s down-first order would send the glyph back UP
+        // over the row; it has to continue OUTWARD instead, which is the same
+        // rule M11.4 gives an adopted terminal-only ground.
+        let prefer_outward =
+            topo.ground_column && matches!(topo.lane.region, Region::West | Region::East);
         let mut walked: Option<((f64, f64), (f64, f64))> = None;
         let steps = match topo.lane.region {
             Region::West | Region::East => 3,
@@ -4290,6 +4542,10 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
                     ) && segment_hits_box(node_x, node_y, ax, node_y, b.x, b.y, b.w, b.h)
                 })
             {
+                break;
+            }
+            if prefer_outward && stub_dir_is_free(graph, &segments, (ax, node_y), (outward, 0.0)) {
+                walked = Some(((ax, node_y), (outward, 0.0)));
                 break;
             }
             if let Some(dir) = pick_stub_dir(graph, &segments, (ax, node_y)) {
@@ -4455,6 +4711,21 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
         }
     }
 
+    // ★ M12.1: a ground COLUMN's arms meet its glyph at the node on the adopted
+    // row. The column spine (a member tooth from another row) plus the glyph
+    // stub plus the adopting arm's cold pin — which sits AT the node, so its
+    // tooth is zero-length and never reaches degree 3 — make a genuine 3-way
+    // junction, so the drawing must show the dot (A8).
+    let column_dots: Vec<(f64, f64)> = if topo.ground_column {
+        symbols
+            .iter()
+            .filter(|s| matches!(s.kind, TreeSymbolKind::Ground))
+            .map(|s| (s.x - s.dir.0 * SYMBOL_DROP, s.y - s.dir.1 * SYMBOL_DROP))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     // Junction dots are computed AFTER the terminal-symbol stubs are added
     // (moved at M3): a ground / label stub attaches at the trunk's outer end,
     // and when an anchor tooth also lands there (e.g. `ldo` GND 303) that is a
@@ -4466,6 +4737,7 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
         .iter()
         .filter(|(_, &deg)| deg >= 3)
         .map(|(&(x, y), _)| (x as f64, y as f64))
+        .chain(column_dots)
         .collect();
 
     EquiTree {
