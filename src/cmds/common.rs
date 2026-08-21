@@ -6,7 +6,7 @@
 //! directory project mode), top-module resolution, and guarded Pass2 builds.
 
 use crate::cmds::manifest;
-use mcc::vector::model::link::{LinkCtx, LinkKind};
+use mcc::vector::model::trunk::{TrunkCtx, TrunkKind};
 use std::path::{Path, PathBuf};
 
 /// Load the CLI target into the engine and return the entry URI plus the
@@ -98,14 +98,14 @@ pub fn build_pass2(top: &str, uri: &str) -> Result<mcc::McModuleInst, String> {
 
 /// One connection row for layered rendering. `dir` is the source direction
 /// tag (`"LtoR"` / `"RtoL"` / anything else = undirected, the `{:?}` form of
-/// `ConnDir`); `link` is the structured group context (§8.9.6) decided
+/// `ConnDir`); `trunk` is the structured group context (§8.9.6) decided
 /// at the AST layer — `None` (or `kind == Plain`) for plain connections,
 /// `Some` with a member name for bus/interface member lanes.
 pub struct ConnView {
     pub net: String,
     pub points: Vec<String>,
     pub dir: String,
-    pub link: Option<LinkCtx>,
+    pub trunk: Option<TrunkCtx>,
 }
 
 /// Join connection endpoints with the separator that reflects the source
@@ -123,26 +123,26 @@ fn join_conn_points(points: &[String], dir: &str) -> String {
 ///
 /// Bus/interface member lanes carry a structured group context with
 /// `kind != Plain` and a resolved `member` (§8.9.6) and are grouped into
-/// coarse links by the group `name`: each link renders one header line
+/// coarse trunks by the group `name`: each trunk renders one header line
 /// (`[bus] SPI0`) followed by one indented member line per member lane.
 /// Connections without a group context (scalar labels / plain pins like
 /// `V3V3`, `GND`, `1`) render as single lines, preserving the flat view.
-/// `indent` prefixes every link / plain line (member lines get one level
+/// `indent` prefixes every trunk / plain line (member lines get one level
 /// more).
 pub fn render_layered_conns(conns: &[ConnView], indent: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
-    // First-seen ordered links: (name, kind, [(member, points, dir)])
-    let mut links: Vec<(String, LinkKind, Vec<(String, Vec<String>, String)>)> = Vec::new();
+    // First-seen ordered trunks: (name, kind, [(member, points, dir)])
+    let mut trunks: Vec<(String, TrunkKind, Vec<(String, Vec<String>, String)>)> = Vec::new();
     for c in conns {
-        match &c.link {
-            Some(pg) if pg.kind != LinkKind::Plain && pg.member.is_some() => {
+        match &c.trunk {
+            Some(pg) if pg.kind != TrunkKind::Plain && pg.member.is_some() => {
                 let base = pg.name.clone().unwrap_or_else(|| c.net.clone());
                 let member = pg.member.clone().unwrap_or_else(|| c.net.clone());
-                match links.iter_mut().find(|(b, _, _)| *b == base) {
+                match trunks.iter_mut().find(|(b, _, _)| *b == base) {
                     Some((_, _, members)) => {
                         members.push((member, c.points.clone(), c.dir.clone()));
                     }
-                    None => links.push((
+                    None => trunks.push((
                         base,
                         pg.kind,
                         vec![(member, c.points.clone(), c.dir.clone())],
@@ -156,7 +156,7 @@ pub fn render_layered_conns(conns: &[ConnView], indent: &str) -> Vec<String> {
             )),
         }
     }
-    for (base, kind, members) in links {
+    for (base, kind, members) in trunks {
         lines.push(format!("{indent}[{}] {base}", kind.label()));
         for (member, points, dir) in members {
             lines.push(format!(

@@ -33,7 +33,7 @@ use crate::instant::insttab::{InstKind, InstOrigin, InstTable};
 use crate::instant::mc_mod::McModuleInst;
 use crate::vector::graph::extract_last_segment;
 
-use super::super::model::link::{LinkEnd, LinkRef, MemberLane, PortLink};
+use super::super::model::trunk::{MemberLane, PortTrunk, TrunkEnd, TrunkRef};
 use super::super::model::{McVec, McVecBlock, McVecNet};
 use super::report::{
     BuildMode, BuilderError, BuilderReport, DroppedNet, PartialNet, ResolutionOutcome,
@@ -52,7 +52,7 @@ use crate::semantic::common::{ConnDir, ConnOp};
 /// the source instead of reverse-engineering it from the merged shape.
 fn pair_with_conn_meta(mut p: ConnPair, conn: &crate::instant::mc_net::ConnectionInst) -> ConnPair {
     p.op = conn.op;
-    p.with_meta(conn.source_span.clone(), conn.link.clone())
+    p.with_meta(conn.source_span.clone(), conn.trunk.clone())
 }
 
 // ============================================================================
@@ -132,7 +132,7 @@ impl<'a> McVecBuilder<'a> {
                 // classification is structured (kind != Plain), not just the
                 // width heuristic.
                 self.shape_stats
-                    .observe(&net.name, net.shape.as_ref(), net.link.as_ref());
+                    .observe(&net.name, net.shape.as_ref(), net.trunk.as_ref());
             }
         }
         for sub in &block.blocks {
@@ -284,9 +284,9 @@ impl<'a> McVecBuilder<'a> {
         }
 
         // 3. Build McVecNet from connections
-        let (nets, links) = self.build_nets_from_connections(inst, &my_path);
+        let (nets, trunks) = self.build_nets_from_connections(inst, &my_path);
         block.nets = nets;
-        block.port_links = links;
+        block.port_trunks = trunks;
 
         // ★ M6.5: ground nets follow the pass2 `split_ground_nets` grouping
         // (per writing line / reference form), NOT the builder's merged single
@@ -510,7 +510,7 @@ impl<'a> McVecBuilder<'a> {
         &mut self,
         inst: &McModuleInst,
         module_path: &str,
-    ) -> (Vec<super::super::model::McVecNet>, Vec<PortLink>) {
+    ) -> (Vec<super::super::model::McVecNet>, Vec<PortTrunk>) {
         // Step 1: Group by net_name, collect all connection pairs
         let mut net_groups: NetGroupMap = NetGroupMap::new();
 
@@ -1126,17 +1126,17 @@ impl<'a> McVecBuilder<'a> {
 
         // Step 2: Generate McVecNet for each group
         let mut result = Vec::with_capacity(net_groups.len());
-        // ── §8.9.4: coarse link aggregation ─────────────────────────────────────
+        // ── §8.9.4: coarse trunk aggregation ─────────────────────────────────────
         // Each fine net whose pairs carry one shared structured group context
-        // (`LinkCtx`, same name + kind) is a member of a coarse
-        // `PortLink`. Links are keyed by the pure group name (e.g. "SPI0"), so
-        // all member nets of one port-pair aggregate into a single link even
-        // when the source writes per-member connections. Link ids are assigned
+        // (`TrunkCtx`, same name + kind) is a member of a coarse
+        // `PortTrunk`. Trunks are keyed by the pure group name (e.g. "SPI0"), so
+        // all member nets of one port-pair aggregate into a single trunk even
+        // when the source writes per-member connections. Trunk ids are assigned
         // in first-seen order over net_groups (a BTreeMap → deterministic), and
-        // each member net gets a `LinkRef { id, lane }` back-pointer.
-        let mut link_ids: HashMap<String, i64> = HashMap::new();
+        // each member net gets a `TrunkRef { id, lane }` back-pointer.
+        let mut trunk_ids: HashMap<String, i64> = HashMap::new();
         let mut next_link_id: i64 = 0;
-        let mut links: Vec<PortLink> = Vec::new();
+        let mut trunks: Vec<PortTrunk> = Vec::new();
         for (net_name, pairs) in net_groups {
             // ★ P7-4 diagnostic: group details (name + pairs), for cross-build diff
             crate::vlog!(
@@ -1148,19 +1148,26 @@ impl<'a> McVecBuilder<'a> {
             let nid = self.next_net_id();
             let mut mcvec_net = merge_pairs_to_vecnet(nid, net_name.clone(), &pairs);
 
-            // ── link attachment (informational, never drops/merges nets) ──
-            if let Some(pg) = pairs.first().and_then(|p| p.link.clone()) {
+            // ── trunk attachment (informational, never drops/merges nets) ──
+            // §8.9.6: only real bus/interface member lanes form trunks — scalar
+            // labels / plain pins (member == None) stay free nets, matching the
+            // render-layer trunk criterion. A merged net may also carry scalar
+            // legs without a member trunk (e.g. the GND leg of `U1.GPIO1 ->
+            // NET_A -> GND`); they do not veto the group identity.
+            if let Some(pg) = pairs
+                .iter()
+                .find_map(|p| p.trunk.as_ref().filter(|g| g.member.is_some()))
+                .cloned()
+            {
                 // FIX-B may have merged groups of different port groups; only
-                // link when every pair agrees on the same group identity
-                // (name + kind).
-                let all_same = pairs.iter().all(|p| {
-                    p.link.as_ref().map(|g| (g.name.as_deref(), g.kind))
-                        == Some((pg.name.as_deref(), pg.kind))
-                });
-                // §8.9.6: only real bus/interface member lanes form links —
-                // scalar labels / plain pins (member == None) stay free nets,
-                // matching the render-layer link criterion.
-                if pg.member.is_some() && all_same {
+                // trunk when every member-carrying pair agrees on the same
+                // group identity (name + kind).
+                let all_same = pairs
+                    .iter()
+                    .filter_map(|p| p.trunk.as_ref())
+                    .filter(|g| g.member.is_some())
+                    .all(|g| (g.name.as_deref(), g.kind) == (pg.name.as_deref(), pg.kind));
+                if all_same {
                     // Member name of this net: explicit lane member > group
                     // member > the net name itself.
                     let member = pairs
@@ -1168,34 +1175,34 @@ impl<'a> McVecBuilder<'a> {
                         .find_map(|p| p.lane.as_ref().and_then(|l| l.name.clone()))
                         .or_else(|| pg.member.clone())
                         .unwrap_or_else(|| net_name.clone());
-                    // Link key = pure group name (already member-free).
+                    // Trunk key = pure group name (already member-free).
                     let base = pg.name.clone().unwrap_or_else(|| net_name.clone());
                     let kind = pg.kind;
-                    let link_id = match link_ids.get(&base) {
+                    let trunk_id = match trunk_ids.get(&base) {
                         Some(&id) => id,
                         None => {
                             let id = next_link_id;
                             next_link_id += 1;
-                            let left = link_end_from_id(self.inst_table, pairs[0].left, &base);
-                            let right = link_end_from_id(self.inst_table, pairs[0].right, &base);
-                            let mut link = PortLink::new(id, base.clone(), kind, left, right);
-                            link.op = pairs.iter().find_map(|p| p.op);
-                            link.dir = pairs.first().map(|p| p.dir).unwrap_or(ConnDir::Undirected);
-                            links.push(link);
-                            link_ids.insert(base.clone(), id);
+                            let left = trunk_end_from_id(self.inst_table, pairs[0].left, &base);
+                            let right = trunk_end_from_id(self.inst_table, pairs[0].right, &base);
+                            let mut trunk = PortTrunk::new(id, base.clone(), kind, left, right);
+                            trunk.op = pairs.iter().find_map(|p| p.op);
+                            trunk.dir = pairs.first().map(|p| p.dir).unwrap_or(ConnDir::Undirected);
+                            trunks.push(trunk);
+                            trunk_ids.insert(base.clone(), id);
                             id
                         }
                     };
                     let mut lane_used: Option<u16> = None;
-                    if let Some(link) = links.iter_mut().find(|d| d.id == link_id) {
+                    if let Some(trunk) = trunks.iter_mut().find(|d| d.id == trunk_id) {
                         // Lane index: source lane when present (bracket mode),
-                        // else the member's position within the link.
+                        // else the member's position within the trunk.
                         let lane = pairs
                             .iter()
                             .find_map(|p| p.lane.as_ref().map(|l| l.index))
-                            .unwrap_or(link.members.len() as u16);
+                            .unwrap_or(trunk.members.len() as u16);
                         lane_used = Some(lane);
-                        if !link
+                        if !trunk
                             .members
                             .iter()
                             .any(|m| m.lane == lane && m.member == member)
@@ -1205,26 +1212,43 @@ impl<'a> McVecBuilder<'a> {
                             let lane_dir = pairs[0].dir;
                             // §8.9.4 member access chain: re-structure the lopd member's
                             // dotted net path (uC.I2C0.SCL -> Ida/Dot chain).
-                            let lane_path = self
-                                .inst_table
-                                .get_entry(pairs[0].left as u32)
+                            let left_entry = self.inst_table.get_entry(pairs[0].left as u32);
+                            let lane_path = left_entry
                                 .map(|e| {
-                                    crate::vector::model::link::PathSegment::parse_dotted(&e.path)
+                                    crate::vector::model::trunk::PathSegment::parse_dotted(&e.path)
                                 })
                                 .unwrap_or_default();
-                            link.members.push(MemberLane {
+                            // §8.9.4 member access chain: keep the source McIds idx
+                            // alias (e.g. "GPIO1") that was expanded to the canonical
+                            // pin path (e.g. "main.U1.1" -> leaf "1"). An idx alias is
+                            // a synthesized array-member name ("GPIO1" = prefix +
+                            // slot): its numeric slot equals the resolved pin leaf.
+                            // A member written in canonical form (a named member like
+                            // "SCLK") is not an alias even when the resolved pin leaf
+                            // is the numeric pin id.
+                            let alias = pg.member.clone().filter(|m| {
+                                left_entry
+                                    .and_then(|e| e.path.rsplit('.').next())
+                                    .map(|leaf| {
+                                        leaf.chars().all(|c| c.is_ascii_digit())
+                                            && m.len() > leaf.len()
+                                            && m.ends_with(leaf)
+                                    })
+                                    .unwrap_or(false)
+                            });
+                            trunk.members.push(MemberLane {
                                 member,
                                 lane,
                                 dir: lane_dir,
                                 path: lane_path,
-                                alias: None,
+                                alias,
                                 left_pin: pairs[0].left,
                                 right_pin: pairs[0].right,
                             });
                         }
                     }
                     if let Some(lane) = lane_used {
-                        mcvec_net.link_ref = Some(LinkRef { id: link_id, lane });
+                        mcvec_net.trunk_ref = Some(TrunkRef { id: trunk_id, lane });
                     }
                 }
             }
@@ -1232,18 +1256,18 @@ impl<'a> McVecBuilder<'a> {
             result.push(mcvec_net);
         }
 
-        // §8.9.5: link-level combination order (member lane sequence) and the
+        // §8.9.5: trunk-level combination order (member lane sequence) and the
         // parallel left-alignment anchor, filled after all members are known.
-        for link in links.iter_mut() {
-            link.order = link.members.iter().map(|m| m.lane).collect();
-            link.anchor = if link.op == Some(ConnOp::Parallel) {
-                link.members.first().map(|m| m.left_pin)
+        for trunk in trunks.iter_mut() {
+            trunk.order = trunk.members.iter().map(|m| m.lane).collect();
+            trunk.anchor = if trunk.op == Some(ConnOp::Parallel) {
+                trunk.members.first().map(|m| m.left_pin)
             } else {
                 None
             };
         }
 
-        (result, links)
+        (result, trunks)
     }
 
     // ========================================================================
@@ -1372,17 +1396,17 @@ fn segment_net_name(inst_table: &InstTable, base: &str, seg: &[i64], k: usize) -
     format!("{base}~{k}")
 }
 
-/// Derive a coarse [`LinkEnd`] from an InstTable entry id: the owning instance
+/// Derive a coarse [`TrunkEnd`] from an InstTable entry id: the owning instance
 /// (parent's leaf name) and the port name. `base` is the port base name
 /// (e.g. "UART0", "SPI0"). The port is read from the pin's dotted class name
 /// when present (interface member pins register as "SPI0.CS" → "SPI0"),
 /// falling back to `base` when the path carries it, then to the entry's own
 /// leaf segment ("J_DEBUG.1" → "1"). Synthetic ids (< 0) and unknown entries
-/// yield an empty end — the link layer is informational and must never block
+/// yield an empty end — the trunk layer is informational and must never block
 /// net building.
-fn link_end_from_id(table: &InstTable, id: i64, base: &str) -> LinkEnd {
+fn trunk_end_from_id(table: &InstTable, id: i64, base: &str) -> TrunkEnd {
     if id < 0 {
-        return LinkEnd {
+        return TrunkEnd {
             box_id: None,
             instance: None,
             port: String::new(),
@@ -1412,7 +1436,7 @@ fn link_end_from_id(table: &InstTable, id: i64, base: &str) -> LinkEnd {
             } else {
                 e.path.rsplit('.').next().unwrap_or("").to_string()
             };
-            LinkEnd {
+            TrunkEnd {
                 box_id,
                 instance,
                 port,
@@ -1420,10 +1444,10 @@ fn link_end_from_id(table: &InstTable, id: i64, base: &str) -> LinkEnd {
                 io: Some(e.io_type.clone()),
                 // §8.9.4 member access chain: re-structure the dotted net path so the
                 // intermediate hops (uC.I2C0.SCL -> uC / I2C0 / SCL) survive.
-                path: crate::vector::model::link::PathSegment::parse_dotted(&e.path),
+                path: crate::vector::model::trunk::PathSegment::parse_dotted(&e.path),
             }
         }
-        None => LinkEnd {
+        None => TrunkEnd {
             box_id: None,
             instance: None,
             port: String::new(),

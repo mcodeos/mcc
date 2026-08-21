@@ -10,7 +10,7 @@
 //!   if <2 projected points, the net is not drawn.
 //! - **R-B Name Visibility**: a net name is visible in the root layer only if
 //!   the source code explicitly mentions it.
-//! - **R-M Edge Merge**: nets with the same (from_box, to_box, link)
+//! - **R-M Edge Merge**: nets with the same (from_box, to_box, trunk)
 //!   are merged into a single edge.
 //! - **R-R Power**: power nets draw driver→consumer edges; ground nets are
 //!   invisible in the root layer.
@@ -18,7 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vector::graph::McVecGraph;
-use crate::vector::model::link::LinkCtx;
+use crate::vector::model::trunk::TrunkCtx;
 
 /// A block-diagram edge connecting two boxes.
 #[derive(Debug, Clone)]
@@ -29,10 +29,10 @@ pub struct BlockEdge {
     pub lane_count: usize,
     pub kind: EdgeKind,
     pub source_span: Option<crate::semantic::common::SourcePos>,
-    /// ★ §8.9.6: structured link context for edge merging.
-    /// `Some` when this edge belongs to a link (e.g., SPI, I2C); the
-    /// link `name` is the R-M merge key and the edge label.
-    pub link: Option<LinkCtx>,
+    /// ★ §8.9.6: structured trunk context for edge merging.
+    /// `Some` when this edge belongs to a trunk (e.g., SPI, I2C); the
+    /// trunk `name` is the R-M merge key and the edge label.
+    pub trunk: Option<TrunkCtx>,
     /// ★ B2: whether this edge is bidirectional (e.g., SPI bus).
     /// Set to true when the original nets had edges in both directions.
     pub bidirectional: bool,
@@ -101,8 +101,8 @@ fn strip_power_label(name: &str) -> String {
 /// 2. **R-B**: Ground nets are already filtered by `filter_ground_nets_for_main`.
 ///    Power nets without driver are skipped (no edge to draw).
 /// 3. **R-R**: For power nets, draw driver→consumer edges.
-/// 4. **R-M**: Group nets by (from_box, to_box, link) and merge them.
-///    link is None for now (P9-A2 not yet implemented).
+/// 4. **R-M**: Group nets by (from_box, to_box, trunk) and merge them.
+///    trunk is None for now (P9-A2 not yet implemented).
 pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
     eprintln!(
         "[DEBUG edge_decide] decide_edges: graph has {} nets, {} boxes",
@@ -137,12 +137,12 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
             })
             .collect();
         crate::vlog!(
-            "[edge] net '{}' (nid={}, kind={:?}, rail={:?}, link={:?}): {} endpoints [{}], {} projected",
+            "[edge] net '{}' (nid={}, kind={:?}, rail={:?}, trunk={:?}): {} endpoints [{}], {} projected",
             net.name,
             net.nid,
             net.kind,
             net.rail.as_ref().map(|r| &r.class),
-            net.link,
+            net.trunk,
             net.endpoints.len(),
             ep_paths.join(", "),
             projected.len()
@@ -193,7 +193,7 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
                                     lane_count: 1,
                                     kind: EdgeKind::Power,
                                     source_span: net.source_span.clone(),
-                                    link: net.link.clone(),
+                                    trunk: net.trunk.clone(),
                                     bidirectional: false,
                                 });
                             }
@@ -248,7 +248,7 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
                 lane_count: 1,
                 kind: EdgeKind::Signal,
                 source_span: net.source_span.clone(),
-                link: net.link.clone(),
+                trunk: net.trunk.clone(),
                 bidirectional: false,
             });
         } else if unique_boxes.len() > 2 {
@@ -272,7 +272,7 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
                         lane_count: 1,
                         kind: EdgeKind::Signal,
                         source_span: net.source_span.clone(),
-                        link: net.link.clone(),
+                        trunk: net.trunk.clone(),
                         bidirectional: false,
                     });
                 }
@@ -316,19 +316,19 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
         }
     }
 
-    // ── R-M: merge edges with same (from_box, to_box, kind, link) ──
-    // When link is set, edges with the same link are merged into a bus.
-    // The label is the link name, lane_count is the number of merged edges.
-    // ★ P9-fix: edges with link=None are NEVER merged — they are independent
+    // ── R-M: merge edges with same (from_box, to_box, kind, trunk) ──
+    // When trunk is set, edges with the same trunk are merged into a bus.
+    // The label is the trunk name, lane_count is the number of merged edges.
+    // ★ P9-fix: edges with trunk=None are NEVER merged — they are independent
     // edges (e.g. DAC_OUT and SPK_MUTE are two separate edges between mcu513↔speaker).
     let before_merge = edges.len();
     let mut merged: Vec<BlockEdge> = Vec::new();
     let mut seen_pairs: HashMap<(i64, i64, EdgeKind, Option<String>), usize> = HashMap::new();
 
     for edge in edges {
-        // ★ P9-fix: only merge edges that have a link. Edges without
-        // link are kept as separate edges.
-        if edge.link.is_none() {
+        // ★ P9-fix: only merge edges that have a trunk. Edges without
+        // trunk are kept as separate edges.
+        if edge.trunk.is_none() {
             merged.push(edge);
             continue;
         }
@@ -338,14 +338,14 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
                 edge.from_box,
                 edge.to_box,
                 edge.kind,
-                edge.link.as_ref().and_then(|g| g.name.clone()),
+                edge.trunk.as_ref().and_then(|g| g.name.clone()),
             )
         } else {
             (
                 edge.to_box,
                 edge.from_box,
                 edge.kind,
-                edge.link.as_ref().and_then(|g| g.name.clone()),
+                edge.trunk.as_ref().and_then(|g| g.name.clone()),
             )
         };
 
@@ -357,17 +357,17 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
             }
             // Preserve bidirectional flag
             merged[idx].bidirectional = merged[idx].bidirectional || edge.bidirectional;
-            // Use the link name as the label
+            // Use the trunk name as the label
             merged[idx].label = merged[idx]
-                .link
+                .trunk
                 .as_ref()
                 .and_then(|g| g.name.as_deref())
                 .unwrap_or_default()
                 .to_string();
         } else {
-            // Use the link name as the label
+            // Use the trunk name as the label
             let mut e = edge;
-            if let Some(ref lc) = e.link {
+            if let Some(ref lc) = e.trunk {
                 e.label = lc.name.clone().unwrap_or_default();
             }
             seen_pairs.insert(pair, merged.len());
@@ -460,32 +460,32 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
         merged.len()
     );
 
-    // 1. Trace edges with link (provenance)
+    // 1. Trace edges with trunk (provenance)
     for edge in &merged {
-        if let Some(ref lc) = edge.link {
-            let link_name = lc.name.as_deref().unwrap_or("");
+        if let Some(ref lc) = edge.trunk {
+            let trunk_name = lc.name.as_deref().unwrap_or("");
             if let Some(ref pos) = edge.source_span {
                 eprintln!(
-                    "[trace] {}: edge '{}' <- {}:{}  (link={})",
-                    layer, link_name, pos.uri, pos.offset, link_name
+                    "[trace] {}: edge '{}' <- {}:{}  (trunk={})",
+                    layer, trunk_name, pos.uri, pos.offset, trunk_name
                 );
             } else {
                 eprintln!(
-                    "[trace] {}: edge '{}'  (link={})",
-                    layer, link_name, link_name
+                    "[trace] {}: edge '{}'  (trunk={})",
+                    layer, trunk_name, trunk_name
                 );
             }
         }
         if edge.lane_count > 1 {
             eprintln!(
-                "[trace] {}: merged edge {} -> {} kind={:?} label=\"{}\" lane_count={} link={:?}",
+                "[trace] {}: merged edge {} -> {} kind={:?} label=\"{}\" lane_count={} trunk={:?}",
                 layer,
                 edge.from_box,
                 edge.to_box,
                 edge.kind,
                 edge.label,
                 edge.lane_count,
-                edge.link
+                edge.trunk
             );
         }
     }
@@ -507,10 +507,10 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
         layer, nets_with_span, total_nets, pct
     );
 
-    // 3. Count nets with link
-    let nets_with_pg = graph.nets.iter().filter(|n| n.link.is_some()).count();
+    // 3. Count nets with trunk
+    let nets_with_pg = graph.nets.iter().filter(|n| n.trunk.is_some()).count();
     eprintln!(
-        "[trace] {}: link coverage: {}/{} nets",
+        "[trace] {}: trunk coverage: {}/{} nets",
         layer, nets_with_pg, total_nets
     );
 

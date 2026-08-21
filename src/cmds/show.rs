@@ -812,7 +812,7 @@ fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<S
 
     lines.push("Connections:".to_string());
     // §8.9.5 layered display: bus/interface connections (carrying a
-    // `link`) render as coarse link lines with indented per-member
+    // `trunk`) render as coarse trunk lines with indented per-member
     // pin2pin lines underneath; plain connections render flat as before.
     let views: Vec<crate::cmds::common::ConnView> = inst
         .connections
@@ -837,7 +837,7 @@ fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<S
                 dir: format!("{:?}", conn.dir),
                 // §8.9.6: structured group context (name/member/kind), None
                 // for plain connections.
-                link: conn.link.clone(),
+                trunk: conn.trunk.clone(),
             })
         })
         .collect();
@@ -915,7 +915,7 @@ fn dianlu_sections(inst: &mcc::McModuleInst, path: &str) -> Vec<Value> {
                 // §8.9.6: structured group context (name/member/kind),
                 // present only for bus/interface member connections so
                 // downstream can layer.
-                "link": conn.link.as_ref().map(|pg| pg.to_json_value()),
+                "trunk": conn.trunk.as_ref().map(|pg| pg.to_json_value()),
             }))
         })
         .collect();

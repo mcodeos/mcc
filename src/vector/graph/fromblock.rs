@@ -317,8 +317,8 @@ fn build_mc_vec_graph_inner(
 
     let mut graph = McVecGraph::new(block.bid, root_name.clone());
     graph.is_root = is_top_level;
-    // ★ §8.9.4: coarse bus/interface links carried over from the semantic layer
-    graph.port_links = block.port_links.clone();
+    // ★ §8.9.4: coarse bus/interface trunks carried over from the semantic layer
+    graph.port_trunks = block.port_trunks.clone();
 
     // ── ★ P7-9: build pin_parent map (member port id → parent port group id) ──
     // Used by the facade pass to collapse member ports (SCL/SDA → I2C0) to port groups.
@@ -1381,11 +1381,11 @@ fn generate_viznets_from_block(
                                         if let Some(ref ss) = net.source_span {
                                             out.last_mut().unwrap().source_span = Some(ss.clone());
                                         }
-                                        if let Some(ref pg) = net.link {
-                                            out.last_mut().unwrap().link = Some(pg.clone());
+                                        if let Some(ref pg) = net.trunk {
+                                            out.last_mut().unwrap().trunk = Some(pg.clone());
                                         }
-                                        if let Some(d) = net.link_ref {
-                                            out.last_mut().unwrap().link_ref = Some(d);
+                                        if let Some(d) = net.trunk_ref {
+                                            out.last_mut().unwrap().trunk_ref = Some(d);
                                         }
                                         if let Some(shape) = &net.shape {
                                             out.last_mut().unwrap().shape = Some(shape.clone());
@@ -1468,11 +1468,11 @@ fn generate_viznets_from_block(
                             if let Some(ref ss) = net.source_span {
                                 out.last_mut().unwrap().source_span = Some(ss.clone());
                             }
-                            if let Some(ref pg) = net.link {
-                                out.last_mut().unwrap().link = Some(pg.clone());
+                            if let Some(ref pg) = net.trunk {
+                                out.last_mut().unwrap().trunk = Some(pg.clone());
                             }
-                            if let Some(d) = net.link_ref {
-                                out.last_mut().unwrap().link_ref = Some(d);
+                            if let Some(d) = net.trunk_ref {
+                                out.last_mut().unwrap().trunk_ref = Some(d);
                             }
                             if let Some(shape) = &net.shape {
                                 out.last_mut().unwrap().shape = Some(shape.clone());
@@ -1568,15 +1568,15 @@ fn generate_viznets_from_block(
         if let Some(spec) = &net.rail {
             out.last_mut().unwrap().rail = Some(spec.clone());
         }
-        // ★ P9-A2: pass through source_span and link
+        // ★ P9-A2: pass through source_span and trunk
         if let Some(ref ss) = net.source_span {
             out.last_mut().unwrap().source_span = Some(ss.clone());
         }
-        if let Some(ref pg) = net.link {
-            out.last_mut().unwrap().link = Some(pg.clone());
+        if let Some(ref pg) = net.trunk {
+            out.last_mut().unwrap().trunk = Some(pg.clone());
         }
-        if let Some(d) = net.link_ref {
-            out.last_mut().unwrap().link_ref = Some(d);
+        if let Some(d) = net.trunk_ref {
+            out.last_mut().unwrap().trunk_ref = Some(d);
         }
         if let Some(shape) = &net.shape {
             out.last_mut().unwrap().shape = Some(shape.clone());

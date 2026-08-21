@@ -19,7 +19,7 @@ use crate::cmds::{common, manifest};
 use anyhow::Result;
 use mcc::cli::{OutputFormat, VerifyArgs};
 use mcc::hierarchy;
-use mcc::vector::model::link::{LinkCtx, LinkKind};
+use mcc::vector::model::trunk::{TrunkCtx, TrunkKind};
 use mcc::{InstOrigin, McModuleInst, Span};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -57,7 +57,7 @@ struct ConnEntry {
     dir: String,
     /// §8.9.6 structured group context (name/member/kind), decided at the
     /// AST layer; None for plain connections.
-    link: Option<mcc::vector::model::link::LinkCtx>,
+    trunk: Option<mcc::vector::model::trunk::TrunkCtx>,
 }
 
 /// Join connection endpoints with the separator that reflects the source
@@ -110,7 +110,7 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
         },
     });
 
-    // Untraced connections are engine-generated projection links (interface /
+    // Untraced connections are engine-generated projection trunks (interface /
     // bus member nets) with no source statement of their own; they are
     // reported for inspection but do not fail the verification. Only real
     // source-vs-expansion mismatches set the exit code.
@@ -358,7 +358,7 @@ fn record_tree_node(
                 "net": c.effective_net_name(),
                 "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
                 "dir": format!("{:?}", c.dir),
-                "link": c.link.as_ref().map(|pg| pg.to_json_value()),
+                "trunk": c.trunk.as_ref().map(|pg| pg.to_json_value()),
             })
         })
         .collect();
@@ -504,7 +504,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                         "net": c.effective_net_name(),
                         "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
                         "dir": format!("{:?}", c.dir),
-                        "link": c.link.as_ref().map(|pg| pg.to_json_value()),
+                        "trunk": c.trunk.as_ref().map(|pg| pg.to_json_value()),
                     });
                     sub_expansions
                         .entry(pos.offset)
@@ -530,10 +530,10 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
             net: conn.effective_net_name(),
             points: conn.points.iter().map(|p| p.path.clone()).collect(),
             dir: format!("{:?}", conn.dir),
-            link: conn.link.clone(),
+            trunk: conn.trunk.clone(),
         };
         match &conn.source_span {
-            // No source span: engine-internal projection link (interface / bus
+            // No source span: engine-internal projection trunk (interface / bus
             // member net), legal (§5.4).
             None => untraced.push(entry.net),
             Some(pos) => {
@@ -585,8 +585,8 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                                             "net": entry.net.clone(),
                                             "points": entry.points.clone(),
                                             "dir": entry.dir.clone(),
-                                            "link": entry
-                                                .link
+                                            "trunk": entry
+                                                .trunk
                                                 .as_ref()
                                                 .map(|pg| pg.to_json_value()),
                                         }));
@@ -606,7 +606,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                         "net": entry.net,
                         "points": entry.points,
                         "dir": entry.dir,
-                        "link": entry.link.as_ref().map(|pg| pg.to_json_value()),
+                        "trunk": entry.trunk.as_ref().map(|pg| pg.to_json_value()),
                         "source": format!("{}:{}", pos.uri, line),
                     }));
                 } else if content.is_some() {
@@ -625,7 +625,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                             "net": entry.net,
                             "points": entry.points,
                             "dir": entry.dir,
-                            "link": entry.link.as_ref().map(|pg| pg.to_json_value()),
+                            "trunk": entry.trunk.as_ref().map(|pg| pg.to_json_value()),
                             "line": ln,
                         })),
                     }
@@ -653,7 +653,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                     "net": c.net,
                     "points": c.points,
                     "dir": c.dir,
-                    "link": c.link.as_ref().map(|pg| pg.to_json_value()),
+                    "trunk": c.trunk.as_ref().map(|pg| pg.to_json_value()),
                 })
             })
             .collect();
@@ -977,17 +977,17 @@ fn conn_key(c: &Value) -> String {
 }
 
 /// Convert a connection JSON value to the shared §8.9.5 view. The JSON
-/// `link` object (`{"name", "member", "kind"}`) is decoded back into a
-/// structured [`LinkCtx`]; missing / malformed → None.
+/// `trunk` object (`{"name", "member", "kind"}`) is decoded back into a
+/// structured [`TrunkCtx`]; missing / malformed → None.
 fn conn_view(c: &Value) -> common::ConnView {
-    let link = c["link"].as_object().map(|o| LinkCtx {
+    let trunk = c["trunk"].as_object().map(|o| TrunkCtx {
         name: o.get("name").and_then(|v| v.as_str()).map(str::to_string),
         member: o.get("member").and_then(|v| v.as_str()).map(str::to_string),
         kind: o
             .get("kind")
             .and_then(|v| v.as_str())
             .map(kind_from_label)
-            .unwrap_or(LinkKind::Plain),
+            .unwrap_or(TrunkKind::Plain),
     });
     common::ConnView {
         net: c["net"].as_str().unwrap_or("").to_string(),
@@ -1000,17 +1000,17 @@ fn conn_view(c: &Value) -> common::ConnView {
             })
             .unwrap_or_default(),
         dir: c["dir"].as_str().unwrap_or("").to_string(),
-        link,
+        trunk,
     }
 }
 
-/// Reverse of [`LinkKind::label`]; unknown labels map to `Plain`.
-fn kind_from_label(s: &str) -> LinkKind {
+/// Reverse of [`TrunkKind::label`]; unknown labels map to `Plain`.
+fn kind_from_label(s: &str) -> TrunkKind {
     match s {
-        "bus" => LinkKind::Bus,
-        "ifs" => LinkKind::Interface,
-        "list" => LinkKind::List,
-        _ => LinkKind::Plain,
+        "bus" => TrunkKind::Bus,
+        "ifs" => TrunkKind::Interface,
+        "list" => TrunkKind::List,
+        _ => TrunkKind::Plain,
     }
 }
 
@@ -1109,7 +1109,7 @@ fn render_branches(out: &mut String, prefix: &str, branches: &[Branch]) {
                     }
                 }
                 if let Some(conns) = node["connections"].as_array() {
-                    // §8.9.5 layered rendering (links for bus/interface
+                    // §8.9.5 layered rendering (trunks for bus/interface
                     // groups, flat lines otherwise).
                     let views: Vec<common::ConnView> = conns.iter().map(conn_view).collect();
                     for t in common::render_layered_conns(&views, "") {
@@ -1285,7 +1285,7 @@ fn render_module_text(out: &mut String, m: &Value) {
                     });
                 }
                 if let Some(conns) = line["connections"].as_array() {
-                    // §8.9.5: group bus/interface connections into links so a
+                    // §8.9.5: group bus/interface connections into trunks so a
                     // tree leaf can be a coarse header or a member pin2pin row.
                     let views: Vec<common::ConnView> = conns
                         .iter()
@@ -1300,7 +1300,7 @@ fn render_module_text(out: &mut String, m: &Value) {
                 continue;
             }
             if let Some(conns) = line["connections"].as_array() {
-                // §8.9.5 layered rendering (links for bus/interface groups,
+                // §8.9.5 layered rendering (trunks for bus/interface groups,
                 // flat lines otherwise).
                 let views: Vec<common::ConnView> = conns.iter().map(conn_view).collect();
                 for text in common::render_layered_conns(&views, "           ") {

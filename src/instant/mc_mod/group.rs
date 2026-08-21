@@ -15,7 +15,7 @@ use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, ConnOp, Shape, ShapeMatcher};
-use crate::vector::model::link::{LinkCtx, LinkKind};
+use crate::vector::model::trunk::{TrunkCtx, TrunkKind};
 
 /// D5 BUS_ORDER_MISMATCH: process-level count of mismatched bus bits.
 /// When all pairs in a bus connection have mismatched member names, D5 fires and
@@ -161,7 +161,7 @@ impl McModuleInst {
             }
         );
 
-        // ★ P9-A2: compute source_span and link once for this connection
+        // ★ P9-A2: compute source_span and trunk once for this connection
         // Decision A (§7.1): source_span carries a **byte offset**, not a line
         // number; display layers convert offset → line via the owning file.
         let source_span: Option<crate::semantic::common::SourcePos> =
@@ -175,25 +175,25 @@ impl McModuleInst {
                 (None, None) => None,
             };
         // ★ §8.9.6: structured group context. Prefer `current_link`
-        // (set from source code context), fall back to `link_from_points`;
-        // the coarse kind rides along inside `LinkCtx`.
-        let link: Option<LinkCtx> = self
+        // (set from source code context), fall back to `trunk_from_points`;
+        // the coarse kind rides along inside `TrunkCtx`.
+        let trunk: Option<TrunkCtx> = self
             .current_link
             .clone()
-            .map(|g| LinkCtx::from_group_member(&g, self.current_link_kind))
+            .map(|g| TrunkCtx::from_group_member(&g, self.current_link_kind))
             .or_else(|| {
                 let mut all_pts: Vec<&NetPoint> = Vec::new();
                 all_pts.extend(left_points.iter());
                 all_pts.extend(right_points.iter());
-                link_from_points(&all_pts).map(|g| LinkCtx::from_group_member(&g, None))
+                trunk_from_points(&all_pts).map(|g| TrunkCtx::from_group_member(&g, None))
             });
         // ★ P9-A2: log provenance (debug only, uncomment to trace)
-        // if link.is_some() || source_span.is_some() {
+        // if trunk.is_some() || source_span.is_some() {
         //     eprintln!(
-        //         "[P9-A2] create_connection in '{}': source_span={:?}, link={:?}, pts={:?}",
+        //         "[P9-A2] create_connection in '{}': source_span={:?}, trunk={:?}, pts={:?}",
         //         self.name,
         //         source_span,
-        //         link,
+        //         trunk,
         //         left_points.iter().map(|p| &p.path).collect::<Vec<_>>()
         //     );
         // } else {
@@ -219,10 +219,10 @@ impl McModuleInst {
             if let Some(pos) = &source_span {
                 conn = conn.with_source_span(pos.clone());
             }
-            if let Some(ref pg) = link {
+            if let Some(ref pg) = trunk {
                 // §8.9.6.7: refine the connection-level context into the
                 // per-lane identity (member from the point's structured
-                // member name), so bus member lanes render as a link.
+                // member name), so bus member lanes render as a trunk.
                 if let Some(refined) = refine_lane_link(Some(pg.clone()), &conn.points) {
                     conn = conn.with_link(refined);
                 }
@@ -461,11 +461,11 @@ impl McModuleInst {
         Ok(())
     }
 
-    /// ★ P9-A2: Create a ConnectionInst with provenance (source_span + link)
+    /// ★ P9-A2: Create a ConnectionInst with provenance (source_span + trunk)
     /// from the current context.
     ///
     /// `source_span` is derived from `current_stmt_span` (set by phases.rs before
-    /// processing each source line). `link` is extracted from the common
+    /// processing each source line). `trunk` is extracted from the common
     /// parent segment of the dot-separated point paths.
     ///
     /// This is the canonical factory for ConnectionInst — call sites that directly
@@ -491,15 +491,15 @@ impl McModuleInst {
                 (None, None) => None,
             };
         // ★ §8.9.6: structured group context. Prefer `current_link`
-        // (set from source code context), fall back to `link_from_points`
+        // (set from source code context), fall back to `trunk_from_points`
         // (extracted from point paths); the coarse kind rides along.
-        let link: Option<LinkCtx> = self
+        let trunk: Option<TrunkCtx> = self
             .current_link
             .clone()
-            .map(|g| LinkCtx::from_group_member(&g, self.current_link_kind))
+            .map(|g| TrunkCtx::from_group_member(&g, self.current_link_kind))
             .or_else(|| {
                 let pts: Vec<&NetPoint> = points.iter().collect();
-                link_from_points(&pts).map(|g| LinkCtx::from_group_member(&g, None))
+                trunk_from_points(&pts).map(|g| TrunkCtx::from_group_member(&g, None))
             });
         let mut conn = ConnectionInst::new(id, points).with_dir(dir);
         if let Some(l) = lane {
@@ -508,7 +508,7 @@ impl McModuleInst {
         if let Some(pos) = &source_span {
             conn = conn.with_source_span(pos.clone());
         }
-        if let Some(ref pg) = link {
+        if let Some(ref pg) = trunk {
             // §8.9.6.7: refine into the per-lane identity (mirror of
             // create_connection's mk_conn).
             if let Some(refined) = refine_lane_link(Some(pg.clone()), &conn.points) {
@@ -778,7 +778,7 @@ fn is_ground_name(s: &str) -> bool {
 ///
 /// This is NOT a heuristic guess — the path segments come directly from
 /// the source code's dot-separated identifiers.
-pub(super) fn link_from_points(points: &[&NetPoint]) -> Option<String> {
+pub(super) fn trunk_from_points(points: &[&NetPoint]) -> Option<String> {
     if points.len() < 2 {
         return None;
     }
@@ -824,9 +824,9 @@ pub(super) fn link_from_points(points: &[&NetPoint]) -> Option<String> {
 /// when the point provably belongs to the group (path starts with
 /// `"<group>."`), never a blind last-segment split. Plain connections keep
 /// their context untouched.
-pub(super) fn refine_lane_link(ctx: Option<LinkCtx>, points: &[NetPoint]) -> Option<LinkCtx> {
+pub(super) fn refine_lane_link(ctx: Option<TrunkCtx>, points: &[NetPoint]) -> Option<TrunkCtx> {
     let mut pg = ctx?;
-    if pg.kind == LinkKind::Plain {
+    if pg.kind == TrunkKind::Plain {
         return Some(pg);
     }
     if let Some(member) = points.iter().find_map(|p| p.member_name.clone()) {
