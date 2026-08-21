@@ -265,4 +265,61 @@ mod tests {
             OpCheck::Legal(_)
         ));
     }
+
+    // ---- tri-state unknown-shape semantics (vec-arch.md §5.3) ----
+
+    /// The three states of an operand shape, mapped onto the single-`rows`
+    /// [`Shape`] value:
+    ///
+    /// - `Known(n)` = `rows >= 1` ([`Shape::node`] / [`Shape::vvec`]) — opcheck
+    ///   compares rows strictly (equal -> legal, unequal -> illegal).
+    /// - `Deferred` = `rows == 0` expressed as [`Shape::unknown`] — Pass1
+    ///   wildcard-passes because the symbol layer genuinely does not know the
+    ///   width yet (shape-by-use port / unresolved FuncCall return).
+    /// - `Error` = an empty expansion / `<error` endpoint — Pass2 skips opcheck
+    ///   entirely via the explicit empty guard in `try_connect_adjacent`, so it
+    ///   is never represented as a `Shape` value fed into opcheck.
+    ///
+    /// The final asserts lock the structural fact that motivates that guard:
+    /// `Shape::vvec(0)` collapses to `rows == 0`, identical to `Shape::unknown`,
+    /// so opcheck would wildcard it as `Deferred` if Pass2 ever passed an empty
+    /// expansion through as `vvec(0)`. The explicit guard is what keeps the
+    /// `Error` state distinct from `Deferred`.
+    #[test]
+    fn tri_state_semantics() {
+        // Known(n): equal rows legal, unequal rows illegal.
+        assert!(matches!(
+            check_series(Shape::vvec(2), Shape::vvec(2)),
+            OpCheck::Legal(_)
+        ));
+        assert!(matches!(
+            check_series(Shape::vvec(2), Shape::vvec(3)),
+            OpCheck::Illegal(_)
+        ));
+
+        // Deferred: Shape::unknown() wildcard-passes on either side.
+        assert!(matches!(
+            check_series(Shape::unknown(), Shape::vvec(3)),
+            OpCheck::Legal(_)
+        ));
+        assert!(matches!(
+            check_series(Shape::vvec(3), Shape::unknown()),
+            OpCheck::Legal(_)
+        ));
+
+        // Known(n) is never mistaken for Deferred (rows >= 1).
+        assert!(!Shape::node().is_unknown());
+        assert!(!Shape::vvec(1).is_unknown());
+        assert!(!Shape::vvec(4).is_unknown());
+
+        // The coincidence that motivates the Pass2 explicit empty guard:
+        // vvec(0) is structurally identical to unknown, and would be wildcarded
+        // as Deferred by opcheck if an empty expansion were fed through as it.
+        assert_eq!(Shape::vvec(0), Shape::unknown());
+        assert!(Shape::vvec(0).is_unknown());
+        assert!(matches!(
+            check_series(Shape::vvec(0), Shape::vvec(3)),
+            OpCheck::Legal(_)
+        ));
+    }
 }

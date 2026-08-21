@@ -778,40 +778,6 @@ impl McComponentInst {
     /// The member_name comes from the interface/bus declaration (e.g. "CS", "SCLK" for SPI).
     /// Callers use member_name for name-based matching in create_connection.
     pub fn find_bus_port_pin_ids(&self, port_name: &str) -> Option<Vec<(String, String)>> {
-        // ── [P2-FBPPI] Temporary probe (commented)
-        // if port_name.starts_with("UART") {
-        //     use crate::semantic::component::mc_pins::McPinPort;
-        //     let kind = self.def.pins.names_to_id.get(port_name).map(|p| match p {
-        //         McPinPort::Single(id) => format!("Single({})", id),
-        //         McPinPort::Bus(_) => "Bus".to_string(),
-        //         McPinPort::Interface(_) => "Interface".to_string(),
-        //         McPinPort::List(_, _) => "List".to_string(),
-        //         McPinPort::Multi(v) => format!("Multi({:?})", v),
-        //         McPinPort::NC => "NC".to_string(),
-        //         McPinPort::MultiGroup(v) => format!("MultiGroup({:?})", v),
-        //     });
-        //     let n2i: Vec<String> = self.def.pins.names_to_id.iter()
-        //         .map(|(n, p)| format!("{}=>{}", n, match p {
-        //             McPinPort::Single(id) => format!("S({})", id),
-        //             McPinPort::Bus(_) => "Bus".to_string(),
-        //             McPinPort::Interface(_) => "Iface".to_string(),
-        //             McPinPort::List(_, _) => "List".to_string(),
-        //             McPinPort::Multi(v) => format!("Multi{:?}", v),
-        //             McPinPort::NC => "NC".to_string(),
-        //             McPinPort::MultiGroup(v) => format!("MultiGroup{:?}", v),
-        //         }))
-        //         .collect();
-        //     let p2n: Vec<String> = self.def.pins.pin_id_to_names.iter()
-        //         .map(|(k, v)| format!("{}=>{:?}", k, v))
-        //         .collect();
-        //     let raw_pins: Vec<String> = self.def.pins.pins.keys().cloned().collect();
-        //     eprintln!("[P2-FBPPI] comp={} port={} kind={:?} static_count={}",
-        //         self.name, port_name, kind, self.def.pins.count());
-        //     eprintln!("[P2-FBPPI-N2I] {:?}", n2i);
-        //     eprintln!("[P2-FBPPI-P2N] {:?}", p2n);
-        //     eprintln!("[P2-FBPPI-RAW] {:?}", raw_pins);
-        // }
-
         use crate::semantic::component::mc_pins::McPinPort;
 
         // Port must be registered in names_to_id as some bus type
@@ -873,23 +839,6 @@ impl McComponentInst {
                     }
                 }
                 if ordered.len() >= 2 {
-                    // ── [P1-PROBE] delete after verification: compare against ascending order; mismatches are non-monotonic ports being fixed ──
-                    let mut asc = ordered.clone();
-                    asc.sort_by(|a, b| {
-                        a.parse::<i64>()
-                            .unwrap_or(0)
-                            .cmp(&b.parse::<i64>().unwrap_or(0))
-                    });
-                    if asc != ordered {
-                        mcc_dbg!(
-                            "inst::comp",
-                            "[P1-FIX] {}.{} declaration_order={:?} (ascending would give {:?})",
-                            self.name,
-                            port_name,
-                            ordered,
-                            asc
-                        );
-                    }
                     // P2-1: return names alongside pids
                     return Some(ordered_names.into_iter().zip(ordered.into_iter()).collect());
                 }
@@ -907,17 +856,6 @@ impl McComponentInst {
                     let nb: i64 = b.parse().unwrap_or(0);
                     na.cmp(&nb)
                 });
-                // ── [P1-MULTI-PROBE] delete after verification: for Multi/List ports, if non-monotonic, declaration order ≠ ascending order ──
-                if sorted != *pids {
-                    mcc_dbg!(
-                        "inst::comp",
-                        "[P1-MULTI-NONMONO] {}.{} declared={:?} ascending={:?}",
-                        self.name,
-                        port_name,
-                        pids,
-                        sorted
-                    );
-                }
                 // P2-1: look up member names from pin_id_to_names
                 // Qualified names like "SPI.CS" are stored in pin_id_to_names.
                 // Extract the member name (last segment after port_name.)
