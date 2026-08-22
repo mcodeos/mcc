@@ -598,6 +598,16 @@ impl McModuleInst {
             self.current_call_site(),
             None,
         );
+        // ── Diagnostic position ───────────────────────────────────────────
+        // Point diagnostics at the current construction site (func-body stmt
+        // offset in the func's own file, else the top-level statement start)
+        // instead of the file origin — pos 0 renders as `file:1:1`, which
+        // hides where the offending call actually is.
+        let diag_site = self
+            .current_func_span
+            .clone()
+            .or_else(|| self.current_stmt_span.clone())
+            .unwrap_or_else(|| crate::semantic::common::SourcePos::new(self.def_uri.clone(), 0));
         // ── NC is not a pin-level builtin argument ─────────────────────
         // `.Cap(a, NC)` has no meaning: NC is a system keyword valid only in
         // a class construction (`CLASS(NC)`) or a constructor argument list.
@@ -606,10 +616,11 @@ impl McModuleInst {
             let reason = format!(
                 "NC is not allowed as a '{func_name}' argument; NC is valid only in CLASS(NC) or a constructor argument list"
             );
-            crate::db::diagnostic::diagnostic::diagnostic_log(
+            crate::db::diagnostic::diagnostic::diagnostic_log_at(
                 crate::errcodes::INST_PARAM_BIND_FAILED,
                 crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                0,
+                diag_site.uri.clone(),
+                diag_site.offset,
                 0,
                 &crate::errcodes::format_msg(
                     crate::errcodes::INST_PARAM_BIND_FAILED,
@@ -661,10 +672,11 @@ impl McModuleInst {
                      endpoints as `[net1, net2]`)",
                     params.len()
                 );
-                crate::db::diagnostic::diagnostic::diagnostic_log(
+                crate::db::diagnostic::diagnostic::diagnostic_log_at(
                     crate::errcodes::INST_PARAM_BIND_FAILED,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                    0,
+                    diag_site.uri.clone(),
+                    diag_site.offset,
                     0,
                     &crate::errcodes::format_msg(
                         crate::errcodes::INST_PARAM_BIND_FAILED,
@@ -764,10 +776,11 @@ impl McModuleInst {
             let t1_is_rail = is_rail(&targets[0]);
             let t2_is_rail = is_rail(&targets[1]);
             if !t1_is_rail && !t2_is_rail {
-                crate::db::diagnostic::diagnostic::diagnostic_log(
+                crate::db::diagnostic::diagnostic::diagnostic_log_at(
                     crate::errcodes::PULLUP_DEGENERATE,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
-                    0,
+                    diag_site.uri.clone(),
+                    diag_site.offset,
                     0,
                     &crate::errcodes::format_msg(
                         crate::errcodes::PULLUP_DEGENERATE,
@@ -796,10 +809,11 @@ impl McModuleInst {
                  provides their network endpoints; placeholders do not implicitly \
                  connect to GND (§11.6)"
             );
-            crate::db::diagnostic::diagnostic::diagnostic_log(
+            crate::db::diagnostic::diagnostic::diagnostic_log_at(
                 crate::errcodes::INST_PARAM_BIND_FAILED,
                 crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                0,
+                diag_site.uri.clone(),
+                diag_site.offset,
                 0,
                 &crate::errcodes::format_msg(
                     crate::errcodes::INST_PARAM_BIND_FAILED,
@@ -860,10 +874,11 @@ impl McModuleInst {
                          (strict arity, §11.6; write a scalar with its explicit \
                          second endpoint: `.Cap(SIG, GND)`)"
                     );
-                    crate::db::diagnostic::diagnostic::diagnostic_log(
+                    crate::db::diagnostic::diagnostic::diagnostic_log_at(
                         crate::errcodes::INST_PARAM_BIND_FAILED,
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                        0,
+                        diag_site.uri.clone(),
+                        diag_site.offset,
                         0,
                         &crate::errcodes::format_msg(
                             crate::errcodes::INST_PARAM_BIND_FAILED,

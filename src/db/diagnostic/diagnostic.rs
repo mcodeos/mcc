@@ -276,6 +276,35 @@ pub fn diagnostic_log(
         .add_diagnostic(new_diagnostic);
 }
 
+/// Report a diagnostic at an explicit file URI + byte offset, bypassing the
+/// thread-local `current_uri`. Used when the diagnostic's real source file
+/// differs from the file currently being processed (e.g. a component method
+/// body expanded from a library file) — otherwise a pos 0 fallback renders
+/// as `file:1:1` and cross-file offsets would be interpreted in the wrong
+/// file.
+pub fn diagnostic_log_at(
+    code: u32,
+    level: DiagnosticLevel,
+    uri: McURI,
+    pos: u32,
+    len: u32,
+    msg: &str,
+    args: &[&dyn std::fmt::Display],
+) {
+    let new_diagnostic = Diagnostic::new(
+        code,
+        level,
+        Location::new(uri, pos, len),
+        message_templates::format(msg, args),
+    );
+
+    workspace::WORKSPACE
+        .diagnostics
+        .lock()
+        .unwrap()
+        .add_diagnostic(new_diagnostic);
+}
+
 pub fn dlog_trace(code: u32, msg: &str) {
     diagnostic_log(code, DiagnosticLevel::Info, 0, 0, msg, &[]);
 }
