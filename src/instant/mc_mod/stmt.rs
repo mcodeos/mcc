@@ -170,13 +170,11 @@ impl McModuleInst {
         let needs_lane_by_lane = members
             .iter()
             .any(|m| Self::member_contains_lead(m) || matches!(m, McPhrase::Transposed(_)));
-        if self.name.contains("US513") {
-            mcc_dbg!(
-                "inst::mod",
-                "[PROC-LINE] module={} needs_lane_by_lane={needs_lane_by_lane} members={members:?}",
-                self.name
-            );
-        }
+        mcc_dbg!(
+            "inst::mod",
+            "[PROC-LINE] module={} needs_lane_by_lane={needs_lane_by_lane} members={members:?}",
+            self.name
+        );
         if needs_lane_by_lane {
             // §8.9.6.7: the lane-by-lane path bypasses try_connect_adjacent,
             // so the AST-layer group context is never established there.
