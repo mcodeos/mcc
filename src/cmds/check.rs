@@ -34,7 +34,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             json!({
                 "entry": args.target.clone(),
                 "libs":  mcc::cli::globals().lib.clone(),
-                "strict": args.strict,
+                "strict": mcc::cli::globals().strict,
                 "errors_only": args.errors_only,
             }),
         )?;
@@ -186,9 +186,25 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         });
     }
 
+    // ── Run pass2 instantiation so pass2-stage diagnostics (e.g. the func
+    // method arity check E4176 — net-endpoint arguments must match the
+    // formal count exactly) surface in the check overview too. pass2 errors
+    // are recorded in the global store via diagnostic_log; a failed flat run
+    // is tolerated so the overview still reports whatever pass1 collected.
+    if let Some(mod_name) = mcc::mcb_get_module_name_by_uri(&_uri)
+        .or_else(|| mcc::mcb_get_first_module_name())
+        .or_else(|| Some("main".to_string()))
+    {
+        let entry = mcc::McSpaceName {
+            ident: mcc::McIds::from(mod_name.as_str()),
+            uri: mcc::uri_intern(&_uri),
+        };
+        let _ = mcc::mcb_pass2_flat(&entry, 1);
+    }
+
     // ── Collect diagnostics (use the real from_mcc instead of guess_severity) ──
-    // `check` is a diagnostic overview; there's no pass1/pass2 distinction,
-    // so everything is attributed to Pass0.
+    // `check` is a diagnostic overview; pass2 diagnostics are attributed to
+    // Pass0 in the report.
     let raw = mcc::mcc_diagnose_all();
 
     // --dlog: raw one-line diagnostics only (no envelope / summary). Decoupled
@@ -206,7 +222,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
                 .filter(|d| matches!(d.level, mcc::DiagnosticLevel::Warning))
                 .count()
         };
-        let exit_code = if errs > 0 || (args.strict && warns > 0) {
+        let exit_code = if errs > 0 || (mcc::cli::globals().strict && warns > 0) {
             1
         } else {
             0
@@ -251,7 +267,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         }
     }
 
-    let exit_code = if error_count > 0 || (args.strict && warning_count > 0) {
+    let exit_code = if error_count > 0 || (mcc::cli::globals().strict && warning_count > 0) {
         1
     } else {
         0

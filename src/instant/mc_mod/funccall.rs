@@ -598,6 +598,29 @@ impl McModuleInst {
             self.current_call_site(),
             None,
         );
+        // ── NC is not a pin-level builtin argument ─────────────────────
+        // `.Cap(a, NC)` has no meaning: NC is a system keyword valid only in
+        // a class construction (`CLASS(NC)`) or a constructor argument list.
+        // Report E4176 and leave the element's pins unwired.
+        if params.iter().any(|p| matches!(p, McParamValue::NC(_))) {
+            let reason = format!(
+                "NC is not allowed as a '{func_name}' argument; NC is valid only in CLASS(NC) or a constructor argument list"
+            );
+            crate::db::diagnostic::diagnostic::diagnostic_log(
+                crate::errcodes::INST_PARAM_BIND_FAILED,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                0,
+                0,
+                &crate::errcodes::format_msg(
+                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                    &[&inst_name.to_string(), &func_name, &reason],
+                ),
+                &[],
+            );
+            self.expansion.end(eidx);
+            return Ok(());
+        }
+
         // 1. Flatten all params into a McBus list, then expand to NetPoint
         // Per-param groups are kept so Pullup/Pulldown can select the rail
         // member (VCC/VDD) instead of the ground member when the rail arg

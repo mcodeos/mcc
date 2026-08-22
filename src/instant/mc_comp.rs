@@ -10,7 +10,7 @@ use super::mc_net::{InstError, NetPoint};
 use crate::instant::insttab::InstOrigin;
 use crate::semantic::basic::mc_conds::McConds;
 use crate::semantic::basic::mc_expr::McExpression;
-use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
+use crate::semantic::basic::mc_param::{McParamBindings, McParamValue, ParamBindError};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
 use crate::semantic::common::IOType;
 use crate::semantic::component::McComponent;
@@ -114,8 +114,16 @@ impl McComponentInst {
         // §P1 C6: when a same-name constructor func exists, its params are
         // the arity authority (`FLASH.GD25Q32E flash(V3V3)` binds `V3V3` to
         // `func GD25Q32E([V3V3, GND]::DC(3.3V))`), not the class header params.
-        let params = McParamBindings::bind_quiet(def.bind_params(), param_values)
-            .map_err(|e| InstError::Other(format!("Parameter binding failed: {e:?}")))?;
+        let params = match McParamBindings::bind_quiet(def.bind_params(), param_values) {
+            Ok(p) => p,
+            // Component-Spec Separation: a missing required core parameter
+            // does not block instantiation — pass1 reports it only in strict
+            // mode (E4178, warning) and the instance is created with the
+            // supplied arguments. Excess / unknown / type-mismatched
+            // arguments remain hard errors.
+            Err(ParamBindError::MissingRequired { .. }) => McParamBindings::new(),
+            Err(e) => return Err(InstError::Other(format!("Parameter binding failed: {e:?}"))),
+        };
 
         let nc = param_values
             .iter()

@@ -12,7 +12,7 @@ use crate::semantic::basic::mc_bus::{McBus, McList};
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_ida::McIda;
 use crate::semantic::basic::mc_ids::{IdsSegment, McIds};
-use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
+use crate::semantic::basic::mc_param::{McParamBindings, McParamValue, ParamBindError};
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::IOType;
 use crate::semantic::component::Mc2Component;
@@ -1596,20 +1596,48 @@ impl McInstances {
                         instance_params.extend(ctor_args.clone());
                         // Report binding failures at the instance site: an
                         // orphan named argument (`{ nope = 5 }`), an excess
-                        // positional argument, or a missing required parameter
-                        // all hard-fail the signature bind.
+                        // positional argument, or a type mismatch hard-fail
+                        // the signature bind. A missing required parameter is
+                        // silent (Component-Spec Separation) — the value comes
+                        // from spec / the BOM and the instance is still
+                        // created with the supplied arguments.
                         if !instance_params.is_empty() {
                             if let Err(e) =
                                 McParamBindings::bind(comp_def.bind_params(), &instance_params)
                             {
-                                dlog_error(
-                                    crate::errcodes::INST_PARAM_BIND_FAILED,
-                                    inst_node,
-                                    &crate::errcodes::format_msg(
+                                // Missing required parameters never block
+                                // instance creation: circuit topology only
+                                // needs pins, and the value comes from spec /
+                                // the BOM. Silent in dev mode, reported as a
+                                // warning (E4178) in strict mode.
+                                // Written-but-wrong arguments (excess /
+                                // unknown / type-mismatched) are errors
+                                // (E4176).
+                                if let ParamBindError::MissingRequired { name } = e {
+                                    if crate::cli::strict_mode() {
+                                        dlog_warning(
+                                            crate::errcodes::INST_PARAM_MISSING_REQUIRED,
+                                            inst_node,
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::INST_PARAM_MISSING_REQUIRED,
+                                                &[&inst_name, &comp_def.name.to_string(), &name],
+                                            ),
+                                        );
+                                    }
+                                } else {
+                                    dlog_error(
                                         crate::errcodes::INST_PARAM_BIND_FAILED,
-                                        &[&inst_name, &comp_def.name.to_string(), &format!("{e}")],
-                                    ),
-                                );
+                                        inst_node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::INST_PARAM_BIND_FAILED,
+                                            &[
+                                                &inst_name,
+                                                &comp_def.name.to_string(),
+                                                &format!("{e}"),
+                                            ],
+                                        ),
+                                    );
+                                }
                             }
                         }
                         let mc2_comp = Mc2Component::with_params(

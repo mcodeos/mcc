@@ -749,9 +749,14 @@ impl McParamBindings {
         }
 
         // ── Strip modifiers (NC, ') from positional values before arity ──
-        // NC (Not Connected) and ' (Transposed) are instance modifiers,
-        // not positional arguments. They are handled separately by the caller
-        // (e.g. McComponentInst::with_nc) and must NOT count toward arity.
+        // NC (Not Connected) is a system keyword that occupies NO positional
+        // slot and provides no value: it is removed before arity checking and
+        // never covers a missing required parameter (a strict call like
+        // `DIO.ESD("ESD9B5V-2/TR", NC)` still reports the missing `rating`).
+        // NC is meaningful only in a class construction (`CLASS(NC)`) or a
+        // constructor argument list; callers outside those contexts reject
+        // NC before reaching this function. ' (Transposed) is an instance
+        // modifier handled by the caller.
         let effective_pos: Vec<McParamValue> = positional_values
             .iter()
             .filter(|v| !matches!(v, McParamValue::NC(_)))
@@ -812,7 +817,9 @@ impl McParamBindings {
         }
 
         // Check for too few arguments (missing required), accounting for
-        // required slots already claimed by named args in Round 1.
+        // required slots already claimed by named args in Round 1. NC does
+        // not relax this check: a not-connected instance still reports
+        // genuinely missing required parameters (E4176).
         let unclaimed_required: Vec<String> = declares
             .iter()
             .enumerate()

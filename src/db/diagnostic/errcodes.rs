@@ -892,6 +892,12 @@ pub const INST_PARAM_BIND_FAILED: u32 = 4176;
 /// params declare the construction arity, so they must not reuse a class name.
 pub const COMPONENT_PARAM_FUNC_CONFLICT: u32 = 4177;
 
+/// Instance is missing a required constructor parameter. Silent in dev mode
+/// (Component-Spec Separation — circuit topology only needs pins and the
+/// value comes from spec / the BOM); reported as a warning in strict mode
+/// (`--strict`). The instance is always created with the supplied arguments.
+pub const INST_PARAM_MISSING_REQUIRED: u32 = 4178;
+
 // ============================================================================
 // Pass3: duplicate validation (5000-5049)
 // ============================================================================
@@ -1503,7 +1509,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_CTOR_BODY_STMT_FAILED, "A constructor function body statement failed.", "Constructor '{0}' body statement failed: {1}"),
     entry!(INST_CTOR_PARAM_BIND_FAILED, "Constructor parameter binding failed.", "Constructor '{0}' on '{1}' param bind: {2}"),
     entry!(INST_ARG_UNBOUND_DETAILED, "Instance argument has no formal port to bind (with module/bound details).", "Instance '{0}' arg '{1}' has no formal port to bind (module='{2}', {3}/{4} formal ports already bound)"),
-    entry!(INST_PARAM_BIND_FAILED, "Declarative instance parameter binding failed (unknown / excess / missing-required argument).", "Instance '{0}' ({1}) param bind: {2}"),
+    entry!(INST_PARAM_BIND_FAILED, "Declarative instance parameter binding failed (unknown / excess / type-mismatched argument).", "Instance '{0}' ({1}) param bind: {2}"),
+    entry!(INST_PARAM_MISSING_REQUIRED, "Instance is missing a required constructor parameter; silent in dev mode, reported as a warning in strict mode (--strict). The instance is created anyway with the supplied arguments.", "Instance '{0}' ({1}) is missing required parameter '{2}'; created with the supplied arguments"),
     entry!(COMPONENT_PARAM_FUNC_CONFLICT, "Component-level parameter shares a name with the same-name constructor func parameter.", "Component '{0}' declares parameter '{1}' that also appears in constructor func '{2}' params. Class params define class behavior and constructor params declare the construction arity; they must not reuse the same name. Rename one of them."),
     // ---- section ----
     entry!(DUP_CMIE_CROSS_FILE, "Same name defined in another file (cross-file duplicate).", "Same name defined in another file (cross-file duplicate)."),

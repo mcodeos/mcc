@@ -72,6 +72,11 @@ pub struct Cli {
     #[arg(long, short = 'e', value_name = "FILE", global = true)]
     pub entry: Option<String>,
 
+    /// Strict mode: strict-only diagnostics (e.g. missing required constructor
+    /// parameters) are reported as warnings; dev mode ignores them
+    #[arg(long, global = true)]
+    pub strict: bool,
+
     /// Subcommand. If omitted, prints a usage hint.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -93,9 +98,9 @@ pub fn local_mode() -> bool {
 }
 
 /// Cross-command option values promoted from per-subcommand fields
-/// (`--lib`, `-f/--format`, `-o/--output`, `--top`, `--entry`). `main` stores
-/// the parsed values once via [`set_globals`]; every subcommand reads them here
-/// (mirrors the `LOCAL_MODE` pattern).
+/// (`--lib`, `-f/--format`, `-o/--output`, `--top`, `--entry`, `--strict`).
+/// `main` stores the parsed values once via [`set_globals`]; every subcommand
+/// reads them here (mirrors the `LOCAL_MODE` pattern).
 #[derive(Debug, Clone)]
 pub struct GlobalOptions {
     /// `--lib NAME` — libraries to load (repeatable)
@@ -108,6 +113,8 @@ pub struct GlobalOptions {
     pub top: Option<String>,
     /// `--entry FILE` — entry file for browse-mode directory targets
     pub entry: Option<String>,
+    /// `--strict` — report strict-only diagnostics as warnings
+    pub strict: bool,
 }
 
 /// Storage for the global option values, filled once by `main` right after CLI parsing.
@@ -124,6 +131,13 @@ pub fn globals() -> &'static GlobalOptions {
     GLOBAL_OPTIONS
         .get()
         .expect("mcc cli globals not initialized by main")
+}
+
+/// True when `--strict` was requested. Safe to call outside a CLI process
+/// (library consumers, tests, RPC server without `--strict`): returns false
+/// when globals are not initialized.
+pub fn strict_mode() -> bool {
+    GLOBAL_OPTIONS.get().map(|g| g.strict).unwrap_or(false)
 }
 
 /// Subcommands supported by first phase (MVP)
@@ -276,10 +290,6 @@ pub struct CheckArgs {
     /// Show errors only, ignore warnings
     #[arg(long)]
     pub errors_only: bool,
-
-    /// Strict mode (any warning also exits with non-zero exit code)
-    #[arg(long)]
-    pub strict: bool,
 
     /// Run pass2 electrical net checks (driver conflict, floating inputs, etc.)
     #[arg(long)]
