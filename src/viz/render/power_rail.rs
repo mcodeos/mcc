@@ -85,64 +85,6 @@ fn escape_xml(s: &str) -> String {
 // ★ P7-3: pin decoration rendering (rail terminals / ground symbols, not in graph.boxes)
 // ============================================================================
 
-/// Render a terminal decoration at the pin coordinates.
-///
-/// * `is_ground == true` —— ground symbol, directly below the pin (three horizontal
-///   bars pointing down, no text, S1)
-/// * `is_ground == false` —— rail terminal, directly above the pin (triangle pointing
-///   up + net name, S2)
-///
-/// Reuses [`PowerRailShape`]'s drawing: synthesizes a temporary box whose connect
-/// edge faces the decorated box (power → Bottom means the symbol points up;
-/// ground → Top means the symbol points down), at zero layout cost.
-pub fn render_decoration(px: f64, py: f64, is_ground: bool, label: &str) -> String {
-    const W: f64 = 22.0;
-    const H: f64 = 30.0;
-    let mut b = McVecBox::new_v2(
-        0,
-        if is_ground {
-            String::new()
-        } else {
-            label.to_string()
-        },
-        String::new(),
-        crate::vector::graph::BoxKind::PowerLabel,
-        Symbol::PowerRail { is_ground },
-        None,
-        None,
-        1,
-        crate::vector::graph::IoSummary::new(),
-        String::new(),
-        Vec::new(),
-    );
-    if is_ground {
-        // Box top edge midpoint = pin, symbol points down
-        b.x = px - W / 2.0;
-        b.y = py;
-        b.w = W;
-        b.h = H * 0.6;
-        b.entry_points.push(crate::vector::graph::EntryPoint {
-            pin_id: 0,
-            pin_name: String::new(),
-            side: EntrySide::Top,
-            offset: 0.5,
-        });
-    } else {
-        // Box bottom edge midpoint = pin, symbol points up
-        b.x = px - W / 2.0;
-        b.y = py - H;
-        b.w = W;
-        b.h = H;
-        b.entry_points.push(crate::vector::graph::EntryPoint {
-            pin_id: 0,
-            pin_name: String::new(),
-            side: EntrySide::Bottom,
-            offset: 0.5,
-        });
-    }
-    PowerRailShape.render(&b)
-}
-
 // ============================================================================
 // VCC / VDD style (triangle arrow points outward)
 // ============================================================================

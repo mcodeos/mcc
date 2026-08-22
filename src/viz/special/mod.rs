@@ -460,11 +460,6 @@ impl PowerGroundBusModel {
         }
     }
 
-    /// Return long PG stubs (stub_length > LONG_PG_STUB), sorted by length descending.
-    pub fn long_power_ground_stubs(&self) -> &[PowerGroundNetIntent] {
-        &self.long_pg_stubs
-    }
-
     /// Log diagnostic vlog for each long PG stub.
     pub fn vlog_long_stubs(&self, layer_name: &str) {
         for stub in &self.long_pg_stubs {

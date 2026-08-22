@@ -176,11 +176,6 @@ impl Region {
             Region::South => EntrySide::Bottom,
         }
     }
-
-    /// Is the trunk axis vertical (W/E) or horizontal (N/S)?
-    pub fn axis_vertical(self) -> bool {
-        matches!(self, Region::West | Region::East)
-    }
 }
 
 /// A net's trunk lane — the single source of truth for trunk coordinates.
@@ -318,15 +313,6 @@ pub struct NetTopology {
     /// live rows) and its glyph continues OUTWARD off the row it was adopted
     /// onto. Written by `assign_rows` from [`super::equi_chain::ChainPlan`].
     pub(crate) ground_column: bool,
-    /// M2.5 Step 7: the unified y every Ground glyph used to hang at.
-    ///
-    /// ★ M7.5: no longer used for placement. Pinning every ground glyph to
-    /// `max(South row) + SYMBOL_DROP` produced a vertical that grew with the
-    /// deepest free ground band and ran off the canvas; grounds now hang one
-    /// `SYMBOL_DROP` off their own trunk in the first free direction (A15').
-    /// The field is kept because it is still the cheapest way to express "align
-    /// the grounds" should that ever be wanted again, and it costs nothing.
-    pub(crate) ground_band: f64,
 }
 
 /// M2: where a net's row came from.
@@ -575,7 +561,6 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
         run_depth: 0,
         outer_end_taken: false,
         ground_column: false,
-        ground_band: 0.0,
     })
 }
 
@@ -3025,22 +3010,7 @@ pub(crate) fn assign_rows(
         cycle_open += PIN_PITCH;
     }
 
-    // M2.5 Step 7: unified ground band — every Ground glyph of the layer hangs
-    // at the same y (the schematic convention "all grounds aligned"). Derived
-    // from the South rail rows; both the layout and render phases compute the
-    // same value because they run the same pure `assign_rows`.
-    let south_rows: Vec<f64> = (0..n)
-        .filter(|&i| topos[i].lane.region == Region::South)
-        .filter_map(|i| rows[i])
-        .collect();
-    let ground_band = if south_rows.is_empty() {
-        ic_bottom + RAIL_GAP + SYMBOL_DROP
-    } else {
-        south_rows.iter().cloned().fold(f64::MIN, f64::max) + SYMBOL_DROP
-    };
-
     for (i, row) in rows.into_iter().enumerate() {
-        topos[i].ground_band = ground_band;
         if let Some(y) = row {
             topos[i].lane.axis = y;
             topos[i].lane.horizontal = true;

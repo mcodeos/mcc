@@ -7,7 +7,6 @@
 //! ## Sub-modules
 //! - [`side`]        —— `ExitSide` exit direction + EntryPoint-aware exit point computation
 //! - [`orthogonal`]  —— Manhattan polyline + `OrthogonalRouter` (mainstay for 2-endpoint nets)
-//! - [`straight`]    —— straight line (debug) + `StraightRouter`
 //! - [`bus_bundle`]  —— bus thick line + tap (★ Step 2: reuses trunk_tap helper)
 //! - [`star`]        —— star multi-endpoint + `StarRouter` (Power/Ground/SubModuleIO)
 //! - [`trunk_tap`]   —— ★ Step 2 NEW: trunk-tap + pin stub (multi-endpoint Signal)
@@ -31,7 +30,6 @@ pub mod orthogonal;
 pub mod scheduler;
 pub mod side;
 pub mod star;
-pub mod straight;
 pub mod trunk_tap;
 pub mod wire_hops;
 pub mod wire_label_split;
@@ -39,7 +37,6 @@ pub use bus_bundle::BusBundleRouter;
 pub use orthogonal::{label_anchor, orthogonal_path, points_to_svg_d, OrthogonalRouter};
 pub use side::{compute_exit_for_pin, compute_exit_to, ExitSide};
 pub use star::StarRouter;
-pub use straight::StraightRouter;
 pub use trunk_tap::{build_trunk_tap_route, BuildOptions, TrunkTapRouter, PIN_STUB_LEN};
 // ============================================================================
 // Smart scheduling: pick router by NetKind

@@ -40,7 +40,6 @@ pub mod passive_inline;
 pub mod pin_place;
 pub mod radial;
 pub mod rails;
-pub mod rank;
 pub mod select;
 pub mod size;
 pub mod sp_model;
@@ -53,9 +52,7 @@ pub use flow::FlowLayouter;
 // ============================================================================
 
 // Utilities
-pub use components::{
-    build_adjacency, build_degrees, find_connected_components, partition_components,
-};
+pub use components::{build_adjacency, find_connected_components};
 pub use entry_points::assign_entry_points;
 pub use normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN, CANVAS_PADDING};
 pub use overlap::{resolve_overlaps, resolve_overlaps_iterative};
