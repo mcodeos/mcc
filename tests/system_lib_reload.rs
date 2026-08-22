@@ -50,7 +50,7 @@ fn system_lib_reload_keeps_global_tables() {
 
     // Probe file exercising the failing construct.
     let probe_uri = "/virtual/probe_cap.mc";
-    let cap_src = "module main {\n    CAP(10uF, 10V).Cap(GND)\n}\n";
+    let cap_src = "module main {\n    CAP(10uF, 10V).Cap(GND, GND)\n}\n";
 
     // 1) Before degradation: should parse clean (CAP resolves via P5 global).
     mcc::mcc_load_from_string(&probe_uri.into(), cap_src);
