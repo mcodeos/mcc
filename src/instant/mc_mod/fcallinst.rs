@@ -1121,6 +1121,9 @@ impl McModuleInst {
         bindings: &McParamBindings,
     ) -> Result<(), InstError> {
         let mut skip: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // The caller instance name is absolute; it must never be re-prefixed.
+        // Required after `this` substitution turns `this` into the instance bus.
+        skip.insert(inst_name.to_string());
         for b in bindings.iter() {
             if let Some(n) = b.declare.get_primary_name() {
                 skip.insert(n);

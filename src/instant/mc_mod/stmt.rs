@@ -3381,7 +3381,14 @@ impl McModuleInst {
             McPhrase::FuncCall(fc) => fc
                 .caller
                 .as_deref()
-                .and_then(Self::extract_caller_inst_name),
+                .and_then(Self::extract_caller_inst_name)
+                // Caller-less instance creation (`mic(V3V3)`, `CAP(...)`) names
+                // the created instance after the class, so a chained member
+                // (`mic(V3V3).MIC`) resolves against that instance name.
+                .or_else(|| {
+                    let name = fc.func_name.to_string();
+                    (!name.is_empty()).then_some(name)
+                }),
             _ => None,
         }
     }
