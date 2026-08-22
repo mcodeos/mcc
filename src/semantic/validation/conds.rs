@@ -285,26 +285,29 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
         for (pin_id, pin) in &comp.pins.pins {
             use crate::IOType;
             let pin_span = pin_definition_span(comp, pin_id, pin.names.first().map(|s| s.as_str()));
+            // §2.19 OR semantics: a pin is NC if its iotype is NonCon (`nc`
+            // prefix) or any name is "NC"/"nc" — either declaration marks it.
+            if pin.is_nc {
+                let names = if pin.names.is_empty() {
+                    pin_id.clone()
+                } else {
+                    pin.names.join(", ")
+                };
+                acc.push(CheckResult {
+                    check_name: "conds",
+                    severity: CheckSeverity::Info,
+                    uri: Some(uri.clone()),
+                    span: Some(pin_span.clone()),
+                    message: format!(
+                        "Component '{}': pin '{}' ({}) is declared NC (not-connected) at \
+                         the component level. NC is typically used at instantiation.",
+                        comp.name, names, pin_id
+                    ),
+                    code: crate::errcodes::PIN_NC_COMPONENT_LEVEL,
+                });
+                continue;
+            }
             match pin.iotype {
-                IOType::NonCon => {
-                    let names = if pin.names.is_empty() {
-                        pin_id.clone()
-                    } else {
-                        pin.names.join(", ")
-                    };
-                    acc.push(CheckResult {
-                        check_name: "conds",
-                        severity: CheckSeverity::Info,
-                        uri: Some(uri.clone()),
-                        span: Some(pin_span.clone()),
-                        message: format!(
-                            "Component '{}': pin '{}' ({}) is declared NC (not-connected) at \
-                             the component level. NC is typically used at instantiation.",
-                            comp.name, names, pin_id
-                        ),
-                        code: crate::errcodes::PIN_NC_COMPONENT_LEVEL,
-                    });
-                }
                 IOType::Power => {
                     let names = if pin.names.is_empty() {
                         pin_id.clone()

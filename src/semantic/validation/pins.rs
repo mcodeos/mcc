@@ -93,8 +93,9 @@ fn check_unused_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) {
             let pinid = pinid_from_path(&pin.path);
             let pin_name = &pin.class_name;
 
-            // NC pins are intentionally unconnected (§2.19)
-            if is_nc_pin(pin_name) {
+            // NC pins are intentionally unconnected (§2.19). OR semantics:
+            // either the `nc` iotype prefix or an NC/nc name marks the pin.
+            if matches!(pin.io_type, IOType::NonCon) || is_nc_pin(pin_name) {
                 continue;
             }
 

@@ -324,13 +324,12 @@ fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
         }
         let comp = entry.value();
 
-        // Collect pins sorted by numeric ID, tracking NC status
+        // Collect pins sorted by numeric ID, tracking NC status. `pin.is_nc`
+        // already encodes the OR semantics (nc iotype prefix or NC/nc name).
         let mut sorted_pins: Vec<(u32, bool)> = Vec::new(); // (pin_id, is_nc)
         for (pin_id, pin) in &comp.pins.pins {
             if let Ok(num) = pin_id.parse::<u32>() {
-                let is_nc =
-                    pin.names.is_empty() || pin.names.iter().all(|n| n == "NC" || n == "nc");
-                sorted_pins.push((num, is_nc));
+                sorted_pins.push((num, pin.is_nc));
             }
         }
         sorted_pins.sort_by_key(|(id, _)| *id);
