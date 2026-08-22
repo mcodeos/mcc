@@ -1095,32 +1095,6 @@ impl McModuleInst {
         }
     }
 
-    #[allow(dead_code)]
-    pub(super) fn get_left_points_from_line(
-        &mut self,
-        phrase: &McPhrase,
-    ) -> Result<Vec<NetPoint>, InstError> {
-        let members = self.phrase_to_members(phrase);
-        if let Some(first_member) = members.first() {
-            self.get_left_points(first_member)
-        } else {
-            Ok(vec![])
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn get_right_points_from_line(
-        &mut self,
-        phrase: &McPhrase,
-    ) -> Result<Vec<NetPoint>, InstError> {
-        let members = self.phrase_to_members(phrase);
-        if let Some(last_member) = members.last() {
-            self.get_right_points(last_member)
-        } else {
-            Ok(vec![])
-        }
-    }
-
     pub(super) fn get_left_points_from_phrase(
         &mut self,
         phrase: &McPhrase,

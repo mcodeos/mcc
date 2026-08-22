@@ -2108,11 +2108,7 @@ impl McPhrase {
 struct CompPinShape {
     kind: PinShapeKind,
     /// Total static pin count (0 for dynamic-only pins)
-    #[allow(dead_code)]
     static_count: usize,
-    /// Whether the component has `pins +=` definitions
-    #[allow(dead_code)]
-    has_dynamic: bool,
 }
 
 /// Shape kind per eval.md §2 rules.
@@ -2165,11 +2161,7 @@ fn shape_defaults(c: &Mc2Component) -> CompPinShape {
         kind
     };
 
-    CompPinShape {
-        kind,
-        static_count,
-        has_dynamic,
-    }
+    CompPinShape { kind, static_count }
 }
 
 /// Whether a phrase carries no order to reverse: parallel groupings,

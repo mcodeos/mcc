@@ -12,10 +12,8 @@ use crate::semantic::basic::mc_bus::{McBus, McList};
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_ida::McIda;
 use crate::semantic::basic::mc_ids::{IdsSegment, McIds};
-use crate::semantic::basic::mc_literal::{McInt, McString};
-use crate::semantic::basic::mc_param::McParamValue;
+use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::basic::mc_uval::McUnitValue;
 use crate::semantic::common::IOType;
 use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
@@ -1572,60 +1570,17 @@ impl McInstances {
                 // use the appropriate name format for the instance
                 // Collect instance parameters first (used by both Component and Module)
                 let mut instance_params: Vec<McParamValue> = Vec::new();
-                // Collect params from the params_node found during traversal
+                // Collect params from the params_node found during traversal;
+                // each argument is parsed by the canonical context-free value
+                // parser (McParamValue::new_no_ctx, mc_param.rs) so named
+                // attribute blocks `{ cap = 1uF; volt = 50V }` and every other
+                // literal form are handled uniformly.
                 if let Some(params) = &params_node {
                     if let Some(params_sub) = params.get_sub_node() {
                         for p in params_sub.iter() {
                             if p.get_type() == MCAST_PARAM {
-                                if let Some(sub) = p.get_sub_node() {
-                                    match sub.get_type() {
-                                        MCAST_INT => {
-                                            if let Some(int_val) = McInt::new(&sub) {
-                                                instance_params.push(McParamValue::Int(int_val));
-                                            }
-                                        }
-                                        MCAST_STRING => {
-                                            let val = sub.to_string().unwrap_or_default();
-                                            let clean_val = if val.starts_with('"')
-                                                && val.ends_with('"')
-                                                && val.len() >= 2
-                                            {
-                                                val[1..val.len() - 1].to_string()
-                                            } else {
-                                                val
-                                            };
-                                            instance_params.push(McParamValue::String(
-                                                McString::from(clean_val.as_str()),
-                                            ));
-                                        }
-                                        MCAST_UVALUE => {
-                                            if let Some(uval) = McUnitValue::new(&sub) {
-                                                instance_params.push(McParamValue::UValue(uval));
-                                            }
-                                        }
-                                        MCAST_OPD_NC => {
-                                            instance_params
-                                                .push(McParamValue::NC(String::from("NC")));
-                                        }
-                                        MCAST_ID | MCAST_IDA | MCAST_IDS => {
-                                            if let Some(ids) = McIds::new(&sub) {
-                                                if !ids.is_empty() {
-                                                    instance_params.push(McParamValue::Ids(ids));
-                                                }
-                                            }
-                                        }
-                                        MCAST_OPD => {
-                                            if let Some(inner) = sub.get_sub_node() {
-                                                if let Some(ids) = McIds::new(&inner) {
-                                                    if !ids.is_empty() {
-                                                        instance_params
-                                                            .push(McParamValue::Ids(ids));
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        _ => {}
-                                    }
+                                if let Some(val) = McParamValue::new_no_ctx(&p) {
+                                    instance_params.push(val);
                                 }
                             }
                         }
@@ -1639,6 +1594,24 @@ impl McInstances {
                         // ── P1: besides class-level value params (CAP(1uF…)), also merge instance-level construction args (flash(V3V3)) ──
                         let mut instance_params = instance_params;
                         instance_params.extend(ctor_args.clone());
+                        // Report binding failures at the instance site: an
+                        // orphan named argument (`{ nope = 5 }`), an excess
+                        // positional argument, or a missing required parameter
+                        // all hard-fail the signature bind.
+                        if !instance_params.is_empty() {
+                            if let Err(e) =
+                                McParamBindings::bind(comp_def.bind_params(), &instance_params)
+                            {
+                                dlog_error(
+                                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                                    inst_node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                                        &[&inst_name, &comp_def.name.to_string(), &format!("{e}")],
+                                    ),
+                                );
+                            }
+                        }
                         let mc2_comp = Mc2Component::with_params(
                             &inst_name,
                             comp_def.clone(),

@@ -482,40 +482,55 @@ impl McModuleInst {
                         call_site,
                         def_site,
                     );
-                    let inst =
-                        if c.nc {
-                            McComponentInst::with_nc(&c.name.to_string(), c.base.clone(), &c.params)
-                        } else if c.params.is_empty() {
-                            McComponentInst::new(&c.name.to_string(), c.base.clone())
-                        } else {
-                            match McComponentInst::with_params(
-                                &c.name.to_string(),
-                                c.base.clone(),
-                                &c.params,
-                            ) {
-                                Ok(inst) => inst,
-                                Err(e) => {
-                                    let reason = format!("{:?}", e);
-                                    mcc_dbg!("inst::mod",
-                                    "[ERROR] Failed to instantiate component '{}' (class '{}'): {}",
-                                    c.name, c.base.name, reason
+                    let inst = if c.nc {
+                        McComponentInst::with_nc(&c.name.to_string(), c.base.clone(), &c.params)
+                    } else if c.params.is_empty() {
+                        McComponentInst::new(&c.name.to_string(), c.base.clone())
+                    } else {
+                        match McComponentInst::with_params(
+                            &c.name.to_string(),
+                            c.base.clone(),
+                            &c.params,
+                        ) {
+                            Ok(inst) => inst,
+                            Err(e) => {
+                                let reason = format!("{:?}", e);
+                                // Binding failure is a hard error: the
+                                // argument list does not match the class
+                                // signature (unknown named arg, excess
+                                // arg, or missing required param). The
+                                // instance is skipped, but the reason is
+                                // reported so the author sees it.
+                                self.record_error(
+                                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                                    crate::errcodes::format_msg(
+                                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                                        &[&c.name.to_string(), &c.base.name.to_string(), &reason],
+                                    ),
                                 );
-                                    self.failed_classes.insert(c.base.name.to_string());
-                                    self.failed_records.push(FailedRecord {
-                                        module: self.name.clone(),
-                                        src_line: self
-                                            .current_stmt_span
-                                            .as_ref()
-                                            .map(|s| (s.offset / 1000) as usize),
-                                        component_name: c.name.to_string(),
-                                        class_name: c.base.name.to_string(),
-                                        reason,
-                                    });
-                                    self.expansion.end(eidx);
-                                    continue;
-                                }
+                                mcc_dbg!(
+                                    "inst::mod",
+                                    "[ERROR] Failed to instantiate component '{}' (class '{}'): {}",
+                                    c.name,
+                                    c.base.name,
+                                    reason
+                                );
+                                self.failed_classes.insert(c.base.name.to_string());
+                                self.failed_records.push(FailedRecord {
+                                    module: self.name.clone(),
+                                    src_line: self
+                                        .current_stmt_span
+                                        .as_ref()
+                                        .map(|s| (s.offset / 1000) as usize),
+                                    component_name: c.name.to_string(),
+                                    class_name: c.base.name.to_string(),
+                                    reason,
+                                });
+                                self.expansion.end(eidx);
+                                continue;
                             }
-                        };
+                        }
+                    };
                     self.add_component(inst);
 
                     // ── P1-C5: Execute same-name constructor func ──

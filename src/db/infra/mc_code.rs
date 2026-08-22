@@ -1589,6 +1589,39 @@ impl McCode {
                         tracing::info!(target: "mcc::lsp", "  parse_pass1_types: component '{}' in '{}' node_pos={} node_len={} span={:?}",
                             comp_name_str, self_uri, node.get_pos(), node.get_len(), comp_span);
 
+                        // Class params define class behavior; the same-name
+                        // constructor func's params declare the construction
+                        // arity and live in the func's own scope (they bind
+                        // instance args, §P1 C6). Only this constructor func
+                        // must not reuse a class-level param name — other
+                        // funcs keep their params in their own scope and may
+                        // freely shadow class names.
+                        let ctor_last = comp
+                            .name
+                            .to_string()
+                            .rsplit('.')
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+                        if let Some(ctor) = comp.funcs.find(&ctor_last) {
+                            for pname in ctor.params.names() {
+                                if comp.params.is_defined(&pname) {
+                                    dlog_error(
+                                        crate::errcodes::COMPONENT_PARAM_FUNC_CONFLICT,
+                                        &node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::COMPONENT_PARAM_FUNC_CONFLICT,
+                                            &[
+                                                &comp.name.to_string(),
+                                                &pname,
+                                                &ctor.name.to_string(),
+                                            ],
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+
                         let space_name = McSpaceName {
                             ident: comp.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
