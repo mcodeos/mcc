@@ -2097,7 +2097,7 @@ pub fn place_by_topology(graph: &mut McVecGraph, topos: &mut [NetTopology]) {
 
     // ★ M12.4: with x final, a shunt that would hang DOWN through another row
     // may flip UP instead.
-    flip_shunts_clear_of_rows(graph, topos);
+    flip_shunts_clear_of_rows(graph, topos, layer_anchor);
 
     // ★ M15.2: and force every satellite pin back onto its own net's row.
     snap_satellite_pins_to_rows(graph, topos, &satellites);
@@ -2152,7 +2152,10 @@ fn dump_layer(graph: &McVecGraph, topos: &[NetTopology], layer_anchor: i64) {
                 continue;
             };
             let role = if b.pins.len() == 2 && gi > 0 {
-                format!("{:?}", tap_role(b, t, partner_info(topos, i, g)))
+                format!(
+                    "{:?}",
+                    tap_role(b, t, partner_info(topos, i, g), layer_anchor)
+                )
             } else if gi == 0 {
                 "anchor".to_string()
             } else {
@@ -3457,7 +3460,7 @@ fn chain_origins(
                 let Some(b) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
                     continue;
                 };
-                let role = tap_role(b, &topos[i], partner_info(topos, i, group));
+                let role = tap_role(b, &topos[i], partner_info(topos, i, group), layer_anchor);
                 if matches!(role, TapRole::Series { .. }) {
                     continue;
                 }
@@ -3478,7 +3481,7 @@ fn chain_origins(
                     let Some(b) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
                         continue;
                     };
-                    let role = tap_role(b, &topos[i], partner_info(topos, i, group));
+                    let role = tap_role(b, &topos[i], partner_info(topos, i, group), layer_anchor);
                     if !matches!(role, TapRole::Series { .. }) {
                         continue;
                     }
@@ -3540,7 +3543,7 @@ fn chain_origins(
                     continue;
                 };
                 if matches!(
-                    tap_role(b, live, partner_info(topos, li, m)),
+                    tap_role(b, live, partner_info(topos, li, m), layer_anchor),
                     TapRole::Series { .. }
                 ) {
                     continue;
@@ -3588,7 +3591,7 @@ fn chain_origins(
 ///
 /// Layout-only, like `resolve_columns_for_side` — the render side does not
 /// replay member placement, so A2 is not involved.
-fn flip_shunts_clear_of_rows(graph: &mut McVecGraph, topos: &[NetTopology]) {
+fn flip_shunts_clear_of_rows(graph: &mut McVecGraph, topos: &[NetTopology], layer_anchor: i64) {
     use crate::viz::layout::equi_column::COL_CLEAR;
     // The x-extent each net's trunk will be enveloped to: its anchor pins and
     // its member taps, all of which are placed by now.
@@ -3639,7 +3642,8 @@ fn flip_shunts_clear_of_rows(graph: &mut McVecGraph, topos: &[NetTopology]) {
             }
             // Only a DROP may be flipped: a Bridge's direction is pinned by the
             // partner's row, and a Series is horizontal to begin with.
-            let TapRole::Drop { dir } = tap_role(b, t, partner_info(topos, i, group)) else {
+            let TapRole::Drop { dir } = tap_role(b, t, partner_info(topos, i, group), layer_anchor)
+            else {
                 continue;
             };
             if dir < 0.0 || b.y < t.lane.axis {
@@ -3723,7 +3727,7 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
                 continue;
             }
             let partner = partner_info(topos, ti, group);
-            let role = tap_role(b, topo, partner.clone());
+            let role = tap_role(b, topo, partner.clone(), layer_anchor);
             // ★ M8.4: Along parts already have their x from the prefix sum.
             if matches!(role, TapRole::Series { .. }) {
                 continue;
@@ -3907,6 +3911,7 @@ pub(crate) fn tap_role(
     member: &crate::vector::graph::McVecBox,
     me: &NetTopology,
     p: Option<PartnerInfo>,
+    layer_anchor: i64,
 ) -> TapRole {
     let my_row = me.lane.axis;
     match member.pins.len() {
@@ -3944,6 +3949,25 @@ pub(crate) fn tap_role(
             Some(p) if p.ground_column && me.net_kind != NetKind::Ground => TapRole::Series {
                 partner: p.topo_idx,
             },
+            // ★ M16: a decoupling cap hung to its OWN terminal-only ground (a
+            // per-consumer `GND@xx` = the cap's second pin + a glyph) from a
+            // Power net that is anchored DIRECTLY on the IC (the layer anchor)
+            // lies ALONG the power trunk — horizontal, one pin on the rail, the
+            // far pin carrying the ground symbol (`us513` `_C1`/`_C2`). A decap
+            // on a power net anchored on a passive chain element (moddcdc
+            // `VCC_1V2` anchored on `IND_1`) stays a vertical Drop: several
+            // such filters share one rail row, and horizontal would overlap. A
+            // SHARED ground rail still hangs DOWN via the guard below.
+            Some(p)
+                if p.kind == NetKind::Ground
+                    && p.is_terminal_only
+                    && me.net_kind != NetKind::Ground
+                    && me.anchor == layer_anchor =>
+            {
+                TapRole::Series {
+                    partner: p.topo_idx,
+                }
+            }
             // ★ M7.3: a GROUND partner that was NOT adopted is pinned DOWN —
             // ground rails and the shared ground band are always below the side
             // rows, so an upward shunt would route its ground pin back over its
@@ -4120,7 +4144,7 @@ fn place_members_for_topo(
             .find(|b| b.id == group.box_id)
             .expect("member box exists");
         let partner = partner_info(topos, idx, group);
-        let role = tap_role(member_box, topo, partner);
+        let role = tap_role(member_box, topo, partner, layer_anchor);
         let (w, h) = match &role {
             TapRole::Series { .. } => (TWO_PIN_SYMBOL_W, TWO_PIN_SYMBOL_H),
             TapRole::Bridge { .. } | TapRole::Drop { .. } => (TWO_PIN_SYMBOL_H, TWO_PIN_SYMBOL_W),
@@ -6571,6 +6595,48 @@ mod tests {
             "Shunt cap should hang downward from the power trunk, cap.y={} axis={}",
             cap.y,
             pwr_axis
+        );
+    }
+
+    /// ★ M16: a decoupling cap whose OTHER pin goes to its OWN terminal-only
+    /// ground (no IC pin — just the cap's second pin + a glyph) and which is
+    /// on a Power net anchored DIRECTLY on the IC lies ALONG the power trunk —
+    /// horizontal (w > h), the far pin carrying the ground symbol. This is the
+    /// `us513` `_C1`/`_C2` look, and the mirror image of
+    /// `shunt_cap_hangs_vertical` where the cap returns to a SHARED IC ground
+    /// and must hang down.
+    #[test]
+    fn decoupling_cap_to_own_ground_lies_horizontal() {
+        let mut g = McVecGraph::new(400, "decap".into());
+        g.layer_style = LayerStyle::Device;
+        g.boxes.push(mk_ic(1, 3, &[11, 12, 13]));
+        g.boxes.push(mk_two_pin(2, "CAP_1", &[21, 22]));
+        // Power rail (West): the IC anchors it, the cap's pin 21 joins.
+        g.nets
+            .push(mk_net(401, "PWR", NetKind::Power, &[(1, 11), (2, 21)]));
+        // The cap's OWN ground: cap pin 22 only — no IC pin → terminal-only.
+        g.nets.push(mk_net(402, "GND", NetKind::Ground, &[(2, 22)]));
+
+        let mut topos = build_topology(&g);
+        place_by_topology(&mut g, &mut topos);
+
+        let cap = g.boxes.iter().find(|b| b.id == 2).expect("cap box");
+        assert!(
+            cap.w > cap.h,
+            "decap to its own terminal-only ground must lie horizontal, got w={} h={}",
+            cap.w,
+            cap.h
+        );
+        // The body sits ON the power rail row (not hanging below it).
+        let pwr = topos
+            .iter()
+            .find(|t| t.net_name == "PWR")
+            .expect("PWR topo");
+        assert!(
+            cap.y <= pwr.lane.axis + 0.5,
+            "decap should sit ON the rail row, cap.y={} axis={}",
+            cap.y,
+            pwr.lane.axis
         );
     }
 }

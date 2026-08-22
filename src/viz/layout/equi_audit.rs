@@ -283,7 +283,7 @@ fn build_net_view(
         } else {
             topo_idx.map(|idx| {
                 let p = super::equipotential_tree::partner_info(_topos, idx, group);
-                super::equipotential_tree::tap_role(b, &_topos[idx], p)
+                super::equipotential_tree::tap_role(b, &_topos[idx], p, layer_anchor)
                     .short()
                     .to_string()
             })
@@ -1801,6 +1801,7 @@ fn check_a23_shunt_near_anchor_pin(graph: &McVecGraph, topos: &[NetTopology]) ->
 /// by it reproduces the allocator's decision order. InlineEnd members sit AT
 /// their tap and are exempt; their lateral offset is ornamental, not a tooth.
 fn check_a24_no_wire_crossings(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let layer_anchor = layer_anchor_id(topos);
     let mut c = Check::new("A24", "same-side members do not cross", Milestone::M5);
     // (region, anchor_edge_x, member_centre_x, box_id, box_name)
     let mut entries: Vec<(Region, f64, f64, i64, String)> = Vec::new();
@@ -1823,7 +1824,7 @@ fn check_a24_no_wire_crossings(graph: &McVecGraph, topos: &[NetTopology]) -> Che
             let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
                 continue;
             };
-            let role = tap_role(b, topo, partner_info(topos, idx, group));
+            let role = tap_role(b, topo, partner_info(topos, idx, group), layer_anchor);
             if matches!(role, TapRole::InlineEnd) {
                 continue;
             }
@@ -1921,6 +1922,7 @@ fn check_a25_label_clear_of_members(
 /// `moddcdc` `_C2` upward), so the check now measures only the freedom the
 /// placer actually has.
 fn check_a26_shunt_balance(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let layer_anchor = layer_anchor_id(topos);
     let mut c = Check::new("A26", "shunt up/down balance on a row", Milestone::M5);
     // row-key(axis*10) -> (up_count, down_count)
     let mut per_row: BTreeMap<i64, (usize, usize)> = BTreeMap::new();
@@ -1933,7 +1935,7 @@ fn check_a26_shunt_balance(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
             let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
                 continue;
             };
-            let role = tap_role(b, topo, partner_info(topos, idx, group));
+            let role = tap_role(b, topo, partner_info(topos, idx, group), layer_anchor);
             let TapRole::Drop { dir } = role else {
                 continue;
             };
@@ -2024,6 +2026,7 @@ fn check_a27_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> Check 
 /// row; otherwise the "one straight line with a component inserted" reading
 /// breaks and the part's two pins point at two different rows.
 fn check_a28_along_is_collinear(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let layer_anchor = layer_anchor_id(topos);
     let mut c = Check::new("A28", "Along part's two nets share a row", Milestone::M6);
     for (idx, topo) in topos.iter().enumerate() {
         if topo.terminal_only {
@@ -2034,7 +2037,7 @@ fn check_a28_along_is_collinear(graph: &McVecGraph, topos: &[NetTopology]) -> Ch
                 continue;
             };
             let p = partner_info(topos, idx, group);
-            if !matches!(tap_role(b, topo, p), TapRole::Series { .. }) {
+            if !matches!(tap_role(b, topo, p, layer_anchor), TapRole::Series { .. }) {
                 continue;
             }
             let other = topos
@@ -2267,7 +2270,10 @@ fn check_a31_row_end_budget(
                 continue;
             }
             let p = partner_info(topos, idx, group);
-            if !matches!(tap_role(b, topo, p.clone()), TapRole::Series { .. }) {
+            if !matches!(
+                tap_role(b, topo, p.clone(), layer_anchor),
+                TapRole::Series { .. }
+            ) {
                 continue;
             }
             let Some(p) = p else { continue };
@@ -3169,6 +3175,7 @@ mod tests {
                 b,
                 topo,
                 super::super::equipotential_tree::partner_info(&topos, idx, group),
+                super::super::equipotential_tree::layer_anchor_id(&topos),
             )
             .short()
             .to_string()
