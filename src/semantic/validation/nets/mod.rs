@@ -48,6 +48,13 @@ fn entry_pos(entry: &InstEntry) -> (u32, String) {
     (pos, entry.def_uri.clone())
 }
 
+/// §2.19 OR semantics: an entry is NC if its iotype is `NonCon` (the `nc`
+/// prefix) or its class name is "NC"/"nc" (case-insensitive) — whichever
+/// declaration is used, the pin is intentionally unconnected.
+fn is_nc_entry(entry: &InstEntry) -> bool {
+    matches!(entry.io_type, IOType::NonCon) || entry.class_name.eq_ignore_ascii_case("nc")
+}
+
 /// Find the first InstEntry that has a source position among a set of point IDs.
 fn best_pos(table: &InstTable, ids: &[u32]) -> (u32, String) {
     for id in ids {
@@ -138,7 +145,10 @@ fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
         .flat_map(|n| n.points.iter().cloned())
         .collect();
     for (_, entry) in table.iter() {
-        if matches!(entry.io_type, IOType::In) && !connected.contains(&entry.id) {
+        if matches!(entry.io_type, IOType::In)
+            && !connected.contains(&entry.id)
+            && !is_nc_entry(entry)
+        {
             let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
                 check: "floating-input",
@@ -186,7 +196,10 @@ fn check_unconnected_outputs(table: &InstTable, results: &mut Vec<NetCheckResult
         .flat_map(|n| n.points.iter().cloned())
         .collect();
     for (_, entry) in table.iter() {
-        if matches!(entry.io_type, IOType::Out) && !connected.contains(&entry.id) {
+        if matches!(entry.io_type, IOType::Out)
+            && !connected.contains(&entry.id)
+            && !is_nc_entry(entry)
+        {
             let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
                 check: "unconnected-output",
@@ -413,6 +426,7 @@ fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult
             IOType::In | IOType::Out | IOType::InOut | IOType::Power
         ) && !connected.contains(&entry.id)
             && !entry.class_name.is_empty()
+            && !is_nc_entry(entry)
         {
             let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
@@ -472,7 +486,22 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
             .iter()
             .find(|e| e.key().ident.to_string() == entry.class_name)
         {
-            let def_pin_count = def_entry.value().pins.names_to_id.len();
+            // Count non-NC pin names only — NC pins are intentionally
+            // unconnected and never counted (OR semantics, §2.19).
+            let nc_names = def_entry
+                .value()
+                .pins
+                .pins
+                .values()
+                .filter(|p| p.is_nc)
+                .map(|p| p.names.len())
+                .sum::<usize>();
+            let def_pin_count = def_entry
+                .value()
+                .pins
+                .names_to_id
+                .len()
+                .saturating_sub(nc_names);
             if def_pin_count == 0 {
                 continue;
             }
@@ -505,7 +534,10 @@ fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) 
         .flat_map(|n| n.points.iter().cloned())
         .collect();
     for (_, entry) in table.iter() {
-        if matches!(entry.io_type, IOType::InOut) && !connected.contains(&entry.id) {
+        if matches!(entry.io_type, IOType::InOut)
+            && !connected.contains(&entry.id)
+            && !is_nc_entry(entry)
+        {
             let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
                 check: "floating-bidirectional",

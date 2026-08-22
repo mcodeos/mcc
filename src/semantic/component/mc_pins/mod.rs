@@ -1534,8 +1534,11 @@ impl McPins {
         //     .push((iotype.clone(), names.to_vec(), self.current_line_idx));
         // §2.8: detect active-low if any name starts with '_'
         let active_low = names.iter().any(|n| n.starts_with('_'));
-        // §2.19: detect NC pin
-        let is_nc = names.iter().any(|n| n == "NC");
+        // §2.19: detect NC pin with OR semantics — either the `nc` iotype
+        // prefix maps to IOType::NonCon, or any name is "NC"/"nc"
+        // (case-insensitive). Whichever hits first marks the pin as NC.
+        let is_nc =
+            matches!(&iotype, IOType::NonCon) || names.iter().any(|n| n.eq_ignore_ascii_case("nc"));
 
         // If pinid already exists, append names instead of overwriting
         if let Some(existing) = self.pins.get_mut(pinid) {
