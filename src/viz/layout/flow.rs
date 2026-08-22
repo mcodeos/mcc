@@ -556,7 +556,13 @@ impl Layouter for FlowLayouter {
             graph.claim_geom_changes(&g_snap, "3.placement");
             (root_id, isolated_ids)
         };
-        probe_no_ep_writes("phase_placement", graph, &ep_snap);
+        // ★ M15: the PROBE-B contract ("phase_placement writes no entry_point")
+        // holds for the flow layout, but the ROOT runs `place_radial` here, and
+        // its `setup_facade_entry_points` writes facade entry_points BY DESIGN.
+        // The probe only applies to sub-layers, where a write would be a bug.
+        if !graph.is_root {
+            probe_no_ep_writes("phase_placement", graph, &ep_snap);
+        }
 
         // ── Phase D · SchematicLayoutModel: low-risk layout intent ──
         // ★ B2: skip for root — radial layout already placed all boxes.

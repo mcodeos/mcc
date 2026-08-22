@@ -688,6 +688,7 @@ pub fn audit_equi_tree(graph: &McVecGraph, layout_topos: &[NetTopology]) -> Equi
         check_a28_along_is_collinear(graph, layout_topos),
         check_a29_run_spans_disjoint(layout_topos),
         check_a30_satellite_pins_on_rows(graph, layout_topos),
+        check_a34_every_pin_on_its_row(graph, layout_topos),
         check_a31_row_end_budget(graph, layout_topos, &trees),
         check_a32_label_has_a_stub(layout_topos, &trees),
     ];
@@ -2137,6 +2138,63 @@ fn check_a30_satellite_pins_on_rows(graph: &McVecGraph, topos: &[NetTopology]) -
                     "'{}' pin {} is at y={py:.0} but its net '{}' runs at {:.0}",
                     b.name, slot.name, t.net_name, t.lane.axis
                 ));
+            }
+        }
+    }
+    c
+}
+
+/// ★ M15.4 (A34): EVERY pin of a net lies on that net's row and inside its span
+/// — not just the anchor group's.
+///
+/// A27 checks the anchor group only, which was fine while the anchor group was
+/// always the layer anchor. It is not: on `mic` the interesting nets are anchored
+/// on a SATELLITE, and every defect of the last three rounds showed up as a pin
+/// stub on one edge of that satellite with its trunk somewhere else — a shape
+/// A27 structurally could not see.
+///
+/// A multi-pin box hanging off a row as a `Sink` is exempt: its pins face the
+/// trunk from above or below by design, and A30 owns that case.
+fn check_a34_every_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
+    let mut c = Check::new("A34", "every pin lies on its net's row", Milestone::M7);
+    for topo in topos.iter() {
+        if topo.terminal_only || !topo.lane.horizontal {
+            continue;
+        }
+        let (lo, hi) = (
+            topo.lane.span.0.min(topo.lane.span.1),
+            topo.lane.span.0.max(topo.lane.span.1),
+        );
+        for (gi, group) in topo.groups.iter().enumerate() {
+            let Some(b) = graph.boxes.iter().find(|bb| bb.id == group.box_id) else {
+                continue;
+            };
+            // Two-pin members and Sinks hang OFF the row on purpose.
+            if gi > 0 && b.pins.len() < 3 {
+                continue;
+            }
+            if gi > 0
+                && !b
+                    .slots
+                    .iter()
+                    .any(|s| matches!(s.side, EntrySide::Left | EntrySide::Right))
+            {
+                continue; // a Sink: pins on Top/Bottom, A30's business
+            }
+            for &pid in &group.pin_ids {
+                let Some(s) = slot_of(b, pid) else { continue };
+                let (px, py) = slot_point(b, s);
+                if (py - topo.lane.axis).abs() > 1.0 {
+                    c.fail(format!(
+                        "'{}' pin {} on '{}' sits at y={:.0} but the row is {:.0}",
+                        topo.net_name, pid, b.name, py, topo.lane.axis
+                    ));
+                } else if px < lo - TOOTH_GAP - 1.0 || px > hi + TOOTH_GAP + 1.0 {
+                    c.fail(format!(
+                        "'{}' pin {} on '{}' sits at x={:.0}, outside the span ({:.0},{:.0})",
+                        topo.net_name, pid, b.name, px, lo, hi
+                    ));
+                }
             }
         }
     }
