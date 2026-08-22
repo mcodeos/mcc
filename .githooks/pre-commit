@@ -2,7 +2,7 @@
 # Pre-commit hook: reject commits that are not English-only (non-ASCII).
 #
 # Installed via `git config core.hooksPath .githooks` so this file is shared
-# with every developer who clones the repo (see CLAUDE.md / AGENTS.md).
+# with every developer who clones the repo (see AGENTS.md).
 #
 # Checks:
 #   1. Staged file contents (added / copied / modified files only).

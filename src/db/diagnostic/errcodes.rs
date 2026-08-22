@@ -7,9 +7,8 @@
 //! Every diagnostic code emitted by mcc must be declared here, with a symbolic
 //! constant, a name, a description, and a message template. The message
 //! template is the canonical emission text (with `{0}`, `{1}`… placeholders);
-//! emission points render it via [`format_msg()`]. Generated from
-//! `scripts/error-code-mapping.json` (see `scripts/gen-errcodes.py`); do not
-//! edit by hand — regenerate instead.
+//! emission points render it via [`format_msg()`]. Maintain this file by
+//! hand: every code needs a `pub const` and an `ALL_CODES` entry below.
 //!
 //! Numbering follows `mcd/doc/mcc-error-code-unification-plan.md` §3.2:
 //! thousands+hundreds = pipeline stage / semantic cluster.
@@ -24,8 +23,8 @@
 //! ## Adding a new code
 //!
 //! 1. Add a `pub const` in the appropriate section below.
-//! 2. Add a match arm / entry in [`describe()`] / `ALL_CODES`.
-//! 3. Regenerate via `python3 scripts/gen-errcodes.py` to keep this file in sync.
+//! 2. Add a matching `entry!()` row in the `ALL_CODES` table with the
+//!    canonical emission message template (`{0}`, `{1}`, ... placeholders).
 
 // ============================================================================
 // Infrastructure

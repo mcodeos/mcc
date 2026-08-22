@@ -3,7 +3,7 @@
 # characters.
 #
 # Git passes the prepared commit message file path as $1. English-only is a
-# project rule (see CLAUDE.md / AGENTS.md).
+# project rule (see AGENTS.md).
 import re
 import sys
 
