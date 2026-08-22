@@ -156,6 +156,15 @@ pub struct McModuleInst {
     /// explicitly called from a parent module (e.g. `mcu.i2c()`).
     pub(super) auto_invoked_funcs: HashSet<String>,
 
+    /// §11.6 chain-shunt context: when set, `wire_builtin_twopin` defers a
+    /// `.Cap(_, _)` all-placeholder call (both endpoints provided by the outer
+    /// chain) instead of reporting E4176. Set for the whole series by
+    /// `process_series` when it detects a chain shunt; RAII save/restore via
+    /// `with_twopin_defer` so recursive `process_stmt` calls (P2-5 expansion)
+    /// re-enter `process_series` without leaking the flag into the next
+    /// standalone `.Cap(_, _)`.
+    pub(super) defer_twopin_placeholders: bool,
+
     /// Expansion provenance: this module's expansion log (module-local id space).
     /// Products tagged with `expansion_id` index into `expansion.records`.
     pub expansion: crate::instant::provenance::ExpansionLog,
@@ -260,6 +269,7 @@ impl McModuleInst {
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
+            defer_twopin_placeholders: false,
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
         }
@@ -301,6 +311,7 @@ impl McModuleInst {
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
+            defer_twopin_placeholders: false,
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
         })
@@ -722,6 +733,23 @@ impl McModuleInst {
         r
     }
 
+    /// RAII save/restore for `defer_twopin_placeholders`. The chain-shunt
+    /// series (`[V3V3,GND] -> CAP(..).Cap(_, _) -> [VCC,VSS]`) defers both pin
+    /// bindings to the outer chain (§11.6); recursive `process_stmt` calls
+    /// (P2-5 expansion) re-enter `process_series` and install their own value,
+    /// so the save/restore must survive early returns inside `f`.
+    pub(super) fn with_twopin_defer<R>(
+        &mut self,
+        defer: bool,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = self.defer_twopin_placeholders;
+        self.defer_twopin_placeholders = defer;
+        let r = f(self);
+        self.defer_twopin_placeholders = saved;
+        r
+    }
+
     /// Byte offset of the current construction site for provenance (func-body
     /// line offset first, then the top-level statement span start, else 0).
     /// Consecutive constructions on the same source line are still
@@ -818,16 +846,43 @@ impl McModuleInst {
         )
     }
 
+    /// Strict DC rail identity: the ground member point owned by a rail scalar.
+    ///
+    /// A rail scalar (`V5V`, `usbsocket.vin`) owns its ground member
+    /// `{rail}.GND`. Binding a DC port's ground member to this point keeps
+    /// every rail's ground distinct until real wiring ties them together
+    /// (shared component ground pins, explicit `X.GND -> GND` connections).
+    /// A scalar that is itself a ground reference (bare `GND` or `s.GND`)
+    /// is returned unchanged — the author is explicitly naming that net.
+    pub(super) fn rail_ground_point(&self, rail: &NetPoint, gnd_member: &str) -> NetPoint {
+        let leaf = rail
+            .member_name
+            .as_deref()
+            .unwrap_or_else(|| rail.path.rsplit('.').next().unwrap_or(&rail.path));
+        if Self::is_ground_leaf(leaf) {
+            return rail.clone();
+        }
+        NetPoint::new(&format!("{}.{}", rail.path, gnd_member), IOType::None)
+            .with_member_name(gnd_member)
+    }
+
     /// Re-partition the module's ground nets into local ground groups.
     ///
-    /// Replaces the old "one global GND net per module" with per-line local
-    /// ground groups. Rule (user-confirmed, GENERAL — applies to every module):
-    ///   - each statement line's GND defaults to an independent local ground net;
+    /// Applies ONLY to nets whose ground points are bare single-segment labels
+    /// (`GND`, `AGND`, ...). Rule (user-confirmed, GENERAL — applies to every
+    /// module):
+    ///   - each statement line's bare GND defaults to an independent local ground net;
     ///   - a `component{...GND}` reference (the ground is drawn from the same
     ///     physical pin of the same component) merges the hanging 2-pin
     ///     passives' ground endpoints under a pin key `(component, gnd_pin)`;
     ///   - a bare label / bus-member ground (`GND`, `[X, GND]`, `(X, GND)`) is a
     ///     name reference only: each source statement forms its own group.
+    ///
+    /// Strict DC rail identity: a net carrying a rail-member ground (`va.GND`,
+    /// `vin.GND`, `dc.GND` — multi-segment path) is a SINGLE rail identity and
+    /// is never re-partitioned — different rails keep distinct grounds and each
+    /// stays traceable to the module's DC rail, so re-partitioning would
+    /// fragment real wiring.
     ///
     /// Every produced group is a net named **`GND`** carrying its own local
     /// ground symbol, so all local grounds read "GND" (schematic convention).
@@ -851,18 +906,31 @@ impl McModuleInst {
         let component_owners: std::collections::BTreeSet<&str> =
             self.components.iter().map(|c| c.name.as_str()).collect();
 
-        // Indices of nets that contain a ground-name point.
+        // Indices of nets that contain a ground-name point. A net carrying a
+        // rail-member ground (`va.GND`, `vin.GND`, `dc.GND` — multi-segment
+        // path) is a single rail identity and is left untouched: strict DC
+        // rail identity keeps each rail's ground distinct and traceable, so
+        // re-partitioning it into per-line `@N` groups would fragment real
+        // wiring (e.g. `vin.GND ~ ldo.2 ~ cap.2`). Only nets whose ground
+        // points are bare single-segment labels (`GND`, `AGND`, ...) get the
+        // per-line local-ground re-partition.
         let ground_net_idx: Vec<usize> = self
             .nets
             .iter()
             .enumerate()
-            .filter(|(_, (_, pts))| pts.iter().any(|p| Self::is_ground_leaf(&p.path)))
+            .filter(|(_, (_, pts))| {
+                let has_ground = pts.iter().any(|p| Self::is_ground_leaf(&p.path));
+                let has_rail_ground = pts
+                    .iter()
+                    .any(|p| p.path.contains('.') && Self::is_ground_leaf(&p.path));
+                has_ground && !has_rail_ground
+            })
             .map(|(i, _)| i)
             .collect();
 
         // Process in reverse so earlier indices stay valid while we remove/insert.
         for &idx in ground_net_idx.iter().rev() {
-            let (_name, points) = self.nets.remove(idx);
+            let (name, points) = self.nets.remove(idx);
             let point_set: HashSet<&str> = points.iter().map(|p| p.path.as_str()).collect();
 
             // Connections touching this net, with line + classification.
@@ -1018,14 +1086,17 @@ impl McModuleInst {
                 .cloned()
                 .collect();
 
-            // Rebuild the split nets. Every group carries its own local GND
+            // Rebuild the split nets. Every group carries its own local ground
             // symbol with a DISTINCT identity and name, so the InstTable can
-            // resolve each to its own label (no shared "GND" node):
-            //   - central   : "GND"              — the real ground sources
-            //   - pin group : "GND@<component>"  — passives on one component
-            //                                     ground pin (pin key)
-            //   - line group: "GND@<line>"       — passives on one label/bus
-            //                                     ground statement
+            // resolve each to its own label (no shared "GND" node). The base
+            // keeps the ORIGINAL net name so distinct system grounds stay
+            // distinguishable and every local group is traceable to the system
+            // ground it belongs to (`GND` / `AGND` / `PGND` / `vin.GND` ...):
+            //   - central   : "<base>"            — the real ground sources
+            //   - pin group : "<base>@<component>" — passives on one component
+            //                                      ground pin (pin key)
+            //   - line group: "<base>@<line>"      — passives on one label/bus
+            //                                      ground statement
             let mut out: Vec<(String, Vec<NetPoint>)> = Vec::new();
             // Central group: only emit when it has >= 2 points. A lone ground
             // label (e.g. `GND` / `dc.GND` with all its pins pulled into local
@@ -1033,32 +1104,32 @@ impl McModuleInst {
             // `GND (1 pts) (stub)`.
             if central.len() >= 2 {
                 central.sort_by(|a, b| a.path.cmp(&b.path));
-                out.push(("GND".to_string(), central));
+                out.push((name.clone(), central));
             }
             for (src, mut np) in pin_groups {
                 np.sort_by(|a, b| a.path.cmp(&b.path));
                 if !np.is_empty() {
-                    let name = format!("GND@{}", owner_of(&src));
-                    let gnd = NetPoint::new(&name, IOType::None);
-                    self.labels.insert(name.clone(), gnd.clone());
+                    let gname = format!("{}@{}", name, owner_of(&src));
+                    let gnd = NetPoint::new(&gname, IOType::None);
+                    self.labels.insert(gname.clone(), gnd.clone());
                     let mut grp = vec![gnd];
                     grp.append(&mut np);
-                    out.push((name, grp));
+                    out.push((gname, grp));
                 }
             }
             for ((line, id), mut np) in line_groups {
                 np.sort_by(|a, b| a.path.cmp(&b.path));
                 if !np.is_empty() {
-                    let name = if line >= 2 {
-                        format!("GND@{}", line)
+                    let gname = if line >= 2 {
+                        format!("{}@{}", name, line)
                     } else {
-                        format!("GND@c{}", id)
+                        format!("{}@c{}", name, id)
                     };
-                    let gnd = NetPoint::new(&name, IOType::None);
-                    self.labels.insert(name.clone(), gnd.clone());
+                    let gnd = NetPoint::new(&gname, IOType::None);
+                    self.labels.insert(gname.clone(), gnd.clone());
                     let mut grp = vec![gnd];
                     grp.append(&mut np);
-                    out.push((name, grp));
+                    out.push((gname, grp));
                 }
             }
 

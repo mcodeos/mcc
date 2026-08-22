@@ -502,15 +502,23 @@ fn is_supply_name(s: &str) -> bool {
 }
 
 /// Normalized identity of a power net, used by R11 (a same-named power rail should not have two nets)
+///
+/// ── Strict DC rail identity ──────────────────────────────
+/// The identity preserves the OWNER path of the member and only normalizes the
+/// leaf case: `main.va.GND` and `main.vb.GND` are DIFFERENT rails (different
+/// DC inputs may carry different grounds), while a bare single-segment `GND`
+/// stays the module-level label identity `"GND"`. This lets R11 flag a
+/// genuinely split rail (same owner path, multiple nets) without flagging two
+/// independent DC rails as one.
 fn rail_identity(s: &str) -> Option<String> {
     let l = leaf(s);
-    if is_ground_name(l) {
-        return Some("GND".to_string());
+    if is_ground_name(l) || is_supply_name(l) {
+        // Preserve the owner prefix (strict rail identity), normalize only the leaf case
+        let owner = s.strip_suffix(l).unwrap_or("");
+        Some(format!("{owner}{}", l.to_uppercase()))
+    } else {
+        None
     }
-    if is_supply_name(l) {
-        return Some(l.to_uppercase());
-    }
-    None
 }
 
 // ============================================================================
@@ -1612,9 +1620,14 @@ mod tests {
     }
 
     #[test]
-    fn rail_identity_merges_grounds() {
-        assert_eq!(rail_identity("main.x.GND").as_deref(), Some("GND"));
-        assert_eq!(rail_identity("main.x.VSS").as_deref(), Some("GND"));
+    fn rail_identity_keeps_owner_path() {
+        // Strict DC rail identity: the owner path is preserved so different
+        // rails (`va.GND` vs `vb.GND`) are distinct identities. Only the leaf
+        // case is normalized.
+        assert_eq!(rail_identity("main.x.GND").as_deref(), Some("main.x.GND"));
+        assert_eq!(rail_identity("main.x.VSS").as_deref(), Some("main.x.VSS"));
+        assert_eq!(rail_identity("va.GND").as_deref(), Some("va.GND"));
+        assert_eq!(rail_identity("vb.GND").as_deref(), Some("vb.GND"));
         assert_eq!(rail_identity("V3V3").as_deref(), Some("V3V3"));
         assert_eq!(rail_identity("DAC_OUT"), None);
     }

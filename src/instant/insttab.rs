@@ -17,7 +17,7 @@
 use super::mc_mod::McModuleInst;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::common::IOType;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 // ============================================================================
 // InstKind - Instance entry type
@@ -355,7 +355,10 @@ impl InstTable {
     pub fn from_module_inst(inst: &McModuleInst, start_id: u32) -> Self {
         let mut table = InstTable::new(start_id);
         table.flatten_module(inst, "", None);
-        table.merge_ground_nets();
+        // NOTE: no global ground merge here (strict DC rail identity). Ground
+        // nets stay exactly as wired: each DC rail keeps its own ground
+        // (`V5V.GND` != `V3V3.GND`) and grounds merge only through real wiring
+        // ties (shared component ground pins, explicit `X.GND -> GND`).
         table
     }
 
@@ -597,82 +600,21 @@ impl InstTable {
     }
 
     // ====================================================================
-    // Ground net merging (arbitration ⑥)
+    // Ground net merging — REMOVED (strict DC rail identity)
     // ====================================================================
-
-    /// Merge all Ground-member nets into a single global GND net.
-    ///
-    /// Called after all modules are flattened. Scans all entries with
-    /// `MemberRole::Ground`, finds the nets they belong to, and merges them
-    /// into one net named "GND".
-    ///
-    /// ★ The merge key is `MemberRole::Ground` — NOT interface type, NOT
-    ///   leaf name string comparison, NOT the entire interface instance.
-    ///   Power members are NEVER merged here.
-    pub fn merge_ground_nets(&mut self) {
-        // Collect all point IDs that are Ground members
-        let ground_points: Vec<u32> = self
-            .entries
-            .values()
-            .filter(|e| {
-                e.member_info
-                    .as_ref()
-                    .is_some_and(|mi| mi.role == MemberRole::Ground)
-            })
-            .map(|e| e.id)
-            .collect();
-
-        if ground_points.len() < 2 {
-            return;
-        }
-
-        // Find all nets that contain any Ground points
-        let mut ground_nets: BTreeSet<u32> = BTreeSet::new();
-        for &pid in &ground_points {
-            if let Some(&net_id) = self.point_to_net.get(&pid) {
-                ground_nets.insert(net_id);
-            }
-        }
-
-        if ground_nets.len() < 2 {
-            return; // already unified
-        }
-
-        // Pick the first net as the target GND net
-        let net_ids: Vec<u32> = ground_nets.into_iter().collect();
-        let target_net_id = net_ids[0];
-        let target_name = "GND".to_string();
-
-        // Merge all other Ground nets into the target
-        let mut all_points: Vec<u32> = Vec::new();
-        for &net_id in &net_ids {
-            if let Some(net) = self.nets.get(&net_id) {
-                all_points.extend_from_slice(&net.points);
-            }
-        }
-        all_points.sort();
-        all_points.dedup();
-
-        // Update point_to_net for all points
-        for &pid in &all_points {
-            self.point_to_net.insert(pid, target_net_id);
-        }
-
-        // Update the target net
-        self.nets.insert(
-            target_net_id,
-            NetEntry {
-                id: target_net_id,
-                name: target_name,
-                points: all_points,
-            },
-        );
-
-        // Remove the old merged nets
-        for &net_id in &net_ids[1..] {
-            self.nets.remove(&net_id);
-        }
-    }
+    //
+    // `merge_ground_nets` (global merge of every `MemberRole::Ground` net into a
+    // single "GND" net) has been deleted. Under strict DC rail identity, a
+    // module's different DC rails may carry different grounds: `va.GND` and
+    // `vb.GND` are distinct nets, and each stays traceable to its rail. Grounds
+    // merge only through real wiring ties (shared component ground pins,
+    // explicit `X.GND -> GND` connections), which the endpoint union-find in
+    // mc_net / visit handles naturally.
+    //
+    // `MemberInfo`/`MemberRole` are still set on ports/pins below: the viz
+    // projection layer (project.rs) and the graph builder (fromblock.rs) use
+    // the role to classify rail vs signal endpoints and to extract voltages.
+    // Only the global ground merge is gone.
 
     // ====================================================================
     // flatten traversal (Step 5)
@@ -773,7 +715,8 @@ impl InstTable {
                     inst.def_uri.to_string(),
                 );
 
-                // Set member_info for Ground/Power members so merge_ground_nets can find them
+                // Set member_info role (Ground/Power) — consumed by the viz
+                // projection layer for rail classification, not for net merging.
                 let (role, _inferred) =
                     infer_member_role(member, &port.iotype, is_ground_name, is_supply_name);
                 if !matches!(role, MemberRole::Signal) {
@@ -873,7 +816,8 @@ impl InstTable {
                         inst.def_uri.to_string(),
                     );
 
-                    // Set member_info for Ground/Power pins so merge_ground_nets can find them
+                    // Set member_info role (Ground/Power) — consumed by the viz
+                    // projection layer for rail classification, not for net merging.
                     let (role, _inferred) = infer_member_role(
                         &pin_func_name,
                         &net_point.iotype,

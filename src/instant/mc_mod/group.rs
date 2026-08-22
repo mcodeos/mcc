@@ -12,7 +12,6 @@ use super::expand::expand_match;
 use super::McModuleInst;
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
-use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, ConnOp};
 use crate::vector::model::trunk::{TrunkCtx, TrunkKind};
@@ -528,7 +527,11 @@ impl McModuleInst {
                         None,
                     ));
                 } else {
-                    let gnd = self.node_to_netpoint(&McBus::new("GND"));
+                    // Strict DC rail identity: the bus ground member belongs to
+                    // the scalar rail (`{scalar}.GND`), not the module's bare
+                    // `GND` label. Different rails keep distinct grounds until
+                    // real wiring ties them together.
+                    let gnd = self.rail_ground_point(scalar, last);
                     self.add_connection(self.make_conn_with_provenance(
                         id,
                         vec![p.clone(), gnd],
