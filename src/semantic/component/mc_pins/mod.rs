@@ -955,13 +955,60 @@ impl McPins {
                         match &pinids {
                             // n pids vs n interface pins, pinid and interface member count 1:1, register 1:1
                             McPinPort::Multi(pids) => {
-                                // cycle subname, 1:1 with pids
-                                let names_cycle = subname.iter().cycle();
-                                for (pid, name) in pids.iter().zip(names_cycle) {
+                                // ★ P-ROT (Root cause B): bind interface members to pins by NAME first.
+                                // A pin already registered with a member-matching name (flash pin6 =
+                                // "SCLK" ↔ SPI.SCLK, pin1 = "_CS" ↔ SPI.CS) wins over the interface's
+                                // canonical order; unmatched pins fall back to the canonical order.
+                                // Pure positional binding would rotate the data/clock lanes against the
+                                // device's own pinout: `[1,2,5,6] = SPI("Slave")` → pin2=SCLK, pin5=MISO,
+                                // pin6=MOSI, while the device declares pin2=SO (MISO), pin5=SI (MOSI),
+                                // pin6=SCLK. Name matching keeps SCLK on pin6 and only the unnamed data
+                                // lanes fall back positionally → the golden flash.2=MISO / 5=MOSI / 6=SCLK.
+                                let mut slot: Vec<Option<usize>> = vec![None; pids.len()];
+                                for (mi, member) in subname.iter().enumerate() {
+                                    let member_leaf = member.rsplit('.').next().unwrap_or(member);
+                                    let member_up = member_leaf.to_uppercase();
+                                    for (pi, pid) in pids.iter().enumerate() {
+                                        if slot[pi].is_some() {
+                                            continue;
+                                        }
+                                        let matches = self
+                                            .pin_id_to_names
+                                            .get(pid.as_str())
+                                            .map_or(false, |names| {
+                                                names.iter().any(|n| {
+                                                    let n2 = n
+                                                        .trim_start_matches('_')
+                                                        .trim_start_matches('!')
+                                                        .to_uppercase();
+                                                    n2 == member_up
+                                                })
+                                            });
+                                        if matches {
+                                            slot[pi] = Some(mi);
+                                            break;
+                                        }
+                                    }
+                                }
+                                // positional fallback: fill unassigned pids with unclaimed members in order
+                                let free_members: Vec<usize> = (0..subname.len())
+                                    .filter(|mi| !slot.contains(&Some(*mi)))
+                                    .collect();
+                                let mut fm_iter = free_members.into_iter();
+                                for pi in 0..pids.len() {
+                                    if slot[pi].is_some() {
+                                        continue;
+                                    }
+                                    if let Some(mi) = fm_iter.next() {
+                                        slot[pi] = Some(mi);
+                                    }
+                                }
+                                for (pi, pid) in pids.iter().enumerate() {
+                                    let mi = slot[pi].unwrap_or(pi); // safety: same index
                                     self.register_pin(
                                         iotype.clone(),
                                         pid,
-                                        &[name.clone()],
+                                        &[subname[mi].clone()],
                                         &values,
                                         opt_span.clone(),
                                     );

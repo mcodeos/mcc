@@ -101,6 +101,37 @@ fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
     }
 }
 
+/// Build the chain-head phrase for a `=>` parameter prefix (§1.2).
+///
+/// Converts the prefix `McParamValue` into the chain's left port
+/// **structurally** — never by stringifying and re-parsing. The original ids
+/// structure must be preserved:
+///   - a `Set` prefix `[a, b]` stays a `Multiple` of its members (the chain's
+///     left port resolves to the vector's member lanes);
+///   - a `Phrase` value stays the phrase itself (a DC parameter reference
+///     `[V3V3, GND]` arriving as a Phrase must not collapse into a single
+///     label named `[V3V3, GND]`, which instance-prefixing turns into
+///     `flash.[V3V3, GND]`);
+///   - an `Ids` / `Opd` becomes a label of the ids (a bare id / dot-member /
+///     DC-bus name expands through the existing port/bus resolution);
+///   - only scalar literals (Const/Int/...) fall back to a value label.
+fn pre_param_to_label(v: &McParamValue) -> McPhrase {
+    match v {
+        McParamValue::Set(values) => {
+            McPhrase::Multiple(values.iter().map(pre_param_to_label).collect())
+        }
+        McParamValue::Phrase(p) => (**p).clone(),
+        McParamValue::Ids(ids) => McPhrase::label(ids.to_string()),
+        McParamValue::Opd(opd) => match opd {
+            McOpd::Id(ids) | McOpd::This(ids) | McOpd::Pins(ids) => {
+                McPhrase::label(ids.to_string())
+            }
+            McOpd::Uscore => McPhrase::label("_".to_string()),
+        },
+        other => McPhrase::label(other.to_string()),
+    }
+}
+
 /// Report E4176 when an inline component construction argument list does not
 /// match the class signature (chain-path counterpart of the declare-path
 /// check in mc_inst.rs).
@@ -509,8 +540,10 @@ impl McFuncCall {
         if pre_param_opt.is_some() && instance_name.is_some() && method_name_opt.is_some() {
             let pre_param = pre_param_opt.unwrap();
 
-            // Create pre_param as Label (for Series display: pre_param -> ...)
-            let pre_label = McPhrase::label(pre_param.to_string());
+            // Create pre_param as Label (for Series display: pre_param -> ...).
+            // A Set prefix `[V3V3, GND]` becomes a Multiple of member labels so
+            // the chain's left port expands to the vector lanes (§1.2).
+            let pre_label = pre_param_to_label(&pre_param);
 
             // ── R3: `=>` fold unified rules ───────────────────────────────────────
             let is_uscore = |p: &McParamValue| {
@@ -527,8 +560,17 @@ impl McFuncCall {
             let all_ph = !method_params.is_empty() && method_params.iter().all(&is_uscore);
 
             let all_method_params: Vec<McParamValue> = if is_twopin && all_ph {
-                // (a) Pure `.Cap(_)`: don't fold, pre_param stays as chain head (pre_label) for shunt path
-                method_params
+                // (a) `.Cap(_)` + `=>` prefix → fold the prefix into the
+                // placeholder position (parameter prefixing, §1.2).
+                // `[V3V3, GND] => CAP(..).Cap(_)` → `.Cap([V3V3, GND])`,
+                // `V3V3 => CAP(..).Cap(_)` → `.Cap(V3V3)`,
+                // `vin -> ldo.VIN => CAP(..).Cap(_)` → `.Cap(ldo.VIN)`
+                // (pre_param is already the last / right endpoint of the
+                // prefix chain, per the vector circuit algebra). The single
+                // vector fills both endpoint positions positionally at wiring
+                // time (member[0] → pin1, member[1] → pin2, §11.6); a scalar
+                // prefix folds to `.Cap(SIG)` which is E4176 (strict arity).
+                vec![pre_param.clone()]
             } else if is_twopin && method_params.iter().any(&is_uscore) {
                 // (b) `.Pullup(_, VDD)` / `.Cap(x, _)`:
                 // Keep `_` as-is — the chain processing (lane-by-lane expansion)

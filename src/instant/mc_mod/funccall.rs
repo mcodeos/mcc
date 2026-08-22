@@ -621,13 +621,71 @@ impl McModuleInst {
             return Ok(());
         }
 
+        // ── §11.6 strict arity + `[net1, net2]` merge form ──────────────────
+        // `.Cap(a, b)` / `.Pullup(sig, rail)` are the canonical 2-arg forms.
+        // A single `[net1, net2]` Set argument is an equivalent merge form —
+        // the two bracket members occupy the two parameter positions, so
+        // `.Cap([a, b])` ≡ `.Cap(a, b)` and `.Cap([_, _])` ≡ `.Cap(_, _)`.
+        // `.Cap(x)` (1 bare net arg) and wrong counts are E4176; `_` counts as
+        // an argument. The check runs before any side-effecting expansion.
+        let last_seg = func_name.rsplit('.').next().unwrap_or(func_name);
+        let is_cap = last_seg == "Cap";
+        let is_pull =
+            last_seg.eq_ignore_ascii_case("Pullup") || last_seg.eq_ignore_ascii_case("Pulldown");
+        // Normalized two-endpoint positions (`pair`); the merge form splits the
+        // two Set members into their own positions for positional wiring.
+        // A single non-Set argument (`.Cap(ldo.VOUT)`, `.Cap(V3V3)`, or the
+        // `=>` parameter-prefixing fold result) is a vector reference whose
+        // member count is decided at wiring time from its resolved points
+        // (§11.6): exactly 2 members fill both endpoint positions, a scalar
+        // (1 point) is E4176.
+        let mut pair: Vec<McParamValue> = Vec::new();
+        let mut single_vector_arg = false;
+        if is_cap || is_pull {
+            match params.len() {
+                2 => pair = params.to_vec(),
+                1 => match &params[0] {
+                    McParamValue::Set(values) if values.len() == 2 => pair = values.clone(),
+                    McParamValue::Set(_) => {} // wrong-size Set → E4176 below
+                    _ => {
+                        single_vector_arg = true;
+                        pair = params.to_vec();
+                    }
+                },
+                _ => {}
+            }
+            if pair.is_empty() && !single_vector_arg {
+                let reason = format!(
+                    "'{func_name}' expects exactly 2 network-endpoint arguments, got {} \
+                     (strict arity, §11.6; `_` counts as an argument; merge two \
+                     endpoints as `[net1, net2]`)",
+                    params.len()
+                );
+                crate::db::diagnostic::diagnostic::diagnostic_log(
+                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    0,
+                    0,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                        &[&inst_name.to_string(), &func_name, &reason],
+                    ),
+                    &[],
+                );
+                self.expansion.end(eidx);
+                return Ok(());
+            }
+        } else {
+            pair = params.to_vec();
+        }
+
         // 1. Flatten all params into a McBus list, then expand to NetPoint
         // Per-param groups are kept so Pullup/Pulldown can select the rail
         // member (VCC/VDD) instead of the ground member when the rail arg
         // expands into a multi-member DC bus (e.g. `Pullup(_CS, V3V3)` →
         // V3V3 expands to [V3V3.GND, V3V3.VCC], pin2 must land on VCC).
         let mut param_groups: Vec<Vec<NetPoint>> = Vec::new();
-        for p in params {
+        for p in &pair {
             let mut group: Vec<NetPoint> = Vec::new();
             // ── P2-13: Series net-expression param (e.g. `Cap([A -> B], GND)`) ──
             // A net expression like `[dc.VDD_3V3 -> wm7121.VCC]` (possibly
@@ -659,9 +717,7 @@ impl McModuleInst {
         // For Pullup/Pulldown, the two ends should be (signal, rail).
         // If both explicit targets are non-rail nets, the pullup degenerates
         // into a signal-signal bridge (e.g. SCL-SDA bridge instead of SCL-VDD).
-        let last_seg = func_name.rsplit('.').next().unwrap_or(func_name);
-        let is_pull =
-            last_seg.eq_ignore_ascii_case("Pullup") || last_seg.eq_ignore_ascii_case("Pulldown");
+        // (`is_pull` is computed by the §11.6 arity gate above.)
         if is_pull && targets.len() >= 2 {
             // Rail-name check shared by the direct path segment and the
             // declared names re-resolved from a numeric pin id.
@@ -722,29 +778,35 @@ impl McModuleInst {
             }
         }
 
-        // `.Cap(_)` → all args are underscores → pin2 implicitly connects to GND
-        // ── P1-1: implicit GND rule ─────────────────────────────────────
-        // Rules doc §2.2: `_` is the "star connection center point", in decoupling
-        // scenarios the center is GND. `.Cap(_)` → pin1 left for the outer chain
-        // upstream, pin2 connects to GND.
+        // ── §11.6 placeholder deferral ─────────────────────────────────────
+        // All args are `_` (targets empty): `_` is an explicit argument
+        // placeholder, NOT an implicit GND (the old P1-1 rule is abolished,
+        // §11.6). In a chain-shunt series the outer chain provides both
+        // endpoints and `wire_chain_with_shunts` wires them, so defer here.
+        // Standalone (no outer chain), a placeholder with no bindable endpoint
+        // is E4176 — the author must write the explicit endpoint or place the
+        // element in a chain.
         if targets.is_empty() {
-            // Try to get pin2 from the real component; for @? stub use synthetic pin
-            let pin2 = self
-                .components
-                .iter()
-                .find(|c| c.name == inst_name)
-                .and_then(|c| c.get_right_pin())
-                .unwrap_or_else(|| {
-                    NetPoint::with_owner(&format!("{inst_name}.2"), inst_name, IOType::None)
-                });
-            let gnd = self.node_to_netpoint(&McBus::new("GND"));
-            let id = self.next_conn_id();
-            self.add_connection(self.make_conn_with_provenance(
-                id,
-                vec![pin2, gnd],
-                ConnDir::Undirected,
-                None,
-            ));
+            if self.defer_twopin_placeholders {
+                self.expansion.end(eidx);
+                return Ok(());
+            }
+            let reason = format!(
+                "'{func_name}' has only `_` placeholder arguments and no outer chain \
+                 provides their network endpoints; placeholders do not implicitly \
+                 connect to GND (§11.6)"
+            );
+            crate::db::diagnostic::diagnostic::diagnostic_log(
+                crate::errcodes::INST_PARAM_BIND_FAILED,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                0,
+                0,
+                &crate::errcodes::format_msg(
+                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                    &[&inst_name.to_string(), &func_name, &reason],
+                ),
+                &[],
+            );
             self.expansion.end(eidx);
             return Ok(());
         }
@@ -769,55 +831,73 @@ impl McModuleInst {
             }
         };
 
-        // 3. Wire
-        //    1 target → pin1 → target, pin2 → GND (implicit) — for Cap
-        //    1 target + Pullup/Pulldown → pin2 → target, pin1 left for outer chain
-        //    ≥2 targets → pin1 → targets[0], pin2 → targets[1]
-        //
+        // 3. Wire — §11.6 positional pairing
+        //    `.Cap(a, b)` / `.Pullup(sig, rail)`: pin1 ← param_groups[0],
+        //    pin2 ← param_groups[1]. A param group left empty by a `_`
+        //    placeholder defers that pin to the outer chain (no implicit GND);
+        //    the all-placeholder case was already handled above
+        //    (defer in chain-shunt context, else E4176).
+        let mut pin1_pts = param_groups.first().cloned().unwrap_or_default();
+        let mut pin2_pts = param_groups.get(1).cloned().unwrap_or_default();
+
+        // ── §11.6 single-arg vector split ─────────────────────────────────
+        // `.Cap(ldo.VOUT)` / `.Cap(V3V3)` (a single non-Set arg resolving to
+        // a 2-member vector) fills both endpoint positions positionally:
+        // member[0] → pin1, member[1] → pin2. A scalar (1 point) or an
+        // oversized group (≠2 points) is E4176 (strict arity); a placeholder
+        // (0 points) was already handled by the `targets.is_empty()` deferral.
+        if single_vector_arg {
+            if !param_groups.is_empty() {
+                let n = param_groups[0].len();
+                if n == 2 {
+                    let mut g = param_groups.remove(0);
+                    pin2_pts = g.split_off(1);
+                    pin1_pts = g;
+                } else if n != 0 {
+                    let reason = format!(
+                        "'{func_name}' single argument resolves to {n} network points, \
+                         expected exactly 2 to fill both endpoint positions \
+                         (strict arity, §11.6; write a scalar with its explicit \
+                         second endpoint: `.Cap(SIG, GND)`)"
+                    );
+                    crate::db::diagnostic::diagnostic::diagnostic_log(
+                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        0,
+                        0,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::INST_PARAM_BIND_FAILED,
+                            &[&inst_name.to_string(), &func_name, &reason],
+                        ),
+                        &[],
+                    );
+                    self.expansion.end(eidx);
+                    return Ok(());
+                }
+            }
+        }
+
         // ── Pullup/Pulldown (signal, rail) ─────────────────────────────────
         // `Pullup(_CS, V3V3)` has two params: signal and rail. When the rail
         // arg expands into a multi-member DC bus (`V3V3` → [V3V3.GND, V3V3.VCC]),
-        // positional pairing would land pin2 on V3V3.GND. Pick the power
-        // member (VCC/VDD) for the rail end so the pull-up reaches the rail.
-        if is_pull && param_groups.len() >= 2 {
-            let sig = param_groups[0].first().cloned();
-            let rail = Self::pick_power_point(&param_groups[1]);
-            if let (Some(s), Some(r)) = (sig, rail) {
+        // pick the power member (VCC/VDD) for the rail end so the pull-up
+        // reaches the rail. Either end may be a `_` placeholder left for the
+        // outer chain.
+        if is_pull {
+            if let Some(s) = pin1_pts.first() {
                 let id1 = self.next_conn_id();
                 self.add_connection(self.make_conn_with_provenance(
                     id1,
-                    vec![pin1, s],
+                    vec![pin1, s.clone()],
                     ConnDir::Undirected,
                     None,
                 ));
+            }
+            if let Some(r) = Self::pick_power_point(&pin2_pts) {
                 let id2 = self.next_conn_id();
                 self.add_connection(self.make_conn_with_provenance(
                     id2,
                     vec![pin2, r],
-                    ConnDir::Undirected,
-                    None,
-                ));
-                self.expansion.end(eidx);
-                return Ok(());
-            }
-        }
-        // Single-target pull / fallback: pin2 → first target, pin1 left for outer chain
-        if is_pull {
-            if let Some(t) = targets.first().cloned() {
-                let id2 = self.next_conn_id();
-                self.add_connection(self.make_conn_with_provenance(
-                    id2,
-                    vec![pin2, t],
-                    ConnDir::Undirected,
-                    None,
-                ));
-            } else {
-                // No targets: pin2 → GND (mirror the .Cap(_) fallback)
-                let gnd = self.node_to_netpoint(&McBus::new("GND"));
-                let id2 = self.next_conn_id();
-                self.add_connection(self.make_conn_with_provenance(
-                    id2,
-                    vec![pin2, gnd],
                     ConnDir::Undirected,
                     None,
                 ));
@@ -826,53 +906,19 @@ impl McModuleInst {
             return Ok(());
         }
 
-        // ── P1-1: `.Cap(x)` single-arg case, pin2 implicitly connects to GND ──────────────
-        // Decoupling cap's other pin fixed to GND.
-        let mut it = targets.into_iter();
-        let t1 = it.next().unwrap();
-        match it.next() {
-            None => {
-                if is_pull {
-                    // Pullup/Pulldown: pin1=signal (wired by outer chain), pin2=rail
-                    // e.g. Pullup(_, VDD) → pin2 → VDD, pin1 left for I2C0.SCL
-                    let id2 = self.next_conn_id();
-                    self.add_connection(self.make_conn_with_provenance(
-                        id2,
-                        vec![pin2, t1],
-                        ConnDir::Undirected,
-                        None,
-                    ));
-                } else {
-                    // .Cap(x) → pin1 → x, pin2 → GND
-                    let gnd = self.node_to_netpoint(&McBus::new("GND"));
-                    let id1 = self.next_conn_id();
-                    self.add_connection(self.make_conn_with_provenance(
-                        id1,
-                        vec![pin1, t1],
-                        ConnDir::Undirected,
-                        None,
-                    ));
-                    let id2 = self.next_conn_id();
-                    self.add_connection(self.make_conn_with_provenance(
-                        id2,
-                        vec![pin2, gnd],
-                        ConnDir::Undirected,
-                        None,
-                    ));
-                }
-            }
-            Some(t2) => {
-                let id1 = self.next_conn_id();
+        // ── Cap ─────────────────────────────────────────────────────────────
+        // `.Cap(SIG, GND)` → pin1→SIG, pin2→GND. `.Cap(_, GND)` → pin1 left
+        // for the outer chain, pin2→GND. No single-arg implicit pin2→GND
+        // (that is E4176 via the §11.6 arity gate above). For a multi-member
+        // first group (bus/Set on one argument position) only the first member
+        // is bound — a 2-pin element's pin lands on a single net, and fanning a
+        // cap pin across a bus would short the bus members together.
+        for (pin, pts) in [(pin1, &pin1_pts), (pin2, &pin2_pts)] {
+            if let Some(t) = pts.first() {
+                let id = self.next_conn_id();
                 self.add_connection(self.make_conn_with_provenance(
-                    id1,
-                    vec![pin1, t1],
-                    ConnDir::Undirected,
-                    None,
-                ));
-                let id2 = self.next_conn_id();
-                self.add_connection(self.make_conn_with_provenance(
-                    id2,
-                    vec![pin2, t2],
+                    id,
+                    vec![pin, t.clone()],
                     ConnDir::Undirected,
                     None,
                 ));

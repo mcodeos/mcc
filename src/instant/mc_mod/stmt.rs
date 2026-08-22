@@ -63,6 +63,32 @@ impl McModuleInst {
             return Ok(());
         }
 
+        // ── Root cause C: detect `.Cap(_, _)` chain shunt before the member
+        // loop so the §11.6 defer flag also covers normal processing ──
+        let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
+        let has_shunt = shunt.iter().any(|&s| s);
+        if has_shunt {
+            // §11.6: `.Cap(_, _)` defers BOTH pin bindings to the outer chain
+            // (no implicit GND). Set the defer flag for the whole series so
+            // wire_builtin_twopin does not E4176 the empty-target call during
+            // the normal member loop; wire_chain_with_shunts wires both pins.
+            return self.with_twopin_defer(true, |this| {
+                this.process_series_members(&members, &shunt, dir)
+            });
+        }
+        self.process_series_members(&members, &shunt, dir)
+    }
+
+    /// Process a flattened series' members: P2-5 expansion, normal member loop,
+    /// chain-shunt wiring, lane-by-lane wiring, and adjacent pairing. `shunt` is
+    /// the chain-shunt bitmap computed by `process_stmt`; the caller has already
+    /// set the §11.6 `defer_twopin_placeholders` flag when the series is a shunt.
+    fn process_series_members(
+        &mut self,
+        members: &[McPhrase],
+        shunt: &[bool],
+        dir: ConnDir,
+    ) -> Result<(), InstError> {
         // ── P2-5: Expand builtin twopin calls adjacent to multi-member buses ──
         // When a builtin twopin (Pullup/Pulldown) is on the RIGHT side of a Multiple
         // with N > 1 members, iterate the FuncCall N times to create N components.
@@ -148,17 +174,17 @@ impl McModuleInst {
             i += 1;
         }
 
-        // ── Root cause C: `.Cap(_)` decoupling cap in chain is parallel shunt, not series ─────────
-        // form like `[V3V3,GND] -> CAP(..).Cap(_) -> [VCC,VSS]`: cap should "bridge rails",
-        // bus itself passes through (V3V3~VCC, GND~VSS). Old logic treated it as series element in chain
-        // (adjacent connected right neighbor to pin2) + wire_builtin_twopin connected pin2 to GND → pin2
-        // double-connected → rail short to ground (flash.VCC ~ GND).
+        // ── Root cause C: `.Cap(_, _)` decoupling cap in chain is parallel shunt ──────
+        // form like `[V3V3,GND] -> CAP(..).Cap(_, _) -> [VCC,VSS]`: cap should "bridge rails",
+        // bus itself passes through (V3V3~VCC, GND~VSS). Old logic treated it as series element
+        // (adjacent connected right neighbor to pin2) + wire_builtin_twopin connected pin2 to GND
+        // → pin2 double-connected → rail short to ground (flash.VCC ~ GND).
         //
-        // Only when this stmt actually contains `.Cap(_)` (params empty / all `_`) shunt, go through special
-        // wiring below; stmts without shunt fall through to original adjacency loop → zero impact on existing paths.
-        let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
+        // Only when this stmt actually contains `.Cap(_, _)` shunt (exactly 2 placeholder args,
+        // §11.6), go through the special wiring below; stmts without shunt fall through to the
+        // original adjacency loop → zero impact on existing paths.
         if shunt.iter().any(|&s| s) {
-            self.wire_chain_with_shunts(&members, &shunt, dir);
+            self.wire_chain_with_shunts(members, shunt, dir);
             return Ok(());
         }
 
@@ -226,24 +252,46 @@ impl McModuleInst {
         Ok(())
     }
 
-    /// Root cause C: determine if a chain member is `.Cap(_)` form decoupling cap (parallel shunt).
+    /// Determine if a chain member is a `.Cap(...)` decoupling cap acting as a
+    /// parallel shunt (v1.2, §1.2 / §2).
     ///
-    /// Hit conditions: is `Cap` in builtin two-pin function (case-sensitive, consistent with
-    /// `is_builtin_twopin_net_fn` handling of `Cap`), and params empty or all `_`
-    /// placeholder (`McParamValue::NONE`). This exactly matches `wire_builtin_twopin`
-    /// `targets.is_empty()` branch "pin2 → GND, pin1 left for chain".
+    /// Hit condition: last segment is exactly `Cap`, and its two endpoint
+    /// positions are filled by an **explicit** 2-member vector argument —
+    /// `.Cap([a, b])` (merge form), `.Cap(a, b)` (2 args), or a single vector
+    /// reference `.Cap(V3V3)` / `.Cap(ldo.VOUT)` (the `=>` parameter-prefixing
+    /// fold result). `wire_chain_with_shunts` then binds pin1 / pin2 directly
+    /// from the vector members, positionally, with no is_gnd inference (§2.4).
     ///
-    /// Only recognizes `Cap`: `.Pullup(_, VDD)` `_` is in signal position not ground,
-    /// `.Pullup` / `.Pulldown` still go original adjacency path, not special-cased here, avoid false hits.
+    /// The all-`_` form (`.Cap(_, _)` / `.Cap(_)`) is **deprecated**: it has no
+    /// explicit endpoints and reports E4176 through the normal path (strict
+    /// arity, §3). Only `Cap` is recognized — `.Pullup` / `.Pulldown` go the
+    /// original adjacency / P2-5 lane-expansion path, not special-cased here.
     fn is_chain_cap_shunt(member: &McPhrase) -> bool {
         if let McPhrase::FuncCall(fc) = member {
             let fname = fc.func_name.to_string();
             let last = fname.rsplit('.').next().unwrap_or(fname.as_str());
             if last == "Cap" {
-                return fc.params.iter().all(Self::is_uscore_param);
+                return Self::is_cap_vector_shunt(&fc.params);
             }
         }
         false
+    }
+
+    /// §11.6: true when a Cap's two endpoint positions are filled by an
+    /// explicit 2-member vector argument. Forms: 2 separate non-`_` args,
+    /// a `[a, b]` merge Set, or a single non-`_` vector reference. Must stay
+    /// in sync with the arity gate / split in `wire_builtin_twopin`.
+    fn is_cap_vector_shunt(params: &[McParamValue]) -> bool {
+        match params.len() {
+            2 => params.iter().all(|p| !Self::is_uscore_param(p)),
+            1 => match &params[0] {
+                McParamValue::Set(values) => {
+                    values.len() == 2 && values.iter().all(|v| !Self::is_uscore_param(v))
+                }
+                p => !Self::is_uscore_param(p),
+            },
+            _ => false,
+        }
     }
 
     fn is_uscore_param(p: &McParamValue) -> bool {
@@ -272,36 +320,92 @@ impl McModuleInst {
         pts
     }
 
-    /// Root cause C: wire chain containing `.Cap(_)` shunt.
+    /// Expand a shunt cap's explicit network argument to its NetPoints — the
+    /// bus pass-through source for a far-side member with no preceding
+    /// non-shunt member (e.g. `CAP(4.7uF).Cap(ldo.VOUT) -> vout`: vout
+    /// receives the ldo.VOUT vector).
+    ///
+    /// Converts **strictly by vector member correspondence** (§11.6), never by
+    /// flattening: each member of the explicit 2-member vector argument keeps
+    /// its own lane. `[V3V3, GND]` stays `[V3V3.VCC, V3V3.GND], GND`
+    /// (member[0] → pin1 lane, member[1] → pin2 lane) rather than being
+    /// flattened into a single point list `[V3V3.VCC, V3V3.GND, GND]`. This
+    /// mirrors the positional binding in `wire_builtin_twopin` so both agree
+    /// on what the vector argument is.
+    fn cap_vector_arg_points(&mut self, m: &McPhrase) -> Option<Vec<NetPoint>> {
+        let params: Vec<McParamValue> = match m {
+            McPhrase::FuncCall(fc) => fc.params.clone(),
+            _ => return None,
+        };
+        let mut pts: Vec<NetPoint> = Vec::new();
+        for p in &params {
+            // A 2-member Set keeps member[0] and member[1] in their own
+            // order (member[0] → pin1 lane, member[1] → pin2 lane). A
+            // non-Set param is a single member expanded in place.
+            match p {
+                McParamValue::Set(values) => {
+                    for v in values {
+                        for e in Self::param_value_to_node_elements(v) {
+                            pts.extend(self.expand_node_element(&e));
+                        }
+                    }
+                }
+                _ => {
+                    for e in Self::param_value_to_node_elements(p) {
+                        pts.extend(self.expand_node_element(&e));
+                    }
+                }
+            }
+        }
+        if pts.is_empty() {
+            None
+        } else {
+            Some(pts)
+        }
+    }
+
+    /// Wire a chain containing `.Cap(...)` shunt (v1.2, §1.2 / §2).
     ///
     /// Rules:
-    ///   1. **Bus pass-through**: serialize all non-shunt members in original adjacency order (skip shunt),
-    ///      i.e., `left_neighbor.right ~ right_neighbor.left`, width alignment handled by create_connection.
-    ///      Example `[V3V3,GND] -> CAP.Cap(_) -> [VCC,VSS]` → V3V3~VCC, GND~VSS.
-    ///   2. **Cap parallel**: each shunt cap pin1 ~ rail (first non-ground point in neighbor endpoints),
-    ///      pin2 ~ GND (latter already connected by process_member_internal
-    ///      wire_builtin_twopin `targets.is_empty()` branch).
+    ///   1. **Bus pass-through**: serialize non-shunt members in original
+    ///      adjacency order, skipping the shunt caps — source is the previous
+    ///      non-shunt member's **right port** (per vector circuit algebra);
+    ///      when no non-shunt member precedes a far-side member, fall back to
+    ///      the nearest prior shunt cap's explicit vector argument (e.g.
+    ///      `CAP(4.7uF).Cap(ldo.VOUT) -> vout`: vout receives the ldo.VOUT
+    ///      vector). Example `[V3V3,GND] -> CAP(100nF).Cap([V3V3,GND]) -> [VCC,VSS]`
+    ///      → V3V3~VCC, GND~VSS, width alignment handled by create_connection.
+    ///   2. **Cap parallel** (§11.6): each shunt cap's pins are bound
+    ///      **positionally from its explicit vector argument** —
+    ///      member[0] → pin1, member[1] → pin2 — by `wire_builtin_twopin`.
+    ///      No neighbor scanning and no is_gnd inference (§2.4).
     ///
-    /// This way decoupling cap is truly "bridging rails", no longer treated as series element double-connecting pin2 to short.
+    /// This way the decoupling cap truly "bridges rails" (pin1 on rail[0],
+    /// pin2 on rail[1]) and is never treated as a series element that would
+    /// double-connect a right neighbor to pin2 and short rail to ground.
     ///
-    /// Order (vector-circuit semantic order, §11): a **single pass over the
-    /// members in evaluation order** — each non-shunt member pairs a
-    /// pass-through with its previous non-shunt neighbor, and each shunt cap
-    /// is wired at its own evaluation position (left-associative evaluation:
-    /// the cap element is evaluated before the far-side element, §9 chaining).
-    /// Connection creation order therefore mirrors the semantic evaluation
-    /// (`[V3V3,GND] -> CAP.Cap(_) -> [VCC,VSS]`: cap pins from step 1 before
-    /// the far-side pass-through from step 2), not the literal text order of
-    /// "all pass-throughs first, then all caps".
+    /// Order (vector-circuit semantic order): a **single pass over the members
+    /// in evaluation order** — each non-shunt member pairs a pass-through with
+    /// the previous source, and each shunt cap is wired at its own evaluation
+    /// position. Connection creation order mirrors semantic evaluation
+    /// (`[V3V3,GND] -> CAP(100nF).Cap([V3V3,GND]) -> [VCC,VSS]`: cap pins from
+    /// step 1 before the far-side pass-through from step 2).
     fn wire_chain_with_shunts(&mut self, members: &[McPhrase], shunt: &[bool], dir: ConnDir) {
         let mut last_non_shunt: Option<&McPhrase> = None;
+        // Nearest prior shunt cap's explicit vector-arg points — the fallback
+        // bus pass-through source for a far-side member with no preceding
+        // non-shunt member (e.g. `CAP(4.7uF).Cap(ldo.VOUT) -> vout`).
+        let mut last_shunt_arg: Option<Vec<NetPoint>> = None;
         for (k, m) in members.iter().enumerate() {
             if !shunt[k] {
-                // non-shunt member: pass-through with the previous non-shunt neighbor
-                if let Some(prev) = last_non_shunt {
-                    let lp = self.shunt_chain_points(prev, true);
+                // ── Bus pass-through (rule 1) ──────────────────────────
+                let source: Option<Vec<NetPoint>> = match last_non_shunt {
+                    Some(prev) => Some(self.shunt_chain_points(prev, true)),
+                    None => last_shunt_arg.clone(),
+                };
+                if let Some(spts) = source {
                     let rp = self.shunt_chain_points(m, false);
-                    if let Err(e) = self.create_connection(lp, rp, dir, None) {
+                    if let Err(e) = self.create_connection(spts, rp, dir, None) {
                         self.record_warning(
                             crate::errcodes::INST_SHUNT_PROCESS_FAILED,
                             crate::errcodes::format_msg(
@@ -315,10 +419,11 @@ impl McModuleInst {
                 continue;
             }
 
-            // ── P2-11: Process the shunt member first to create the component ──
-            // process_member_internal creates the CAP component and wires pin2→GND.
-            // Without this, get_left_points returns empty because the component
-            // doesn't exist in auto_inst_map yet.
+            // ── Cap parallel (§11.6) ───────────────────────────────────────
+            // `process_member_internal` creates the cap component; its pins are
+            // bound positionally by `wire_builtin_twopin` from the explicit vector
+            // argument (member[0] → pin1, member[1] → pin2) — no neighbor
+            // scanning, no is_gnd inference (§2.4).
             if let Err(e) = self.process_member_internal(m) {
                 self.record_warning(
                     crate::errcodes::INST_SHUNT_PROCESS_FAILED,
@@ -329,73 +434,10 @@ impl McModuleInst {
                 );
                 continue;
             }
-            // get rail source: prefer nearest left neighbor right_points, otherwise nearest right neighbor left_points
-            let rail_src: Vec<NetPoint> = {
-                let mut left_pts: Option<Vec<NetPoint>> = None;
-                for j in (0..k).rev() {
-                    if !shunt[j] {
-                        left_pts = self.get_right_points(&members[j]).ok();
-                        break;
-                    }
-                }
-                match left_pts {
-                    Some(p) if !p.is_empty() => p,
-                    _ => {
-                        let mut right_pts: Vec<NetPoint> = Vec::new();
-                        for j in (k + 1)..members.len() {
-                            if !shunt[j] {
-                                right_pts = self.get_left_points(&members[j]).unwrap_or_default();
-                                break;
-                            }
-                        }
-                        right_pts
-                    }
-                }
-            };
-            if rail_src.is_empty() {
-                self.record_warning(
-                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                    crate::errcodes::format_msg(
-                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                        &[&"no neighbor to derive a rail; only pin2 → GND wired"],
-                    ),
-                );
-                continue;
-            }
-            // rail = first non-ground point (all ground then fallback to first point)
-            // ── P2-4: prefer member_name for GND detection (e.g. ldo.VOUT.GND → member_name="GND") ──
-            let rail = rail_src
-                .iter()
-                .find(|p| {
-                    if let Some(ref mn) = p.member_name {
-                        !lr_is_ground_name(mn)
-                    } else {
-                        !lr_is_ground_name(lr_last_seg(&p.path))
-                    }
-                })
-                .cloned()
-                .unwrap_or_else(|| rail_src[0].clone());
-            // cap pin1
-            let pin1 = self.get_left_points(m).unwrap_or_default();
-            if pin1.is_empty() {
-                self.record_warning(
-                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                    crate::errcodes::format_msg(
-                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                        &[&"cannot resolve pin1; only pin2 → GND wired"],
-                    ),
-                );
-                continue;
-            }
-            if let Err(e) = self.create_connection(pin1, vec![rail], dir, None) {
-                self.record_warning(
-                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                    crate::errcodes::format_msg(
-                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                        &[&format!("pin1 → rail failed: {e}")],
-                    ),
-                );
-            }
+            // Remember the cap's explicit vector-arg points as the fallback bus
+            // pass-through source for a far-side member with no preceding
+            // non-shunt member (e.g. `CAP(4.7uF).Cap(ldo.VOUT) -> vout`).
+            last_shunt_arg = self.cap_vector_arg_points(m);
         }
     }
 
@@ -1972,25 +2014,6 @@ impl McModuleInst {
             opd_rights.push(rps);
         }
 
-        // [R2-DIAG2] Unconditionally print each parallel's opd form + point extraction
-        {
-            let _kinds: Vec<String> = stmts
-                .iter()
-                .map(|o| match o {
-                    McPhrase::Endpoint(_) => "Endpoint".to_string(),
-                    McPhrase::FuncCall(fc) => format!("FuncCall({})", fc.func_name),
-                    McPhrase::Parallel(v) => format!("Parallel({})", v.len()),
-                    McPhrase::Multiple(v) => format!("Multiple({})", v.len()),
-                    McPhrase::Group(g) => format!("Group({})", g.opds.len()),
-                    McPhrase::Transposed(_) => "Transposed".to_string(),
-                    McPhrase::Series(v, _) => format!("Series({})", v.len()),
-                    McPhrase::Closure(_) => "Closure".to_string(),
-                    McPhrase::Lead => "Lead".to_string(),
-                    McPhrase::Member(_, _) => "Member".to_string(),
-                })
-                .collect();
-        }
-
         // 2) Anchor operand 1 (opd[0]). If opd[0]'s endpoints are empty,
         //    find the next non-empty as the anchor (Lead-skip fallback).
         let anchor_idx = (0..stmts.len()).find(|&i| !opd_lefts[i].is_empty());
@@ -2046,18 +2069,30 @@ impl McModuleInst {
                 // distribution; do NOT push to right_net (rp == lp).
                 left_net.extend(lp.iter().cloned());
             } else if opd_single {
-                // Single-end opd: only attached to left net (operand 1's left end)
-                // bugfix_report error 9 rule: "+ takes operand 1, single-end X connects to operand 1's left end"
+                // Single-end opd (a bare label / test point / single-pin net
+                // node, e.g. TP1 in `(VBUS -> USB_VBUS) + TP1`, spk.N in
+                // `R30k -> lpa.VO1 + spk.N`).
                 //
-                // When the anchor is double-ended N wide, single-end point needs
-                // to be "broadcast" to all N lanes (replicated N times), so that
-                // subsequent zip splitting can correctly distribute it to each
-                // lane's left end. When the anchor is 1 wide (single-end or 1 wide
-                // double-end), just extend directly.
-                if anchor_dim >= 2 && !is_single_ended(&anchor_left, &anchor_right) {
+                // Attach to the anchor's OUTPUT side (right net), not the left.
+                // A chain's result is its right port (design rule: `A -> B`
+                // evaluates to B, the last endpoint), so a single-end label
+                // parallels the chain EXIT, not the entry. This matches the
+                // golden netlists (POWER_USB: TP1 on USB_VBUS; SPEAKER_M:
+                // spk.N on VO1). When the anchor is single-ended (left == right,
+                // e.g. `BYPASS + IN.P`) the two nets are identical, so attaching
+                // to left is equivalent — keep the left branch for that case.
+                //
+                // When the anchor is double-ended N wide, the single-end point
+                // needs to be "broadcast" to all N lanes (replicated N times),
+                // so subsequent zip splitting correctly distributes it to each
+                // lane's right end.
+                let anchor_is_chain = !is_single_ended(&anchor_left, &anchor_right);
+                if anchor_dim >= 2 && anchor_is_chain {
                     for _ in 0..anchor_dim {
-                        left_net.extend(lp.iter().cloned());
+                        right_net.extend(lp.iter().cloned());
                     }
+                } else if anchor_is_chain {
+                    right_net.extend(lp.iter().cloned());
                 } else {
                     left_net.extend(lp.iter().cloned());
                 }
@@ -3578,16 +3613,4 @@ fn is_single_ended(a: &[NetPoint], b: &[NetPoint]) -> bool {
     a_paths == b_paths
 }
 
-// ── Root cause C helper (stmt.rs module private; same-name function in group.rs not in this module's scope) ──────
-/// Get the last segment of a path (`mic.MIC.P` → `P`, `V3V3` → `V3V3`).
-fn lr_last_seg(path: &str) -> &str {
-    path.rsplit('.').next().unwrap_or(path)
-}
 
-/// Determine if a name is ground. Consistent with `is_ground_name` in group.rs.
-fn lr_is_ground_name(s: &str) -> bool {
-    let u = s.to_uppercase();
-    matches!(u.as_str(), "GND" | "VSS" | "AGND" | "DGND" | "PGND")
-        || u.starts_with("GND")
-        || u.starts_with("VSS")
-}

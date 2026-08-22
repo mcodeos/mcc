@@ -301,6 +301,10 @@ mod tests {
                 offset: 0.5,
             });
         }
+        // The added pins are real physical pins: keep the pin-driven floor
+        // (pin_count * PIN_PITCH + 2*PIN_MARGIN) in sync so the side-driven
+        // height can actually grow past it.
+        b.pin_count += 8;
         g.boxes.push(b);
 
         let changed = recompute_sizes_with_pin_count(&mut g);

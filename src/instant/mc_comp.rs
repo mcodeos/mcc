@@ -653,6 +653,13 @@ impl McComponentInst {
         if let Some(pin) = self.pins.get("2") {
             return Some(pin.clone());
         }
+        // Single-pin components (e.g. TEST_POINT): the single pin is both the
+        // entry and the exit (a net-attach point has no direction), so the
+        // right side resolves to the same pin as the left side. Without this,
+        // `... + TP1` in a parallel group drops the pin (empty right points).
+        if self.pins.len() == 1 {
+            return self.pins.values().next().cloned();
+        }
         self.pins.values().nth(1).cloned()
     }
 
