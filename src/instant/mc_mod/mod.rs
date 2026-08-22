@@ -794,19 +794,6 @@ impl McModuleInst {
             })
         });
 
-        // P2-4-US513-DEBUG
-        if self.name == "mcu513" {
-            mcc_dbg!("inst::mod", "[P2-4-US513] build_net_table for mcu513:");
-            for (net_name, points) in &self.nets {
-                mcc_dbg!(
-                    "inst::mod",
-                    "[P2-4-US513]   net '{}': {:?}",
-                    net_name,
-                    points.iter().map(|p| p.path.clone()).collect::<Vec<_>>()
-                );
-            }
-        }
-
         // ── Ground net re-partition: GND by writing line + reference form ──
         self.split_ground_nets();
 
