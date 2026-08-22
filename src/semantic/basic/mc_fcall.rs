@@ -279,11 +279,6 @@ impl McFuncCall {
         let mut method_name_opt: Option<McIds> = None;
         let mut method_params: Vec<McParamValue> = Vec::new();
 
-        // eprintln!("[DEBUG] mc_fcall: parse_func_call, subnode type={}", subnode.get_type());
-        // for (i, child) in subnode.iter().enumerate() {
-        //     eprintln!("[DEBUG] mc_fcall: child[{}] type={}", i, child.get_type());
-        // }
-
         // Check if first child is MCAST_PARAMS_PRE (pre-closure param)
         if let Some(first) = subnode.iter().next() {
             // Case 1: First child is MCAST_PARAMS_PRE directly (pattern: vin => ...)

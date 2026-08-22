@@ -1818,11 +1818,6 @@ impl McPhrase {
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
                 let opd1 = McPhrase::new(&opd1_node, context);
                 let opd2 = McPhrase::new(&opd2_node, context);
-                // if opd1.is_none() || opd2.is_none() {
-                //     eprintln!("[ARROW-NONE] L t={} str={:?} ok={} | R t={} str={:?} ok={}",
-                //         opd1_node.get_type(), opd1_node.to_string(), opd1.is_some(),
-                //         opd2_node.get_type(), opd2_node.to_string(), opd2.is_some());
-                // }
                 let opd1 = opd1?;
                 let opd2 = opd2?;
 

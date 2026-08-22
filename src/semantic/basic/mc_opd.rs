@@ -163,16 +163,6 @@ impl McOpd {
         }
     }
 
-    /// Get main name (if any)
-    /*pub fn get_primary_name(&self) -> Option<String> {
-        match self {
-            McOpd::Id(name) => Some(name.clone()),
-            McOpd::This(name) => Some(name.clone()),
-            McOpd::Pins(name) => Some(name.clone()),
-            McOpd::Uscore => None,
-        }
-    }*/
-
     /// Get member list (if any)
     pub fn get_members(&self) -> Vec<&McOpd> {
         match self {
@@ -213,15 +203,6 @@ impl McOpd {
             McOpd::Uscore => "_".to_string(),
         }
     }
-
-    /*pub fn is_empty(&self) -> bool {
-        match self {
-            McOpd::Id(s) => s.is_empty(),
-            McOpd::This(s) => s.is_empty(),
-            McOpd::Pins(s) => s.is_empty(),
-            McOpd::Uscore => false,
-        }
-    }*/
 
     pub fn len(&self) -> usize {
         match self {

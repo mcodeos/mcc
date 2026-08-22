@@ -356,12 +356,6 @@ pub fn get_trace_enabled() -> Option<bool> {
     get_runtime_trace().read().ok()?.enabled
 }
 
-/// Load trace config from global config file into runtime state (deprecated, replaced by lib-level init_trace_config)
-#[allow(dead_code)]
-pub fn init_runtime_trace() {
-    // This function is deprecated; use mcc::init_trace_config() instead.
-}
-
 pub fn set_trace_enabled(value: bool) {
     if let Ok(mut trace) = get_runtime_trace().write() {
         trace.enabled = Some(value);

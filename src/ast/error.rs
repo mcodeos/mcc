@@ -37,25 +37,3 @@ pub(crate) mod message {
     pub const TYPE_MISMATCH: &str = "AST: Node type mismatch";
     pub const AST_EMPTY: &str = "AST: Node is empty";
 }
-
-// error codes
-/*
-
-ast_node        200
-mc_uval        300
-mc_use          400
-mc_attr         600
-
-
-mc_code         500
-mc_comp         700
-mc_mod          800
-
-mc_builders     1000
-mc_opd          1100
-mc_opdc         1100
-mc_pins         1200
-pin_option      1200
-mc_params       1300
-
-*/

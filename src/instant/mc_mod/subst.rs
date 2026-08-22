@@ -293,19 +293,6 @@ impl McModuleInst {
                     .map(|v| Self::substitute_param_value(v, bindings))
                     .collect(),
             ),
-            /*McParamValue::FuncCall(fc) => {
-                let new_params: Vec<McParamValue> = fc
-                    .params
-                    .iter()
-                    .map(|p| Self::substitute_param_value(p, bindings))
-                    .collect();
-                McParamValue::FuncCall(Box::new(crate::semantic::basic::mc_param::McParamFuncCall {
-                    caller: fc.caller.clone(),
-                    name: fc.name.clone(),
-                    params: new_params,
-                    chain: fc.chain.clone(),
-                }))
-            }*/
             _ => value.clone(),
         }
     }

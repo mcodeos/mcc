@@ -181,23 +181,6 @@ impl McModuleInst {
                 all_pts.extend(right_points.iter());
                 trunk_from_points(&all_pts).map(|g| TrunkCtx::from_group_member(&g, None, None))
             });
-        // ★ P9-A2: log provenance (debug only, uncomment to trace)
-        // if trunk.is_some() || source_span.is_some() {
-        //     eprintln!(
-        //         "[P9-A2] create_connection in '{}': source_span={:?}, trunk={:?}, pts={:?}",
-        //         self.name,
-        //         source_span,
-        //         trunk,
-        //         left_points.iter().map(|p| &p.path).collect::<Vec<_>>()
-        //     );
-        // } else {
-        //     eprintln!(
-        //         "[P9-A2] create_connection in '{}': NO provenance (current_stmt_span={:?}), pts={:?}",
-        //         self.name,
-        //         self.current_stmt_span.as_ref().map(|s| (s.start, s.end)),
-        //         left_points.iter().map(|p| (&p.path, &p.member_name)).collect::<Vec<_>>()
-        //     );
-        // }
 
         // Helper to create ConnectionInst with consistent lane+dir+op+provenance.
         // `create_connection` is the series-entry (all callers connect adjacent
