@@ -75,6 +75,7 @@ fn main() -> ExitCode {
         output: cli.output.clone(),
         top: cli.top.clone(),
         entry: cli.entry.clone(),
+        strict: cli.strict,
     });
 
     // ── 2. Change working directory to (--cwd) ────────────────────────────────────

@@ -100,7 +100,10 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             .iter()
                             .filter(|d| !d.has_unit_type() && !d.has_default_value())
                             .count();
-                        if call_arg_count < required {
+                        // Missing required args never block instance creation
+                        // (Component-Spec Separation): silent in dev mode,
+                        // reported as a warning (E5352) in strict mode.
+                        if call_arg_count < required && crate::cli::strict_mode() {
                             acc.push(CheckResult {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
@@ -161,7 +164,10 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             .iter()
                             .filter(|d| !d.is_port() && !d.has_default_value())
                             .count();
-                        if call_arg_count < required {
+                        // Missing required args never block instance creation
+                        // (Component-Spec Separation): silent in dev mode,
+                        // reported as a warning (E5352) in strict mode.
+                        if call_arg_count < required && crate::cli::strict_mode() {
                             acc.push(CheckResult {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
@@ -210,7 +216,10 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             .iter()
                             .filter(|d| !d.has_default_value())
                             .count();
-                        if call_arg_count < required {
+                        // Missing required args never block instance creation
+                        // (Component-Spec Separation): silent in dev mode,
+                        // reported as a warning (E5352) in strict mode.
+                        if call_arg_count < required && crate::cli::strict_mode() {
                             acc.push(CheckResult {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,

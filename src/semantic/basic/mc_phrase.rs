@@ -6,7 +6,7 @@ use super::super::{
     basic::mc_bus::McBus,
     basic::mc_closure::McClosure,
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
-    basic::mc_fcall::{McFuncCall, ReturnShape},
+    basic::mc_fcall::{check_ctor_bind, McFuncCall, ReturnShape},
     basic::mc_group::McGroup,
     common::{representative, ConnDir, ConnOp, IOType, McCMIE, Shape},
     component::Mc2Component,
@@ -873,6 +873,17 @@ impl McPhrase {
                                         break;
                                     }
                                     cur = n.get_next();
+                                }
+                                // ── NC/ctor bind check ────────────────────────
+                                // A named inline construction (`D1::DIO.ESD(...)`)
+                                // bypasses the check_ctor_bind sites in mc_fcall.rs;
+                                // a bad argument list (missing / excess / unknown /
+                                // NC outside a construction) is reported here as
+                                // E4176 at the class site.
+                                if let Some(McCMIE::Component(comp_def)) =
+                                    resolve_cmie(&DB, &class_ids, context.uri())
+                                {
+                                    check_ctor_bind(&fname, &comp_def, &params, &cls);
                                 }
                                 let left = vec![McBus::new(&format!("{fname}.in"))];
                                 let right = vec![McBus::new(&format!("{fname}.out"))];

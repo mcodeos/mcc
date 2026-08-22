@@ -6,12 +6,12 @@ use super::mc_bus::McBus;
 use super::mc_endpoint::{McEndpoint, McInstanceRef};
 use super::mc_ids::McIds;
 use super::mc_opd::McOpd;
-use super::mc_param::McParamValue;
+use super::mc_param::{McParamBindings, McParamValue, ParamBindError};
 use super::mc_phrase::McPhrase;
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
 use crate::db::context::DB;
-use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::query::refs::mcb_register_declare_class;
 use crate::semantic::common::ConnDir;
 use crate::semantic::common::McCMIE;
@@ -97,6 +97,59 @@ fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
             // For other phrase types, derive bus from the display name
             let name = format!("{}", other);
             vec![McBus::new(&name)]
+        }
+    }
+}
+
+/// Report E4176 when an inline component construction argument list does not
+/// match the class signature (chain-path counterpart of the declare-path
+/// check in mc_inst.rs).
+///
+/// Mirrors `McParamBindings::bind` semantics: NC occupies no slot and never
+/// covers a missing required parameter; unknown named / excess /
+/// type-mismatched arguments are hard errors (e.g. a package value `C0402` /
+/// `PKG.C0402` passed to a class that declares no enum-class parameter for
+/// it). A missing required parameter is silent — the value comes from spec /
+/// the BOM and the instance is created with the supplied arguments. The
+/// instance is always created with the raw arguments so downstream wiring
+/// stays intact; the diagnostic points the author at the offending argument
+/// list.
+pub(crate) fn check_ctor_bind(
+    inst_name: &str,
+    comp_def: &crate::semantic::component::McComponent,
+    params: &[McParamValue],
+    node: &AstNode,
+) {
+    if params.is_empty() {
+        return;
+    }
+    if let Err(e) = McParamBindings::bind(comp_def.bind_params(), params) {
+        // Component-Spec Separation: a missing required parameter never
+        // blocks instance creation — circuit topology only needs pins, and
+        // the parameter value is supplied later via spec or the BOM. It is
+        // silent in dev mode and reported as a warning (E4178) in strict
+        // mode. Written-but-wrong arguments (excess / unknown /
+        // type-mismatched) are hard errors (E4176).
+        if let ParamBindError::MissingRequired { name } = e {
+            if crate::cli::strict_mode() {
+                dlog_warning(
+                    crate::errcodes::INST_PARAM_MISSING_REQUIRED,
+                    node,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::INST_PARAM_MISSING_REQUIRED,
+                        &[&inst_name, &comp_def.name.to_string(), &name],
+                    ),
+                );
+            }
+        } else {
+            dlog_error(
+                crate::errcodes::INST_PARAM_BIND_FAILED,
+                node,
+                &crate::errcodes::format_msg(
+                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                    &[&inst_name, &comp_def.name.to_string(), &format!("{e}")],
+                ),
+            );
         }
     }
 }
@@ -768,14 +821,15 @@ impl McFuncCall {
                                                     as usize);
                                             context.store_inst_span(&anon_name, inst_span);
 
-                                            // Check for NC parameter using instance_params
-                                            let _is_nc = instance_params
-                                                .iter()
-                                                .any(|p| matches!(p, McParamValue::NC(_)));
-
                                             if let Some(McCMIE::Component(comp_def)) =
                                                 resolve_cmie(&DB, &ids, context.uri())
                                             {
+                                                check_ctor_bind(
+                                                    &anon_name,
+                                                    &comp_def,
+                                                    &instance_params,
+                                                    caller_node,
+                                                );
                                                 let component = Mc2Component::with_params(
                                                     &anon_name,
                                                     comp_def,
@@ -896,14 +950,15 @@ impl McFuncCall {
                                             ..((each.get_pos() + each.get_len()) as usize);
                                         context.store_inst_span(&anon_name, inst_span);
 
-                                        // Check for NC parameter
-                                        let _is_nc = instance_params
-                                            .iter()
-                                            .any(|p| matches!(p, McParamValue::NC(_)));
-
                                         if let Some(McCMIE::Component(comp_def)) =
                                             resolve_cmie(&DB, &ids, context.uri())
                                         {
+                                            check_ctor_bind(
+                                                &anon_name,
+                                                &comp_def,
+                                                &instance_params,
+                                                &each,
+                                            );
                                             let component = Mc2Component::with_params(
                                                 &anon_name,
                                                 comp_def,
@@ -972,19 +1027,20 @@ impl McFuncCall {
                                             ..((each.get_pos() + each.get_len()) as usize);
                                         context.store_inst_span(&anon_name, inst_span);
 
-                                        // Check for NC parameter
-                                        let is_nc = instance_params
-                                            .iter()
-                                            .any(|p| matches!(p, McParamValue::NC(_)));
-
                                         if let Some(McCMIE::Component(comp_def)) =
                                             resolve_cmie(&DB, &ids, context.uri())
                                         {
-                                            let component = if is_nc {
-                                                Mc2Component::with_nc(&anon_name, comp_def, true)
-                                            } else {
-                                                Mc2Component::new(&anon_name, comp_def)
-                                            };
+                                            check_ctor_bind(
+                                                &anon_name,
+                                                &comp_def,
+                                                &instance_params,
+                                                &each,
+                                            );
+                                            let component = Mc2Component::with_params(
+                                                &anon_name,
+                                                comp_def,
+                                                instance_params.clone(),
+                                            );
                                             if let Some(phrase) =
                                                 context.add_component(anon_name, component)
                                             {
@@ -1010,19 +1066,20 @@ impl McFuncCall {
                                         ..((each.get_pos() + each.get_len()) as usize);
                                     context.store_inst_span(&anon_name, inst_span);
 
-                                    // Check for NC parameter
-                                    let is_nc = instance_params
-                                        .iter()
-                                        .any(|p| matches!(p, McParamValue::NC(_)));
-
                                     if let Some(McCMIE::Component(comp_def)) =
                                         resolve_cmie(&DB, &ids, context.uri())
                                     {
-                                        let component = if is_nc {
-                                            Mc2Component::with_nc(&anon_name, comp_def, true)
-                                        } else {
-                                            Mc2Component::new(&anon_name, comp_def)
-                                        };
+                                        check_ctor_bind(
+                                            &anon_name,
+                                            &comp_def,
+                                            &instance_params,
+                                            &each,
+                                        );
+                                        let component = Mc2Component::with_params(
+                                            &anon_name,
+                                            comp_def,
+                                            instance_params.clone(),
+                                        );
                                         if let Some(phrase) =
                                             context.add_component(anon_name, component)
                                         {
@@ -1351,18 +1408,15 @@ impl McFuncCall {
                                 let inst_span = (node.get_pos() as usize)
                                     ..((node.get_pos() + node.get_len()) as usize);
                                 context.store_inst_span(&inst_name, inst_span);
-                                // Check for NC parameter
-                                let is_nc = params.iter().any(|p| matches!(p, McParamValue::NC(_)));
-                                // ── Iter-7.4 (with diag) ───────────────────────
-                                let mc2_comp = if is_nc {
-                                    Mc2Component::with_nc(&inst_name, comp_def.clone(), true)
-                                } else {
-                                    Mc2Component::with_params(
-                                        &inst_name,
-                                        comp_def.clone(),
-                                        params.clone(),
-                                    )
-                                };
+                                // NC is an instance modifier: with_params keeps
+                                // every argument (NC included), sets nc=true and
+                                // binds the rest at instantiation time.
+                                check_ctor_bind(&inst_name, &comp_def, &params, node);
+                                let mc2_comp = Mc2Component::with_params(
+                                    &inst_name,
+                                    comp_def.clone(),
+                                    params.clone(),
+                                );
                                 context.add_component(inst_name.clone(), mc2_comp.clone());
                                 return Some(McPhrase::Endpoint(McEndpoint::Single(
                                     McInstanceRef::new(McInstance::Component(Arc::new(mc2_comp))),
@@ -1421,6 +1475,61 @@ impl McFuncCall {
                     .map(|p| format!("{:?}", p))
                     .collect::<Vec<_>>()
             );
+        }
+
+        // ── Construction-arg bind check for forms that skip the
+        // `caller.is_none()` Endpoint branch above ──────────────────────
+        // (1) a bare two-pin class keeps a Label caller (`DIO.ESD(...)` →
+        //     caller=Label("DIO")), (2) a declareb keeps an Endpoint caller
+        //     (`D1::DIO.ESD(...)`), and (3) a two-pin class with no caller
+        //     (`CAP(100nF)`) falls straight through — none of them reach
+        //     check_ctor_bind. Reconstruct the dotted class name (Label head
+        //     + func_name) and run the same signature bind here, so a bad
+        //     construction argument (missing / excess / unknown / NC outside
+        //     a construction) is reported as E4176 at the construction site.
+        //     Chained heads (`CAP(x).Cap(y)`) are already checked by
+        //     try_parse_inner_fcall, and instance method calls (`uC.i2c()`,
+        //     `C4.Cap(a, b)`) never resolve to a component class — both are
+        //     skipped by the resolution below.
+        let head_label = caller.as_deref().and_then(|c| match c {
+            McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+                McInstance::Label(s) => Some(s.clone()),
+                _ => None,
+            },
+            _ => None,
+        });
+        let mut ctor_comp: Option<Arc<crate::semantic::component::McComponent>> = None;
+        let mut ctor_class_name = String::new();
+        // Candidate 1: func_name alone (`CAP(100nF)`, `D1::DIO.ESD(...)`).
+        if let Some(McCMIE::Component(c)) = resolve_cmie(&DB, &func_name, context.uri()) {
+            ctor_comp = Some(c);
+            ctor_class_name = fn_str.clone();
+        }
+        // Candidate 2: dotted label.func_name (bare `DIO.ESD(...)` →
+        // caller=Label("DIO") gives func_name="ESD").
+        if ctor_comp.is_none() {
+            if let Some(head) = &head_label {
+                let dotted = format!("{head}.{fn_str}");
+                let dotted_ids = McIds::from(dotted.as_str());
+                if let Some(McCMIE::Component(c)) = resolve_cmie(&DB, &dotted_ids, context.uri()) {
+                    ctor_comp = Some(c);
+                    ctor_class_name = dotted;
+                }
+            }
+        }
+        // Candidate 3: bare-name alias (`ESD(...)` → `DIO.ESD`), mirroring
+        // the pass2 fallback in funccall.rs.
+        if ctor_comp.is_none() {
+            if let Some(canon) = crate::vector::graph::naming::canonicalize_class_alias(&fn_str) {
+                let canon_ids = McIds::from(canon.as_str());
+                if let Some(McCMIE::Component(c)) = resolve_cmie(&DB, &canon_ids, context.uri()) {
+                    ctor_comp = Some(c);
+                    ctor_class_name = canon;
+                }
+            }
+        }
+        if let Some(comp_def) = ctor_comp {
+            check_ctor_bind(&ctor_class_name, &comp_def, &params, node);
         }
 
         Some(McPhrase::FuncCall(McFuncCall {
@@ -1676,6 +1785,20 @@ impl McFuncCall {
         let fname = func_name?;
         let fname_str = fname.to_string();
         if crate::vector::graph::naming::is_known_twopin_class(&fname_str) {
+            // ── Construction-arg bind check (two-pin path) ────────────────
+            // `CAP(...).Cap(...)` bypasses the with_params creation points
+            // above (the caller is kept as a bare FuncCall), so bind the
+            // construction arguments here: an argument that does not match
+            // the class signature — e.g. a package value `C0402` / `PKG.C0402`
+            // passed to a class that declares no enum-class parameter for it —
+            // is reported as E4176 at the construction site. NC occupies no
+            // slot: it is stripped before binding and does not cover a
+            // missing required parameter.
+            if let Some(cmie) = resolve_cmie(&DB, &fname, context.uri()) {
+                if let McCMIE::Component(comp_def) = cmie {
+                    check_ctor_bind(&fname_str, &comp_def, &params, node);
+                }
+            }
             mcc_dbg!(
                 "sem::fcall",
                 "[FCALL-INST-DBG] inner two-pin class: {fname_str}, building FuncCall directly"

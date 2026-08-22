@@ -122,6 +122,19 @@ impl ResultBuilder {
                 println!("    {}", crate::output::format_diagnostic(d));
             }
         }
+
+        if let Some(p) = &self.result.pass2 {
+            println!(
+                "  pass2: top={}, {} nets, {} connections, {} diagnostics",
+                p.top,
+                p.nets.len(),
+                p.connections.len(),
+                p.diagnostics.len()
+            );
+            for d in &p.diagnostics {
+                println!("    {}", crate::output::format_diagnostic(d));
+            }
+        }
     }
 
     /// Calculate the current cumulative error count (does not consume self).

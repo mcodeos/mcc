@@ -120,42 +120,50 @@ impl McModuleInst {
         };
 
         // 2. Create the component instance with parameters
-        // ★ P0.5-3: if any param is NC, use with_nc (skip param binding).
-        // This converges the anonymous inline path with the named-array
-        // declaration path (Mc2Component::with_params sets nc=true, then
-        // instantiate_declarations_resilient uses with_nc).
-        let has_nc = params.iter().any(|p| matches!(p, McParamValue::NC(_)));
-        let mut inst =
-            if has_nc {
-                McComponentInst::with_nc(&inst_name, comp_def.clone(), params)
-            } else {
-                match McComponentInst::with_params(&inst_name, comp_def.clone(), params) {
-                    Ok(inst) => inst,
-                    Err(e) => {
-                        let reason = format!("{:?}", e);
-                        mcc_dbg!("inst::fcall", 
-                        "[ERROR] Failed to instantiate anonymous component '{}' (class '{}'): {}",
-                        inst_name, type_name, reason
-                    );
-                        self.failed_classes.insert(type_name.clone());
-                        self.failed_records.push(FailedRecord {
-                            module: self.name.clone(),
-                            src_line: self.current_stmt_span.as_ref().and_then(|s| {
-                                crate::db::infra::context::lookup_line_col(&self.def_uri, s.offset)
-                                    .map(|(line, _col)| line as usize)
-                            }),
-                            component_name: inst_name.clone(),
-                            class_name: type_name.clone(),
-                            reason: reason.clone(),
-                        });
-                        self.expansion.end(eidx);
-                        return Err(InstError::Other(format!(
-                            "Failed to instantiate '{}': {}",
-                            inst_name, reason
-                        )));
-                    }
-                }
-            };
+        // ── NC rule ────────────────────────────────────────────────────
+        // NC is an instance modifier: it marks the instance "not connected"
+        // (not fitted) but does NOT suppress binding of the remaining
+        // arguments. McComponentInst::with_params strips NC from arity,
+        // binds the rest (an NC covers a missing required slot) and sets
+        // nc=true from the NC value. Binding failures (unknown / excess /
+        // missing-required / type-mismatched args) are hard errors reported
+        // as E4176 instead of silently dropping the instance.
+        let mut inst = match McComponentInst::with_params(&inst_name, comp_def.clone(), params) {
+            Ok(inst) => inst,
+            Err(e) => {
+                let reason = format!("{:?}", e);
+                self.record_error(
+                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                        &[&inst_name, &type_name, &reason],
+                    ),
+                );
+                mcc_dbg!(
+                    "inst::fcall",
+                    "[ERROR] Failed to instantiate anonymous component '{}' (class '{}'): {}",
+                    inst_name,
+                    type_name,
+                    reason
+                );
+                self.failed_classes.insert(type_name.clone());
+                self.failed_records.push(FailedRecord {
+                    module: self.name.clone(),
+                    src_line: self.current_stmt_span.as_ref().and_then(|s| {
+                        crate::db::infra::context::lookup_line_col(&self.def_uri, s.offset)
+                            .map(|(line, _col)| line as usize)
+                    }),
+                    component_name: inst_name.clone(),
+                    class_name: type_name.clone(),
+                    reason: reason.clone(),
+                });
+                self.expansion.end(eidx);
+                return Err(InstError::Other(format!(
+                    "Failed to instantiate '{}': {}",
+                    inst_name, reason
+                )));
+            }
+        };
         // ★ M0-B-E: mark the funcall origin (back-trunk to the ComponentCtor
         // expansion record, §7.4)
         inst.origin = InstOrigin::FuncCall {
@@ -564,9 +572,55 @@ impl McModuleInst {
         // Check that function return type matches caller expectations.
         validate_fcall_return_shape(&func_def.returns, left, right, &func_def.name.to_string());
 
+        // ── NC is not a user-func argument ─────────────────────────────
+        // NC (Not Connected) is valid only in a class construction
+        // (`CLASS(NC)`) or a constructor argument list. A user function call
+        // like `setup(GND, NC)` has no NC meaning; report E4176 and return
+        // without expanding the body.
+        if params.iter().any(|p| matches!(p, McParamValue::NC(_))) {
+            let func_str = func_def.name.to_string();
+            let reason = format!(
+                "NC is not allowed as an argument of function '{func_str}'; NC is valid only in CLASS(NC) or a constructor argument list"
+            );
+            crate::db::diagnostic::diagnostic::diagnostic_log(
+                crate::errcodes::INST_PARAM_BIND_FAILED,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                0,
+                0,
+                &crate::errcodes::format_msg(
+                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                    &[&func_str, &func_str, &reason],
+                ),
+                &[],
+            );
+            return Ok(FuncCallInst::PassThrough);
+        }
+
         // 1. Param binding (formal <- actual, positional + named)
-        let bindings = McParamBindings::bind(&func_def.params, params)
-            .map_err(|e| InstError::Other(format!("Func param bind: {e:?}")))?;
+        let bindings = match McParamBindings::bind(&func_def.params, params) {
+            Ok(b) => b,
+            Err(e) => {
+                // Strict arity for net-endpoint user-func calls
+                // (Component-Spec Separation, func methods): every formal is
+                // a net endpoint that becomes a connection, so a missing or
+                // excess argument is reported (E4176) and never silently
+                // dropped. The call is skipped so the body cannot emit
+                // garbage connections for unbound formals.
+                let func_str = func_def.name.to_string();
+                crate::db::diagnostic::diagnostic::diagnostic_log(
+                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    0,
+                    0,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                        &[&func_str, &func_str, &format!("{e}")],
+                    ),
+                    &[],
+                );
+                return Ok(FuncCallInst::PassThrough);
+            }
+        };
 
         // 2. Expand function body stmts with parameter substitution
         if !func_def.stmts.is_empty() {
@@ -764,13 +818,54 @@ impl McModuleInst {
             self.name,
             func_def.name
         );
+        // ── NC is not a method argument ─────────────────────────────────
+        // NC (Not Connected) is valid only in a class construction
+        // (`CLASS(NC)`) or a constructor argument list. An instance method
+        // call like `X6.setup(GND, NC)` has no NC meaning; report E4176.
+        if params.iter().any(|p| matches!(p, McParamValue::NC(_))) {
+            let func_str = func_def.name.to_string();
+            let reason = format!(
+                "NC is not allowed as an argument of method '{func_str}'; NC is valid only in CLASS(NC) or a constructor argument list"
+            );
+            crate::db::diagnostic::diagnostic::diagnostic_log(
+                crate::errcodes::INST_PARAM_BIND_FAILED,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                0,
+                0,
+                &crate::errcodes::format_msg(
+                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                    &[&inst_name.to_string(), &func_str, &reason],
+                ),
+                &[],
+            );
+            return Ok(FuncCallInst::PassThrough);
+        }
+
         // 1. Bind formal parameters
-        let bindings = McParamBindings::bind(&func_def.params, params).map_err(|e| {
-            InstError::Other(format!(
-                "Instance method '{}' on '{}' param bind: {:?}",
-                func_def.name, inst_name, e
-            ))
-        })?;
+        let bindings = match McParamBindings::bind(&func_def.params, params) {
+            Ok(b) => b,
+            Err(e) => {
+                // Strict arity for net-endpoint method calls
+                // (Component-Spec Separation, func methods): every formal is
+                // a net endpoint that becomes a connection, so a missing or
+                // excess argument is reported (E4176) and never silently
+                // dropped. The call is skipped so the body cannot emit
+                // garbage connections for unbound formals.
+                let func_str = func_def.name.to_string();
+                crate::db::diagnostic::diagnostic::diagnostic_log(
+                    crate::errcodes::INST_PARAM_BIND_FAILED,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    0,
+                    0,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                        &[&inst_name.to_string(), &func_str, &format!("{e}")],
+                    ),
+                    &[],
+                );
+                return Ok(FuncCallInst::PassThrough);
+            }
+        };
 
         // 2. Dispatch by inst type
         //   - Sub-module: body executes inside the sub-module (P3 core fix)

@@ -482,11 +482,25 @@ impl McModuleInst {
                         call_site,
                         def_site,
                     );
-                    let inst = if c.nc {
-                        McComponentInst::with_nc(&c.name.to_string(), c.base.clone(), &c.params)
-                    } else if c.params.is_empty() {
-                        McComponentInst::new(&c.name.to_string(), c.base.clone())
+                    let inst = if c.params.is_empty() {
+                        // No arguments: plain instance. An NC-marked declaration
+                        // with no parameter list keeps the not-connected flag.
+                        if c.nc {
+                            McComponentInst::with_nc(&c.name.to_string(), c.base.clone(), &c.params)
+                        } else {
+                            McComponentInst::new(&c.name.to_string(), c.base.clone())
+                        }
                     } else {
+                        // ── NC rule ────────────────────────────────────────
+                        // An NC-marked instance still binds its remaining
+                        // arguments: with_params strips NC from arity, binds
+                        // the rest and sets nc=true. NC occupies no slot and
+                        // never covers a missing required parameter. Binding
+                        // failure is a hard error — the argument list does not
+                        // match the class signature (unknown named arg, excess
+                        // arg, type-mismatched arg, or a genuinely missing
+                        // required param). The instance is skipped, but the
+                        // reason is reported so the author sees it.
                         match McComponentInst::with_params(
                             &c.name.to_string(),
                             c.base.clone(),
@@ -495,12 +509,6 @@ impl McModuleInst {
                             Ok(inst) => inst,
                             Err(e) => {
                                 let reason = format!("{:?}", e);
-                                // Binding failure is a hard error: the
-                                // argument list does not match the class
-                                // signature (unknown named arg, excess
-                                // arg, or missing required param). The
-                                // instance is skipped, but the reason is
-                                // reported so the author sees it.
                                 self.record_error(
                                     crate::errcodes::INST_PARAM_BIND_FAILED,
                                     crate::errcodes::format_msg(
