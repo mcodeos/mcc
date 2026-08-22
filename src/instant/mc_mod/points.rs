@@ -18,6 +18,7 @@ use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::basic::mc_phrase::McPhrase;
+use crate::semantic::basic::opd_shape::OpdShape;
 use crate::semantic::common::IOType;
 use crate::semantic::mc_inst::McInstance;
 
@@ -331,15 +332,30 @@ impl McModuleInst {
                     return Ok(left_pts);
                 }
 
-                // non-FuncCall Transposed: original logic
-                let original_left = inner_line.get_left();
-                let original_right = inner_line.get_right();
-
+                // non-FuncCall Transposed: strict math transpose (vec-arch.md
+                // §5.2 / §6.2) — the transposed shape's left side is expanded.
+                let shape = OpdShape::from_sides(inner_line.get_left(), inner_line.get_right());
+                // §6.1 drift guard: Pass1 (`check_transpose_allowed`) already
+                // rejects operands whose strict transpose has no connectable
+                // expression, so a representable shape must reach Pass2. A
+                // failure here means Pass1's aligned shape view and Pass2's raw
+                // `get_left`/`get_right` view disagree about the operand width.
+                debug_assert!(
+                    shape.transpose().is_ok(),
+                    "unrepresentable transpose reached Pass2: {shape:?}"
+                );
+                let elems = match shape.transpose() {
+                    Ok(t) => t.port_left(),
+                    Err(_) => {
+                        // Unreachable for a validated operand; fall back to the
+                        // previous full-width column merge for robustness.
+                        let mut all = inner_line.get_left();
+                        all.extend(inner_line.get_right());
+                        all
+                    }
+                };
                 let mut all_points = Vec::new();
-                for elem in &original_left {
-                    all_points.extend(self.expand_node_element_to_points(elem)?);
-                }
-                for elem in &original_right {
+                for elem in &elems {
                     all_points.extend(self.expand_node_element_to_points(elem)?);
                 }
                 Ok(all_points)
@@ -604,23 +620,9 @@ impl McModuleInst {
                 // try to extract caller component name from inner phrase
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
-                        mcc_dbg!("inst::points", 
-                            "[P2-4-XTAL-DBG] get_left_points Member: mname={mname:?}, caller={caller:?}, module={}",
-                            self.name
-                        );
                         // (A) direct component lookup (same module)
                         if let Some(comp) = self.find_component(&caller) {
-                            mcc_dbg!(
-                                "inst::points",
-                                "[P2-4-XTAL-DBG]   found component {}, pins: {:?}",
-                                comp.name,
-                                comp.def.pins.pins.keys().collect::<Vec<_>>()
-                            );
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
-                                mcc_dbg!(
-                                    "inst::points",
-                                    "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = {pids:?}"
-                                );
                                 return Ok(pids
                                     .iter()
                                     .map(|(member_name, pin_id)| {
@@ -632,17 +634,7 @@ impl McModuleInst {
                                         .with_member_name(member_name)
                                     })
                                     .collect());
-                            } else {
-                                mcc_dbg!(
-                                    "inst::points",
-                                    "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = None"
-                                );
                             }
-                        } else {
-                            mcc_dbg!(
-                                "inst::points",
-                                "[P2-4-XTAL-DBG]   component {caller} NOT FOUND"
-                            );
                         }
                         // (B) cross-module component lookup: caller="mcu.uC" → sub="mcu", comp="uC"
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
@@ -668,22 +660,9 @@ impl McModuleInst {
                         }
                         // (C) expand_port_lanes fallback
                         let qualified = format!("{caller}.{mname}");
-                        mcc_dbg!(
-                            "inst::points",
-                            "[P2-4-XTAL-DBG]   trying expand_port_lanes({qualified:?})"
-                        );
                         if let Some(lanes) = self.expand_port_lanes(&qualified) {
-                            mcc_dbg!(
-                                "inst::points",
-                                "[P2-4-XTAL-DBG]   expand_port_lanes hit: {:?}",
-                                lanes.iter().map(|p| &p.path).collect::<Vec<_>>()
-                            );
                             return Ok(lanes);
-                        } else {
-                            mcc_dbg!("inst::points", "[P2-4-XTAL-DBG]   expand_port_lanes miss, falling back to get_left_points(phrase)");
                         }
-                    } else {
-                        mcc_dbg!("inst::points", "[P2-4-XTAL-DBG] get_left_points Member: mname={mname:?}, extract_caller_inst_name returned None");
                     }
                 }
                 // Fallback: delegate to inner phrase
@@ -864,13 +843,26 @@ impl McModuleInst {
                     return Ok(left_pts);
                 }
 
-                let original_left = inner_line.get_left();
-                let original_right = inner_line.get_right();
+                // non-FuncCall Transposed: strict math transpose (vec-arch.md
+                // §5.2 / §6.2) — the transposed shape's right side is expanded.
+                let shape = OpdShape::from_sides(inner_line.get_left(), inner_line.get_right());
+                // §6.1 drift guard (mirror get_left_points Transposed branch).
+                debug_assert!(
+                    shape.transpose().is_ok(),
+                    "unrepresentable transpose reached Pass2: {shape:?}"
+                );
+                let elems = match shape.transpose() {
+                    Ok(t) => t.port_right(),
+                    Err(_) => {
+                        // Unreachable for a validated operand; fall back to the
+                        // previous full-width column merge for robustness.
+                        let mut all = inner_line.get_left();
+                        all.extend(inner_line.get_right());
+                        all
+                    }
+                };
                 let mut all_points = Vec::new();
-                for elem in &original_left {
-                    all_points.extend(self.expand_node_element_to_points(elem)?);
-                }
-                for elem in &original_right {
+                for elem in &elems {
                     all_points.extend(self.expand_node_element_to_points(elem)?);
                 }
                 Ok(all_points)
@@ -1043,23 +1035,9 @@ impl McModuleInst {
                 };
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
-                        mcc_dbg!("inst::points",
-                            "[P2-4-XTAL-DBG] get_right_points Member: mname={mname:?}, caller={caller:?}, module={}",
-                            self.name
-                        );
                         // (A) direct component lookup
                         if let Some(comp) = self.find_component(&caller) {
-                            mcc_dbg!(
-                                "inst::points",
-                                "[P2-4-XTAL-DBG]   found component {}, pins: {:?}",
-                                comp.name,
-                                comp.def.pins.pins.keys().collect::<Vec<_>>()
-                            );
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
-                                mcc_dbg!(
-                                    "inst::points",
-                                    "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = {pids:?}"
-                                );
                                 return Ok(pids
                                     .iter()
                                     .map(|(member_name, pin_id)| {
@@ -1071,17 +1049,7 @@ impl McModuleInst {
                                         .with_member_name(member_name)
                                     })
                                     .collect());
-                            } else {
-                                mcc_dbg!(
-                                    "inst::points",
-                                    "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = None"
-                                );
                             }
-                        } else {
-                            mcc_dbg!(
-                                "inst::points",
-                                "[P2-4-XTAL-DBG]   component {caller} NOT FOUND"
-                            );
                         }
                         // (B) cross-module component lookup
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
@@ -1107,21 +1075,9 @@ impl McModuleInst {
                         }
                         // (C) expand_port_lanes fallback
                         let qualified = format!("{caller}.{mname}");
-                        mcc_dbg!(
-                            "inst::points",
-                            "[P2-4-XTAL-DBG]   trying expand_port_lanes({qualified:?})"
-                        );
                         if let Some(lanes) = self.expand_port_lanes(&qualified) {
-                            mcc_dbg!(
-                                "inst::points",
-                                "[P2-4-XTAL-DBG]   expand_port_lanes hit: {:?}",
-                                lanes.iter().map(|p| &p.path).collect::<Vec<_>>()
-                            );
                             return Ok(lanes);
                         }
-                        mcc_dbg!("inst::points", "[P2-4-XTAL-DBG]   expand_port_lanes miss, falling back to get_right_points(phrase)");
-                    } else {
-                        mcc_dbg!("inst::points", "[P2-4-XTAL-DBG] get_right_points Member: mname={mname:?}, extract_caller_inst_name returned None");
                     }
                 }
                 self.get_right_points(phrase)

@@ -1834,7 +1834,7 @@ impl McModuleInst {
                 // single-point broadcast `1*1` vs `N*1` (`X -> [A, B]`) and any
                 // transposed mismatch — report the error and generate no
                 // connection statement (no truncation / pair-by-min recovery).
-                let verdict = crate::semantic::opcheck::check_series(lhs_shape, rhs_shape);
+                let verdict = crate::semantic::opcheck::check_series_rows(lhs_shape, rhs_shape);
                 if matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_)) {
                     // Row counts match: pair the whole group (create_connection
                     // does 1:1 / interface expansion internally).
@@ -2599,10 +2599,6 @@ impl McModuleInst {
                         if let Some(inst_name) = Self::extract_caller_inst_name(caller_box.as_ref())
                         {
                             let func_name_str = fc.func_name.to_string();
-                            mcc_dbg!("inst::mod",
-                                "[P2-4-DBG] instance method dispatch: inst={inst_name}, func={func_name_str}, module={}",
-                                self.name
-                            );
 
                             // Component instance method
                             let comp_func = self
@@ -2610,10 +2606,6 @@ impl McModuleInst {
                                 .iter()
                                 .find(|c| c.name == inst_name)
                                 .and_then(|c| c.def.funcs.find(&func_name_str).cloned());
-                            mcc_dbg!("inst::mod",
-                                "[P2-4-DBG] comp_func found={} for inst={inst_name} func={func_name_str}",
-                                comp_func.is_some()
-                            );
                             if let Some(func_def) = comp_func {
                                 // arity guard: only dispatch when formals and
                                 // actuals agree (mirrors the dotted-chain guard
@@ -2625,13 +2617,6 @@ impl McModuleInst {
                                 if (func_arity > 0 && call_arity > 0)
                                     || (func_arity == 0 && call_arity == 0)
                                 {
-                                    mcc_dbg!(
-                                        "inst::mod",
-                                        "[P2-4-DBG] func_def name={}, stmts={}, params={}",
-                                        func_def.name,
-                                        func_def.stmts.len(),
-                                        func_def.params.iter().count()
-                                    );
                                     let key = Self::member_key(phrase);
                                     let result = self.instantiate_instance_method(
                                         &inst_name, &func_def, &fc.params, &fc.left, &fc.right,

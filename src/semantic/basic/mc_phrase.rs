@@ -23,7 +23,7 @@ use crate::{
     query::refs::{mcb_register_declare_class, mcb_register_instance_ref},
     refdef::types::SymbolKind,
     semantic::{
-        basic::{mc_opd::McOpd, mc_param::McParamValue},
+        basic::{mc_opd::McOpd, mc_param::McParamValue, opd_shape::OpdShape},
         component::mc_pins::McPinPort,
         context::resolve_cmie,
         instref::validate_inst_reference,
@@ -144,16 +144,6 @@ impl McPhrase {
         let _node_name = format!("{}", node_type);
         let _node_str = node.to_string();
         let node_str = node.to_string();
-        if node_type == MCAST_OPD_DBCOLON
-            || node_type == MCAST_INSTANCE
-            || node_type == MCAST_CLASS
-            || node_type == MCAST_DECLARE
-        {
-            mcc_dbg!(
-                "sem::conds",
-                "[P2-7-NODE-DBG] McPhrase::new node_type={node_type}, to_string={node_str:?}",
-            );
-        }
         // P2-7-XTAL: trace XTAL setup function body parsing
         if let Some(ref s) = node_str {
             if s.contains("XTAL") || s.contains("R442") || s.contains("RES(1M") {
@@ -161,9 +151,6 @@ impl McPhrase {
                     .get_sub_node()
                     .map(|c| c.iter().map(|n| n.get_type()).collect())
                     .unwrap_or_default();
-                mcc_dbg!("sem::conds", 
-                    "[P2-7-XTAL-DBG] McPhrase::new node_type={node_type}, to_string={s:?}, child_types={child_types:?}",
-                );
             }
         }
         match node_type {
@@ -1482,7 +1469,6 @@ impl McPhrase {
                                 }));
                             }
                         }
-                        // eprintln!("[CMN-DIAG] → None(1006) name={:?}", name);
                         dlog_error(
                             crate::errcodes::CURLY_MN_WRONG_BASE,
                             node,
@@ -1495,12 +1481,6 @@ impl McPhrase {
 
             MCAST_OPD_APOST => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
-                mcc_dbg!(
-                    "sem::conds",
-                    "[P2-7-APOST-DBG] APOST inner type={}, to_string={:?}",
-                    opd1_node.get_type(),
-                    opd1_node.to_string()
-                );
                 // Normalize: keep Series branches as-is (`(A - B)'` transposes the whole series chain)
                 let opd1 = match McPhrase::new(&opd1_node, context)? {
                     McPhrase::Series(phrases, _) => McPhrase::Series(phrases, ConnDir::Undirected),
@@ -1526,8 +1506,9 @@ impl McPhrase {
                     );
                     return None;
                 }
-                // Pass1 safety rule (eval.md §5.5): shapes with 3+ rows cannot be transposed
-                if let Err(rows) = check_transpose_allowed(&opd1) {
+                // Pass1 safety rule (eval.md §5.5): shapes whose strict math
+                // transpose has no connectable expression cannot be transposed.
+                if let Err(rows) = check_transpose_allowed(&opd1, context) {
                     dlog_error(
                         crate::errcodes::SHAPE_TRANSPOSE_LIMIT,
                         node,
@@ -1569,6 +1550,31 @@ impl McPhrase {
                         let mut node = opd1;
                         node.reverse();
                         Some(node)
+                    }
+                    // §6.3: reversing a two-pin component (a 1*2 row vector)
+                    // swaps its two pins — `R101^` presents pin 2 on the left
+                    // and pin 1 on the right (vec-arch.md §5.2). The
+                    // single-element Series wrapper below is a no-op for a lone
+                    // component, so the swap is done here at the phrase level.
+                    ref opd1 @ McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                        base: McInstance::Component(ref c),
+                        ..
+                    })) => {
+                        if matches!(shape_defaults(c).kind, PinShapeKind::TwoPin) {
+                            let inst_name = c.name.to_string();
+                            Some(McPhrase::Endpoint(McEndpoint::Node {
+                                input: vec![McEndpoint::Single(McInstanceRef::new(
+                                    McInstance::Bus(McBus::new(&format!("{inst_name}.2"))),
+                                ))],
+                                output: vec![McEndpoint::Single(McInstanceRef::new(
+                                    McInstance::Bus(McBus::new(&format!("{inst_name}.1"))),
+                                ))],
+                            }))
+                        } else {
+                            let mut phrases = vec![opd1.clone()];
+                            phrases.reverse();
+                            Some(McPhrase::Series(phrases, ConnDir::Undirected))
+                        }
                     }
                     opd1 => {
                         let mut phrases = vec![opd1];
@@ -1615,20 +1621,10 @@ impl McPhrase {
                         .get_sub_node()
                         .map(|c| c.iter().map(|n| n.get_type()).collect())
                         .unwrap_or_default();
-                    mcc_dbg!("sem::conds", 
-                        "[P2-7-PLUS-AST] PLUS raw: opd1_type={t1}, opd1_children={c1:?}, opd2_type={t2}, opd2_children={c2:?}"
-                    );
                 }
 
                 let opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
-
-                mcc_dbg!(
-                    "sem::conds",
-                    "[P2-7-PLUS-DBG] PLUS opd1={:?}, opd2={:?}",
-                    opd1,
-                    opd2
-                );
 
                 // Infer shapes and upgrade phrases before checking connectivity
                 // ★ P4.3 single-port representative rule:
@@ -1668,13 +1664,13 @@ impl McPhrase {
                 // left + right element list), and the §5.1 left-alignment check
                 // runs on that transposed result — there is no transpose
                 // carve-out (opcheck is shared with Pass2).
-                let opd1_left = eval_port_elems(&opd1, false, context);
-                let opd2_left = eval_port_elems(&opd2, false, context);
+                let opd1_shape = OpdShape::of(&opd1, context);
+                let opd2_shape = OpdShape::of(&opd2, context);
                 if !is_connectable(
                     ConnOp::Parallel,
                     ConnDir::Undirected,
-                    &opd1_left,
-                    &opd2_left,
+                    &opd1_shape,
+                    &opd2_shape,
                     crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
@@ -1694,15 +1690,13 @@ impl McPhrase {
                 // alignment (vec-dianlu.md §5.1). A transposed operand is a
                 // column after transposition (left == right), so it never
                 // carries an independent right port.
-                let opd1_right = eval_port_elems(&opd1, true, context);
-                let opd2_right = eval_port_elems(&opd2, true, context);
-                if opd1_left != opd1_right
-                    && opd2_left != opd2_right
+                if opd1_shape.port_left() != opd1_shape.port_right()
+                    && opd2_shape.port_left() != opd2_shape.port_right()
                     && !is_connectable(
                         ConnOp::Parallel,
                         ConnDir::Undirected,
-                        &opd1_right,
-                        &opd2_right,
+                        &opd1_shape,
+                        &opd2_shape,
                         crate::semantic::opcheck::ParallelAlign::Right,
                     )
                 {
@@ -1781,14 +1775,6 @@ impl McPhrase {
 
                 let opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
-
-                mcc_dbg!(
-                    "sem::conds",
-                    "[P2-7-MINUS-DBG] MINUS opd1={:?}, opd2={:?}",
-                    opd1,
-                    opd2
-                );
-
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 // ── P1.3: inst 1*1/1*2 constraint for +/- ──
@@ -1822,8 +1808,8 @@ impl McPhrase {
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::Undirected,
-                    &eval_port_elems(&opd1, true, context),
-                    &eval_port_elems(&opd2, false, context),
+                    &OpdShape::of(&opd1, context),
+                    &OpdShape::of(&opd2, context),
                     crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
@@ -1856,20 +1842,6 @@ impl McPhrase {
             MCAST_OPD_RIGHTARROW => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
-                // ── P2-DEBUG ──
-                {
-                    let t1 = opd1_node.get_type();
-                    let t2 = opd2_node.get_type();
-                    let c1: Vec<u16> = opd1_node
-                        .get_sub_node()
-                        .map(|c| c.iter().map(|n| n.get_type()).collect())
-                        .unwrap_or_default();
-                    let c2: Vec<u16> = opd2_node
-                        .get_sub_node()
-                        .map(|c| c.iter().map(|n| n.get_type()).collect())
-                        .unwrap_or_default();
-                    mcc_dbg!("sem::conds", "[P2-ARROW-DBG] ARROW: opd1_type={t1} opd1_children={c1:?} opd2_type={t2} opd2_children={c2:?}");
-                }
                 let opd1 = McPhrase::new(&opd1_node, context);
                 let opd2 = McPhrase::new(&opd2_node, context);
                 // if opd1.is_none() || opd2.is_none() {
@@ -1889,8 +1861,8 @@ impl McPhrase {
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::LtoR,
-                    &eval_port_elems(&opd1, true, context),
-                    &eval_port_elems(&opd2, false, context),
+                    &OpdShape::of(&opd1, context),
+                    &OpdShape::of(&opd2, context),
                     crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
@@ -1930,26 +1902,6 @@ impl McPhrase {
 
                 ret_line.extend(line2);
                 let result = Series(ret_line, ConnDir::LtoR);
-                // Debug: print result for ARROW with GROUP
-                if let McPhrase::Series(ref inner, _) = result {
-                    let has_group = inner.iter().any(|p| matches!(p, McPhrase::Group(_)));
-                    if has_group {
-                        let desc: Vec<String> = inner
-                            .iter()
-                            .map(|p| match p {
-                                McPhrase::Endpoint(_) => "Ep".into(),
-                                McPhrase::FuncCall(fc) => format!("FC({})", fc.func_name),
-                                McPhrase::Group(_) => "Grp".into(),
-                                _ => format!("{:?}", std::mem::discriminant(p)),
-                            })
-                            .collect();
-                        mcc_dbg!(
-                            "sem::conds",
-                            "[P2-ARROW-RESULT] Series[{}]",
-                            desc.join(", ")
-                        );
-                    }
-                }
                 Some(result)
             }
 
@@ -1973,8 +1925,8 @@ impl McPhrase {
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::RtoL,
-                    &eval_port_elems(&opd2, true, context),
-                    &eval_port_elems(&opd1, false, context),
+                    &OpdShape::of(&opd2, context),
+                    &OpdShape::of(&opd1, context),
                     crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
@@ -2023,10 +1975,6 @@ impl McPhrase {
                         .get_sub_node()
                         .map(|c| c.iter().map(|n| n.get_type()).collect())
                         .unwrap_or_default();
-                    mcc_dbg!("sem::conds", 
-                        "[P2-7-INST-DBG] MCAST_INSTANCE inner_type={inner_type}, inner_child_types={inner_child_types:?}, to_string={:?}",
-                        node.to_string()
-                    );
                     // Check if inner is a DECLARE - if so, parse it via the DECLARE handling
                     if inner.get_type() == MCAST_DECLARE {
                         // Parse the DECLARE to get the phrase (which may contain DOT expressions)
@@ -2091,13 +2039,7 @@ impl McPhrase {
                 // P2-7-XTAL: trace MCAST_CLASS inner structure
                 if let Some(inner) = node.get_sub_node() {
                     let inner_type = inner.get_type();
-                    mcc_dbg!(
-                        "sem::conds",
-                        "[P2-7-CLASS-DBG] MCAST_CLASS inner_type={inner_type}, to_string={:?}",
-                        node.to_string()
-                    );
                     let names = inner.to_id_or_ida();
-                    mcc_dbg!("sem::conds", "[P2-7-CLASS-DBG] MCAST_CLASS names={names:?}",);
                     if names.len() == 1 {
                         if let Some(inst) = context.find_inst(&names[0]) {
                             // ★ LSP: Register instance reference for MCAST_CLASS path
@@ -2326,7 +2268,15 @@ impl McPhrase {
                                 .map(|p| McBus::new(&format!("{inst_name}.{p}")))
                                 .collect()
                         } else if !ps_pins.is_empty() {
-                            vec![McBus::new(&format!("{inst_name}.{}", ps_pins[0]))]
+                            // A component with 3+ power pins and no in/out pins
+                            // is a column vector (left == right == all power
+                            // pins), not a folded single point (vec-arch.md
+                            // §4.2). Expose every power pin so the Pass1 width
+                            // matches the Pass2 lane expansion.
+                            ps_pins
+                                .iter()
+                                .map(|p| McBus::new(&format!("{inst_name}.{p}")))
+                                .collect()
                         } else {
                             vec![McBus::new(&inst_name)]
                         }
@@ -2379,10 +2329,13 @@ impl McPhrase {
                 base: McInstance::List(ref list),
                 ..
             })) => {
-                if list.name.is_empty() {
-                    list.member.iter().map(|m| McBus::new(m)).collect()
-                } else {
+                // A named list `Label[1,2]` is a column vector of its members
+                // (vec-arch.md §4.2), not a single point named after the list.
+                // Only a member-less list falls back to the bare name.
+                if list.member.is_empty() && !list.name.is_empty() {
                     vec![McBus::new(list.name())]
+                } else {
+                    list.member.iter().map(|m| McBus::new(m)).collect()
                 }
             }
             McPhrase::Parallel(opds) => {
@@ -2446,8 +2399,13 @@ impl McPhrase {
                                 .iter()
                                 .map(|p| McBus::new(&format!("{inst_name}.{p}")))
                                 .collect()
-                        } else if !ps_pins.is_empty() && ps_pins.len() >= 2 {
-                            vec![McBus::new(&format!("{inst_name}.{}", ps_pins[1]))]
+                        } else if !ps_pins.is_empty() {
+                            // See get_left: a component with only power pins is
+                            // a column vector (left == right == all power pins).
+                            ps_pins
+                                .iter()
+                                .map(|p| McBus::new(&format!("{inst_name}.{p}")))
+                                .collect()
                         } else {
                             vec![McBus::new(&inst_name)]
                         }
@@ -2498,10 +2456,13 @@ impl McPhrase {
                 base: McInstance::List(ref list),
                 ..
             })) => {
-                if list.name.is_empty() {
-                    list.member.iter().map(|m| McBus::new(m)).collect()
-                } else {
+                // A named list `Label[1,2]` is a column vector of its members
+                // (vec-arch.md §4.2), not a single point named after the list.
+                // Only a member-less list falls back to the bare name.
+                if list.member.is_empty() && !list.name.is_empty() {
                     vec![McBus::new(list.name())]
+                } else {
+                    list.member.iter().map(|m| McBus::new(m)).collect()
                 }
             }
             McPhrase::Parallel(opds) => {
@@ -3571,36 +3532,30 @@ fn shape_of_bus_list(elems: &[McBus]) -> Shape {
     Shape::new(rows.max(1))
 }
 
-/// Pass1 transpose safety guard (eval.md §5.5): the operand being transposed may only
-/// carry a 1*1 / 1*2 / 2*1 / 2*2 shape, i.e. the row count derivable at the phrase
-/// layer ∈ {1, 2}.
+/// Pass1 transpose safety guard (eval.md §5.5 / vec-arch.md §5.2): the operand
+/// being transposed may only carry a shape whose strict math transpose has a
+/// connectable expression — a column or node side wider than 2 rows has none.
 ///
-/// - Left/right point sets empty (e.g. unresolved FuncCall return value) → wildcard pass;
-/// - Contains an `<error` placeholder marker → wildcard pass (reusing the lenient
-///   semantics of [`is_connectable`]);
-/// - Row count ≥ 3 (e.g. `[A, B, C]'`) → `Err(rows)`, i.e. "re-merging expressions
-///   that were already split"; the caller reports E2902 and rejects the transpose.
-fn check_transpose_allowed(opd: &McPhrase) -> Result<(), usize> {
-    let left = opd.get_left();
-    let right = opd.get_right();
-    if left.is_empty() || right.is_empty() {
+/// - `OpdShape::Unknown` / empty sides (unresolved FuncCall return value) →
+///   wildcard pass;
+/// - Contains an `<error` placeholder marker → wildcard pass (reusing the
+///   lenient semantics of [`is_connectable`]);
+/// - `Column(N > 2)` or a `Node` side wider than 2 (e.g. `[A, B, C]'`) →
+///   `Err(rows)`, reported by the caller as E2902.
+fn check_transpose_allowed(opd: &McPhrase, context: &mut dyn HasFindInst) -> Result<(), usize> {
+    let shape = OpdShape::of(opd, context);
+    if shape.is_unknown() {
         return Ok(());
     }
-    if left
+    if shape
+        .port_left()
         .iter()
-        .chain(right.iter())
+        .chain(shape.port_right().iter())
         .any(|b| b.name.contains("<error"))
     {
         return Ok(());
     }
-    let rows = shape_of_bus_list(&left)
-        .rows
-        .max(shape_of_bus_list(&right).rows);
-    if rows >= 3 {
-        Err(rows)
-    } else {
-        Ok(())
-    }
+    shape.transpose().map(|_| ()).map_err(|rows| rows)
 }
 
 /// Member-count expansion of a multi-member `Mc2Interface` (e.g. a 2-pin
@@ -3773,14 +3728,31 @@ fn module_port_elems(
 /// the Pass1 check sees the same width Pass2 will expand.
 fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst) -> Vec<McBus> {
     match phrase {
-        // A transposed operand is first transposed to its full-width column: the
-        // inner left and right elements are merged in order and exposed on both
-        // ports (mirroring the Pass2 expansion in mc_mod/points.rs), so the shape
-        // fed to opcheck is the transposed result.
+        // A transposed operand is first transposed via strict math transpose
+        // (vec-arch.md §5.2 / §6.2): the inner shape is transposed, then the
+        // requested side is read from the transposed shape. `Row` -> `Column`,
+        // `Column(2)` -> `Row`, and a connectable `Node` / `Point` / `Unknown`
+        // transpose to themselves. `check_transpose_allowed` (called in
+        // MCAST_OPD_APOST before wrapping) already rejects shapes whose
+        // transpose is unrepresentable, so `transpose()` succeeds here.
         McPhrase::Transposed(inner) => {
-            let mut all = inner.get_left();
-            all.extend(inner.get_right());
-            all
+            let shape = OpdShape::of(inner, context);
+            match shape.transpose() {
+                Ok(t) => {
+                    if right {
+                        t.port_right()
+                    } else {
+                        t.port_left()
+                    }
+                }
+                Err(_) => {
+                    // Unreachable for a validated operand; fall back to the
+                    // previous full-width column merge for robustness.
+                    let mut all = inner.get_left();
+                    all.extend(inner.get_right());
+                    all
+                }
+            }
         }
         // A Series exposes the port of its head (left) / tail (right). Recurse so
         // a transposed head/tail is transposed to its full-width column first
@@ -4002,6 +3974,49 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
     }
 }
 
+impl OpdShape {
+    /// Build the first-class operand shape for a phrase (vec-arch.md §4.2).
+    ///
+    /// The left and right ports are computed with the same width-aligned view
+    /// as [`eval_port_elems`] (interface members, component/module port refs,
+    /// shape-by-use, bus member bypass, chained members) and then classified
+    /// into a single `OpdShape` via [`OpdShape::from_sides`].
+    pub(crate) fn of(phrase: &McPhrase, context: &mut dyn HasFindInst) -> OpdShape {
+        let left = eval_port_elems(phrase, false, context);
+        let right = eval_port_elems(phrase, true, context);
+        Self::from_sides(left, right)
+    }
+
+    /// Classify a pair of single-sided ports into an `OpdShape` (vec-arch.md
+    /// §4.1 / §5.1). The classification preserves the row counts from
+    /// `size_left` / `size_right`; the kind (Point/Row/Column/Node) is derived
+    /// from the relationship between the two sides.
+    pub(crate) fn from_sides(left: Vec<McBus>, right: Vec<McBus>) -> OpdShape {
+        if left.is_empty() && right.is_empty() {
+            // Both sides unknown (shape-by-use port / unresolved FuncCall).
+            OpdShape::Unknown
+        } else if left == right {
+            match left.len() {
+                1 => OpdShape::Point(left.into_iter().next().unwrap()),
+                _ => OpdShape::Column(left),
+            }
+        } else if left.is_empty() {
+            // `return <expr>` FuncCall: no left contact, right = return value.
+            OpdShape::Node(Vec::new(), right)
+        } else if right.is_empty() {
+            OpdShape::Node(left, Vec::new())
+        } else if left.len() == 1 && right.len() == 1 {
+            // Two distinct single-element ports: a two-pin row vector.
+            OpdShape::Row(
+                left.into_iter().next().unwrap(),
+                right.into_iter().next().unwrap(),
+            )
+        } else {
+            OpdShape::Node(left, right)
+        }
+    }
+}
+
 /// Pass1 operator evaluation entry point (eval.md §3/§4): the shared
 /// "connectable" check for the four operator branches `-`/`+`/`->`/`<-`.
 /// Shape constraints follow the §5 legal-operation table via
@@ -4025,29 +4040,36 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
 fn is_connectable(
     op: ConnOp,
     dir: ConnDir,
-    lhs: &[McBus],
-    rhs: &[McBus],
+    lhs: &OpdShape,
+    rhs: &OpdShape,
     align: crate::semantic::opcheck::ParallelAlign,
 ) -> bool {
+    // The contact side depends on the operator (vec-arch.md §5.3): series
+    // touches `lhs.right x rhs.left`, parallel touches the `align`-selected
+    // side. Selecting it here keeps the side-selection local to this call;
+    // opcheck re-derives the same side from the full shape internally.
+    let (lhs_side, rhs_side): (Vec<McBus>, Vec<McBus>) = match op {
+        ConnOp::Series => (lhs.port_right(), rhs.port_left()),
+        ConnOp::Parallel => match align {
+            crate::semantic::opcheck::ParallelAlign::Left => (lhs.port_left(), rhs.port_left()),
+            crate::semantic::opcheck::ParallelAlign::Right => (lhs.port_right(), rhs.port_right()),
+        },
+    };
+
     // Empty shape means "unknown/unresolved" (e.g. FuncCall return value), treated as connectable
-    if lhs.is_empty() || rhs.is_empty() {
+    if lhs_side.is_empty() || rhs_side.is_empty() {
         return true;
     }
 
     // Shapes containing error/placeholder markers are also treated as connectable
-    if lhs.iter().any(|b| b.name.contains("<error"))
-        || rhs.iter().any(|b| b.name.contains("<error"))
+    if lhs_side.iter().any(|b| b.name.contains("<error"))
+        || rhs_side.iter().any(|b| b.name.contains("<error"))
     {
         return true;
     }
 
-    let lhs_shape = shape_of_bus_list(lhs);
-    let rhs_shape = shape_of_bus_list(rhs);
-
-    mcc_dbg!(
-        "sem::conds",
-        "[SHAPE-DBG] op={op:?} dir={dir:?} lhs={lhs_shape} rhs={rhs_shape} lhs_buses={lhs:?} rhs_buses={rhs:?}"
-    );
+    let lhs_shape = shape_of_bus_list(&lhs_side);
+    let rhs_shape = shape_of_bus_list(&rhs_side);
 
     // §4 single-port (1*1) representative rule (eval.md §4 note): a single-port
     // connection has no left/right distinction, so one representative is chosen —
@@ -4073,13 +4095,13 @@ fn is_connectable(
     match op {
         ConnOp::Series => {
             matches!(
-                crate::semantic::opcheck::check_series(lhs_shape, rhs_shape),
+                crate::semantic::opcheck::check_series(lhs, rhs),
                 crate::semantic::opcheck::OpCheck::Legal(_)
             )
         }
         ConnOp::Parallel => {
             matches!(
-                crate::semantic::opcheck::check_parallel(lhs_shape, rhs_shape, align),
+                crate::semantic::opcheck::check_parallel(lhs, rhs, align),
                 crate::semantic::opcheck::OpCheck::Legal(_)
             )
         }
