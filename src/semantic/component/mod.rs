@@ -69,6 +69,28 @@ pub struct McComponent {
 }
 
 impl McComponent {
+    /// The formal params that instance construction arguments bind to.
+    ///
+    /// A same-name constructor func declares the actual construction arity
+    /// (`FLASH.GD25Q32E flash(V3V3)` binds `V3V3` to `func GD25Q32E([V3V3, GND]::DC(3.3V))`,
+    /// §P1 C6). When such a func exists its params are authoritative;
+    /// otherwise the class-level params are used. Class params define class
+    /// behavior and func params are local to the func — they never overlap
+    /// (a same-name pair is rejected as COMPONENT_PARAM_FUNC_CONFLICT).
+    pub fn bind_params(&self) -> &McParamDeclares {
+        let last = self
+            .name
+            .to_string()
+            .rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_string();
+        match self.funcs.find(&last) {
+            Some(f) => &f.params,
+            None => &self.params,
+        }
+    }
+
     pub fn new(node: &AstNode, uri: &McURI) -> Option<Self> {
         // MCK_COMPONENT
         // |- MCAST_NAME - MCAST_PARAMS (option) - MCAST_BODY

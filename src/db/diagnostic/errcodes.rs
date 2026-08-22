@@ -884,6 +884,14 @@ pub const INST_CTOR_PARAM_BIND_FAILED: u32 = 4174;
 /// Instance argument has no formal port to bind (with module/bound details).
 pub const INST_ARG_UNBOUND_DETAILED: u32 = 4175;
 
+/// Declarative instance parameter binding failed (unknown / excess / missing-required argument).
+pub const INST_PARAM_BIND_FAILED: u32 = 4176;
+
+/// Component-level parameter shares a name with the same-name constructor
+/// func parameter. Class params define class behavior; the constructor func's
+/// params declare the construction arity, so they must not reuse a class name.
+pub const COMPONENT_PARAM_FUNC_CONFLICT: u32 = 4177;
+
 // ============================================================================
 // Pass3: duplicate validation (5000-5049)
 // ============================================================================
@@ -1495,6 +1503,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_CTOR_BODY_STMT_FAILED, "A constructor function body statement failed.", "Constructor '{0}' body statement failed: {1}"),
     entry!(INST_CTOR_PARAM_BIND_FAILED, "Constructor parameter binding failed.", "Constructor '{0}' on '{1}' param bind: {2}"),
     entry!(INST_ARG_UNBOUND_DETAILED, "Instance argument has no formal port to bind (with module/bound details).", "Instance '{0}' arg '{1}' has no formal port to bind (module='{2}', {3}/{4} formal ports already bound)"),
+    entry!(INST_PARAM_BIND_FAILED, "Declarative instance parameter binding failed (unknown / excess / missing-required argument).", "Instance '{0}' ({1}) param bind: {2}"),
+    entry!(COMPONENT_PARAM_FUNC_CONFLICT, "Component-level parameter shares a name with the same-name constructor func parameter.", "Component '{0}' declares parameter '{1}' that also appears in constructor func '{2}' params. Class params define class behavior and constructor params declare the construction arity; they must not reuse the same name. Rename one of them."),
     // ---- section ----
     entry!(DUP_CMIE_CROSS_FILE, "Same name defined in another file (cross-file duplicate).", "Same name defined in another file (cross-file duplicate)."),
     entry!(DUP_WITHIN, "Duplicate definition within the same declaration.", "Duplicate definition within the same declaration."),

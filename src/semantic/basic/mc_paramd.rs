@@ -1026,6 +1026,14 @@ impl McParamDeclare {
         )
     }
 
+    /// Get the enum class name for an enum-class parameter, if any.
+    pub fn get_enum_class(&self) -> Option<&str> {
+        match &self.kind {
+            McParamDeclareKind::EnumClass(ec) => Some(&ec.class_name),
+            _ => None,
+        }
+    }
+
     /// Get the declared physical unit, if this parameter has a unit type.
     pub fn get_declared_unit(&self) -> Option<&crate::semantic::basic::mc_uval::McUnit> {
         match &self.param_type.kind {

@@ -111,7 +111,10 @@ impl McComponentInst {
         def: Arc<McComponent>,
         param_values: &[McParamValue],
     ) -> Result<Self, InstError> {
-        let params = McParamBindings::bind_quiet(&def.params, param_values)
+        // §P1 C6: when a same-name constructor func exists, its params are
+        // the arity authority (`FLASH.GD25Q32E flash(V3V3)` binds `V3V3` to
+        // `func GD25Q32E([V3V3, GND]::DC(3.3V))`), not the class header params.
+        let params = McParamBindings::bind_quiet(def.bind_params(), param_values)
             .map_err(|e| InstError::Other(format!("Parameter binding failed: {e:?}")))?;
 
         let nc = param_values

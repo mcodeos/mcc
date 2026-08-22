@@ -588,20 +588,23 @@ pub fn print_backtrace(label: &str) {
 }
 
 // ============================================================================
-// Vector shape Shape + ShapeMatcher —— eval.md §1 / §3
+// Vector shape Shape —— eval.md §1
 // ============================================================================
 //
 // Pure function implementation with no dependencies, reused by the
 // semantic / instant / vector layers.
 // Semantics source: docs-new/concepts/vector-circuit/eval.md
 //   - §1 shape system (rows; a single-sided port is always a column vector)
-//   - §3 connection matching constraint table (row counts must match)
 //
 // `Shape` carries only the row count: the shape layer sees each operand's
 // *single-sided* port (left or right), which is always a column vector `N*1`
 // (vec-dianlu.md §8.3). The `1*2` row vector is not "flattened" — left/right
 // ports are passed and matched separately. `cols` was a redundant second
 // field (always 1 on the evaluation path) and was removed.
+//
+// Connection legality (the §3 matching constraint table) lives in
+// `semantic/opcheck.rs`, which takes the first-class `OpdShape` and reduces
+// it to these row counts.
 
 /// Vector shape: the row count of a single-sided port (column vector `N*1`).
 ///
@@ -662,46 +665,6 @@ impl std::fmt::Display for Shape {
     }
 }
 
-/// Connection matching result (eval.md §3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MatchedShape {
-    /// Result shape: rows unchanged (the single-sided port stays `rows*1`)
-    pub shape: Shape,
-}
-
-/// Shape matching error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShapeError {
-    /// §3: row counts must match to connect
-    RowMismatch { lhs: Shape, rhs: Shape },
-}
-
-/// Pure function implementation of the §3 connection matching constraint table.
-pub struct ShapeMatcher;
-
-impl ShapeMatcher {
-    /// Match two shapes and return the resulting connection shape.
-    ///
-    /// Rules (eval.md §3):
-    /// - Either side unknown (`rows == 0`) → pass; the result takes the other side's shape;
-    /// - Row counts differ → [`ShapeError::RowMismatch`] (e.g. `1*1` vs `N*1`);
-    /// - Row counts match → rows unchanged (the single-sided port stays `rows*1`).
-    pub fn match_shape(lhs: Shape, rhs: Shape) -> Result<MatchedShape, ShapeError> {
-        if lhs.is_unknown() {
-            return Ok(MatchedShape { shape: rhs });
-        }
-        if rhs.is_unknown() {
-            return Ok(MatchedShape { shape: lhs });
-        }
-        if lhs.rows != rhs.rows {
-            return Err(ShapeError::RowMismatch { lhs, rhs });
-        }
-        Ok(MatchedShape {
-            shape: Shape::new(lhs.rows),
-        })
-    }
-}
-
 /// Connection operator (eval.md §4): `-`/`->`/`<-` share series evaluation, `+` is parallel.
 ///
 /// Correspondence with [`ConnDir`] (mcrule.md §10.1):
@@ -747,39 +710,6 @@ pub fn representative(op: ConnOp, dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape
 /// main of the merge order), and for series nets there is no anchor.
 pub fn parallel_anchor(ordered: &[i64]) -> Option<i64> {
     ordered.first().copied()
-}
-
-/// §4 four-operator evaluation table: given `(op, lhs, rhs)`, compute the
-/// **result shape** of the connection.
-///
-/// The four shape-level sub-tables (§4.1-4.4) converge with the §3 connection
-/// result table on the same rule: row counts must match (otherwise
-/// [`ShapeError::RowMismatch`]); the single-sided port keeps its row count.
-/// The old `1*2` / `N*2` result distinctions do not exist at the shape layer —
-/// each operand's left/right ports are passed separately as column vectors
-/// (vec-dianlu.md §8.3), and the shape of the connection is always `N*1`.
-///
-/// The sub-tables only differ in the "anchor/splice structure" (e.g. `vector vs
-/// node` returns `newNode{vector, node-right}`), which is materialized by the
-/// Pass2 point pairing ([`ShapeMatcher`] + `try_connect_adjacent` /
-/// `create_connection`); at the shape layer they converge to the same result.
-/// Unknown shapes (`rows == 0`) pass through as a wildcard and take the other side.
-///
-/// Call sites:
-/// - Pass1: `is_connectable` (shared by the four operator branches `-`/`+`/`->`/`<-`);
-/// - Pass2: `try_connect_adjacent` (the unified entry for adjacent evaluation on
-///   the three paths in stmt.rs).
-pub fn eval_binary(op: ConnOp, lhs: Shape, rhs: Shape) -> Result<Shape, ShapeError> {
-    // §4.1-4.4 shape convergence: `-`/`+`/`->`/`<-` all require matching row
-    // counts and keep the row count; op only provides semantic annotation
-    // (anchor/pairing strategy is materialized in the Pass2 callers), the
-    // result here is identical.
-    debug_assert!(
-        matches!(op, ConnOp::Series | ConnOp::Parallel),
-        "unexpected operator"
-    );
-    let matched = ShapeMatcher::match_shape(lhs, rhs)?;
-    Ok(matched.shape)
 }
 
 // ============================================================================
@@ -876,90 +806,6 @@ mod shape_tests {
     use super::*;
     use crate::semantic::basic::mc_group::McGroup;
 
-    // ---- §3 matching constraint table (5×5 row-count table) ----
-
-    #[test]
-    fn match_row_vs_row_ok() {
-        // 1*1 vs 1*1 → 1*1
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::node(), Shape::node()),
-            Ok(MatchedShape {
-                shape: Shape::node(),
-            })
-        );
-    }
-
-    #[test]
-    fn match_multi_row_vs_multi_row_ok() {
-        // N*1 vs N*1 → N*1
-        let lhs = Shape::vvec(4);
-        assert_eq!(
-            ShapeMatcher::match_shape(lhs, Shape::vvec(4)),
-            Ok(MatchedShape {
-                shape: Shape::vvec(4),
-            })
-        );
-    }
-
-    #[test]
-    fn match_row_vs_multi_row_rejected() {
-        // 1*1 vs N*1 → ❌
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::node(), Shape::vvec(4)),
-            Err(ShapeError::RowMismatch {
-                lhs: Shape::node(),
-                rhs: Shape::vvec(4),
-            })
-        );
-        // Different N row counts are also rejected (3*1 vs 4*1)
-        assert!(ShapeMatcher::match_shape(Shape::vvec(3), Shape::vvec(4)).is_err());
-    }
-
-    #[test]
-    fn match_unknown_wildcard() {
-        // Unknown shape passes through; the result takes the known side
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::unknown(), Shape::vvec(4)),
-            Ok(MatchedShape {
-                shape: Shape::vvec(4),
-            })
-        );
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::node(), Shape::unknown()),
-            Ok(MatchedShape {
-                shape: Shape::node(),
-            })
-        );
-        // Both sides unknown → returns unknown
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::unknown(), Shape::unknown()),
-            Ok(MatchedShape {
-                shape: Shape::unknown(),
-            })
-        );
-    }
-
-    // ---- §3 connection result table (nets.mc comment) ----
-
-    #[test]
-    fn result_table_matches_spec() {
-        let cases = [
-            (Shape::node(), Shape::node(), Shape::node()), // 1*1 +- 1*1 = 1*1
-            (
-                Shape::vvec(4),
-                Shape::vvec(4),
-                Shape::vvec(4), // N*1 +- N*1 = N*1
-            ),
-        ];
-        for (l, r, expected) in cases {
-            assert_eq!(
-                ShapeMatcher::match_shape(l, r).unwrap().shape,
-                expected,
-                "match {l} x {r}"
-            );
-        }
-    }
-
     // ---- Shape helper predicates ----
 
     #[test]
@@ -970,65 +816,6 @@ mod shape_tests {
         assert!(Shape::unknown().is_unknown());
         assert_eq!(format!("{}", Shape::vvec(4)), "4*1");
         assert_eq!(format!("{}", Shape::unknown()), "?");
-    }
-
-    // ---- §4 four-operator evaluation table (eval_binary) ----
-
-    /// §4.1/4.3/4.4 series: row constraints and result shapes for `-` / `->` / `<-`.
-    #[test]
-    fn eval_series_ok_and_rejected() {
-        for op in [ConnOp::Series] {
-            // 1*1 - 1*1 = 1*1
-            assert_eq!(
-                eval_binary(op, Shape::node(), Shape::node()),
-                Ok(Shape::node())
-            );
-            // N*1 - N*1 = N*1
-            assert_eq!(
-                eval_binary(op, Shape::vvec(4), Shape::vvec(4)),
-                Ok(Shape::vvec(4))
-            );
-            // Row counts differ → ❌ (1*1 vs N*1)
-            assert_eq!(
-                eval_binary(op, Shape::node(), Shape::vvec(4)),
-                Err(ShapeError::RowMismatch {
-                    lhs: Shape::node(),
-                    rhs: Shape::vvec(4),
-                })
-            );
-        }
-    }
-
-    /// §4.2 parallel `+`: row constraints and result shape match series (the left operand is the anchor).
-    #[test]
-    fn eval_parallel_ok_and_rejected() {
-        // R101 + R102 = 1*1 (single-port pair, left operand is the anchor)
-        assert_eq!(
-            eval_binary(ConnOp::Parallel, Shape::node(), Shape::node()),
-            Ok(Shape::node())
-        );
-        // N*1 + N*1 = N*1
-        assert_eq!(
-            eval_binary(ConnOp::Parallel, Shape::vvec(3), Shape::vvec(3)),
-            Ok(Shape::vvec(3))
-        );
-        // Row counts differ → ❌
-        assert!(eval_binary(ConnOp::Parallel, Shape::vvec(2), Shape::vvec(3)).is_err());
-    }
-
-    /// §4 unknown shape wildcard: either side `rows == 0` → pass; the result takes the known side.
-    #[test]
-    fn eval_unknown_wildcard() {
-        for op in [ConnOp::Series, ConnOp::Parallel] {
-            assert_eq!(
-                eval_binary(op, Shape::unknown(), Shape::vvec(4)),
-                Ok(Shape::vvec(4))
-            );
-            assert_eq!(
-                eval_binary(op, Shape::node(), Shape::unknown()),
-                Ok(Shape::node())
-            );
-        }
     }
 
     /// §4 single-port representative rule (vec-dianlu.md §5.2):

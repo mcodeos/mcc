@@ -6,12 +6,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::mc_opd::McOpd;
 pub use super::mc_paramd::*;
-use crate::semantic::component::mc_attr::McAttribute;
+use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
 use crate::semantic::mc_func::HasFindInst;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*},
     semantic::{
-        basic::mc_literal::{McConst, McHex, McString},
+        basic::mc_expr::McExpression,
+        basic::mc_literal::{McConst, McHex, McLiteral, McString},
         basic::mc_phrase::McPhrase,
         basic::mc_uval::McUnitValue,
     },
@@ -92,23 +93,7 @@ impl McParamValue {
             }
 
             // Handle function body nodes - support attribute block as parameter
-            MCAST_BODY => {
-                if let Some(subnode) = node.get_sub_node() {
-                    let mut attributes = Vec::new();
-                    // Find MCAST_SET_ATTRIBUTES nodes
-                    for child in subnode
-                        .iter()
-                        .filter(|child| child.is_type(MCAST_ATTRIBUTE))
-                    {
-                        // Parse attribute Set
-                        if let Some(attr) = McAttribute::new(&child) {
-                            attributes.push(attr);
-                        }
-                    }
-                    return Some(McParamValue::InlineAttrs(attributes));
-                }
-                None
-            }
+            MCAST_BODY => Self::inline_attrs_from_body(node),
 
             // Square bracket vector: [a -> b] is parsed as MCAST_SQUARE_VEC
             MCAST_SQUARE_VEC => {
@@ -189,14 +174,32 @@ impl McParamValue {
         }
     }
 
+    /// Parse an attribute block argument `{ cap = 1uF; volt = 50V }` into an
+    /// [`McParamValue::InlineAttrs`] value, one attribute per named-argument
+    /// entry.
+    fn inline_attrs_from_body(node: &AstNode) -> Option<Self> {
+        let subnode = node.get_sub_node()?;
+        let mut attributes = Vec::new();
+        for child in subnode
+            .iter()
+            .filter(|child| child.is_type(MCAST_ATTRIBUTE))
+        {
+            if let Some(attr) = McAttribute::new(&child) {
+                attributes.push(attr);
+            }
+        }
+        Some(McParamValue::InlineAttrs(attributes))
+    }
+
     /// Parse a parameter value without an instance-lookup context.
     ///
     /// Used for instance construction args (e.g. `mcu(V3V3, V1V2)`,
     /// `::DC(3.3V)`) that are parsed before a function/module context
     /// exists. Handles every literal kind of [`McParamValue::new`] plus
-    /// plain identifiers; kinds that need a [`HasFindInst`] context
-    /// (opd expressions, function calls, attribute bodies) return `None`
-    /// and are dropped, matching the historical instance-arg behavior.
+    /// plain identifiers and attribute bodies (`{ cap = 1uF; volt = 50V }`,
+    /// as [`McParamValue::InlineAttrs`]); kinds that need a [`HasFindInst`]
+    /// context (opd expressions, function calls) return `None` and are
+    /// dropped, matching the historical instance-arg behavior.
     ///
     /// Plain identifiers keep the `Ids` representation: an OPD-wrapped id
     /// (`param > opd > ids > id V3V3`) and a square vector (`[VDD, GND]`)
@@ -211,6 +214,7 @@ impl McParamValue {
             // Placeholder _ used for .Cap(_) etc.
             MCAST_OPD_USCORE => Some(McParamValue::NONE(String::from("_"))),
             MCAST_OPD_NC => Some(McParamValue::NC(String::from("NC"))),
+            MCAST_BODY => Self::inline_attrs_from_body(node),
             MCAST_CONST => McConst::new(node).map(McParamValue::Const),
             MCAST_INT => McInt::new(node).map(McParamValue::Int),
             MCAST_HEX => McHex::new(node).map(McParamValue::Hex),
@@ -277,22 +281,105 @@ impl McParamValue {
 
     /// Check if it is a named parameter in attribute form
     ///
-    /// Named parameter syntax: `.pins[6:9]=SWDBG`, `.pkg='mc.serial9'`
-    /// Corresponds to `McParamValue::Attribute(...)` variant
+    /// Named parameter syntax: `{ cap = 1uF; volt = 50V }`
+    /// Corresponds to the `McParamValue::InlineAttrs(...)` variant.
     pub fn is_named_param(&self) -> bool {
-        //matches!(self, McParamValue::Attribute(_))
-        false
+        matches!(self, McParamValue::InlineAttrs(_))
     }
 
-    pub fn matches_param_name(&self, _name: &str) -> bool {
-        false
+    /// Check whether any attribute inside this named-parameter block matches
+    /// the given formal parameter name.
+    ///
+    /// Matching is case-insensitive on the attribute key; a bracketed key
+    /// (`pins[6:9]`) matches its root segment (`pins`).
+    pub fn matches_param_name(&self, name: &str) -> bool {
+        match self {
+            McParamValue::InlineAttrs(attrs) => attrs.iter().any(|a| attr_key_matches(&a.id, name)),
+            _ => false,
+        }
     }
 
     /// Try to get the attribute parameter's name
     ///
-    /// Only valid for Attribute type, returns the `.id` string.
+    /// Only valid for InlineAttrs; returns the first attribute's `id` string.
     pub fn get_param_name(&self) -> Option<String> {
-        None
+        match self {
+            McParamValue::InlineAttrs(attrs) => attrs.first().map(|a| a.id.to_string()),
+            _ => None,
+        }
+    }
+}
+
+/// Case-insensitive key match against a formal parameter name, falling back
+/// to the root segment for indexed keys (`pins[6:9]` → `pins`).
+fn attr_key_matches(key: &McIds, name: &str) -> bool {
+    let full = key.to_string();
+    if full.eq_ignore_ascii_case(name) {
+        return true;
+    }
+    key.root_name()
+        .is_some_and(|r| r.eq_ignore_ascii_case(name))
+}
+
+/// Convert an attribute value into a [`McParamValue`] so a named argument can
+/// participate in normal binding. Multi-value / unconvertible forms bind as
+/// `NONE` (unspecified); the name itself is still claimed by Round 1.
+fn attr_val_to_param_value(val: &McAttrVal) -> McParamValue {
+    match val {
+        McAttrVal::AttrLiteral(lit) => match lit {
+            McLiteral::Int(i) => McParamValue::Int(i.clone()),
+            McLiteral::Hex(h) => McParamValue::Hex(h.clone()),
+            McLiteral::Float(f) => McParamValue::Float(f.clone()),
+            McLiteral::String(s) => McParamValue::String(s.clone()),
+            McLiteral::Const(c) => McParamValue::Const(c.clone()),
+            McLiteral::Uval(u) => McParamValue::UValue(u.clone()),
+        },
+        McAttrVal::AttrVariable(opd, _) => match opd {
+            McOpd::Id(ids) => McParamValue::Ids(ids.clone()),
+            McOpd::This(ids) => McParamValue::Opd(McOpd::This(ids.clone())),
+            McOpd::Pins(ids) => McParamValue::Opd(McOpd::Pins(ids.clone())),
+            McOpd::Uscore => McParamValue::NONE(String::from("_")),
+        },
+        McAttrVal::AttrExpr(expr) => expr_to_param_value(expr),
+        McAttrVal::Attributes(_) | McAttrVal::KVS(_) => McParamValue::NONE(String::from("_")),
+    }
+}
+
+/// Convert a subset of [`McExpression`] forms into [`McParamValue`]; anything
+/// too complex to carry as a parameter value becomes `NONE` (unspecified).
+fn expr_to_param_value(expr: &McExpression) -> McParamValue {
+    match expr {
+        McExpression::Int(i) => McParamValue::Int(i.clone()),
+        McExpression::Float(f) => McParamValue::Float(f.clone()),
+        McExpression::String(s) => McParamValue::String(s.clone()),
+        McExpression::UnitValue(u) => McParamValue::UValue(u.clone()),
+        McExpression::UnitValueAt(u) => McParamValue::UValue(u.left.clone()),
+        McExpression::Const(c) => McParamValue::Const(c.clone()),
+        McExpression::Variable(opd) => match opd {
+            McOpd::Id(ids) => McParamValue::Ids(ids.clone()),
+            other => McParamValue::Opd(other.clone()),
+        },
+        McExpression::Set(items) => {
+            McParamValue::Set(items.iter().map(expr_to_param_value).collect())
+        }
+        // `±X` / `X~Y` ranges: bind the right (nominal) bound as the value.
+        McExpression::Range(_, right) | McExpression::Slice(_, right) => expr_to_param_value(right),
+        McExpression::Plus(l, r) | McExpression::Minus(l, r) => {
+            // Arithmetic on values: keep the left operand as a best effort.
+            expr_to_param_value(l).or_best_effort(expr_to_param_value(r))
+        }
+        _ => McParamValue::NONE(String::from("_")),
+    }
+}
+
+impl McParamValue {
+    /// Prefer the primary value; fall back to the alternative when `self` is
+    /// `NONE` (used only inside the attribute-value conversion above).
+    fn or_best_effort(self, alt: McParamValue) -> McParamValue {
+        match self {
+            McParamValue::NONE(_) => alt,
+            v => v,
+        }
     }
 }
 
@@ -632,15 +719,32 @@ impl McParamBindings {
         declares: &McParamDeclares,
         values: &[McParamValue],
     ) -> Result<Self, ParamBindError> {
-        // ── Separate named parameters (Attribute type) and positional parameters ──
-        let mut named_values: Vec<&McParamValue> = Vec::new();
+        // ── Separate named parameters (InlineAttrs) and positional parameters ──
+        // Each attribute inside `{ cap = 1uF; volt = 50V }` becomes one named
+        // argument `(formal_name, value)`; everything else is positional.
+        let mut named_entries: Vec<(String, McParamValue)> = Vec::new();
         let mut positional_values: Vec<McParamValue> = Vec::new();
 
         for v in values.iter() {
-            if v.is_named_param() {
-                named_values.push(v);
-            } else {
-                positional_values.push(v.clone());
+            match v {
+                McParamValue::InlineAttrs(attrs) => {
+                    for attr in attrs {
+                        let name = attr.id.to_string();
+                        let value = attr
+                            .values
+                            .first()
+                            .map(attr_val_to_param_value)
+                            .unwrap_or_else(|| McParamValue::NONE(String::from("_")));
+                        named_entries.push((name, value));
+                    }
+                }
+                other if other.is_named_param() => {
+                    // Other named forms (future): keep the whole value.
+                    if let Some(name) = other.get_param_name() {
+                        named_entries.push((name, other.clone()));
+                    }
+                }
+                _ => positional_values.push(v.clone()),
             }
         }
 
@@ -659,34 +763,14 @@ impl McParamBindings {
         // required: only params that have NO unit type AND NO default value.
         // Unit-typed params without a matching arg → bind as `_` (unspecified), not an error.
         let total = declares.iter().count();
-        let new_required = declares
-            .iter()
-            .filter(|d| !d.has_unit_type() && !d.has_enum_class() && !d.has_default_value())
-            .count();
 
-        // Check for too many arguments (strict error)
+        // Check for too many arguments (strict error, fast path). With named
+        // args claiming slots the precise check runs again after Round 3.
         if effective_count > total {
             return Err(ParamBindError::TooManyArguments {
                 expected: total,
                 got: effective_count,
             });
-        }
-
-        // Check for too few arguments (missing required)
-        if effective_count < new_required {
-            let required_names: Vec<String> = declares
-                .iter()
-                .filter(|d| !d.has_unit_type() && !d.has_default_value())
-                .filter_map(|d| d.get_primary_name())
-                .collect();
-            if effective_count < required_names.len() {
-                return Err(ParamBindError::MissingRequired {
-                    name: required_names
-                        .get(effective_count)
-                        .cloned()
-                        .unwrap_or_default(),
-                });
-            }
         }
 
         // ── Iter-3.G removed: no multi-value regrouping heuristic. Extra
@@ -699,22 +783,54 @@ impl McParamBindings {
         let mut slot_claimed: Vec<bool> = vec![false; total];
         let mut pos_claimed: Vec<bool> = vec![false; positional_values.len()];
 
-        // ── Round 1: Named binding (keep existing logic) ────────────────────
+        // ── Round 1: Named binding ─────────────────────────────────────────
+        // Each named argument (`{ cap = 1uF; ... }`) claims the formal slot
+        // whose name matches (case-insensitive). Orphan named arguments —
+        // names that match no formal parameter — are a hard error.
+        let mut named_claimed: Vec<bool> = vec![false; named_entries.len()];
         for (di, declare) in declares.iter().enumerate() {
-            let named_match = if let Some(param_name) = declare.get_primary_name() {
-                named_values
-                    .iter()
-                    .find(|v| v.matches_param_name(&param_name))
-                    .cloned()
-                    .cloned()
-            } else {
-                None
+            let Some(param_name) = declare.get_primary_name() else {
+                continue;
             };
-
-            if let Some(named_val) = named_match {
-                bindings[di] = Some(McParamBinding::new(declare.clone(), Some(named_val)));
-                slot_claimed[di] = true;
+            for (ni, (name, value)) in named_entries.iter().enumerate() {
+                if named_claimed[ni] {
+                    continue;
+                }
+                if name.eq_ignore_ascii_case(&param_name) || declare.match_name(name) {
+                    bindings[di] = Some(McParamBinding::new(declare.clone(), Some(value.clone())));
+                    slot_claimed[di] = true;
+                    named_claimed[ni] = true;
+                    break;
+                }
             }
+        }
+        // Orphan named arguments: no formal parameter has this name.
+        for (ni, (name, _)) in named_entries.iter().enumerate() {
+            if !named_claimed[ni] {
+                return Err(ParamBindError::UnknownParameter { name: name.clone() });
+            }
+        }
+
+        // Check for too few arguments (missing required), accounting for
+        // required slots already claimed by named args in Round 1.
+        let unclaimed_required: Vec<String> = declares
+            .iter()
+            .enumerate()
+            .filter(|(di, d)| {
+                !slot_claimed[*di]
+                    && !d.has_unit_type()
+                    && !d.has_enum_class()
+                    && !d.has_default_value()
+            })
+            .filter_map(|(_, d)| d.get_primary_name())
+            .collect();
+        if effective_count < unclaimed_required.len() {
+            return Err(ParamBindError::MissingRequired {
+                name: unclaimed_required
+                    .get(effective_count)
+                    .cloned()
+                    .unwrap_or_default(),
+            });
         }
 
         // ── Round 2: Unit claiming ──────────────────────────────────────────
@@ -754,6 +870,96 @@ impl McParamBindings {
             }
         }
 
+        // ── Round 2.5: Enum / interface class claiming ─────────────────────
+        // Class-typed arguments — bare enum member `X7R` or dotted
+        // `CAP.X7R` / `PKG.C0402` (which parse as `Opd(Id)`), or a dotted
+        // interface member `DC.IVCC5` — claim the formal slot that declares
+        // the same class. An enum-typed argument that cannot match any
+        // enum-class slot is a hard error; an interface-typed argument that
+        // matches no interface-class slot falls through to positional
+        // fallback (it may be a plain dotted net reference).
+        for (pi, pos_val) in positional_values.iter().enumerate() {
+            if pos_claimed[pi] {
+                continue;
+            }
+            let ids = match pos_val {
+                McParamValue::Ids(ids) => Some(ids),
+                McParamValue::Opd(McOpd::Id(ids)) => Some(ids),
+                _ => None,
+            };
+            let Some(ids) = ids else {
+                continue;
+            };
+            let parts = match ids.dot_chain_parts() {
+                Some(p) if !p.is_empty() => p,
+                _ => continue,
+            };
+            let arg_member = parts[parts.len() - 1].as_str();
+            let dotted_class: Option<String> = if parts.len() > 1 {
+                Some(parts[0].clone())
+            } else {
+                None
+            };
+            // Dotted args are only enum-typed when their class is a known
+            // enum class (`CAP.X7R`); `uC.I2C0` style net references are not.
+            let enum_class: Option<String> = match &dotted_class {
+                Some(c) if crate::db::cmie::cmie::is_enum_class_name(c) => Some(c.clone()),
+                None => crate::db::cmie::cmie::resolve_bare_enum_value(arg_member, None),
+                _ => None,
+            };
+
+            if let Some(arg_class) = enum_class {
+                let mut claimed = false;
+                for (di, declare) in declares.iter().enumerate() {
+                    if slot_claimed[di] {
+                        continue;
+                    }
+                    if declare.get_enum_class() == Some(arg_class.as_str()) {
+                        bindings[di] =
+                            Some(McParamBinding::new(declare.clone(), Some(pos_val.clone())));
+                        slot_claimed[di] = true;
+                        pos_claimed[pi] = true;
+                        claimed = true;
+                        break;
+                    }
+                }
+                if !claimed {
+                    // An enum-typed argument that cannot match any declared
+                    // enum-class slot is a hard error. This catches package
+                    // values (`PKG.R0402`, `R0603`) passed to components that
+                    // declare no enum-class parameter for them.
+                    return Err(ParamBindError::TypeMismatch {
+                        param_name: pos_val.to_string(),
+                        expected: format!("a parameter declared with enum class {arg_class}"),
+                        got: "no matching enum-class declaration".to_string(),
+                    });
+                }
+                continue;
+            }
+
+            // Interface claiming: dotted arg whose first segment matches an
+            // interface-class formal (or its first segment), e.g.
+            // `DC.IVCC5` → a formal declared as `dc24v::DC(24V)`.
+            if let Some(arg_class) = dotted_class {
+                for (di, declare) in declares.iter().enumerate() {
+                    if slot_claimed[di] {
+                        continue;
+                    }
+                    let Some((formal_class, _)) = declare.interface_annotation() else {
+                        continue;
+                    };
+                    let formal_first = formal_class.split('.').next().unwrap_or(&formal_class);
+                    if formal_first == arg_class || formal_class == arg_class {
+                        bindings[di] =
+                            Some(McParamBinding::new(declare.clone(), Some(pos_val.clone())));
+                        slot_claimed[di] = true;
+                        pos_claimed[pi] = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         // ── Round 3: Positional fallback ────────────────────────────────────
         // Remaining unclaimed positional args (strings, enums, package names, etc.)
         // fill remaining unclaimed slots in order.
@@ -773,6 +979,13 @@ impl McParamBindings {
                 slot_claimed[di] = true;
                 rp_idx += 1;
             }
+        }
+        // Positional args that could not claim any slot (because named args
+        // already occupied them) are too many — hard error.
+        if rp_idx < remaining_pos.len() {
+            let got = positional_values.len();
+            let expected = total - named_claimed.iter().filter(|c| **c).count();
+            return Err(ParamBindError::TooManyArguments { expected, got });
         }
 
         // ── Fill unclaimed slots ────────────────────────────────────────────
@@ -796,6 +1009,9 @@ impl McParamBindings {
 
         // ── Enum value validation ───────────────────────────────────────────
         // Verify that enum-class parameter values are valid enum members.
+        // Only plain-Ids values are checked: dotted / Opd-wrapped values in a
+        // chain expression may legitimately be positional fallback arguments
+        // (e.g. a package value `PKG.R0402`) and are not member-checked here.
         for binding in &final_bindings {
             if let McParamDeclareKind::EnumClass(ec) = &binding.declare.kind {
                 let ids_primary: Option<String> = match &binding.value {
@@ -914,6 +1130,9 @@ pub enum ParamBindError {
         expected: String,
         got: String,
     },
+
+    /// Named argument whose name matches no formal parameter
+    UnknownParameter { name: String },
 }
 
 impl std::fmt::Display for ParamBindError {
@@ -935,6 +1154,9 @@ impl std::fmt::Display for ParamBindError {
                     "Type mismatch for parameter '{param_name}': expected {expected}, got {got}"
                 )
             }
+            ParamBindError::UnknownParameter { name } => {
+                write!(f, "Unknown parameter: no formal parameter named '{name}'")
+            }
         }
     }
 }
@@ -946,6 +1168,8 @@ impl std::fmt::Display for ParamBindError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
+    use crate::{McIda, McSpaceName};
 
     /// t1: X6.setup(GND, NC) → bind success, arity=1
     /// NC is a modifier, not a positional argument. It must be stripped
@@ -1068,6 +1292,289 @@ mod tests {
             }
             Err(e) => panic!("Unexpected error: {:?}", e),
         }
+    }
+
+    // ── p3: named-argument binding ────────────────────────────────────────
+
+    /// Build a single-name formal parameter declaration.
+    fn single_declare(name: &str) -> McParamDeclare {
+        McParamDeclare {
+            kind: McParamDeclareKind::Single(McIds::from(name)),
+            param_type: McParamType::default(),
+        }
+    }
+
+    /// Build a named argument attribute `name = <int>`.
+    fn attr_int(name: &str, value: i64) -> McAttribute {
+        McAttribute {
+            no: 0,
+            id: McIds::from(name),
+            values: vec![McAttrVal::AttrLiteral(McLiteral::Int(McInt { value }))],
+            key_span: None,
+        }
+    }
+
+    /// Build a dotted-id chain `a.b` (as produced by AST `a.b` operand parsing).
+    fn dotted(parts: &[&str]) -> McIds {
+        use crate::semantic::basic::mc_ids::IdsSegment;
+        McIds {
+            segments: parts
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    if i == 0 {
+                        IdsSegment::Ida(Box::new(McIda::from(*p)))
+                    } else {
+                        IdsSegment::DotIda(Box::new(McIda::from(*p)))
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    /// t4: `{ cap = 10; volt = 25 }` binds by name, case-insensitively.
+    #[test]
+    fn test_named_args_bind_by_name_case_insensitive() {
+        let mut declares = McParamDeclares::new();
+        declares.push(single_declare("cap"));
+        declares.push(single_declare("volt"));
+
+        // Uppercase attribute key must still claim the `cap` slot.
+        let values = vec![McParamValue::InlineAttrs(vec![
+            attr_int("CAP", 10),
+            attr_int("volt", 25),
+        ])];
+
+        let bindings =
+            McParamBindings::bind(&declares, &values).expect("named args should bind by name");
+        let cap = bindings.find("cap").expect("cap should be bound");
+        assert!(matches!(cap.get_value(), Some(McParamValue::Int(i)) if i.value == 10));
+        let volt = bindings.find("volt").expect("volt should be bound");
+        assert!(matches!(volt.get_value(), Some(McParamValue::Int(i)) if i.value == 25));
+    }
+
+    /// t5: named args in reversed written order still claim the correct slots.
+    #[test]
+    fn test_named_args_out_of_order_bind_by_name() {
+        let mut declares = McParamDeclares::new();
+        declares.push(single_declare("cap"));
+        declares.push(single_declare("volt"));
+
+        let values = vec![McParamValue::InlineAttrs(vec![
+            attr_int("volt", 25),
+            attr_int("cap", 10),
+        ])];
+
+        let bindings = McParamBindings::bind(&declares, &values)
+            .expect("reversed named args should still bind");
+        let cap = bindings.find("cap").expect("cap should be bound");
+        assert!(matches!(cap.get_value(), Some(McParamValue::Int(i)) if i.value == 10));
+        let volt = bindings.find("volt").expect("volt should be bound");
+        assert!(matches!(volt.get_value(), Some(McParamValue::Int(i)) if i.value == 25));
+    }
+
+    /// t6: a named argument whose name matches no formal parameter is a hard error.
+    #[test]
+    fn test_orphan_named_arg_is_error() {
+        let mut declares = McParamDeclares::new();
+        declares.push(single_declare("cap"));
+
+        let values = vec![McParamValue::InlineAttrs(vec![attr_int("nope", 5)])];
+
+        match McParamBindings::bind(&declares, &values) {
+            Err(ParamBindError::UnknownParameter { name }) => assert_eq!(name, "nope"),
+            other => panic!("expected UnknownParameter, got {:?}", other),
+        }
+    }
+
+    /// t7: named args claim their slot; remaining positional args fill the rest.
+    #[test]
+    fn test_named_arg_plus_positional_fill_remaining() {
+        let mut declares = McParamDeclares::new();
+        declares.push(single_declare("cap"));
+        declares.push(single_declare("volt"));
+
+        // f({ volt = 25 }, 10) — volt by name, cap positionally.
+        let values = vec![
+            McParamValue::InlineAttrs(vec![attr_int("volt", 25)]),
+            McParamValue::Int(McInt { value: 10 }),
+        ];
+
+        let bindings =
+            McParamBindings::bind(&declares, &values).expect("named + positional should bind");
+        let cap = bindings.find("cap").expect("cap should be bound");
+        assert!(matches!(cap.get_value(), Some(McParamValue::Int(i)) if i.value == 10));
+        let volt = bindings.find("volt").expect("volt should be bound");
+        assert!(matches!(volt.get_value(), Some(McParamValue::Int(i)) if i.value == 25));
+    }
+
+    /// t8: named args occupying slots can push positional args over the limit.
+    #[test]
+    fn test_named_claim_causing_positional_overflow() {
+        let mut declares = McParamDeclares::new();
+        declares.push(single_declare("cap"));
+        declares.push(single_declare("volt"));
+
+        // f({ cap = 10 }, 25, 99) — cap by name; 25 → volt; 99 has no slot left.
+        let values = vec![
+            McParamValue::InlineAttrs(vec![attr_int("cap", 10)]),
+            McParamValue::Int(McInt { value: 25 }),
+            McParamValue::Int(McInt { value: 99 }),
+        ];
+
+        match McParamBindings::bind(&declares, &values) {
+            Err(ParamBindError::TooManyArguments { .. }) => {}
+            other => panic!("expected TooManyArguments, got {:?}", other),
+        }
+    }
+
+    // ── p4: enum / interface class heuristic claiming ─────────────────────
+
+    /// Register a small `CAP { X7R, C0G }` enum in the global table so
+    /// enum-class claiming sees it (mirrors library loading).
+    fn register_test_enum() {
+        use crate::db::infra::global::mcc_enums;
+        use crate::semantic::common::uri_intern;
+        use crate::semantic::mc_enum::{McEnumDef, McEnumValue};
+        use std::sync::Arc;
+
+        let def = McEnumDef {
+            name: McIds::from("CAP"),
+            span: [0, 3],
+            values: vec![
+                McEnumValue {
+                    name: McIds::from("X7R"),
+                    span: [0, 3],
+                },
+                McEnumValue {
+                    name: McIds::from("C0G"),
+                    span: [0, 3],
+                },
+            ],
+            uri: String::from("test.mc"),
+        };
+        mcc_enums.insert(
+            McSpaceName {
+                ident: McIds::from("CAP"),
+                uri: uri_intern("test.mc"),
+            },
+            Arc::new(def),
+        );
+    }
+
+    /// t9: a bare enum member `X7R` claims the enum-class slot `diel::CAP`.
+    #[test]
+    fn test_bare_enum_member_claims_enum_class_slot() {
+        register_test_enum();
+        let mut declares = McParamDeclares::new();
+        declares.push(McParamDeclare {
+            kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                name: McIds::from("diel"),
+                class_name: String::from("CAP"),
+                default_val: None,
+            }),
+            param_type: McParamType::default(),
+        });
+
+        let values = vec![McParamValue::Ids(McIds::from("X7R"))];
+        let bindings = McParamBindings::bind(&declares, &values)
+            .expect("bare enum member should claim the enum-class slot");
+        let diel = bindings.find("diel").expect("diel should be bound");
+        assert_eq!(diel.get_value().unwrap().to_string(), "X7R");
+    }
+
+    /// t10: a dotted `CAP.X7R` (Opd form) claims the enum-class slot.
+    #[test]
+    fn test_dotted_enum_member_opd_claims_enum_class_slot() {
+        register_test_enum();
+        let mut declares = McParamDeclares::new();
+        declares.push(McParamDeclare {
+            kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                name: McIds::from("diel"),
+                class_name: String::from("CAP"),
+                default_val: None,
+            }),
+            param_type: McParamType::default(),
+        });
+
+        let values = vec![McParamValue::Opd(McOpd::Id(dotted(&["CAP", "X7R"])))];
+        let bindings = McParamBindings::bind(&declares, &values)
+            .expect("dotted CAP.X7R should claim the enum-class slot");
+        let diel = bindings.find("diel").expect("diel should be bound");
+        assert_eq!(diel.get_value().unwrap().to_string(), "CAP.X7R");
+    }
+
+    /// t11: an enum member with no enum-class slot is a hard error.
+    #[test]
+    fn test_enum_member_without_enum_slot_is_error() {
+        register_test_enum();
+        let mut declares = McParamDeclares::new();
+        declares.push(single_declare("volt"));
+
+        // X7R is a known enum member but no formal declares an enum class.
+        let values = vec![McParamValue::Ids(McIds::from("X7R"))];
+        match McParamBindings::bind(&declares, &values) {
+            Err(ParamBindError::TypeMismatch { .. }) => {}
+            other => panic!("expected TypeMismatch, got {:?}", other),
+        }
+    }
+
+    /// t12: an enum member bound to the wrong enum class is a hard error.
+    #[test]
+    fn test_invalid_enum_member_value_is_error() {
+        register_test_enum();
+        let mut declares = McParamDeclares::new();
+        declares.push(McParamDeclare {
+            kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                name: McIds::from("diel"),
+                class_name: String::from("CAP"),
+                default_val: None,
+            }),
+            param_type: McParamType::default(),
+        });
+
+        // ZZZ is not a CAP member: claiming fails and validation rejects it.
+        let values = vec![McParamValue::Ids(McIds::from("ZZZ"))];
+        match McParamBindings::bind(&declares, &values) {
+            Err(ParamBindError::TypeMismatch { got, .. }) => assert_eq!(got, "ZZZ"),
+            other => panic!("expected TypeMismatch, got {:?}", other),
+        }
+    }
+
+    /// t13: a dotted interface member `DC.IVCC5` claims the interface-class slot.
+    #[test]
+    fn test_interface_member_claims_interface_slot() {
+        let mut declares = McParamDeclares::new();
+        declares.push(McParamDeclare {
+            kind: McParamDeclareKind::Single(McIds::from("dc24v")),
+            param_type: McParamType {
+                kind: McParamTypeKind::Interface {
+                    class_name: String::from("DC"),
+                    params: vec![String::from("24V")],
+                },
+                direction: None,
+            },
+        });
+
+        let values = vec![McParamValue::Opd(McOpd::Id(dotted(&["DC", "IVCC5"])))];
+        let bindings = McParamBindings::bind(&declares, &values)
+            .expect("DC.IVCC5 should claim the DC interface slot");
+        let dc24v = bindings.find("dc24v").expect("dc24v should be bound");
+        assert_eq!(dc24v.get_value().unwrap().to_string(), "DC.IVCC5");
+    }
+
+    /// t14: a dotted net reference (`uC.I2C0`) is not enum/interface typed and
+    /// falls through to positional binding.
+    #[test]
+    fn test_dotted_net_ref_falls_through_to_positional() {
+        let mut declares = McParamDeclares::new();
+        declares.push(single_declare("bus"));
+
+        let values = vec![McParamValue::Opd(McOpd::Id(dotted(&["uC", "I2C0"])))];
+        let bindings =
+            McParamBindings::bind(&declares, &values).expect("uC.I2C0 should bind positionally");
+        let bus = bindings.find("bus").expect("bus should be bound");
+        assert_eq!(bus.get_value().unwrap().to_string(), "uC.I2C0");
     }
 }
 
