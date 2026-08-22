@@ -141,18 +141,6 @@ impl McPhrase {
         use McPhrase::*;
         let scope = context.scope_name();
         let node_type = node.get_type();
-        let _node_name = format!("{}", node_type);
-        let _node_str = node.to_string();
-        let node_str = node.to_string();
-        // P2-7-XTAL: trace XTAL setup function body parsing
-        if let Some(ref s) = node_str {
-            if s.contains("XTAL") || s.contains("R442") || s.contains("RES(1M") {
-                let child_types: Vec<u16> = node
-                    .get_sub_node()
-                    .map(|c| c.iter().map(|n| n.get_type()).collect())
-                    .unwrap_or_default();
-            }
-        }
         match node_type {
             MCAST_OPD_USCORE => Some(McPhrase::Lead),
 
@@ -1609,20 +1597,6 @@ impl McPhrase {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
-                // P2-7-XTAL: trace raw AST node types before McPhrase::new
-                {
-                    let t1 = opd1_node.get_type();
-                    let t2 = opd2_node.get_type();
-                    let c1: Vec<u16> = opd1_node
-                        .get_sub_node()
-                        .map(|c| c.iter().map(|n| n.get_type()).collect())
-                        .unwrap_or_default();
-                    let c2: Vec<u16> = opd2_node
-                        .get_sub_node()
-                        .map(|c| c.iter().map(|n| n.get_type()).collect())
-                        .unwrap_or_default();
-                }
-
                 let opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
 
@@ -1969,12 +1943,6 @@ impl McPhrase {
             // or as a leftover from split inline declarations), extract the instance name as an identifier reference.
             MCAST_INSTANCE => {
                 if let Some(inner) = node.get_sub_node() {
-                    // P2-7-XTAL: trace MCAST_INSTANCE inner node structure
-                    let inner_type = inner.get_type();
-                    let inner_child_types: Vec<u16> = inner
-                        .get_sub_node()
-                        .map(|c| c.iter().map(|n| n.get_type()).collect())
-                        .unwrap_or_default();
                     // Check if inner is a DECLARE - if so, parse it via the DECLARE handling
                     if inner.get_type() == MCAST_DECLARE {
                         // Parse the DECLARE to get the phrase (which may contain DOT expressions)
@@ -2036,9 +2004,7 @@ impl McPhrase {
             // When MCAST_CLASS appears in an expression (e.g., a leftover from inline declaration V5V::DC(5V)),
             // extract the class name as an identifier reference
             MCAST_CLASS => {
-                // P2-7-XTAL: trace MCAST_CLASS inner structure
                 if let Some(inner) = node.get_sub_node() {
-                    let inner_type = inner.get_type();
                     let names = inner.to_id_or_ida();
                     if names.len() == 1 {
                         if let Some(inst) = context.find_inst(&names[0]) {
@@ -3962,6 +3928,57 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
             } else {
                 phrase.get_left()
             }
+        }
+        McPhrase::Endpoint(McEndpoint::Node {
+            ref input,
+            ref output,
+        }) => {
+            // Curly-mn port selection `m{vin|vout}` (MCAST_OPD_CURLY_MN) — the
+            // input elements connect on the left, the output elements on the
+            // right. Each element is an instance member reference (`m.vin`),
+            // so it must present the same expanded width as the Bus branch:
+            // a multi-member component / module port contributes one element
+            // per member (Pass2 expands it to one point per member), otherwise
+            // the strict §5 row-count check rejects a legal chain whose port
+            // Pass2 will expand to N points.
+            let side = if right { output } else { input };
+            let mut elems: Vec<McBus> = Vec::new();
+            for ep in side {
+                match ep {
+                    McEndpoint::Single(McInstanceRef {
+                        base: McInstance::Bus(ref bus),
+                        ..
+                    }) => {
+                        let base_member: Option<(&str, &str)> =
+                            if bus.member.len() == 1 && !bus.name.contains('.') {
+                                Some((bus.name.as_str(), bus.member[0].as_str()))
+                            } else if bus.member.is_empty() {
+                                bus.name.split_once('.')
+                            } else {
+                                None
+                            };
+                        if let Some((base, member)) = base_member {
+                            if let Some(e) = component_port_elems(context, base, member) {
+                                elems.extend(e);
+                                continue;
+                            }
+                            if let Some(e) = module_port_elems(context, base, member) {
+                                elems.extend(e);
+                                continue;
+                            }
+                        }
+                        elems.extend(Vec::from(bus.clone()));
+                    }
+                    other => {
+                        if right {
+                            elems.extend(other.get_right());
+                        } else {
+                            elems.extend(other.get_left());
+                        }
+                    }
+                }
+            }
+            elems
         }
         _ => {
             let r = if right {

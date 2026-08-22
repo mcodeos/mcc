@@ -314,6 +314,33 @@ impl McModuleInst {
     // McPhrase tree substitution
     // ========================================================================
 
+    /// Resolve a `this` reference to the caller instance bus.
+    ///
+    /// Supported forms:
+    /// - `this`       → `caller_inst_name`
+    /// - `this.xxx`   → `caller_inst_name.xxx`
+    /// - `this{a, b}` → `caller_inst_name{a, b}` (curly member access, e.g. `this{1}`)
+    fn this_ref_to_bus(s: &str, ctx: &ExpansionContext) -> McBus {
+        let this_name = ctx.instance.name.as_str();
+        if s == "this" {
+            return McBus::new(this_name);
+        }
+        if let Some(rest) = s.strip_prefix("this.") {
+            return McBus::new(&format!("{this_name}.{rest}"));
+        }
+        if let Some(rest) = s.strip_prefix("this{") {
+            if let Some(inner) = rest.strip_suffix('}') {
+                let members: Vec<String> = inner
+                    .split(',')
+                    .map(|m| m.trim().to_string())
+                    .filter(|m| !m.is_empty())
+                    .collect();
+                return McBus::new_with_members(this_name, members);
+            }
+        }
+        McBus::new(s)
+    }
+
     /// Substitute formal parameters in an McPhrase
     fn substitute_phrase(
         phrase: &McPhrase,
@@ -386,37 +413,37 @@ impl McModuleInst {
             // Component/Module/Interface are "already declared concrete instances", formal params should not override them, keep as-is.
             //
             // --- this substitution -------------------------------------------
-            // Replace "this.xxx" or "this" with "caller_inst_name.xxx" or "caller_inst_name"
+            // Replace "this" / "this.xxx" / "this{a, b}" with the caller instance
+            // bus ("caller_inst_name" / "caller_inst_name.xxx" / "caller_inst_name{a, b}").
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Label(s),
                 ..
             })) => {
+                let is_this_ref = s == "this"
+                    || s.starts_with("this.")
+                    || (s.starts_with("this{") && s.ends_with('}'));
                 let mut elem = McBus::new(s);
 
                 // Check whether it's a this reference
                 if let Some(ctx) = expansion_ctx {
-                    if s == "this" || s.starts_with("this.") {
-                        let this_name = ctx.instance.name.as_str();
-                        let new_name = if s == "this" {
-                            this_name.to_string()
-                        } else {
-                            format!("{}.{}", this_name, &s[5..])
-                        };
-                        elem = McBus::new(&new_name);
+                    if is_this_ref {
+                        elem = Self::this_ref_to_bus(s, ctx);
                     }
                 }
 
                 let substituted = Self::substitute_node_element(&elem, bindings);
-                if substituted.len() == 1
+                if substituted.is_empty() {
+                    phrase.clone()
+                } else if substituted.len() == 1
                     && substituted[0].name == elem.name
                     && substituted[0].member.is_empty()
+                    && !is_this_ref
                 {
-                    // No substitution hit, return as-is
-                    phrase.clone()
-                } else if substituted.is_empty() {
+                    // No substitution hit for a non-this label, return as-is
                     phrase.clone()
                 } else {
-                    // Substitution hit: merge into a Bus endpoint
+                    // Substitution hit (or a this-reference resolved to the
+                    // caller instance bus): merge into a Bus endpoint.
                     let bus = Self::node_elements_to_bus(&substituted);
                     McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(bus))))
                 }
@@ -426,27 +453,32 @@ impl McModuleInst {
                 ..
             })) => {
                 // Check whether the Bus name is a this reference
+                let is_this_ref = b.name == "this"
+                    || b.name.starts_with("this.")
+                    || (b.name.starts_with("this{") && b.name.ends_with('}'));
                 let mut bus_name = b.name.clone();
+                let mut this_members: Option<Vec<String>> = None;
                 if let Some(ctx) = expansion_ctx {
-                    if b.name == "this" || b.name.starts_with("this.") {
-                        let this_name = ctx.instance.name.as_str();
-                        bus_name = if b.name == "this" {
-                            this_name.to_string()
-                        } else {
-                            format!("{}.{}", this_name, &b.name[5..])
-                        };
+                    if is_this_ref {
+                        let bus = Self::this_ref_to_bus(&b.name, ctx);
+                        bus_name = bus.name;
+                        this_members = Some(bus.member);
                     }
                 }
 
-                let elem = McBus::new_with_members(&bus_name, b.member.clone());
+                let elem = McBus::new_with_members(
+                    &bus_name,
+                    this_members.unwrap_or_else(|| b.member.clone()),
+                );
                 let substituted = Self::substitute_node_element(&elem, bindings);
-                if substituted.len() == 1
+                if substituted.is_empty() {
+                    phrase.clone()
+                } else if substituted.len() == 1
                     && substituted[0].name == bus_name
                     && substituted[0].member == b.member
+                    && !is_this_ref
                 {
-                    // No substitution hit, return as-is
-                    phrase.clone()
-                } else if substituted.is_empty() {
+                    // No substitution hit for a non-this bus, return as-is
                     phrase.clone()
                 } else {
                     let bus = Self::node_elements_to_bus(&substituted);
