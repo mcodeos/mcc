@@ -211,8 +211,16 @@ pub fn is_power(name: &str) -> bool {
 }
 
 /// Strict "is this ground"
+///
+/// Local ground groups produced by `split_ground_nets` carry a
+/// `@<line|component>` suffix and a base that may be a port-member path
+/// (`GND@109`, `AGND@72`, `vin.GND@72`). Strip the suffix and classify by the
+/// last segment of the remaining base — the system ground the local group
+/// belongs to. Names without an `@` suffix behave exactly as before.
 pub fn is_ground(name: &str) -> bool {
-    let u = name.to_uppercase();
+    let base = name.split('@').next().unwrap_or(name);
+    let leaf = base.rsplit('.').next().unwrap_or(base);
+    let u = leaf.to_uppercase();
     EXACT_GROUND.contains(&u.as_str()) || PREFIX_GROUND.iter().any(|p| u.starts_with(p))
 }
 
@@ -384,6 +392,23 @@ mod tests {
 
         assert!(!is_ground("VCC"));
         assert!(!is_ground("RX"));
+    }
+
+    #[test]
+    fn is_ground_local_groups() {
+        // split_ground_nets local groups keep their system ground as the base.
+        assert!(is_ground("GND@109"));
+        assert!(is_ground("GND@c3"));
+        assert!(is_ground("AGND@72"));
+        assert!(is_ground("DGND@115"));
+        assert!(is_ground("PGND@lp322dcdc"));
+        assert!(is_ground("GND@uC"));
+        // Port-member base paths still classify by the trailing ground leaf.
+        assert!(is_ground("vin.GND@72"));
+        assert!(is_ground("dc.GND"));
+        // Non-ground names with an @ suffix stay non-ground.
+        assert!(!is_ground("VCC@72"));
+        assert!(!is_ground("RX@3"));
     }
 
     #[test]

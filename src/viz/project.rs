@@ -23,8 +23,9 @@
 //! * Pseudo endpoint: `entry.parent_id == block.bid && kind ∈ {Port, Label}`
 //!   (parent is the current layer module's own Port/Label = boundary declaration of this layer).
 //! * (a) union glue: **the same pseudo endpoint appearing in multiple nets** → those nets
-//!   are one electrical net; also **pseudo endpoints with `member_info.role == Ground`
-//!   are globally the same ground** (golden ruling ⑥).
+//!   are one electrical net. There is no GROUND sentinel: under strict DC rail identity,
+//!   ground-role pseudo endpoints are not globally merged (`va.GND` and `vb.GND` stay
+//!   distinct until a real wiring tie shares an endpoint).
 //! * (b) criterion: two endpoints in the same net share `parent_id` (same submodule),
 //!   one kind=Label, one kind=Port → drop Label keep Port (declaration side).
 //!
@@ -192,15 +193,16 @@ fn project_nets(
 
     // ── Rule (a): union grouping ─────────────────────────────────────────
     // key1: pseudo endpoint id —— multiple nets sharing the same pseudo endpoint ⇒ one electrical net
-    // key2: GROUND sentinel —— pseudo endpoints with member_info.role == Ground are globally the same ground (ruling ⑥)
+    // NOTE: no GROUND sentinel here (strict DC rail identity). Ground-role pseudo
+    // endpoints are NOT globally merged: `va.GND` and `vb.GND` stay distinct nets
+    // until they share a real wiring tie. Merging happens only through key1
+    // (shared pseudo endpoint) or the endpoint union in mc_net / visit.
     let mut dsu = Dsu::new(nets.len());
     let mut first_by_pseudo: HashMap<i64, usize> = HashMap::new();
-    const GROUND: i64 = -1; // sentinel key (real ids >= 0, no conflict)
-    let mut first_ground: Option<usize> = None;
 
     for (ni, net) in nets.iter().enumerate() {
         for pid in net.all_point_ids() {
-            if let Some(e) = pseudo_entry(pid, bid, table) {
+            if let Some(_e) = pseudo_entry(pid, bid, table) {
                 // key1
                 match first_by_pseudo.get(&pid) {
                     Some(&other) => dsu.union(other, ni),
@@ -208,15 +210,117 @@ fn project_nets(
                         first_by_pseudo.insert(pid, ni);
                     }
                 }
-                // key2
-                if e.member_info
-                    .as_ref()
-                    .map_or(false, |m| m.role == MemberRole::Ground)
-                {
-                    match first_ground {
-                        Some(other) => dsu.union(other, ni),
-                        None => first_ground = Some(ni),
+            }
+        }
+    }
+
+    // ── Rule (a) ground-net merge extensions ──────────────────────────────
+    // Under strict DC rail identity, ground-role nets stay separate unless a real
+    // wiring tie shares an endpoint. Three tie sources are only visible here:
+    //   (1) same local-ground group: `GND`, `GND@115`, `GND@uC`, ... are all split
+    //       from the same global GND by pass2 `split_ground_nets` → same bare base
+    //       "GND" (ruling ⑥: same-name GND labels merge).
+    //   (2) shared real endpoint: `V1V2.GND` and `V3V3.GND` both contain
+    //       `mcu513.GND` / `moddcdc.GND` — a real point in two nets is a real tie.
+    //   (3) sub-module internal tie: `V5V.GND` and `V3V3.GND` are tied only because
+    //       `modldo.vin.GND` and `modldo.vout.GND` sit in one sub-block net.
+    // Rail member grounds (`va.GND` / `vb.GND`) never merge by name (strict DC rail
+    // identity); only (2) / (3) may merge them, through a real wiring tie.
+    let is_ground_net = |ni: usize| naming::is_ground(&nets[ni].name);
+
+    // (1) same-base union: bare ground-label base (no '.', is_ground) groups.
+    {
+        let mut first_by_base: HashMap<String, usize> = HashMap::new();
+        for (ni, net) in nets.iter().enumerate() {
+            if !is_ground_net(ni) {
+                continue;
+            }
+            let base = net.name.split('@').next().unwrap_or(&net.name);
+            if base.contains('.') {
+                continue; // rail member ground (vin.GND) — strict identity, no name merge
+            }
+            match first_by_base.get(base) {
+                Some(&other) => dsu.union(other, ni),
+                None => {
+                    first_by_base.insert(base.to_string(), ni);
+                }
+            }
+        }
+    }
+
+    // (2) shared real endpoint union (ground-role nets only).
+    {
+        let mut first_by_point: HashMap<i64, usize> = HashMap::new();
+        for (ni, net) in nets.iter().enumerate() {
+            if !is_ground_net(ni) {
+                continue;
+            }
+            for pid in net.all_point_ids() {
+                if pid < 0 || pseudo_entry(pid, bid, table).is_some() {
+                    continue;
+                }
+                match first_by_point.get(&pid) {
+                    Some(&other) => dsu.union(other, ni),
+                    None => {
+                        first_by_point.insert(pid, ni);
                     }
+                }
+            }
+        }
+    }
+
+    // (3) sub-module internal ground tie propagation: if a raw sub-block net carries
+    //     >= 2 distinct ground-role Port points, those boundary ports are electrically
+    //     tied inside the sub-module (e.g. modldo's `vin.GND ~ ldo.2 ~ vout.GND`).
+    //     Union every parent ground-role net containing any of the tied points.
+    {
+        let mut parent_nets_of: HashMap<i64, Vec<usize>> = HashMap::new();
+        for (ni, net) in nets.iter().enumerate() {
+            if !is_ground_net(ni) {
+                continue;
+            }
+            for pid in net.all_point_ids() {
+                if pid < 0 {
+                    continue;
+                }
+                parent_nets_of.entry(pid).or_default().push(ni);
+            }
+        }
+        for sb in &block.blocks {
+            for sn in &sb.nets {
+                let mut ground_ports: Vec<i64> = Vec::new();
+                for pid in sn.all_point_ids() {
+                    if pid < 0 {
+                        continue;
+                    }
+                    let Some(e) = table.get_entry(pid as u32) else {
+                        continue;
+                    };
+                    if e.kind != InstKind::Port {
+                        continue;
+                    }
+                    let is_ground_role = e
+                        .member_info
+                        .as_ref()
+                        .map_or(false, |m| matches!(m.role, MemberRole::Ground))
+                        || naming::is_ground(last_segment(&e.path).as_str());
+                    if is_ground_role {
+                        ground_ports.push(pid);
+                    }
+                }
+                ground_ports.sort_unstable();
+                ground_ports.dedup();
+                if ground_ports.len() < 2 {
+                    continue;
+                }
+                let mut targets: Vec<usize> = Vec::new();
+                for pid in &ground_ports {
+                    if let Some(idxs) = parent_nets_of.get(pid) {
+                        targets.extend(idxs.iter().copied());
+                    }
+                }
+                for i in 1..targets.len() {
+                    dsu.union(targets[0], targets[i]);
                 }
             }
         }
@@ -497,6 +601,7 @@ fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &Ins
     // while Label pseudo points (main.GND) have member_info == None —— role probing and
     // name picking are two separate steps.
     let mut has_ground = false;
+    let mut ground_port: Option<String> = None; // rail ground member (main.va.GND → "va.GND")
     let mut label_leaf: Option<String> = None;
     let mut power_port: Option<String> = None;
     'outer: for &i in sorted {
@@ -505,7 +610,13 @@ fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &Ins
                 continue;
             };
             match e.member_info.as_ref().map(|m| m.role.clone()) {
-                Some(MemberRole::Ground) => has_ground = true,
+                Some(MemberRole::Ground) => {
+                    has_ground = true;
+                    // rail member: last two path segments (main.va.GND → "va.GND")
+                    if ground_port.is_none() {
+                        ground_port = Some(last_two_segments(&e.path));
+                    }
+                }
                 Some(MemberRole::Power) => {
                     // rail member: last two path segments (main.V3V3.VCC → "V3V3.VCC")
                     if power_port.is_none() {
@@ -523,8 +634,16 @@ fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &Ins
         }
     }
     if has_ground {
+        // A bare ground Label (main.GND → "GND") is the global ground declaration
+        // (ruling ⑥: same-name GND labels merge) and wins over any rail member path.
+        // A rail-only ground group (no bare GND label) keeps its full member path.
         if let Some(n) = label_leaf {
-            return n; // Global ground: the Label leaf name is the net name (GND group → "GND", ruling ⑥)
+            if naming::is_ground(&n) {
+                return n;
+            }
+        }
+        if let Some(n) = ground_port {
+            return n; // Rail ground: the full member path is the net name (va.GND), strict rail identity
         }
     }
     if let Some(n) = power_port {

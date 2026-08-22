@@ -412,31 +412,13 @@ impl McModuleInst {
             }
         }
 
-        // ── P2-12: bridge ground members between bare and dotted labels ──
-        // A port's ground member (e.g. `vin.GND`) is physically the same net
-        // as the module-level bare `GND` label. Without this bridge, a
-        // connection resolving to the dotted label (`vin -> ldo.VIN` →
-        // `vin.GND`) and a connection resolving to the bare label
-        // (`.Cap(_)` implicit GND / `connect_scalar_to_dc_bus` ground
-        // branch → bare `GND`) form two separate ground nets.
-        if let Some(prefix) = dotted_prefix.as_ref() {
-            for m in &dotted_members {
-                if m.is_empty() || !is_ground_name(m) {
-                    continue;
-                }
-                let bare = self.labels.get(m).cloned();
-                let dotted = self.labels.get(&format!("{prefix}.{m}")).cloned();
-                if let (Some(b), Some(d)) = (bare, dotted) {
-                    let id = self.next_conn_id();
-                    self.add_connection(self.make_conn_with_provenance(
-                        id,
-                        vec![b, d],
-                        ConnDir::Undirected,
-                        None,
-                    ));
-                }
-            }
-        }
+        // ── Strict DC rail identity (user-confirmed, GENERAL) ──
+        // A port's ground member (e.g. `vin.GND`) belongs to that rail only.
+        // It is NOT auto-bridged to the module-level bare `GND` label: within a
+        // module, different DC rails may carry different grounds, and the bare
+        // `GND` reference stays an independent net that the author wires
+        // explicitly. Merging happens only through real wiring ties (shared
+        // component ground pins, explicit `X.GND -> GND` connections).
     }
 
     // ========================================================================
@@ -937,7 +919,11 @@ impl McModuleInst {
                     let mut pts = make_ports(m.as_str(), pio.clone());
                     let id = self.next_conn_id();
                     if is_ground_name(m) {
-                        let gnd = self.node_to_netpoint(&McBus::new("GND"));
+                        // Strict DC rail identity: the port's ground member
+                        // belongs to the bound rail scalar (`{arg}.GND`), not
+                        // the module's bare `GND` label. Different rails keep
+                        // distinct grounds until real wiring ties them together.
+                        let gnd = self.rail_ground_point(&arg_pt, m);
                         pts.push(gnd);
                     } else {
                         pts.push(arg_pt.clone());
@@ -1136,7 +1122,11 @@ impl McModuleInst {
                     let mut pts = make_ports(m.as_str(), pio.clone());
                     let id = self.next_conn_id();
                     if is_ground_name(m) {
-                        let gnd = self.node_to_netpoint(&McBus::new("GND"));
+                        // Strict DC rail identity: the port's ground member
+                        // belongs to the bound rail scalar (`{arg}.GND`), not
+                        // the module's bare `GND` label. Different rails keep
+                        // distinct grounds until real wiring ties them together.
+                        let gnd = self.rail_ground_point(&arg_pt, m);
                         pts.push(gnd);
                     } else {
                         pts.push(arg_pt.clone());

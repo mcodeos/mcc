@@ -540,8 +540,8 @@ fn build_actual_modules(table: &InstTable, tree: &MccProjectTree) -> Vec<ActualM
                 // speaker.2, mcu513.1 etc. These are pure submodule internals
                 // that have no place in the main module's golden comparison.
                 //
-                // Root cause B (SPI port members not connected, so mcu513.10
-                // etc. are missing from actual nets) is tracked separately.
+                // (Root cause B — SPI member binding — is fixed: submodule SPI
+                // member pins like mcu.10 land on the main nets by name.)
                 if golden_name == "main" {
                     continue;
                 }
@@ -1411,13 +1411,13 @@ fn netdiff_all_modules() {
 
     // main: submodule interface ports expand to submodule.port.member endpoints
     // (modldo.vin.VCC / modldo.vout.GND / ...); the golden follows the source.
-    // Known residual: the three SPI data nets (MISO/MOSI/SCLK) rotate pins against
-    // the golden (flash.2/5/6 ↔ mcu513.8/9/11) — Root cause B (SPI interface member
-    // binding), tracked separately, so the match rate is asserted below 0.9.
+    // The SPI data/clock lanes are name-aligned (Root cause B fixed): interface
+    // members bind to pins by pin name first, so flash.2=MISO / flash.5=MOSI /
+    // flash.6=SCLK pair with mcu513.11 / mcu513.9 / mcu513.8 as the golden expects.
     let main_mod = reports.iter().find(|r| r.module == "main").unwrap();
     assert!(
-        main_mod.match_rate >= 0.7,
-        "main: expected match_rate >= 0.7, got {:.2}",
+        main_mod.match_rate >= 0.95,
+        "main: expected match_rate >= 0.95, got {:.2}",
         main_mod.match_rate
     );
     assert!(

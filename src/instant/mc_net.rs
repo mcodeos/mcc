@@ -1121,15 +1121,23 @@ impl NetTable {
                         .map(|p| p.path.clone())
                 })
                 .or_else(|| {
-                    // ITER-5 tier3: scan last segment to find names like power/ground
+                    // scan full paths for power/ground names
+                    //
+                    // ── Strict DC rail identity ──────────────────────────
+                    // The net name keeps the FULL path of the matched point
+                    // (e.g. `va.GND`, `main.ldo.gnd`) instead of the normalized
+                    // last segment (`GND`). Rationale: different DC rails in one
+                    // module may carry different grounds (`va.GND` != `vb.GND`);
+                    // last-segment normalization would name both `GND`, and the
+                    // downstream duplicate-name hyperedge merge would wrongly
+                    // short them together. Full-path names keep every rail
+                    // traceable and never merge by name.
                     group_points
                         .iter()
                         .filter_map(|p| {
                             let last = p.path.rsplit('.').next()?;
                             if looks_like_power_rail(last) {
-                                // Normalize: preserve the first segment, use UPPER form
-                                // so duplicate-name nets can merge
-                                Some(last.to_uppercase())
+                                Some(p.path.clone())
                             } else {
                                 None
                             }
