@@ -261,16 +261,6 @@ impl McModuleInst {
                     }
                     // Opdc SquareVec: IDA expansion result such as X<1:2> → [X1, X2]
                     // Take the element at position `index`
-                    /*McParamValue::Opd(McOpd::SquareVec(items)) => {
-                        if index < items.len() {
-                            McParamValue::Opdc(items[index].clone())
-                        } else {
-                            items
-                                .last()
-                                .map(|i| McParamValue::Opdc(i.clone()))
-                                .unwrap_or_else(|| p.clone())
-                        }
-                    }*/
                     // Other types (constants, single IDs, etc.) → broadcast directly
                     _ => p.clone(),
                 }

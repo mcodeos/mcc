@@ -301,22 +301,6 @@ impl McUse {
             );
         }
     }
-
-    // pub fn from_uri(uri: &String) -> McUse {
-    //     // Self {
-    //     //     uri: McURI::from(uri.as_str()),
-    //     //     class: None,
-    //     //     public: false,
-    //     // }
-    //     Self {
-    //         public: node.is_type(MCAST_USE_PUB),
-    //         prefix: uri_prefix,
-    //         path: uri_path,
-    //         version: uri_version,
-    //         as_id: uri_asid,
-    //         impt_ids: uri_import_ids,
-    //     }
-    // }
 }
 
 #[cfg(test)]

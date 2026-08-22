@@ -141,42 +141,6 @@ impl Diagnostic {
         self.other.push(related);
         self
     }
-
-    /*
-        pub fn to_lsp_diagnostic(&self) -> lsp_types::Diagnostic {
-            let mut diagnostic = lsp_types::Diagnostic {
-                range: self.location.to_lsp_range(),
-                severity: Some(self.level.as_lsp_severity()),
-                code: self
-                    .code
-                    .clone()
-                    .map(|code| lsp_types::NumberOrString::String(code)),
-                source: Some("rust-compiler".to_string()),
-                message: self.get_formatted_message(),
-                related_information: None,
-                tags: None,
-                data: None,
-            };
-
-            if !self.related_information.is_empty() {
-                let related = self
-                    .related_information
-                    .iter()
-                    .map(|info| lsp_types::DiagnosticRelatedInformation {
-                        location: lsp_types::Location {
-                            uri: lsp_types::Url::parse(&format!("file://{}", info.location.file_path))
-                                .unwrap(),
-                            range: info.location.to_lsp_range(),
-                        },
-                        message: info.get_formatted_message(),
-                    })
-                    .collect();
-                mc_diagnostic.related_information = Some(related);
-            }
-
-            mc_diagnostic
-        }
-    */
 }
 
 impl Display for Diagnostic {
@@ -280,20 +244,6 @@ impl DiagnosticManager {
             !indices.is_empty()
         });
     }
-
-    // pub fn clear_file(&mut self, file: &McURI) {
-    //     if let Some(indices) = self.file_to_diagnostics.remove(file) {
-    //         for &index in &indices {
-    //             self.diagnostics[index] = Diagnostic::new(
-    //                 DiagnosticLevel::Error,
-    //                 SourceLocation::new(McURI::from(""), 0, 0),
-    //                 "".to_string(),
-    //                 &[],
-    //             );
-    //         }
-    //         self.diagnostics.retain(|d| !d.message_template.is_empty());
-    //     }
-    // }
 }
 
 /// Report diagnostic information to the global diagnostic manager

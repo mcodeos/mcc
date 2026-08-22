@@ -2,7 +2,6 @@
 //! SPICE netlist export
 
 use crate::instant::insttab::InstTable;
-use crate::McComponentInst;
 use crate::McModuleInst;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -104,20 +103,5 @@ fn spice_prefix_for_class(class: &str) -> String {
             'R' | 'C' | 'L' | 'D' => first.to_string(),
             _ => "X".into(),
         }
-    }
-}
-
-#[allow(dead_code)]
-fn spice_resistor_nodes(c: &McComponentInst) -> (String, String) {
-    let mut pins: Vec<String> = Vec::new();
-    for (_pin_name, np) in &c.pins {
-        pins.push(np.path.clone());
-    }
-    if pins.len() >= 2 {
-        (pins[0].clone(), pins[1].clone())
-    } else if pins.len() == 1 {
-        (pins[0].clone(), "0".to_string())
-    } else {
-        ("0".to_string(), "0".to_string())
     }
 }

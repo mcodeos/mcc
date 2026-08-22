@@ -33,10 +33,6 @@ pub fn mcb_print() {
         println!("{}", module.value().as_ref());
     });
 
-    // global::mcc_enums.iter().for_each(|enum_def| {
-    //     println!("{:#?}", enum_def.value().as_ref());
-    // });
-
     workspace::WORKSPACE.enums.iter().for_each(|enum_def| {
         println!("{}", enum_def.value().as_ref());
     });

@@ -827,11 +827,6 @@ fn extract_ida(ida: &str) -> Vec<String> {
         }
     }
 
-    // eprintln!("IDA extracted. Result:");
-    //for each in result.iter() {
-    //    eprintln!("{}", each);
-    //}
-
     result
 }
 
