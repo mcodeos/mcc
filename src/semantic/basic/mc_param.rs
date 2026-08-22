@@ -599,45 +599,38 @@ impl McParamBindings {
         }
     }
 
-    /// Create bindings from parameter declarations and parameter values
+    /// Create bindings from parameter declarations and parameter values.
     ///
-    /// Supports:
-    /// - Positional binding: actual arguments match formal parameters in order
-    /// - Named binding: attribute parameters of the form `.name=value` matched by name
-    /// - Type constraint check (soft warning, does not reject binding)
+    /// Binding priority (highest first):
+    /// 1. Named binding: `.name=value` matched by formal parameter name.
+    /// 2. Type-directed match: a typed argument (unit / enum class / interface
+    ///    class) claims the uniquely matching formal slot.
+    /// 3. Positional fallback: remaining untyped arguments fill remaining
+    ///    unclaimed slots in written order.
     ///
-    /// # Binding rules
-    /// 1. First separate named and positional parameters
-    /// 2. For each formal parameter: prefer named match, then positional match
-    /// 3. If the formal parameter has a type constraint and the actual argument does not match, record warning but do not error
-    /// 4. Extra positional arguments report error, extra named arguments are ignored (may be attributes)
+    /// Strict arity: extra arguments and arguments that cannot be matched to
+    /// any formal parameter are hard errors. Nothing is silently ignored.
     pub fn bind(
         declares: &McParamDeclares,
         values: &[McParamValue],
     ) -> Result<Self, ParamBindError> {
-        Self::bind_with_opts(declares, values, false)
+        Self::bind_inner(declares, values)
     }
 
-    /// Silent version: used in component construction (`CAP(1uF, ±20%, X7R, 6V3, PKG.C0402)`) scenarios
-    /// Use this version —— the class's formal parameter list usually only declares the first few, and the rest
-    /// (tolerance/temperature coefficient/package, etc.) are optional decorative parameters. Having extras
-    /// is normal and should not trigger a warning.
-    ///
-    /// ── Iter-4.1 ────────────────────────────────────────────────────
-    /// Previously all bind paths shared one warning logic, causing
-    ///   `CAP(1uF, ±20%, X7R, 6V3, PKG.C0402)` -> `Warning: expected 2, got 5`
-    /// to spam every anonymous component. Function method binding does need this warning, but component construction does not.
+    /// Component-construction binding. Kept as an alias of [`Self::bind`]:
+    /// all parameters are now declared explicitly in the component signature,
+    /// so extra or unmatched arguments are errors just like function/method
+    /// calls. There is no longer a "silent extras" mode.
     pub fn bind_quiet(
         declares: &McParamDeclares,
         values: &[McParamValue],
     ) -> Result<Self, ParamBindError> {
-        Self::bind_with_opts(declares, values, true)
+        Self::bind_inner(declares, values)
     }
 
-    fn bind_with_opts(
+    fn bind_inner(
         declares: &McParamDeclares,
         values: &[McParamValue],
-        silent_extras: bool,
     ) -> Result<Self, ParamBindError> {
         // ── Separate named parameters (Attribute type) and positional parameters ──
         let mut named_values: Vec<&McParamValue> = Vec::new();
@@ -671,8 +664,8 @@ impl McParamBindings {
             .filter(|d| !d.has_unit_type() && !d.has_enum_class() && !d.has_default_value())
             .count();
 
-        // Check for too many arguments (strict error unless silent mode)
-        if effective_count > total && !silent_extras {
+        // Check for too many arguments (strict error)
+        if effective_count > total {
             return Err(ParamBindError::TooManyArguments {
                 expected: total,
                 got: effective_count,
@@ -696,39 +689,10 @@ impl McParamBindings {
             }
         }
 
-        // ── Iter-3.G: Set re-grouping heuristic (applied to effective positionals) ──
-        // Documented exception to the strict positional pairing of §11.3 (eval.md §11.5,
-        // design gap B): when there are more positional args than declared params and the
-        // count is an exact multiple, and every arg is simple, args are regrouped by
-        // `chunks(decl_count)` into one Set per formal param (multi-value group binding).
-        // The arg sequence keeps its written order; only the pairing granularity changes
-        // from "k-th arg <-> k-th param" to "group <-> param". Intended for decorative
-        // params (tolerance / temperature coefficient / package) declared implicitly.
-        let mut positional_values = effective_pos;
-        let decl_count = declares.iter().count();
-        if decl_count > 0
-            && positional_values.len() > decl_count
-            && positional_values.len() % decl_count == 0
-        {
-            let group_size = positional_values.len() / decl_count;
-            if group_size >= 2 {
-                let all_simple = positional_values.iter().all(|v| {
-                    !matches!(
-                        v,
-                        McParamValue::Set(_)
-                            | McParamValue::Phrase(_)
-                            | McParamValue::InlineAttrs(_)
-                    )
-                });
-                if all_simple {
-                    let regrouped: Vec<McParamValue> = positional_values
-                        .chunks(group_size)
-                        .map(|chunk| McParamValue::Set(chunk.to_vec()))
-                        .collect();
-                    positional_values = regrouped;
-                }
-            }
-        }
+        // ── Iter-3.G removed: no multi-value regrouping heuristic. Extra
+        // arguments are a hard error above; multi-value groups must be written
+        // explicitly as `[..]` sets. ──
+        let positional_values = effective_pos;
 
         // ── Three-round binding ────────────────────────────────────────────
         let mut bindings: Vec<Option<McParamBinding>> = vec![None; total];
@@ -776,12 +740,16 @@ impl McParamBindings {
                     }
                 }
                 if !claimed {
-                    // Unit-typed argument cannot claim any slot → diagnostic + R05
+                    // A unit-typed argument cannot match any declared unit. This
+                    // is a hard error: typed arguments never fall back to
+                    // positional binding (which could silently bind a value to
+                    // an unrelated parameter).
                     R05_UNRESOLVED_UNIT.fetch_add(1, Ordering::Relaxed);
-                    mcc_dbg!("sem::fcall", 
-                        "[R05] UNRESOLVED: unit {:?} value '{}' cannot claim any formal parameter slot.",
-                        arg_unit, uval
-                    );
+                    return Err(ParamBindError::TypeMismatch {
+                        param_name: uval.to_string(),
+                        expected: format!("a parameter declared with unit {arg_unit:?}"),
+                        got: "no matching unit declaration".to_string(),
+                    });
                 }
             }
         }
@@ -842,15 +810,13 @@ impl McParamBindings {
                 };
                 if let Some(vn) = val_name {
                     if !ec.is_valid_value(vn) {
-                        mcc_dbg!(
-                            "sem::fcall",
-                            "[E2810] Enum value '{}' is not a valid member of 'enum {}'. \
-                             Parameter '{}' requires a value from '{}'.",
-                            vn,
-                            ec.class_name,
-                            ec.name,
-                            ec.class_name
-                        );
+                        // An enum-class parameter bound to a value that is not a
+                        // member of its enum is a hard error.
+                        return Err(ParamBindError::TypeMismatch {
+                            param_name: ec.name.to_string(),
+                            expected: format!("a valid member of enum {}", ec.class_name),
+                            got: vn.to_string(),
+                        });
                     }
                 }
             }
