@@ -6,8 +6,6 @@
 //!
 //! Data types that bridge idiom detection (read-only) with placement (write).
 
-use crate::vector::graph::EntrySide;
-
 // ============================================================================
 // IdiomPlacementModel
 // ============================================================================
@@ -111,17 +109,6 @@ pub enum AnchorSide {
     Below,
     Left,
     Right,
-}
-
-impl AnchorSide {
-    pub fn to_entry_side(self) -> EntrySide {
-        match self {
-            AnchorSide::Above => EntrySide::Top,
-            AnchorSide::Below => EntrySide::Bottom,
-            AnchorSide::Left => EntrySide::Left,
-            AnchorSide::Right => EntrySide::Right,
-        }
-    }
 }
 
 /// Axis alignment between target and anchor.

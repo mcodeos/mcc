@@ -22,7 +22,6 @@
 //! ### Sub-modules
 //! - [`shell`]    —— HTML skeleton
 //! - [`theme`]    —— CSS (light / dark auto-adapt)
-//! - [`nav`]      —— server-side breadcrumb (backup, mainly relies on JS)
 //! - [`interact`] —— ★ client-side JS (real expand/collapse/navigation)
 //!
 //! ### Compatibility
@@ -31,7 +30,6 @@
 //! New code should use [`wrap_document`].
 
 pub mod interact;
-pub mod nav;
 pub mod shell;
 pub mod theme;
 

@@ -80,7 +80,7 @@ pub use traits::{DefaultRenderer, Layouter, LegacyRenderer, NoopRouter, Renderer
 pub use layout::FlowLayouter;
 
 // Routing algorithms (P4 new)
-pub use route::{smart_route_all, BusBundleRouter, OrthogonalRouter, StarRouter, StraightRouter};
+pub use route::{smart_route_all, BusBundleRouter, OrthogonalRouter, StarRouter};
 
 // Render (P4 new)
 pub use render::SvgRenderer;

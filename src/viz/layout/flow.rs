@@ -145,12 +145,6 @@ impl FlowLayouter {
         }
     }
 
-    /// Phase D — attach a SchematicLayoutModel for low-risk layout intent consumption.
-    pub fn with_schematic_model(mut self, model: SchematicLayoutModel) -> Self {
-        self.schematic_model = Some(model);
-        self
-    }
-
     /// Phase 1 · Prepare — topology normalization + coarse pins.
     ///
     /// Writes: fanout-related synth/split structures in graph, initial box sizes, coarse entry_points.

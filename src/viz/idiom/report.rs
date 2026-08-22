@@ -60,30 +60,6 @@ pub enum IdiomPlacementSkipReason {
 }
 
 impl IdiomPlacementReport {
-    /// Merge another report into this one (accumulate across layers).
-    pub fn merge(&mut self, other: &IdiomPlacementReport) {
-        self.idioms_detected += other.idioms_detected;
-        self.idioms_applicable += other.idioms_applicable;
-        self.idioms_applied += other.idioms_applied;
-        self.idioms_skipped += other.idioms_skipped;
-        for (k, v) in &other.by_kind_detected {
-            *self.by_kind_detected.entry(*k).or_insert(0) += v;
-        }
-        for (k, v) in &other.by_kind_applied {
-            *self.by_kind_applied.entry(*k).or_insert(0) += v;
-        }
-        self.protected_skips += other.protected_skips;
-        self.collision_skips += other.collision_skips;
-        self.collision_reverted += other.collision_reverted;
-        self.candidate_count += other.candidate_count;
-        self.selected_candidates
-            .extend(other.selected_candidates.clone());
-        for (k, v) in &other.skip_reasons {
-            *self.skip_reasons.entry(*k).or_insert(0) += v;
-        }
-        self.warnings.extend(other.warnings.clone());
-    }
-
     /// Single-line log summary.
     pub fn report_line(&self) -> String {
         let decoupling_detected = self

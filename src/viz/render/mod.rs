@@ -15,8 +15,7 @@
 //!            ├── shape::render_box ─────→ each box → SVG <g>
 //!            │     ├── two_pin / multi_pin / sub_module / power_label
 //!            │     └── BoxShape trait
-//!            ├── wire::render_edge   ────→ each McVecEdge → SVG <g> (compat with old binary)
-//!            └── wire::render_viznet ────→ each VizNet → SVG <g> (new hyperedge)
+//!            └── equipotential_tree_render ─→ each tree → SVG <g> (device layer)
 //! ```
 //!
 //! ## Root layer (P9-B)
@@ -30,13 +29,10 @@
 //! - [`multi_pin`]   —— multi-pin IC
 //! - [`sub_module`]  —— sub-module (with expand hint, extracted in P3)
 //! - [`power_label`] —— power / ground
-//! - [`wire`]        —— old `McVecEdge` + new `VizNet` SVG output
-//! - [`bus`]         —— dedicated bus render (thick trunk + thin taps)
 //!
 //! ## legacy.rs has been removed
 //! P4 extracted all features from legacy.rs; the file can be removed entirely.
 
-pub mod bus;
 pub mod capacitor;
 pub mod diode;
 pub mod equipotential_tree_render;
@@ -51,10 +47,7 @@ pub mod resistor;
 pub mod shape;
 pub mod sub_module;
 pub mod two_pin;
-pub mod wire;
-pub use bus::render_bus_with_taps;
 pub use shape::{render_box, BoxShape};
-pub use wire::render_viznet;
 
 use crate::vector::graph::{McVecBox, McVecGraph};
 
@@ -153,30 +146,7 @@ impl SvgRenderer {
 
             // ── ★ P7-3: rail terminal decorations (pin render attributes, not boxes, discipline 11) ──
             // ★ C1b: disabled — equipotential trees handle all power/ground symbols
-            // Power dots are drawn directly above the pin (pointing up), ground symbols
-            // directly below the pin (pointing down).
-            /*
-            for d in &graph.rail_decorations {
-                let Some(b) = graph.boxes.iter().find(|b| b.id == d.box_id) else {
-                    continue;
-                };
-                let Some(ep) = b.entry_points.iter().find(|e| e.pin_id == d.pin_id) else {
-                    continue;
-                };
-                let (px, py) = match ep.side {
-                    crate::vector::graph::EntrySide::Top => (b.x + ep.offset * b.w, b.y),
-                    crate::vector::graph::EntrySide::Right => (b.x + b.w, b.y + ep.offset * b.h),
-                    crate::vector::graph::EntrySide::Bottom => (b.x + ep.offset * b.w, b.y + b.h),
-                    crate::vector::graph::EntrySide::Left => (b.x, b.y + ep.offset * b.h),
-                };
-                svg.push_str(&power_rail::render_decoration(
-                    px,
-                    py,
-                    d.is_ground,
-                    &d.label,
-                ));
-            }
-            */
+            // (Power dots above the pin, ground symbols below the pin).
         }
 
         svg.push_str("</svg>\n");
