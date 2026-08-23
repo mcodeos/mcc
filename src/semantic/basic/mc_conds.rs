@@ -195,8 +195,11 @@ impl McConds {
                 // Direct NET node as block (e.g., `if address == 0x36 VDD -> RES(100kΩ) -> GPIO.2`)
                 block_node = Some(child.clone());
             } else if node_type == MCAST_BODY {
-                // Some parser paths wrap the pin block in MCAST_BODY
-                // Look inside for ATTRIBUTE_PIN, ATTRIBUTE_PINADD, or ATTRIBUTE
+                // Braced block. May hold pin attributes (looked up below) OR
+                // connection stmts (MCAST_NET). In the latter case keep the
+                // BODY node itself so parse_block_stmts can iterate its net
+                // stmts; otherwise `if (cond) { net }` silently drops the block.
+                let mut found_attr = false;
                 if let Some(body_sub) = child.get_sub_node() {
                     for inner in body_sub.iter() {
                         let inner_type = inner.get_type();
@@ -205,9 +208,13 @@ impl McConds {
                             || inner_type == MCAST_ATTRIBUTE
                         {
                             block_node = Some(inner.clone());
+                            found_attr = true;
                             break;
                         }
                     }
+                }
+                if !found_attr {
+                    block_node = Some(child.clone());
                 }
             } else if has_condition
                 && block_node.is_none()
@@ -269,7 +276,10 @@ impl McConds {
                 // Direct NET node as block (e.g., `else GPIO.2 - RES(100kΩ) -> GND`)
                 block_node = Some(child.clone());
             } else if child_type == MCAST_BODY {
-                // Some parser paths wrap the pin block in MCAST_BODY
+                // Braced block: pin attributes OR connection stmts. For net
+                // stmts keep the BODY node itself so parse_block_stmts can
+                // iterate; otherwise `else { net }` silently drops the block.
+                let mut found_attr = false;
                 if let Some(body_sub) = child.get_sub_node() {
                     for inner in body_sub.iter() {
                         let inner_type = inner.get_type();
@@ -278,9 +288,13 @@ impl McConds {
                             || inner_type == MCAST_ATTRIBUTE
                         {
                             else_if_block_node = Some(inner.clone());
+                            found_attr = true;
                             break;
                         }
                     }
+                }
+                if !found_attr {
+                    else_if_block_node = Some(child.clone());
                 }
             } else if child_type == MCAST_ATTRIBUTE_PIN
                 || child_type == MCAST_ATTRIBUTE_PINADD
@@ -696,7 +710,10 @@ impl McFuncConds {
         // - MCAST_NET: a single connection stmt
         // - MCAST_ATTRIBUTE_PIN / MCAST_ATTRIBUTE: single stmt
         match block.get_type() {
-            MCAST_COND_BLOCK => {
+            MCAST_COND_BLOCK | MCAST_BODY => {
+                // MCAST_COND_BLOCK: dead parser type (kept for compat).
+                // MCAST_BODY: the actual wrapper for `{ ... }` conditional
+                // blocks — iterate its children (net stmts / pin attributes).
                 if let Some(subnodes) = block.get_sub_node() {
                     for child in subnodes.iter() {
                         let child_type = child.get_type();

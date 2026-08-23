@@ -35,7 +35,8 @@ mod subst;
 use super::mc_bus::McBusInst;
 use super::mc_comp::McComponentInst;
 use super::mc_net::{
-    ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, NetTable, PortInst,
+    is_ground_name, ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, NetTable,
+    PortInst,
 };
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
@@ -890,6 +891,41 @@ impl McModuleInst {
 
         for conn in &self.connections {
             table.add_connection(conn);
+        }
+
+        // ── Sub-module internal ground tie propagation ────────────────────
+        // A raw per-module net only unions this module's own connections; it
+        // cannot see a sub-module's internal port-to-port short. Mirror the
+        // projection layer's mechanism (3) (viz/project.rs): if a sub-module
+        // net carries >= 2 distinct boundary ground points, those port members
+        // are one net inside the sub-module (e.g. modldo's SGM2019 pin 2 ties
+        // `vin.GND ~ ldo.2 ~ vout.GND`), so their parent-scope paths
+        // (`modldo.vin.GND`, `modldo.vout.GND`) must share a parent net too.
+        // Without this, a shared-ground LDO would split V5V.GND / V3V3.GND at
+        // this layer (only the projection layer used to re-merge them).
+        // Only points already registered in the parent table are tied
+        // (tie_paths skips unknown paths), matching the projection behavior.
+        for sub in &self.sub_modules {
+            let prefix = format!("{}.", sub.name);
+            for (_, pts) in &sub.nets {
+                let mut grounds: Vec<&str> = Vec::new();
+                for p in pts {
+                    // Boundary ground point = the sub-module's own port
+                    // member / label (owner None), leaf classified as ground.
+                    if p.owner.is_none() {
+                        let leaf = p.path.rsplit('.').next().unwrap_or(&p.path);
+                        if is_ground_name(leaf) && !grounds.contains(&p.path.as_str()) {
+                            grounds.push(&p.path);
+                        }
+                    }
+                }
+                if grounds.len() >= 2 {
+                    let parent_paths: Vec<String> =
+                        grounds.iter().map(|g| format!("{prefix}{g}")).collect();
+                    let refs: Vec<&str> = parent_paths.iter().map(|s| s.as_str()).collect();
+                    table.tie_paths(&refs);
+                }
+            }
         }
 
         self.nets = table
