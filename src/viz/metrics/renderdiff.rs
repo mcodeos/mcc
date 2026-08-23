@@ -713,11 +713,13 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
                 r.s8_nc_ok += 1;
             } else {
                 crate::vlog!(
-                    "[s8diag] layer='{}' NC device '{}' carries no NC_ prefix (designator={:?}, placements={:?})",
+                    "[s8diag] layer='{}' NC device '{}' carries no NC_ prefix (designator={:?}, value={:?}, placements={:?}, symbol={:?})",
                     graph.name,
                     b.name,
                     b.designator,
-                    b.label_placements.iter().map(|lp| lp.text.clone()).collect::<Vec<_>>()
+                    b.value,
+                    b.label_placements.iter().map(|lp| lp.text.clone()).collect::<Vec<_>>(),
+                    b.symbol,
                 );
             }
         }
@@ -725,10 +727,13 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
 
     // ── S9: cross-module signal nets terminate on a stub, not a dangling wire ──
     // The projection pass removes module-boundary pseudo-endpoints; a
-    // signal-class net left with exactly ONE endpoint renders as nothing
-    // (empty route) — a dangling wire. Green requires the open end to sit on
-    // a label box (net-label stub); the layout fix converts every such net
-    // into label+pin, so the dangling count must be 0.
+    // signal-class net left with exactly ONE box endpoint must still render a
+    // labeled stub — a named SubModuleIO boundary draws a Port stub, a
+    // power/ground rail draws its bus label / ground symbol. Green requires
+    // every single-endpoint net to render its stub, so the count of still-
+    // dangling (anonymous / bare-signal) nets must be 0. The renders-stub
+    // predicate is shared with the F5 skip in equipotential_tree so the two
+    // cannot drift apart.
     for n in &graph.nets {
         if !matches!(n.kind, NetKind::Signal | NetKind::SubModuleIO) {
             continue;
@@ -745,14 +750,22 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
             .map_or(false, |b| {
                 matches!(b.kind, BoxKind::PowerLabel | BoxKind::Dot)
             });
-        if on_label {
+        if on_label || crate::viz::layout::equipotential_tree::single_group_net_renders_stub(n) {
             r.s9_stub_ok += 1;
         } else {
+            let bname = graph
+                .boxes
+                .iter()
+                .find(|b| b.id == e.box_id)
+                .map(|b| format!("{} ({}:{:?})", b.name, b.kind, b.symbol))
+                .unwrap_or_default();
             crate::vlog!(
-                "[s9diag] layer='{}' net '{}' dangles at endpoint {:?}",
+                "[s9diag] layer='{}' net '{}' dangles at endpoint {:?} kind={:?} box={}",
                 graph.name,
                 n.name,
-                (e.box_id, e.pin_id)
+                (e.box_id, e.pin_id),
+                n.kind,
+                bname,
             );
         }
     }

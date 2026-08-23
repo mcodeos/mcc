@@ -2373,7 +2373,7 @@ impl McModuleInst {
                 // **this Group's g.opds[i]** (same as here), for the FuncCall
                 // inside it uses g.opds[i]'s original pointer to query
                 // auto_inst_map —— unequal to the cloned pointer above → MISS →
-                // placeholder CAP.in/RES.in leaks as @_phantom (CLAUDE.md BUG4).
+                // placeholder CAP.in/RES.in leaks as @_phantom.
                 //
                 // Fix: no longer process_stmt(clone), but in-place process each
                 // branch, keeping g.opds[i] sub-pointer unchanged (same strategy
@@ -3612,5 +3612,3 @@ fn is_single_ended(a: &[NetPoint], b: &[NetPoint]) -> bool {
     b_paths.sort_unstable();
     a_paths == b_paths
 }
-
-

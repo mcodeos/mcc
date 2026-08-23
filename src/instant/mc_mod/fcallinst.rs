@@ -193,9 +193,9 @@ impl McModuleInst {
         // missing all of them). Sub-module construction goes through
         // instantiate_**module**_construction, and `.in/.out` port expansion is
         // handled in resolve_funccall_*_points, not here. So dropping all
-        // trailing "in/out" here is safe and complete (CLAUDE.md P4: clears the
+        // trailing "in/out" here is safe and complete: it clears the
         // `<host>.in ~ part.pin1` / `part.pin2 ~ <host>.out` phantom short
-        // circuits for flash/dcdc/uC/X6).
+        // circuits for flash/dcdc/uC/X6.
         let is_placeholder =
             |e: &McBus| matches!(e.name.rsplit_once('.'), Some((_, "in")) | Some((_, "out")));
         let left_filtered: Vec<McBus> = left
@@ -1517,7 +1517,7 @@ impl McModuleInst {
     /// new connection has an endpoint that is exactly `<inst>.in` / `<inst>.out`,
     /// it must be a leaked phantom node (observed: `flash.in ~ CAP_1.1`,
     /// `dcdc.in ~ RES_1.1`, `uC.in ~ CAP_3.1`, `X6.in ~ CAP_4.1`). These
-    /// phantom nodes cross-short with real connections (CLAUDE.md P4).
+    /// phantom nodes cross-short with real connections.
     ///
     /// points.rs's `[FIX-C]` is supposed to quarantine such `<host>.in` into
     /// `@_phantom_*` at `node_to_netpoint`, but this phantom is a directly

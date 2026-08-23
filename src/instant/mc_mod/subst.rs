@@ -287,6 +287,24 @@ impl McModuleInst {
                 }
                 value.clone()
             }
+            McParamValue::Opd(McOpd::Id(ids)) => {
+                // The `=>` parameter-prefixing fold of a bare name
+                // (`V3V3 => CAP(..).Cap(_)` → `.Cap(V3V3)`, §1.2) wraps the
+                // prefix in an Opd, not an Ids. Route single-segment names
+                // through the Ids path so a formal DC rail pair substitutes
+                // to its two bound members instead of staying a single scalar
+                // point (E4176).
+                //
+                // Dotted names (e.g. `CAP.X5R` enum members, `PKG.R0402`
+                // packages) and non-formal names must keep their Opd wrapper:
+                // enum/package validation member-checks only plain Ids values
+                // and treats Opd values as opaque positional fallbacks.
+                if ids.segments.len() == 1 && bindings.find(&ids.to_string()).is_some() {
+                    Self::substitute_param_value(&McParamValue::Ids(ids.clone()), bindings)
+                } else {
+                    value.clone()
+                }
+            }
             McParamValue::Set(values) => McParamValue::Set(
                 values
                     .iter()

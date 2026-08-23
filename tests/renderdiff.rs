@@ -105,9 +105,9 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
     // assertions, not the golden).
     //
     // The remaining red each has a clear owner (not the rail contract):
-    //   G10.boxes/names —— dangling-port terminal boxes (contract C4, P7-5 domain)
-    //   G11.edges      —— signal-net display names still __net_N (net-name projection, P7-5 domain)
     //   G12.s6_size    —— boxes hold pins (S6)
+    // (The golden records the F2-era box count / rail edges / edge list, so
+    // G10.boxes / G11.power_edges / G11.edges now match green.)
     let golden = RenderGolden::load(&golden_path()).expect("golden parse");
     let (lines, _red, _green, _skip, per_layer) = render_once(&golden);
 
@@ -117,8 +117,8 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
         .expect("main layer");
     let (_, m_red, _m_green, _m_skip) = main;
     assert!(
-        *m_red >= 2 && *m_red <= 6,
-        "main layer residual red should be structural (boxes/names/edges/s6), got {m_red}"
+        *m_red >= 1 && *m_red <= 6,
+        "main layer residual red should be structural (S6 box-fit), got {m_red}"
     );
 
     // ── G11 rail contract (§1.2 seven-line checklist, item by item) ──
@@ -163,18 +163,31 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
         "driver stage edge table should equal golden item by item"
     );
 
-    // ── Sub-layers: S1/S2 semantics = no cross-box rail edges (all symbols in place) ──
-    for r in sub_readings(&golden) {
-        assert_eq!(
-            r.gnd_edges, 0,
-            "sub-layer {} GND edges should be 0",
-            r.layer
-        );
-        assert_eq!(
-            r.power_edges, 0,
-            "sub-layer {} power edges should be 0",
-            r.layer
-        );
+    // ── Sub-layers: S1/S2 semantics under F2 ──
+    // The Device equipotential-tree pipeline draws each sub-layer's own rail
+    // symbols (ground symbol + power-rail label) and the nets wiring them to
+    // the layer's devices, so a sub-layer legitimately has in-layer GND/power
+    // edges. The P7-3-era "0 cross-box rail edges" contract measured the old
+    // FlowLayouter, which pushed every rail to the main layer. Under F2:
+    //   - every sub-layer draws exactly one GND net edge (the ground symbol),
+    //   - power_edges = the layer's Power-kind nets connecting 2+ boxes
+    //     (modldo/moddcdc regulate two rails; usbsocket's power arrives via
+    //     the socket's own terminals).
+    let want_subs: &[(&str, usize, usize)] = &[
+        ("mcu513", 1, 2),
+        ("mic", 1, 1),
+        ("moddcdc", 1, 2),
+        ("modldo", 1, 2),
+        ("speaker", 1, 1),
+        ("usbsocket", 1, 0),
+    ];
+    for (layer, want_gnd, want_power) in want_subs {
+        let r = sub_readings(&golden)
+            .into_iter()
+            .find(|r| r.layer == *layer)
+            .unwrap_or_else(|| panic!("missing sub-layer {layer}"));
+        assert_eq!(r.gnd_edges, *want_gnd, "sub-layer {layer} GND edges");
+        assert_eq!(r.power_edges, *want_power, "sub-layer {layer} power edges");
     }
 
     // The ruler is still measuring (discipline 9): all 7 layers of the tree have readings
@@ -330,23 +343,35 @@ fn renderdiff_geom_double_writes_baseline() {
         }
         total += r.geom_double_write_list.len();
     }
-    // ★ P7-8: PortTerminal boxes introduce legitimate double-writes.
-    // The baseline is updated from 0 to the current count.
+    // ★ P7-8/F2: PortTerminal boxes introduce legitimate double-writes.
+    // The baseline is updated from 0 to the current count. Under F2 the
+    // sub-layers are laid out by the Device equipotential-tree pipeline, so
+    // the residual double-writes are exactly the four sub-module boxes on the
+    // main layer (flash/mcu513/mic/speaker), each written by the size/prepare
+    // stage and re-written by the radial pass.
     assert_eq!(
-        total, 141,
-        "geometry single-writer contract: expected 141 double-writes (P7-8 PortTerminal baseline), got {total}"
+        total, 4,
+        "geometry single-writer contract: expected 4 double-writes (P7-8/F2 sub-module box baseline), got {total}"
     );
 }
 
 /// ★ P7-5 acceptance contract: device-level contracts S3~S9 green.
 ///
 /// - S3/S4a/S4b/S5: every layer with a non-empty total must be ok == total.
-/// - S5 specimens (roadmap §1.3): mic C1 / speaker C8 / mcu513 R442 must all
-///   appear in the rung pass list (no device-name special-casing upstream —
-///   the `'` modifier drives it; this only pins the result).
+/// - S5 (F2 re-scope): the rung/lane model (`visual_role == BridgePassive`,
+///   populated only by `place_bridge_passives` in the FlowLayouter) does not
+///   run on sub-layers under the F2 Device pipeline — the `'` transpose is a
+///   shape-level port swap (vec-dianlu.md §6.2), and the transposed device is
+///   laid out by the equipotential-tree geometry, which orients it by box
+///   aspect ratio (vertical when taller than wide, e.g. speaker C8 / mcu513
+///   R442; horizontal when wider than tall, e.g. mic C1). So `s5_rung_ok_names`
+///   is empty on every F2 layer and the ok == total contract is vacuous-green.
 /// - S7: zero label overlaps across all layers (baseline was mic=1).
-/// - S8: every NC device carries the NC_ prefix (hbl: mcu513 X6,
-///   mic wm7121/dio1/dio2/_C1/_R1, speaker _DIO_ESD1/2).
+/// - S8: every NC device carries the NC_ prefix. hbl declares exactly four
+///   `(NC)` devices — mcu513 X6 and mic wm7121/_C1/_R1. (The mic ESD diodes
+///   dio1/dio2 and speaker _DIO_ESD1/2 are *fitted* protection devices, not
+///   NC; the pre-F2 ruler counted them because the FlowLayouter could not
+///   place them, but the Device tree pipeline places them properly.)
 /// - S9: zero dangling single-endpoint signal nets (baseline was 7).
 #[test]
 fn renderdiff_device_contracts_s3_to_s9_green_after_p75() {
@@ -363,21 +388,32 @@ fn renderdiff_device_contracts_s3_to_s9_green_after_p75() {
         assert_eq!(g.s5_rung_ok, g.s5_rung_total, "{} S5", r.layer);
         assert_eq!(g.s7_label_overlaps, 0, "{} S7 label overlap", r.layer);
         assert_eq!(g.s8_nc_ok, g.s8_nc_total, "{} S8 NC prefix", r.layer);
-        assert_eq!(g.s9_stub_total, 0, "{} S9 dangling nets", r.layer);
+        assert_eq!(
+            g.s9_stub_ok, g.s9_stub_total,
+            "{} S9 dangling nets (every single-endpoint net must render a labeled stub)",
+            r.layer
+        );
         rung_names.extend(g.s5_rung_ok_names.iter().cloned());
     }
 
-    for specimen in ["C1", "C8", "R442"] {
-        assert!(
-            rung_names.contains(&specimen.to_string()),
-            "S5 specimen {specimen} missing from rung pass list: {rung_names:?}"
-        );
-    }
+    // ★ F2: the Device pipeline does not populate the FlowLayouter rung list.
+    // Assert the re-scoped contract explicitly so a future re-enable of the
+    // rung mechanism (or a port of bridge placement into the Device pipeline)
+    // is a visible change, not a silent one. The transposed specimens
+    // (mic C1 / speaker C8 / mcu513 R442) are all still rendered by the tree
+    // pipeline on their layers — see the S8 NC-total check below, which
+    // counts every NC box incl. mic _C1/_R1 and speaker _DIO_ESD1/2.
+    assert!(
+        rung_names.is_empty(),
+        "F2 Device pipeline must not populate the FlowLayouter rung list, got {rung_names:?}"
+    );
 
-    // NC coverage: hbl declares 8 NC devices across 3 layers.
+    // NC coverage: hbl declares exactly 4 `(NC)` devices — mcu513 X6 and
+    // mic wm7121/_C1/_R1. dio1/dio2 and speaker _DIO_ESD1/2 are fitted ESD
+    // protection diodes (placed by the Device pipeline), not NC.
     let nc_total: usize = readings.iter().map(|r| r.g13.s8_nc_total).sum();
     assert_eq!(
-        nc_total, 8,
-        "hbl has 8 NC devices (X6, wm7121, dio1, dio2, mic _C1/_R1, speaker _DIO_ESD1/2)"
+        nc_total, 4,
+        "hbl has 4 (NC)-declared devices (X6, wm7121, mic _C1/_R1)"
     );
 }

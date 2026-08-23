@@ -38,6 +38,30 @@ fn setup() -> (Arc<RpcMethodRegistry>, std::path::PathBuf) {
     (registry, entry)
 }
 
+/// Compute the cursor byte positions the S4 assertions probe, from the source
+/// text rather than hardcoded offsets. The mcd `us513.mc` fixture has grown
+/// over time (crystal X6 config block), shifting line offsets — hardcoded
+/// byte positions silently landed in the wrong scope.
+///
+/// Returns `(module_body, func_body)`:
+/// - `module_body`: the byte offset of the blank line immediately above
+///   `func i2c()` — inside `module US513`, outside any function.
+/// - `func_body`: the byte offset just past the `{` of `func i2c()` — inside
+///   the `US513.i2c` function body.
+fn probe_positions(entry: &std::path::Path) -> (usize, usize) {
+    let src = std::fs::read_to_string(entry).expect("read us513.mc");
+    let func = src
+        .find("func i2c()")
+        .unwrap_or_else(|| panic!("func i2c not found in us513.mc"));
+    // The blank line immediately above `func i2c()`: `rfind("\n\n")` returns
+    // the byte offset of the `\n` that ends the line before the blank line —
+    // i.e. the start of the blank line itself, inside `module US513`.
+    let module_body = src[..func].rfind("\n\n").unwrap_or(0);
+    let brace = src[func..].find('{').expect("func i2c open brace") + func;
+    let func_body = brace + 1;
+    (module_body, func_body)
+}
+
 fn completion(
     registry: &Arc<RpcMethodRegistry>,
     uri: &str,
@@ -58,14 +82,16 @@ fn s4_lock() -> std::sync::MutexGuard<'static, ()> {
     S4_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Module body (blank line 132, inside `module US513`): the authoritative
-/// scope must be "US513" and P2 must surface the module port I2C0.
+/// Module body (blank line above `func i2c`, inside `module US513`): the
+/// authoritative scope must be "US513" and P2 must surface the module port
+/// I2C0.
 #[test]
 fn layered_module_body_scope() {
     let _lock = s4_lock();
     let (registry, entry) = setup();
     let uri = entry.to_string_lossy();
-    let resp = completion(&registry, &uri, 7304, Some("I2"));
+    let (module_body, _func_body) = probe_positions(&entry);
+    let resp = completion(&registry, &uri, module_body, Some("I2"));
     eprintln!("MODULE-BODY response: {resp}");
     assert_eq!(resp["scope_path"], "US513", "module-body scope");
     let p2 = resp["layers"]["P2"].as_array().expect("P2 layer");
@@ -77,7 +103,7 @@ fn layered_module_body_scope() {
     assert!(resp["truncated_layers"].is_array());
 }
 
-/// Function body (line 136, inside `func i2c` of module US513): the
+/// Function body (just past the `{` of `func i2c`, inside module US513): the
 /// authoritative scope must be "US513.i2c" and P2 must surface the instance
 /// uC.
 #[test]
@@ -85,7 +111,8 @@ fn layered_func_body_scope() {
     let _lock = s4_lock();
     let (registry, entry) = setup();
     let uri = entry.to_string_lossy();
-    let resp = completion(&registry, &uri, 7345, None);
+    let (_module_body, func_body) = probe_positions(&entry);
+    let resp = completion(&registry, &uri, func_body, None);
     eprintln!("FUNC-BODY response: {resp}");
     assert_eq!(resp["scope_path"], "US513.i2c", "func-body scope");
     let p2 = resp["layers"]["P2"].as_array().expect("P2 layer");
@@ -102,8 +129,9 @@ fn member_enumeration_component() {
     let _lock = s4_lock();
     let (registry, entry) = setup();
     let uri = entry.to_string_lossy();
+    let (_module_body, func_body) = probe_positions(&entry);
     let params = serde_json::json!({
-        "uri": uri, "position": 7345, "member_root": "uC"
+        "uri": uri, "position": func_body, "member_root": "uC"
     });
     let resp = registry
         .call("completion", Some(params))
@@ -131,8 +159,9 @@ fn member_enumeration_this() {
     let _lock = s4_lock();
     let (registry, entry) = setup();
     let uri = entry.to_string_lossy();
+    let (_module_body, func_body) = probe_positions(&entry);
     let params = serde_json::json!({
-        "uri": uri, "position": 7345, "member_root": "this"
+        "uri": uri, "position": func_body, "member_root": "this"
     });
     let resp = registry
         .call("completion", Some(params))

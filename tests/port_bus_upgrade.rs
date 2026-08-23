@@ -48,14 +48,17 @@ fn port_members(inst: &mcc::McModuleInst, name: &str) -> Vec<String> {
 fn curly_use_upgrades_scalar_port() {
     // `spi1` is declared as a single point; the body uses it as a 4-member
     // bus, so the port is upgraded with the curly members before
-    // instantiation.
+    // instantiation. The right side must be 4-wide too: `spi1{...} -> GND`
+    // (4x1 vs 1x1) is intentionally rejected by the strict opcheck as a
+    // single-point broadcast (no carve-out), so the fan-in shape is written
+    // as an explicit 4-wide vector.
     let inst = build(
         r#"
 module main
 {
     out spi1
 
-    spi1{CS, SCLK, MOSI, MISO} -> GND
+    spi1{CS, SCLK, MOSI, MISO} -> [GND, GND, GND, GND]
 }
 "#,
     );
