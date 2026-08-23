@@ -301,14 +301,20 @@ fn render_block_edges(graph: &McVecGraph) -> String {
             let mut consumer_anchors_final: Vec<((f64, f64), &edge_decide::BlockEdge)> = Vec::new();
             for &idx in indices {
                 let edge = &edges[idx];
-                let from_box = graph.boxes.iter().find(|b| b.id == edge.from_box);
                 let to_box = graph.boxes.iter().find(|b| b.id == edge.to_box);
-                let (Some(from), Some(to)) = (from_box, to_box) else {
+                let Some(to) = to_box else {
                     continue;
                 };
-                let is_driver = Some(from.id) == driver_box_id;
                 let is_driver_to = Some(to.id) == driver_box_id;
-                if !is_driver && !is_driver_to {
+                // ★ Rail trunk-tap fix: `decide_edges` emits power edges as
+                // driver→consumer, so `is_driver` is true on every edge of a
+                // single-driver star. The old `!is_driver && !is_driver_to`
+                // guard skipped all of them → empty consumer anchors → the trunk
+                // collapsed to a zero-length stub at the driver. Take every edge
+                // whose *target* is a consumer (secondary consumer→consumer edges
+                // in a multi-driver mesh still qualify; edges pointing back at the
+                // driver are correctly excluded).
+                if !is_driver_to {
                     let (ax, ay) = rail_anchor(to, trunk_x, to.y + to.h / 2.0, 0, 1);
                     consumer_anchors_final.push(((ax, ay), edge));
                 }
