@@ -695,6 +695,12 @@ pub const PULLUP_DEGENERATE: u32 = 4056;
 /// A single-element square bracket expands to an unknown instance; the statement may produce no nets or constraints.
 pub const NET_DROPPED_STATEMENT: u32 = 4057;
 
+/// Same logical net referenced more than once in a connection, always pairing to the same peer net — redundant.
+pub const NET_DUPLICATE_REF: u32 = 4060;
+
+/// Same logical net referenced more than once in a connection, pairing to different peer nets — possible short.
+pub const NET_SHORT_REF: u32 = 4061;
+
 /// Layout attribute is missing a required subnode.
 pub const LAYOUT_MISSING_SUBNODE: u32 = 4081;
 
@@ -1451,6 +1457,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(GHOST_PORT, "A net endpoint is not mapped to any box — possible unexposed module boundary port.", "GHOST_PORT: net '{0}' endpoint id={1} is not mapped to any box. This pin may cross a module boundary without being properly exposed as a port."),
     entry!(PULLUP_DEGENERATE, "Pullup/pulldown degenerated into a signal-signal bridge.", "PULLUP_DEGENERATE: '{0}' both ends are non-rail nets ({1} ~ {2}). Pullup/Pulldown may have degenerated into a signal-signal bridge instead of (signal, rail)."),
     entry!(NET_DROPPED_STATEMENT, "A single-element square bracket expands to an unknown instance; the statement may produce no nets or constraints.", "DROPPED_STATEMENT: indexed alias '{0}' expands to '{1}' which is not a known instance. The statement may produce no nets or constraints."),
+    entry!(NET_DUPLICATE_REF, "Same logical net referenced more than once in a connection, always pairing to the same peer net — redundant.", "DUPLICATE_REF: logical net '{0}' is referenced more than once and always pairs to the same net '{1}'. The result is identical to '{0} -> {1}'; simplify the redundant reference."),
+    entry!(NET_SHORT_REF, "Same logical net referenced more than once in a connection, pairing to different peer nets — possible short.", "SHORT_REF: logical net '{0}' is referenced more than once and pairs to different nets [{1}]. Those nets are shorted together through the same-name group's pads; review the connection."),
     entry!(LAYOUT_MISSING_SUBNODE, "Layout attribute is missing a required subnode.", "Layout attribute is missing a required subnode."),
     entry!(LAYOUT_TYPE_MISMATCH, "Layout attribute node type mismatch.", "Layout attribute node type mismatch."),
     entry!(LAYOUT_SET_MISSING_SUBNODE, "Layout set is missing a required subnode.", "Layout set is missing a required subnode."),

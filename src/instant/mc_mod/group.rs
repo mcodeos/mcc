@@ -206,6 +206,48 @@ impl McModuleInst {
             conn
         };
 
+        // ── §5: logical-net uniqueness check (same-name multi-pin group) ─
+        // A same-name group (`3 = GND; 4 = GND`) is ONE logical net whose
+        // physical pads share the (owner, member_name) identity. Referencing
+        // the group in two slots (`spk{GND, GND}`) re-emits every pad, so the
+        // same logical net ends up referenced more than once in one pairing.
+        // Per same-name-pin-group.md §5 that is either redundant (every
+        // reference pairs to the same peer net) or a short (distinct peer nets
+        // get tied together through the group's pads) — both non-blocking
+        // warnings, so the connection is still built.
+        let net_key = |p: &NetPoint| -> (String, String) {
+            match (&p.owner, &p.member_name) {
+                (Some(o), Some(m)) if !m.is_empty() => (o.clone(), m.clone()),
+                // Ports / labels / unexpanded single pins carry no member
+                // identity — they are unique by path.
+                _ => (String::new(), p.path.clone()),
+            }
+        };
+
+        // Phase 1: which logical nets are referenced more than once on each
+        // side? A repeated slot shows up as the same logical net key appearing
+        // twice (`spk{GND, GND}` → two slots of (spk, GND)). Only same-name
+        // group slots (points that carry physical pads) count — a plain pin
+        // repeated verbatim (`[A, A]`) keeps no pads and stays a MERGED_SHORT
+        // defect handled by the D3 check below.
+        let repeated_nets = |pts: &[NetPoint]| -> std::collections::HashSet<(String, String)> {
+            let mut by_key: std::collections::HashMap<(String, String), Vec<&NetPoint>> =
+                std::collections::HashMap::new();
+            for p in pts {
+                let k = net_key(p);
+                by_key.entry(k).or_default().push(p);
+            }
+            by_key
+                .into_iter()
+                .filter_map(|(k, ps)| {
+                    let any_group_slot = ps.iter().any(|p| !p.same_name_pads.is_empty());
+                    (any_group_slot && ps.len() >= 2).then_some(k)
+                })
+                .collect()
+        };
+        let left_repeated = repeated_nets(&left_points);
+        let right_repeated = repeated_nets(&right_points);
+
         // ── D3: MERGED_SHORT detection ──────────────────────────────────
         // A merged short is a genuine defect only when the *same connection
         // pair* (same left point + same right point) is created more than once,
@@ -213,33 +255,33 @@ impl McModuleInst {
         // `[P1, P2] -> [G, G]` produces the distinct pairs (P1, G) and (P2, G)
         // and is legitimate (multiple pins merging onto one net) — do not flag it.
         {
-            let pairs: Vec<(&str, &str)> = match (left_size, right_size) {
+            // Pair model mirrors the connections created below: 1:N broadcast,
+            // N:1 broadcast, N:M zip.
+            let pairs: Vec<(&NetPoint, &NetPoint)> = match (left_size, right_size) {
                 (1, _) => left_points
                     .iter()
-                    .flat_map(|l| {
-                        right_points
-                            .iter()
-                            .map(move |r| (l.path.as_str(), r.path.as_str()))
-                    })
+                    .flat_map(|l| right_points.iter().map(move |r| (l, r)))
                     .collect(),
                 (_, 1) => right_points
                     .iter()
-                    .flat_map(|r| {
-                        left_points
-                            .iter()
-                            .map(move |l| (l.path.as_str(), r.path.as_str()))
-                    })
+                    .flat_map(|r| left_points.iter().map(move |l| (l, r)))
                     .collect(),
                 _ => left_points
                     .iter()
                     .zip(right_points.iter())
-                    .map(|(l, r)| (l.path.as_str(), r.path.as_str()))
+                    .map(|(l, r)| (l, r))
                     .collect(),
             };
             let mut seen: std::collections::HashSet<(&str, &str)> =
                 std::collections::HashSet::new();
-            for (l, r) in pairs {
-                if !seen.insert((l, r)) {
+            for (l, r) in &pairs {
+                // A repeated same-name group re-emits the same physical pair;
+                // that is the §5 redundancy/short classified below, not a
+                // merged short — skip it here so it stays warning-level.
+                if left_repeated.contains(&net_key(l)) || right_repeated.contains(&net_key(r)) {
+                    continue;
+                }
+                if !seen.insert((l.path.as_str(), r.path.as_str())) {
                     // Use the NetPoint's src_pos for accurate error location;
                     // fall back to the current connection line's span, then the
                     // module definition's span start, so the diagnostic points
@@ -253,11 +295,12 @@ impl McModuleInst {
                         .first()
                         .and_then(|p| p.src_pos.as_ref().map(|s| s.offset))
                         .unwrap_or(fallback as u32);
-                    let len = l.len() as u32 + r.len() as u32 + 1;
+                    let len = l.path.len() as u32 + r.path.len() as u32 + 1;
                     let msg = format!(
-                        "MERGED_SHORT: duplicate connection pair '{l}' ↔ '{r}' in \
+                        "MERGED_SHORT: duplicate connection pair '{}' ↔ '{}' in \
                          connection. The same two points are connected more than once, \
-                         merging into a short."
+                         merging into a short.",
+                        l.path, r.path
                     );
                     diagnostic_log(
                         crate::errcodes::NET_MERGED_SHORT,
@@ -268,6 +311,102 @@ impl McModuleInst {
                         &[],
                     );
                     break;
+                }
+            }
+
+            // ── §5 warning: classify the repeated references ─────────────
+            // A repeated logical net whose paired peers are all the same net is
+            // redundant; peers that differ are shorted together through the
+            // group's pads. Report at most one warning per connection, with a
+            // short taking precedence over mere redundancy.
+            if !left_repeated.is_empty() || !right_repeated.is_empty() {
+                let mut left_targets: std::collections::HashMap<
+                    (String, String),
+                    Vec<(String, String)>,
+                > = std::collections::HashMap::new();
+                let mut right_targets: std::collections::HashMap<
+                    (String, String),
+                    Vec<(String, String)>,
+                > = std::collections::HashMap::new();
+                for (l, r) in &pairs {
+                    let lk = net_key(l);
+                    let rk = net_key(r);
+                    if left_repeated.contains(&lk) {
+                        left_targets.entry(lk.clone()).or_default().push(rk.clone());
+                    }
+                    if right_repeated.contains(&rk) {
+                        right_targets.entry(rk.clone()).or_default().push(lk);
+                    }
+                }
+                let display = |k: &(String, String)| -> String {
+                    if k.0.is_empty() {
+                        k.1.clone()
+                    } else {
+                        format!("{}.{}", k.0, k.1)
+                    }
+                };
+                let mut short: Option<(String, String)> = None;
+                let mut redundant: Option<(String, String)> = None;
+                for (net, peers) in left_targets.iter().chain(right_targets.iter()) {
+                    let all_same = peers.windows(2).all(|w| w[0] == w[1]);
+                    let net_disp = display(net);
+                    if all_same {
+                        if redundant.is_none() {
+                            redundant = Some((net_disp, display(&peers[0])));
+                        }
+                    } else if short.is_none() {
+                        // Distinct peer nets, order-preserving.
+                        let mut seen: std::collections::HashSet<String> =
+                            std::collections::HashSet::new();
+                        let list: Vec<String> = peers
+                            .iter()
+                            .map(display)
+                            .filter(|d| seen.insert(d.clone()))
+                            .collect();
+                        short = Some((net_disp, list.join(", ")));
+                    }
+                }
+                if short.is_some() || redundant.is_some() {
+                    let fallback = self
+                        .current_stmt_span
+                        .as_ref()
+                        .map(|s| s.offset as i32)
+                        .unwrap_or(self.def.span.start as i32);
+                    let pos = left_points
+                        .first()
+                        .and_then(|p| p.src_pos.as_ref().map(|s| s.offset))
+                        .unwrap_or(fallback as u32);
+                    if let Some((net, peers)) = short {
+                        let len = net.len() as u32;
+                        let msg = format!(
+                            "SHORT_REF: logical net '{net}' is referenced more than once and \
+                             pairs to different nets [{peers}]. Those nets are shorted together \
+                             through the same-name group's pads; review the connection."
+                        );
+                        diagnostic_log(
+                            crate::errcodes::NET_SHORT_REF,
+                            DiagnosticLevel::Warning,
+                            pos,
+                            len,
+                            &msg,
+                            &[],
+                        );
+                    } else if let Some((net, peer)) = redundant {
+                        let len = net.len() as u32;
+                        let msg = format!(
+                            "DUPLICATE_REF: logical net '{net}' is referenced more than once \
+                             and always pairs to the same net '{peer}'. The result is identical \
+                             to '{net} -> {peer}'; simplify the redundant reference."
+                        );
+                        diagnostic_log(
+                            crate::errcodes::NET_DUPLICATE_REF,
+                            DiagnosticLevel::Warning,
+                            pos,
+                            len,
+                            &msg,
+                            &[],
+                        );
+                    }
                 }
             }
         }
@@ -298,8 +437,17 @@ impl McModuleInst {
             // zip all pair member names are mutually different → the bus member
             // order may be misaligned (e.g. SPI SCLK↔MOSI). Not reported for a
             // single pair: for a scalar connection (e.g. VCC→VDD) differing
-            // names are normal, not a bus misalignment.
-            if m.pairs.len() >= 2 && m.all_members_mismatched {
+            // names are normal, not a bus misalignment. Same-name group slots
+            // (`spk{GND, GND}`) are not a bus — pairing one against distinct
+            // peer members is the §5 short case (NET_SHORT_REF), classified by
+            // the repeated-net check above, never a bus-order mismatch.
+            if m.pairs.len() >= 2
+                && m.all_members_mismatched
+                && !m
+                    .pairs
+                    .iter()
+                    .any(|(l, r)| !l.same_name_pads.is_empty() || !r.same_name_pads.is_empty())
+            {
                 BUS_BITS_MISMATCHED.store(m.pairs.len(), std::sync::atomic::Ordering::Relaxed);
                 let mismatches: Vec<String> = m
                     .pairs

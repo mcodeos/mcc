@@ -1669,6 +1669,36 @@ impl McModuleInst {
                         };
 
                         if filtered.len() >= 2 {
+                            // ── Same-name multi-pin group (`3 = GND; 4 = GND`) ──
+                            // All resolved pins share the group name (member_name
+                            // is empty for every pin) and are ONE logical net
+                            // (same-name-pin-group.md §2). Point resolution returns
+                            // a single logical slot point carrying the physical
+                            // pads; the pads fan in onto the peer net at connection
+                            // generation (create_connection / add_connection), so
+                            // §5.2 row checks see 1*1 for `spk.GND`.
+                            if filtered.iter().all(|(m, _)| m.is_empty()) {
+                                let pads: Vec<NetPoint> = filtered
+                                    .iter()
+                                    .map(|(_, pin_id)| {
+                                        NetPoint::with_owner(
+                                            &format!("{owner}.{pin_id}"),
+                                            owner,
+                                            iotype.clone(),
+                                        )
+                                        .with_member_name(port_base)
+                                    })
+                                    .collect();
+                                return Some(vec![NetPoint::with_owner(
+                                    &format!("{owner}.{port_base}"),
+                                    owner,
+                                    iotype,
+                                )
+                                .with_member_name(port_base)
+                                .with_same_name_pads(pads)]);
+                            }
+                            // Normal N-member bus port: one physical lane point
+                            // per member.
                             return Some(
                                 filtered
                                     .iter()

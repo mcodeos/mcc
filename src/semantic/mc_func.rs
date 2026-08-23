@@ -125,6 +125,17 @@ pub trait HasFindInst {
         false
     }
 
+    /// Member names of an interface-class module parameter whose base name
+    /// matches `name` (e.g. `dc{VDD_3V3, GND}::DC(3.3V)` → `["VDD_3V3", "GND"]`
+    /// for `name = "dc"`). Interface-class params are registered in the module
+    /// param table only (not `insts`), so `find_inst` cannot see them; the
+    /// Pass1 opcheck uses this to present the declared bus width of a bare
+    /// param reference, mirroring Pass2's `expand_port_lanes` upgrade. Returns
+    /// `None` when `name` is not such a param (or has fewer than 2 members).
+    fn interface_param_members(&self, _name: &str) -> Option<Vec<String>> {
+        None
+    }
+
     /// Record the source span for an already-created instance.
     /// Used so diagnostics on anonymous instances (e.g. `@CAP2`) can point at
     /// the actual usage position instead of the enclosing module start.

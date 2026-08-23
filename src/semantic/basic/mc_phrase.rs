@@ -3575,6 +3575,23 @@ fn component_port_elems(
         _ => return None,
     };
     let port = c.base.pins.names_to_id.get(member)?;
+    // ── Same-name multi-pin group (`3 = GND; 4 = GND`): the pins share one
+    // name and are the same logical net — Pass2 expands a `spk.GND` reference
+    // to every physical pin and merges them into one net (points.rs
+    // expand_port_lanes + create_connection fan-in), so the Pass1 opcheck view
+    // must present one 1*1 point instead of N physical pins; otherwise a strict
+    // §5 row-count check rejects a legal fan-in like `spk.GND -> dc.GND`.
+    match port {
+        McPinPort::Multi(ids) if ids.len() >= 2 => {
+            return Some(vec![McBus::new(&format!("{base}.{member}"))]);
+        }
+        McPinPort::List(_, members)
+            if members.len() >= 2 && members.iter().all(|m| m == &members[0]) =>
+        {
+            return Some(vec![McBus::new(&format!("{base}.{member}"))]);
+        }
+        _ => {}
+    }
     let elems: Vec<McBus> = match port {
         McPinPort::Bus(b) if b.member.len() >= 2 => b
             .member
@@ -3847,8 +3864,22 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
             // shape so the strict §5 opcheck does not reject the statement
             // before Pass2 can upgrade the port. Internal labels and function
             // parameters keep their fixed 1*1 shape.
-            if !label.contains('.') && context.is_declared_port(label) {
-                return Vec::new();
+            if !label.contains('.') {
+                // Interface-class module params (`dc{VDD_3V3, GND}::DC(3.3V)`)
+                // live in the module param table only, so a bare reference is
+                // invisible to find_inst. Present the declared member width
+                // (matching Pass2's expand_port_lanes) instead of the 1*1
+                // label fallback, so a bare bus param can zip against another
+                // column without an explicit `dc{...}` at the call site.
+                if let Some(members) = context.interface_param_members(label) {
+                    return members
+                        .into_iter()
+                        .map(|m| McBus::new(&format!("{label}.{m}")))
+                        .collect();
+                }
+                if context.is_declared_port(label) {
+                    return Vec::new();
+                }
             }
             vec![McBus::new(label)]
         }

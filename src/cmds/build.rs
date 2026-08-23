@@ -1109,6 +1109,170 @@ module top {
         );
     }
 
+    // ── §5 same-name group: NET_DUPLICATE_REF / NET_SHORT_REF ──────────
+    // same-name-pin-group.md §5: a same-name multi-pin group (`3 = GND; 4 = GND`)
+    // is one logical net; referencing it in two slots (`spk{GND, GND}`) is
+    // either redundant (all slots pair to the same peer net) or shorts the
+    // peer nets together — both are non-blocking warnings.
+
+    #[test]
+    fn d5_same_name_group_redundant_ref_warns() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // `spk{GND, GND}` references the same logical net twice and both slots
+        // pair to the same peer net (cap.GND) — redundant wiring, warning only.
+        // Both sides are 2-pad same-name groups so Pass2 physical rows match
+        // (4 vs 4) and the statement reaches create_connection.
+        let fixture = r#"
+component SPK {
+    pins = [
+        3 = GND
+        4 = GND
+    ]
+}
+component CAP {
+    pins = [
+        1 = GND
+        2 = GND
+    ]
+}
+module top {
+    SPK spk
+    CAP cap
+    spk{GND, GND} -> cap{GND, GND}
+}
+"#;
+        let diags = build_fixture_or_panic(fixture);
+        assert!(
+            has_code(&diags, mcc::errcodes::NET_DUPLICATE_REF),
+            "NET_DUPLICATE_REF should fire for a redundant same-net reference. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+        assert!(
+            !has_code(&diags, mcc::errcodes::NET_MERGED_SHORT),
+            "D3 MERGED_SHORT must NOT fire for the redundant same-name group case — it stays warning-level. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn d5_same_name_group_short_ref_warns() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // `spk{GND, GND}` references the same logical net twice but the two
+        // slots pair to different peer nets (cap.A1 / cap.A2) — they are
+        // shorted together through the group's pads.
+        let fixture = r#"
+component SPK {
+    pins = [
+        3 = GND
+        4 = GND
+    ]
+}
+component CAP {
+    pins = [
+        1 = A1
+        2 = A1
+        3 = A2
+        4 = A2
+    ]
+}
+module top {
+    SPK spk
+    CAP cap
+    spk{GND, GND} -> cap{A1, A2}
+}
+"#;
+        let diags = build_fixture_or_panic(fixture);
+        assert!(
+            has_code(&diags, mcc::errcodes::NET_SHORT_REF),
+            "NET_SHORT_REF should fire when a same-name group pairs to different nets. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn d5_same_name_group_single_ref_no_warn() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // `spk{GND}` references the 2-pad group once — legal fan-in, no warning.
+        let fixture = r#"
+component SPK {
+    pins = [
+        3 = GND
+        4 = GND
+    ]
+}
+component CAP {
+    pins = [
+        1 = GND
+        2 = GND
+    ]
+}
+module top {
+    SPK spk
+    CAP cap
+    spk{GND} -> cap{GND}
+}
+"#;
+        let diags = build_fixture_or_panic(fixture);
+        assert!(
+            !has_code(&diags, mcc::errcodes::NET_DUPLICATE_REF)
+                && !has_code(&diags, mcc::errcodes::NET_SHORT_REF),
+            "single same-name group reference should not warn. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn d5_same_name_group_single_side_fan_in_connects_pads() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // `spk{GND} -> GND`: one same-name group (`3 = GND; 4 = GND`)
+        // referenced once against a 1×1 scalar. Point resolution must see a
+        // single logical slot (1×1) so §5.2 passes, and the connection must fan
+        // BOTH physical pads onto the peer net (same-name-pin-group.md §6.3).
+        // Pre-fix behavior: Pass2 resolved 2 physical points vs 1 scalar,
+        // dropped the statement and left spk.3/spk.4 dangling.
+        let fixture = r#"
+component SPK {
+    pins = [
+        1 = P
+        2 = N
+        3 = GND
+        4 = GND
+    ]
+}
+module top {
+    SPK spk
+    spk{GND} -> GND
+}
+"#;
+        mcc::mcc_init_no_lib();
+        mcc::mcc_set_system_root(std::path::Path::new(""));
+        let uri = "/mcc/snippet.mc".to_string();
+        mcc::mcc_clear_workspace();
+        mcc::vector::builder::resolve::reset_np_warn_count();
+        mcc::mcc_load_from_string(&uri, fixture);
+        let ident = McIds::from("top");
+        let tree = mcc::mcc_build(&ident, &uri).expect("mcc_build");
+        let _ = mcc::mcc_build_flat(&ident, &uri, 1000);
+        let diags = mcc::mcc_diagnose_all();
+        assert!(
+            !has_code(&diags, mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
+            "E4007 must not fire for a single same-name group slot vs a scalar. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+        let pads_connected = tree.connections.iter().any(|conn| {
+            let paths: Vec<&str> = conn.points.iter().map(|p| p.path.as_str()).collect();
+            paths.contains(&"spk.3") && paths.contains(&"spk.4")
+        });
+        assert!(
+            pads_connected,
+            "fan-in must connect both pads spk.3 and spk.4 onto the peer net. Connections: {:?}",
+            tree.connections
+                .iter()
+                .map(|c| c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        );
+    }
+
     // ── D4 GHOST_PORT ───────────────────────────────────────────────────
 
     #[test]
