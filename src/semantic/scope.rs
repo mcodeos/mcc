@@ -32,6 +32,7 @@ use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::db::infra::init::interface_lookup;
 use crate::query::lookup::ContainerRef;
+use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::basic::mc_paramd::McParamDeclares;
 use crate::semantic::common::IOType;
@@ -115,13 +116,40 @@ impl<'a> ParamsScope<'a> {
     }
 }
 
+/// Build the resolved instance for a matched parameter name.
+///
+/// A structured curly-bracket param def (`dc{VDD_3V3, GND}`) must resolve to
+/// its Bus form: a bare `Label(full-string)` would collapse the multi-member
+/// port into a 1*1 scalar, so a body reference like `dc{VDD_3V3, GND} ->
+/// dcdc{Vin, GND}` fails the §5 row-count check. `McBus` keeps the real
+/// member width on both sides of the operator.
+///
+/// Note: `McIds::from(&str)` wraps the whole text as a single `Ida` segment,
+/// so the curly form is split textually here (the def key is the canonical
+/// `to_string()` rendering, e.g. `USB_VBUS_1{VDD_3V, GND}`).
+fn param_name_to_inst(name: &str) -> McInstance {
+    if let (Some(open), Some(close)) = (name.find('{'), name.rfind('}')) {
+        if close > open + 1 {
+            let base = &name[..open];
+            let members: Vec<String> = name[open + 1..close]
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !base.is_empty() && !members.is_empty() {
+                return McInstance::Bus(McBus::new_with_members(base, members));
+            }
+        }
+    }
+    McInstance::Label(name.to_string())
+}
 impl ResolveScope<Resolved> for ParamsScope<'_> {
     fn resolve(&self, name: &str) -> Option<Resolved> {
         self.params
             .iter_defs_with_span()
             .find(|(n, _)| *n == name)
             .map(|(_, span)| Resolved {
-                inst: McInstance::Label(name.to_string()),
+                inst: param_name_to_inst(name),
                 span: Some(span),
             })
     }
@@ -144,7 +172,7 @@ impl ResolveScope<Resolved> for ParamPortsScope<'_> {
             .iter_ports_with_span()
             .find(|(n, _)| *n == name)
             .map(|(_, span)| Resolved {
-                inst: McInstance::Label(name.to_string()),
+                inst: param_name_to_inst(name),
                 span: Some(span),
             })
     }
