@@ -571,48 +571,6 @@ pub fn expand_match(lhs: &[NetPoint], rhs: &[NetPoint]) -> Option<ExpandMatch> {
     None
 }
 
-/// §11.3: Pair a port's member names (declaration order) with actual argument
-/// lanes — by name first, positional fallback for the rest (mirrors
-/// [`expand_match`] priority 1). Returns, in member order, the index into
-/// `arg_lanes` paired with each member.
-pub fn pair_members_to_lanes(members: &[String], arg_lanes: &[NetPoint]) -> Vec<usize> {
-    let mut result: Vec<usize> = Vec::with_capacity(members.len());
-    let mut used = vec![false; arg_lanes.len()];
-    // Pass 1: pair by name.
-    for m in members {
-        let hit = arg_lanes.iter().position(|a| {
-            let n = a
-                .member_name
-                .as_deref()
-                .unwrap_or_else(|| a.path.rsplit('.').next().unwrap_or(&a.path));
-            n == m.as_str()
-        });
-        match hit {
-            Some(j) if !used[j] => {
-                result.push(j);
-                used[j] = true;
-            }
-            _ => result.push(usize::MAX),
-        }
-    }
-    // Pass 2: positional fallback for names with no partner.
-    let mut rj = 0;
-    for r in result.iter_mut() {
-        if *r != usize::MAX {
-            continue;
-        }
-        while rj < arg_lanes.len() && used[rj] {
-            rj += 1;
-        }
-        if rj < arg_lanes.len() {
-            *r = rj;
-            used[rj] = true;
-            rj += 1;
-        }
-    }
-    result
-}
-
 #[cfg(test)]
 mod expand_match_tests {
     use super::*;

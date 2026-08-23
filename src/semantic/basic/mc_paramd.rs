@@ -120,6 +120,16 @@ impl McParamDeclares {
                             if let Some((whole_name, whole_span)) =
                                 self.store_declare_square_member_spans(&inner)
                             {
+                                // The square-vec formals parse as Multiple
+                                // (vector) form, whose get_primary_name() is
+                                // None — so the whole-bracket name never went
+                                // through store_def_span above. Register it
+                                // here so refs to the whole `[VDD_3V3, GND]`
+                                // still resolve, then let the override below
+                                // pin the exact byte range.
+                                if !self.def_spans.contains_key(&whole_name) {
+                                    self.store_def_span(&whole_name, whole_span.clone());
+                                }
                                 // Override the whole-bracket span with the square-vec
                                 // node's exact byte range: the canonical name renders
                                 // with `", "` separators (e.g. `[VDD_3V3, GND]`) whose
@@ -900,7 +910,19 @@ impl McParamDeclare {
                                 inner.clone()
                             };
 
-                            if ids_node.get_type() == MCAST_SQUARE_VEC {
+                            // Square-vec names keep their vector structure:
+                            // `[V3V3, GND]::DC(3.3V)` declares a Multiple of
+                            // two independent McIds, never a single McIds that
+                            // renders as the whole `[V3V3, GND]` string. Both
+                            // the bare (MCAST_SQUARE_VEC) and the OPD-wrapped
+                            // (MCAST_OPD_SQUARE_VEC) forms appear as the
+                            // DECLARE instance name. McIds::new already unwraps
+                            // MCAST_OPD / MCAST_PARAM wrappers, so the member
+                            // iteration below is identical for both shapes.
+                            if matches!(
+                                ids_node.get_type(),
+                                MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC
+                            ) {
                                 let mut current = ids_node.get_sub_node();
                                 while let Some(phrase_node) = current {
                                     let inner_ids = phrase_node
@@ -954,7 +976,13 @@ impl McParamDeclare {
         match &self.kind {
             McParamDeclareKind::Role { name, .. } => name.match_name(target),
             McParamDeclareKind::Single(ids) => ids.match_name(target),
-            McParamDeclareKind::Multiple(_) => false,
+            // `[V3V3, GND]::DC(3.3V)` declares a vector formal; each member is
+            // an independent formal slot referenced by name inside the func
+            // body, so a member name must match its own vector (find() relies
+            // on this for member substitution, matching-rules-design.md §6).
+            McParamDeclareKind::Multiple(members) => {
+                members.iter().any(|ids| ids.match_name(target))
+            }
             McParamDeclareKind::UValue(_) => false,
             McParamDeclareKind::EnumClass(ec) => ec.name.match_name(target),
         }
@@ -1114,7 +1142,11 @@ impl McParamDeclare {
         match &self.kind {
             McParamDeclareKind::Role { name, .. } => name.expand(),
             McParamDeclareKind::Single(ids) => ids.expand(),
-            McParamDeclareKind::Multiple(_) => Vec::new(),
+            // A vector formal's member list is its expansion (matching-rules-
+            // design.md §6): subst.rs uses it to map member i -> bound lane i.
+            McParamDeclareKind::Multiple(members) => {
+                members.iter().flat_map(|ids| ids.expand()).collect()
+            }
             McParamDeclareKind::UValue(_) => Vec::new(),
             McParamDeclareKind::EnumClass(ec) => ec.name.expand(),
         }

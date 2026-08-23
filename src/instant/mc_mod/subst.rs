@@ -281,7 +281,35 @@ impl McModuleInst {
                     // Single segment case
                     if let Some(binding) = bindings.find(&ids_str) {
                         if let Some(actual) = binding.get_value() {
-                            return actual.clone();
+                            // Multi-member formal (e.g. `[V3V3, GND]::DC(3.3V)`
+                            // parsed as Single(Square([V3V3, GND]))): the name
+                            // must map to its formal member slot, not to the
+                            // whole actual value. McIds::match_name matches
+                            // Square forms against their expanded members, so
+                            // both `V3V3` and `GND` hit the same binding;
+                            // returning the whole actual for every member would
+                            // collapse `[V3V3, GND]` into `[V3V3, V3V3]`.
+                            // Mirror substitute_node_element: member[0] takes
+                            // the whole actual, later members keep their own
+                            // name unless the actual is a Set that maps
+                            // positionally.
+                            let members = binding.declare.expand();
+                            if members.len() > 1 {
+                                if let Some(idx) = members.iter().position(|m| {
+                                    m == &ids_str || m.rsplit('.').next() == Some(ids_str.as_str())
+                                }) {
+                                    if let McParamValue::Set(vals) = actual {
+                                        if let Some(v) = vals.get(idx) {
+                                            return Self::external_wrap(v);
+                                        }
+                                    }
+                                    if idx == 0 {
+                                        return Self::external_wrap(actual);
+                                    }
+                                    return value.clone();
+                                }
+                            }
+                            return Self::external_wrap(actual);
                         }
                     }
                 }
@@ -312,6 +340,62 @@ impl McModuleInst {
                     .collect(),
             ),
             _ => value.clone(),
+        }
+    }
+
+    // ========================================================================
+    // External-value protection
+    // ========================================================================
+
+    /// Wrap a substituted actual value so the instance-prefix pass treats it
+    /// as opaque external data.
+    ///
+    /// Substituted values name the **caller's** nets (e.g. `uC.power([VDD_3V3,
+    /// GND], ...)` binds `V3V3` to the module lanes `[VDD_3V3, GND]`). They
+    /// must not be re-qualified by the body's instance-prefix pass: a bare
+    /// `GND` lane would otherwise become `uC.GND` even though it names the
+    /// caller's ground, not `this.GND` (matching-rules-design.md §6). The
+    /// `Phrase` wrapper is opaque to `prefix_param_value_with_skip` while
+    /// `param_value_to_node_elements` / `phrase.get_left()` still recover the
+    /// member buses downstream.
+    fn external_wrap(value: &McParamValue) -> McParamValue {
+        match value {
+            // Already a phrase (net expression actual): opaque to prefixing,
+            // keep the structure so Series params still wire their internal
+            // chain (P2-13).
+            McParamValue::Phrase(_) => value.clone(),
+            _ => McParamValue::Phrase(Box::new(Self::param_value_to_phrase(value))),
+        }
+    }
+
+    /// Rebuild an `McPhrase` tree that carries the same member lanes as a
+    /// param value, for use inside `external_wrap`.
+    fn param_value_to_phrase(value: &McParamValue) -> McPhrase {
+        use crate::semantic::basic::mc_opd::McOpd;
+        match value {
+            McParamValue::Ids(ids) => McPhrase::label(ids.to_string()),
+            McParamValue::Opd(McOpd::Id(ids)) => McPhrase::label(ids.to_string()),
+            McParamValue::Opd(McOpd::This(ids)) => {
+                if ids.is_empty() {
+                    McPhrase::label("this".to_string())
+                } else {
+                    McPhrase::label(format!("this.{ids}"))
+                }
+            }
+            McParamValue::Opd(McOpd::Pins(ids)) => McPhrase::label(ids.to_string()),
+            McParamValue::Opd(McOpd::Uscore) => McPhrase::label("_".to_string()),
+            McParamValue::Const(c) => McPhrase::label(format!("{c}")),
+            McParamValue::Int(v) => McPhrase::label(v.to_string()),
+            McParamValue::Hex(v) => McPhrase::label(v.to_string()),
+            McParamValue::Float(v) => McPhrase::label(v.to_string()),
+            McParamValue::String(v) => McPhrase::label(v.to_string()),
+            McParamValue::UValue(v) => McPhrase::label(v.to_string()),
+            McParamValue::NONE(name) | McParamValue::NC(name) => McPhrase::label(name.clone()),
+            McParamValue::InlineAttrs(_) => McPhrase::label("_".to_string()),
+            McParamValue::Set(vals) => {
+                McPhrase::Multiple(vals.iter().map(Self::param_value_to_phrase).collect())
+            }
+            McParamValue::Phrase(p) => (**p).clone(),
         }
     }
 

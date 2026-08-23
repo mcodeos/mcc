@@ -897,6 +897,16 @@ pub const COMPONENT_PARAM_FUNC_CONFLICT: u32 = 4177;
 /// (`--strict`). The instance is always created with the supplied arguments.
 pub const INST_PARAM_MISSING_REQUIRED: u32 = 4178;
 
+/// Argument/formal vector width mismatch in arg-to-formal binding: a scalar
+/// cannot be bound to a vector formal and equal-width vectors pair positionally
+/// only. No implicit expansion or dropping of members is performed.
+pub const VECTOR_WIDTH_MISMATCH: u32 = 4180;
+
+/// Chain left/right vector width mismatch during pass-through pairing: the two
+/// sides of a chain member must zip positionally at equal width; unequal widths
+/// are an error, never flattened, never member-dropped.
+pub const VECTOR_ZIP_WIDTH_MISMATCH: u32 = 4181;
+
 // ============================================================================
 // Pass3: duplicate validation (5000-5049)
 // ============================================================================
@@ -1510,6 +1520,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_ARG_UNBOUND_DETAILED, "Instance argument has no formal port to bind (with module/bound details).", "Instance '{0}' arg '{1}' has no formal port to bind (module='{2}', {3}/{4} formal ports already bound)"),
     entry!(INST_PARAM_BIND_FAILED, "Declarative instance parameter binding failed (unknown / excess / type-mismatched argument).", "Instance '{0}' ({1}) param bind: {2}"),
     entry!(INST_PARAM_MISSING_REQUIRED, "Instance is missing a required constructor parameter; silent in dev mode, reported as a warning in strict mode (--strict). The instance is created anyway with the supplied arguments.", "Instance '{0}' ({1}) is missing required parameter '{2}'; created with the supplied arguments"),
+    entry!(VECTOR_WIDTH_MISMATCH, "Argument/formal vector width mismatch in arg-to-formal binding; no implicit expansion or member dropping.", "Vector width mismatch in arg-to-formal binding: formal '{0}' expects {1} member(s), actual '{2}' provides {3}. Scalar-to-vector and unequal-width pairing are errors; pass the full vector with members paired positionally."),
+    entry!(VECTOR_ZIP_WIDTH_MISMATCH, "Chain pass-through vector width mismatch; unequal-width zip is an error (no flattening, no member dropping).", "Vector pairing width mismatch in chain pass-through: left side provides {0} lane(s), right side provides {1}; pairing requires equal widths. Adjust the members so both sides carry the same number of lanes."),
     entry!(COMPONENT_PARAM_FUNC_CONFLICT, "Component-level parameter shares a name with the same-name constructor func parameter.", "Component '{0}' declares parameter '{1}' that also appears in constructor func '{2}' params. Class params define class behavior and constructor params declare the construction arity; they must not reuse the same name. Rename one of them."),
     // ---- section ----
     entry!(DUP_CMIE_CROSS_FILE, "Same name defined in another file (cross-file duplicate).", "Same name defined in another file (cross-file duplicate)."),

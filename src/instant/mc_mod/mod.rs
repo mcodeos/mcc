@@ -26,6 +26,7 @@ mod fcallinst;
 mod funccall;
 pub(crate) mod group;
 mod iterated;
+mod matching;
 mod phases;
 mod points;
 mod stmt;
@@ -166,6 +167,13 @@ pub struct McModuleInst {
     /// standalone `.Cap(_, _)`.
     pub(super) defer_twopin_placeholders: bool,
 
+    /// P6 passthrough scope: stack of enclosing function formal-name sets.
+    /// Each function / instance-method body expansion pushes its formal names;
+    /// a nested call's vector-width check reads the stack to decide whether a
+    /// bare actual is a passthrough variable (matching-rules-design.md §2.1)
+    /// purely by scope — never by name content.
+    pub(super) func_scope: Vec<HashSet<String>>,
+
     /// Expansion provenance: this module's expansion log (module-local id space).
     /// Products tagged with `expansion_id` index into `expansion.records`.
     pub expansion: crate::instant::provenance::ExpansionLog,
@@ -271,6 +279,7 @@ impl McModuleInst {
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
             defer_twopin_placeholders: false,
+            func_scope: Vec::new(),
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
         }
@@ -313,6 +322,7 @@ impl McModuleInst {
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
             defer_twopin_placeholders: false,
+            func_scope: Vec::new(),
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
         })
@@ -708,6 +718,39 @@ impl McModuleInst {
         r
     }
 
+    /// RAII: push the formal names of a function body being expanded and
+    /// restore them on every exit path. The scope chain lets a nested call's
+    /// vector-width check classify a bare actual as a passthrough variable
+    /// (matching-rules-design.md §2.1 / P6) by scope alone — never by name
+    /// content.
+    pub(super) fn with_func_scope<R>(
+        &mut self,
+        bindings: &McParamBindings,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let names: HashSet<String> = bindings
+            .iter()
+            .filter_map(|b| b.declare.get_primary_name())
+            .collect();
+        self.func_scope.push(names);
+        let r = f(self);
+        self.func_scope.pop();
+        r
+    }
+
+    /// P6 passthrough test: a bare actual is a passthrough variable when its
+    /// name is a formal of the current function scope chain or of this module.
+    /// Any other bare name is a definite scalar whose lane count rules.
+    pub(super) fn is_passthrough_formal(&self, name: &str) -> bool {
+        self.func_scope.iter().any(|s| s.contains(name))
+            || self.params.iter().any(|b| {
+                b.declare
+                    .get_primary_name()
+                    .map(|n| n == name)
+                    .unwrap_or(false)
+            })
+    }
+
     /// Run `f` with the given `current_trunk` / `current_trunk_kind` /
     /// `current_trunk_iface` active and restore the previous values on every
     /// exit (RAII §7.11(2)). The group is a connection-time hint read by
@@ -833,37 +876,12 @@ impl McModuleInst {
     // Ground identity helpers
     // ========================================================================
 
-    /// Exact ground-name leaf matcher (netcheck's `is_ground_name`, NOT the
-    /// `starts_with` variant — `GND_OUT` / `VIN` etc. must not be treated as
-    /// ground).
-    fn is_ground_leaf(s: &str) -> bool {
-        let leaf = s.rsplit('.').next().unwrap_or(s);
-        matches!(
-            leaf.to_uppercase().as_str(),
-            "GND" | "AGND" | "DGND" | "PGND" | "VSS" | "GROUND" | "EARTH"
-        )
-    }
-
     /// Strict DC rail identity: the ground member point owned by a rail scalar.
-    ///
-    /// A rail scalar (`V5V`, `usbsocket.vin`) owns its ground member
-    /// `{rail}.GND`. Binding a DC port's ground member to this point keeps
-    /// every rail's ground distinct until real wiring ties them together
-    /// (shared component ground pins, explicit `X.GND -> GND` connections).
-    /// A scalar that is itself a ground reference (bare `GND` or `s.GND`)
-    /// is returned unchanged — the author is explicitly naming that net.
+    /// Delegates to the centralized [`matching::rail_ground_point`]
+    /// (dc-rail-identity-design.md / matching-rules-design.md §5).
     pub(super) fn rail_ground_point(&self, rail: &NetPoint, gnd_member: &str) -> NetPoint {
-        let leaf = rail
-            .member_name
-            .as_deref()
-            .unwrap_or_else(|| rail.path.rsplit('.').next().unwrap_or(&rail.path));
-        if Self::is_ground_leaf(leaf) {
-            return rail.clone();
-        }
-        NetPoint::new(&format!("{}.{}", rail.path, gnd_member), IOType::None)
-            .with_member_name(gnd_member)
+        matching::rail_ground_point(rail, gnd_member)
     }
-
 }
 
 // ============================================================================
