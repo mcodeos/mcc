@@ -75,6 +75,83 @@ impl McModuleInst {
         self.buses.contains_key(name)
     }
 
+    /// Validate that `member` is declared on a typed interface port `owner`.
+    ///
+    /// The rule (user-confirmed): when a port's member set is **fixed by its
+    /// declaration** — a typed interface port like `out vout::DC(3.3V)` →
+    /// `{VCC, GND}`, or explicit curly/bracket members — referencing an
+    /// undeclared member is a hard error: it would otherwise silently create a
+    /// dangling net (e.g. `vout.VCC1V2` never ties to the rail). Bare ports /
+    /// free labels / component sub-buses (member set not declared) stay
+    /// lenient — they legitimately create new nets.
+    ///
+    /// Fires ONLY for module ports with a declared member set. Rail labels
+    /// (`V3V3::DC(3.3V)`) and free labels (`K.45 <- ...` accumulation) are not
+    /// module ports and are left lenient — validating against their
+    /// incrementally-merged bus would false-positive (members accumulate
+    /// access-by-access, e.g. `K` sees `["45"]` before `K.46` is merged).
+    ///
+    /// MUST be called **before** `ensure_bus` merges the reference into the
+    /// member set, otherwise the undeclared member would already be present.
+    pub(super) fn check_bus_member_ref(&self, owner: &str, member: &str) {
+        if owner.is_empty() || member.is_empty() {
+            return;
+        }
+        // Component/submodule instance pins expand separately — not buses.
+        // Check the FIRST segment: `lpa.IN` is a component-pin sub-bus whose
+        // members accumulate incrementally and must not be treated as a fixed
+        // declaration; `modldo.vout` is a submodule port (validation deferred).
+        let first = owner.split('.').next().unwrap_or(owner);
+        if self.find_component(first).is_some() || self.find_submodule(first).is_some() {
+            return;
+        }
+        // The only authoritative "declared" member set is the port's own
+        // declaration (typed interface / curly `{A, B}` / bracket `[A, B]`).
+        // The module port's bus_members is populated at instantiation from the
+        // declaration — it is NOT the incrementally-merged bus (whose members
+        // accumulate access-by-access and are only partial mid-body, e.g.
+        // `dc{VDD_3V3, GND}` sees `["GND"]` before `dc.VDD_3V3` has been merged
+        // yet — that reference is valid).
+        let Some(declared) = self
+            .ports
+            .iter()
+            .find(|p| super::phases::port_base_name(&p.name) == owner)
+            .map(|p| &p.bus_members)
+        else {
+            // Not a module port (rail label / free label / connector instance):
+            // no fixed declaration — lenient.
+            return;
+        };
+        if declared.is_empty() {
+            // Bare port without a declared member set — lenient.
+            return;
+        }
+        if !declared.iter().any(|m| m == member) {
+            let msg = crate::errcodes::format_msg(
+                crate::errcodes::BUS_MEMBER_UNDECLARED,
+                &[
+                    &owner.to_string(),
+                    &member.to_string(),
+                    &format!("{:?}", declared),
+                ],
+            );
+            let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
+                (Some(sp), _) => (sp.uri.clone(), sp.offset),
+                (None, Some(s)) => (s.uri.clone(), s.offset),
+                (None, None) => (self.def_uri.clone(), 0),
+            };
+            crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                crate::errcodes::BUS_MEMBER_UNDECLARED,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                uri,
+                pos,
+                1,
+                &msg,
+                &[],
+            );
+        }
+    }
+
     /// expand McBus to multiple NetPoint points
     ///
     /// e.g. power{VCC, GND} -> [power.VCC, power.GND]

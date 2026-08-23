@@ -149,6 +149,13 @@ impl McModuleInst {
                     // ensure_bus into self.buses, downstream inst_table.rs step 4
                     // expands component pins to `uC/11` / `uC/XTAL` form Label.
                     if !elements.name.is_empty() && !is_owned {
+                        // BUS_MEMBER_UNDECLARED: validate the referenced member
+                        // against the port's declared member set BEFORE
+                        // ensure_bus merges it (bare ports / free labels stay
+                        // lenient).
+                        for m in &expanded_members {
+                            self.check_bus_member_ref(&elements.name, m);
+                        }
                         self.ensure_bus(&elements.name, &expanded_members)?;
                     }
                     let mut points = Vec::new();
@@ -225,6 +232,13 @@ impl McModuleInst {
                             && (self.find_submodule(&elem.name).is_some()
                                 || self.find_component(&elem.name).is_some());
                         if !elem.name.is_empty() && !elem_owned {
+                            // BUS_MEMBER_UNDECLARED: validate the referenced
+                            // member against the port's declared member set
+                            // BEFORE ensure_bus merges it (bare ports / free
+                            // labels stay lenient).
+                            for m in &expanded_members {
+                                self.check_bus_member_ref(&elem.name, m);
+                            }
                             self.ensure_bus(&elem.name, &expanded_members)?;
                         }
 
@@ -701,6 +715,13 @@ impl McModuleInst {
                     // component/submodule instance names not registered as bus, avoids downstream inst_table
                     // expanding component pins to `<comp>/<pid>` form Label.
                     if !elements.name.is_empty() && !is_owned {
+                        // BUS_MEMBER_UNDECLARED: validate the referenced member
+                        // against the port's declared member set BEFORE
+                        // ensure_bus merges it (bare ports / free labels stay
+                        // lenient).
+                        for m in &expanded_members {
+                            self.check_bus_member_ref(&elements.name, m);
+                        }
                         self.ensure_bus(&elements.name, &expanded_members)?;
                     }
                     let mut points = Vec::new();
@@ -765,6 +786,13 @@ impl McModuleInst {
                             && (self.find_submodule(&elem.name).is_some()
                                 || self.find_component(&elem.name).is_some());
                         if !elem.name.is_empty() && !elem_owned {
+                            // BUS_MEMBER_UNDECLARED: validate the referenced
+                            // member against the port's declared member set
+                            // BEFORE ensure_bus merges it (bare ports / free
+                            // labels stay lenient).
+                            for m in &expanded_members {
+                                self.check_bus_member_ref(&elem.name, m);
+                            }
                             self.ensure_bus(&elem.name, &expanded_members)?;
                         }
 
@@ -1278,20 +1306,10 @@ impl McModuleInst {
             }
             // 2.3 bus member access (e.g., power.VCC)
             if self.is_bus(first_part) {
-                // verify member exists
-                if let Some(bus) = self.find_bus(first_part) {
-                    // extract first-level member name
-                    let member_name = rest.split('.').next().unwrap_or(rest);
-                    if !bus.has_member(member_name) {
-                        mcc_dbg!(
-                            "inst::points",
-                            "Warning: Bus '{}' has no member '{}', available: {:?}",
-                            first_part,
-                            member_name,
-                            bus.members
-                        );
-                    }
-                }
+                // verify member exists — lenient for bare ports (member set not
+                // yet fixed), hard error for declared member sets (E3181).
+                let member_name = rest.split('.').next().unwrap_or(rest);
+                self.check_bus_member_ref(first_part, member_name);
                 let path = canonicalize_path(&element.name);
                 return NetPoint::new(&path, IOType::None);
             }

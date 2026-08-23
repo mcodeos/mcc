@@ -588,6 +588,12 @@ pub const COMPONENT_PIN_NOT_FOUND: u32 = 3179;
 /// Interface has no top-level pin definitions (all pins are inside role blocks); no pin-to-member mapping is created.
 pub const IFACE_NO_TOPLEVEL_PINS: u32 = 3180;
 
+/// A referenced member is not defined on a declared bus / typed interface port.
+/// The bus member set is fixed by the declaration; an undeclared member reference
+/// would otherwise silently create a dangling net (e.g. `vout.VCC1V2` on
+/// `out vout::DC(3.3V)` whose members are `{VCC, GND}`).
+pub const BUS_MEMBER_UNDECLARED: u32 = 3181;
+
 // ============================================================================
 // Pass2: connection / shape (4000-4049)
 // ============================================================================
@@ -1422,6 +1428,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(IFACE_MEMBER_LOOKUP_FAILED, "Interface member lookup failed.", "Interface '{0}' not found (looked up from '{1}'); check that it is defined and imported via `use`."),
     entry!(COMPONENT_PIN_NOT_FOUND, "Pin(s) not found in the component or interface.", "Pin(s) '{0}' not found in component '{1}'. Available pins: [{2}]"),
     entry!(IFACE_NO_TOPLEVEL_PINS, "Interface has no top-level pin definitions (all pins are inside role blocks); no pin-to-member mapping is created.", "Interface '{0}' has no top-level pins (all pins are inside `role` blocks, e.g. UART.X); no pin-to-member mapping will be created. If you want the role-specific pins registered, list them explicitly (e.g. `pins = TX, RX, GND`)."),
+    entry!(BUS_MEMBER_UNDECLARED, "Referenced member is not defined on the declared bus.", "Definition exists for '{0}': {2}; referenced member '{1}' is not defined."),
     // ---- section ----
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
