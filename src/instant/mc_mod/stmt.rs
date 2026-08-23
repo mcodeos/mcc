@@ -573,7 +573,13 @@ impl McModuleInst {
         }
     }
 
-    // ── M11.2: determine lane width for a chain member ──
+    // ── M11.2: determine lane count for a chain member ──
+    // Lane-wiring only (the `num_lanes` loop in `wire_chain_lane_by_lane`):
+    // how many independent parallel lanes a member spans. NOT a §5 port-width
+    // source — width legality now goes through the unified
+    // `get_left_points`/`get_right_points` → `Shape::vvec` → `check_series_rows`
+    // chain (vec-arch.md stage D). A bare port label here is `1` lane, which is
+    // correct for lane wiring even when the port declares multiple members.
     fn member_lane_width(&self, member: &McPhrase) -> usize {
         match member {
             McPhrase::Multiple(inner) => inner.len(),
@@ -592,29 +598,6 @@ impl McModuleInst {
                 ..
             })) if !bus.member.is_empty() => bus.member.len(),
             _ => 1,
-        }
-    }
-
-    /// §5 port width of `member` on the given side, for the transpose-bridge
-    /// check in `wire_chain_lane_by_lane`. Mirrors lane-by-lane semantics:
-    /// Multiple / Parallel / Bus span one lane per element, a Transposed
-    /// member spans its full-width transposed column (the merged left + right
-    /// pins, i.e. the transposed result), a Node endpoint spans its port
-    /// element count, and any other member (single endpoint, FuncCall, Lead)
-    /// spans one lane. Zero means the side is unresolved and the pair is
-    /// skipped by the caller.
-    fn member_port_width(&mut self, member: &McPhrase, right: bool) -> usize {
-        match member {
-            McPhrase::Transposed(_) => self.get_left_points(member).map(|p| p.len()).unwrap_or(0),
-            McPhrase::Endpoint(McEndpoint::Node { .. }) => {
-                let pts = if right {
-                    self.get_right_points(member)
-                } else {
-                    self.get_left_points(member)
-                };
-                pts.map(|p| p.len()).unwrap_or(0)
-            }
-            _ => self.member_lane_width(member),
         }
     }
 
@@ -678,17 +661,34 @@ impl McModuleInst {
         // check runs on that result. There is no pair-by-min / lane-hang
         // carve-out: each adjacent pair must span the same width. Any width
         // mismatch is an illegal operation (E4007) and the chain generates no
-        // connections. A zero width (unresolved side) skips the pair, since
-        // Pass1 already validated the phrase-level shape.
+        // connections.
+        //
+        // Unified width source (vec-arch.md stage D): this check uses the same
+        // chain as `try_connect_adjacent` — `get_left_points` / `get_right_points`
+        // (internally unified via `expand_port_lanes`, which resolves a bare
+        // port label against the module's declared port members) → `Shape::vvec`
+        // → `check_series_rows` (opcheck, shared Pass1/Pass2). The previous
+        // `member_port_width` / `member_lane_width` self-computed widths were a
+        // third, drifting source: `member_lane_width` returned 1 for a bare
+        // port label (`Endpoint(Single(Bus))` with empty `bus.member`) even
+        // when the port declares 2 members, causing a false E4007 on
+        // `dc -> [RES, _] + CAP' -> ...` (periph.mc). A zero width (unresolved
+        // side / empty expansion) skips the pair.
         let has_transposed = members.iter().any(|m| Self::phrase_contains_transposed(m));
         if has_transposed {
             for i in 0..members.len().saturating_sub(1) {
-                let lw = self.member_port_width(&members[i], true);
-                let rw = self.member_port_width(&members[i + 1], false);
-                if lw == 0 || rw == 0 {
+                // §5.2 contact side: left member's right port vs right member's
+                // left port.
+                let lpts = self.get_right_points(&members[i])?;
+                let rpts = self.get_left_points(&members[i + 1])?;
+                if lpts.is_empty() || rpts.is_empty() {
                     continue;
                 }
-                if lw != rw {
+                let lhs_shape = Shape::vvec(lpts.len());
+                let rhs_shape = Shape::vvec(rpts.len());
+                let verdict =
+                    crate::semantic::opcheck::check_series_rows(lhs_shape, rhs_shape);
+                if !matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_)) {
                     self.record_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
                         crate::errcodes::format_msg(
