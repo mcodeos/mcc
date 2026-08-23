@@ -2583,7 +2583,37 @@ impl McPhrase {
             McPhrase::Endpoint(McEndpoint::Node { input, output }) => {
                 std::mem::swap(input, output);
             }
-            _ => {}
+            // §6.3 / vec-arch §5.2: reversing a two-pin component (a 1*2 row
+            // vector) swaps its two pins — `R101^` presents pin 2 on the left
+            // and pin 1 on the right. Mirror the MCAST_OPD_CARET parse handler
+            // so reverse() reached from any context (Transposed inner via
+            // set_left_in / set_right_out, recursive reversal) does the same
+            // swap instead of silently no-op'ing.
+            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                base: McInstance::Component(ref c),
+                ..
+            })) if matches!(shape_defaults(c).kind, PinShapeKind::TwoPin) => {
+                let inst_name = c.name.to_string();
+                *self = McPhrase::Endpoint(McEndpoint::Node {
+                    input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                        McBus::new(&format!("{inst_name}.2")),
+                    )))],
+                    output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                        McBus::new(&format!("{inst_name}.1")),
+                    )))],
+                });
+            }
+            // Point / column operands (Single-pin components, labels, buses,
+            // lists, interfaces, unresolved) carry no order to reverse — a
+            // genuine no-op. Log it in debug so new phrase variants can't fall
+            // through silently.
+            _ => {
+                mcc_dbg!(
+                    "sem::conds",
+                    "[REVERSE-NOOP] variant {:?} has no order to reverse; kept as-is",
+                    std::mem::discriminant(self)
+                );
+            }
         }
     }
 
@@ -4110,9 +4140,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
         // first element's like the symbol-level get_left.
         McPhrase::Endpoint(McEndpoint::List(ref items)) => items
             .iter()
-            .flat_map(|e| {
-                eval_port_elems(&McPhrase::Endpoint(e.clone()), right, context)
-            })
+            .flat_map(|e| eval_port_elems(&McPhrase::Endpoint(e.clone()), right, context))
             .collect(),
         // A shape-matched Group exposes the port of its first operand
         // (mirrors get_left/get_right, but recursing context-aware so a

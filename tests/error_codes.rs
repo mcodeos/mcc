@@ -328,3 +328,47 @@ fn expand_dim_mismatch_reported_with_suggestion() {
     // Equal row counts → no suggestion (no mismatch to fix).
     assert_eq!(mcc::vector::model::netshape::suggest_shape_fix(2, 2), None);
 }
+
+/// A2 (regression): `record_error` must surface as an Error-level diagnostic
+/// with a real file:line, not be swallowed into a module dump that nothing
+/// reads. Fixture `r1 -> r2'` (2-pin component in series with a transposed
+/// 2-pin component) triggers CONN_SERIES_SHAPE_MISMATCH (E4007) through the
+/// §5 transpose-bridge check in stmt.rs:692.
+#[test]
+fn record_error_surfaces_as_located_error_diagnostic() {
+    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    let src = "component _R\n{\n    pins = [\n        1 = X\n        2 = Y\n    ]\n}\nmodule main\n{\n    _R r1\n    _R r2\n    r1 -> r2'\n}";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/record-error-e4007.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let diags = mcc::mcc_diagnose_all();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH)
+        .collect();
+    assert!(
+        !hits.is_empty(),
+        "E4007 should surface from record_error; got codes: {:?}",
+        diags.iter().map(|d| d.code).collect::<Vec<_>>()
+    );
+    for d in hits {
+        assert_eq!(
+            d.level,
+            mcc::DiagnosticLevel::Error,
+            "E4007 must be Error-level (was previously swallowed); got {:?}",
+            d.level
+        );
+        assert!(
+            d.loc.row > 0,
+            "E4007 must carry a file:line location; row={} uri={}",
+            d.loc.row,
+            d.loc.uri
+        );
+    }
+
+    drop(lock);
+}

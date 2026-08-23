@@ -130,7 +130,7 @@ fn projection_main_layer_matches_pass2_golden() {
         ("mic", 4),
         ("moddcdc", 6),
         ("modldo", 3),
-        ("speaker", 9),
+        ("speaker", 8), // V6: USB_VBUS_1.VDD_3V feeds both lpa.VDD and R7 pull-up → one rail net
         ("usbsocket", 3),
     ];
     for (name, want) in expect {
