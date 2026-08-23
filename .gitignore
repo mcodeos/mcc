@@ -9,3 +9,10 @@ Cargo.lock
 baseline
 projects
 mcode
+
+# Local workspace artifacts / directories — never upload
+.trae/
+plan/
+test/
+unitest/
+circuit.html
