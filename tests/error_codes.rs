@@ -372,3 +372,55 @@ fn record_error_surfaces_as_located_error_diagnostic() {
 
     drop(lock);
 }
+
+/// P1 (regression): an undeclared bus-member reference on a typed interface
+/// port must fire BUS_MEMBER_UNDECLARED (E3181) as an Error-level diagnostic
+/// with a file:line. `out vout::DC(3.3V)` fixes the member set to `{VCC, GND}`
+/// (interface DC's pin names); `ldo.VOUT.Vout -> vout.VCC1V2` references a
+/// member that is not declared — it would otherwise silently create a dangling
+/// net (the periph.mc:67 chain-loss root cause).
+///
+/// Fixture mirrors the original periph.mc shape: the LHS sits on a *different*
+/// bus (`_LDO ldo` component) than `vout`, so `merge_adjacent_curly_split`
+/// never collapses the two endpoints — a same-owner dot access like
+/// `vout.VCC -> vout.VCC1V2` would be merged into `vout{VCC, VCC1V2}` before
+/// the member check runs (a pre-existing gap, tracked separately).
+#[test]
+fn undeclared_bus_member_reference_fires_e3181() {
+    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    let src = "interface DC(volt)\n{\n    pins = [\n        1 = VCC\n        2 = GND\n    ]\n}\ncomponent _LDO\n{\n    pins = [\n        1 = VOUT.Vout\n        2 = VOUT.GND\n    ]\n}\nmodule main\n{\n    out vout::DC(3.3V)\n    _LDO ldo\n    ldo.VOUT.Vout -> vout.VCC1V2\n}";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/undeclared-bus-member-e3181.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let diags = mcc::mcc_diagnose_all();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::BUS_MEMBER_UNDECLARED)
+        .collect();
+    assert!(
+        !hits.is_empty(),
+        "E3181 should fire for vout.VCC1V2; got codes: {:?}",
+        diags.iter().map(|d| d.code).collect::<Vec<_>>()
+    );
+    for d in hits {
+        assert_eq!(
+            d.level,
+            mcc::DiagnosticLevel::Error,
+            "E3181 must be Error-level; got {:?}",
+            d.level
+        );
+        assert!(d.msg.contains("VCC1V2"), "E3181 should name the missing member; msg: {}", d.msg);
+        assert!(
+            d.loc.row > 0,
+            "E3181 must carry a file:line location; row={} uri={}",
+            d.loc.row,
+            d.loc.uri
+        );
+    }
+
+    drop(lock);
+}
