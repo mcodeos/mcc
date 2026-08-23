@@ -1651,7 +1651,7 @@ fn push_union_member(out: &mut Vec<String>, m: &str) {
 /// Consistent with `inject_port_member_labels`'s anonymous vs named distinction:
 ///   named ports have both bare(`MEMBER`) and dotted(`base.MEMBER`) labels,
 ///   anonymous bracket ports only have bare.
-fn port_base_name(name: &str) -> String {
+pub(super) fn port_base_name(name: &str) -> String {
     let s = name.trim();
     let cut = match (s.find('{'), s.find('[')) {
         (Some(a), Some(b)) => Some(a.min(b)),
