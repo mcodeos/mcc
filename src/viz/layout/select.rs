@@ -161,7 +161,7 @@ fn run_single(
     let col = t!("audit_all", audit_all(&graph));
     let fidelity = compute_fidelity(&graph, &col);
     let readability = compute_readability(&graph, &col);
-    fidelity_gate(&layer, layouter, &fidelity, &readability);
+    fidelity_gate(&layer, layouter, &fidelity, &readability, is_root);
 
     graph
 }
@@ -194,9 +194,21 @@ fn fidelity_gate(
     layouter: &str,
     fidelity: &FidelityReport,
     readability: &ReadabilityScore,
+    is_root: bool,
 ) {
     // ── Tier 1 · CORRECTNESS — hard veto ──────────────────────────────────
-    if !fidelity.is_correct() {
+    // ★ B2 root layers use the block-edge model: entry points are synthetic
+    // (pin_id=0, name-keyed) and rail pins are covered by anchors, so the
+    // entry-point coverage metric structurally can't reach pins_total. Root
+    // pin coverage is validated by the edge renderer / rail contract instead
+    // (G10/G11 in renderdiff); skip the pins veto on root. Nets and bus-bits
+    // still gate.
+    let pins_ok = is_root || fidelity.pins_rendered == fidelity.pins_total;
+    let correct = fidelity.nets_dropped == 0
+        && fidelity.nets_partial == 0
+        && pins_ok
+        && fidelity.bus_bits_paired_ok == fidelity.bus_bits_total;
+    if !correct {
         RENDER_GATE_FAILED.store(true, std::sync::atomic::Ordering::Relaxed);
         if fidelity.nets_dropped > 0 || fidelity.nets_partial > 0 {
             crate::vlog!(
@@ -207,7 +219,7 @@ fn fidelity_gate(
                 fidelity.nets_total
             );
         }
-        if fidelity.pins_rendered < fidelity.pins_total {
+        if !pins_ok {
             crate::vlog!(
                 "[layout-gate] ✗ VETO layer '{}': pins rendered {}/{} — some pins unconnected",
                 layer,
@@ -538,7 +550,7 @@ mod tests {
         };
         let readability = crate::viz::metrics::ReadabilityScore::default();
         assert!(!bad.is_correct());
-        fidelity_gate("test_layer", "test_layouter", &bad, &readability);
+        fidelity_gate("test_layer", "test_layouter", &bad, &readability, false);
         assert!(
             RENDER_GATE_FAILED.load(std::sync::atomic::Ordering::Relaxed),
             "Tier 1 CORRECTNESS failure must set RENDER_GATE_FAILED —— logging only = false gate"

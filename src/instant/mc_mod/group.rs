@@ -255,7 +255,7 @@ impl McModuleInst {
                         .unwrap_or(fallback as u32);
                     let len = l.len() as u32 + r.len() as u32 + 1;
                     let msg = format!(
-                        "node=0 MERGED_SHORT: duplicate connection pair '{l}' ↔ '{r}' in \
+                        "MERGED_SHORT: duplicate connection pair '{l}' ↔ '{r}' in \
                          connection. The same two points are connected more than once, \
                          merging into a short."
                     );
@@ -329,7 +329,7 @@ impl McModuleInst {
                     .map(|p| p.path.len() as u32)
                     .unwrap_or(0);
                 let msg = format!(
-                    "node=0 BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
+                    "BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
                      This may indicate bus member order misalignment between the two sides.",
                     m.pairs.len(),
                     mismatches.join(", "),
