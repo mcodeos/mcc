@@ -42,7 +42,6 @@ use crate::vector::graph::boxdef::PinLayout;
 use crate::vector::graph::boxdef::VisualRole;
 use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph, Point};
 
-use super::entry_points::distribute_terminal_pins;
 use super::ladder_model::LadderModel;
 
 // ============================================================================
@@ -170,36 +169,6 @@ pub fn apply_ladder_model_at(
 
 /// Place every box the model describes. Returns the geometry it committed to.
 /// This is now a wrapper around `apply_ladder_model_at` + anchor placement.
-pub fn apply_ladder_model(graph: &mut McVecGraph, m: &LadderModel) -> Option<LadderGeometry> {
-    let origin = Point::new(MARGIN, MARGIN);
-    let geo = apply_ladder_model_at(graph, m, origin, 0.0)?;
-
-    // ── Anchors ───────────────────────────────────────────────────────────
-    let right_x = geo.col_x.last().copied().unwrap_or(origin.x) + ANCHOR_GAP;
-
-    place_anchor(
-        graph,
-        m.left,
-        MARGIN,
-        MARGIN,
-        geo.anchor_h,
-        EntrySide::Right,
-        &m.lane_pin,
-        &geo.lane_y,
-    );
-    place_anchor(
-        graph,
-        m.right,
-        right_x,
-        MARGIN,
-        geo.anchor_h,
-        EntrySide::Left,
-        &m.right_lane_pin,
-        &geo.lane_y,
-    );
-
-    Some(geo)
-}
 
 // ============================================================================
 // Plan — every read, done up front (no borrow fights with the writes below)
@@ -364,33 +333,6 @@ impl Plan {
 // Writers
 // ============================================================================
 
-/// Anchor: box top-left + height, every pin on `side`, lane pins pinned onto their
-/// lane's y. This is what makes the lanes straight.
-fn place_anchor(
-    graph: &mut McVecGraph,
-    id: i64,
-    x: f64,
-    y: f64,
-    h: f64,
-    side: EntrySide,
-    lane_pin: &[i64],
-    lane_y: &[f64],
-) {
-    let Some(b) = graph.boxes.iter_mut().find(|b| b.id == id) else {
-        return;
-    };
-    b.x = x;
-    b.y = y;
-    b.h = h;
-    let connected: Vec<(i64, f64)> = lane_pin
-        .iter()
-        .zip(lane_y.iter())
-        .map(|(&p, &ly)| (p, (ly - y) / h))
-        .collect();
-    distribute_terminal_pins(b, side, &connected);
-    b.geom_locked = true;
-}
-
 /// A ladder passive: centred at `(cx, cy)`, sized `w x h`, with exactly two pins on
 /// the two given sides. `visual_role` is set explicitly so the three passive passes
 /// can skip it (both locks: `geom_locked` + `visual_role`).
@@ -463,93 +405,4 @@ fn place_two_pin(
     b.set_layout_hint(hint);
     b.visual_role = Some(role);
     b.geom_locked = true;
-}
-
-// ============================================================================
-// Phase C — the model is the truth; diff the graph against it
-// ============================================================================
-
-/// Re-read the graph and report every box that no longer matches what Phase B
-/// committed. Call right before routing. Pure read; logs only.
-pub fn probe_ladder_placement(graph: &McVecGraph, m: &LadderModel, geo: &LadderGeometry) {
-    let mut violations = 0usize;
-    let name = |id: i64| -> String {
-        graph
-            .boxes
-            .iter()
-            .find(|b| b.id == id)
-            .map(|b| b.name.clone())
-            .unwrap_or_else(|| format!("#{id}"))
-    };
-
-    // normalize_positions applies a rigid shift, so compare against the *offset*
-    // between a reference box and each box, not against absolute coordinates.
-    let Some(left) = graph.boxes.iter().find(|b| b.id == m.left) else {
-        return;
-    };
-    let dx = left.x - MARGIN;
-    let dy = left.y - MARGIN;
-
-    let mut check = |id: i64, want_cx: f64, want_cy: f64, want_horizontal: bool| {
-        let Some(b) = graph.boxes.iter().find(|b| b.id == id) else {
-            return;
-        };
-        let (cx, cy) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
-        if (cx - dx - want_cx).abs() > 1.0 || (cy - dy - want_cy).abs() > 1.0 {
-            crate::vlog!(
-                "[ladder-check] VIOLATION {} moved: want ({want_cx:.0},{want_cy:.0}) got ({:.0},{:.0})",
-                name(id),
-                cx - dx,
-                cy - dy
-            );
-            violations += 1;
-        }
-        if (b.w > b.h) != want_horizontal {
-            crate::vlog!(
-                "[ladder-check] VIOLATION {} orientation: want {} got {}x{} (renderer rotates on h>w)",
-                name(id),
-                if want_horizontal { "horizontal" } else { "vertical" },
-                b.w,
-                b.h
-            );
-            violations += 1;
-        }
-    };
-
-    for s in &m.series {
-        let cx = (geo.col_x[s.from_col] + geo.col_x[s.to_col]) / 2.0;
-        check(s.box_id, cx, geo.lane_y[s.lane], true);
-    }
-    for b in &m.bridges {
-        let cy = (geo.lane_y[b.lane_a] + geo.lane_y[b.lane_b]) / 2.0;
-        check(b.box_id, geo.col_x[b.col], cy, false);
-    }
-
-    // Anchor pins must sit exactly on their lanes, or the lanes are not straight.
-    for (anchor, pins) in [(m.left, &m.lane_pin)] {
-        let Some(b) = graph.boxes.iter().find(|x| x.id == anchor) else {
-            continue;
-        };
-        for (lane, &pid) in pins.iter().enumerate() {
-            let Some(ep) = b.entry_points.iter().find(|e| e.pin_id == pid) else {
-                continue;
-            };
-            let y = b.y + b.h * ep.offset - dy;
-            if (y - geo.lane_y[lane]).abs() > 1.0 {
-                crate::vlog!(
-                    "[ladder-check] VIOLATION {} pin {pid} off lane {lane}: want y={:.0} got {:.0}",
-                    name(anchor),
-                    geo.lane_y[lane],
-                    y
-                );
-                violations += 1;
-            }
-        }
-    }
-
-    if violations == 0 {
-        crate::vlog!("[ladder-check] clean: graph matches the model");
-    } else {
-        crate::vlog!("[ladder-check] {violations} violation(s) — someone wrote after Phase B");
-    }
 }

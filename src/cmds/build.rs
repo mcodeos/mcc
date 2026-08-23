@@ -400,12 +400,6 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
             if mcc::viz::log::enabled() {
-                let sub = inst.sub_modules.iter().find(|s| s.name == "mcu513");
-                mcc_dbg!(
-                    "build",
-                    "[CHK] inst-side mcu513.components = {}",
-                    sub.map(|s| s.components.len()).unwrap_or(0)
-                );
                 mcc_dbg!("build", "[DUMP] ====== InstTable contents ======");
                 table.1.dump();
                 mcc_dbg!("build", "[DUMP] ==============================");

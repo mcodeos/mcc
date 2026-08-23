@@ -145,12 +145,6 @@ impl FlowLayouter {
         }
     }
 
-    /// Phase D — attach a SchematicLayoutModel for low-risk layout intent consumption.
-    pub fn with_schematic_model(mut self, model: SchematicLayoutModel) -> Self {
-        self.schematic_model = Some(model);
-        self
-    }
-
     /// Phase 1 · Prepare — topology normalization + coarse pins.
     ///
     /// Writes: fanout-related synth/split structures in graph, initial box sizes, coarse entry_points.
@@ -517,7 +511,8 @@ impl Layouter for FlowLayouter {
             return compute_canvas(graph);
         }
 
-        // ── Phase 3 · Placement (writes only box positions) ──
+        // ── Phase 3 · Placement (writes only box positions) + PROBE-B contract check ──
+        let ep_snap = probe_ep_snapshot(graph);
         let g_snap = graph.geom_snapshot();
 
         // ★ B2: root layer radial layout — fixed positions by structural role.
@@ -526,8 +521,6 @@ impl Layouter for FlowLayouter {
             super::radial::place_radial(graph);
             graph.claim_geom_changes(&g_snap, "3.radial");
             // Root is the hub box; no isolated boxes in radial layout.
-            // Note: radial also sets up facade entry_points (pin-place is skipped
-            // for root), so the PROBE-B contract check only applies to sub-layers.
             let root = graph
                 .boxes
                 .iter()
@@ -553,14 +546,17 @@ impl Layouter for FlowLayouter {
                 .unwrap_or(graph.boxes[0].id);
             (root, HashSet::new())
         } else {
-            // PROBE-B contract check: sub-layer flow placement must not write
-            // entry_points — PinPlacement is the sole writer on this path.
-            let ep_snap = probe_ep_snapshot(graph);
             let (root_id, isolated_ids) = self.phase_placement(graph);
-            probe_no_ep_writes("phase_placement", graph, &ep_snap);
             graph.claim_geom_changes(&g_snap, "3.placement");
             (root_id, isolated_ids)
         };
+        // ★ M15: the PROBE-B contract ("phase_placement writes no entry_point")
+        // holds for the flow layout, but the ROOT runs `place_radial` here, and
+        // its `setup_facade_entry_points` writes facade entry_points BY DESIGN.
+        // The probe only applies to sub-layers, where a write would be a bug.
+        if !graph.is_root {
+            probe_no_ep_writes("phase_placement", graph, &ep_snap);
+        }
 
         // ── Phase D · SchematicLayoutModel: low-risk layout intent ──
         // ★ B2: skip for root — radial layout already placed all boxes.

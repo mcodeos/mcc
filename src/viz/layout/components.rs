@@ -62,15 +62,6 @@ pub fn build_adjacency(graph: &McVecGraph) -> HashMap<i64, Vec<i64>> {
     adj
 }
 
-/// Compute each box's degree (number of neighbors)
-pub fn build_degrees(graph: &McVecGraph, adj: &HashMap<i64, Vec<i64>>) -> HashMap<i64, usize> {
-    graph
-        .boxes
-        .iter()
-        .map(|b| (b.id, adj.get(&b.id).map(|v| v.len()).unwrap_or(0)))
-        .collect()
-}
-
 // ============================================================================
 // Connected component partition (BFS flood-fill)
 // ============================================================================
@@ -112,11 +103,4 @@ pub fn find_connected_components(
     }
 
     components
-}
-
-/// Partition components into (multi-box, single-box) two groups, multi-box sorted by box count descending
-pub fn partition_components(components: Vec<Vec<i64>>) -> (Vec<Vec<i64>>, Vec<Vec<i64>>) {
-    let (mut multi, single): (Vec<_>, Vec<_>) = components.into_iter().partition(|c| c.len() > 1);
-    multi.sort_by_key(|c| std::cmp::Reverse(c.len()));
-    (multi, single)
 }
