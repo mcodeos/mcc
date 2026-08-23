@@ -832,6 +832,21 @@ pub fn canonicalize_path(path: &str) -> String {
 ///   - prefix ground: GND* / VSS*
 ///   - voltage patterns (`3V3` / `5V0`) are treated as power
 ///
+/// Ground leaf-name recognition (exact + prefix), shared by
+/// [`looks_like_power_rail`] and the raw-layer sub-module internal ground tie
+/// propagation in `build_net_table`. Mirrors `naming::is_ground`'s leaf
+/// classification (EXACT_GROUND + PREFIX_GROUND), kept local to the `instant`
+/// layer — no `crate::vector` import (one-way dependency graph).
+pub fn is_ground_name(name: &str) -> bool {
+    let u = name.to_uppercase();
+    const EXACT_GROUND: &[&str] = &["GND", "VSS", "AGND", "DGND", "PGND"];
+    if EXACT_GROUND.contains(&u.as_str()) {
+        return true;
+    }
+    const PREFIX_GROUND: &[&str] = &["GND", "VSS"];
+    PREFIX_GROUND.iter().any(|p| u.starts_with(p))
+}
+
 /// Example: `looks_like_power_rail("VDD_3V3") == true`, `..("vout") == false`,
 ///     `..("gnd") == true` (case-insensitive), `..("DAC_OUT") == false`.
 fn looks_like_power_rail(name: &str) -> bool {
@@ -841,19 +856,13 @@ fn looks_like_power_rail(name: &str) -> bool {
     if EXACT_POWER.contains(&u.as_str()) {
         return true;
     }
-    // exact ground
-    const EXACT_GROUND: &[&str] = &["GND", "VSS", "AGND", "DGND", "PGND"];
-    if EXACT_GROUND.contains(&u.as_str()) {
+    // exact + prefix ground
+    if is_ground_name(name) {
         return true;
     }
     // prefix power
     const PREFIX_POWER: &[&str] = &["VCC", "VDD", "V3V", "V5V", "V1V"];
     if PREFIX_POWER.iter().any(|p| u.starts_with(p)) {
-        return true;
-    }
-    // prefix ground
-    const PREFIX_GROUND: &[&str] = &["GND", "VSS"];
-    if PREFIX_GROUND.iter().any(|p| u.starts_with(p)) {
         return true;
     }
     // Voltage patterns `3V3` / `5V0` / `1V8` — simplified: digits + 'V' + digits
@@ -1016,6 +1025,32 @@ impl NetTable {
 
         // ── Iter-10.2: record for batch union ──
         self.all_conn_paths.push(canon_paths);
+    }
+
+    /// Tie the given point paths into one net.
+    ///
+    /// Only paths **already registered** in this table are unioned; unknown
+    /// paths are skipped (never auto-created as new stub points). Used by the
+    /// raw-layer sub-module internal ground tie propagation in `build_net_table`:
+    /// a sub-module net carrying >= 2 boundary ground points (e.g. modldo's
+    /// `vin.GND ~ ldo.2 ~ vout.GND`) electrically ties those port members
+    /// inside the sub-module, so their parent-scope paths (`modldo.vin.GND`,
+    /// `modldo.vout.GND`) must land on one parent net too — mirrors the
+    /// projection layer's mechanism (3) (dc-rail-identity-design §5.3).
+    pub fn tie_paths(&mut self, paths: &[&str]) {
+        let mut idxs: Vec<usize> = Vec::new();
+        for p in paths {
+            let canon = canonicalize_path(p);
+            if let Some(&idx) = self.path_to_idx.get(&canon) {
+                idxs.push(idx);
+            }
+        }
+        if idxs.len() < 2 {
+            return;
+        }
+        for i in 1..idxs.len() {
+            self.union(idxs[0], idxs[i]);
+        }
     }
 
     /// ── Iter-10.2: Batch union second scan ──
