@@ -1702,7 +1702,11 @@ impl McPhrase {
                         Some(Series(vec![opd1, opd2], ConnDir::Undirected))
                     }
                     (opd1 @ Transposed(_), opd2) => {
-                        if opd2.get_left().iter().map(|e| e.size()).sum::<usize>() != 2 {
+                        // ── B: width via OpdShape (declared members), not
+                        // get_left() (symbol-level fallback returns 1 for a bare
+                        // port label even when it declares 2 members). Same
+                        // unified source as is_connectable / opcheck. ──
+                        if OpdShape::of(&opd2, context).size_left() != 2 {
                             dlog_error(
                                 crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
                                 node,
@@ -1722,7 +1726,10 @@ impl McPhrase {
                         Some(Series(ret_line_members, ConnDir::Undirected))
                     }
                     (opd1, opd2 @ Transposed(_)) => {
-                        if opd1.get_right().iter().map(|e| e.size()).sum::<usize>() != 2 {
+                        // ── B: width via OpdShape (declared members), not
+                        // get_right() (symbol-level fallback returns 1 for a
+                        // bare port label even when it declares 2 members). ──
+                        if OpdShape::of(&opd1, context).size_right() != 2 {
                             dlog_error(
                                 crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
                                 node,
@@ -3727,10 +3734,11 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                     }
                 }
                 Err(_) => {
-                    // Unreachable for a validated operand; fall back to the
-                    // previous full-width column merge for robustness.
-                    let mut all = inner.get_left();
-                    all.extend(inner.get_right());
+                    // Unreachable for a validated operand; keep the full-width
+                    // column merge through the same context-aware path so the
+                    // merged width never diverges from a leaf's Pass2 expansion.
+                    let mut all = eval_port_elems(inner, false, context);
+                    all.extend(eval_port_elems(inner, true, context));
                     all
                 }
             }
@@ -3748,12 +3756,10 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
             match edge {
                 Some(e) => eval_port_elems(e, right, context),
                 None => {
-                    // empty series: mirror get_left/get_right sentinel
-                    if right {
-                        phrase.get_right()
-                    } else {
-                        phrase.get_left()
-                    }
+                    // empty series: a degenerate chain has no port — emit the
+                    // same error sentinel the previous path produced, without
+                    // delegating to the symbol-level get_left/get_right.
+                    vec![McBus::new("<error:empty_seq>")]
                 }
             }
         }
@@ -3763,11 +3769,8 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
         McPhrase::Parallel(opds) => match opds.first() {
             Some(first) => eval_port_elems(first, right, context),
             None => {
-                if right {
-                    phrase.get_right()
-                } else {
-                    phrase.get_left()
-                }
+                // empty parallel: degenerate, emit the same sentinel as before.
+                vec![McBus::new("<error:empty_parallel>")]
             }
         },
         // A multi-member Interface (e.g. a 2-pin XTAL::XTAL port, or
@@ -3933,17 +3936,21 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                     }
                 }
             }
-            let r = if right {
-                fc.right.clone()
+            // Shape derivation for the call's own side (P4.1 return-shape
+            // rule, eval.md §8.1): a `Label`-class return has no left contact
+            // ([0|N]) and a right port of the returned buses; `This` /
+            // unresolved reuse the declared operand side. Inlined here — no
+            // delegation to the symbol-level get_left/get_right.
+            if right {
+                match &fc.resolved_return_shape {
+                    Some(ReturnShape::Label { bus }) => bus.clone(),
+                    Some(ReturnShape::This) | None => fc.right.clone(),
+                }
             } else {
-                fc.left.clone()
-            };
-            if !r.is_empty() {
-                r
-            } else if right {
-                phrase.get_right()
-            } else {
-                phrase.get_left()
+                match &fc.resolved_return_shape {
+                    Some(ReturnShape::Label { .. }) => Vec::new(),
+                    Some(ReturnShape::This) | None => fc.left.clone(),
+                }
             }
         }
         // A chained member on a composite phrase — `X6.setup(GND, NC).XTAL`
@@ -3963,10 +3970,16 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                     return elems;
                 }
             }
+            // Shape derivation for a non-port chained member: the left port
+            // comes from the base phrase (mirrors get_left's
+            // `Member(phrase, _) => phrase.get_left()`), the right port from
+            // the member endpoint (mirrors get_right's `Member(_, ep) =>
+            // ep.get_right()`). Both recurse through this context-aware path
+            // rather than the symbol-level get_left/get_right.
             if right {
-                phrase.get_right()
+                eval_port_elems(&McPhrase::Endpoint(ep.clone()), true, context)
             } else {
-                phrase.get_left()
+                eval_port_elems(inner, false, context)
             }
         }
         McPhrase::Endpoint(McEndpoint::Node {
@@ -4010,24 +4023,133 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                         elems.extend(Vec::from(bus.clone()));
                     }
                     other => {
-                        if right {
-                            elems.extend(other.get_right());
-                        } else {
-                            elems.extend(other.get_left());
-                        }
+                        // Non-Bus element: recurse through the same
+                        // context-aware path (wrapped as a phrase) so a
+                        // multi-member port / interface member presents its
+                        // expanded width instead of the symbol-level 1*1.
+                        elems.extend(eval_port_elems(
+                            &McPhrase::Endpoint(other.clone()),
+                            right,
+                            context,
+                        ));
                     }
                 }
             }
             elems
         }
-        _ => {
-            let r = if right {
-                phrase.get_right()
-            } else {
-                phrase.get_left()
-            };
-            r
+        // ── Remaining variants: explicit shape derivation (no symbol-level
+        //    get_left/get_right fallback — the width must come from the same
+        //    context-aware rules Pass2 expands). ──
+        //
+        // A Lead is a 1*1 placeholder contact (same sentinel as before).
+        McPhrase::Lead => vec![McBus::new("(lead)")],
+        // A bare component reference (`R1`): expose the component's declared
+        // pin shape — a TwoPin component contributes its two pin contacts,
+        // a MultiPort component its in/out/power pin contacts. This is the
+        // declaration-derived width Pass2's expand_port_lanes produces, so the
+        // Pass1 view matches.
+        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Component(ref c),
+            ..
+        })) => {
+            let inst_name = c.name.to_string();
+            let shape = shape_defaults(c);
+            match shape.kind {
+                PinShapeKind::TwoPin => {
+                    if right {
+                        vec![McBus::new(&format!("{inst_name}.2"))]
+                    } else {
+                        vec![McBus::new(&format!("{inst_name}.1"))]
+                    }
+                }
+                PinShapeKind::Single => vec![McBus::new(&inst_name)],
+                PinShapeKind::MultiPort => {
+                    let in_pins = c.base.pins.get_pins_by_io(&IOType::In);
+                    let out_pins = c.base.pins.get_pins_by_io(&IOType::Out);
+                    let ps_pins = c.base.pins.get_pins_by_io(&IOType::Power);
+                    if !in_pins.is_empty() && !out_pins.is_empty() {
+                        if right {
+                            out_pins
+                                .iter()
+                                .map(|p| McBus::new(&format!("{inst_name}.{p}")))
+                                .collect()
+                        } else {
+                            in_pins
+                                .iter()
+                                .map(|p| McBus::new(&format!("{inst_name}.{p}")))
+                                .collect()
+                        }
+                    } else if !ps_pins.is_empty() {
+                        // Power-only component: a column vector of all power
+                        // pins (left == right == power pins), matching Pass2.
+                        ps_pins
+                            .iter()
+                            .map(|p| McBus::new(&format!("{inst_name}.{p}")))
+                            .collect()
+                    } else {
+                        vec![McBus::new(&inst_name)]
+                    }
+                }
+            }
         }
+        // A named list `Label[1,2]` is a column vector of its members
+        // (vec-arch.md §4.2), not a single point named after the list. Only a
+        // member-less list stays the bare name.
+        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::List(ref list),
+            ..
+        })) => {
+            if list.member.is_empty() && !list.name.is_empty() {
+                vec![McBus::new(list.name())]
+            } else {
+                list.member.iter().map(|m| McBus::new(m)).collect()
+            }
+        }
+        // An endpoint list `[A, B]` exposes every element's port in order —
+        // the Pass2 view (points.rs P2-1 flat-maps all items), not just the
+        // first element's like the symbol-level get_left.
+        McPhrase::Endpoint(McEndpoint::List(ref items)) => items
+            .iter()
+            .flat_map(|e| {
+                eval_port_elems(&McPhrase::Endpoint(e.clone()), right, context)
+            })
+            .collect(),
+        // A shape-matched Group exposes the port of its first operand
+        // (mirrors get_left/get_right, but recursing context-aware so a
+        // transposed / member / bus head keeps its expanded width).
+        McPhrase::Group(ref g) => {
+            if right {
+                if g.right_match && !g.opds.is_empty() {
+                    eval_port_elems(&g.opds[0], true, context)
+                } else {
+                    vec![McBus::new("<error:shape_mismatch>")]
+                }
+            } else if g.left_match && !g.opds.is_empty() {
+                eval_port_elems(&g.opds[0], false, context)
+            } else {
+                vec![McBus::new("<error:shape_mismatch>")]
+            }
+        }
+        // Multiple operands concatenate every element's port in order.
+        McPhrase::Multiple(ref ops) => ops
+            .iter()
+            .flat_map(|o| eval_port_elems(o, right, context))
+            .collect(),
+        // A Closure's left port is its first body statement's left; the right
+        // port is the declared output interface.
+        McPhrase::Closure(ref c) => {
+            if right {
+                c.right.clone()
+            } else if let Some(first) = c.body.first() {
+                eval_port_elems(first, false, context)
+            } else {
+                Vec::new()
+            }
+        }
+        // Any other single instance reference (BusRef / Unresolved / Pins /
+        // PinId / Attr / Func / EnumVal): a single 1*1 point from its bus
+        // identity — these carry no multi-member expansion.
+        McPhrase::Endpoint(McEndpoint::Single(ref iref)) => vec![iref.to_bus()],
     }
 }
 
