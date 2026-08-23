@@ -29,7 +29,7 @@ use tracing::trace;
 /// identically, so matching the display form under an explicit `uri_ok` gate
 /// recovers the same definition. Every candidate is URI-scoped — this is
 /// never a workspace-wide name-only scan (§5.4.5).
-fn find_in_table_scoped(
+pub(crate) fn find_in_table_scoped(
     cmie_kind: u8,
     name_str: &str,
     uri_ok: impl Fn(&UriId) -> bool,
@@ -337,6 +337,47 @@ impl Resolver {
         for entry in global::mcc_enums.iter() {
             if entry.key().ident.to_string() == name_str {
                 return Some(McCMIE::Enum(entry.value().clone()));
+            }
+        }
+        None
+    }
+
+    /// Interface-only class resolution for interface-binding syntax
+    /// (`X::Y(role)` in pin options). The binding requires the class to be an
+    /// interface; when a name collides across kinds (e.g. the mcode library
+    /// defines both `component USB.MINIB` and `interface USB.MINIB`), the
+    /// kind-blind [`Self::resolve_class`] resolves to the component and
+    /// rejects the binding. This lookup follows the same visibility rules
+    /// (P3 same file → P4 use chain → P5 mcode system library) restricted to
+    /// the interface table, so the binding prefers the interface definition.
+    pub fn resolve_interface(from_uri: &McURI, name: &McIds) -> Option<McCMIE> {
+        let canonical = crate::build::pass1::canonicalize_project_uri(from_uri);
+        let from_uri = &McURI::from(canonical.as_str());
+        let name_str = name.to_string();
+
+        // P3: interfaces defined in the referencing file itself. Exact-key
+        // lookup first, then the string-level same-file fallback for dotted
+        // names whose McIds segment form differs from the AST-built key.
+        let space = McSpaceName::new(name, from_uri.clone());
+        if let Some(i) = workspace::WORKSPACE.interfaces.get(&space) {
+            return Some(McCMIE::Interface(i.clone()));
+        }
+        let canonical_id = uri_intern(&canonical);
+        if let Some(i) = find_in_table_scoped(2, &name_str, |u| *u == canonical_id) {
+            return Some(i);
+        }
+
+        // P4: interfaces reachable through the referencing file's use chain.
+        if let Some(i) = find_in_table_scoped(2, &name_str, |u| {
+            use_chain_reaches(&canonical, u.as_uri().as_ref())
+        }) {
+            return Some(i);
+        }
+
+        // P5: mcode system library interfaces (name-only, interfaces table only).
+        for entry in global::mcc_interfaces.iter() {
+            if entry.key().ident.to_string() == name_str {
+                return Some(McCMIE::Interface(entry.value().clone()));
             }
         }
         None

@@ -865,8 +865,25 @@ pub fn handle_show_roles(params: Option<Value>) -> RpcResult {
         .as_ref()
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.roles: need to specify name"))?;
 
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
+    let (cmie, _) = {
+        let name_str = name.as_str();
+        // Roles only exist on interfaces; prefer an interface-directed lookup so a
+        // name shared with another kind (e.g. `component USB.MINIB` + `interface
+        // USB.MINIB` in mcode) resolves to the interface, not the first kind hit.
+        crate::mcb_iter_interfaces()
+            .iter()
+            .find(|(n, _)| n == name_str)
+            .and_then(|(n, u)| {
+                crate::get_kind_def(
+                    2,
+                    &crate::McIds::from(n.as_str()),
+                    &crate::McURI::from(u.as_str()),
+                )
+                .map(|c| (c, n.clone()))
+            })
+            .or_else(|| find_def_by_name(name))
+            .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?
+    };
 
     let iface = match &cmie {
         crate::McCMIE::Interface(i) => i,

@@ -365,6 +365,33 @@ fn find_component_def(name: &str) -> Option<mcc::McCMIE> {
     None
 }
 
+/// Find a definition restricted to one kind (`cmie_kind`: 0 component,
+/// 1 module, 2 interface, 3 enum). Kind-blind lookups return the first kind
+/// hit when a name collides across kinds (e.g. `component USB.MINIB` +
+/// `interface USB.MINIB` in the mcode library); a kind-directed `show`
+/// must prefer the requested kind instead.
+fn find_kind_def(name: &str, cmie_kind: u8) -> Option<mcc::McCMIE> {
+    let iter: Vec<(String, String)> = match cmie_kind {
+        0 => mcc::mcb_iter_components(),
+        1 => mcc::mcb_iter_modules(),
+        2 => mcc::mcb_iter_interfaces(),
+        3 => mcc::mcb_iter_enums(),
+        _ => return None,
+    };
+    for (n, u) in iter {
+        if n == name {
+            if let Some(c) = mcc::get_kind_def(
+                cmie_kind,
+                &mcc::McIds::from(n.as_str()),
+                &mcc::McURI::from(u.as_str()),
+            ) {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
 fn def_or_exit(name: &str) -> mcc::McCMIE {
     match find_def(name) {
         Some(c) => c,
@@ -614,7 +641,7 @@ fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
 }
 
 fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
-    let cmie = def_or_exit(name);
+    let cmie = find_kind_def(name, 1).unwrap_or_else(|| def_or_exit(name));
     let mcc::McCMIE::Module(module) = cmie else {
         error!(target: "mcc::show", "'{}' is not a Module", name);
         std::process::exit(1);
@@ -628,7 +655,7 @@ fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
 }
 
 fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
-    let cmie = def_or_exit(name);
+    let cmie = find_kind_def(name, 2).unwrap_or_else(|| def_or_exit(name));
     let mcc::McCMIE::Interface(iface) = cmie else {
         error!(target: "mcc::show", "'{}' is not an Interface", name);
         std::process::exit(1);
@@ -646,7 +673,7 @@ fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
 }
 
 fn show_enum(name: &str, args: &ShowArgs) -> Result<()> {
-    let cmie = def_or_exit(name);
+    let cmie = find_kind_def(name, 3).unwrap_or_else(|| def_or_exit(name));
     let mcc::McCMIE::Enum(en) = cmie else {
         error!(target: "mcc::show", "'{}' is not an Enum", name);
         std::process::exit(1);

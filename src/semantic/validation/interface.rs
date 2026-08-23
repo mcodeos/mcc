@@ -57,7 +57,12 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
             };
 
             let iface_name = &iface.name.to_string();
-            let iface_pins = &iface.base.pins.names_to_id;
+            // Use the interface's real member pin names (source declaration
+            // order) instead of raw `names_to_id` keys: the key table also
+            // holds container keys for list-form bindings (e.g. the `[VBUS,
+            // GND]` binding name inside `[1,5] = [VBUS, GND]::DC(5V)`), which
+            // a component can never bind and would spuriously show as missing.
+            let iface_pins: HashSet<String> = iface.base.pins.member_names().into_iter().collect();
 
             if iface_pins.is_empty() {
                 continue;
@@ -81,7 +86,7 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
 
             // Find missing interface pins
             let mut missing: Vec<String> = Vec::new();
-            for iface_pin_name in iface_pins.keys() {
+            for iface_pin_name in &iface_pins {
                 if !bound_iface_pins.contains(iface_pin_name) {
                     missing.push(iface_pin_name.clone());
                 }
