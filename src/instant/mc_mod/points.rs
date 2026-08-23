@@ -85,16 +85,28 @@ fn expand_member_ida(member: &str) -> Vec<String> {
 /// Here we reverse-look up `pin_id_to_names` (pid -> [dotted name…], authoritative
 /// and guaranteed to contain "VOUT.Vout"): find a pid whose "full name or last
 /// segment" equals that alias.
+///
+/// ── V2 (net-identity): structured lookup, no leaf-name fallback for dotted
+/// paths. A dotted reference (`VOUT.Vout`) must match the FULL registered pin
+/// name — matching only the leaf segment (`Vout`) would let a misspelled
+/// `VIN.Vout` silently bind to pin 1 (VOUT.Vout), a wrong-pin bind that
+/// violates "identity = full instance path". Bare aliases (`Vout`, no dot)
+/// legitimately match by leaf segment: the pin name is the author's declared
+/// identity for bare access (`ldo.Vout` → `ldo.1`).
 fn resolve_bare_member_pid(
     pins: &crate::semantic::component::mc_pins::McPins,
     rest: &str,
-    last: &str,
 ) -> Option<String> {
+    let dotted = rest.contains('.');
     let mut hits: Vec<String> = Vec::new();
     for (pid, names) in pins.pin_id_to_names.iter() {
         let matched = names.iter().any(|n| {
-            let seg = n.rsplit('.').next().unwrap_or(n);
-            n == rest || n == last || seg == rest || seg == last
+            if dotted {
+                n == rest
+            } else {
+                let seg = n.rsplit('.').next().unwrap_or(n);
+                n == rest || seg == rest
+            }
         });
         if matched && !hits.contains(pid) {
             hits.push(pid.clone());
@@ -1267,23 +1279,27 @@ impl McModuleInst {
                 // resolve_bare_member_pid to reverse-look up the dotted alias, so that
                 // bare spellings like `ldo.Vout` / `ldo.GND` also resolve to `ldo.5` /
                 // `ldo.2` and can union with the numbered spellings like `@CAP2.2 ~ ldo.5`.
-                let last = rest.rsplit('.').next().unwrap_or(rest);
+                //
+                // ── V2 (net-identity): structured lookup only. `rest` is either the
+                // full dotted member path (`VOUT.Vout`) or a bare alias (`Vout`). A
+                // dotted path must resolve EXACTLY via `names_to_id.get(rest)` — the
+                // previous leaf-name fallback `.get(last)` would silently bind a
+                // misspelled `VIN.Vout` to pin 1 (VOUT.Vout). Bare aliases still
+                // resolve through resolve_bare_member_pid (rest == last when bare, so
+                // a single `.get(rest)` covers both forms).
                 let single_hit: Option<String> = comp
                     .def
                     .pins
                     .names_to_id
                     .get(rest)
-                    .or_else(|| comp.def.pins.names_to_id.get(last))
                     .and_then(|port| match port {
                         crate::semantic::component::mc_pins::McPinPort::Single(id) => {
                             Some(id.clone())
                         }
                         _ => None,
                     });
-                let resolved_pid: Option<String> = single_hit.or_else(|| {
-                    let r = resolve_bare_member_pid(&comp.def.pins, rest, last);
-                    r
-                });
+                let resolved_pid: Option<String> = single_hit
+                    .or_else(|| resolve_bare_member_pid(&comp.def.pins, rest));
                 let resolved = resolved_pid
                     .map(|id| format!("{first_part}.{id}"))
                     .unwrap_or_else(|| canonicalize_path(&element.name));
