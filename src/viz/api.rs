@@ -403,7 +403,12 @@ fn render_layer_recursive(
     // layers (label idempotence guard: nets already carrying a label are skipped);
     // its only role was a canvas fallback —— but canvas is already computed by
     // canvas_hint / compute_canvas above, so removing it is a pure equivalence.
-    // ★ F2: Device layer skips route/audit/label_placement
+    // ★ F2: Device layer skips route/audit (the equipotential-tree pipeline
+    // draws its own per-net geometry). Label placement still runs on Device
+    // layers: the S8 NC-prefix contract and the S7 overlap guard apply to
+    // sub-layers too — before F2, sub-layers ran the FlowLayouter and received
+    // placed labels, so dropping the pipeline here silently un-marked NC parts.
+    let mut audit = None;
     if graph.layer_style != crate::vector::graph::LayerStyle::Device {
         crate::vector::graph::netprobe::probe_route(&graph); // ★ NEW
 
@@ -418,16 +423,19 @@ fn render_layer_recursive(
         for d in &rep.details {
             crate::vlog!("[viz::audit] detail: {d}");
         }
+        audit = Some(rep);
+    }
 
-        // ── M8: Label placement optimization (after route, before metrics) ──
-        let label_report = label_placement_pipeline(&mut graph, canvas);
-        crate::vlog!(
-            "[viz::labels] placed={} total={} hidden={}",
-            label_report.labels_placed,
-            label_report.labels_total,
-            label_report.labels_hidden,
-        );
+    // ── M8: Label placement optimization (after route, before metrics) ──
+    let label_report = label_placement_pipeline(&mut graph, canvas);
+    crate::vlog!(
+        "[viz::labels] placed={} total={} hidden={}",
+        label_report.labels_placed,
+        label_report.labels_total,
+        label_report.labels_hidden,
+    );
 
+    if let Some(rep) = audit {
         metrics.accumulate_layer(&graph, &rep, canvas);
     }
 

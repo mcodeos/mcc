@@ -1057,11 +1057,13 @@ module top {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // D3 fires when two points in the same net resolve to the same id.
         // The bracket expansion [A, A] creates two points both resolving to
-        // the same port A, which is a merged short.
+        // the same port A, which is a merged short. The right side must be
+        // 2-wide too: `[A, A] -> GND` (2x1 vs 1x1) is intentionally rejected
+        // by the strict opcheck as a single-point broadcast (no carve-out).
         let fixture = r#"
 module top {
     io A
-    [A, A] -> GND
+    [A, A] -> [GND, GND]
 }
 "#;
         let diags = build_fixture_with_graph(fixture);

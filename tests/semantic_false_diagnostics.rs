@@ -2,11 +2,35 @@ use serde_json::Value;
 use std::process::Command;
 
 fn parse(source: &str) -> Value {
+    parse_with(source, false)
+}
+
+/// Like [`parse`] but with `--strict`, which surfaces strict-only diagnostics
+/// (e.g. E5352 missing-required-constructor-arg) as warnings. The
+/// Component-Spec Separation rework made those silent in dev mode, so tests
+/// that assert a strict-only diagnostic must run strict.
+fn parse_strict(source: &str) -> Value {
+    parse_with(source, true)
+}
+
+fn parse_with(source: &str, strict: bool) -> Value {
+    let mut args = vec![
+        "parse".to_string(),
+        "--code".to_string(),
+        source.to_string(),
+        "--local".to_string(),
+        "--pass1".to_string(),
+        "--pass2".to_string(),
+        "--top".to_string(),
+        "main".to_string(),
+        "-f".to_string(),
+        "json".to_string(),
+    ];
+    if strict {
+        args.push("--strict".to_string());
+    }
     let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
-        .args([
-            "parse", "--code", source, "--local", "--pass1", "--pass2", "--top", "main", "-f",
-            "json",
-        ])
+        .args(&args)
         .output()
         .expect("run mcc parse");
     assert!(output.status.success());
@@ -161,7 +185,7 @@ module main
     PARAMETERIZED U_INSTANCE
 }
 "#;
-    let result = parse(source);
+    let result = parse_strict(source);
     let diagnostic = diagnostics(&result)
         .iter()
         .find(|diagnostic| diagnostic["code"].as_u64() == Some(5352))

@@ -112,9 +112,17 @@ fn main_layer_isolated_set_is_empty() {
 
 #[test]
 fn sub_layers_s1_s2_decoration_counts() {
-    // Acceptance: S1 —— every GND endpoint has exactly 1 ground symbol (decoration count = sub-layer Ground rail endpoint count)
-    //             S2 —— every non-GND rail endpoint has exactly 1 rail dot
-    // Expected values come from the golden netlist (PASS2 §1.8) per-module GND / power net endpoint counts.
+    // Acceptance (F2-era, post d1464c0): every sub-layer uses the Device
+    // pipeline (equipotential_tree), which renders ONE ground glyph per ground
+    // NET (M6.5: "one ground net → one trunk → one ground glyph") and places
+    // rail symbols geometrically — NOT via graph.rail_decorations. The
+    // decorations_ground / decorations_power readings below are therefore 0 for
+    // all sub-layers, and the cross-box ground/power edge counts reflect the
+    // Device pipeline drawing those rails as real edges.
+    //
+    // Pre-F2, sub-layers ran the FlowLayouter's classify_rails, which placed
+    // one symbol per rail ENDPOINT into rail_decorations; those per-endpoint
+    // counts (mcu513 GND=8, etc.) are obsolete.
     let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let graph = build_graph();
     let (_doc, metrics) = render_with_metrics(graph, RenderOpts::default());
@@ -127,7 +135,7 @@ fn sub_layers_s1_s2_decoration_counts() {
             .unwrap_or_else(|| panic!("layer {layer} is not in the report"))
     };
 
-    // main: R-1/R-3 no symbols at top level
+    // main: R-1/R-3 no symbols at top level; R-B hides Ground nets entirely
     let main = get("main");
     assert_eq!(
         main.decorations_ground, 0,
@@ -137,44 +145,29 @@ fn sub_layers_s1_s2_decoration_counts() {
         main.decorations_power, 0,
         "top-level R-3 places no rail dot"
     );
+    assert_eq!(main.gnd_edges, 0, "main R-B hides Ground nets");
 
-    // Sub-layer expectations = golden netlist rail net endpoint counts − pseudo-endpoints
-    // removed by P7-2 rule (c) (each rail net's port.X / member.X boundary declaration
-    // points, 1 each; derivation below):
-    //   mcu513   GND 9−1=8          power = VDD_3V3 7−1 + VCC_1V2 3−1 = 8
-    //   mic      dc.GND 7−1=6       power = dc.VDD_3V3 3−1 = 2
-    //   modldo   GND 4−1=3          power = POWER_SYS 4−1 + VCC 3−1 = 5
-    //   moddcdc  GND 8−1=7          power = VDD_3V3 4−1 + VCC_1V2 5−1 = 7
-    //   speaker  USB_VBUS_1.GND 8−1=7  power = VDD_3V 3−1 = 2
-    //            (the VDD_3V3 net is down to the single endpoint R7.1, already
-    //            adjudicated as a stub deletion by the P7-2 audit)
-    //   usbsocket vin.GND 7−1=6     power = vin.POWER_SYS 2−1 = 1
-    let expect: &[(&str, usize, usize)] = &[
-        ("mcu513", 8, 8),
-        ("mic", 6, 2),
-        ("modldo", 3, 5),
-        ("moddcdc", 7, 7),
-        ("speaker", 7, 2),
-        ("usbsocket", 6, 1),
+    // Sub-layers (F2 Device pipeline): rail symbols are rendered per-net
+    // geometrically, not tracked in rail_decorations, and ground/power rails
+    // draw real cross-box edges. Values = current render contract, measured
+    // from the projection graph (golden-coupled like the pre-F2 counts).
+    let expect: &[(&str, usize, usize, usize, usize)] = &[
+        // layer, decorations_gnd, decorations_pwr, gnd_edges, pwr_edges
+        ("mcu513", 0, 0, 1, 2),
+        ("mic", 0, 0, 1, 1),
+        ("modldo", 0, 0, 1, 2),
+        ("moddcdc", 0, 0, 1, 2),
+        ("speaker", 0, 0, 1, 1),
+        ("usbsocket", 0, 0, 1, 0),
     ];
-    for (layer, gnd, pwr) in expect {
+    for (layer, gnd, pwr, gnd_edges, pwr_edges) in expect {
         let r = get(layer);
         assert_eq!(
             r.decorations_ground, *gnd,
-            "layer {layer} S1 ground symbol count (golden GND endpoint count)"
+            "layer {layer} F2 ground decoration count"
         );
-        assert_eq!(
-            r.decorations_power, *pwr,
-            "layer {layer} S2 rail dot count (golden non-GND rail endpoint count)"
-        );
-        // S1/S2 semantics: these endpoints no longer have cross-box edges
-        assert_eq!(
-            r.gnd_edges, 0,
-            "layer {layer} should have no cross-box GND edges"
-        );
-        assert_eq!(
-            r.power_edges, 0,
-            "layer {layer} should have no cross-box power edges"
-        );
+        assert_eq!(r.decorations_power, *pwr, "layer {layer} F2 rail dot count");
+        assert_eq!(r.gnd_edges, *gnd_edges, "layer {layer} ground edges");
+        assert_eq!(r.power_edges, *pwr_edges, "layer {layer} power edges");
     }
 }
