@@ -1287,19 +1287,19 @@ impl McModuleInst {
                 // misspelled `VIN.Vout` to pin 1 (VOUT.Vout). Bare aliases still
                 // resolve through resolve_bare_member_pid (rest == last when bare, so
                 // a single `.get(rest)` covers both forms).
-                let single_hit: Option<String> = comp
-                    .def
-                    .pins
-                    .names_to_id
-                    .get(rest)
-                    .and_then(|port| match port {
-                        crate::semantic::component::mc_pins::McPinPort::Single(id) => {
-                            Some(id.clone())
-                        }
-                        _ => None,
-                    });
-                let resolved_pid: Option<String> = single_hit
-                    .or_else(|| resolve_bare_member_pid(&comp.def.pins, rest));
+                let single_hit: Option<String> =
+                    comp.def
+                        .pins
+                        .names_to_id
+                        .get(rest)
+                        .and_then(|port| match port {
+                            crate::semantic::component::mc_pins::McPinPort::Single(id) => {
+                                Some(id.clone())
+                            }
+                            _ => None,
+                        });
+                let resolved_pid: Option<String> =
+                    single_hit.or_else(|| resolve_bare_member_pid(&comp.def.pins, rest));
                 let resolved = resolved_pid
                     .map(|id| format!("{first_part}.{id}"))
                     .unwrap_or_else(|| canonicalize_path(&element.name));

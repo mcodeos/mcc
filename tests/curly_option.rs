@@ -96,6 +96,9 @@ fn curly_mn_option_connection_parses_and_builds() {
 fn curly_mn_option_left_and_right_members_are_created() {
     // `mcu513{ MIC | DAC_OUT, SPK_MUTE }` — the right option has two members;
     // both must survive the id-chain extraction in the semantic layer.
+    // The right side is a 2*1 column `[VOUT, VOUT2]` so the series stays
+    // legal under vec-dianlu.md §5.2 (node right `N*1` vs column `N*1`); a
+    // single `VOUT` would be an illegal `2*1 -> 1*1` broadcast (§5.3.1).
     let source = r#"
 module MCU()
 {
@@ -108,8 +111,9 @@ module main
 {
     io VIN
     io VOUT
+    io VOUT2
     MCU mcu513
-    VIN -> mcu513{ MIC | DAC_OUT, SPK_MUTE } -> VOUT
+    VIN -> mcu513{ MIC | DAC_OUT, SPK_MUTE } -> [VOUT, VOUT2]
 }
 "#;
     let table = build_flat(source);
@@ -142,7 +146,8 @@ module main
         "mcu513.SPK_MUTE missing from netlist (trailing option member dropped?): {paths_joined}"
     );
 
-    // Input side: MIC joins VIN; output side: DAC_OUT + SPK_MUTE join VOUT.
+    // Input side: MIC joins VIN; output side: DAC_OUT joins VOUT and
+    // SPK_MUTE joins VOUT2 (row order preserved, no broadcast).
     for net in table.get_nets() {
         for &point_id in &net.points {
             let Some(entry) = table.get_entry(point_id) else {
@@ -156,8 +161,8 @@ module main
             }
             if entry.path.ends_with("mcu513.SPK_MUTE") {
                 assert_eq!(
-                    net.name, "VOUT",
-                    "SPK_MUTE should join VOUT (right option lost trailing members), nets: {joined}"
+                    net.name, "VOUT2",
+                    "SPK_MUTE should join VOUT2 (right option lost trailing members), nets: {joined}"
                 );
             }
         }
