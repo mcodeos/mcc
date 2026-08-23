@@ -556,6 +556,25 @@ impl McModuleInst {
             code,
             message
         );
+        // Surface the error as a file:line diagnostic so it reaches the build
+        // report and `summary.errors` — `InstDiagnostic` alone is only consumed
+        // by mcviz metrics and module dumps, so otherwise the error is silent
+        // (the enabler behind the periph.mc E4007 chain loss). Mirror the
+        // `diagnostic_log_at` pattern from bus.rs:143.
+        let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
+            (Some(sp), _) => (sp.uri.clone(), sp.offset),
+            (None, Some(s)) => (s.uri.clone(), s.offset),
+            (None, None) => (self.def_uri.clone(), 0),
+        };
+        crate::db::diagnostic::diagnostic::diagnostic_log_at(
+            code,
+            crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+            uri,
+            pos,
+            1,
+            &message,
+            &[],
+        );
         self.diagnostics
             .push(InstDiagnostic::error(code, &self.name, message));
     }

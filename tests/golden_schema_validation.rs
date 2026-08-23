@@ -198,7 +198,7 @@ fn test_golden_schema_required_fields() {
     }
 
     // Verify total counts
-    assert_eq!(total_nets, 60, "total nets should be 60, got {total_nets}");
+    assert_eq!(total_nets, 59, "total nets should be 59, got {total_nets}");
     assert_eq!(
         total_comps, 61,
         "total components should be 61, got {total_comps}"

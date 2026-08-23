@@ -40,7 +40,7 @@
 //! Every merge/dedup/removal is recorded as (layer, net, endpoint, rule a|b|c), aggregated
 //! into `baseline/render_projection.md`, plus one vlog summary line per layer.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::instant::insttab::{InstKind, InstTable, MemberRole};
 use crate::vector::graph::naming;
@@ -601,7 +601,11 @@ fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &Ins
     // while Label pseudo points (main.GND) have member_info == None —— role probing and
     // name picking are two separate steps.
     let mut has_ground = false;
-    let mut ground_port: Option<String> = None; // rail ground member (main.va.GND → "va.GND")
+    // All distinct rail ground member paths in the group (main.va.GND → "va.GND").
+    // V1 (net-identity design): a set of size > 1 means several rails' grounds
+    // merged into one global ground plane → named by the bare leaf, not by an
+    // arbitrary first rail path.
+    let mut ground_ports: BTreeSet<String> = BTreeSet::new();
     let mut label_leaf: Option<String> = None;
     let mut power_port: Option<String> = None;
     'outer: for &i in sorted {
@@ -613,9 +617,7 @@ fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &Ins
                 Some(MemberRole::Ground) => {
                     has_ground = true;
                     // rail member: last two path segments (main.va.GND → "va.GND")
-                    if ground_port.is_none() {
-                        ground_port = Some(last_two_segments(&e.path));
-                    }
+                    ground_ports.insert(last_two_segments(&e.path));
                 }
                 Some(MemberRole::Power) => {
                     // rail member: last two path segments (main.V3V3.VCC → "V3V3.VCC")
@@ -642,8 +644,14 @@ fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &Ins
                 return n;
             }
         }
-        if let Some(n) = ground_port {
-            return n; // Rail ground: the full member path is the net name (va.GND), strict rail identity
+        // V1 (net-identity design, rule ⑥): several distinct rail grounds merged
+        // into one group is a global ground plane → bare leaf "GND". A single
+        // rail ground keeps its full member path (va.GND) — strict rail identity.
+        if ground_ports.len() > 1 {
+            return "GND".to_string();
+        }
+        if let Some(n) = ground_ports.iter().next() {
+            return n.clone(); // Rail ground: the full member path is the net name (va.GND)
         }
     }
     if let Some(n) = power_port {

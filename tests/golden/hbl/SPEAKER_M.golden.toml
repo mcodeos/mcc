@@ -1,12 +1,13 @@
 # SPEAKER_M golden netlist
 # Dependency adjudication: ③ transpose ' does not split nets (C8 straddles VDD/GND)
 # Source: periph.mc:95-115
-# ★ Note: the golden doc's parameter name is USB_VBUS_1{VDD_3V, GND}::DC(3.3V),
-#   the source's parameter name is dc{VDD_3V3, GND}::DC(3.3V); the TOML follows the golden doc.
+# ★ V6 (net-identity): USB_VBUS_1.VDD_3V feeds BOTH lpa.VDD (via C8) and the
+#   R7 pull-up (line 90), so the VDD_3V3 net (old source) and lpa.VDD merge into
+#   ONE USB_VBUS_1.VDD_3V rail net. Golden regenerated 9 → 8 nets.
 
 [meta]
 module = "SPEAKER_M"
-nets = 9
+nets = 8
 components = 11
 
 [[comp]]
@@ -87,16 +88,12 @@ pins = 2
 origin = "periph.mc:113"
 
 [[net]]
-name = "lpa.VDD"
-points = ["USB_VBUS_1.VDD_3V", "C8.1", "lpa.6"]
+name = "USB_VBUS_1.VDD_3V"
+points = ["USB_VBUS_1.VDD_3V", "C8.1", "lpa.6", "R7.1"]
 
 [[net]]
 name = "GND"
 points = ["USB_VBUS_1.GND", "C8.2", "lpa.7", "C6.2", "ESD1.2", "ESD2.2", "spk.3", "spk.4"]
-
-[[net]]
-name = "VDD_3V3"
-points = ["port.VDD_3V3", "R7.1"]
 
 [[net]]
 name = "US_SPEAKER_MUTE"

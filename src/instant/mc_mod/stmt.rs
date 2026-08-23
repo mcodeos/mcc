@@ -686,8 +686,7 @@ impl McModuleInst {
                 }
                 let lhs_shape = Shape::vvec(lpts.len());
                 let rhs_shape = Shape::vvec(rpts.len());
-                let verdict =
-                    crate::semantic::opcheck::check_series_rows(lhs_shape, rhs_shape);
+                let verdict = crate::semantic::opcheck::check_series_rows(lhs_shape, rhs_shape);
                 if !matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_)) {
                     self.record_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,

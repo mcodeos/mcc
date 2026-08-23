@@ -161,6 +161,32 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
         // Couldn't build (lane incomplete) → fall back to the legacy logic below, no panic
     }
 
+    // ── ★ B4: source-operator-driven parallel topology ──────────────────
+    // A parallel `+` net is a flat set of scalar operands all at one level
+    // (an equipotential merge). The old frequency guess (`max_freq > 1 → star`)
+    // collapsed it into `[hub, leaves]` — misreading the parallel merge as a
+    // 1→N broadcast and giving the whole net a single direction
+    // (connection_type() misjudging equipotential points). Build it directly
+    // from the source operator instead: one scalar McVec per distinct endpoint
+    // in source order, all-Scalar groups, left-main anchor.
+    if pairs.iter().any(|p| p.op == Some(ConnOp::Parallel)) {
+        let order = collect_unique_ordered(pairs);
+        let vecs: Vec<McVec> = order.iter().map(|&id| McVec::single(id)).collect();
+        let shape = NetShape {
+            groups: vec![GroupRole::Scalar; vecs.len()],
+            dir: majority_dir(pairs),
+            lane: None,
+            series_chain: pairs.iter().filter_map(|p| p.via).collect(),
+            op: Some(ConnOp::Parallel),
+            anchor: parallel_anchor(&order),
+            order,
+        };
+        let mut net = McVecNet::with_shape(nid, net_name, vecs, shape);
+        net.source_span = source_span;
+        net.trunk = trunk;
+        return net;
+    }
+
     let dir = majority_dir(pairs);
 
     // Only one connection pair: Degenerate to 1:1
@@ -204,17 +230,29 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
 
 /// Build a complete NetShape from pairs and the already-computed vecs.
 fn build_net_shape(dir: ConnDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape {
-    // groups: one entry per McVec, derived from vec length
-    let groups: Vec<GroupRole> = nets
-        .iter()
-        .map(|v| {
-            if v.len() == 1 {
-                GroupRole::Scalar
-            } else {
-                GroupRole::Broadcast(v.len())
-            }
-        })
-        .collect();
+    // ── ★ B3: groups from the source shape, not the vec length ───────────
+    // The old `v.len()==1 → Scalar else Broadcast(v.len())` was a projection
+    // of the *result* — the post-topology-merge vecs — so any multi-point vec
+    // read as a 1→N broadcast even when the source was a parallel merge or a
+    // lane net. The source shape is the lane the connection belongs to: a lane
+    // net carries its width in the lane index, so every group is one scalar
+    // point. Mirroring `build_from_lanes` (all-Scalar groups) keeps the
+    // mixed-lane fallback straight instead of re-deriving a width off the
+    // merged vec (impl-plan.md §3.3.3 item 3 / §3.4 step ④).
+    let is_lane_net = pairs.iter().any(|p| p.lane.is_some());
+    let groups: Vec<GroupRole> = if is_lane_net {
+        vec![GroupRole::Scalar; nets.len()]
+    } else {
+        nets.iter()
+            .map(|v| {
+                if v.len() == 1 {
+                    GroupRole::Scalar
+                } else {
+                    GroupRole::Broadcast(v.len())
+                }
+            })
+            .collect()
+    };
 
     // series_chain: collect all pass-through device IDs from pairs
     let series_chain: Vec<i64> = pairs.iter().filter_map(|p| p.via).collect();
@@ -563,5 +601,65 @@ mod tests {
         assert_eq!(shape.order, vec![10, 11, 12]);
         assert_eq!(shape.anchor, Some(10));
         assert!(shape.is_informative());
+    }
+
+    /// B4: a parallel `+` net merges into a flat set of scalar operands, not a
+    /// freq-guessed `[hub, leaves]` star. `A + B + C` = (A,B),(B,C) has `B` at
+    /// degree 2 (the old guess → star); the source operator must win: one
+    /// scalar McVec per distinct endpoint, all-Scalar groups, `Parallel` op.
+    #[test]
+    fn parallel_net_builds_flat_from_source_op() {
+        let pairs = vec![
+            ConnPair::plain_with_dir(1, 2, ConnDir::Undirected).with_op(ConnOp::Parallel),
+            ConnPair::plain_with_dir(2, 3, ConnDir::Undirected).with_op(ConnOp::Parallel),
+        ];
+        let net = merge_pairs_to_vecnet(42, "PAR".to_string(), &pairs);
+        assert_eq!(net.nets.len(), 3, "one McVec per operand, not a star pair");
+        assert!(net.nets.iter().all(|v| v.len() == 1), "all operands scalar");
+        let shape = net.shape.as_ref().expect("shape filled");
+        assert_eq!(shape.op, Some(ConnOp::Parallel));
+        assert_eq!(shape.order, vec![1, 2, 3]);
+        assert_eq!(shape.anchor, Some(1));
+        assert!(
+            shape.groups.iter().all(|g| *g == GroupRole::Scalar),
+            "parallel merge must not read as a Broadcast; got {:?}",
+            shape.groups
+        );
+    }
+
+    /// B4: a genuine series broadcast (hub at degree >1, no `+` operator) still
+    /// builds a star — the source shape is a 1→N broadcast, not a parallel
+    /// merge, so the freq path is the correct topology here.
+    #[test]
+    fn series_broadcast_still_builds_star() {
+        let pairs = vec![
+            ConnPair::plain_with_dir(7, 8, ConnDir::LtoR).with_op(ConnOp::Series),
+            ConnPair::plain_with_dir(7, 9, ConnDir::LtoR).with_op(ConnOp::Series),
+        ];
+        let net = merge_pairs_to_vecnet(43, "GND".to_string(), &pairs);
+        assert_eq!(net.nets.len(), 2, "hub + leaves star");
+        let shape = net.shape.as_ref().expect("shape filled");
+        assert_eq!(shape.op, Some(ConnOp::Series));
+        assert_eq!(
+            shape.groups,
+            vec![GroupRole::Scalar, GroupRole::Broadcast(2)]
+        );
+    }
+
+    /// B3: a lane net's groups are all Scalar (width lives in the lane index),
+    /// even when the merged vec happens to be multi-point in the mixed-lane
+    /// fallback — never re-derive a Broadcast width off the vec length.
+    #[test]
+    fn lane_net_groups_are_scalar_not_vec_length_projection() {
+        let pairs = vec![ConnPair::laned(
+            5,
+            6,
+            LaneRef::new(0, Some("TX".into())),
+            ConnDir::LtoR,
+        )];
+        let nets = vec![McVec::single(5), McVec::single(6)];
+        let shape = build_net_shape(ConnDir::LtoR, &pairs, &nets);
+        assert_eq!(shape.groups, vec![GroupRole::Scalar, GroupRole::Scalar]);
+        assert!(shape.is_bus_lane());
     }
 }
