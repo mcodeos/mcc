@@ -391,6 +391,24 @@ pub fn build_topology(graph: &McVecGraph) -> Vec<NetTopology> {
     topos
 }
 
+/// ★ S9/F5b: whether a net with a single real group (one box endpoint after
+/// projection) still renders — as a ground symbol, a power-rail bus label, or
+/// a named SubModuleIO port stub — instead of being skipped as a bare dangling
+/// pin. The F5 skip (build_one_topology) and the S9 dangling-net metric
+/// (renderdiff) share this predicate so the metric exactly mirrors what the
+/// Device tree pipeline draws.
+pub(crate) fn single_group_net_renders_stub(net: &VizNet) -> bool {
+    net.kind == NetKind::Ground
+        || net.kind == NetKind::Power
+        || net
+            .rail
+            .as_ref()
+            .is_some_and(|r| r.class == RailClass::Power)
+        || (net.kind == NetKind::SubModuleIO
+            && !net.name.is_empty()
+            && !crate::instant::mc_net::is_anon_net_name(&net.name))
+}
+
 fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
     // Group real-box endpoints by box_id (BTreeMap for determinism)
     let mut real_groups: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
