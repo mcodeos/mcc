@@ -55,6 +55,70 @@ console.groupEnd();
 const navStack = [];
 let currentBid = DOC.root_bid;
 
+// ── Zoom control ─────────────────────────────────────────────────
+// Zoom is implemented by wrapping the current <svg> in a #zoom-pane and
+// sizing the pane to (canvas-width × zoom). The SVG has a viewBox and fills
+// the pane, so it is re-rendered at the target size (vector-crisp) rather
+// than bitmap-scaled. Scrolling pans the zoomed content via #canvas overflow.
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 8;
+const ZOOM_STEP = 1.25;
+let zoomLevel = 1;
+let zoomAspect = 1; // current SVG viewBox aspect ratio (w / h)
+
+// Ensure the current <svg> lives inside a #zoom-pane. Must re-wrap after
+// every innerHTML replacement in init() / switchToLayer().
+function ensureZoomPane() {
+    const canvas = document.getElementById('canvas');
+    const svg = canvas.querySelector('svg');
+    if (!svg) return null;
+
+    let pane = document.getElementById('zoom-pane');
+    if (!pane) {
+        pane = document.createElement('div');
+        pane.id = 'zoom-pane';
+        canvas.appendChild(pane);
+        pane.appendChild(svg);
+    }
+
+    // Re-read the viewBox aspect ratio in case this layer's SVG differs.
+    const vb = svg.getAttribute('viewBox');
+    if (vb) {
+        const parts = vb.trim().split(/[\s,]+/).map(Number);
+        if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+            zoomAspect = parts[2] / parts[3];
+        }
+    }
+    return pane;
+}
+
+function applyZoom(scale) {
+    zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale));
+    const pane = ensureZoomPane();
+    if (!pane) return;
+
+    const canvas = document.getElementById('canvas');
+    // Base width = canvas content box (clientWidth minus padding), so zoom=1
+    // fills the canvas exactly with no scrollbar.
+    const cs = getComputedStyle(canvas);
+    const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const baseW = Math.max(1, canvas.clientWidth - padX);
+    const paneW = Math.max(1, baseW * zoomLevel);
+    pane.style.width = paneW + 'px';
+    pane.style.height = (paneW / zoomAspect) + 'px';
+
+    const label = document.getElementById('zoom-level');
+    if (label) label.textContent = Math.round(zoomLevel * 100) + '%';
+    const zin = document.getElementById('zoom-in');
+    const zout = document.getElementById('zoom-out');
+    if (zin) zin.disabled = zoomLevel >= ZOOM_MAX;
+    if (zout) zout.disabled = zoomLevel <= ZOOM_MIN;
+}
+
+function zoomIn()  { applyZoom(zoomLevel * ZOOM_STEP); }
+function zoomOut() { applyZoom(zoomLevel / ZOOM_STEP); }
+function zoomReset() { applyZoom(1); }
+
 // ── Smart layer lookup: try number / string / fallback ─────────
 function findLayer(bid) {
     if (bid === null || bid === undefined) return null;
@@ -120,6 +184,7 @@ function init() {
 
     updateBreadcrumb();
     updateStats();
+    applyZoom(zoomLevel);
 }
 
 function parseBid(s) {
@@ -151,6 +216,7 @@ function switchToLayer(bid) {
     document.getElementById('canvas').innerHTML = layer.svg;
     updateBreadcrumb();
     updateStats();
+    applyZoom(zoomLevel);
     return true;
 }
 
@@ -236,6 +302,25 @@ function escapeHtml(text) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 }
+
+// ── Zoom gesture / button wiring ─────────────────────────────────
+// The canvas element itself persists across layer switches (only its
+// innerHTML is replaced), so listeners attached here survive navigation.
+const zoomCanvas = document.getElementById('canvas');
+zoomCanvas.addEventListener('wheel', function (e) {
+    // Trackpad pinch and Ctrl/Cmd + wheel both zoom. Chromium reports a
+    // pinch as wheel events with ctrlKey=true (on macOS metaKey is also set);
+    // the deltaY sign selects the direction.
+    if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        applyZoom(zoomLevel * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
+    }
+}, { passive: false });
+
+document.getElementById('zoom-in').addEventListener('click', zoomIn);
+document.getElementById('zoom-out').addEventListener('click', zoomOut);
+document.getElementById('zoom-reset').addEventListener('click', zoomReset);
+window.addEventListener('resize', function () { applyZoom(zoomLevel); });
 
 // ── Startup ──────────────────────────────────────────────────────
 if (document.readyState === 'loading') {

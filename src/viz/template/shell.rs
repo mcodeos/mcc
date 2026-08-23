@@ -44,6 +44,12 @@ pub fn wrap(title: &str, css: &str, doc_json: &str, js: &str) -> String {
 <body>
   <div id="breadcrumb"></div>
   <div id="main-container">
+    <div id="zoom-control">
+      <button id="zoom-out" type="button" title="Zoom out">-</button>
+      <span id="zoom-level">100%</span>
+      <button id="zoom-in" type="button" title="Zoom in">+</button>
+      <button id="zoom-reset" type="button" title="Reset to 100%">1:1</button>
+    </div>
     <div id="canvas"></div>
   </div>
   <div id="stats"></div>
