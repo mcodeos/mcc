@@ -94,17 +94,68 @@ body {
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
 #canvas {
   flex: 1;
   overflow: auto;
   padding: 16px;
-  display: flex;
-  justify-content: center;
 }
-#canvas svg {
-  max-width: 100%;
-  height: auto;
+/* Zoomed SVG is wrapped in #zoom-pane; the pane sizes to (canvas-width × zoom)
+   so scrolling pans the zoomed content. margin:auto centers the pane when it is
+   smaller than the canvas (zoom < 1); once it overflows, auto margins collapse to 0
+   and the scroll container takes over. */
+#zoom-pane {
+  margin: 0 auto;
+}
+#zoom-pane svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+#zoom-control {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  user-select: none;
+}
+#zoom-control button {
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  width: 24px;
+  height: 24px;
+  line-height: 24px;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 3px;
+}
+#zoom-control button:hover {
+  background: rgba(128, 128, 128, 0.2);
+}
+#zoom-control button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+#zoom-control button:disabled:hover {
+  background: transparent;
+}
+#zoom-level {
+  font-size: 11px;
+  min-width: 44px;
+  text-align: center;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
 }
 #stats {
   padding: 6px 16px;
