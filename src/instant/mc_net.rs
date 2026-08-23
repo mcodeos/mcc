@@ -1128,10 +1128,13 @@ impl NetTable {
             // correctly classify Power/Ground, and ITER-4's hyperedge merge can
             // also find these nets by "duplicate name".
             //
-            // Note: we deliberately pick the last segment instead of the full path,
-            // because both sides of the internal bridge paths have owner segments.
-            // If some point's path is itself only 1 segment and matches a power
-            // name (degenerate case), tier2 already hit and we never reach here.
+            // Note: we keep the matched point's FULL path (e.g. `va.GND`,
+            // `main.ldo.gnd`) as the net name — see the "Strict DC rail identity"
+            // note below. The last segment is only probed by `looks_like_power_rail`
+            // to decide *whether* a point qualifies as the net name candidate, never
+            // as the name itself. Degenerate case: a path of only 1 segment that
+            // matches a power name was already caught by tier2, so we never reach
+            // here with it.
             let net_name = group_points
                 .iter()
                 .find(|p| {
