@@ -686,6 +686,13 @@ impl McParamBindings {
         }
     }
 
+    /// Build a binding list from pre-built bindings. Used by the instantiation
+    /// boundary to rewrite vector-formal bound values (lane alignment,
+    /// matching-rules-design.md §3) before substitution.
+    pub(crate) fn from_bindings(bindings: Vec<McParamBinding>) -> Self {
+        Self { bindings }
+    }
+
     /// Create bindings from parameter declarations and parameter values.
     ///
     /// Binding priority (highest first):

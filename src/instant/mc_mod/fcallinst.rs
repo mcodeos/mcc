@@ -12,6 +12,7 @@
 
 use super::expand::ExpansionContext;
 use super::funccall::FuncCallInst;
+use super::matching::{check_vector_width, WidthCheck};
 use super::FailedRecord;
 use super::McModuleInst;
 use crate::instant::insttab::InstOrigin;
@@ -23,7 +24,8 @@ use crate::semantic::basic::mc_closure::McClosure;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_fcall::McFuncCall;
 use crate::semantic::basic::mc_group::McGroup;
-use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
+use crate::semantic::basic::mc_opd::McOpd;
+use crate::semantic::basic::mc_param::{McParamBinding, McParamBindings, McParamValue};
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::component::McComponent;
@@ -597,7 +599,7 @@ impl McModuleInst {
         }
 
         // 1. Param binding (formal <- actual, positional + named)
-        let bindings = match McParamBindings::bind(&func_def.params, params) {
+        let mut bindings = match McParamBindings::bind(&func_def.params, params) {
             Ok(b) => b,
             Err(e) => {
                 // Strict arity for net-endpoint user-func calls
@@ -621,78 +623,88 @@ impl McModuleInst {
                 return Ok(FuncCallInst::PassThrough);
             }
         };
+        // Vector-formal width rules at the boundary (matching-rules-design.md
+        // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
+        bindings = self.align_vector_bindings(&bindings);
 
-        // 2. Expand function body stmts with parameter substitution
+        // 2. Expand function body stmts with parameter substitution.
+        // The func scope is pushed for the whole expansion so nested calls
+        // inside the body can classify a bare actual as a passthrough formal
+        // (P6); restored on every exit (RAII).
         if !func_def.stmts.is_empty() {
-            // ── P4-b: Isolate anonymous instance entries for each body stmt in the same func ──
-            // Take an outer snapshot; reset before each stmt → @CAP/@RES entries
-            // from previous body stmts do not linger, preventing member_key pointer
-            // reuse that causes the next stmt's .Cap()/.Pullup() to be mis-paired
-            // with the previous stmt's instance (root cause of VDD/VDD_CORE short
-            // circuits); entries from outer stmts remain because they are in the
-            // snapshot (preserves the chained return `X6.setup(...).XTAL`).
-            let outer_auto_inst = self.auto_inst_map.clone();
-            // ── Expansion provenance: UserFunc (body expansion) ──
-            let eidx = self.expansion.begin(
-                ExpansionKind::UserFunc,
-                caller_inst_name.map(|s| s.to_string()),
-                func_def.name.to_string(),
-                self.current_call_site(),
-                Self::func_def_site(&func_def),
-            );
-            for (_li, stmt) in func_def.stmts.iter().enumerate() {
-                self.auto_inst_map = outer_auto_inst.clone();
-                // Attribute anonymous instances/connections of this body stmt
-                // to its exact source stmt in the func's own file. RAII
-                // (§7.11(2)): `with_func_stmt` restores `current_func_span`
-                // even when `process_stmt` errors and we return early.
-                self.with_func_stmt(&func_def, Some(_li), |this| -> Result<(), _> {
-                    // Substitute formal params -> actual args in each connection stmt
-                    // Also substitute 'this' with caller_inst_name
-                    let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
-                        stmt.clone()
-                    } else {
-                        Self::substitute_stmt(stmt, &bindings, None)
-                    };
-                    if let Err(e) = this.process_stmt(&substituted) {
-                        this.expansion.end(eidx);
-                        return Err(e);
-                    }
-                    Ok(())
-                })?;
-            }
+            self.with_func_scope(&bindings, |this| -> Result<(), _> {
+                // ── P4-b: Isolate anonymous instance entries for each body stmt in the same func ──
+                // Take an outer snapshot; reset before each stmt → @CAP/@RES entries
+                // from previous body stmts do not linger, preventing member_key pointer
+                // reuse that causes the next stmt's .Cap()/.Pullup() to be mis-paired
+                // with the previous stmt's instance (root cause of VDD/VDD_CORE short
+                // circuits); entries from outer stmts remain because they are in the
+                // snapshot (preserves the chained return `X6.setup(...).XTAL`).
+                let outer_auto_inst = this.auto_inst_map.clone();
+                // ── Expansion provenance: UserFunc (body expansion) ──
+                let eidx = this.expansion.begin(
+                    ExpansionKind::UserFunc,
+                    caller_inst_name.map(|s| s.to_string()),
+                    func_def.name.to_string(),
+                    this.current_call_site(),
+                    Self::func_def_site(&func_def),
+                );
+                for (_li, stmt) in func_def.stmts.iter().enumerate() {
+                    this.auto_inst_map = outer_auto_inst.clone();
+                    // Attribute anonymous instances/connections of this body stmt
+                    // to its exact source stmt in the func's own file. RAII
+                    // (§7.11(2)): `with_func_stmt` restores `current_func_span`
+                    // even when `process_stmt` errors and we return early.
+                    this.with_func_stmt(&func_def, Some(_li), |this| -> Result<(), _> {
+                        // Substitute formal params -> actual args in each connection stmt
+                        // Also substitute 'this' with caller_inst_name
+                        let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
+                            stmt.clone()
+                        } else {
+                            Self::substitute_stmt(stmt, &bindings, None)
+                        };
+                        if let Err(e) = this.process_stmt(&substituted) {
+                            this.expansion.end(eidx);
+                            return Err(e);
+                        }
+                        Ok(())
+                    })?;
+                }
 
-            // ── Process conditional blocks (if/else if/else) ──
-            if !func_def.conds.is_empty() {
-                let params: Vec<(crate::McIds, String)> = bindings
-                    .iter()
-                    .filter_map(|b| {
-                        let name = b.declare.get_primary_name()?;
-                        let value = b.get_value().map(|v| v.to_string()).unwrap_or_default();
-                        Some((crate::McIds::from(name.as_str()), value))
-                    })
-                    .collect();
-                for conds in &func_def.conds {
-                    let matched_stmts = conds.evaluate(&params);
-                    for stmt in matched_stmts {
-                        // Conditional-block stmts carry no per-stmt offset; fall
-                        // back to the func's definition stmt. RAII §7.11(2).
-                        self.with_func_stmt(&func_def, None, |this| -> Result<(), _> {
-                            let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
-                                stmt.clone()
-                            } else {
-                                Self::substitute_stmt(stmt, &bindings, None)
-                            };
-                            if let Err(e) = this.process_stmt(&substituted) {
-                                this.expansion.end(eidx);
-                                return Err(e);
-                            }
-                            Ok(())
-                        })?;
+                // ── Process conditional blocks (if/else if/else) ──
+                if !func_def.conds.is_empty() {
+                    let params: Vec<(crate::McIds, String)> = bindings
+                        .iter()
+                        .filter_map(|b| {
+                            let name = b.declare.get_primary_name()?;
+                            let value = b.get_value().map(|v| v.to_string()).unwrap_or_default();
+                            Some((crate::McIds::from(name.as_str()), value))
+                        })
+                        .collect();
+                    for conds in &func_def.conds {
+                        let matched_stmts = conds.evaluate(&params);
+                        for stmt in matched_stmts {
+                            // Conditional-block stmts carry no per-stmt offset; fall
+                            // back to the func's definition stmt. RAII §7.11(2).
+                            this.with_func_stmt(&func_def, None, |this| -> Result<(), _> {
+                                let substituted =
+                                    if bindings.is_empty() && caller_inst_name.is_none() {
+                                        stmt.clone()
+                                    } else {
+                                        Self::substitute_stmt(stmt, &bindings, None)
+                                    };
+                                if let Err(e) = this.process_stmt(&substituted) {
+                                    this.expansion.end(eidx);
+                                    return Err(e);
+                                }
+                                Ok(())
+                            })?;
+                        }
                     }
                 }
-            }
-            self.expansion.end(eidx);
+                this.expansion.end(eidx);
+                Ok(())
+            })?;
         } else {
             // Body was not parsed (lines is empty)
             mcc_dbg!(
@@ -731,6 +743,82 @@ impl McModuleInst {
                 caller_inst_name,
             ),
         }
+    }
+
+    /// ── Vector-width alignment at the instantiation boundary ──────────────
+    /// Enforce the arg-to-formal vector-width rules (matching-rules-design.md
+    /// §3) for every binding whose formal is a vector (`[..]::DC(...)` parses
+    /// to `McParamDeclareKind::Multiple`):
+    ///
+    ///   - equal width (B2): rewrite the bound value to a `Set` of the
+    ///     actual's lanes, so body substitution maps member i to lane i
+    ///     (formal `[V3V3, GND]` + actual `V3V3` DC bus →
+    ///     body `V3V3` → `V3V3.VCC`, body `GND` → `V3V3.GND`);
+    ///   - undecided passthrough (B5 / P6): leave the value untouched; the
+    ///     variable's shape is decided at the outer call site, no error;
+    ///   - scalar→vector / unequal width (B3/B4): report E4180. No implicit
+    ///     expansion and no member dropping.
+    pub(super) fn align_vector_bindings(&mut self, bindings: &McParamBindings) -> McParamBindings {
+        let mut out: Vec<McParamBinding> = Vec::with_capacity(bindings.len());
+        for b in bindings.iter() {
+            let members = b.declare.expand();
+            if members.len() < 2 {
+                out.push(b.clone());
+                continue;
+            }
+            let Some(value) = b.get_value() else {
+                out.push(b.clone());
+                continue;
+            };
+            let elems = Self::param_value_to_node_elements(value);
+            let mut lanes: Vec<NetPoint> = Vec::new();
+            for e in &elems {
+                lanes.extend(self.expand_node_element(e));
+            }
+            // A passthrough variable (an enclosing-scope formal whose shape is
+            // decided at an outer call site) has an undecided shape: upgrade
+            // instead of erroring. The test is scope-based only
+            // (matching-rules-design.md §2.1 / P6): a bare name that is not a
+            // scope formal — a net label or any other scalar — is definite and
+            // its lane count decides. No name-content heuristics.
+            let bare = elems.len() == 1 && !elems[0].name.is_empty() && elems[0].member.is_empty();
+            let undecided = bare
+                && !self.actual_is_parent_ref(value)
+                && self.is_passthrough_formal(&elems[0].name);
+            let formal_display = b.declare.display_name();
+            match check_vector_width(&members, &lanes, undecided) {
+                WidthCheck::Pair(_) => {
+                    let lane_vals: Vec<McParamValue> = lanes
+                        .iter()
+                        .map(|p| McParamValue::Opd(McOpd::Id(McIds::from(p.path.as_str()))))
+                        .collect();
+                    let mut nb = b.clone();
+                    nb.value = Some(McParamValue::Set(lane_vals));
+                    out.push(nb);
+                }
+                WidthCheck::Upgrade(_) => out.push(b.clone()),
+                WidthCheck::Mismatch { expected, got } => {
+                    crate::db::diagnostic::diagnostic::diagnostic_log(
+                        crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        0,
+                        0,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                            &[
+                                &formal_display,
+                                &expected as &dyn std::fmt::Display,
+                                &format!("{value}"),
+                                &got as &dyn std::fmt::Display,
+                            ],
+                        ),
+                        &[],
+                    );
+                    out.push(b.clone());
+                }
+            }
+        }
+        McParamBindings::from_bindings(out)
     }
 
     /// Build bridge `ConnectionInst`s linking the parser-supplied right-side
@@ -842,7 +930,7 @@ impl McModuleInst {
         }
 
         // 1. Bind formal parameters
-        let bindings = match McParamBindings::bind(&func_def.params, params) {
+        let mut bindings = match McParamBindings::bind(&func_def.params, params) {
             Ok(b) => b,
             Err(e) => {
                 // Strict arity for net-endpoint method calls
@@ -866,15 +954,23 @@ impl McModuleInst {
                 return Ok(FuncCallInst::PassThrough);
             }
         };
+        // Vector-formal width rules at the boundary (matching-rules-design.md
+        // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
+        bindings = self.align_vector_bindings(&bindings);
 
         // 2. Dispatch by inst type
         //   - Sub-module: body executes inside the sub-module (P3 core fix)
         //   - Component:  body executes at outer (self) layer + prefix pins (peripheral circuit around leaf devices)
-        if self.find_submodule(inst_name).is_some() {
-            self.run_submodule_method(inst_name, func_def, &bindings)?;
-        } else {
-            self.run_component_method(inst_name, func_def, &bindings)?;
-        }
+        // Func scope pushed so nested calls in the method body classify a bare
+        // actual as a passthrough formal (P6); restored on every exit (RAII).
+        self.with_func_scope(&bindings, |this| -> Result<(), _> {
+            if this.find_submodule(inst_name).is_some() {
+                this.run_submodule_method(inst_name, func_def, &bindings)?;
+            } else {
+                this.run_component_method(inst_name, func_def, &bindings)?;
+            }
+            Ok(())
+        })?;
 
         // 3. Expose return endpoint (both kinds unified: prefix inst_name)
         //    Example: `X6.setup(...)` returns "XTAL" → `X6.XTAL`; sub-module return port works the same.
@@ -1237,7 +1333,6 @@ impl McModuleInst {
         for p in &self.ports {
             skip.insert(p.name.clone());
         }
-
         // ── P2-8: Remove component pin names from skip set ──
         // When a component pin name (e.g. GND, VDD) happens to match a name
         // in the skip set (e.g. from actual params or module ports), the skip

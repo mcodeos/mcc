@@ -196,13 +196,6 @@ impl McModuleInst {
         let needs_lane_by_lane = members
             .iter()
             .any(|m| Self::member_contains_lead(m) || matches!(m, McPhrase::Transposed(_)));
-        if self.name.contains("US513") {
-            mcc_dbg!(
-                "inst::mod",
-                "[PROC-LINE] module={} needs_lane_by_lane={needs_lane_by_lane} members={members:?}",
-                self.name
-            );
-        }
         if needs_lane_by_lane {
             // §8.9.6.7: the lane-by-lane path bypasses try_connect_adjacent,
             // so the AST-layer group context is never established there.
@@ -327,40 +320,48 @@ impl McModuleInst {
     ///
     /// Converts **strictly by vector member correspondence** (§11.6), never by
     /// flattening: each member of the explicit 2-member vector argument keeps
-    /// its own lane. `[V3V3, GND]` stays `[V3V3.VCC, V3V3.GND], GND`
+    /// its own lane. `[V3V3, GND]` stays `[[V3V3.VCC, V3V3.GND], [GND]]`
     /// (member[0] → pin1 lane, member[1] → pin2 lane) rather than being
     /// flattened into a single point list `[V3V3.VCC, V3V3.GND, GND]`. This
     /// mirrors the positional binding in `wire_builtin_twopin` so both agree
-    /// on what the vector argument is.
-    fn cap_vector_arg_points(&mut self, m: &McPhrase) -> Option<Vec<NetPoint>> {
+    /// on what the vector argument is. A Set contributes one group per value;
+    /// a non-Set param contributes a single group.
+    fn cap_vector_arg_points(&mut self, m: &McPhrase) -> Option<Vec<Vec<NetPoint>>> {
         let params: Vec<McParamValue> = match m {
             McPhrase::FuncCall(fc) => fc.params.clone(),
             _ => return None,
         };
-        let mut pts: Vec<NetPoint> = Vec::new();
+        let mut groups: Vec<Vec<NetPoint>> = Vec::new();
         for p in &params {
-            // A 2-member Set keeps member[0] and member[1] in their own
-            // order (member[0] → pin1 lane, member[1] → pin2 lane). A
-            // non-Set param is a single member expanded in place.
             match p {
                 McParamValue::Set(values) => {
                     for v in values {
+                        let mut group: Vec<NetPoint> = Vec::new();
                         for e in Self::param_value_to_node_elements(v) {
-                            pts.extend(self.expand_node_element(&e));
+                            group.extend(self.expand_node_element(&e));
+                        }
+                        if !group.is_empty() {
+                            groups.push(group);
                         }
                     }
                 }
                 _ => {
+                    // Non-Set param: a bare bus reference carries one lane per
+                    // expanded point (`Cap(ldo.VOUT)` -> [[ldo.5], [ldo.2]]),
+                    // so the pass-through zip pairs positionally. A single
+                    // point is a single-lane group.
                     for e in Self::param_value_to_node_elements(p) {
-                        pts.extend(self.expand_node_element(&e));
+                        for pt in self.expand_node_element(&e) {
+                            groups.push(vec![pt]);
+                        }
                     }
                 }
             }
         }
-        if pts.is_empty() {
+        if groups.is_empty() {
             None
         } else {
-            Some(pts)
+            Some(groups)
         }
     }
 
@@ -395,24 +396,122 @@ impl McModuleInst {
         // Nearest prior shunt cap's explicit vector-arg points — the fallback
         // bus pass-through source for a far-side member with no preceding
         // non-shunt member (e.g. `CAP(4.7uF).Cap(ldo.VOUT) -> vout`).
-        let mut last_shunt_arg: Option<Vec<NetPoint>> = None;
+        let mut last_shunt_arg: Option<Vec<Vec<NetPoint>>> = None;
         for (k, m) in members.iter().enumerate() {
             if !shunt[k] {
                 // ── Bus pass-through (rule 1) ──────────────────────────
-                let source: Option<Vec<NetPoint>> = match last_non_shunt {
-                    Some(prev) => Some(self.shunt_chain_points(prev, true)),
-                    None => last_shunt_arg.clone(),
+                // A Multiple target is a lane vector: each bracket member is
+                // one lane and contributes only its first point to the width
+                // check and the zip. Flattening every member's points first
+                // would over-count lanes when a pin is shared by several port
+                // groups (e.g. uC.GND -> pin 21, listed in [5,21]=[VDD,GND],
+                // [14,21]=[VDD_CORE,GND] and [16,17,21]=ADC), turning a 2-lane
+                // target into 3 points and failing the equal-width check.
+                let rp = match m {
+                    McPhrase::Multiple(inner) => inner
+                        .iter()
+                        .filter_map(|ip| self.shunt_chain_points(ip, false).first().cloned())
+                        .collect(),
+                    _ => self.shunt_chain_points(m, false),
                 };
-                if let Some(spts) = source {
-                    let rp = self.shunt_chain_points(m, false);
-                    if let Err(e) = self.create_connection(spts, rp, dir, None) {
-                        self.record_warning(
-                            crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                            crate::errcodes::format_msg(
-                                crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                                &[&format!("pass-through across the shunt failed: {e}")],
-                            ),
-                        );
+                match last_non_shunt {
+                    Some(prev) => {
+                        // ── Vector member correspondence for a Multiple left ──
+                        // member: `[V3V3, GND] -> [VCC, VSS]` keeps each bracket
+                        // member on its own lane (V3V3→VCC, GND→VSS). Flattening
+                        // first would expand the V3V3 bus into [V3V3.VCC,
+                        // V3V3.GND] and misalign the zip — V3V3.GND would land
+                        // on VSS and the bare GND would be dropped. Pair each
+                        // Multiple member's first point with its target instead,
+                        // mirroring the positional binding of wire_builtin_twopin.
+                        let did_group_pair = if let McPhrase::Multiple(inner) = prev {
+                            if inner.len() == rp.len() {
+                                for (ip, t) in inner.iter().zip(rp.iter()) {
+                                    if let Some(pt) =
+                                        self.shunt_chain_points(ip, true).first().cloned()
+                                    {
+                                        let id = self.next_conn_id();
+                                        self.add_connection(self.make_conn_with_provenance(
+                                            id,
+                                            vec![pt, t.clone()],
+                                            dir,
+                                            None,
+                                        ));
+                                    }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        if !did_group_pair {
+                            // Unequal-width vector pairing is a hard error (P2),
+                            // never a flattened create_connection that drops the
+                            // excess members (matching-rules-design.md §4 Z2).
+                            if let McPhrase::Multiple(inner) = prev {
+                                self.record_error(
+                                    crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
+                                    crate::errcodes::format_msg(
+                                        crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
+                                        &[&inner.len().to_string(), &rp.len().to_string()],
+                                    ),
+                                );
+                                last_non_shunt = Some(m);
+                                continue;
+                            }
+                            let spts = self.shunt_chain_points(prev, true);
+                            if let Err(e) = self.create_connection(spts, rp, dir, None) {
+                                self.record_warning(
+                                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                                    crate::errcodes::format_msg(
+                                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                                        &[&format!("pass-through across the shunt failed: {e}")],
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                    None => {
+                        // Vector-arg member correspondence (§11.6): when the
+                        // nearest shunt cap's explicit vector-arg groups line
+                        // up 1:1 with the far-side targets, each group lands
+                        // on its own target, taking the group's first point so
+                        // the pass-through and the cap pin binding agree on the
+                        // same bus member (e.g. `[V3V3, GND] -> [VCC, VSS]` →
+                        // V3V3.VCC ~ VCC, GND ~ VSS). Unequal widths are an
+                        // error (E4181), never a flattened create_connection.
+                        match &last_shunt_arg {
+                            Some(groups) if groups.len() == rp.len() => {
+                                for (g, t) in groups.iter().zip(rp.iter()) {
+                                    if let Some(pt) = g.first() {
+                                        let id = self.next_conn_id();
+                                        self.add_connection(self.make_conn_with_provenance(
+                                            id,
+                                            vec![pt.clone(), t.clone()],
+                                            dir,
+                                            None,
+                                        ));
+                                    }
+                                }
+                            }
+                            // Unequal-width zip is a hard error (P2/Z2), never a
+                            // flattened create_connection that drops members.
+                            Some(groups) => {
+                                self.record_error(
+                                    crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
+                                    crate::errcodes::format_msg(
+                                        crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
+                                        &[&groups.len().to_string(), &rp.len().to_string()],
+                                    ),
+                                );
+                            }
+                            None => {
+                                // No preceding shunt cap: this pass-through member
+                                // has no source to bridge, nothing to connect.
+                            }
+                        }
                     }
                 }
                 last_non_shunt = Some(m);

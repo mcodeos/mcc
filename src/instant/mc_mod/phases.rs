@@ -8,7 +8,9 @@
 //! - Phase 3: Declared instance instantiation (components / sub-modules / labels)
 //! - Phase 4: Connection stmt processing entry
 
-use super::expand::pair_members_to_lanes;
+use super::matching::{
+    is_ground_name, pair_members_to_lanes, parse_bracket_members, voltage_token,
+};
 use super::FailedRecord;
 use super::McModuleInst;
 use crate::instant::mc_comp::McComponentInst;
@@ -791,11 +793,12 @@ impl McModuleInst {
     /// Formal port order = order of interface ports in sub-module signature
     /// (`module mod.sub([VDD_3V3,GND]::DC, [VCC_1V2,GND]::DC)` → port0, port1).
     ///
-    /// Member alignment strategy (short-circuit safe):
+    /// Member alignment strategy (short-circuit safe, matching-rules-design.md
+    /// §3):
     ///   1. Equal-width multi-member zip: `[A,B] -> port{X,Y}` → A~inst.X, B~inst.Y
-    ///   2. DC single rail (arg is 1 DC label, port is 2 members and exactly 1 is non-ground):
-    ///      Rail member ← arg label; ground member ← global GND.
-    ///      (Covers `V3V3 -> [VDD_3V3,GND]`: VDD_3V3~V3V3, GND~GND, **no short**)
+    ///   2. Vector port with scalar/unequal-width arg → E4180 (no implicit
+    ///      expansion, no member dropping — the former "DC single rail"
+    ///      inference was removed)
     ///   3. Rest (scalar↔scalar / unknown shape): single `arg ~ inst.port` (whole bus,
     ///      left to P2's expand_port_lanes for member expansion).
     pub(super) fn bind_actual_args_to_ports(
@@ -911,30 +914,23 @@ impl McModuleInst {
                 }
                 continue;
             }
-            // ── Case 2: DC single rail (arg scalar, port [rail, ground], exactly 1 non-ground) ──
-            let ground_cnt = members.iter().filter(|m| is_ground_name(m)).count();
-            if members.len() >= 2 && arg_lanes.len() == 1 && (members.len() - ground_cnt) == 1 {
-                let arg_pt = arg_lanes.into_iter().next().unwrap();
-                for m in &members {
-                    let mut pts = make_ports(m.as_str(), pio.clone());
-                    let id = self.next_conn_id();
-                    if is_ground_name(m) {
-                        // Strict DC rail identity: the port's ground member
-                        // belongs to the bound rail scalar (`{arg}.GND`), not
-                        // the module's bare `GND` label. Different rails keep
-                        // distinct grounds until real wiring ties them together.
-                        let gnd = self.rail_ground_point(&arg_pt, m);
-                        pts.push(gnd);
-                    } else {
-                        pts.push(arg_pt.clone());
-                    }
-                    self.add_connection(self.make_conn_with_provenance(
-                        id,
-                        pts,
-                        ConnDir::Undirected,
-                        None,
-                    ));
-                }
+            // ── Width mismatch for a vector port: scalar→vector / unequal →
+            //    E4180. No implicit expansion, no member dropping, and no
+            //    `[rail, GND]`-style inference (matching-rules-design.md §3
+            //    B3/B4, P5).
+            if members.len() >= 2 {
+                self.record_error(
+                    crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                        &[
+                            &port.name,
+                            &members.len() as &dyn std::fmt::Display,
+                            &arg_name,
+                            &arg_lanes.len() as &dyn std::fmt::Display,
+                        ],
+                    ),
+                );
                 continue;
             }
             // ── Case 3: scalar↔scalar / unknown shape ──
@@ -1114,25 +1110,23 @@ impl McModuleInst {
                 continue;
             }
 
-            // ── Case 2: DC single rail (arg scalar, port [rail, ground], exactly 1 non-ground) ──
-            let ground_cnt = members.iter().filter(|m| is_ground_name(m)).count();
-            if members.len() >= 2 && arg_lanes.len() == 1 && (members.len() - ground_cnt) == 1 {
-                let arg_pt = arg_lanes.into_iter().next().unwrap();
-                for m in &members {
-                    let mut pts = make_ports(m.as_str(), pio.clone());
-                    let id = self.next_conn_id();
-                    if is_ground_name(m) {
-                        // Strict DC rail identity: the port's ground member
-                        // belongs to the bound rail scalar (`{arg}.GND`), not
-                        // the module's bare `GND` label. Different rails keep
-                        // distinct grounds until real wiring ties them together.
-                        let gnd = self.rail_ground_point(&arg_pt, m);
-                        pts.push(gnd);
-                    } else {
-                        pts.push(arg_pt.clone());
-                    }
-                    out.push(self.make_conn_with_provenance(id, pts, ConnDir::Undirected, None));
-                }
+            // ── Width mismatch for a vector port: scalar→vector / unequal →
+            //    E4180. No implicit expansion, no member dropping, and no
+            //    `[rail, GND]`-style inference (matching-rules-design.md §3
+            //    B3/B4, P5).
+            if members.len() >= 2 {
+                self.record_error(
+                    crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                        &[
+                            &base,
+                            &members.len() as &dyn std::fmt::Display,
+                            &arg_name,
+                            &arg_lanes.len() as &dyn std::fmt::Display,
+                        ],
+                    ),
+                );
                 continue;
             }
 
@@ -1266,7 +1260,7 @@ impl McModuleInst {
         };
 
         // Formal <- actual arg binding
-        let bindings = match McParamBindings::bind(&func.params, args) {
+        let mut bindings = match McParamBindings::bind(&func.params, args) {
             Ok(b) => b,
             Err(e) => {
                 self.record_warning(
@@ -1279,6 +1273,12 @@ impl McModuleInst {
                 return;
             }
         };
+        // Vector-formal width rules at the boundary (matching-rules-design.md
+        // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
+        // e.g. `FLASH.GD25Q32E flash(V3V3)` binds the `[V3V3, GND]` formal to
+        // the caller's V3V3 DC bus, aligning body `V3V3`/`GND` to V3V3.VCC /
+        // V3V3.GND lanes.
+        bindings = self.align_vector_bindings(&bindings);
 
         // skip set: names appearing in args (parent scope net) + parent module ports -> not prefixed
         let mut skip: HashSet<String> = HashSet::new();
@@ -1643,54 +1643,6 @@ fn push_union_member(out: &mut Vec<String>, m: &str) {
     if !out.iter().any(|x| x == m) {
         out.push(m.to_string());
     }
-}
-
-/// Extract voltage token from a name (uppercase normalize):
-///   "V3V3"->"3V3", "VDD_3V3"->"3V3", "VCC_1V2"->"1V2", "V5V"->"5V", "VDD_CORE"->None
-/// Rule: match digit+ 'V' (+digit)? fragment.
-fn voltage_token(name: &str) -> Option<String> {
-    let b = name.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        if b[i].is_ascii_digit() {
-            let start = i;
-            while i < b.len() && b[i].is_ascii_digit() {
-                i += 1;
-            }
-            if i < b.len() && (b[i] == b'V' || b[i] == b'v') {
-                i += 1;
-                while i < b.len() && b[i].is_ascii_digit() {
-                    i += 1;
-                }
-                return Some(name[start..i].to_uppercase());
-            }
-        } else {
-            i += 1;
-        }
-    }
-    None
-}
-
-/// Lightweight ground name recognition (distinguish power rail vs ground at binding; consistent with
-/// the ground subset of mc_net::looks_like_power_rail, to avoid cross-layer imports).
-fn is_ground_name(s: &str) -> bool {
-    let u = s.to_uppercase();
-    matches!(u.as_str(), "GND" | "VSS" | "AGND" | "DGND" | "PGND")
-        || u.starts_with("GND")
-        || u.starts_with("VSS")
-}
-
-/// "[VDD_3V3, GND]" / "[VCC_1V2,GND]" -> ["VDD_3V3","GND"]; non-bracket -> []
-fn parse_bracket_members(name: &str) -> Vec<String> {
-    let s = name.trim();
-    if !(s.starts_with('[') && s.ends_with(']')) {
-        return Vec::new();
-    }
-    s[1..s.len() - 1]
-        .split(',')
-        .map(|x| x.trim().to_string())
-        .filter(|x| !x.is_empty())
-        .collect()
 }
 
 /// Get port base name: strip `{...}` / `[...]` suffix.
