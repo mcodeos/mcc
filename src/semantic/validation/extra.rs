@@ -174,7 +174,11 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
         for (pin_name, port) in &comp.pins.names_to_id {
             if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
                 let iface_name = iface.name.to_string();
-                let iface_pin_count = iface.base.pins.names_to_id.len();
+                // Real member pins in source declaration order; raw names_to_id
+                // keys additionally contain list-form binding names (e.g. the
+                // `[VBUS, GND]` key from `[1,5] = [VBUS, GND]::DC(5V)`) that a
+                // component can never bind, inflating the required count.
+                let iface_pin_count = iface.base.pins.member_names().len();
                 // Check each physical pin binding
                 let phys_pins: Vec<&String> =
                     comp.pins.pin_id_to_names.values().flatten().collect();

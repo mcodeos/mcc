@@ -19,9 +19,24 @@ use crate::{
     semantic::basic::mc_expr::McExpression, semantic::basic::mc_param::McParamValue,
     semantic::common::IOType,
 };
-use crate::{McCMIE, McIds, McInt, McString};
+use crate::{McCMIE, McIds, McInt, McString, McURI};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+
+/// Resolve a class name used in an interface-binding (`X::Y(role)` in pin
+/// options). The binding requires an interface; when the name collides across
+/// kinds (e.g. the mcode library defines both `component USB.MINIB` and
+/// `interface USB.MINIB`), the kind-blind resolution policy returns the
+/// component and wrongly rejects the binding. Prefer the interface definition
+/// when one is visible under the same P3/P4/P5 visibility rules; otherwise
+/// keep the kind-blind result so the not-an-interface error still fires.
+fn resolve_interface_binding(class_name: &McIds, from_uri: &McURI) -> Option<McCMIE> {
+    let kind_blind = resolve_cmie(&DB, class_name, from_uri);
+    match kind_blind {
+        Some(McCMIE::Interface(_)) => kind_blind,
+        _ => crate::db::resolve::Resolver::resolve_interface(from_uri, class_name).or(kind_blind),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum McPinPort {
@@ -2201,7 +2216,8 @@ impl McPinNames {
                                             span.clone(),
                                         );
                                     }
-                                    let lookup_result = resolve_cmie(&DB, &class_id, &lookup_uri);
+                                    let lookup_result =
+                                        resolve_interface_binding(&class_id, &lookup_uri);
                                     if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                         let mc2_iface = Mc2Interface::new(inst_id, iface_def);
                                         myself.push_option(
@@ -2553,7 +2569,7 @@ impl McPinNames {
                             if let Some(ref span) = class_span {
                                 mcb_register_declare_class(&lookup_uri, &class_name, span.clone());
                             }
-                            let lookup_result = resolve_cmie(&DB, &class_name, &lookup_uri);
+                            let lookup_result = resolve_interface_binding(&class_name, &lookup_uri);
                             if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                 // Pass params to Mc2Interface (e.g., role parameter "DCE")
                                 let mc2_iface =

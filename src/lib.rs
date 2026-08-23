@@ -301,21 +301,30 @@ pub fn get_def(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
 /// Direct component table lookup — bypasses RefDefMap to avoid ambiguity
 /// when a component and enum share the same name+URI.
 pub fn get_component_def(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
-    let space_name = McSpaceName {
-        ident: class_name.clone(),
-        uri: crate::semantic::common::uri_intern(uri),
-    };
-    // Try workspace components first, then global
-    if let Some(c) = crate::db::cmie::tables::WORKSPACE
-        .components
-        .get(&space_name)
-    {
-        return Some(McCMIE::Component(c.clone()));
-    }
-    if let Some(c) = crate::db::infra::global::mcc_components.get(&space_name) {
-        return Some(McCMIE::Component(c.clone()));
-    }
-    None
+    // String-level display-form match (see [`get_kind_def`]): an exact
+    // `McSpaceName` get would miss dotted names like `USB.MINIB` whose AST
+    // form is `[Ida, DotIda]` vs the single-Ida rebuild from a string.
+    let canonical_id = crate::semantic::common::uri_intern(uri);
+    crate::db::resolve::policy::find_in_table_scoped(0, &class_name.to_string(), |u| {
+        *u == canonical_id
+    })
+}
+
+/// Direct kind-scoped table lookup — bypasses the kind-blind CMIE path
+/// (`mcb_get_cmie`). When one name is defined under multiple kinds (e.g.
+/// `component USB.MINIB` + `interface USB.MINIB` in the mcode library), the
+/// kind-blind path always returns the first kind hit; a kind-directed query
+/// (like `mcc show interface`) must instead resolve to the requested kind.
+/// `cmie_kind`: 0 component, 1 module, 2 interface, 3 enum.
+pub fn get_kind_def(cmie_kind: u8, class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
+    // String-level match against the display form, same as the P3/P4/P5
+    // resolution policy: `McIds::from(&str)` builds a single-Ida segment while
+    // a dotted AST name is stored as `[Ida, DotIda]`, so an exact `McSpaceName`
+    // get would miss dotted names like `USB.MINIB`.
+    let canonical_id = crate::semantic::common::uri_intern(uri);
+    crate::db::resolve::policy::find_in_table_scoped(cmie_kind, &class_name.to_string(), |u| {
+        *u == canonical_id
+    })
 }
 
 pub fn mcc_get_modules_in_file(uri: &McURI) -> Vec<String> {
