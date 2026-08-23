@@ -288,14 +288,13 @@ impl<'a> McVecBuilder<'a> {
         block.nets = nets;
         block.port_trunks = trunks;
 
-        // ★ M6.5: ground nets follow the pass2 `split_ground_nets` grouping
-        // (per writing line / reference form), NOT the builder's merged single
-        // GND net. The pass2 net table (`inst.nets`, split during
-        // `build_net_table`) is the source of truth for how many ground symbols
-        // a module draws: each distinct pass2 ground net (`GND`, `GND@72`,
-        // `GND_OUT`, `GND@lp322dcdc` …) becomes its own net → its own glyph.
-        // Only sub-modules (device layers) — the root/block layer keeps its
-        // merged ground net, which the projection audit expects.
+        // ★ M6.5: ground nets follow the pass2 net table (`inst.nets`), NOT
+        // the builder's FIX-B merged single ground net. Pass2 keeps each
+        // module scope's ground as its own net (`GND`, `vin.GND`,
+        // `USB_VBUS_1.GND`, ...), so each distinct pass2 ground net becomes its
+        // own net → its own glyph. Only sub-modules (device layers) are
+        // overridden — the root/block layer keeps its merged ground net, which
+        // the projection audit expects.
         if my_path.contains('.') {
             self.override_ground_nets_from_pass2(&mut block, inst, &my_path);
         }
@@ -1280,12 +1279,11 @@ impl<'a> McVecBuilder<'a> {
     // ========================================================================
 
     /// ★ M6.5: replace the builder's merged ground net(s) with the pass2
-    /// [`McModuleInst::sorted_nets`] grouping (which already ran
-    /// `split_ground_nets`). The builder's own path groups ground connections by
-    /// net name then FIX-B merges by shared pin, collapsing every local ground
-    /// into one `GND` net and losing the port-member names (`GND_OUT`); the
-    /// pass2 table keeps them distinct per writing line / reference form, and
-    /// each such net must draw its own ground symbol.
+    /// [`McModuleInst::sorted_nets`] grouping. The builder's own path groups
+    /// ground connections by net name then FIX-B merges by shared pin,
+    /// collapsing every ground into one `GND` net and losing the port-member
+    /// names (`GND_OUT`, `vin.GND`); the pass2 table keeps each module scope's
+    /// ground nets distinct, and each such net must draw its own ground symbol.
     fn override_ground_nets_from_pass2(
         &self,
         block: &mut McVecBlock,

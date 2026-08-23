@@ -79,9 +79,10 @@ pub struct McModuleInst {
 
     /// Net table (label -> set of connection points)
     ///
-    /// ★ GND re-partition: a single module may now produce MULTIPLE nets all
-    /// named "GND" (local ground groups per writing line / reference form), so
-    /// this is a `Vec` (not a `HashMap`) — duplicate names are legal.
+    /// Ground nets stay merged per module scope: a bare `GND` label follows the
+    /// module's input ground source instead of being re-partitioned into local
+    /// groups. Duplicate net names are still legal (e.g. distinct rail-member
+    /// grounds such as `va.GND` vs `dc.GND`), hence a `Vec` not a `HashMap`.
     pub nets: Vec<(String, Vec<NetPoint>)>,
 
     /// Connection ID counter
@@ -822,22 +823,19 @@ impl McModuleInst {
             })
         });
 
-        // ── Ground net re-partition: GND by writing line + reference form ──
-        self.split_ground_nets();
-
         // ── A net must have at least 2 points ──
         // A single node is not a net; drop any 1-point residue (e.g. a lone
-        // ground label whose pins were all pulled into local GND groups).
+        // label with no pins).
         self.nets.retain(|(_, pts)| pts.len() >= 2);
     }
 
     // ========================================================================
-    // Ground net re-partition (GND by writing line + reference form)
+    // Ground identity helpers
     // ========================================================================
 
     /// Exact ground-name leaf matcher (netcheck's `is_ground_name`, NOT the
     /// `starts_with` variant — `GND_OUT` / `VIN` etc. must not be treated as
-    /// ground, otherwise the modldo split would be re-merged).
+    /// ground).
     fn is_ground_leaf(s: &str) -> bool {
         let leaf = s.rsplit('.').next().unwrap_or(s);
         matches!(
@@ -866,298 +864,6 @@ impl McModuleInst {
             .with_member_name(gnd_member)
     }
 
-    /// Re-partition the module's ground nets into local ground groups.
-    ///
-    /// Applies ONLY to nets whose ground points are bare single-segment labels
-    /// (`GND`, `AGND`, ...). Rule (user-confirmed, GENERAL — applies to every
-    /// module):
-    ///   - each statement line's bare GND defaults to an independent local ground net;
-    ///   - a `component{...GND}` reference (the ground is drawn from the same
-    ///     physical pin of the same component) merges the hanging 2-pin
-    ///     passives' ground endpoints under a pin key `(component, gnd_pin)`;
-    ///   - a bare label / bus-member ground (`GND`, `[X, GND]`, `(X, GND)`) is a
-    ///     name reference only: each source statement forms its own group.
-    ///
-    /// Strict DC rail identity: a net carrying a rail-member ground (`va.GND`,
-    /// `vin.GND`, `dc.GND` — multi-segment path) is a SINGLE rail identity and
-    /// is never re-partitioned — different rails keep distinct grounds and each
-    /// stays traceable to the module's DC rail, so re-partitioning would
-    /// fragment real wiring.
-    ///
-    /// Every produced group is a net named **`GND`** carrying its own local
-    /// ground symbol, so all local grounds read "GND" (schematic convention).
-    /// Port / label / sub-module-port points are never split — only local
-    /// component pins hanging on a ground hang off the local GND symbols.
-    fn split_ground_nets(&mut self) {
-        if self.nets.len() < 2 || self.connections.is_empty() {
-            return;
-        }
-
-        fn owner_of(p: &str) -> &str {
-            match p.rfind('.') {
-                Some(i) => &p[..i],
-                None => p,
-            }
-        }
-
-        // Local component instance names: a point whose owner is one of these is
-        // a "hanging passive" (e.g. `CAP_1.2`). Port / label / sub-module-port
-        // points are NOT hangings and stay in the central ground group.
-        let component_owners: std::collections::BTreeSet<&str> =
-            self.components.iter().map(|c| c.name.as_str()).collect();
-
-        // Indices of nets that contain a ground-name point. A net carrying a
-        // rail-member ground (`va.GND`, `vin.GND`, `dc.GND` — multi-segment
-        // path) is a single rail identity and is left untouched: strict DC
-        // rail identity keeps each rail's ground distinct and traceable, so
-        // re-partitioning it into per-line `@N` groups would fragment real
-        // wiring (e.g. `vin.GND ~ ldo.2 ~ cap.2`). Only nets whose ground
-        // points are bare single-segment labels (`GND`, `AGND`, ...) get the
-        // per-line local-ground re-partition.
-        let ground_net_idx: Vec<usize> = self
-            .nets
-            .iter()
-            .enumerate()
-            .filter(|(_, (_, pts))| {
-                let has_ground = pts.iter().any(|p| Self::is_ground_leaf(&p.path));
-                let has_rail_ground = pts
-                    .iter()
-                    .any(|p| p.path.contains('.') && Self::is_ground_leaf(&p.path));
-                has_ground && !has_rail_ground
-            })
-            .map(|(i, _)| i)
-            .collect();
-
-        // Process in reverse so earlier indices stay valid while we remove/insert.
-        for &idx in ground_net_idx.iter().rev() {
-            let (name, points) = self.nets.remove(idx);
-            let point_set: HashSet<&str> = points.iter().map(|p| p.path.as_str()).collect();
-
-            // Connections touching this net, with line + classification.
-            struct Touch {
-                id: u32,
-                line: u32,
-                label_grounds: Vec<String>,
-                others: Vec<String>,
-            }
-            let touches: Vec<Touch> = self
-                .connections
-                .iter()
-                .filter_map(|c| {
-                    let mut label_grounds = Vec::new();
-                    let mut others = Vec::new();
-                    for p in &c.points {
-                        if !point_set.contains(p.path.as_str()) {
-                            continue;
-                        }
-                        if Self::is_ground_leaf(&p.path) {
-                            label_grounds.push(p.path.clone());
-                        } else {
-                            others.push(p.path.clone());
-                        }
-                    }
-                    if label_grounds.is_empty() && others.is_empty() {
-                        return None;
-                    }
-                    // Real source line number (byte offset -> line via the
-                    // line index; guards are pushed during Pass2 by mcb_pass2).
-                    let line = c.source_span.as_ref().map(|p| {
-                        crate::db::infra::context::lookup_line_col(&p.uri, p.offset)
-                            .map(|(l, _)| l)
-                            .unwrap_or(0)
-                    });
-                    Some(Touch {
-                        id: c.id,
-                        line: line.unwrap_or(0),
-                        label_grounds,
-                        others,
-                    })
-                })
-                .collect();
-
-            if touches.is_empty() {
-                self.nets.push(("GND".to_string(), points));
-                continue;
-            }
-
-            // Ground sources:
-            //  - label grounds (leaf is a ground name)
-            //  - component ground pins: a local-component pin appearing in >= 2
-            //    touching connections AND paired with a label ground in at least
-            //    one (e.g. `lp322dcdc.2` in `GND ~ lp322dcdc.2` + cap mountings).
-            let mut freq: HashMap<&str, usize> = HashMap::new();
-            for t in &touches {
-                for o in &t.others {
-                    *freq.entry(o.as_str()).or_insert(0) += 1;
-                }
-            }
-            let mut comp_sources: HashSet<String> = HashSet::new();
-            for t in &touches {
-                if t.label_grounds.is_empty() {
-                    continue;
-                }
-                for o in &t.others {
-                    if component_owners.contains(owner_of(o))
-                        && freq.get(o.as_str()).copied().unwrap_or(0) >= 2
-                    {
-                        comp_sources.insert(o.clone());
-                    }
-                }
-            }
-
-            // A "hanging" point = a local-component pin that is NOT a ground
-            // source. Port / label / sub-module-port points never hang.
-            let is_hanging = |o: &str| -> bool {
-                if comp_sources.contains(o) {
-                    return false;
-                }
-                component_owners.contains(owner_of(o))
-            };
-
-            // src -> the source line where it is directly wired to a label
-            // ground (e.g. `lp322dcdc.2` wired to `GND` on line 112). Passives
-            // hung on the SAME line as that direct wiring belong to the central
-            // group (one statement = one local ground, e.g. the USB socket
-            // `(usbsock.5 + ... + usbsock.9) + TP3 -> vin.GND` is a single GND);
-            // only passives hung from a DIFFERENT statement form a pin-key group.
-            let mut src_line: HashMap<String, u32> = HashMap::new();
-            for t in &touches {
-                if t.label_grounds.is_empty() {
-                    continue;
-                }
-                for o in &t.others {
-                    if comp_sources.contains(o) && !src_line.contains_key(o) {
-                        src_line.insert(o.clone(), t.line);
-                    }
-                }
-            }
-
-            // Central group: all ground sources (the real ground nodes).
-            let mut pin_groups: std::collections::BTreeMap<String, Vec<NetPoint>> =
-                std::collections::BTreeMap::new();
-            // Line groups: per-statement hanging pins on a label/bus ground.
-            // Keyed by (line, conn id) — connection id is a stable per-statement
-            // key while the real line number lookup is unreliable.
-            let mut line_groups: std::collections::BTreeMap<(u32, u32), Vec<NetPoint>> =
-                std::collections::BTreeMap::new();
-
-            for t in &touches {
-                for o in &t.others {
-                    if !is_hanging(o) {
-                        continue;
-                    }
-                    let Some(np) = points.iter().find(|p| &p.path == o).cloned() else {
-                        continue;
-                    };
-                    if t.label_grounds.is_empty() {
-                        if let Some(src) = t.others.iter().find(|o2| comp_sources.contains(*o2)) {
-                            // Same statement as the source's own ground wiring:
-                            // stays in the central group (no pin-key split).
-                            let same_line =
-                                src_line.get(src).copied() == Some(t.line) && t.line != 0;
-                            if !same_line {
-                                pin_groups.entry(src.clone()).or_default().push(np);
-                            }
-                        }
-                    } else {
-                        line_groups.entry((t.line, t.id)).or_default().push(np);
-                    }
-                }
-            }
-
-            // Central group = every point NOT consumed by a pin/line group
-            // (label grounds, component ground sources, sub-module ports, labels,
-            // and any hanging pin that could not be grouped). This guarantees no
-            // point is ever dropped by the re-partition.
-            let mut consumed: HashSet<&str> = HashSet::new();
-            for (_, np) in pin_groups.iter() {
-                for p in np {
-                    consumed.insert(p.path.as_str());
-                }
-            }
-            for (_, np) in line_groups.iter() {
-                for p in np {
-                    consumed.insert(p.path.as_str());
-                }
-            }
-            let mut central: Vec<NetPoint> = points
-                .iter()
-                .filter(|p| !consumed.contains(p.path.as_str()))
-                .cloned()
-                .collect();
-
-            // Rebuild the split nets. Every group carries its own local ground
-            // symbol with a DISTINCT identity and name, so the InstTable can
-            // resolve each to its own label (no shared "GND" node). The base
-            // keeps the ORIGINAL net name so distinct system grounds stay
-            // distinguishable and every local group is traceable to the system
-            // ground it belongs to (`GND` / `AGND` / `PGND` / `vin.GND` ...):
-            //   - central   : "<base>"            — the real ground sources
-            //   - pin group : "<base>@<component>" — passives on one component
-            //                                      ground pin (pin key)
-            //   - line group: "<base>@<line>"      — passives on one label/bus
-            //                                      ground statement
-            let mut out: Vec<(String, Vec<NetPoint>)> = Vec::new();
-            // Central group: only emit when it has >= 2 points. A lone ground
-            // label (e.g. `GND` / `dc.GND` with all its pins pulled into local
-            // groups) is a single node, not a net — it must not surface as a
-            // `GND (1 pts) (stub)`.
-            if central.len() >= 2 {
-                central.sort_by(|a, b| a.path.cmp(&b.path));
-                out.push((name.clone(), central));
-            }
-            for (src, mut np) in pin_groups {
-                np.sort_by(|a, b| a.path.cmp(&b.path));
-                if !np.is_empty() {
-                    let gname = format!("{}@{}", name, owner_of(&src));
-                    let gnd = NetPoint::new(&gname, IOType::None);
-                    self.labels.insert(gname.clone(), gnd.clone());
-                    let mut grp = vec![gnd];
-                    grp.append(&mut np);
-                    out.push((gname, grp));
-                }
-            }
-            for ((line, id), mut np) in line_groups {
-                np.sort_by(|a, b| a.path.cmp(&b.path));
-                if !np.is_empty() {
-                    let gname = if line >= 2 {
-                        format!("{}@{}", name, line)
-                    } else {
-                        format!("{}@c{}", name, id)
-                    };
-                    let gnd = NetPoint::new(&gname, IOType::None);
-                    self.labels.insert(gname.clone(), gnd.clone());
-                    let mut grp = vec![gnd];
-                    grp.append(&mut np);
-                    out.push((gname, grp));
-                }
-            }
-
-            let groups_str = out
-                .iter()
-                .map(|(n, p)| format!("{}({})", n, p.len()))
-                .collect::<Vec<_>>()
-                .join(", ");
-            crate::vlog!(
-                "[split-ground] module '{}': net '{}' ({:?}) -> {}",
-                self.name,
-                "GND",
-                points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
-                groups_str
-            );
-            self.nets.extend(out);
-        }
-
-        // [P0-DET] deterministic net order (feeds net ids downstream): sort by
-        // name, then by the joined point paths (stable for duplicate "GND").
-        self.nets.sort_by(|a, b| {
-            a.0.cmp(&b.0).then_with(|| {
-                let ap: String = a.1.iter().map(|p| p.path.as_str()).collect();
-                let bp: String = b.1.iter().map(|p| p.path.as_str()).collect();
-                ap.cmp(&bp)
-            })
-        });
-    }
 }
 
 // ============================================================================
