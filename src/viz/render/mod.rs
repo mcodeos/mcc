@@ -306,10 +306,16 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                 };
                 let is_driver = Some(from.id) == driver_box_id;
                 let is_driver_to = Some(to.id) == driver_box_id;
+                // Driver→consumer edges (is_driver) and consumer→driver edges
+                // (is_driver_to) both belong to this star: anchor the end that is
+                // NOT the driver to the trunk. Edges connecting two consumers are
+                // not part of the star — skip them.
                 if !is_driver && !is_driver_to {
-                    let (ax, ay) = rail_anchor(to, trunk_x, to.y + to.h / 2.0, 0, 1);
-                    consumer_anchors_final.push(((ax, ay), edge));
+                    continue;
                 }
+                let consumer = if is_driver { to } else { from };
+                let (ax, ay) = rail_anchor(consumer, trunk_x, consumer.y + consumer.h / 2.0, 0, 1);
+                consumer_anchors_final.push(((ax, ay), edge));
             }
 
             // Collect all y values for trunk range

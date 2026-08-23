@@ -517,8 +517,7 @@ impl Layouter for FlowLayouter {
             return compute_canvas(graph);
         }
 
-        // ── Phase 3 · Placement (writes only box positions) + PROBE-B contract check ──
-        let ep_snap = probe_ep_snapshot(graph);
+        // ── Phase 3 · Placement (writes only box positions) ──
         let g_snap = graph.geom_snapshot();
 
         // ★ B2: root layer radial layout — fixed positions by structural role.
@@ -527,6 +526,8 @@ impl Layouter for FlowLayouter {
             super::radial::place_radial(graph);
             graph.claim_geom_changes(&g_snap, "3.radial");
             // Root is the hub box; no isolated boxes in radial layout.
+            // Note: radial also sets up facade entry_points (pin-place is skipped
+            // for root), so the PROBE-B contract check only applies to sub-layers.
             let root = graph
                 .boxes
                 .iter()
@@ -552,11 +553,14 @@ impl Layouter for FlowLayouter {
                 .unwrap_or(graph.boxes[0].id);
             (root, HashSet::new())
         } else {
+            // PROBE-B contract check: sub-layer flow placement must not write
+            // entry_points — PinPlacement is the sole writer on this path.
+            let ep_snap = probe_ep_snapshot(graph);
             let (root_id, isolated_ids) = self.phase_placement(graph);
+            probe_no_ep_writes("phase_placement", graph, &ep_snap);
             graph.claim_geom_changes(&g_snap, "3.placement");
             (root_id, isolated_ids)
         };
-        probe_no_ep_writes("phase_placement", graph, &ep_snap);
 
         // ── Phase D · SchematicLayoutModel: low-risk layout intent ──
         // ★ B2: skip for root — radial layout already placed all boxes.

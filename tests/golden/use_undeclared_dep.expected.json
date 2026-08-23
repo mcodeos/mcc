@@ -9,7 +9,7 @@
         "line": 1,
         "pos": 167
       },
-      "message": "node=103 use target not found: ~/.mcode/nonexistent/lib/lib@1.0.mc",
+      "message": "use target not found: ~/.mcode/nonexistent/lib/lib@1.0.mc",
       "phase": "pass0",
       "severity": "warning"
     },
@@ -35,7 +35,7 @@
         "line": 8,
         "pos": 210
       },
-      "message": "node=28 unresolved class 'init' \u2014 library not loaded?",
+      "message": "unresolved class 'init' \u2014 library not loaded?",
       "phase": "pass0",
       "severity": "warning"
     },
