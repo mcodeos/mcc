@@ -2942,7 +2942,7 @@ fn place_members_for_topo(
     // rows; flipping it up for cosmetic balance put the member's ground pin at
     // the TOP and forced the ground tooth to climb back over the body — the
     // stray upward capacitor in `modldo` (`_C2`, VCC↔GND_OUT) and in `moddcdc`
-    // (`_C2`, _net1↔GND@lp322dcdc). Electrical direction beats balance.
+    // (`_C2`, _net1↔GND). Electrical direction beats balance.
     let row_key = (axis * 10.0).round() as i64;
 
     // Pass 2: place each member at its column centreline, keeping the M3 role

@@ -212,11 +212,11 @@ pub fn is_power(name: &str) -> bool {
 
 /// Strict "is this ground"
 ///
-/// Local ground groups produced by `split_ground_nets` carry a
-/// `@<line|component>` suffix and a base that may be a port-member path
-/// (`GND@109`, `AGND@72`, `vin.GND@72`). Strip the suffix and classify by the
-/// last segment of the remaining base — the system ground the local group
-/// belongs to. Names without an `@` suffix behave exactly as before.
+/// Ground names may carry a `@<line|component>` suffix from legacy local
+/// ground groups and a base that may be a port-member path (`vin.GND`). Strip
+/// the suffix and classify by the last segment of the remaining base — the
+/// system ground the group belongs to. Names without an `@` suffix behave
+/// exactly as before.
 pub fn is_ground(name: &str) -> bool {
     let base = name.split('@').next().unwrap_or(name);
     let leaf = base.rsplit('.').next().unwrap_or(base);
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn is_ground_local_groups() {
-        // split_ground_nets local groups keep their system ground as the base.
+        // Legacy local ground groups keep their system ground as the base.
         assert!(is_ground("GND@109"));
         assert!(is_ground("GND@c3"));
         assert!(is_ground("AGND@72"));

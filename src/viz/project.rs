@@ -217,9 +217,9 @@ fn project_nets(
     // ── Rule (a) ground-net merge extensions ──────────────────────────────
     // Under strict DC rail identity, ground-role nets stay separate unless a real
     // wiring tie shares an endpoint. Three tie sources are only visible here:
-    //   (1) same local-ground group: `GND`, `GND@115`, `GND@uC`, ... are all split
-    //       from the same global GND by pass2 `split_ground_nets` → same bare base
-    //       "GND" (ruling ⑥: same-name GND labels merge).
+    //   (1) same-name ground label: every `GND` label in a module scope belongs
+    //       to one merged ground net → same bare base "GND" (ruling ⑥: same-name
+    //       GND labels merge).
     //   (2) shared real endpoint: `V1V2.GND` and `V3V3.GND` both contain
     //       `mcu513.GND` / `moddcdc.GND` — a real point in two nets is a real tie.
     //   (3) sub-module internal tie: `V5V.GND` and `V3V3.GND` are tied only because
