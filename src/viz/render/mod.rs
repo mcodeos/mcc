@@ -15,8 +15,7 @@
 //!            ├── shape::render_box ─────→ each box → SVG <g>
 //!            │     ├── two_pin / multi_pin / sub_module / power_label
 //!            │     └── BoxShape trait
-//!            ├── wire::render_edge   ────→ each McVecEdge → SVG <g> (compat with old binary)
-//!            └── wire::render_viznet ────→ each VizNet → SVG <g> (new hyperedge)
+//!            └── equipotential_tree_render ─→ each tree → SVG <g> (device layer)
 //! ```
 //!
 //! ## Root layer (P9-B)
@@ -30,13 +29,10 @@
 //! - [`multi_pin`]   —— multi-pin IC
 //! - [`sub_module`]  —— sub-module (with expand hint, extracted in P3)
 //! - [`power_label`] —— power / ground
-//! - [`wire`]        —— old `McVecEdge` + new `VizNet` SVG output
-//! - [`bus`]         —— dedicated bus render (thick trunk + thin taps)
 //!
 //! ## legacy.rs has been removed
 //! P4 extracted all features from legacy.rs; the file can be removed entirely.
 
-pub mod bus;
 pub mod capacitor;
 pub mod diode;
 pub mod equipotential_tree_render;
@@ -51,10 +47,7 @@ pub mod resistor;
 pub mod shape;
 pub mod sub_module;
 pub mod two_pin;
-pub mod wire;
-pub use bus::render_bus_with_taps;
 pub use shape::{render_box, BoxShape};
-pub use wire::render_viznet;
 
 use crate::vector::graph::{McVecBox, McVecGraph};
 
@@ -152,9 +145,8 @@ impl SvgRenderer {
             }
 
             // ── ★ P7-3: rail terminal decorations (pin render attributes, not boxes, discipline 11) ──
-            // ★ C1b: disabled — equipotential trees handle all power/ground symbols.
-            // Power dots are drawn directly above the pin (pointing up), ground symbols
-            // directly below the pin (pointing down).
+            // ★ C1b: disabled — equipotential trees handle all power/ground symbols
+            // (Power dots above the pin, ground symbols below the pin).
         }
 
         svg.push_str("</svg>\n");
@@ -316,16 +308,10 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                 };
                 let is_driver = Some(from.id) == driver_box_id;
                 let is_driver_to = Some(to.id) == driver_box_id;
-                // Driver→consumer edges (is_driver) and consumer→driver edges
-                // (is_driver_to) both belong to this star: anchor the end that is
-                // NOT the driver to the trunk. Edges connecting two consumers are
-                // not part of the star — skip them.
                 if !is_driver && !is_driver_to {
-                    continue;
+                    let (ax, ay) = rail_anchor(to, trunk_x, to.y + to.h / 2.0, 0, 1);
+                    consumer_anchors_final.push(((ax, ay), edge));
                 }
-                let consumer = if is_driver { to } else { from };
-                let (ax, ay) = rail_anchor(consumer, trunk_x, consumer.y + consumer.h / 2.0, 0, 1);
-                consumer_anchors_final.push(((ax, ay), edge));
             }
 
             // Collect all y values for trunk range

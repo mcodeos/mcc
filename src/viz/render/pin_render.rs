@@ -290,19 +290,6 @@ fn label_positions(
     }
 }
 
-/// Whether this is a "real" physical pin number (displayable).
-///
-/// `promote_synthetic_pins` (3e9), `split_shared_pins` (4e9), the flags in `rails.rs`
-/// (9e9), and other internally assigned pin_ids use the high base, are not physical pin
-/// numbers, and should not be displayed as pin numbers.
-///
-/// Note: render_pin now uses `b.pins` to look up physical pin numbers and no longer
-/// relies on this function; kept for future use.
-#[allow(dead_code)]
-fn is_real_pin_number(pin_id: i64) -> bool {
-    pin_id > 0 && pin_id < 1_000_000_000
-}
-
 /// Whether this is a placeholder pin name produced by rail-synth synthetic endpoints (`"(rail)"`, `"(test)"`)
 fn is_synthetic_pin_name(name: &str) -> bool {
     name.starts_with('(') && name.ends_with(')')
