@@ -555,8 +555,16 @@ fn is_boundary_port_decl(path: &str, boundary_leaves: &HashSet<String>) -> bool 
         }
         Some(pos) => {
             // Has a base name, e.g., dc{VDD_3V3, GND} -> base is "dc"
+            //
+            // ★ R01-e fix: a braced module port declaration stores its full literal
+            // as the Port's leaf name (`main.mic.dc{VDD_3V3, GND}`), so the base
+            // "dc" alone is not in boundary_leaves. Also accept the full literal:
+            // `dc{VDD_3V3, GND}` itself names a boundary Port, so the literal is a
+            // pure port declaration, not an unexpanded vector reference. A real
+            // unexpanded instance reference (e.g. `lp322dcdc{Vin, GND}`) has no
+            // Port inst with that literal name and still trips R01.
             let base = &path[..pos];
-            !base.is_empty() && boundary_leaves.contains(base)
+            (!base.is_empty() && boundary_leaves.contains(base)) || boundary_leaves.contains(path)
         }
         None => {
             // No brackets/braces/commas at all, check the whole path
