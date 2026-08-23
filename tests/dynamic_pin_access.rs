@@ -238,6 +238,65 @@ module main
     );
 }
 
+/// Regression: E4102 (IFACE_PINS_NOT_ALL_BOUND) must be reported at the
+/// interface binding label (`ADC` in `io [16, 17] = ADC::ADC.DIFF(Receiver)`),
+/// not at the component class name. The precise binding span is available via
+/// `McPins::pin_name_spans` (same key as `names_to_id`).
+#[test]
+fn iface_pins_not_all_bound_reported_at_binding() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    let uri: McURI = "/mcc/iface-bound-span.mc".to_string();
+    let source = r#"
+interface ADC.DIFF(role)
+{
+    pins = [
+        1 = P, "Positive Input"
+        2 = N, "Negative Input"
+        3 = GND, "Ground"
+    ]
+    role Receiver { name = "ADC.DIFF Receiver" }
+}
+
+component MCU
+{
+    pins = [
+        io [16, 17] = ADC::ADC.DIFF(Receiver)
+    ]
+}
+
+module main
+{
+    MCU uC
+}
+"#;
+
+    mcc::mcc_load_from_string(&uri, source);
+    let _ = mcc::mcc_build(&McIds::from("main"), &uri);
+
+    let binding_pos = source
+        .find("ADC::ADC.DIFF")
+        .expect("binding present in source") as u32;
+
+    let all = mcc::mcc_diagnose_all();
+    let e4102: Vec<_> = all
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::IFACE_PINS_NOT_ALL_BOUND)
+        .collect();
+    assert!(!e4102.is_empty(), "E4102 must be emitted");
+    for d in &e4102 {
+        assert_eq!(
+            d.loc.pos, binding_pos,
+            "E4102 must point at the binding label `ADC` (pos {binding_pos}), not the \
+             component class name; got pos {}: {}",
+            d.loc.pos, d.msg
+        );
+    }
+}
+
 /// Regression: the chain span recorded for a module-body reference like
 /// `uC.ADC{P,N}` must include the closing `}`. The parser's AST nodes exclude
 /// trailing delimiters (the curly node covers `P{N` without `}`), so the
