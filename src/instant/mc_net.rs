@@ -118,6 +118,13 @@ pub struct NetPoint {
     /// P2-1: bus member name (e.g. "CS", "SCLK", "MISO", "MOSI" for SPI).
     /// Used for name-based matching in create_connection.
     pub member_name: Option<String>,
+
+    /// Same-name multi-pin group pads (same-name-pin-group.md §2/§6): a
+    /// logical slot point references ONE logical net whose physical pads are
+    /// listed here (e.g. `spk{GND}` → [spk.3, spk.4]). Non-empty means the
+    /// point must expand to its pads (fan-in) when a connection is generated;
+    /// empty = ordinary point with no expansion.
+    pub same_name_pads: Vec<NetPoint>,
 }
 
 impl NetPoint {
@@ -150,6 +157,7 @@ impl NetPoint {
             iotype,
             src_pos: None,
             member_name: None,
+            same_name_pads: Vec::new(),
         }
     }
 
@@ -174,6 +182,7 @@ impl NetPoint {
             iotype,
             src_pos: None,
             member_name: None,
+            same_name_pads: Vec::new(),
         }
     }
 
@@ -187,6 +196,13 @@ impl NetPoint {
     /// P2-1: set bus member name for name-based matching
     pub fn with_member_name(mut self, name: &str) -> Self {
         self.member_name = Some(name.to_string());
+        self
+    }
+
+    /// Same-name multi-pin group: attach the physical pads this logical slot
+    /// expands to (fan-in) at connection generation (same-name-pin-group.md §6.3).
+    pub fn with_same_name_pads(mut self, pads: Vec<NetPoint>) -> Self {
+        self.same_name_pads = pads;
         self
     }
 }
@@ -265,6 +281,25 @@ pub struct ConnectionInst {
 }
 
 impl ConnectionInst {
+    /// Deduplicate points by canonical path, keeping the first occurrence
+    /// (with its rich info like owner / iotype) and discarding later points
+    /// with the same canon. `canonicalize_path` folds `X.X→X`, `X.Y.Y→X.Y`,
+    /// and curly brace/arrow remnants, so the same canonical path = the same
+    /// physical node; appearing twice in one connection has no electrical
+    /// meaning. Reused after same-name group fan-in expansion (add_connection),
+    /// which may re-introduce duplicates that `new` already folded.
+    pub(super) fn dedup_canonical(points: Vec<NetPoint>) -> Vec<NetPoint> {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut out: Vec<NetPoint> = Vec::with_capacity(points.len());
+        for p in points {
+            let canon = canonicalize_path(&p.path);
+            if seen.insert(canon) {
+                out.push(p);
+            }
+        }
+        out
+    }
+
     /// Create new connection
     ///
     /// ── Iter-10.1: Normalize path for net_name inference ──
@@ -284,17 +319,7 @@ impl ConnectionInst {
         // Note: callers like create_connection have already used the original len
         // for shape (1:1 / 1:N / N:1) judgment before calling new(), so the
         // deduplication here does not affect shape alignment logic.
-        let points: Vec<NetPoint> = {
-            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut out: Vec<NetPoint> = Vec::with_capacity(points.len());
-            for p in points {
-                let canon = canonicalize_path(&p.path);
-                if seen.insert(canon) {
-                    out.push(p);
-                }
-            }
-            out
-        };
+        let points = Self::dedup_canonical(points);
 
         // ── P6: Infer net_name from first label owner ──────────────────────────
         // Try to infer the first label owner as the net_name.
@@ -1169,6 +1194,7 @@ impl NetTable {
             iotype,
             src_pos: None,
             member_name: None,
+            same_name_pads: Vec::new(),
         });
         self.parent.push(idx);
         idx

@@ -356,6 +356,28 @@ impl McModuleInst {
     /// Push a connection, tagging it with the current expansion id.
     pub(super) fn add_connection(&mut self, conn: ConnectionInst) {
         let mut conn = conn;
+        // §5 same-name group fan-in (same-name-pin-group.md §6.3): a logical
+        // slot point carries its physical pads (`spk{GND}` → [spk.3, spk.4]).
+        // Expanding here — the single choke point every connection passes
+        // through — puts every physical pad of the logical net into the same
+        // connection net as its peers, so the pads are never left dangling and
+        // merge naturally with direct `spk.3` references via union-find. Shape
+        // checks and the §5 uniqueness warnings upstream already ran on the
+        // logical points, so this only affects the physical net.
+        if conn.points.iter().any(|p| !p.same_name_pads.is_empty()) {
+            let mut pts = Vec::with_capacity(conn.points.len());
+            for p in conn.points {
+                if p.same_name_pads.is_empty() {
+                    pts.push(p);
+                } else {
+                    pts.extend(p.same_name_pads.iter().cloned());
+                }
+            }
+            // ConnectionInst::new already folded duplicate canonical paths
+            // before the expansion; re-apply the same dedup so the pad fan-in
+            // cannot re-introduce a repeated physical pad in one connection.
+            conn.points = ConnectionInst::dedup_canonical(pts);
+        }
         if conn.expansion_id.is_none() {
             conn.expansion_id = self.expansion.current_id();
         }

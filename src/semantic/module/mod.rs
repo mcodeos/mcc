@@ -790,6 +790,26 @@ impl HasFindInst for McModule {
             .is_some_and(|(io, _)| !matches!(io, IOType::None))
     }
 
+    fn interface_param_members(&self, name: &str) -> Option<Vec<String>> {
+        // Interface-class module params (e.g. `dc{VDD_3V3, GND}::DC(3.3V)`)
+        // are routed by parse_params into the param table only — never into
+        // insts — so a bare reference falls to the 1*1 label fallback in the
+        // Pass1 opcheck. Present the declared member width instead, matching
+        // Pass2's expand_port_lanes upgrade for the same bare reference.
+        self.params.iter().find_map(|d| {
+            if !d.param_type.is_port() {
+                return None;
+            }
+            match &d.kind {
+                crate::semantic::basic::mc_param::McParamDeclareKind::Single(ids) => {
+                    let (base, members) = ids.as_bus()?;
+                    (base == name && members.len() >= 2).then_some(members)
+                }
+                _ => None,
+            }
+        })
+    }
+
     fn add_label_at(
         &mut self,
         name: String,
