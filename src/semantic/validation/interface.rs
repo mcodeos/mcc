@@ -93,11 +93,21 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
                 && !missing.is_empty()
                 && !bound_iface_pins.is_empty()
             {
+                // Point at the interface binding itself (`ADC` in
+                // `io [16, 17] = ADC::ADC.DIFF(...)`), not the component class
+                // name. `pin_name_spans` records the leading-identifier span for
+                // every `names_to_id` key; fall back to the component name span.
+                let span = comp
+                    .pins
+                    .pin_name_spans
+                    .get(bind_name)
+                    .cloned()
+                    .unwrap_or_else(|| comp.span.start..comp.span.end);
                 acc.push(CheckResult {
                     check_name: "interface",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: Some(comp.span.start..comp.span.end),
+                    span: Some(span),
                     message: format!(
                         "Component '{}': interface '{}' requires {} pin(s), but '{}' \
                          only binds {} of them. Missing: {}",
