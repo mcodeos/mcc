@@ -3699,6 +3699,16 @@ fn flip_shunts_clear_of_rows(graph: &mut McVecGraph, topos: &[NetTopology], laye
             if dir < 0.0 || b.y < t.lane.axis {
                 continue; // already hanging up
             }
+            // ★ M12.4b: never flip a Drop that is pinned DOWN by a ground partner
+            // (`tap_role` only emits `dir > 0.0` for the M7.3 ground rule). Its
+            // exit pin is the ground: hanging up puts that pin at the top and
+            // forces the ground tooth to climb back OVER the member's own body
+            // (`moddcdc` `_C2` = `_net1`↔GND@lp322dcdc). A down-hang tooth
+            // crossing another net's trunk is a clean wire crossing; a tooth
+            // through the body is not — electrical direction beats row clearance.
+            if dir > 0.0 {
+                continue;
+            }
             let x = b.x + b.w / 2.0;
             let down_to = b.y + b.h + SYMBOL_DROP;
             let up_to = t.lane.axis - LEAD - b.h - SYMBOL_DROP;
@@ -4897,12 +4907,123 @@ pub struct EquiTree {
     pub symbols: Vec<TreeSymbol>,
 }
 
+// ============================================================================
+// M15: foreign-body trunk deflection (gutter routing)
+// ============================================================================
+
+/// How far a deflected trunk runs below/above its row's parts. On a row whose
+/// on-row parts are 20px tall (the two-pin symbol box) the band from the parts'
+/// edge to the hanging members' near edge is 10px; 15 splits it with margin.
+pub(crate) const GUTTER_BASE: f64 = 15.0;
+/// Step between successive gutter levels on one row, so two nets that both have
+/// to route around the same foreign body can run parallel without coinciding.
+pub(crate) const GUTTER_STEP: f64 = 10.0;
+/// A jog lands this far OUTSIDE the blocked body, so it crosses a neighbouring
+/// net's wire perpendicularly (a clean non-connection) instead of landing on a
+/// foreign pin (which would read as a junction).
+pub(crate) const JOG_OFFSET: f64 = 8.0;
+/// Foreign bodies closer than this (in x) share ONE gutter run. Dipping down
+/// and back up per component would zigzag the rail through every gap between
+/// the series parts.
+pub(crate) const GUTTER_MERGE_GAP: f64 = 140.0;
+
+/// ★ M15: cross-net coordination for trunk deflections. When several nets on
+/// the same row all need to dip under the same foreign member (a ladder: two
+/// nets cross the same series part), they must not run in the same gutter at
+/// the same x — two coincident wires read as one connected node. `alloc` hands
+/// each blocked x-interval a gutter level that is clear of every box in the
+/// x-range, clear of every row axis, and not already claimed by an overlapping
+/// interval on the same row. One instance is shared across the whole layer, so
+/// allocations are deterministic (same topos, same order) on both the render
+/// side and the audit side.
+pub(crate) struct DeflectAlloc {
+    /// Every row axis in the layer (rounded) — a gutter must never crowd one.
+    row_axes: BTreeSet<i64>,
+    /// Row axis (rounded) → allocations `(gutter_y, x_lo, x_hi)`.
+    by_row: BTreeMap<i64, Vec<(f64, f64, f64)>>,
+}
+
+impl DeflectAlloc {
+    pub(crate) fn new(row_axes: BTreeSet<i64>) -> Self {
+        DeflectAlloc {
+            row_axes,
+            by_row: BTreeMap::new(),
+        }
+    }
+
+    /// Pick a gutter y for the blocked x-interval `[x_lo, x_hi]` on `axis`.
+    /// Returns `f64::NAN` when no level is free — the caller then keeps the
+    /// trunk on the row (a through-body wire beats a broken connection).
+    fn alloc(&mut self, graph: &McVecGraph, axis: f64, x_lo: f64, x_hi: f64) -> f64 {
+        let key = axis.round() as i64;
+        let entries = self.by_row.entry(key).or_default();
+        // Prefer the BELOW-row side for every level before stepping above the
+        // row (where the designator labels sit); a hanging member typically
+        // leaves room below, above is label country.
+        let levels: Vec<f64> = (0..2)
+            .flat_map(|pass| {
+                (1..12).map(move |k| {
+                    let b = GUTTER_BASE + (k - 1) as f64 * GUTTER_STEP;
+                    if pass == 0 {
+                        axis + b
+                    } else {
+                        axis - b
+                    }
+                })
+            })
+            .collect();
+        for y in levels {
+            // Never crowd another row's trunk (on-row parts reach ±10).
+            if self
+                .row_axes
+                .iter()
+                .any(|&ra| (ra as f64 - y).abs() < 12.0)
+            {
+                continue;
+            }
+            // Clear of every box in the deflected x-range.
+            let box_hit = graph.boxes.iter().any(|b| {
+                b.w > 0.0 && b.h > 0.0 && x_lo < b.x + b.w && b.x < x_hi && b.y <= y && y <= b.y + b.h
+            });
+            if box_hit {
+                continue;
+            }
+            // Not already claimed by an overlapping interval at this level.
+            let overlap = entries
+                .iter()
+                .any(|&(ey, elo, ehi)| (ey - y).abs() < 0.5 && elo < x_hi && x_lo < ehi);
+            if overlap {
+                continue;
+            }
+            entries.push((y, x_lo, x_hi));
+            return y;
+        }
+        f64::NAN
+    }
+}
+
+/// Realize every topo with a shared deflection allocator. The single entry
+/// point guarantees the render phase and the audit derive identical trunk
+/// geometry (A2/A7 stay in agreement).
+pub(crate) fn realize_all(topo_list: &[NetTopology], graph: &McVecGraph) -> Vec<EquiTree> {
+    let row_axes: BTreeSet<i64> = topo_list
+        .iter()
+        .map(|t| t.lane.axis.round() as i64)
+        .collect();
+    let mut deflect = DeflectAlloc::new(row_axes);
+    let mut trees = Vec::with_capacity(topo_list.len());
+    for t in topo_list {
+        trees.push(realize(t, graph, &mut deflect));
+    }
+    trees
+}
+
 /// Compute geometry from topology + placed graph. Zero judgment.
 /// ★ P5 is read-only for coordinates: trunk axis and span come exclusively from
 /// `topo.lane` (axis written by P3 resolve_lanes, span re-enveloped over all
 /// tap points by PR4 `envelop_lanes`). `realize` owns no layout constant — it
 /// only reads the Lane and the placed PinSlots, then connects the points.
-pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
+pub(crate) fn realize(topo: &NetTopology, graph: &McVecGraph, deflect: &mut DeflectAlloc) -> EquiTree {
     let mut segments: Vec<Segment> = Vec::new();
     let mut degree_map: BTreeMap<(i64, i64), u8> = BTreeMap::new();
 
@@ -5137,6 +5258,20 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
             .slots
             .iter()
             .any(|s| matches!(s.side, EntrySide::Left | EntrySide::Right));
+        crate::vlog!(
+            "[CARVE] net '{}' member '{}' id={} hor={} w={} h={} y={} slots={:?}",
+            topo.net_name,
+            b.name,
+            b.id,
+            horizontal,
+            b.w,
+            b.h,
+            b.y,
+            b.slots
+                .iter()
+                .map(|s| format!("{:?}", s.side))
+                .collect::<Vec<_>>()
+        );
         if !horizontal || b.w <= 0.0 || b.h <= 0.0 {
             continue;
         }
@@ -5171,11 +5306,160 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
         }
         trunk_pieces = next;
     }
+
+    // ★ M15: deflect trunk pieces that would run through a FOREIGN member's
+    // body (M8 only carves the net's OWN series members, so a ladder net whose
+    // trunk spans several foreign parts — the mic `VMIC.VCC` rail crossing
+    // `_R3`/`_C2`/`_R4` — drew its wire straight through their glyphs). Each
+    // blocked x-interval is routed through a gutter between this row's parts
+    // and the hanging members, with vertical jogs at the ends. The jogs land
+    // `JOG_OFFSET` outside the blocked body so they cross a neighbour net's
+    // trunk perpendicularly (a clean non-connection) instead of landing on the
+    // foreign pin (which would read as a junction).
+    //
+    // The ANCHOR (group 0) is deliberately left out of `own_ids`: M8 skips the
+    // anchor's carve (`topo.groups.iter().skip(1)`), so a horizontal on-row
+    // anchor body — the mic `VMIC.VCC` trunk rooted at series `_R2` — would
+    // otherwise be neither carved nor deflectable and the rail runs straight
+    // through its glyph. Every non-anchor own body was already carved by M8,
+    // so excluding those (and only those) keeps each body handled exactly once.
+    let own_ids: std::collections::HashSet<i64> =
+        topo.groups.iter().skip(1).map(|g| g.box_id).collect();
+    let foreign: Vec<(f64, f64)> = graph
+        .boxes
+        .iter()
+        .filter(|b| !own_ids.contains(&b.id) && b.w > 0.0 && b.h > 0.0)
+        // A horizontal two-pin body lying ON this row is the only shape a trunk
+        // can pass through; hanging members clear the axis by `LEAD`.
+        .filter(|b| {
+            b.slots
+                .iter()
+                .any(|s| matches!(s.side, EntrySide::Left | EntrySide::Right))
+                && axis + 0.5 <= b.y + b.h
+                && axis - 0.5 >= b.y
+        })
+        .map(|b| (b.x, b.x + b.w))
+        .collect();
+    // `(x_lo, x_hi, gutter_y)` per deflected run — teeth and anchor pins draw
+    // to the deflected level when their x falls inside one.
+    let mut deflect_regions: Vec<(f64, f64, f64)> = Vec::new();
+    let mut deflected: Vec<Segment> = Vec::new();
     for seg in trunk_pieces {
-        if (seg.x1 - seg.x2).abs() > 0.5 {
+        let (lo, hi) = (seg.x1.min(seg.x2), seg.x1.max(seg.x2));
+        let mut blocks: Vec<(f64, f64)> = foreign
+            .iter()
+            .filter(|&&(fx0, fx1)| fx1 > lo + 0.5 && fx0 < hi - 0.5)
+            .copied()
+            .collect();
+        if blocks.is_empty() {
+            deflected.push(seg);
+            continue;
+        }
+        blocks.sort_by(|a, b| a.0.total_cmp(&b.0));
+        // Merge bodies whose gaps are small enough that dipping per component
+        // would zigzag the rail — one long gutter run reads cleaner.
+        let mut merged: Vec<(f64, f64)> = Vec::new();
+        for (fx0, fx1) in blocks {
+            match merged.last_mut() {
+                Some((_, prev_hi)) if *prev_hi + GUTTER_MERGE_GAP >= fx0 => {
+                    *prev_hi = prev_hi.max(fx1)
+                }
+                _ => merged.push((fx0, fx1)),
+            }
+        }
+        let mut cursor = lo;
+        for (bxl, bxh) in &merged {
+            let jl = (*bxl - JOG_OFFSET).max(cursor);
+            let jh = (*bxh + JOG_OFFSET).min(hi);
+            if jh - jl < 2.0 {
+                // Degenerate: no room to route around — keep the axis run.
+                cursor = jh;
+                continue;
+            }
+            if jl - cursor > 0.5 {
+                deflected.push(Segment {
+                    x1: cursor,
+                    y1: axis,
+                    x2: jl,
+                    y2: axis,
+                });
+            }
+            let gutter = deflect.alloc(graph, axis, jl, jh);
+            if gutter.is_nan() {
+                // No free gutter on this row — keep the through-body run rather
+                // than break the connection.
+                deflected.push(Segment {
+                    x1: jl,
+                    y1: axis,
+                    x2: jh,
+                    y2: axis,
+                });
+            } else {
+                deflected.push(Segment {
+                    x1: jl,
+                    y1: axis,
+                    x2: jl,
+                    y2: gutter,
+                });
+                deflected.push(Segment {
+                    x1: jl,
+                    y1: gutter,
+                    x2: jh,
+                    y2: gutter,
+                });
+                deflected.push(Segment {
+                    x1: jh,
+                    y1: gutter,
+                    x2: jh,
+                    y2: axis,
+                });
+                deflect_regions.push((jl, jh, gutter));
+            }
+            cursor = jh;
+        }
+        if hi - cursor > 0.5 {
+            deflected.push(Segment {
+                x1: cursor,
+                y1: axis,
+                x2: hi,
+                y2: axis,
+            });
+        }
+    }
+    trunk_pieces = deflected;
+    crate::vlog!(
+        "[SEG] net '{}' axis={} span=({}, {}) pieces={:?} deflect={:?} groups={}",
+        topo.net_name,
+        axis,
+        span_lo,
+        span_hi,
+        trunk_pieces
+            .iter()
+            .filter(|s| (s.y1 - s.y2).abs() < 0.5)
+            .map(|s| format!("{:.0}->{:.0}", s.x1.min(s.x2), s.x1.max(s.x2)))
+            .collect::<Vec<_>>(),
+        deflect_regions
+            .iter()
+            .map(|&(xl, xh, gy)| format!("{:.0}->{:.0}@{:.0}", xl, xh, gy))
+            .collect::<Vec<_>>(),
+        topo.groups.len()
+    );
+    for seg in trunk_pieces {
+        if (seg.x1 - seg.x2).abs() > 0.5 || (seg.y1 - seg.y2).abs() > 0.5 {
             add_segment(&seg, &mut segments, &mut degree_map);
         }
     }
+
+    // ★ M15: the y a vertical tooth/member-tap connects to at x — the trunk is
+    // deflected into the gutter inside a region, back on the row everywhere else.
+    let trunk_y = |x: f64| -> f64 {
+        for &(xl, xh, gy) in &deflect_regions {
+            if xl - 0.5 <= x && x <= xh + 0.5 {
+                return gy;
+            }
+        }
+        axis
+    };
 
     // Teeth: from each anchor pin to the trunk (vertical). M3.5 (R3): the tooth
     // x is offset OUTWARD from the box edge (TOOTH_GAP) with a short horizontal
@@ -5207,12 +5491,14 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
             x1: tx,
             y1: py,
             x2: tx,
-            y2: axis,
+            y2: trunk_y(px),
         };
         add_segment(&seg, &mut segments, &mut degree_map);
     }
 
-    // Member taps: from each member pin to the trunk (vertical).
+    // Member taps: from each member pin to the trunk (vertical). M15: a hanging
+    // member whose tap x falls inside a deflected run connects to the gutter
+    // level, not to the row.
     for group in topo.groups.iter().skip(1) {
         let Some(member_box) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
             continue;
@@ -5222,7 +5508,7 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
             x1: mx,
             y1: my,
             x2: mx,
-            y2: axis,
+            y2: trunk_y(mx),
         };
         add_segment(&seg, &mut segments, &mut degree_map);
     }
@@ -5989,12 +6275,7 @@ pub fn build_all_trees(graph: &McVecGraph) -> Vec<EquiTree> {
     // (layout phase), so the recomputed span (anchor + member taps) matches the
     // layout phase exactly; realize then reads only this enveloped Lane.
     envelop_lanes(graph, &mut topos);
-    let mut trees = Vec::new();
-    for t in &topos {
-        let tree = realize(t, graph);
-        trees.push(tree);
-    }
-    trees
+    realize_all(&topos, graph)
 }
 
 /// ★ Content-adaptive canvas (fix "circuit clipped at negative coordinates").
@@ -6687,6 +6968,75 @@ mod tests {
             "decap should sit ON the rail row, cap.y={} axis={}",
             cap.y,
             pwr.lane.axis
+        );
+    }
+
+    /// ★ M12.4b: a Drop whose ground partner is a SHARED (non-terminal-only)
+    /// ground must hang DOWN even when its body would cross another net's trunk
+    /// row. `flip_shunts_clear_of_rows` used to flip it UP, which put the ground
+    /// pin on top and forced the ground tooth back over the member's own body
+    /// (`moddcdc` `_C2` = `_net1`↔GND@lp322dcdc). A down-hang tooth crossing a
+    /// trunk is a clean wire crossing; a tooth through the body is not.
+    #[test]
+    fn ground_drop_not_flipped_up_across_row() {
+        let mut g = McVecGraph::new(500, "gnddrop".into());
+        g.layer_style = LayerStyle::Device;
+        let mut ic = mk_ic(1, 4, &[11, 12, 13, 14]);
+        // Pins 11 and 13 are INPUTS → their nets go West (same side); pin 12 is
+        // the IC's shared ground. `direct_region` sends an Input anchor pin West,
+        // so PWR rides the top West row and AUX the lower one — AUX's trunk lands
+        // INSIDE CAP_A's down-hang (axis 200 vs down-to 240), the geometry that
+        // used to trigger the M12.4 up-flip.
+        for p in &mut ic.pins {
+            if p.id == 11 || p.id == 13 {
+                p.io = IoDirection::Input;
+            }
+        }
+        g.boxes.push(ic);
+        g.boxes.push(mk_two_pin(2, "CAP_A", &[21, 22]));
+        g.boxes.push(mk_two_pin(3, "CAP_B", &[31, 32]));
+        g.nets.push(mk_net(
+            501,
+            "PWR",
+            NetKind::Power,
+            &[(1, 11), (2, 21)],
+        ));
+        // GND is SHARED — it also joins the IC, so it is not terminal-only and
+        // gets its own trunk row below the power rows.
+        g.nets.push(mk_net(
+            502,
+            "GND",
+            NetKind::Ground,
+            &[(1, 12), (2, 22), (3, 32)],
+        ));
+        // A second net on the SAME side (West) with a member whose column sits
+        // under CAP_A's x, so a down-hang would cross AUX's trunk row.
+        g.nets.push(mk_net(503, "AUX", NetKind::Signal, &[(1, 13), (3, 31)]));
+
+        let mut topos = build_topology(&g);
+        place_by_topology(&mut g, &mut topos);
+
+        let cap = g.boxes.iter().find(|b| b.id == 2).expect("CAP_A box");
+        let pwr = topos.iter().find(|t| t.net_name == "PWR").expect("PWR");
+        // The drop must hang DOWN from the power trunk: box top below the trunk.
+        assert!(
+            cap.y > pwr.lane.axis + 0.5,
+            "ground drop must hang DOWN (M12.4b), cap.y={} pwr.axis={}",
+            cap.y,
+            pwr.lane.axis
+        );
+        // ...with the power pin (pin 21, on the PWR net) facing the trunk — the
+        // ground pin therefore sits at the bottom, clear of the body.
+        let pwr_slot = cap
+            .slots
+            .iter()
+            .find(|s| s.pin_id == 21)
+            .expect("power pin slot");
+        assert_eq!(
+            pwr_slot.side,
+            EntrySide::Top,
+            "power pin should face the trunk (hang down), slots={:?}",
+            cap.slots
         );
     }
 }
