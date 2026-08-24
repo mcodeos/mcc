@@ -849,7 +849,7 @@ pub fn is_ground_name(name: &str) -> bool {
 
 /// Example: `looks_like_power_rail("VDD_3V3") == true`, `..("vout") == false`,
 ///     `..("gnd") == true` (case-insensitive), `..("DAC_OUT") == false`.
-fn looks_like_power_rail(name: &str) -> bool {
+pub fn looks_like_power_rail(name: &str) -> bool {
     let u = name.to_uppercase();
     // exact power
     const EXACT_POWER: &[&str] = &["VCC", "VDD", "VBUS", "V3P3", "V5P0", "V1P8", "VPP", "AVDD"];
