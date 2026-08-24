@@ -316,6 +316,9 @@ pub struct VerifyArgs {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
+    /// Human-readable detailed report: definitions / instance tree /
+    /// connections / nets / net summary, rendered from the envelope data
+    /// (identical local ↔ RPC).
     Text,
     Json,
     JsonPretty,

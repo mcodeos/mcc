@@ -328,6 +328,207 @@ pub(crate) fn run_full_build(
     }))
 }
 
+/// Envelope-shaped Pass1+Pass2 result, matching `mcc build`'s local `CommandResult`.
+///
+/// The CLI's RPC mode deserializes this payload into its own (binary-crate)
+/// `CommandResult` and renders it through the same `emit_envelope` funnel as
+/// the local path — so the shape must carry every field the client's types
+/// require, and the summary must aggregate the same counts
+/// `ResultBuilder::finish()` computes locally (design contract
+/// local ↔ server). The lib crate cannot reach the
+/// binary's `output::*` / `cmds::parse::*` modules, so the envelope is
+/// assembled here from the lib-side collectors (`collect_pass1` /
+/// `collect_pass2`) plus a cursor-based diagnostic snapshot that mirrors
+/// [`crate::...PhaseTracker`]'s phase batching. Kept separate from
+/// [`run_full_build`] so the legacy shape used by other RPC methods (e.g.
+/// aicontract `check`) is untouched.
+pub(crate) fn run_full_build_envelope(
+    entry: &Path,
+    top: Option<&str>,
+    command: &str,
+    ws_kind: &str,
+    ws_name: &str,
+    _include_system: bool,
+) -> RpcResult {
+    let t0 = std::time::Instant::now();
+    let uri = entry.to_string_lossy().to_string();
+    let mc_uri = McURI::from(uri.as_str());
+
+    // ── Diagnostic cursor: phase batching mirrors the local build. `handle_build_full`
+    //    has already run `load_libs_rpc` — the diagnostics present *now* are lib-load
+    //    diagnostics → Pass0. Loading/parsing the project below emits the project's
+    //    Pass1 diagnostics. Each snapshot advances the cursor. ──
+    let mut cursor = 0usize;
+    let mut take_diags = |phase: &str| -> Vec<Value> {
+        let all = crate::mcc_diagnose_all();
+        let slice = if cursor <= all.len() {
+            &all[cursor..]
+        } else {
+            &[]
+        };
+        let out: Vec<Value> = slice.iter().map(|d| mcc_diag_to_json(d, phase)).collect();
+        cursor = all.len();
+        out
+    };
+
+    let pass0 = json!({ "loaded_files": [], "diagnostics": take_diags("pass0") });
+
+    crate::mcc_load_project(&mc_uri);
+
+    // Include system files unconditionally: the local path's `public_collect_pass1`
+    // never filters them, so the RPC payload must carry the same definitions for
+    // byte-identical output (design contract: output identical local ↔ server).
+    let mut pass1 = collect_pass1(&uri, true);
+    pass1["diagnostics"] = Value::Array(take_diags("pass1"));
+    // Local's `public_collect_pass1` never populates `definitions.ports`, so
+    // the payload must carry the same (empty) list for byte-identical output.
+    pass1["definitions"]["ports"] = Value::Array(vec![]);
+
+    let top_name = match top {
+        Some(t) => t.to_string(),
+        None => crate::mcb_get_module_name_by_uri(&mc_uri)
+            .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
+    };
+
+    let ident = crate::McIds::from(top_name.as_str());
+    if crate::get_def(&ident, &mc_uri).is_none() {
+        return Err(JsonRpcError::custom(
+            32107,
+            &format!("top module '{top_name}' not defined"),
+        ));
+    }
+
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::mcc_build(&ident, &mc_uri)
+    }));
+    let inst = match built {
+        Ok(Ok(inst)) => inst,
+        Ok(Err(e)) => {
+            return Err(JsonRpcError::custom(
+                32107,
+                &format!("instantiation failed: {e}"),
+            ))
+        }
+        Err(_) => {
+            return Err(JsonRpcError::custom(
+                32108,
+                "Pass2 build panicked (engine bug); request aborted, server kept alive",
+            ))
+        }
+    };
+
+    let mut pass2 = collect_pass2(&top_name, &inst);
+    pass2["diagnostics"] = Value::Array(take_diags("pass2"));
+
+    // ── Summary, mirroring ResultBuilder::finish() ──
+    let all_diags: Vec<&Value> = pass0["diagnostics"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .chain(pass1["diagnostics"].as_array().into_iter().flatten())
+        .chain(pass2["diagnostics"].as_array().into_iter().flatten())
+        .collect();
+    let errors = all_diags
+        .iter()
+        .filter(|d| d["severity"] == "error")
+        .count();
+    let warnings = all_diags
+        .iter()
+        .filter(|d| d["severity"] == "warning")
+        .count();
+    let module_count = pass1["definitions"]["modules"]
+        .as_array()
+        .map(|v| v.len())
+        .unwrap_or(0);
+    let component_count = pass1["definitions"]["components"]
+        .as_array()
+        .map(|v| v.len())
+        .unwrap_or(0);
+    let interface_count = pass1["definitions"]["interfaces"]
+        .as_array()
+        .map(|v| v.len())
+        .unwrap_or(0);
+    let instance_count = count_instance_json(pass2.get("instances"));
+    let net_count = pass2["nets"].as_array().map(|v| v.len()).unwrap_or(0);
+
+    let summary = json!({
+        "module_count": module_count,
+        "component_count": component_count,
+        "interface_count": interface_count,
+        "instance_count": instance_count,
+        "net_count": net_count,
+        "errors": errors,
+        "warnings": warnings,
+        "elapsed_ms": t0.elapsed().as_millis(),
+    });
+
+    Ok(json!({
+        "command": command,
+        "workspace": { "kind": ws_kind, "name": ws_name },
+        "pass0": pass0,
+        "pass1": pass1,
+        "pass2": pass2,
+        "summary": summary,
+    }))
+}
+
+/// Envelope `Diagnostic` JSON from an `mcc::Diagnostic`, mirroring the binary
+/// crate's `output::diagnostic::from_mcc` field mapping so the payload
+/// deserializes into the client's `Diagnostic` byte-identically.
+fn mcc_diag_to_json(d: &crate::McDiagnostic, phase: &str) -> Value {
+    let related: Vec<Value> = d
+        .other
+        .iter()
+        .map(|ri| {
+            json!({
+                "message": ri.get_formatted_message(),
+                "location": {
+                    "file": ri.location.uri.as_str(),
+                    "line": ri.location.row,
+                    "column": ri.location.col,
+                    "pos": ri.location.pos,
+                    "len": ri.location.len,
+                },
+            })
+        })
+        .collect();
+    let severity = match d.level {
+        crate::DiagnosticLevel::Error => "error",
+        crate::DiagnosticLevel::Warning => "warning",
+        crate::DiagnosticLevel::Info => "info",
+        crate::DiagnosticLevel::Hint => "hint",
+    };
+    json!({
+        "phase": phase,
+        "severity": severity,
+        "code": d.code,
+        "message": d.msg,
+        "location": {
+            "file": d.loc.uri.as_str(),
+            "line": d.loc.row,
+            "column": d.loc.col,
+            "pos": d.loc.pos,
+            "len": d.loc.len,
+        },
+        "suggestions": [],
+        "related": related,
+    })
+}
+
+/// Recursively count total instances in the Pass2 instance tree (root +
+/// components + submodules), mirroring `ResultBuilder`'s `count_instances`.
+fn count_instance_json(node: Option<&Value>) -> usize {
+    let Some(n) = node else { return 0 };
+    let mut total = 1;
+    if let Some(cs) = n["components"].as_array() {
+        total += cs.len();
+    }
+    for sub in n["sub_modules"].as_array().into_iter().flatten() {
+        total += count_instance_json(Some(sub));
+    }
+    total
+}
+
 // ============================================================================
 // Internal: Memory load version (no disk file dependency)
 // ============================================================================

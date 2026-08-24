@@ -8,20 +8,25 @@
 //!
 //! ## Output funnel
 //!
-//! Iteration B: hand off the direct `eprintln!("[Pass 1] ...")` /
-//! `eprintln!("[Pass 2] ...")` calls entirely to the `Renderer` trait. So:
-//!   - JSON mode → `SilentRenderer`, stdout is clean and only emits the envelope
-//!   - Text mode → `TextRenderer`, visually consistent with `mcc parse`
+//! Both the local and the RPC (server-forwarded) path emit the same envelope
+//! via [`output::emit_envelope`]: text mode renders the detailed report
+//! (definitions / instance tree / connections / nets / net summary), and
+//! `--format json/yaml` serializes the envelope. The text renderer is
+//! data-driven (reads only the envelope), so `-f text` output is identical
+//! local ↔ server. The design contract (manual-v2) is that command and
+//! output are fully identical, so the RPC result is realigned to the local
+//! command/workspace and emitted with the identical renderer.
 //!
 //! ## Exit code
 //!
 //! `run` returns `(Result<()>, usize)`: success/failure + error count.
-//! `dispatch` sets `exit_code` based on this (aligned with `check`).
+//! `dispatch` sets `exit_code` based on this (aligned with `check`). RPC mode
+//! now propagates the summary's error count instead of hard-coding 0.
 
 use crate::cmds::manifest;
 use crate::cmds::proj::resolve_workspace_ref;
 use crate::output::{
-    self, builder::ResultBuilder, diagnostic::PhaseTracker, envelope::*, renderer, OutputFormatExt,
+    self, builder::ResultBuilder, diagnostic::PhaseTracker, envelope::*, OutputFormatExt,
 };
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, BuildArgs, OutputFormat};
@@ -106,7 +111,7 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
         .map(|m| m.dependencies.keys().cloned().collect())
         .unwrap_or_default();
 
-    let result = c.call(
+    match c.call(
         "build.full",
         json!({
             "entry": entry_abs.to_string_lossy(),
@@ -114,22 +119,42 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
             "libs": libs,
             "include_system": args.include_system,
         }),
-    )?;
-    println!("{}", serde_json::to_string_pretty(&result)?);
-    // RPC mode conservatively returns 0 (the server side has its own logs)
-    Ok(BuildOutcome { exit_code: 0 })
+    ) {
+        Ok(result) => Ok(BuildOutcome {
+            exit_code: emit_build_result(result)?,
+        }),
+        Err(e) => {
+            tracing::debug!(target: "mcc::build", "RPC failed, using local: {}", e);
+            run_local(args)
+        }
+    }
+}
+
+/// Render an RPC `build.full` result exactly like the local path, per `--format`.
+///
+/// The server returns the [`CommandResult`] body; `command` / `workspace` are
+/// process-local truth here, so they are realigned to what a local build would
+/// emit (matching the design contract that output matches the local path). Exit code follows
+/// the summary's error count (previously RPC mode hard-coded 0).
+fn emit_build_result(result: serde_json::Value) -> Result<i32> {
+    let format = mcc::cli::globals().format;
+    let target = mcc::cli::globals().output.as_deref().map(Path::new);
+
+    let mut r = result;
+    r["command"] = json!("mcc build");
+    r["workspace"] = serde_json::to_value(resolve_workspace_ref())?;
+
+    let cmd: CommandResult = serde_json::from_value(r)?;
+    let env = Envelope::ok(cmd);
+    let errors = env.result.as_ref().map(|x| x.summary.errors).unwrap_or(0);
+    output::emit_envelope(&env, format, target, false)?;
+    Ok(if errors > 0 { 1 } else { 0 })
 }
 
 fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
-    eprintln!(
-        "[DEBUG run_local] args.viz={} entry={:?}",
-        args.viz,
-        cli_entry(args)
-    );
     // Reset R05 counter before each build run
     mcc::instant::reset_r05_counter();
 
-    let renderer = renderer::for_format(mcc::cli::globals().format);
     let mut builder = ResultBuilder::start("mcc build").workspace(resolve_workspace_ref());
     let mut tracker = PhaseTracker::new();
     tracker.skip();
@@ -171,12 +196,6 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     };
 
     // ── 2. Pass1 ──
-    renderer.pass1_header(&entry_uri);
-    renderer.pass1_definitions(
-        mcc::mcb_module_count(),
-        mcc::mcb_component_count(),
-        mcc::mcb_interface_count(),
-    );
     builder.set_pass1(crate::cmds::parse::public_collect_pass1(
         &entry_uri,
         &mut tracker,
@@ -214,16 +233,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     // Check if we should render all modules (no explicit --top specified and multiple modules exist)
     let modules_in_file = mcc::mcc_get_modules_in_file(&entry_uri);
-    eprintln!(
-        "[DEBUG build] modules_in_file={:?} should_render_all={}",
-        modules_in_file,
-        modules_in_file.len() > 1 && mcc::cli::globals().top.is_none()
-    );
     let should_render_all = modules_in_file.len() > 1 && mcc::cli::globals().top.is_none();
 
     let inst = if should_render_all {
-        // For multi-module rendering, build each module separately for Pass 2 output
-        // Process ALL modules in the loop, keeping the first one for further processing
+        // Multi-module (virtual instantiation): the envelope carries the first
+        // module's Pass 2 tree (matching `--format json`); viz still renders all.
         let first_mod_name = modules_in_file
             .first()
             .cloned()
@@ -232,25 +246,6 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
         match mcc::mcc_build(&first_mod_ident, &entry_uri) {
             Ok(first_inst) => {
-                // Process ALL modules: first one already built, others in loop
-                for (idx, mod_name) in modules_in_file.iter().enumerate() {
-                    if idx == 0 {
-                        // First module already built, output its details
-                        renderer.pass2_header(mod_name);
-                        renderer.instances(&first_inst, 0);
-                        renderer.nets(&first_inst, 0);
-                        renderer.net_summary(&first_inst);
-                    } else {
-                        // Build and output subsequent modules
-                        let mod_ident = McIds::from(mod_name.as_str());
-                        if let Ok(mod_inst) = mcc::mcc_build(&mod_ident, &entry_uri) {
-                            renderer.pass2_header(mod_name);
-                            renderer.instances(&mod_inst, 0);
-                            renderer.nets(&mod_inst, 0);
-                            renderer.net_summary(&mod_inst);
-                        }
-                    }
-                }
                 builder.set_pass2(crate::cmds::parse::public_collect_pass2(
                     &top_name,
                     &first_inst,
@@ -259,21 +254,15 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 first_inst
             }
             Err(e) => {
-                renderer.pass2_failed(&format!("{}", e));
                 let err = RpcError::build_error(format!("{}", e));
                 emit_err(&mcc::cli::globals().format, err)?;
                 return Ok(BuildOutcome { exit_code: 1 });
             }
         }
     } else {
-        // Single module rendering: call pass2_header only once
-        renderer.pass2_header(&top_name);
         // Single module rendering (original logic)
         match mcc::mcc_build(&ident, &entry_uri) {
             Ok(i) => {
-                renderer.instances(&i, 0);
-                renderer.nets(&i, 0);
-                renderer.net_summary(&i);
                 builder.set_pass2(crate::cmds::parse::public_collect_pass2(
                     &top_name,
                     &i,
@@ -282,7 +271,6 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 i
             }
             Err(e) => {
-                renderer.pass2_failed(&format!("{}", e));
                 let err = RpcError::build_error(format!("{}", e));
                 emit_err(&mcc::cli::globals().format, err)?;
                 return Ok(BuildOutcome { exit_code: 1 });
@@ -382,7 +370,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 .unwrap_or("circuit.html");
             std::fs::write(output_path, &html)
                 .with_context(|| format!("failed to write file: {}", output_path))?;
-            renderer.viz_written(output_path, html.len());
+            eprintln!("viz: {} bytes written to {}", html.len(), output_path);
 
             mcc_dbg!(
                 "build",
@@ -393,10 +381,8 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             );
         } else {
             // Single module render (explicit --top or only one module)
-            eprintln!("[DEBUG build] entering single module viz path");
             let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000)
                 .map_err(|e| anyhow::anyhow!("mcc_build_flat failed: {}", e))?;
-            eprintln!("[DEBUG build] mcc_build_flat succeeded");
 
             // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
             if mcc::viz::log::enabled() {
@@ -406,10 +392,8 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             }
 
             // ★ netcheck Tier 0: netlist health check (hard gate; fails the build)
-            eprintln!("[DEBUG build] before netcheck");
             let nc_report = mcc::instant::netcheck::run(&table.1);
             nc_report.print();
-            eprintln!("[DEBUG build] netcheck is_clean={}", nc_report.is_clean());
 
             // ★ M1-4: alignment metrics (self-test variant)
             let align_report = mcc::viz::metrics::align::AlignMetricsReport::compute(&table.1);
@@ -431,12 +415,6 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
             let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
-            eprintln!(
-                "[DEBUG build] graph.is_root={} graph.boxes.len()={} graph.nets.len()={}",
-                graph.is_root,
-                graph.boxes.len(),
-                graph.nets.len()
-            );
 
             let opts = build_viz_opts(args.layouter.as_deref());
             let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
@@ -472,7 +450,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 .unwrap_or("circuit.html");
             std::fs::write(output_path, &html)
                 .with_context(|| format!("failed to write file: {}", output_path))?;
-            renderer.viz_written(output_path, html.len());
+            eprintln!("viz: {} bytes written to {}", html.len(), output_path);
 
             // [P0/A2] Electrical-fidelity hard gate: a non-perfect fidelity report means
             // the drawing is electrically wrong (dropped/partial nets, unrendered pins,

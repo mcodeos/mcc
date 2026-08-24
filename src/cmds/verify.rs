@@ -116,7 +116,7 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
     // source-vs-expansion mismatches set the exit code.
     let problems = totals.missing + totals.extra + totals.no_expansion;
     let format = mcc::cli::globals().format;
-    if format == OutputFormat::Text {
+    if matches!(format, OutputFormat::Text) {
         let mut text = String::new();
         render_text(&mut text, &top, &summary, &modules, &hierarchy);
         let buf = text.trim_end().to_string();
