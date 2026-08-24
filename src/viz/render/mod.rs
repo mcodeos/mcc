@@ -172,7 +172,13 @@ fn rail_anchor(b: &McVecBox, target_x: f64, target_y: f64, idx: usize, total: us
     } else {
         (idx + 1) as f64 / (total + 1) as f64
     };
+    rail_anchor_at(b, target_x, target_y, offset)
+}
 
+/// Anchor at an explicit normalized `offset` along the box edge facing `(target_x, target_y)`.
+/// `offset` ∈ [0, 1]; 0.5 is the edge midpoint. Lets callers slide a tap off a
+/// conflicting anchor without re-deriving the facing edge.
+fn rail_anchor_at(b: &McVecBox, target_x: f64, target_y: f64, offset: f64) -> (f64, f64) {
     let bx = b.x + b.w / 2.0;
     let by = b.y + b.h / 2.0;
     let dx = target_x - bx;
@@ -244,136 +250,200 @@ fn render_block_edges(graph: &McVecGraph) -> String {
         }
     }
 
-    // Process bus groups (power edges with same label)
+    // Demote power groups with <3 consumers back to individual edges *before*
+    // computing anchors, so those stubs (e.g. the pass-through V1V2) participate
+    // in the tap-collision check below.
+    let mut trunk_groups: Vec<(String, Vec<usize>)> = Vec::new();
     for (label, indices) in &bus_groups {
         if indices.len() >= 3 {
-            // Identify the driver: the box that appears most frequently as `from` in the group.
-            let mut from_counts: std::collections::HashMap<i64, usize> =
-                std::collections::HashMap::new();
-            for &idx in indices {
-                let edge = &edges[idx];
-                *from_counts.entry(edge.from_box).or_default() += 1;
-            }
-            let driver_box_id = from_counts
-                .iter()
-                .max_by_key(|(_, count)| **count)
-                .map(|(id, _)| *id);
+            trunk_groups.push((label.clone(), indices.clone()));
+        } else {
+            individual_indices.extend(indices.iter().copied());
+        }
+    }
 
-            // Compute trunk_x: midpoint between the driver's right edge and the
-            // rightmost consumer's left edge. If no clear driver, use midpoint of all boxes.
-            let mut driver_anchor: Option<(f64, f64)> = None;
-            let mut all_box_xs: Vec<f64> = Vec::new();
+    // Precompute the anchors of individual power edges, so bus-group taps that
+    // land on the same box edge at the same point can slide off them instead of
+    // drawing two coincident segments (e.g. a pass-through rail like moddcdc's
+    // V1V2 stub leaving the same edge where the V3V3 tap arrives).
+    let mut individual_power_anchors: Vec<(i64, f64, f64)> = Vec::new();
+    for &idx in &individual_indices {
+        let edge = &edges[idx];
+        if edge.kind != EdgeKind::Power {
+            continue;
+        }
+        let (Some(from), Some(to)) = (
+            graph.boxes.iter().find(|b| b.id == edge.from_box),
+            graph.boxes.iter().find(|b| b.id == edge.to_box),
+        ) else {
+            continue;
+        };
+        let (ax, ay) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
+        individual_power_anchors.push((from.id, ax, ay));
+    }
 
-            for &idx in indices {
-                let edge = &edges[idx];
-                let from_box = graph.boxes.iter().find(|b| b.id == edge.from_box);
-                let to_box = graph.boxes.iter().find(|b| b.id == edge.to_box);
-                let (Some(from), Some(to)) = (from_box, to_box) else {
-                    continue;
-                };
-                all_box_xs.push(from.x + from.w);
-                all_box_xs.push(to.x);
+    // Process bus groups (power edges with same label)
+    for (label, indices) in &trunk_groups {
+        // Identify the driver: the box that appears most frequently as `from` in the group.
+        let mut from_counts: std::collections::HashMap<i64, usize> =
+            std::collections::HashMap::new();
+        for &idx in indices {
+            let edge = &edges[idx];
+            *from_counts.entry(edge.from_box).or_default() += 1;
+        }
+        let driver_box_id = from_counts
+            .iter()
+            .max_by_key(|(_, count)| **count)
+            .map(|(id, _)| *id);
 
-                let is_driver = Some(from.id) == driver_box_id;
-                let is_driver_to = Some(to.id) == driver_box_id;
-                if is_driver {
-                    let (ax, ay) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
-                    driver_anchor = Some((ax, ay));
-                } else if is_driver_to {
-                    let (ax, ay) =
-                        rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
-                    driver_anchor = Some((ax, ay));
-                }
-            }
+        // Compute trunk_x: midpoint between the driver's right edge and the
+        // rightmost consumer's left edge. If no clear driver, use midpoint of all boxes.
+        let mut driver_anchor: Option<(f64, f64)> = None;
+        let mut all_box_xs: Vec<f64> = Vec::new();
+        // ★ Power-trunk lane fix: the trunk must sit in the open gutter, not on
+        //   a box edge. Track the driver's right edge and the rightmost
+        //   consumer's left edge separately. The old code min/max'd *every*
+        //   collected box edge in the group, so a left-column consumer (e.g.
+        //   flash/modldo/moddcdc @ x=340..500) dragged trunk_x down to the
+        //   shared right edge x=500 of the power column — the vertical rail then
+        //   ran exactly along the box borders and vanished behind the fill.
+        let mut driver_right_edge: Option<f64> = None;
+        let mut rightmost_consumer_left: Option<f64> = None;
 
-            // Compute trunk_x dynamically: midpoint between driver right edge and
-            // rightmost consumer left edge, with a minimum gap.
-            all_box_xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let trunk_x = if all_box_xs.len() >= 2 {
-                let leftmost = all_box_xs[0];
-                let rightmost = all_box_xs[all_box_xs.len() - 1];
-                (leftmost + rightmost) / 2.0
-            } else {
-                580.0
+        for &idx in indices {
+            let edge = &edges[idx];
+            let from_box = graph.boxes.iter().find(|b| b.id == edge.from_box);
+            let to_box = graph.boxes.iter().find(|b| b.id == edge.to_box);
+            let (Some(from), Some(to)) = (from_box, to_box) else {
+                continue;
             };
+            all_box_xs.push(from.x + from.w);
+            all_box_xs.push(to.x);
 
-            // Recompute consumer anchors with the dynamic trunk_x
-            let mut consumer_anchors_final: Vec<((f64, f64), &edge_decide::BlockEdge)> = Vec::new();
-            for &idx in indices {
-                let edge = &edges[idx];
-                let to_box = graph.boxes.iter().find(|b| b.id == edge.to_box);
-                let Some(to) = to_box else {
-                    continue;
-                };
-                let is_driver_to = Some(to.id) == driver_box_id;
-                // ★ Rail trunk-tap fix: `decide_edges` emits power edges as
-                // driver→consumer, so `is_driver` is true on every edge of a
-                // single-driver star. The old `!is_driver && !is_driver_to`
-                // guard skipped all of them → empty consumer anchors → the trunk
-                // collapsed to a zero-length stub at the driver. Take every edge
-                // whose *target* is a consumer (secondary consumer→consumer edges
-                // in a multi-driver mesh still qualify; edges pointing back at the
-                // driver are correctly excluded).
-                if !is_driver_to {
-                    let (ax, ay) = rail_anchor(to, trunk_x, to.y + to.h / 2.0, 0, 1);
-                    consumer_anchors_final.push(((ax, ay), edge));
+            let is_driver = Some(from.id) == driver_box_id;
+            let is_driver_to = Some(to.id) == driver_box_id;
+            if is_driver {
+                driver_right_edge = Some(from.x + from.w);
+                let (ax, ay) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
+                driver_anchor = Some((ax, ay));
+            } else if is_driver_to {
+                let (ax, ay) =
+                    rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
+                driver_anchor = Some((ax, ay));
+            }
+            rightmost_consumer_left = Some(
+                rightmost_consumer_left
+                    .map(|x: f64| x.max(to.x))
+                    .unwrap_or(to.x),
+            );
+        }
+
+        // Compute trunk_x dynamically: midpoint between driver right edge and
+        // rightmost consumer left edge (the lane both sides reach without
+        // crossing a box). Without a clear driver, fall back to the midpoint
+        // of the whole span.
+        let trunk_x = match (driver_right_edge, rightmost_consumer_left) {
+            (Some(dre), Some(rcl)) => (dre + rcl) / 2.0,
+            _ => {
+                all_box_xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                if all_box_xs.len() >= 2 {
+                    let leftmost = all_box_xs[0];
+                    let rightmost = all_box_xs[all_box_xs.len() - 1];
+                    (leftmost + rightmost) / 2.0
+                } else {
+                    580.0
                 }
             }
+        };
 
-            // Collect all y values for trunk range
-            let mut all_ys: Vec<f64> = consumer_anchors_final
-                .iter()
-                .map(|((_, y), _)| *y)
-                .collect();
-            if let Some((_, dy)) = driver_anchor {
-                all_ys.push(dy);
+        // Recompute consumer anchors with the dynamic trunk_x
+        let mut consumer_anchors_final: Vec<((f64, f64), &edge_decide::BlockEdge)> = Vec::new();
+        for &idx in indices {
+            let edge = &edges[idx];
+            let to_box = graph.boxes.iter().find(|b| b.id == edge.to_box);
+            let Some(to) = to_box else {
+                continue;
+            };
+            let is_driver_to = Some(to.id) == driver_box_id;
+            // ★ Rail trunk-tap fix: `decide_edges` emits power edges as
+            // driver→consumer, so `is_driver` is true on every edge of a
+            // single-driver star. The old `!is_driver && !is_driver_to`
+            // guard skipped all of them → empty consumer anchors → the trunk
+            // collapsed to a zero-length stub at the driver. Take every edge
+            // whose *target* is a consumer (secondary consumer→consumer edges
+            // in a multi-driver mesh still qualify; edges pointing back at the
+            // driver are correctly excluded).
+            if !is_driver_to {
+                let (mut ax, mut ay) = rail_anchor(to, trunk_x, to.y + to.h / 2.0, 0, 1);
+                // If an individual power edge anchors at the same point on this
+                // box edge, slide the tap along the edge (alternating above /
+                // below the midpoint) until it is clear.
+                let mut shift = 0u32;
+                while shift < 6
+                    && individual_power_anchors.iter().any(|(bid, ix, iy)| {
+                        *bid == to.id && (ix - ax).abs() < 1.0 && (iy - ay).abs() < 1.0
+                    })
+                {
+                    let step = (shift as f64 + 1.0) * 0.2;
+                    let offset = if shift % 2 == 0 { 0.5 - step } else { 0.5 + step };
+                    if offset < 0.05 || offset > 0.95 {
+                        break;
+                    }
+                    (ax, ay) = rail_anchor_at(to, trunk_x, to.y + to.h / 2.0, offset);
+                    shift += 1;
+                }
+                consumer_anchors_final.push(((ax, ay), edge));
             }
-            all_ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let trunk_y_min = all_ys.first().copied().unwrap_or(100.0);
-            let trunk_y_max = all_ys.last().copied().unwrap_or(740.0);
+        }
 
-            // Draw trunk line
-            let stroke = "#E65100";
-            svg.push_str(&format!(
-                r##"  <line x1="{tx:.1}" y1="{y1:.1}" x2="{tx:.1}" y2="{y2:.1}"
+        // Collect all y values for trunk range
+        let mut all_ys: Vec<f64> = consumer_anchors_final
+            .iter()
+            .map(|((_, y), _)| *y)
+            .collect();
+        if let Some((_, dy)) = driver_anchor {
+            all_ys.push(dy);
+        }
+        all_ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let trunk_y_min = all_ys.first().copied().unwrap_or(100.0);
+        let trunk_y_max = all_ys.last().copied().unwrap_or(740.0);
+
+        // Draw trunk line
+        let stroke = "#E65100";
+        svg.push_str(&format!(
+            r##"  <line x1="{tx:.1}" y1="{y1:.1}" x2="{tx:.1}" y2="{y2:.1}"
        stroke="{stroke}" stroke-width="2.5"/>"##,
-                tx = trunk_x,
-                y1 = trunk_y_min,
-                y2 = trunk_y_max,
-                stroke = stroke,
-            ));
-            svg.push('\n');
+            tx = trunk_x,
+            y1 = trunk_y_min,
+            y2 = trunk_y_max,
+            stroke = stroke,
+        ));
+        svg.push('\n');
 
-            // Draw driver-to-trunk line
-            if let Some((dx, dy)) = driver_anchor {
-                let line_svg = render_ortho_path(dx, dy, trunk_x, dy, label, stroke, 2.5, false);
-                svg.push_str(&line_svg);
-            }
+        // Draw driver-to-trunk line
+        if let Some((dx, dy)) = driver_anchor {
+            let line_svg = render_ortho_path(dx, dy, trunk_x, dy, label, stroke, 2.5, false);
+            svg.push_str(&line_svg);
+        }
 
-            // Draw trunk-to-consumer lines
-            for ((cx, cy), _edge) in &consumer_anchors_final {
-                let line_svg = render_ortho_path(trunk_x, *cy, *cx, *cy, label, stroke, 2.5, false);
-                svg.push_str(&line_svg);
-            }
+        // Draw trunk-to-consumer lines
+        for ((cx, cy), _edge) in &consumer_anchors_final {
+            let line_svg = render_ortho_path(trunk_x, *cy, *cx, *cy, label, stroke, 2.5, false);
+            svg.push_str(&line_svg);
+        }
 
-            // Label at trunk midpoint
-            let label_mid_y = (trunk_y_min + trunk_y_max) / 2.0;
-            svg.push_str(&format!(
-                r##"  <text x="{tx:.1}" y="{my:.1}" text-anchor="end"
+        // Label at trunk midpoint
+        let label_mid_y = (trunk_y_min + trunk_y_max) / 2.0;
+        svg.push_str(&format!(
+            r##"  <text x="{tx:.1}" y="{my:.1}" text-anchor="end"
        font-size="11" font-weight="600" fill="{stroke}"
        dominant-baseline="central">{label}</text>
 "##,
-                tx = trunk_x - 5.0,
-                my = label_mid_y,
-                stroke = stroke,
-                label = escape_xml(label),
-            ));
-        } else {
-            // Power edges with <3 consumers: draw as direct lines
-            for &idx in indices {
-                individual_indices.push(idx);
-            }
-        }
+            tx = trunk_x - 5.0,
+            my = label_mid_y,
+            stroke = stroke,
+            label = escape_xml(label),
+        ));
     }
 
     // Process individual edges (non-power, or power with <3 consumers)
