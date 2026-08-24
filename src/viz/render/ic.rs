@@ -30,7 +30,7 @@
 
 use crate::vector::graph::McVecBox;
 
-use super::label_render::render_designator_and_value;
+use super::label_render::{display_name, render_designator_and_value};
 use super::pin_render::{render_nc_pin, render_pin, PinRenderOpts};
 use super::shape::BoxShape;
 
@@ -63,7 +63,8 @@ impl BoxShape for IcShape {
             font-size="12" font-weight="700" fill="#1A237E">{}</text>"##,
             label_x,
             name_y,
-            escape_xml(&b.name)
+            // Anonymous ICs auto-named `_U3` display without the `_` marker.
+            escape_xml(display_name(&b.name))
         );
 
         let class_svg = if !b.class_name.is_empty() {

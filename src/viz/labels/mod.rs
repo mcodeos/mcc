@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use crate::vector::graph::boxdef::LabelPlacementKind;
 use crate::vector::graph::netdef::Segment;
 use crate::vector::graph::{BoxLabelPlacement, McVecBox, McVecGraph, Symbol};
+use crate::viz::render::label_render::display_name;
 
 // ============================================================================
 // Penalty constants
@@ -365,7 +366,7 @@ fn collect_labels(graph: &McVecGraph) -> Vec<(LabelKey, String, f64, bool)> {
                 .designator
                 .as_deref()
                 .filter(|d| !d.is_empty())
-                .unwrap_or(&b.name);
+                .unwrap_or_else(|| display_name(&b.name));
             if !base.is_empty() {
                 out.push((
                     LabelKey {

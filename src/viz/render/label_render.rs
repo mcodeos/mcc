@@ -35,7 +35,10 @@ pub(crate) struct LabelBounds {
 
 /// Output the SVG fragment for the designator + value
 ///
-/// When both designator and value are empty, returns an empty string (draws nothing).
+/// When both designator and value are empty, returns an empty string (draws nothing),
+/// unless the box is a two-pin passive with an auto-generated name — that name is
+/// shown as a fallback designator with the anonymous `_` prefix stripped (see the
+/// `Symbol::Resistor | ...` branch).
 /// If the box has label_placements (from M8 label optimizer), use those instead.
 pub fn render_designator_and_value(b: &McVecBox) -> String {
     let designator = b.designator.as_deref().unwrap_or("");
@@ -48,11 +51,6 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
         return render_placed_labels(b);
     }
 
-    // Both empty → draw nothing
-    if designator.is_empty() && value.is_empty() {
-        return String::new();
-    }
-
     let cx = b.x + b.w / 2.0;
 
     match b.symbol {
@@ -63,6 +61,20 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
         | Symbol::Diode
         | Symbol::Led
         | Symbol::Zener => {
+            // ★ Anonymous two-pin passives: components without a project
+            // designator (e.g. auto-generated `_C1` / `_R1`) rendered blank
+            // because both fields were empty. Fall back to the box name so the
+            // part still gets a label. ICs/modules are excluded — their name is
+            // already drawn by the IC/sub-module shape.
+            let designator = if designator.is_empty() && !b.name.is_empty() {
+                display_name(&b.name)
+            } else {
+                designator
+            };
+            // Both empty → draw nothing
+            if designator.is_empty() && value.is_empty() {
+                return String::new();
+            }
             // Two-pin part: designator above, value below
             let designator_y = b.y - 4.0;
             let value_y = b.y + b.h + 12.0;
@@ -122,9 +134,6 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
 pub(crate) fn designator_value_label_bounds(b: &McVecBox) -> Vec<LabelBounds> {
     let designator = b.designator.as_deref().unwrap_or("");
     let value = b.value.as_deref().unwrap_or("");
-    if designator.is_empty() && value.is_empty() {
-        return Vec::new();
-    }
 
     // M8: Use placed labels for bounds if available
     if !b.label_placements.is_empty() {
@@ -142,6 +151,17 @@ pub(crate) fn designator_value_label_bounds(b: &McVecBox) -> Vec<LabelBounds> {
             .collect();
     }
 
+    // Mirror the name-fallback used by `render_designator_and_value` for
+    // anonymous two-pin passives, so the metrics see the same label set.
+    let name_fallback = if designator.is_empty() && !b.name.is_empty() {
+        display_name(&b.name)
+    } else {
+        designator
+    };
+    if name_fallback.is_empty() && value.is_empty() {
+        return Vec::new();
+    }
+
     let cx = b.x + b.w / 2.0;
     let mut out = Vec::new();
     match b.symbol {
@@ -152,6 +172,7 @@ pub(crate) fn designator_value_label_bounds(b: &McVecBox) -> Vec<LabelBounds> {
         | Symbol::Diode
         | Symbol::Led
         | Symbol::Zener => {
+            let designator = name_fallback;
             if !designator.is_empty() {
                 out.push(label_bounds(
                     designator,
@@ -183,6 +204,15 @@ pub(crate) fn designator_value_label_bounds(b: &McVecBox) -> Vec<LabelBounds> {
         | Symbol::PortTerminal { .. } => {}
     }
     out
+}
+
+/// Strip the anonymous auto-generated `_` prefix from a part name for display.
+/// Anonymous devices are auto-named `_C1` / `_U3` (see `McMod::auto_name`); the
+/// leading underscore is an internal "no user designator" marker, not part of the
+/// visible label. Names without the prefix (e.g. a designer-named `res1`) pass
+/// through unchanged. Shared by the passive label renderer and the IC name.
+pub(crate) fn display_name(name: &str) -> &str {
+    name.trim_start_matches('_')
 }
 
 fn label_bounds(
@@ -335,7 +365,47 @@ mod tests {
 
     #[test]
     fn nothing_filled_empty() {
-        let b = mk_box(Symbol::Resistor, None, None);
+        // No designator/value and no name → still nothing.
+        let mut b = mk_box(Symbol::Resistor, None, None);
+        b.name = String::new();
+        assert_eq!(render_designator_and_value(&b), "");
+    }
+
+    #[test]
+    fn anonymous_passive_shows_name_fallback() {
+        // Auto-generated part (`_C1`): no designator/value → box name is shown
+        // with the anonymous leading `_` stripped.
+        let mut b = mk_box(Symbol::Resistor, None, None);
+        b.name = "_C1".into();
+        let svg = render_designator_and_value(&b);
+        assert!(svg.contains(">C1</text>"), "name fallback should render: {svg}");
+        assert!(!svg.contains(">_C1</text>"), "leading underscore must be hidden: {svg}");
+        assert_eq!(svg.matches("class=\"designator\"").count(), 1);
+    }
+
+    #[test]
+    fn anonymous_passive_keeps_non_underscore_name() {
+        // Names without the auto-gen prefix (designer-named `res1`) pass through unchanged.
+        let mut b = mk_box(Symbol::Resistor, None, None);
+        b.name = "res1".into();
+        let svg = render_designator_and_value(&b);
+        assert!(svg.contains(">res1</text>"), "plain name should render verbatim: {svg}");
+    }
+
+    #[test]
+    fn named_passive_keeps_designator() {
+        // A real designator wins over the name fallback.
+        let b = mk_box(Symbol::Resistor, Some("R1"), None);
+        let svg = render_designator_and_value(&b);
+        assert!(svg.contains(">R1</text>"));
+        assert!(!svg.contains(">X</text>"));
+    }
+
+    #[test]
+    fn anonymous_ic_does_not_duplicate_name() {
+        // ICs render their name in the Ic shape; the designator slot must stay
+        // empty so the name isn't duplicated inside the box.
+        let b = mk_box(Symbol::Ic, None, None);
         assert_eq!(render_designator_and_value(&b), "");
     }
 
@@ -349,6 +419,15 @@ mod tests {
         assert_eq!(labels[1].text, "10k");
         assert!(labels[1].y + labels[1].h > b.y + b.h);
         assert!(!labels[0].inside_owner_box);
+    }
+
+    #[test]
+    fn label_bounds_anonymous_name_strips_underscore() {
+        let mut b = mk_box(Symbol::Resistor, None, None);
+        b.name = "_R2".into();
+        let labels = designator_value_label_bounds(&b);
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].text, "R2");
     }
 
     #[test]
