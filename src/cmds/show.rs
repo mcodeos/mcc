@@ -52,7 +52,7 @@ pub fn run(args: &ShowArgs) -> Result<()> {
 ///     tables / .mc-like dumps are rendered locally. This also makes the
 ///     default `-f text` output stable whether or not a server is running.
 fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
-    if mcc::cli::globals().format == OutputFormat::Text || args.filter.is_some() {
+    if matches!(mcc::cli::globals().format, OutputFormat::Text) || args.filter.is_some() {
         return None;
     }
     match args.target {
@@ -772,7 +772,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
 
     // Text mode: hand-rendered sections (aligned with the user-facing
     // circuit view; the generic key: value fallback would bury the tree).
-    if mcc::cli::globals().format == OutputFormat::Text {
+    if matches!(mcc::cli::globals().format, OutputFormat::Text) {
         let mut lines = Vec::new();
         lines.push(format!("===== Hierarchy: {top} ====="));
         let mut htext = String::new();

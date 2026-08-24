@@ -42,7 +42,7 @@ pub fn run(args: &ListArgs) -> Result<()> {
 /// only return JSON), a `--filter` (RPC list methods don't apply filters), or
 /// `list all` (local-only flat aggregation).
 fn rpc_mapping(args: &ListArgs) -> Option<(&'static str, Value)> {
-    if mcc::cli::globals().format == OutputFormat::Text || args.filter.is_some() {
+    if matches!(mcc::cli::globals().format, OutputFormat::Text) || args.filter.is_some() {
         return None;
     }
     let m = match args.target {

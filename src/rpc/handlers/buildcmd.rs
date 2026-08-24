@@ -8,6 +8,12 @@ use super::*;
 
 pub fn handle_build_full(params: Option<Value>) -> RpcResult {
     let p: BuildFullParams = parse_or_default(params)?;
+    // `build.full` is a fresh pipeline (local `mcc build` runs in a fresh
+    // process): reset the active workspace so the previous request's project
+    // tables and diagnostics (both append-only across the server's lifetime)
+    // don't leak into this build's definitions or phase snapshots. System-lib
+    // tables (`global::mcc_*`) survive, matching how libs are re-loaded below.
+    crate::mcc_clear_workspace();
     load_libs_rpc(&p.libs);
 
     let (id, kind, root_str) = crate::workspace_info();
@@ -22,10 +28,10 @@ pub fn handle_build_full(params: Option<Value>) -> RpcResult {
         } else {
             cwd.join(&entry_path)
         };
-        return run_full_build(
+        return run_full_build_envelope(
             &abs_entry,
             p.top.as_deref(),
-            "build.full",
+            "mcc build",
             "file",
             &id,
             p.include_system,
@@ -38,10 +44,10 @@ pub fn handle_build_full(params: Option<Value>) -> RpcResult {
         _ => return Err(JsonRpcError::custom(32102, "unknown workspace kind")),
     };
     let top = p.top.or_else(read_project_top_from_workspace);
-    run_full_build(
+    run_full_build_envelope(
         &entry_path,
         top.as_deref(),
-        "build.full",
+        "mcc build",
         "project",
         &id,
         p.include_system,
