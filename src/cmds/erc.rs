@@ -109,20 +109,37 @@ fn run_local(args: &ErcArgs) -> Result<()> {
     let mut multi_drive = 0u32;
     let mut floating = 0u32;
 
+    // A power/ground rail is driven by its declaration label and upstream
+    // source; module power-input ports on a rail are LOADS, not independent
+    // drivers. Count only genuine source outputs (Out/Power) on rails, keeping
+    // the full driver set (Out/InOut/Power/Analog) for signal nets. Rails are
+    // exempt from the floating check — a load-only rail's source is the
+    // declared rail label / upstream stage, so 0 drivers is normal there.
+    let is_rail = |name: &str| {
+        name.rsplit('.')
+            .next()
+            .map_or(false, mcc::instant::mc_net::looks_like_power_rail)
+    };
+
     for (name, points) in &inst.nets {
         if mcc::instant::mc_net::is_anon_net_name(name) || name.as_str() == "NC" {
             continue;
         }
+        let rail = is_rail(name);
         let drivers: Vec<_> = points
             .iter()
             .filter(|p| {
-                matches!(
-                    p.iotype,
-                    mcc::IOType::Out
-                        | mcc::IOType::InOut
-                        | mcc::IOType::Power
-                        | mcc::IOType::Analog
-                )
+                if rail {
+                    matches!(p.iotype, mcc::IOType::Out | mcc::IOType::Power)
+                } else {
+                    matches!(
+                        p.iotype,
+                        mcc::IOType::Out
+                            | mcc::IOType::InOut
+                            | mcc::IOType::Power
+                            | mcc::IOType::Analog
+                    )
+                }
             })
             .collect();
 
@@ -138,7 +155,7 @@ fn run_local(args: &ErcArgs) -> Result<()> {
                 "check": "multi_drive",
                 "message": msg,
             }));
-        } else if drivers.is_empty() && points.len() > 1 {
+        } else if drivers.is_empty() && points.len() > 1 && !rail {
             floating += 1;
             let code = mcc::errcodes::ERC_FLOATING_NET;
             let msg = mcc::errcodes::format_msg(code, &[&name]);
