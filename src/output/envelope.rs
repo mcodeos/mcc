@@ -327,6 +327,9 @@ pub struct PinInfo {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NetEntry {
+    /// Full module-scope path the net belongs to (e.g. `main.speaker`). Instance
+    /// names collide across scopes, so entries are ambiguous without it.
+    pub module: String,
     pub name: String,
     pub points: Vec<String>,
 }
@@ -334,6 +337,14 @@ pub struct NetEntry {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConnectionEntry {
     pub id: u32,
+    /// Full module-scope path the connection belongs to (e.g. `main.speaker`).
+    /// The engine's connection ids are per-module counters, so `id` alone does
+    /// not disambiguate across scopes — this does.
+    pub module: String,
+    /// Net this connection belongs to. Always resolved against the module's net
+    /// table (surviving name after union-find merges), so it matches the name
+    /// in the matching Nets table row. Falls back to the statement label when
+    /// the points are absent from the table (e.g. NC).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub net_name: Option<String>,
     pub points: Vec<String>,
