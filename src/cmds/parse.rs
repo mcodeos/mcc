@@ -37,6 +37,7 @@ use mcc::cli::ParseArgs;
 use mcc::{IOType, McCMIE, McEndpoint, McIds, McInstance, McInstanceRef, McPhrase, McURI};
 use mcc::{McParamDeclare, McParamTypeKind};
 use serde_json::json;
+use std::collections::HashMap;
 use std::path::Path;
 
 // ============================================================================
@@ -135,7 +136,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     output::diagnostic::print_dlog_lines(false);
                 }
                 let env = Envelope::ok(builder.finish());
-                output::emit_envelope(
+                output::emit_envelope_brief(
                     &env,
                     mcc::cli::globals().format,
                     mcc::cli::globals().output.as_deref().map(Path::new),
@@ -338,7 +339,8 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 builder.set_pass2(pass2);
 
                 // Print diagnostics before Net Summary
-                if mcc::cli::globals().format == mcc::cli::OutputFormat::Text && !args.dlog {
+                if matches!(mcc::cli::globals().format, mcc::cli::OutputFormat::Text) && !args.dlog
+                {
                     builder.print_diagnostics_summary();
                 }
                 renderer.net_summary(&inst);
@@ -505,7 +507,10 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         target
     };
 
-    output::emit_envelope(&env, mcc::cli::globals().format, envelope_target, true)?;
+    // The detailed tables are already printed live via the TextRenderer above;
+    // the trailing envelope emission stays the brief text report so the detail
+    // isn't rendered twice.
+    output::emit_envelope_brief(&env, mcc::cli::globals().format, envelope_target, true)?;
     Ok(())
 }
 
@@ -593,12 +598,14 @@ fn try_collect_modules() -> Option<Vec<DefinitionRef>> {
     if items.is_empty() {
         return None;
     }
-    Some(
-        items
-            .into_iter()
-            .map(|(name, uri)| DefinitionRef { name, uri })
-            .collect(),
-    )
+    let mut defs: Vec<DefinitionRef> = items
+        .into_iter()
+        .map(|(name, uri)| DefinitionRef { name, uri })
+        .collect();
+    // Global table iteration order is HashMap-derived (nondeterministic); sort
+    // so the pass1 definitions listing is stable run-to-run.
+    defs.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.uri.cmp(&b.uri)));
+    Some(defs)
 }
 
 fn try_collect_components() -> Option<Vec<DefinitionRef>> {
@@ -606,12 +613,12 @@ fn try_collect_components() -> Option<Vec<DefinitionRef>> {
     if items.is_empty() {
         return None;
     }
-    Some(
-        items
-            .into_iter()
-            .map(|(name, uri)| DefinitionRef { name, uri })
-            .collect(),
-    )
+    let mut defs: Vec<DefinitionRef> = items
+        .into_iter()
+        .map(|(name, uri)| DefinitionRef { name, uri })
+        .collect();
+    defs.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.uri.cmp(&b.uri)));
+    Some(defs)
 }
 
 fn try_collect_interfaces() -> Option<Vec<DefinitionRef>> {
@@ -619,12 +626,12 @@ fn try_collect_interfaces() -> Option<Vec<DefinitionRef>> {
     if items.is_empty() {
         return None;
     }
-    Some(
-        items
-            .into_iter()
-            .map(|(name, uri)| DefinitionRef { name, uri })
-            .collect(),
-    )
+    let mut defs: Vec<DefinitionRef> = items
+        .into_iter()
+        .map(|(name, uri)| DefinitionRef { name, uri })
+        .collect();
+    defs.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.uri.cmp(&b.uri)));
+    Some(defs)
 }
 
 fn try_collect_enums() -> Option<Vec<DefinitionRef>> {
@@ -632,12 +639,12 @@ fn try_collect_enums() -> Option<Vec<DefinitionRef>> {
     if items.is_empty() {
         return None;
     }
-    Some(
-        items
-            .into_iter()
-            .map(|(name, uri)| DefinitionRef { name, uri })
-            .collect(),
-    )
+    let mut defs: Vec<DefinitionRef> = items
+        .into_iter()
+        .map(|(name, uri)| DefinitionRef { name, uri })
+        .collect();
+    defs.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.uri.cmp(&b.uri)));
+    Some(defs)
 }
 
 fn group_by_uri(defs: &DefinitionsIndex) -> Vec<LoadedFile> {
@@ -738,10 +745,8 @@ fn instance_to_node(inst: &mcc::MccProjectTree) -> InstanceNode {
     let components = inst
         .components
         .iter()
-        .map(|c| ComponentInfo {
-            name: c.name.to_string(),
-            class_name: c.def.name.to_string(),
-            pins: c
+        .map(|c| {
+            let mut pins: Vec<PinInfo> = c
                 .pins
                 .iter()
                 .map(|(pin_id, _net_point)| {
@@ -751,8 +756,18 @@ fn instance_to_node(inst: &mcc::MccProjectTree) -> InstanceNode {
                         name: pin_name,
                     }
                 })
-                .collect(),
-            nc: c.nc,
+                .collect();
+            // Deterministic pin order: numeric id ascending, non-numeric at the
+            // end. `McComponentInst.pins` is a HashMap with a per-process
+            // random seed (RandomState), so without this the pin list order
+            // changes on every run. Mirrors PinSortMode::PinId (print.rs).
+            pins.sort_by_key(|p| p.id.parse::<i64>().ok().unwrap_or(i64::MAX));
+            ComponentInfo {
+                name: c.name.to_string(),
+                class_name: c.def.name.to_string(),
+                pins,
+                nc: c.nc,
+            }
         })
         .collect();
 
@@ -784,38 +799,74 @@ fn iotype_str(io: &IOType) -> &'static str {
 
 fn extract_connections(inst: &mcc::MccProjectTree) -> Vec<ConnectionEntry> {
     let mut out = Vec::new();
-    walk_connections(inst, &mut out);
+    walk_connections(inst, "", &mut out);
     out
 }
 
-fn walk_connections(inst: &mcc::MccProjectTree, out: &mut Vec<ConnectionEntry>) {
+fn walk_connections(inst: &mcc::MccProjectTree, scope: &str, out: &mut Vec<ConnectionEntry>) {
+    // Full scope path (e.g. `main.speaker`): the engine's connection ids and
+    // instance names repeat across modules, so each entry must carry its scope
+    // to stay unambiguous.
+    let my_scope = if scope.is_empty() {
+        inst.name.clone()
+    } else {
+        format!("{}.{}", scope, inst.name)
+    };
+    // Every connection's points merge into exactly one net in this module's
+    // net table, so resolve the net name from `inst.nets` — not from the
+    // statement label. `ConnectionInst.net_name` keeps the label *as written*
+    // (bare wires have None; merged rails keep a pre-merge name like
+    // `V1V2.GND` that no longer exists as a net). Resolving against the table
+    // gives every connection the same surviving name as the matching Nets
+    // table row — including engine-assigned anonymous `_net{N}` numbers — so
+    // the two tables always agree and stay stable across runs. The statement
+    // label is only a fallback for points absent from the table (e.g. NC).
+    let mut point_to_net: HashMap<&str, &str> = HashMap::new();
+    for (net_name, points) in &inst.nets {
+        for p in points {
+            point_to_net.entry(p.path.as_str()).or_insert(net_name);
+        }
+    }
     for conn in &inst.connections {
+        let net_name = conn
+            .points
+            .iter()
+            .find_map(|p| point_to_net.get(p.path.as_str()).copied())
+            .map(str::to_string)
+            .or_else(|| conn.net_name.clone());
         out.push(ConnectionEntry {
             id: conn.id,
-            net_name: conn.net_name.clone(),
+            module: my_scope.clone(),
+            net_name,
             points: conn.points.iter().map(|p| p.path.clone()).collect(),
         });
     }
     for sub in &inst.sub_modules {
-        walk_connections(sub, out);
+        walk_connections(sub, &my_scope, out);
     }
 }
 
 fn extract_nets(inst: &mcc::MccProjectTree) -> Vec<NetEntry> {
     let mut nets = Vec::new();
-    walk_nets(inst, &mut nets);
+    walk_nets(inst, "", &mut nets);
     nets
 }
 
-fn walk_nets(inst: &mcc::MccProjectTree, out: &mut Vec<NetEntry>) {
+fn walk_nets(inst: &mcc::MccProjectTree, scope: &str, out: &mut Vec<NetEntry>) {
+    let my_scope = if scope.is_empty() {
+        inst.name.clone()
+    } else {
+        format!("{}.{}", scope, inst.name)
+    };
     for (name, points) in inst.sorted_nets() {
         out.push(NetEntry {
+            module: my_scope.clone(),
             name: name.to_string(),
             points: points.iter().map(|point| point.path.clone()).collect(),
         });
     }
     for sub in &inst.sub_modules {
-        walk_nets(sub, out);
+        walk_nets(sub, &my_scope, out);
     }
 }
 

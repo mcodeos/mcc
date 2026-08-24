@@ -1119,6 +1119,12 @@ impl NetTable {
         let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
         let mut nets = HashMap::new();
         let mut order: Vec<usize> = Vec::new();
+        // Anonymous nets are numbered per module by a dedicated counter
+        // (`_net0`, `_net1`, ...), independent of how many named nets precede
+        // them. Previously the number was `nets.len()` (insertion position
+        // among ALL nets), so named nets occupying earlier slots left gaps and
+        // the anonymous sequence looked arbitrary.
+        let mut anon_count: usize = 0;
         for idx in 0..self.points.len() {
             let root = self.find(idx);
             let slot = groups.entry(root).or_default();
@@ -1207,7 +1213,11 @@ impl NetTable {
                         })
                         .next()
                 })
-                .unwrap_or_else(|| format!("_net{}", nets.len()));
+                .unwrap_or_else(|| {
+                    let name = format!("_net{anon_count}");
+                    anon_count += 1;
+                    name
+                });
 
             nets.insert(net_name, group_points);
         }
