@@ -74,7 +74,7 @@ use crate::vector::graph::{BoxKind, EntrySide, McVecBox, McVecGraph, NetKind};
 
 use super::equipotential_tree::{
     assign_regions, assign_rows, build_topology, envelop_lanes, is_w_e_opposite, layer_anchor_id,
-    member_pin_point, net_corridor_demand, partner_info, point_on_segment, realize, resolve_lanes,
+    member_pin_point, net_corridor_demand, partner_info, point_on_segment, realize_all, resolve_lanes,
     segment_hits_box, slot_of, slot_point, tap_role, EquiTree, Lane, NetTopology, PinGroup, Region,
     RowSource, TapRole, Terminal, TreeSymbol, TreeSymbolKind, LABEL_CHAR_W, LABEL_PAD, ROW_CLEAR,
     SYMBOL_DROP, TOOTH_GAP,
@@ -656,7 +656,7 @@ impl fmt::Display for EquiAudit {
 /// `layout_topos` must be the same slice that `place_by_topology` mutated —
 /// A2 compares it against a fresh render-side replay.
 pub fn audit_equi_tree(graph: &McVecGraph, layout_topos: &[NetTopology]) -> EquiAudit {
-    let trees: Vec<EquiTree> = layout_topos.iter().map(|t| realize(t, graph)).collect();
+    let trees: Vec<EquiTree> = realize_all(layout_topos, graph);
 
     let checks = vec![
         check_a1_rows(layout_topos),
@@ -3482,7 +3482,7 @@ mod tests {
     #[test]
     fn m6_regression_structure() {
         let (g, topos) = placed();
-        let trees: Vec<EquiTree> = topos.iter().map(|t| realize(t, &g)).collect();
+        let trees: Vec<EquiTree> = realize_all(&topos, &g);
 
         // R1: every IC pin slot sits inside the IC box bounds (tolerance 1.0).
         let ic = g
