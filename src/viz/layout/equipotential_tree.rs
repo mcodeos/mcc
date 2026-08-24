@@ -2524,6 +2524,45 @@ fn side_slot(side: EntrySide) -> usize {
     }
 }
 
+/// Final bottom edge of the layer-anchor box, mirroring the M2.5 Step 3/4
+/// growth in `assign_anchor_slots`: the box is at least as tall as the
+/// connected rows' span (`ic_bottom - ic_top`) and the pin-count pitch
+/// (`count_h`), and grows again for unassigned (NC) pins stacked below the
+/// connected right pins. The South rail and the cycle-break rows must hug
+/// THIS edge, not `ic_bottom` — when the box grows below the row span (a tall
+/// component with many NC pins), a rail computed from `ic_bottom + RAIL_GAP`
+/// lands inside the box body, and the filled box hides the whole ground tree.
+fn final_box_bottom(
+    ic_top: f64,
+    ic_bottom: f64,
+    per_side: &BTreeMap<Region, Vec<(usize, usize, i64)>>,
+    pin_band: &BTreeMap<i64, usize>,
+    band_y: &[f64],
+    unassigned: &[i64],
+) -> f64 {
+    let west_len = per_side.get(&Region::West).map_or(0, |l| l.len());
+    let east_len = per_side.get(&Region::East).map_or(0, |l| l.len());
+    let span_h = (ic_bottom - ic_top).max(0.0);
+    let count_h = west_len.max(east_len).max(1) as f64 * PIN_PITCH + 2.0 * PIN_MARGIN;
+    let mut box_h = span_h.max(count_h);
+    let right_max = per_side
+        .get(&Region::East)
+        .into_iter()
+        .flatten()
+        .filter_map(|(_, _, pid)| pin_band.get(pid).map(|&b| band_y[b]))
+        .fold(f64::MIN, f64::max);
+    let base = if right_max > f64::MIN {
+        right_max
+    } else {
+        ic_top + PIN_MARGIN
+    };
+    for (k, _) in unassigned.iter().enumerate() {
+        let y = base + (k as f64 + 1.0) * PIN_PITCH;
+        box_h = box_h.max(y + PIN_MARGIN - ic_top);
+    }
+    ic_top + box_h
+}
+
 /// ★ M2 P0: assign a row (trunk y) to every trunk-bearing net. Pure topology —
 /// reads regions, the layer anchor's pin order, member counts and mount
 /// directions; never a rect. This is the single authority for trunk y: the
@@ -2840,13 +2879,23 @@ pub(crate) fn assign_rows(
         let (t, b) = side_row_extent(&side_rows).unwrap_or((BASE_Y, BASE_Y + 120.0));
         ic_top = t;
         ic_bottom = b;
+        // The box grows below `ic_bottom` for pin count and NC pins; the
+        // South rail must clear the FINAL bottom edge, not the row span.
+        let box_bottom = final_box_bottom(
+            ic_top,
+            ic_bottom,
+            &per_side,
+            &pin_band,
+            &band_y,
+            &pin_plan.unassigned,
+        );
         let mut rail_rows: Vec<(f64, Region)> = Vec::new();
         for region in [Region::North, Region::South] {
             let Some(list) = per_side.get(&region) else {
                 continue;
             };
             let base = if region == Region::South {
-                ic_bottom + RAIL_GAP
+                box_bottom + RAIL_GAP
             } else {
                 ic_top - RAIL_GAP
             };
@@ -2899,12 +2948,24 @@ pub(crate) fn assign_rows(
     }
 
     // North/South rails: independent rows hugging the box edge (M2.5 Step 5).
+    // The South rail hugs the FINAL box bottom — `assign_anchor_slots` grows
+    // the box below the connected rows' extent for pin count and NC pins, so
+    // `ic_bottom + RAIL_GAP` would land inside the box body and the filled
+    // box would hide the whole ground tree.
+    let box_bottom = final_box_bottom(
+        ic_top,
+        ic_bottom,
+        &per_side,
+        &pin_band,
+        &band_y,
+        &pin_plan.unassigned,
+    );
     for region in [Region::North, Region::South] {
         let Some(list) = per_side.get(&region) else {
             continue;
         };
         let base = if region == Region::South {
-            ic_bottom + RAIL_GAP
+            box_bottom + RAIL_GAP
         } else {
             ic_top - RAIL_GAP
         };
@@ -3012,7 +3073,9 @@ pub(crate) fn assign_rows(
         }
     }
 
-    let mut cycle_open = ic_bottom + RAIL_GAP;
+    // Cycle-break rows open below the FINAL box bottom too (same reasoning as
+    // the South rail): a trunk below `ic_bottom` can still sit inside the box.
+    let mut cycle_open = box_bottom + RAIL_GAP;
     for (i, t) in topos.iter().enumerate() {
         if t.terminal_only || rows[i].is_some() {
             continue;
