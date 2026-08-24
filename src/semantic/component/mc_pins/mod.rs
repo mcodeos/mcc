@@ -1005,6 +1005,42 @@ impl McPins {
                                         }
                                     }
                                 }
+                                // Pin-number alignment: when an interface member is
+                                // declared on an interface pin id that equals a
+                                // physical pin id (e.g. GND on pin 5 in
+                                // `[1,5] = [VBUS, GND]`), bind by pin number before
+                                // the declaration-order fallback. Pure positional
+                                // fallback misaligns interfaces whose pins are
+                                // declared out of numeric order (USB.MINIB: GND
+                                // would land on physical pin 2 instead of pin 5).
+                                let iface_pin_names: std::collections::BTreeMap<String, String> =
+                                    declare
+                                        .base
+                                        .pins
+                                        .pins
+                                        .iter()
+                                        .map(|(id, p)| {
+                                            (
+                                                id.clone(),
+                                                p.names.first().cloned().unwrap_or_default(),
+                                            )
+                                        })
+                                        .collect();
+                                for (pi, pid) in pids.iter().enumerate() {
+                                    if slot[pi].is_some() {
+                                        continue;
+                                    }
+                                    let Some(iface_name) = iface_pin_names.get(pid) else {
+                                        continue;
+                                    };
+                                    if let Some(mi) = subname.iter().position(|s| {
+                                        s.rsplit('.').next().unwrap_or(s) == iface_name
+                                    }) {
+                                        if !slot.contains(&Some(mi)) {
+                                            slot[pi] = Some(mi);
+                                        }
+                                    }
+                                }
                                 // positional fallback: fill unassigned pids with unclaimed members in order
                                 let free_members: Vec<usize> = (0..subname.len())
                                     .filter(|mi| !slot.contains(&Some(*mi)))
