@@ -84,8 +84,16 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         .map(|p| p.path.as_str())
         .collect();
 
+    // A bus/interface port (e.g. `V3V3{VCC, GND}` / `[VDD_3V3, GND]`) is
+    // considered connected when ANY of its member lanes is a wired net point —
+    // the bare port name is a declaration identity, not an endpoint itself.
     for port in &inst.ports {
-        if !all_paths.contains(port.name.as_str()) {
+        let connected = all_paths.contains(port.name.as_str())
+            || port.bus_members.iter().any(|m| {
+                let lane = format!("{}.{}", port.name, m);
+                all_paths.contains(lane.as_str())
+            });
+        if !connected {
             let code = mcc::errcodes::ERC_UNCONNECTED_PORT;
             let msg = mcc::errcodes::format_msg(code, &[&port.name]);
             diags.push(json!({
