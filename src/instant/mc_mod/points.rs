@@ -97,6 +97,20 @@ fn resolve_bare_member_pid(
     pins: &crate::semantic::component::mc_pins::McPins,
     rest: &str,
 ) -> Option<String> {
+    // ── P3-4: same-name Multi group member (`VDD.19` where VDD=[19,32,48,64]).
+    // The group name broadcasts to every pin in the group, so `owner.VDD.19` is
+    // really pin 19 of `owner` — resolve it to the physical pid so it merges
+    // with `owner.19` / same-name-pad fan-ins instead of falling back to the
+    // raw `owner.VDD.19` phantom path.
+    if let Some((base, member)) = rest.rsplit_once('.') {
+        if let Some(crate::semantic::component::mc_pins::McPinPort::Multi(pids)) =
+            pins.names_to_id.get(base)
+        {
+            if pids.iter().any(|p| p == member) {
+                return Some(member.to_string());
+            }
+        }
+    }
     let dotted = rest.contains('.');
     let mut hits: Vec<String> = Vec::new();
     for (pid, names) in pins.pin_id_to_names.iter() {

@@ -81,11 +81,17 @@ fn best_pos(table: &InstTable, ids: &[u32]) -> (u32, String) {
 // ── P1: Multiple outputs driving the same net ──
 fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
+        // Only true signal `Out` pins are "drivers" for short-circuit purposes.
+        // Power pins are rails by design — same-name multi-pin groups broadcast
+        // every member onto one net (`[[19,32,48,64],[18]]=[VDD,VSS]` → four VDD
+        // pins share the VDD rail), so multiple Power entries on a net are normal,
+        // not a short. Power-rail conflicts (e.g. two different supplies tied)
+        // are handled by NET_VOLTAGE_MISMATCH (E4104) instead.
         let outputs: Vec<&InstEntry> = net
             .points
             .iter()
             .filter_map(|id| table.get_entry(*id))
-            .filter(|e| matches!(e.io_type, IOType::Out | IOType::Power))
+            .filter(|e| matches!(e.io_type, IOType::Out))
             .collect();
         if outputs.len() > 1 {
             let names: Vec<_> = outputs.iter().map(|e| e.path.as_str()).collect();
