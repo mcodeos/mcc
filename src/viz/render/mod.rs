@@ -327,8 +327,7 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                 let (ax, ay) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
                 driver_anchor = Some((ax, ay));
             } else if is_driver_to {
-                let (ax, ay) =
-                    rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
+                let (ax, ay) = rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
                 driver_anchor = Some((ax, ay));
             }
             rightmost_consumer_left = Some(
@@ -385,7 +384,11 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                     })
                 {
                     let step = (shift as f64 + 1.0) * 0.2;
-                    let offset = if shift % 2 == 0 { 0.5 - step } else { 0.5 + step };
+                    let offset = if shift % 2 == 0 {
+                        0.5 - step
+                    } else {
+                        0.5 + step
+                    };
                     if offset < 0.05 || offset > 0.95 {
                         break;
                     }

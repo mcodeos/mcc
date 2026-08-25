@@ -378,8 +378,14 @@ mod tests {
         let mut b = mk_box(Symbol::Resistor, None, None);
         b.name = "_C1".into();
         let svg = render_designator_and_value(&b);
-        assert!(svg.contains(">C1</text>"), "name fallback should render: {svg}");
-        assert!(!svg.contains(">_C1</text>"), "leading underscore must be hidden: {svg}");
+        assert!(
+            svg.contains(">C1</text>"),
+            "name fallback should render: {svg}"
+        );
+        assert!(
+            !svg.contains(">_C1</text>"),
+            "leading underscore must be hidden: {svg}"
+        );
         assert_eq!(svg.matches("class=\"designator\"").count(), 1);
     }
 
@@ -389,7 +395,10 @@ mod tests {
         let mut b = mk_box(Symbol::Resistor, None, None);
         b.name = "res1".into();
         let svg = render_designator_and_value(&b);
-        assert!(svg.contains(">res1</text>"), "plain name should render verbatim: {svg}");
+        assert!(
+            svg.contains(">res1</text>"),
+            "plain name should render verbatim: {svg}"
+        );
     }
 
     #[test]
