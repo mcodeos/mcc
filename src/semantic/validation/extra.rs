@@ -415,11 +415,18 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
         let m = entry.value();
         for (name, (_, inst)) in m.insts.insts() {
             if let crate::McInstance::Unresolved { class_name } = inst {
+                // Anchor on the instance declaration itself (the name span
+                // registered at parse), not the whole module: `BUTTON SW1`
+                // must light up on `SW1`, not on the module name.
+                let span = m
+                    .insts
+                    .get_port_span(name)
+                    .unwrap_or_else(|| m.span.clone());
                 acc.push(CheckResult {
                     check_name: "extra",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: Some(m.span.start..m.span.end),
+                    span: Some(span),
                     message: format!(
                         "Instance '{}' references class '{}' that is not loaded.",
                         name, class_name

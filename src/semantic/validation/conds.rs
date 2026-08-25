@@ -294,7 +294,6 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
 
         // Iterate all pins (keyed by pin ID) to check IO types
         for (pin_id, pin) in &comp.pins.pins {
-            use crate::IOType;
             let pin_span = pin_definition_span(comp, pin_id, pin.names.first().map(|s| s.as_str()));
             // §2.19 OR semantics: a pin is NC if its iotype is NonCon (`nc`
             // prefix) or any name is "NC"/"nc" — either declaration marks it.
@@ -328,66 +327,9 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                 }
                 continue;
             }
-            match pin.iotype {
-                IOType::Power => {
-                    let names = if pin.names.is_empty() {
-                        pin_id.clone()
-                    } else {
-                        pin.names.join(", ")
-                    };
-                    // Check for voltage-related info from:
-                    // 1. Component-level attributes (e.g. `voltage = "5V"`)
-                    let has_voltage_attr = comp.attrs.iter().any(|a| {
-                        let key = a.id.to_string().to_lowercase();
-                        key.contains("voltage")
-                            || key.contains("volt")
-                            || key == "vcc"
-                            || key == "vdd"
-                    });
-                    // 2. Interface binding covering this pin (e.g. `::DC(3.3V)`)
-                    let has_voltage_iface = comp.pins.names_to_id.values().any(|port| {
-                        if let crate::semantic::component::mc_pins::McPinPort::Interface(ref iface) = port {
-                            if iface.registered_pins.contains(&pin_id.clone()) {
-                                let iname = iface.name.to_string().to_lowercase();
-                                if iname.contains("dc") || iname.contains("power") || iname.contains("supply") {
-                                    return true;
-                                }
-                                // Interface params with voltage unit (e.g. `3.3V`)
-                                return iface.params.iter().any(|p| {
-                                    matches!(p, crate::semantic::basic::mc_param::McParamValue::UValue(uv)
-                                        if matches!(uv.unit(), crate::semantic::basic::mc_uval::McUnit::Volt))
-                                });
-                            }
-                        }
-                        false
-                    });
-                    // 3. Pin-level inline values (e.g. `volt:1.2V`)
-                    let has_pin_voltage = pin.values.iter().any(|v| {
-                        if let crate::semantic::component::mc_attr::McAttrVal::KVS(kvs) = v {
-                            let key = kvs.key.to_string().to_lowercase();
-                            return key.contains("volt")
-                                || key.contains("vcc")
-                                || key.contains("vdd");
-                        }
-                        false
-                    });
-                    if !has_voltage_attr && !has_voltage_iface && !has_pin_voltage {
-                        acc.push(CheckResult {
-                            check_name: "conds",
-                            severity: CheckSeverity::Info,
-                            uri: Some(uri.clone()),
-                            span: Some(pin_span.clone()),
-                            message: format!(
-                                "Component '{}': power pin '{}' ({}) has no associated \
-                                 voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
-                                comp.name, names, pin_id
-                            ),
-                            code: crate::errcodes::POWER_PIN_NO_VOLTAGE,
-                        });
-                    }
-                }
-                _ => {}
-            }
+            // Power-pin voltage checking lives in the hw pass
+            // (check_power_pin_no_voltage, E5454): one rule covers both
+            // power-typed and power-named pins, so there is no per-pin branch here.
         }
     }
 }
