@@ -718,9 +718,10 @@ impl McModuleInst {
     ///
     /// Emits user-visible warning diagnostics for unresolved references
     /// (migrated from `tracing::warn!` per §7.2.3 — these are the func-body
-    /// expansion artifacts Pass1 does not see). Position is unknown at the
-    /// instance layer, so warnings are anchored at the file start (0,0),
-    /// mirroring the instantiation-layer precedent (PULLUP_DEGENERATE).
+    /// expansion artifacts Pass1 does not see). Warnings are anchored at the
+    /// offending reference's own source position when available (group.rs
+    /// pattern), else the connection's source span, else the file start — not
+    /// the (1,1) file start that hid these warnings' true location.
     /// Called before `build_net_table()`.
     pub(super) fn validate_expanded_net_points(&self) {
         for conn in &self.connections {
@@ -740,11 +741,25 @@ impl McModuleInst {
                         {
                             let available: Vec<&str> =
                                 comp.pins.keys().map(|k| k.as_str()).collect();
-                            crate::db::diagnostic::diagnostic::diagnostic_log(
+                            // Anchor at the offending reference: the net point's
+                            // own source position when available, else the
+                            // connection's source span, else the current file
+                            // start — group.rs pattern, so the Problems entry
+                            // points near the actual source instead of (1,1).
+                            let (uri, pos) = pt
+                                .src_pos
+                                .as_ref()
+                                .map(|s| (s.uri.clone(), s.offset))
+                                .or_else(|| {
+                                    conn.source_span.as_ref().map(|s| (s.uri.clone(), s.offset))
+                                })
+                                .unwrap_or_else(|| (crate::current_uri::get(), 0));
+                            crate::db::diagnostic::diagnostic::diagnostic_log_at(
                                 crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                 crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
-                                0,
-                                0,
+                                uri,
+                                pos,
+                                pt.path.len() as u32,
                                 &crate::errcodes::format_msg(
                                     crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                     &[&pin_name, owner, &available.join(", ")],
@@ -764,11 +779,25 @@ impl McModuleInst {
                         if !port_name.is_empty() && !sub.is_valid_port_ref(port_name) {
                             let available: Vec<&str> =
                                 sub.ports.iter().map(|p| p.name.as_str()).collect();
-                            crate::db::diagnostic::diagnostic::diagnostic_log(
+                            // Anchor at the offending reference: the net point's
+                            // own source position when available, else the
+                            // connection's source span, else the current file
+                            // start — group.rs pattern, so the Problems entry
+                            // points near the actual source instead of (1,1).
+                            let (uri, pos) = pt
+                                .src_pos
+                                .as_ref()
+                                .map(|s| (s.uri.clone(), s.offset))
+                                .or_else(|| {
+                                    conn.source_span.as_ref().map(|s| (s.uri.clone(), s.offset))
+                                })
+                                .unwrap_or_else(|| (crate::current_uri::get(), 0));
+                            crate::db::diagnostic::diagnostic::diagnostic_log_at(
                                 crate::errcodes::MODULE_PORT_NOT_FOUND,
                                 crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
-                                0,
-                                0,
+                                uri,
+                                pos,
+                                pt.path.len() as u32,
                                 &crate::errcodes::format_msg(
                                     crate::errcodes::MODULE_PORT_NOT_FOUND,
                                     &[&port_name, owner, &available.join(", ")],

@@ -39,7 +39,9 @@ use crate::ast::ast_semantic::{
 use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
 use crate::db::cmie::tables as workspace;
-use crate::db::diagnostic::diagnostic::{dlog_error, dlog_error_at, dlog_warning_at};
+use crate::db::diagnostic::diagnostic::{
+    diagnostic_log_at, dlog_error, dlog_error_at, dlog_warning_at, DiagnosticLevel,
+};
 use crate::db::diagnostic::errcodes;
 use crate::db::infra::global;
 use crate::db::infra::mc_use::{McUse, McUsePrefix};
@@ -101,7 +103,7 @@ pub struct McCode {
 /// exist. Project context: strict check — the library must be declared in
 /// project.toml [dependencies] (or loaded via --lib / global config);
 /// otherwise E2051 "undeclared dependency" (use-design §19.5 rule 2).
-fn check_system_use_lib(mcuse: &McUse, current_path: &Path) {
+fn check_system_use_lib(uri: &McURI, mcuse: &McUse, current_path: &Path) {
     // `orig_uri` is the module path (e.g. "acme/res/res"); the library name is
     // its first segment. Strip any defensive `@version` suffix.
     let lib_name = mcuse
@@ -127,20 +129,26 @@ fn check_system_use_lib(mcuse: &McUse, current_path: &Path) {
         }
         // The library is truly absent: report "not found" (E2052) instead of the
         // project-mode "undeclared dependency" (E2051) message.
-        dlog_warning_at(
+        diagnostic_log_at(
             crate::errcodes::USE_LIB_NOT_FOUND,
+            DiagnosticLevel::Warning,
+            uri.clone(),
             mcuse.pos,
             mcuse.len,
             &crate::errcodes::format_msg(crate::errcodes::USE_LIB_NOT_FOUND, &[&lib_name]),
+            &[],
         );
         return;
     }
     // Project context: strict declaration check.
-    dlog_warning_at(
+    diagnostic_log_at(
         crate::errcodes::USE_DEP_NOT_DECLARED,
+        DiagnosticLevel::Warning,
+        uri.clone(),
         mcuse.pos,
         mcuse.len,
         &crate::errcodes::format_msg(crate::errcodes::USE_DEP_NOT_DECLARED, &[&lib_name]),
+        &[],
     );
 }
 
@@ -865,8 +873,11 @@ impl McCode {
 
             // §11/§19: check that unprefixed (system/third-party) use targets
             // are declared (project context) or lazily loaded (non-project).
+            // `uri` is the file that owns this `use`; `current_uri` may still
+            // name the last-recursed dependency (loader.rs recurses deps before
+            // calling parse_nsp_from_deps), so pass it explicitly.
             if mcuse.prefix == McUsePrefix::PathSystem {
-                check_system_use_lib(&mcuse, current_path);
+                check_system_use_lib(&self.uri, &mcuse, current_path);
             }
 
             // (1). load ast
@@ -1121,8 +1132,11 @@ impl McCode {
 
             // §11/§19: check that unprefixed (system/third-party) use targets
             // are declared (project context) or lazily loaded (non-project).
+            // `uri` is the file that owns this `use`; `current_uri` may still
+            // name the last-recursed dependency (loader.rs recurses deps before
+            // calling parse_nsp_from_deps), so pass it explicitly.
             if mcuse.prefix == McUsePrefix::PathSystem {
-                check_system_use_lib(&mcuse, current_path);
+                check_system_use_lib(&self.uri, &mcuse, current_path);
             }
 
             // Look up dependency's spacenames from workspace.
