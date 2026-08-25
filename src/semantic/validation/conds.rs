@@ -217,6 +217,17 @@ fn pin_definition_span(
     pin_id: &str,
     pin_name: Option<&str>,
 ) -> std::ops::Range<usize> {
+    // Prefer the exact pin-name span recorded at parse time. This covers
+    // single pins like `ps 0 = EPAD, "..."`, which the bracket-based text
+    // search below cannot narrow (no `[...]` group on the line) and would
+    // otherwise fall back to the component name span.
+    if let Some(name) = pin_name {
+        if let Some(span) = comp.pins.pin_name_spans.get(name) {
+            if span.end > span.start {
+                return span.clone();
+            }
+        }
+    }
     if let Ok(content) = std::fs::read_to_string(comp.uri.as_str()) {
         for keyword in &["ps ", "in ", "io ", "out ", "anl ", "nc "] {
             let mut search_from = 0;
@@ -288,23 +299,33 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
             // §2.19 OR semantics: a pin is NC if its iotype is NonCon (`nc`
             // prefix) or any name is "NC"/"nc" — either declaration marks it.
             if pin.is_nc {
-                let names = if pin.names.is_empty() {
-                    pin_id.clone()
-                } else {
-                    pin.names.join(", ")
-                };
-                acc.push(CheckResult {
-                    check_name: "conds",
-                    severity: CheckSeverity::Info,
-                    uri: Some(uri.clone()),
-                    span: Some(pin_span.clone()),
-                    message: format!(
-                        "Component '{}': pin '{}' ({}) is declared NC (not-connected) at \
-                         the component level. NC is typically used at instantiation.",
-                        comp.name, names, pin_id
-                    ),
-                    code: crate::errcodes::PIN_NC_COMPONENT_LEVEL,
-                });
+                // A pin whose *name* is literally "NC"/"nc"
+                // (`io [1, 3, ...] = NC, "No connect"`) is the idiomatic
+                // no-connect declaration at the component level — deliberate,
+                // not a mistake, so no warning. The pin is already registered
+                // as NC (`is_nc` set at parse) and excluded from net/voltage
+                // checks downstream. Only NC coming from the explicit `nc`
+                // iotype keyword deserves scrutiny here.
+                let named_nc = pin.names.iter().any(|n| n.eq_ignore_ascii_case("nc"));
+                if !named_nc {
+                    let names = if pin.names.is_empty() {
+                        pin_id.clone()
+                    } else {
+                        pin.names.join(", ")
+                    };
+                    acc.push(CheckResult {
+                        check_name: "conds",
+                        severity: CheckSeverity::Info,
+                        uri: Some(uri.clone()),
+                        span: Some(pin_span.clone()),
+                        message: format!(
+                            "Component '{}': pin '{}' ({}) is declared NC (not-connected) at \
+                             the component level. NC is typically used at instantiation.",
+                            comp.name, names, pin_id
+                        ),
+                        code: crate::errcodes::PIN_NC_COMPONENT_LEVEL,
+                    });
+                }
                 continue;
             }
             match pin.iotype {

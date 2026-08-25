@@ -147,26 +147,40 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
         });
 
         if !has_voltage_attr && !has_voltage_param && !has_voltage_iface {
-            acc.push(CheckResult {
-                check_name: "hw",
-                severity: CheckSeverity::Warning,
-                uri: Some(uri.clone()),
-                span: Some(comp.span.start..comp.span.end),
-                message: format!(
-                    "Component '{}' has power-related pins ({}) but no voltage attribute \
-                     or voltage-typed parameter. Consider adding e.g. `voltage = \"5V\"` \
-                     or a `volt::UV.VOLT` parameter.",
-                    comp.name,
-                    comp.pins
-                        .names_to_id
-                        .keys()
-                        .filter(|n| POWER_PIN_NAMES.iter().any(|pn| n.eq_ignore_ascii_case(pn)))
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                code: crate::errcodes::HW_POWER_PINS_EXCESS,
-            });
+            // Anchor each hint on a power-named pin rather than the component
+            // name: the suggested fix (a `voltage` attribute) belongs on the
+            // supply pin, so the marker should live on those pins.
+            let power_pins: Vec<&str> = comp
+                .pins
+                .names_to_id
+                .keys()
+                .filter(|n| POWER_PIN_NAMES.iter().any(|pn| n.eq_ignore_ascii_case(pn)))
+                .map(|s| s.as_str())
+                .collect();
+            let message = format!(
+                "Component '{}' has power-related pins ({}) but no voltage attribute \
+                 or voltage-typed parameter. Consider adding e.g. `voltage = \"5V\"` \
+                 or a `volt::UV.VOLT` parameter.",
+                comp.name,
+                power_pins.join(", ")
+            );
+            for pin in power_pins {
+                let span = comp
+                    .pins
+                    .pin_name_spans
+                    .get(pin)
+                    .cloned()
+                    .filter(|s| s.end > s.start)
+                    .unwrap_or_else(|| comp.span.start..comp.span.end);
+                acc.push(CheckResult {
+                    check_name: "hw",
+                    severity: CheckSeverity::Warning,
+                    uri: Some(uri.clone()),
+                    span: Some(span),
+                    message: message.clone(),
+                    code: crate::errcodes::HW_POWER_PINS_EXCESS,
+                });
+            }
         }
     }
 }
@@ -493,12 +507,16 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
 
         // If all pins are the same active type (excluding passive), that's unusual
         if active_types == 1 && pin_count >= 4 {
+            // A chip whose every pin is a power pin (e.g. an LDO like AMS1117
+            // with IN/OUT/ADJ/GND) is the normal shape of a power component,
+            // not an incomplete definition — don't flag it.
+            if has_ps {
+                return;
+            }
             let io_desc = if has_in {
                 "Input"
             } else if has_out {
                 "Output"
-            } else if has_ps {
-                "Power"
             } else if has_anl {
                 "Analog"
             } else {
