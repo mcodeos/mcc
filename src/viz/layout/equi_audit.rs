@@ -74,10 +74,10 @@ use crate::vector::graph::{BoxKind, EntrySide, McVecBox, McVecGraph, NetKind};
 
 use super::equipotential_tree::{
     assign_regions, assign_rows, build_topology, envelop_lanes, is_w_e_opposite, layer_anchor_id,
-    member_pin_point, net_corridor_demand, partner_info, point_on_segment, realize_all, resolve_lanes,
-    segment_hits_box, slot_of, slot_point, tap_role, EquiTree, Lane, NetTopology, PinGroup, Region,
-    RowSource, TapRole, Terminal, TreeSymbol, TreeSymbolKind, LABEL_CHAR_W, LABEL_PAD, ROW_CLEAR,
-    SYMBOL_DROP, TOOTH_GAP,
+    member_pin_point, net_corridor_demand, partner_info, point_on_segment, realize_all,
+    resolve_lanes, segment_hits_box, slot_of, slot_point, tap_role, EquiTree, Lane, NetTopology,
+    PinGroup, Region, RowSource, TapRole, Terminal, TreeSymbol, TreeSymbolKind, LABEL_CHAR_W,
+    LABEL_PAD, ROW_CLEAR, SYMBOL_DROP, TOOTH_GAP,
 };
 
 // ============================================================================

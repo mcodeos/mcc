@@ -4974,16 +4974,17 @@ impl DeflectAlloc {
             .collect();
         for y in levels {
             // Never crowd another row's trunk (on-row parts reach ±10).
-            if self
-                .row_axes
-                .iter()
-                .any(|&ra| (ra as f64 - y).abs() < 12.0)
-            {
+            if self.row_axes.iter().any(|&ra| (ra as f64 - y).abs() < 12.0) {
                 continue;
             }
             // Clear of every box in the deflected x-range.
             let box_hit = graph.boxes.iter().any(|b| {
-                b.w > 0.0 && b.h > 0.0 && x_lo < b.x + b.w && b.x < x_hi && b.y <= y && y <= b.y + b.h
+                b.w > 0.0
+                    && b.h > 0.0
+                    && x_lo < b.x + b.w
+                    && b.x < x_hi
+                    && b.y <= y
+                    && y <= b.y + b.h
             });
             if box_hit {
                 continue;
@@ -5023,7 +5024,11 @@ pub(crate) fn realize_all(topo_list: &[NetTopology], graph: &McVecGraph) -> Vec<
 /// `topo.lane` (axis written by P3 resolve_lanes, span re-enveloped over all
 /// tap points by PR4 `envelop_lanes`). `realize` owns no layout constant — it
 /// only reads the Lane and the placed PinSlots, then connects the points.
-pub(crate) fn realize(topo: &NetTopology, graph: &McVecGraph, deflect: &mut DeflectAlloc) -> EquiTree {
+pub(crate) fn realize(
+    topo: &NetTopology,
+    graph: &McVecGraph,
+    deflect: &mut DeflectAlloc,
+) -> EquiTree {
     let mut segments: Vec<Segment> = Vec::new();
     let mut degree_map: BTreeMap<(i64, i64), u8> = BTreeMap::new();
 
@@ -6995,12 +7000,8 @@ mod tests {
         g.boxes.push(ic);
         g.boxes.push(mk_two_pin(2, "CAP_A", &[21, 22]));
         g.boxes.push(mk_two_pin(3, "CAP_B", &[31, 32]));
-        g.nets.push(mk_net(
-            501,
-            "PWR",
-            NetKind::Power,
-            &[(1, 11), (2, 21)],
-        ));
+        g.nets
+            .push(mk_net(501, "PWR", NetKind::Power, &[(1, 11), (2, 21)]));
         // GND is SHARED — it also joins the IC, so it is not terminal-only and
         // gets its own trunk row below the power rows.
         g.nets.push(mk_net(
@@ -7011,7 +7012,8 @@ mod tests {
         ));
         // A second net on the SAME side (West) with a member whose column sits
         // under CAP_A's x, so a down-hang would cross AUX's trunk row.
-        g.nets.push(mk_net(503, "AUX", NetKind::Signal, &[(1, 13), (3, 31)]));
+        g.nets
+            .push(mk_net(503, "AUX", NetKind::Signal, &[(1, 13), (3, 31)]));
 
         let mut topos = build_topology(&g);
         place_by_topology(&mut g, &mut topos);
