@@ -1277,44 +1277,6 @@ impl McPins {
                 }
             }
 
-            // clean duplicate Multi: if Multi name starts with Interface base_name prefix, delete Multi
-            let interface_names: BTreeSet<String> = self
-                .names_to_id
-                .iter()
-                .filter_map(|(_, port)| {
-                    if let McPinPort::Interface(iface) = port {
-                        Some(iface.base.name.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            if !interface_names.is_empty() {
-                let multi_keys_to_remove: Vec<String> = self
-                    .names_to_id
-                    .iter()
-                    .filter_map(|(name, port)| {
-                        if let McPinPort::Multi(_) = port {
-                            // check if Multi name starts with some Interface base_name prefix
-                            for iface_name in &interface_names {
-                                if name.starts_with(&iface_name.to_string())
-                                    && name.len() > iface_name.len()
-                                {
-                                    return Some(name.clone());
-                                }
-                            }
-                            None
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                for key in multi_keys_to_remove {
-                    self.names_to_id.remove(&key);
-                }
-            }
         }
     }
 
