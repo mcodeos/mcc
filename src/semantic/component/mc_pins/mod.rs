@@ -721,8 +721,33 @@ impl McPins {
                                     opt_span.clone(),
                                 );
                             }
-                            // n pids vs n name, pinid and name count should be 1:1, register 1:1
+                            // n pids vs n name, pinid and name count must be 1:1, register 1:1
                             McPinPort::Multi(pids) => {
+                                // Flat pin↔name mapping is strictly positional 1:1. A count
+                                // mismatch must not silently cycle (`[1,2,3] = [VDD,GND]` used
+                                // to wrap around to VDD,GND,VDD), hiding a mis-declared pinout —
+                                // report it as an error. Registration still proceeds below so
+                                // every pin stays visible to downstream diagnostics.
+                                if pids.len() != names_vec.len() {
+                                    let err_node = names
+                                        .option_nodes
+                                        .get(opt_idx)
+                                        .or(pinnames_node.as_ref())
+                                        .unwrap_or(&pnode);
+                                    dlog_error(
+                                        crate::errcodes::PIN_FLAT_COUNT_MISMATCH,
+                                        err_node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::PIN_FLAT_COUNT_MISMATCH,
+                                            &[
+                                                &format!("{}", pids.join(", ")),
+                                                &pids.len() as &dyn std::fmt::Display,
+                                                &format!("{}", names_vec.join(", ")),
+                                                &names_vec.len() as &dyn std::fmt::Display,
+                                            ],
+                                        ),
+                                    );
+                                }
                                 let names_cycle = names_vec.iter().cycle();
                                 for (pid, name) in pids.iter().zip(names_cycle) {
                                     self.register_pin(
@@ -768,19 +793,25 @@ impl McPins {
                                     }
                                 }
                             }
-                            // MultiGroup vs Multi names: [[20,21],[22,23]] = [VDD, GND]
-                            // Each group cycles through the names independently: 20->VDD, 21->GND, 22->VDD, 23->GND
+                            // MultiGroup vs Multi names: [[19,32,48,64],[18,31,47,63]] = [VDD, VSS]
+                            // Group↔member positional 1:1, broadcast within group:
+                            //   group i ↔ names[i], every pin in that group gets names[i].
+                            // Groups may be asymmetric (e.g. [[19,32,48,64],[18]]).
                             McPinPort::MultiGroup(groups) => {
-                                for grp in groups.iter() {
-                                    let names_cycle = names_vec.iter().cycle();
-                                    for (pid, name) in grp.iter().zip(names_cycle) {
-                                        self.register_pin(
-                                            iotype.clone(),
-                                            pid,
-                                            &[name.clone()],
-                                            &values,
-                                            opt_span.clone(),
-                                        );
+                                if !names_vec.is_empty() {
+                                    for (gi, grp) in groups.iter().enumerate() {
+                                        let name = names_vec
+                                            .get(gi)
+                                            .unwrap_or_else(|| names_vec.last().unwrap());
+                                        for pid in grp.iter() {
+                                            self.register_pin(
+                                                iotype.clone(),
+                                                pid,
+                                                &[name.clone()],
+                                                &values,
+                                                opt_span.clone(),
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -936,7 +967,11 @@ impl McPins {
                             McPinPort::Single(_) => Some(1),
                             McPinPort::Multi(pids) => Some(pids.len()),
                             McPinPort::MultiGroup(groups) => {
-                                Some(groups.iter().map(|g| g.len()).sum())
+                                // Nested groups bind group↔member positionally
+                                // (group i ↔ member i, broadcast within group), so the
+                                // count constraint is group count == member count, not the
+                                // flattened pin total. See pin_mapping_design.md §7/§8.
+                                Some(groups.len())
                             }
                             _ => None,
                         };
@@ -948,6 +983,15 @@ impl McPins {
                                     .get(opt_idx)
                                     .or(pinnames_node.as_ref())
                                     .unwrap_or(&pnode);
+                                // For nested MultiGroup the count constraint is
+                                // group count == member count (see pin_mapping_design.md
+                                // §7/§8), so word the "given" side
+                                // as groups rather than pin IDs.
+                                let unit = if matches!(pinids, McPinPort::MultiGroup(_)) {
+                                    "group(s)"
+                                } else {
+                                    "pin ID(s)"
+                                };
                                 dlog_error(
                                     crate::errcodes::PARAM_DECLARE_IFACE_PINS,
                                     err_node,
@@ -958,6 +1002,7 @@ impl McPins {
                                             &iface_pins.len() as &dyn std::fmt::Display,
                                             &format!("{:?}", iface_pins),
                                             &dc as &dyn std::fmt::Display,
+                                            &unit as &dyn std::fmt::Display,
                                         ],
                                     ),
                                 );
@@ -970,6 +1015,13 @@ impl McPins {
                         match &pinids {
                             // n pids vs n interface pins, pinid and interface member count 1:1, register 1:1
                             McPinPort::Multi(pids) => {
+                                // Guard: binding more pids than the interface declares would index
+                                // `subname[mi]` out of bounds below and panic. E3111 already flags
+                                // the count mismatch (or IFACE_NO_TOPLEVEL_PINS when subname is
+                                // empty), so skip binding for this option — the pins stay unnamed.
+                                if subname.is_empty() || subname.len() < pids.len() {
+                                    continue;
+                                }
                                 // ★ P-ROT (Root cause B): bind interface members to pins by NAME first.
                                 // A pin already registered with a member-matching name (flash pin6 =
                                 // "SCLK" ↔ SPI.SCLK, pin1 = "_CS" ↔ SPI.CS) wins over the interface's
@@ -1153,20 +1205,50 @@ impl McPins {
                                     }
                                 }
                             }
-                            // [[9,10], [11,12]] vs [VDD, GND] -> 9->VDD, 10->GND, 11->VDD, 12->GND
-                            // Each pin in each group cycles through names independently
+                            // [[19,32,48,64],[18,31,47,63]] vs [VDD, VSS]::DC(3.3V)
+                            // Group↔member positional 1:1, broadcast within group:
+                            //   group i ↔ subname[i], every pin in that group gets subname[i].
+                            // Groups may be asymmetric (e.g. [[19,32,48,64],[18]]).
                             McPinPort::MultiGroup(groups) => {
-                                for grp in groups.iter() {
-                                    let names_cycle = subname.iter().cycle();
-                                    for (pid, name) in grp.iter().zip(names_cycle) {
-                                        self.register_pin(
-                                            iotype.clone(),
-                                            pid,
-                                            &[name.clone()],
-                                            &values,
-                                            opt_span.clone(),
-                                        );
+                                if !subname.is_empty() {
+                                    // Flatten every group's pins: the nested form binds the
+                                    // same interface members across all groups, so
+                                    // registered_pins must cover every one of them — the
+                                    // power voltage check resolves the binding through
+                                    // names_to_id (POWER_PIN_NO_VOLTAGE).
+                                    let mut all_pids: Vec<String> = Vec::new();
+                                    for (gi, grp) in groups.iter().enumerate() {
+                                        let name = subname
+                                            .get(gi)
+                                            .unwrap_or_else(|| subname.last().unwrap());
+                                        for pid in grp.iter() {
+                                            all_pids.push(pid.clone());
+                                            self.register_pin(
+                                                iotype.clone(),
+                                                pid,
+                                                &[name.clone()],
+                                                &values,
+                                                opt_span.clone(),
+                                            );
+                                        }
                                     }
+                                    let iface_name = if declare.name.is_bus() {
+                                        declare
+                                            .name
+                                            .as_bus()
+                                            .map(|(busname, _)| busname)
+                                            .unwrap_or_else(|| declare.name.to_string())
+                                    } else {
+                                        declare.name.to_string()
+                                    };
+                                    let merged = match self.names_to_id.get(&iface_name) {
+                                        Some(McPinPort::Interface(existing_iface)) => {
+                                            existing_iface.merge_pins_with(&all_pids)
+                                        }
+                                        _ => declare.merge_pins_with(&all_pids),
+                                    };
+                                    self.names_to_id
+                                        .insert(iface_name, McPinPort::Interface(Arc::new(merged)));
                                 }
                             }
                             // single pin interface (e.g. GPIO, PWM): single pinid -> use first subname

@@ -417,6 +417,9 @@ pub const PORT_NAME_COUNT_ERROR: u32 = 3007;
 /// Pin expression node has an unexpected type.
 pub const PIN_EXPR_TYPE_MISMATCH: u32 = 3008;
 
+/// Flat (non-grouped) pin mapping requires equal pin and name counts.
+pub const PIN_FLAT_COUNT_MISMATCH: u32 = 3009;
+
 /// Attribute node type mismatch.
 pub const ATTR_TYPE_MISMATCH: u32 = 3021;
 
@@ -1369,6 +1372,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PINS_PLUS_WITHOUT_BASE, "pins += is used without a prior pins = definition.", "pins += used without prior pins = definition"),
     entry!(PIN_NAME_TYPE_UNSUPPORTED, "Pin name has an unsupported type.", "Pin name not support type"),
     entry!(PIN_NAME_COUNT_ERROR, "Pin/port name count error.", "Pin name count error."),
+    entry!(PIN_FLAT_COUNT_MISMATCH, "Flat pin mapping requires equal pin and name counts.", "Flat pin mapping `[{0}]` gives {1} pin ID(s) but {3} name(s) `[{2}]`; pin↔name counts must match 1:1 for a flat (non-grouped) mapping. Add the missing name(s), or use nested groups `[[...]]` to broadcast one name over several pins."),
     entry!(PORT_NAME_TYPE_UNSUPPORTED, "Port name has an unsupported type.", "Port name not support type"),
     entry!(PORT_NAME_COUNT_ERROR, "Port name count error.", "Port name count error"),
     entry!(PIN_EXPR_TYPE_MISMATCH, "Pin expression node has an unexpected type.", "Pin expression node has an unexpected type."),
@@ -1401,7 +1405,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARAM_INSTANCE_EXPECTED, "Expected an instance in the declaration unit value.", "Expected MCAST_INSTANCE in MCAST_DECLARE_UV."),
     entry!(PARAM_NAME_EXTRACT_FAILED, "Failed to extract the parameter name.", "Failed to extract parameter name from MCAST_DECLARE"),
     entry!(PARAM_INST_LOOKUP_FAILED, "Instance::class lookup failed; the binding is treated as a plain pin alias.", "'{0}::{1}' lookup failed; treating '{0}' as plain pin alias. If you intended an interface binding, check that '{1}' is defined (and `use`d, if from a library)."),
-    entry!(PARAM_DECLARE_IFACE_PINS, "Interface pin count does not match the number of declared pin IDs.", "Interface '{0}' declares {1} pin(s) (members: {2}) but {3} pin ID(s) given; the counts must match. Use a range like `a:b` to declare exactly {1} pin(s)."),
+    entry!(PARAM_DECLARE_IFACE_PINS, "Interface pin count does not match the number of declared pin IDs.", "Interface '{0}' declares {1} pin(s) (members: {2}) but {3} {4} given; the counts must match. Use a range like `a:b` to declare exactly {1} pin(s)."),
     entry!(FUNC_CALL_MISSING_NAME, "Missing function name in a function call.", "Missing function name in a function call."),
     entry!(CONN_STMT_PARSE_FAILED, "A connection statement failed to parse.", "connection statement failed to parse"),
     entry!(FUNC_BODY_INVALID, "Invalid function body node.", "Invalid function body node."),
