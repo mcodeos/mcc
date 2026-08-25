@@ -8,7 +8,6 @@
 //!   HW1 — Power pin (VCC/VDD/GND/VSS) without voltage/power attributes
 //!   HW2 — Pin ID gaps in component pin definitions
 //!   HW3 — Pin count extremes (too many or too few)
-//!   HW4 — Suspect NC pin pattern (multiple consecutive NC pins)
 //!   HW5 — Interface role with dangling peer reference
 //!   HW6 — Component with only single-type IO pins (all inputs, all outputs)
 
@@ -32,7 +31,6 @@ impl ValidationCheck for HwCheck {
         check_power_pin_no_voltage(acc); // HW1
         check_pin_id_gaps(acc); // HW2
         check_pin_count_extremes(acc); // HW3
-        check_consecutive_nc_pins(acc); // HW4
         check_role_peer_dangling(acc); // HW5
         check_single_ioc_type_component(acc); // HW6
         check_component_metadata(acc); // HW7
@@ -48,7 +46,7 @@ impl ValidationCheck for HwCheck {
 /// Components with VCC, VDD, VSS, GND, or similar power pin names should have
 /// voltage-related attributes (e.g., `voltage`, `vcc`, `vdd`, `power`) or a
 /// voltage-typed parameter to document the expected operating voltage.
-const POWER_PIN_NAMES: &[&str] = &[
+pub(crate) const POWER_PIN_NAMES: &[&str] = &[
     "VCC", "VDD", "VSS", "GND", "VEE", "VPP", "VBAT", "VIN", "VOUT", "VREF", "VCORE", "VAA",
     "VDDA", "VSSA", "VBUS", "VSYS",
 ];
@@ -80,27 +78,45 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
         }
         let comp = entry.value();
 
-        // Check if component has power-named pins
-        let has_power_pin = comp.pins.names_to_id.keys().any(|name| {
-            POWER_PIN_NAMES
-                .iter()
-                .any(|pn| name.eq_ignore_ascii_case(pn))
-        });
+        // Unified power-pin collection: a pin is a supply pin when it is
+        // power-*typed* (`ps`/Power) or power-*named* (VCC/VREF/GND/…). Both
+        // axes describe the same supply-rail concept, so they are handled by a
+        // single rule (POWER_PIN_NO_VOLTAGE) instead of two overlapping checks.
+        // Display name prefers a power keyword, else the pin's first name.
+        let power_pins: Vec<(String, String)> = comp
+            .pins
+            .pins
+            .iter()
+            .filter(|(_, pin)| {
+                let named = pin
+                    .names
+                    .iter()
+                    .any(|n| POWER_PIN_NAMES.iter().any(|pn| n.eq_ignore_ascii_case(pn)));
+                named || matches!(pin.iotype, crate::IOType::Power)
+            })
+            .map(|(pin_id, pin)| {
+                let name = pin
+                    .names
+                    .iter()
+                    .find(|n| POWER_PIN_NAMES.iter().any(|pn| n.eq_ignore_ascii_case(pn)))
+                    .or_else(|| pin.names.first())
+                    .cloned()
+                    .unwrap_or_else(|| pin_id.clone());
+                (pin_id.clone(), name)
+            })
+            .collect();
 
-        if !has_power_pin {
+        if power_pins.is_empty() {
             continue;
         }
 
         // GND-only passives: a component whose only power-related pins are
         // ground pins (GND/VSS) has no supply rail to document, so the
         // voltage-attribute hint does not apply (e.g. passive mics/speakers).
-        let has_supply_pin = comp.pins.names_to_id.keys().any(|name| {
-            POWER_PIN_NAMES
+        let has_supply_pin = power_pins.iter().any(|(_, name)| {
+            !GROUND_PIN_NAMES
                 .iter()
-                .any(|pn| name.eq_ignore_ascii_case(pn))
-                && !GROUND_PIN_NAMES
-                    .iter()
-                    .any(|g| name.eq_ignore_ascii_case(g))
+                .any(|g| name.eq_ignore_ascii_case(g))
         });
         if !has_supply_pin {
             continue;
@@ -147,38 +163,49 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
         });
 
         if !has_voltage_attr && !has_voltage_param && !has_voltage_iface {
-            // Anchor each hint on a power-named pin rather than the component
-            // name: the suggested fix (a `voltage` attribute) belongs on the
-            // supply pin, so the marker should live on those pins.
-            let power_pins: Vec<&str> = comp
-                .pins
-                .names_to_id
-                .keys()
-                .filter(|n| POWER_PIN_NAMES.iter().any(|pn| n.eq_ignore_ascii_case(pn)))
-                .map(|s| s.as_str())
-                .collect();
-            let message = format!(
-                "Component '{}' has power-related pins ({}) but no voltage attribute \
-                 or voltage-typed parameter. Consider adding e.g. `voltage = \"5V\"` \
-                 or a `volt::UV.VOLT` parameter.",
-                comp.name,
-                power_pins.join(", ")
-            );
-            for pin in power_pins {
+            // One Info per supply pin, anchored on the pin's own name span: the
+            // suggested fix (a `voltage` attribute) belongs on the supply pin,
+            // so the marker lives there, not on the component name. A pin that
+            // carries its own inline voltage (e.g. `volt:1.2V`) is already
+            // documented and is skipped individually.
+            for (pin_id, name) in &power_pins {
+                let pin_has_voltage = comp.pins.pins.get(pin_id).is_some_and(|pin| {
+                    pin.values.iter().any(|v| {
+                        if let crate::semantic::component::mc_attr::McAttrVal::KVS(kvs) = v {
+                            let key = kvs.key.to_string().to_lowercase();
+                            key.contains("volt") || key.contains("vcc") || key.contains("vdd")
+                        } else {
+                            false
+                        }
+                    })
+                });
+                if pin_has_voltage {
+                    continue;
+                }
+                // Anchor on the individual pin ID first: alias-style pin lists
+                // (`A4 = VBUS, "VBUS"`) share one name span per name, but the
+                // pin-id span (`pin_id_spans` keyed by "A4") is unique per pin,
+                // so four VBUS pins each land on their own declaration line.
                 let span = comp
                     .pins
-                    .pin_name_spans
-                    .get(pin)
+                    .pin_id_spans
+                    .get(pin_id)
+                    .or_else(|| comp.pins.pin_name_spans.get(pin_id))
+                    .or_else(|| comp.pins.pin_name_spans.get(name))
                     .cloned()
                     .filter(|s| s.end > s.start)
                     .unwrap_or_else(|| comp.span.start..comp.span.end);
                 acc.push(CheckResult {
                     check_name: "hw",
-                    severity: CheckSeverity::Warning,
+                    severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
                     span: Some(span),
-                    message: message.clone(),
-                    code: crate::errcodes::HW_POWER_PINS_EXCESS,
+                    message: format!(
+                        "Component '{}': power pin '{}' ({}) has no associated \
+                         voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
+                        comp.name, name, pin_id
+                    ),
+                    code: crate::errcodes::POWER_PIN_NO_VOLTAGE,
                 });
             }
         }
@@ -317,84 +344,6 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
                 ),
                 code: crate::errcodes::HW_ZERO_PINS_WITH_PARAMS,
             });
-        }
-    }
-}
-
-// ============================================================================
-// HW4: Suspect NC pin pattern (multiple consecutive NC pins)
-// ============================================================================
-
-/// Three or more consecutive NC (not-connected) pins in a component may
-/// indicate an incorrectly copied pin table or missing assignments.
-/// NC pins are normal (e.g., thermal pads, reserved pins) but clusters
-/// deserve review.
-fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let comp = entry.value();
-
-        // Collect pins sorted by numeric ID, tracking NC status. `pin.is_nc`
-        // already encodes the OR semantics (nc iotype prefix or NC/nc name).
-        let mut sorted_pins: Vec<(u32, bool)> = Vec::new(); // (pin_id, is_nc)
-        for (pin_id, pin) in &comp.pins.pins {
-            if let Ok(num) = pin_id.parse::<u32>() {
-                sorted_pins.push((num, pin.is_nc));
-            }
-        }
-        sorted_pins.sort_by_key(|(id, _)| *id);
-
-        // Find runs of 3+ consecutive NC pins
-        let mut run_start: Option<u32> = None;
-        let mut run_count = 0u32;
-
-        for (id, is_nc) in &sorted_pins {
-            if *is_nc {
-                if run_start.is_none() {
-                    run_start = Some(*id);
-                }
-                run_count += 1;
-            } else {
-                if run_count >= 3 {
-                    if let Some(start) = run_start {
-                        acc.push(CheckResult {
-                            check_name: "hw",
-                            severity: CheckSeverity::Info,
-                            uri: Some(uri.clone()),
-                            span: Some(comp.span.start..comp.span.end),
-                            message: format!(
-                                "Component '{}' has {} consecutive NC pins starting at pin {}. \
-                                 Verify these are intentional (e.g., reserved/test points).",
-                                comp.name, run_count, start
-                            ),
-                            code: crate::errcodes::HW_NC_PINS_CONTIGUOUS,
-                        });
-                    }
-                }
-                run_start = None;
-                run_count = 0;
-            }
-        }
-        // Check trailing run
-        if run_count >= 3 {
-            if let Some(start) = run_start {
-                acc.push(CheckResult {
-                    check_name: "hw",
-                    severity: CheckSeverity::Info,
-                    uri: Some(uri.clone()),
-                    span: Some(comp.span.start..comp.span.end),
-                    message: format!(
-                        "Component '{}' has {} consecutive NC pins starting at pin {}. \
-                         Verify these are intentional.",
-                        comp.name, run_count, start
-                    ),
-                    code: crate::errcodes::HW_NC_PINS_CONTIGUOUS,
-                });
-            }
         }
     }
 }

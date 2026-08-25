@@ -484,7 +484,7 @@ impl McModuleInst {
                 );
                 diagnostic_log(
                     crate::errcodes::NET_BUS_ORDER_MISMATCH,
-                    DiagnosticLevel::Error,
+                    DiagnosticLevel::Info,
                     pos,
                     len,
                     &msg,
