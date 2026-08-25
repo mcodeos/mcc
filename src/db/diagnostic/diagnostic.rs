@@ -309,7 +309,7 @@ pub fn dlog_trace(code: u32, msg: &str) {
     diagnostic_log(code, DiagnosticLevel::Info, 0, 0, msg, &[]);
 }
 pub fn dlog_error(code: u32, node: &AstNode, msg: &str) {
-    let full_msg = format!("node={} {}", node.get_type(), msg);
+    let full_msg = msg.to_string();
     let uri = crate::current_uri::get();
     tracing::debug!(
         target: "mcc::diagnostic",
@@ -330,7 +330,7 @@ pub fn dlog_error(code: u32, node: &AstNode, msg: &str) {
     );
 }
 pub fn dlog_warning(code: u32, node: &AstNode, msg: &str) {
-    let full_msg = format!("node={} {}", node.get_type(), msg);
+    let full_msg = msg.to_string();
     // Log sub-node chain via tracing for debugging (gated by log level)
     let uri = crate::current_uri::get();
     tracing::debug!(
@@ -397,7 +397,7 @@ pub fn dlog_error_at(code: u32, pos: Position, len: u32, msg: &str) {
     diagnostic_log(code, DiagnosticLevel::Error, pos, len, msg, &[]);
 }
 pub fn dlog_info(code: u32, node: &AstNode, msg: &str) {
-    let full_msg = format!("node={} {}", node.get_type(), msg);
+    let full_msg = msg.to_string();
     diagnostic_log(
         code,
         DiagnosticLevel::Info,
@@ -408,7 +408,7 @@ pub fn dlog_info(code: u32, node: &AstNode, msg: &str) {
     );
 }
 pub fn dlog_hint(code: u32, node: &AstNode, msg: &str) {
-    let full_msg = format!("node={} {}", node.get_type(), msg);
+    let full_msg = msg.to_string();
     diagnostic_log(
         code,
         DiagnosticLevel::Hint,
