@@ -1418,7 +1418,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_NODE_MISSING, "No instance node found.", "No instance node found"),
     entry!(INST_CLASS_ID_MISSING, "Missing class id node.", "Missing class id node"),
     entry!(INST_CLASS_IDS_PARSE_FAILED, "Failed to parse class ids.", "Failed to parse class ids"),
-    entry!(INST_CLASS_UNRESOLVED, "Unresolved class — the library may not be loaded.", "unresolved class '{0}' — library not loaded?"),
+    entry!(INST_CLASS_UNRESOLVED, "Unresolved class — the library may not be loaded.", "unresolved class '{0}' — the library may not be loaded"),
     entry!(FUNC_RETURN_MALFORMED, "Malformed return statement.", "Malformed return statement."),
     entry!(FUNC_RETURN_EXPR_INVALID, "Invalid return expression — expected this or a label/bus.", "Invalid `return` expression: expected `this` or a label/bus."),
     entry!(FUNC_MULTIPLE_RETURNS, "A function may have at most one return statement.", "Multiple `return` statements are not allowed; a function may have at most one return."),
