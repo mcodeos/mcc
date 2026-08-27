@@ -471,6 +471,25 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         }
     }
 
+    // ── 4.5. Electrical net checks (Pass2, incl. D7 PULLUP_DEGENERATE) ──
+    // Surface the same findings as `mcc check --nets`. The pass-2 tree was
+    // built above by `mcc_build`; flatten it once and run the net checks, so
+    // D7 PULLUP_DEGENERATE and friends appear in `mcc build` output (the Pass 1
+    // diagnostics block renders before Pass 2, so DB-only logging would never
+    // be visible). Findings are printed, not gated: the Tier-0 netcheck and the
+    // exit-code error count below own the failure semantics.
+    let flat_table = mcc::InstTable::from_module_inst(&inst, 1000);
+    let net_results = mcc::check::nets::run_net_checks(&flat_table);
+    if !net_results.is_empty() {
+        eprintln!(
+            "=== Electrical Net Checks ({} issues) ===",
+            net_results.len()
+        );
+        for r in &net_results {
+            eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
+        }
+    }
+
     // ── 5. Exit code: based on error count ──
     let errors = builder.error_count();
 

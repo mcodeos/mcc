@@ -296,8 +296,6 @@ pub fn build_mc_vec_graph(block: &McVecBlock, table: &InstTable) -> McVecGraph {
     // Audit log: baseline/render_projection.md.
     let (projected, _projection_log) = crate::viz::project::project_block_tree(block, table);
     let graph = build_mc_vec_graph_inner(&projected, table, /*is_top_level=*/ true);
-    super::netprobe::probe_block_to_graph(&projected, &graph); // ★ NEW
-    super::netprobe::probe_block_to_graph_per_layer(&projected, &graph); // ★ P7-6 inventory
     graph
 }
 

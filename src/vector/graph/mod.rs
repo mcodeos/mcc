@@ -53,7 +53,6 @@ pub mod symbol;
 pub mod detect;
 pub mod fromblock;
 pub mod fromtable;
-pub mod netprobe;
 pub mod promote;
 // ============================================================================
 // Top-level re-exports

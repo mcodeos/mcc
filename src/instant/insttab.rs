@@ -742,14 +742,6 @@ impl InstTable {
             }
         }
 
-        // ── ★ P9-A0 probe: print func-to-owner map ──
-        for (func_name, owner_name) in &func_to_owner {
-            eprintln!(
-                "[probe::owner] module '{}': {} -> {}",
-                my_path, func_name, owner_name
-            );
-        }
-
         // 3. Register components + pins (two-pass: non-func-created first,
         //    then func-created with corrected parent_id)
         for comp in &inst.components {
@@ -777,9 +769,6 @@ impl InstTable {
             if let Some(entry) = self.entries.get_mut(&comp_id) {
                 entry.origin = comp.origin.clone();
             }
-
-            // ── ★ P9-A0 probe: print origin for each component ──
-            eprintln!("[probe::origin] {} origin={:?}", comp_path, comp.origin);
 
             // ★ M11.3: record bridge passive full paths
             if inst.bridge_passive_names.contains(&comp.name) {
@@ -847,30 +836,14 @@ impl InstTable {
                     let owner_path = format!("{my_path}.{owner_name}");
                     if let Some(owner_id) = self.get_id_by_path(&owner_path) {
                         let path = format!("{owner_path}.{}", comp.name);
-                        // ── ★ P9-A0 probe: func-created instance re-parented ──
-                        eprintln!(
-                            "[probe::reparent] {}: parent {} -> {} (hit: owner={})",
-                            comp.name, my_path, owner_path, owner_name
-                        );
                         (path, Some(owner_id))
                     } else {
                         // Owner not found (should not happen), fall back to module parent
-                        eprintln!(
-                            "[probe::reparent] {}: parent {} -> {} (miss: owner '{}' not found)",
-                            comp.name, my_path, my_path, owner_name
-                        );
                         (format!("{my_path}.{}", comp.name), Some(my_id))
                     }
                 }
                 None => {
                     // Func owner not in this module (e.g., builtin func), fall back
-                    eprintln!(
-                        "[probe::reparent] {}: parent {} -> {} (miss: fn '{}' not in func_to_owner)",
-                        comp.name,
-                        my_path,
-                        my_path,
-                        fn_name
-                    );
                     (format!("{my_path}.{}", comp.name), Some(my_id))
                 }
             };

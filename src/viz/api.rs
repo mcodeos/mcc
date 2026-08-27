@@ -418,8 +418,6 @@ fn render_layer_recursive(
     // placed labels, so dropping the pipeline here silently un-marked NC parts.
     let mut audit = None;
     if graph.layer_style != crate::vector::graph::LayerStyle::Device {
-        crate::vector::graph::netprobe::probe_route(&graph); // ★ NEW
-
         let rep = super::route::audit::audit_all(&graph);
         crate::vlog!(
             "[viz::audit] box-box={} wire-box={} wire-wire={} (total={})",

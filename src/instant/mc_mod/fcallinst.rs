@@ -1097,12 +1097,10 @@ impl McModuleInst {
                     // `owner.port` and looks the port up in names_to_id by exact
                     // name before expanding the bus members by declaration order.
                     let port_name = match &substituted {
-                        McPhrase::Endpoint(McEndpoint::Single(iref)) => {
-                            match &iref.base {
-                                McInstance::Bus(b) => b.name.clone(),
-                                _ => substituted.to_string(),
-                            }
-                        }
+                        McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+                            McInstance::Bus(b) => b.name.clone(),
+                            _ => substituted.to_string(),
+                        },
                         _ => substituted.to_string(),
                     };
                     let ep_path = format!("{inst_name}.{port_name}");
@@ -2317,11 +2315,11 @@ impl McModuleInst {
         }
     }
 
-    /// ── P4: Prefix bare pin names in builtin-twopin actuals ───────────────────
+    /// ── P4: Prefix bare pin names in method-call actuals ─────────────────────
     /// In actuals of `.Cap/.Pullup/.Pulldown` calls like `.Pullup(_CS, V3V3)` /
     /// `.Cap(x)`, the component's own bare pin names (e.g. flash's
     /// `_CS`/`_WP`/`_HOLD`) must be prefixed to `flash._CS` so that
-    /// `wire_builtin_twopin` falls onto the instance's real pin via
+    /// `instantiate_instance_method` falls onto the instance's real pin via
     /// `expand_node_element`; otherwise they are parsed as free labels and
     /// the pull-up resistor hangs in the air.
     ///

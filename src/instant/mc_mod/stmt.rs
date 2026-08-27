@@ -63,27 +63,19 @@ impl McModuleInst {
             return Ok(());
         }
 
-        // ── Root cause C: detect `.Cap([a, b])` chain shunt before the member
-        // loop so the vector-shunt series goes through wire_chain_with_shunts ──
-        let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
-        let has_shunt = shunt.iter().any(|&s| s);
-        if has_shunt {
-            // §11.6: the `.Cap([a, b])` member defers BOTH pin bindings to the
-            // outer chain; wire_chain_with_shunts wires the pass-through lanes
-            // and the cap pins from the explicit vector members.
-            return self.process_series_members(&members, &shunt, dir);
-        }
-        self.process_series_members(&members, &shunt, dir)
+        // unified-twopin-no-builtin v2.0 §2.4: no chain-shunt special-case. A
+        // `.Cap([a, b])` member is an ordinary FuncCall whose connection face
+        // comes from the library func's return; the normal member loop +
+        // adjacent pairing wire the pass-through lanes. `[2×1] -> CAP(1×2) ->
+        // [2×1]` is a shape error reported by the series-row check.
+        self.process_series_members(&members, dir)
     }
 
     /// Process a flattened series' members: P2-5 expansion, normal member loop,
-    /// chain-shunt wiring, lane-by-lane wiring, and adjacent pairing. `shunt` is
-    /// the chain-shunt bitmap computed by `process_stmt`; the shunt members are
-    /// wired by `wire_chain_with_shunts` after the normal member loop.
+    /// lane-by-lane wiring, and adjacent pairing.
     fn process_series_members(
         &mut self,
         members: &[McPhrase],
-        shunt: &[bool],
         dir: ConnDir,
     ) -> Result<(), InstError> {
         // ── P2-5: Expand builtin twopin calls adjacent to multi-member buses ──
@@ -200,19 +192,11 @@ impl McModuleInst {
             i += 1;
         }
 
-        // ── Root cause C: `.Cap(_, _)` decoupling cap in chain is parallel shunt ──────
-        // form like `[V3V3,GND] -> CAP(..).Cap(_, _) -> [VCC,VSS]`: cap should "bridge rails",
-        // bus itself passes through (V3V3~VCC, GND~VSS). Old logic treated it as series element
-        // (adjacent connected right neighbor to pin2) + wire_builtin_twopin connected pin2 to GND
-        // → pin2 double-connected → rail short to ground (flash.VCC ~ GND).
-        //
-        // Only when this stmt actually contains `.Cap(_, _)` shunt (exactly 2 placeholder args,
-        // §11.6), go through the special wiring below; stmts without shunt fall through to the
-        // original adjacency loop → zero impact on existing paths.
-        if shunt.iter().any(|&s| s) {
-            self.wire_chain_with_shunts(members, shunt, dir);
-            return Ok(());
-        }
+        // unified-twopin-no-builtin v2.0 §2.4: chain members are wired by the
+        // normal lane-by-lane / adjacent paths only — no `wire_chain_with_shunts`
+        // special-case. A `.Cap([a, b])` member's pass-through comes from its
+        // func return face; a genuinely mis-shaped `[2×1] -> CAP(1×2) -> [2×1]`
+        // chain is reported by the series-row check below.
 
         // ── M11.1 / M11.4: Lane-by-lane wiring ────────────────────────────
         // Use lane-by-lane wiring when the chain contains:
@@ -271,67 +255,6 @@ impl McModuleInst {
         Ok(())
     }
 
-    /// Determine if a chain member is a `.Cap(...)` decoupling cap acting as a
-    /// parallel shunt (v1.2, §1.2 / §2).
-    ///
-    /// Hit condition: last segment is exactly `Cap`, and its two endpoint
-    /// positions are filled by an **explicit** 2-member vector argument —
-    /// `.Cap([a, b])` (merge form), `.Cap(a, b)` (2 args), or a single vector
-    /// reference `.Cap(V3V3)` / `.Cap(ldo.VOUT)` (the `=>` parameter-prefixing
-    /// fold result). `wire_chain_with_shunts` then binds pin1 / pin2 directly
-    /// from the vector members, positionally, with no is_gnd inference (§2.4).
-    ///
-    /// The all-`_` form (`.Cap(_, _)` / `.Cap(_)`) is **deprecated**: it has no
-    /// explicit endpoints and reports E4176 through the normal path (strict
-    /// arity, §3). Only `Cap` is recognized — `.Pullup` / `.Pulldown` go the
-    /// original adjacency / P2-5 lane-expansion path, not special-cased here.
-    fn is_chain_cap_shunt(member: &McPhrase) -> bool {
-        if let McPhrase::FuncCall(fc) = member {
-            let fname = fc.func_name.to_string();
-            let last = fname.rsplit('.').next().unwrap_or(fname.as_str());
-            if last == "Cap" {
-                return Self::is_cap_vector_shunt(&fc.params);
-            }
-        }
-        false
-    }
-
-    /// §11.6: true when a Cap's two endpoint positions are filled by an
-    /// explicit 2-member vector argument. Forms: 2 separate non-`_` args,
-    /// a `[a, b]` merge Set, or a single non-`_` vector reference. Must stay
-    /// in sync with the arity gate / split in `wire_builtin_twopin`.
-    fn is_cap_vector_shunt(params: &[McParamValue]) -> bool {
-        match params.len() {
-            2 => params.iter().all(|p| !Self::is_uscore_param(p)),
-            1 => match &params[0] {
-                McParamValue::Set(values) => {
-                    values.len() == 2 && values.iter().all(|v| !Self::is_uscore_param(v))
-                }
-                p => !Self::is_uscore_param(p),
-            },
-            _ => false,
-        }
-    }
-
-    fn is_uscore_param(p: &McParamValue) -> bool {
-        matches!(p, McParamValue::NONE(_)) || matches!(p, McParamValue::Opd(McOpd::Uscore))
-    }
-
-    /// unified-twopin-no-builtin v2.0: the library func is the only
-    /// implementation of `.Cap/.Pullup/.Pulldown`; this name check only gates
-    /// the P1-D legacy fallback for builtin-named calls that ordinary method
-    /// dispatch (Iter-2.2) could not handle. Cap is strict-case (a CMIE class
-    /// `CAP` construction must not be intercepted); Pullup/Pulldown are
-    /// case-insensitive (bare-call alias `RES(..).PULLUP(..)`).
-    fn is_builtin_twopin_net_fn(name: &str) -> bool {
-        let last = name.rsplit('.').next().unwrap_or("");
-        if last == "Cap" {
-            return true;
-        }
-        let u = last.to_uppercase();
-        matches!(u.as_str(), "PULLUP" | "PULLDOWN")
-    }
-
     /// True when every actual parameter is a `_` placeholder (possibly nested
     /// in a Set/list), i.e. the call carries no explicit network endpoint
     /// (§11.6). `.Cap(_)` / `.Cap(_, _)` / `.Cap([_, _])` all qualify. These
@@ -351,299 +274,6 @@ impl McModuleInst {
                 !vals.is_empty() && vals.iter().all(Self::is_placeholder_param)
             }
             _ => false,
-        }
-    }
-
-    /// unified-twopin-no-builtin v2.0: dispatch a builtin-named twopin call
-    /// (`.Cap/.Pullup/.Pulldown`) as an ordinary method on the resolved
-    /// instance — the library func is the only implementation. Looks up the
-    /// func in the instance's component/sub-module def and calls
-    /// `instantiate_instance_method` (arity guard mirrors Iter-2.2). Returns
-    /// true when dispatched; false when the instance has no such func or the
-    /// arity guard rejects the call (the caller falls through to the generic
-    /// FuncCall path).
-    fn dispatch_twopin_as_method(
-        &mut self,
-        inst_name: &str,
-        fc: &crate::semantic::basic::mc_fcall::McFuncCall,
-        key: u32,
-    ) -> Result<bool, InstError> {
-        let func_name_str = fc.func_name.to_string();
-        let func_def = self
-            .components
-            .iter()
-            .find(|c| c.name == inst_name)
-            .and_then(|c| c.def.funcs.find(&func_name_str).cloned())
-            .or_else(|| {
-                self.sub_modules
-                    .iter()
-                    .find(|m| m.name == inst_name)
-                    .and_then(|m| m.def.funcs.find(&func_name_str).cloned())
-            });
-        let Some(func_def) = func_def else {
-            return Ok(false);
-        };
-        let func_arity = func_def.params.iter().count();
-        let call_arity = fc.params.len();
-        if (func_arity > 0 && call_arity > 0) || (func_arity == 0 && call_arity == 0) {
-            let result = self.instantiate_instance_method(
-                inst_name, &func_def, &fc.params, &fc.left, &fc.right,
-            )?;
-            if matches!(result, FuncCallInst::PassThrough) {
-                self.auto_inst_map.insert(key, inst_name.to_string());
-            }
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn shunt_chain_points(&mut self, m: &McPhrase, right_side: bool) -> Vec<NetPoint> {
-        if let McPhrase::Multiple(inner) = m {
-            return inner
-                .iter()
-                .flat_map(|ip| self.shunt_chain_points(ip, right_side))
-                .collect();
-        }
-        let pts = if right_side {
-            self.get_right_points(m).unwrap_or_default()
-        } else {
-            self.get_left_points(m).unwrap_or_default()
-        };
-        if !pts.is_empty() {
-            return pts;
-        }
-        let name = m.to_string();
-        if !name.is_empty() && name != "_" {
-            return vec![self.node_to_netpoint(&McBus::new(&name))];
-        }
-        pts
-    }
-
-    /// Expand a shunt cap's explicit network argument to its NetPoints — the
-    /// bus pass-through source for a far-side member with no preceding
-    /// non-shunt member (e.g. `CAP(4.7uF).Cap(ldo.VOUT) -> vout`: vout
-    /// receives the ldo.VOUT vector).
-    ///
-    /// Converts **strictly by vector member correspondence** (§11.6), never by
-    /// flattening: each member of the explicit 2-member vector argument keeps
-    /// its own lane. `[V3V3, GND]` stays `[[V3V3.VCC, V3V3.GND], [GND]]`
-    /// (member[0] → pin1 lane, member[1] → pin2 lane) rather than being
-    /// flattened into a single point list `[V3V3.VCC, V3V3.GND, GND]`. This
-    /// mirrors the positional binding in `wire_builtin_twopin` so both agree
-    /// on what the vector argument is. A Set contributes one group per value;
-    /// a non-Set param contributes a single group.
-    fn cap_vector_arg_points(&mut self, m: &McPhrase) -> Option<Vec<Vec<NetPoint>>> {
-        let params: Vec<McParamValue> = match m {
-            McPhrase::FuncCall(fc) => fc.params.clone(),
-            _ => return None,
-        };
-        let mut groups: Vec<Vec<NetPoint>> = Vec::new();
-        for p in &params {
-            match p {
-                McParamValue::Set(values) => {
-                    for v in values {
-                        let mut group: Vec<NetPoint> = Vec::new();
-                        for e in Self::param_value_to_node_elements(v) {
-                            group.extend(self.expand_node_element(&e));
-                        }
-                        if !group.is_empty() {
-                            groups.push(group);
-                        }
-                    }
-                }
-                _ => {
-                    // Non-Set param: a bare bus reference carries one lane per
-                    // expanded point (`Cap(ldo.VOUT)` -> [[ldo.5], [ldo.2]]),
-                    // so the pass-through zip pairs positionally. A single
-                    // point is a single-lane group.
-                    for e in Self::param_value_to_node_elements(p) {
-                        for pt in self.expand_node_element(&e) {
-                            groups.push(vec![pt]);
-                        }
-                    }
-                }
-            }
-        }
-        if groups.is_empty() {
-            None
-        } else {
-            Some(groups)
-        }
-    }
-
-    /// Wire a chain containing `.Cap(...)` shunt (v1.2, §1.2 / §2).
-    ///
-    /// Rules:
-    ///   1. **Bus pass-through**: serialize non-shunt members in original
-    ///      adjacency order, skipping the shunt caps — source is the previous
-    ///      non-shunt member's **right port** (per vector circuit algebra);
-    ///      when no non-shunt member precedes a far-side member, fall back to
-    ///      the nearest prior shunt cap's explicit vector argument (e.g.
-    ///      `CAP(4.7uF).Cap(ldo.VOUT) -> vout`: vout receives the ldo.VOUT
-    ///      vector). Example `[V3V3,GND] -> CAP(100nF).Cap([V3V3,GND]) -> [VCC,VSS]`
-    ///      → V3V3~VCC, GND~VSS, width alignment handled by create_connection.
-    ///   2. **Cap parallel** (§11.6): each shunt cap's pins are bound
-    ///      **positionally from its explicit vector argument** —
-    ///      member[0] → pin1, member[1] → pin2 — by `wire_builtin_twopin`.
-    ///      No neighbor scanning and no is_gnd inference (§2.4).
-    ///
-    /// This way the decoupling cap truly "bridges rails" (pin1 on rail[0],
-    /// pin2 on rail[1]) and is never treated as a series element that would
-    /// double-connect a right neighbor to pin2 and short rail to ground.
-    ///
-    /// Order (vector-circuit semantic order): a **single pass over the members
-    /// in evaluation order** — each non-shunt member pairs a pass-through with
-    /// the previous source, and each shunt cap is wired at its own evaluation
-    /// position. Connection creation order mirrors semantic evaluation
-    /// (`[V3V3,GND] -> CAP(100nF).Cap([V3V3,GND]) -> [VCC,VSS]`: cap pins from
-    /// step 1 before the far-side pass-through from step 2).
-    fn wire_chain_with_shunts(&mut self, members: &[McPhrase], shunt: &[bool], dir: ConnDir) {
-        let mut last_non_shunt: Option<&McPhrase> = None;
-        // Nearest prior shunt cap's explicit vector-arg points — the fallback
-        // bus pass-through source for a far-side member with no preceding
-        // non-shunt member (e.g. `CAP(4.7uF).Cap(ldo.VOUT) -> vout`).
-        let mut last_shunt_arg: Option<Vec<Vec<NetPoint>>> = None;
-        for (k, m) in members.iter().enumerate() {
-            if !shunt[k] {
-                // ── Bus pass-through (rule 1) ──────────────────────────
-                // A Multiple target is a lane vector: each bracket member is
-                // one lane and contributes only its first point to the width
-                // check and the zip. Flattening every member's points first
-                // would over-count lanes when a pin is shared by several port
-                // groups (e.g. uC.GND -> pin 21, listed in [5,21]=[VDD,GND],
-                // [14,21]=[VDD_CORE,GND] and [16,17,21]=ADC), turning a 2-lane
-                // target into 3 points and failing the equal-width check.
-                let rp = match m {
-                    McPhrase::Multiple(inner) => inner
-                        .iter()
-                        .filter_map(|ip| self.shunt_chain_points(ip, false).first().cloned())
-                        .collect(),
-                    _ => self.shunt_chain_points(m, false),
-                };
-                match last_non_shunt {
-                    Some(prev) => {
-                        // ── Vector member correspondence for a Multiple left ──
-                        // member: `[V3V3, GND] -> [VCC, VSS]` keeps each bracket
-                        // member on its own lane (V3V3→VCC, GND→VSS). Flattening
-                        // first would expand the V3V3 bus into [V3V3.VCC,
-                        // V3V3.GND] and misalign the zip — V3V3.GND would land
-                        // on VSS and the bare GND would be dropped. Pair each
-                        // Multiple member's first point with its target instead,
-                        // mirroring the positional binding of wire_builtin_twopin.
-                        let did_group_pair = if let McPhrase::Multiple(inner) = prev {
-                            if inner.len() == rp.len() {
-                                for (ip, t) in inner.iter().zip(rp.iter()) {
-                                    if let Some(pt) =
-                                        self.shunt_chain_points(ip, true).first().cloned()
-                                    {
-                                        let id = self.next_conn_id();
-                                        self.add_connection(self.make_conn_with_provenance(
-                                            id,
-                                            vec![pt, t.clone()],
-                                            dir,
-                                            None,
-                                        ));
-                                    }
-                                }
-                                true
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
-                        if !did_group_pair {
-                            // Unequal-width vector pairing is a hard error (P2),
-                            // never a flattened create_connection that drops the
-                            // excess members (matching-rules-design.md §4 Z2).
-                            if let McPhrase::Multiple(inner) = prev {
-                                self.record_error(
-                                    crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
-                                    crate::errcodes::format_msg(
-                                        crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
-                                        &[&inner.len().to_string(), &rp.len().to_string()],
-                                    ),
-                                );
-                                last_non_shunt = Some(m);
-                                continue;
-                            }
-                            let spts = self.shunt_chain_points(prev, true);
-                            if let Err(e) = self.create_connection(spts, rp, dir, None) {
-                                self.record_warning(
-                                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                                    crate::errcodes::format_msg(
-                                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                                        &[&format!("pass-through across the shunt failed: {e}")],
-                                    ),
-                                );
-                            }
-                        }
-                    }
-                    None => {
-                        // Vector-arg member correspondence (§11.6): when the
-                        // nearest shunt cap's explicit vector-arg groups line
-                        // up 1:1 with the far-side targets, each group lands
-                        // on its own target, taking the group's first point so
-                        // the pass-through and the cap pin binding agree on the
-                        // same bus member (e.g. `[V3V3, GND] -> [VCC, VSS]` →
-                        // V3V3.VCC ~ VCC, GND ~ VSS). Unequal widths are an
-                        // error (E4181), never a flattened create_connection.
-                        match &last_shunt_arg {
-                            Some(groups) if groups.len() == rp.len() => {
-                                for (g, t) in groups.iter().zip(rp.iter()) {
-                                    if let Some(pt) = g.first() {
-                                        let id = self.next_conn_id();
-                                        self.add_connection(self.make_conn_with_provenance(
-                                            id,
-                                            vec![pt.clone(), t.clone()],
-                                            dir,
-                                            None,
-                                        ));
-                                    }
-                                }
-                            }
-                            // Unequal-width zip is a hard error (P2/Z2), never a
-                            // flattened create_connection that drops members.
-                            Some(groups) => {
-                                self.record_error(
-                                    crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
-                                    crate::errcodes::format_msg(
-                                        crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
-                                        &[&groups.len().to_string(), &rp.len().to_string()],
-                                    ),
-                                );
-                            }
-                            None => {
-                                // No preceding shunt cap: this pass-through member
-                                // has no source to bridge, nothing to connect.
-                            }
-                        }
-                    }
-                }
-                last_non_shunt = Some(m);
-                continue;
-            }
-
-            // ── Cap parallel (§11.6) ───────────────────────────────────────
-            // `process_member_internal` creates the cap component; its pins are
-            // bound positionally by `wire_builtin_twopin` from the explicit vector
-            // argument (member[0] → pin1, member[1] → pin2) — no neighbor
-            // scanning, no is_gnd inference (§2.4).
-            if let Err(e) = self.process_member_internal(m) {
-                self.record_warning(
-                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                    crate::errcodes::format_msg(
-                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                        &[&format!("failed to create component: {e}")],
-                    ),
-                );
-                continue;
-            }
-            // Remember the cap's explicit vector-arg points as the fallback bus
-            // pass-through source for a far-side member with no preceding
-            // non-shunt member (e.g. `CAP(4.7uF).Cap(ldo.VOUT) -> vout`).
-            last_shunt_arg = self.cap_vector_arg_points(m);
         }
     }
 
@@ -2630,8 +2260,8 @@ impl McModuleInst {
     /// instance's own pins (e.g. `XTAL4.Setup(...) -> [U2.XIN, U2.XOUT]`
     /// would see only the NC pin instead of the 2-lane XTAL{X1,X2} return).
     fn stash_pass_through(&mut self, key: u32, inst_name: &str) {
-        let return_ep = super::fcallinst::LAST_RETURN_ENDPOINT
-            .with(|cell| cell.borrow_mut().take());
+        let return_ep =
+            super::fcallinst::LAST_RETURN_ENDPOINT.with(|cell| cell.borrow_mut().take());
         if let Some(encoded) = return_ep {
             self.auto_inst_map.insert(key, encoded);
         } else {
@@ -2918,14 +2548,14 @@ impl McModuleInst {
                 // **Caller chain recursion (lifted from original Iter-3.F position)**
                 //
                 // Must process the inner caller once before all dispatch paths
-                // (Iter-2.2 instance method, P1-D builtin twopin). Reasons:
+                // (Iter-2.2 instance-method dispatch, generic FuncCall path). Reasons:
                 //
                 //   1. **Chained call semantics**: `obj.f1().f2().f3()` semantics
                 //      is "apply f1/f2/f3 sequentially to the same obj", each
                 //      level needs to independently expand body, can't skip
                 //      inner just because outer early-exits in dispatch phase.
-                //   2. **builtin twopin still depends on this**: when outer .Cap
-                //      of `CAP(v).Cap(x)` goes through P1-D, it needs inner
+                //   2. **method dispatch depends on this**: when outer `.Cap`
+                //      of `CAP(v).Cap(x)` dispatches, it needs inner
                 //      CAP(v) to have already written @CAP_N into auto_inst_map.
                 //      Lifting to here doesn't affect this invariant.
                 //   3. **Pointer stability (original Iter-3.F argument)**: use
@@ -2973,12 +2603,11 @@ impl McModuleInst {
                 // (although not in the example project).
                 //
                 // ── Iter-3.A ────────────────────────────────────────────
-                // Important: must first exclude builtin 2-pin methods
-                // (`.Cap/.Pullup/.Pulldown`), otherwise will incorrectly grab
-                // the P1-D wire_builtin_twopin path below. Some components'
-                // funcs tables may have empty-shell methods of the same name,
-                // once entered will be treated as "Instance method has no
-                // parsed stmts", completely losing builtin wiring.
+                // `.Cap/.Pullup/.Pulldown` must reach Iter-2.2 dispatch below
+                // so the library func is the wiring source (unified-twopin-
+                // no-builtin v2.0) — never get grabbed earlier as a component
+                // instance method with an empty-shell body ("Instance method
+                // has no parsed stmts"), which would silently drop the call.
                 // ── All-`_` placeholder twopin calls ─────────────────────
                 // `.Cap(_)` / `.Cap([_, _])` carry no explicit endpoint;
                 // dispatching them would bind `_` to a Multiple formal and
@@ -3245,7 +2874,7 @@ impl McModuleInst {
 
                 // ── Iter-6.S4.1 ─────────────────────────────────────────
                 // Caller chain recursion was originally placed here, after Iter-2.2
-                // dispatch and before P1-D builtin twopin. But combined with
+                // dispatch and before the generic FuncCall path. But combined with
                 // Iter-6.S4's "undefined method warning + early exit" logic, chained
                 // calls like `mcu.setup().add_caps().i2c().do_flash()` once outer
                 // (do_flash) hits early exit, can never reach here —— inner i2c /
@@ -3261,115 +2890,11 @@ impl McModuleInst {
                 //     missing list at once
                 //
                 // This position is kept as a placeholder note, semantics are lifted.
-                // Below follows P1-D builtin twopin.
+                // Below follows the generic FuncCall instantiation path
+                // (unified-twopin-no-builtin v2.0: no P1-D builtin twopin
+                // fallback — `.Cap/.Pullup/.Pulldown` either dispatch through
+                // method dispatch above or fall through to the generic path).
                 let key = Self::member_key(phrase);
-
-                // ── P1-D: legacy fallback for builtin-named twopin calls ──
-                // unified-twopin-no-builtin v2.0: the library func is the only
-                // implementation of `.Cap/.Pullup/.Pulldown`. Iter-2.2 above
-                // already dispatched the normal cases (caller resolves to a
-                // declared/constructed instance whose def declares the func).
-                // This fallback only handles the residual paths Iter-2.2 cannot
-                // reach:
-                //   - caller is a parse-time `Endpoint(Component(name))` (Iter-5.E)
-                //   - anonymous component construction embedded in the caller
-                //   - the caller phrase was transformed (type-based search)
-                // Each resolves the real instance and dispatches the method the
-                // same way Iter-2.2 does. If the resolved instance has no such
-                // func, `dispatch_twopin_as_method` returns false and the call
-                // falls through to the generic FuncCall path (there is no
-                // builtin to synthesize wiring anymore).
-                if Self::is_builtin_twopin_net_fn(&fc.func_name.to_string()) {
-                    if let Some(caller_box) = &fc.caller {
-                        let caller_key = Self::member_key(caller_box.as_ref());
-                        let map_hit = self.auto_inst_map.get(&caller_key).cloned();
-                        if let Some(caller_inst_name) = map_hit {
-                            if self.dispatch_twopin_as_method(&caller_inst_name, fc, key)? {
-                                return Ok(());
-                            }
-                        }
-                        // ── Iter-5.E (Part 1) ─────────────────────────────────
-                        // In the case where auto_inst_map doesn't hit, if the caller
-                        // is already an Endpoint(Component(name)) created at parse time
-                        // and name is non-empty, directly use this name as
-                        // caller_inst_name and run wire_builtin_twopin. Reason:
-                        // Components created at parse time never went through
-                        // process_member_internal's registration path (Iter-3.F
-                        // recursive Endpoint arm is no-op), so auto_inst_map can
-                        // never find them, but the component itself is already in
-                        // self.components —— wire_builtin_twopin just uses the name
-                        // to find in self.components.
-                        if let McPhrase::Endpoint(McEndpoint::Single(ir)) = caller_box.as_ref() {
-                            if let McInstance::Component(c) = &ir.base {
-                                let caller_inst_name = c.name.to_string();
-                                if !caller_inst_name.is_empty() {
-                                    if self.dispatch_twopin_as_method(&caller_inst_name, fc, key)? {
-                                        return Ok(());
-                                    }
-                                } else if !c.params.is_empty() {
-                                    // Anonymous component with params - instantiate it first
-                                    let result = self.instantiate_component_construction(
-                                        c.base.clone(),
-                                        &c.params,
-                                        &fc.left,
-                                        &fc.right,
-                                        None,
-                                    )?;
-                                    if let FuncCallInst::Components {
-                                        mut new_components,
-                                        new_connections,
-                                    } = result
-                                    {
-                                        if let Some(inst) = new_components.pop() {
-                                            let inst_name = inst.name.clone();
-                                            self.add_component(inst);
-                                            for conn in new_connections {
-                                                self.add_connection(conn);
-                                            }
-                                            if self
-                                                .dispatch_twopin_as_method(&inst_name, fc, key)?
-                                            {
-                                                return Ok(());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // ── P1-D fallback: find last component of the expected type ─────────────
-                        // If the caller phrase was transformed (e.g. by phrase_to_members turning FuncCall into Node),
-                        // look for the most recent component of the appropriate type (CAP for Cap, RES for Pullup/Pulldown)
-                        let func_name_str = fc.func_name.to_string();
-                        let target_types: Vec<&str> = match func_name_str.rsplit('.').next() {
-                            Some("Cap") => {
-                                vec!["CAP", "CAP.CER", "CAP.ELE", "CAP.FILM", "CAP.TANT"]
-                            }
-                            Some(s)
-                                if s.eq_ignore_ascii_case("Pullup")
-                                    || s.eq_ignore_ascii_case("Pulldown") =>
-                            {
-                                vec!["RES"]
-                            }
-                            _ => vec![],
-                        };
-                        if !target_types.is_empty() {
-                            if let Some(comp) = self.components.iter().rev().find(|c| {
-                                let cls_name =
-                                    c.def.name.to_string().replace('.', "_").to_uppercase();
-                                target_types.iter().any(|&t| {
-                                    let t_uppercase = t.replace('.', "_").to_uppercase();
-                                    cls_name == t_uppercase || cls_name.starts_with(&t_uppercase)
-                                })
-                            }) {
-                                let caller_inst_name = comp.name.clone();
-                                if self.dispatch_twopin_as_method(&caller_inst_name, fc, key)? {
-                                    return Ok(());
-                                }
-                            }
-                        }
-                    }
-                }
 
                 // ── P2-9: prevent duplicate component creation ──────────────
                 // When lane-by-lane wiring re-processes the same FuncCall
@@ -3521,9 +3046,9 @@ impl McModuleInst {
                                 // "claim" this real component name (reverse find =
                                 // take the most recently created instance), letting this
                                 // outer FuncCall share the real component already
-                                // created by inner —— equivalent to P1-D's
-                                // `wire_builtin_twopin` map_hit path, just that P1-D
-                                // uses pointer key match, we use class name match +
+                                // created by inner —— equivalent to the Iter-2.2
+                                // auto_inst_map caller fallback of ordinary method
+                                // dispatch, just that here we use class name match +
                                 // most recent instance as fallback.
                                 //
                                 // Safety argument:
@@ -3537,9 +3062,9 @@ impl McModuleInst {
                                 //     of components is the inner paired with this outer.
                                 //   - Multiple auto_inst_map keys pointing to the same
                                 //     real inst.name is **expected behavior** —— when
-                                //     P1-D works properly, both inner and outer map to
-                                //     the same "CAP_1". We want to replicate this
-                                //     semantics, deliberately **not** use
+                                //     method dispatch works properly, both inner and
+                                //     outer map to the same "CAP_1". We want to
+                                //     replicate this semantics, deliberately **not** use
                                 //     `auto_inst_map.values()` to exclude already
                                 //     referenced instances, otherwise when inner has
                                 //     already registered "CAP_1", outer's P0-4 reuse
@@ -3892,11 +3417,10 @@ impl McModuleInst {
                 //   - Any two inline-created `@CAP1` / `@CAP2` in the same
                 //     module will be treated by the heuristic as an array
                 //     `[@CAP1, @CAP2]`
-                //   - When `.Cap(...)` such builtin twopin method is called
-                //     with caller of `Cap` class (i.e. `@CAP1`), Iter-1.3
-                //     early-exits treating caller as array, **skips P1-D
-                //     wire_builtin_twopin**, never connects pins 1/2, the
-                //     component is isolated.
+                //   - When `.Cap(...)` such method is called with caller of
+                //     `Cap` class (i.e. `@CAP1`), Iter-1.3 early-exits treating
+                //     caller as array, **skips method dispatch (Iter-2.2)**,
+                //     never binds pins 1/2, the component is isolated.
                 //   - Verified foot-guns (power.mc:102 + ldo:65):
                 //       `CAP(10uF).Cap(dcdc{Vin, GND})`  → @CAP1 isolated
                 //       `vin -> ldo.VIN => CAP(10uF).Cap(_)`  → ldo.VIN is
@@ -3907,7 +3431,7 @@ impl McModuleInst {
                 //          vin~vout short
                 //
                 // Fix: when Component name starts with `@`, directly return None,
-                // letting subsequent P1-D path handle normally.
+                // letting subsequent method dispatch handle normally.
                 if cname.starts_with('@') {
                     return None;
                 }
