@@ -258,10 +258,11 @@ pub fn mcc_build_flat(
     uri: &McURI,
     start_id: u32,
 ) -> Result<(MccProjectTree, InstTable), Box<dyn Error>> {
+    // Delegate to mcb_pass2_flat so the flat build runs the Pass2 electrical
+    // net checks (incl. D7 PULLUP_DEGENERATE) and logs their diagnostics —
+    // `mcc build` must surface the same net-check issues as `mcc check --nets`.
     let canonical_uri = builder::mcb_canonicalize_uri(uri);
-    let inst = builder::mcb_pass2(&McSpaceName::new(ident, canonical_uri))?;
-    let table = InstTable::from_module_inst(&inst, start_id);
-    Ok((inst, table))
+    mcb_pass2_flat(&McSpaceName::new(ident, canonical_uri), start_id)
 }
 
 pub fn mcc_diagnose(uri: &McURI) -> Vec<Diagnostic> {

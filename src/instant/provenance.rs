@@ -36,8 +36,6 @@ pub enum ExpansionKind {
     ComponentCtor,
     /// Inline module call (parent-side leaf record; body expands inside sub-module).
     ModuleCall,
-    /// `.Cap()` / `.Pullup()` / `.Pulldown()` (body expansion).
-    BuiltinTwopin,
     /// Iterated call `cap[4:5]::CAP()` / iterated func (leaf for component arrays).
     Iterated,
 }
@@ -52,7 +50,6 @@ impl ExpansionKind {
             Self::Declare => "declare",
             Self::ComponentCtor => "component_ctor",
             Self::ModuleCall => "module_call",
-            Self::BuiltinTwopin => "builtin_twopin",
             Self::Iterated => "iterated",
         }
     }

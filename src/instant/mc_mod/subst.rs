@@ -513,6 +513,26 @@ impl McModuleInst {
                     || (s.starts_with("this{") && s.ends_with('}'));
                 let mut elem = McBus::new(s);
 
+                // BARE `this`: the component's own default 1×2 face. In a body
+                // chain `net1 - this - net2` the instance is vector-evaluated
+                // against its pins (user rule): net1 → this.pin1, this.pin2 →
+                // net2. A plain `McInstance::Bus(inst_name)` endpoint would make
+                // get_left_points/get_right_points resolve to the instance NODE
+                // (shorting net1 and net2 into one net); an
+                // `McInstance::Component` reference resolves to the component's
+                // default face (left pin1 / right pin2) instead.
+                if s == "this" {
+                    if let Some(ctx) = expansion_ctx {
+                        let comp = McInstance::Component(std::sync::Arc::new(
+                            crate::semantic::component::Mc2Component::new(
+                                &ctx.instance.name,
+                                ctx.instance.def.clone(),
+                            ),
+                        ));
+                        return McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(comp)));
+                    }
+                }
+
                 // Check whether it's a this reference
                 if let Some(ctx) = expansion_ctx {
                     if is_this_ref {

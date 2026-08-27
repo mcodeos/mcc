@@ -46,6 +46,42 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+/// Wire the internal `->` chain of any Series net-expression params (P2-13).
+///
+/// A method arg like `[[dc.VDD_3V3 -> wm7121.VCC], dc.GND]` carries a real
+/// sub-line `dc.VDD_3V3 -> wm7121.VCC`: the two endpoints must be shorted
+/// before the callee body expands the formal, otherwise only
+/// `phrase.get_left()` (dc.VDD_3V3) is wired and the right endpoint
+/// (wm7121.VCC) floats. The deleted builtin-twopin path did this in
+/// `wire_builtin_twopin`; ordinary method dispatch (`instantiate_instance_method`)
+/// must do the same in the caller's context, before the body stmts run.
+fn wire_series_params(this: &mut McModuleInst, params: &[McParamValue]) -> Result<(), InstError> {
+    use crate::semantic::basic::mc_phrase::McPhrase;
+    fn collect_series<'a>(value: &'a McParamValue, out: &mut Vec<(&'a [McPhrase], ConnDir)>) {
+        match value {
+            McParamValue::Set(values) => {
+                for v in values {
+                    collect_series(v, out);
+                }
+            }
+            McParamValue::Phrase(phrase) => {
+                if let McPhrase::Series(elems, dir) = phrase.as_ref() {
+                    out.push((elems.as_slice(), *dir));
+                }
+            }
+            _ => {}
+        }
+    }
+    for p in params {
+        let mut series_list: Vec<(&[McPhrase], ConnDir)> = Vec::new();
+        collect_series(p, &mut series_list);
+        for (elems, dir) in series_list {
+            this.process_series_branch_inplace(elems, dir)?;
+        }
+    }
+    Ok(())
+}
+
 impl McModuleInst {
     // ========================================================================
     // 1. Inline component construction  e.g. CAP(0.1uF) / Diode('SMBJ30A') / HDR(46)
@@ -929,7 +965,13 @@ impl McModuleInst {
             return Ok(FuncCallInst::PassThrough);
         }
 
-        // 1. Bind formal parameters
+        // 1. Bind formal parameters. Actual arguments bind directly to formal
+        //    parameters — no auto-split of a Set actual across scalar formals,
+        //    no auto-packing, no GND default (user correction). A Set actual
+        //    fills a Set (Multiple) formal whole; `align_vector_bindings`
+        //    below then expands a bus actual to its member lanes (a DC
+        //    annotated bus like `V3V3` resolves to `[VDD_3V3, GND]` from its
+        //    definition, never guessed).
         let mut bindings = match McParamBindings::bind(&func_def.params, params) {
             Ok(b) => b,
             Err(e) => {
@@ -958,6 +1000,12 @@ impl McModuleInst {
         // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
         bindings = self.align_vector_bindings(&bindings);
 
+        // ── P2-13: wire Series net-expression params before body expansion ──
+        // `[[dc.VDD_3V3 -> wm7121.VCC], dc.GND]` carries an internal `->`
+        // sub-line; wire it here (caller's context) so the right endpoint
+        // isn't left floating when the body expands only `phrase.get_left()`.
+        wire_series_params(self, params)?;
+
         // 2. Dispatch by inst type
         //   - Sub-module: body executes inside the sub-module (P3 core fix)
         //   - Component:  body executes at outer (self) layer + prefix pins (peripheral circuit around leaf devices)
@@ -972,12 +1020,111 @@ impl McModuleInst {
             Ok(())
         })?;
 
-        // 3. Expose return endpoint (both kinds unified: prefix inst_name)
-        //    Example: `X6.setup(...)` returns "XTAL" → `X6.XTAL`; sub-module return port works the same.
-        if let McFuncReturn::Endpoint(ref ep_name) = func_def.returns {
-            let ep_path = format!("{inst_name}.{ep_name}");
-            let encoded = format!("@@RETURN_EP:{ep_path}");
-            LAST_RETURN_ENDPOINT.with(|cell| cell.replace(Some(encoded)));
+        // ★ M0-B-E.1: carry the method name onto FuncCall-origin receiver
+        // instances (unified-twopin-no-builtin §2.6). The network-level D7
+        // check (`check_pullup_degenerate`) identifies Pullup/Pulldown
+        // resistors by this origin marker — a plain series RES has no method
+        // provenance, so origin alone can't tell a pullup apart. Only rewrite
+        // auto-generated (FuncCall) instances: a declared receiver keeps its
+        // Declared origin (verify/golden depend on declaration status), and a
+        // sub-module method (dotted inst_name, not in `self.components`) is
+        // left untouched.
+        if let Some(comp) = self.components.iter_mut().find(|c| c.name == inst_name) {
+            if let InstOrigin::FuncCall {
+                line, expansion_id, ..
+            } = comp.origin
+            {
+                comp.origin = InstOrigin::FuncCall {
+                    fn_name: func_def.name.to_string(),
+                    line,
+                    expansion_id,
+                };
+            }
+        }
+
+        // 3. Expose the func's return value as the chain-member connection face
+        //    (func-return-design §6.2/§7). The FuncCall's left AND right mouths
+        //    both resolve to this return face (case ②, symmetric stereo node).
+        //
+        //    - Endpoint return naming the instance's own bus port (e.g.
+        //      `return XTAL{X1,X2}`) → `@@RETURN_EP:{inst}.{ep}`; the face
+        //      decoder expands the instance bus port's member pins.
+        //    - Net / net-list return (e.g. `return net1`, `return [net1, net2]`)
+        //      → substitute the return phrase with the same bindings the body
+        //      used, then encode `@@RETURN_NETS:{n1};{n2}`; the decoder resolves
+        //      each substituted name as a net point.
+        //    - Implicit / `return this` (case ①) → the face is the instance's
+        //      own default shape; no write, the instance-face fallback resolves
+        //      it (left pin1 / right pin2 for a 1×2 twopin).
+        match &func_def.returns {
+            McFuncReturn::Endpoint(ep) => {
+                // Reuse the body's binding set so substituted names reach the
+                // return phrase (component methods substitute all formals;
+                // sub-module methods keep boundary formals unsubstituted).
+                let subst_bindings = if self.find_submodule(inst_name).is_some() {
+                    let mut boundary: std::collections::HashSet<String> =
+                        std::collections::HashSet::new();
+                    for b in bindings.iter() {
+                        if let Some(fname) = b.declare.get_primary_name() {
+                            if let Some(v) = b.get_value() {
+                                if self.actual_is_parent_ref(v) {
+                                    boundary.insert(fname.clone());
+                                }
+                            }
+                        }
+                    }
+                    bindings.subset_excluding(&boundary)
+                } else {
+                    bindings.clone()
+                };
+                let substituted = if subst_bindings.is_empty() {
+                    ep.clone()
+                } else {
+                    Self::substitute_stmt(ep, &subst_bindings, None)
+                };
+                // An Endpoint(Single(Bus)) return references the instance's own
+                // bus port (XTAL{X1,X2}) → keep the @@RETURN_EP instance-port
+                // decode. Everything else is a net / net-list / group return →
+                // encode the substituted member names as @@RETURN_NETS.
+                let is_inst_bus = matches!(
+                    &substituted,
+                    McPhrase::Endpoint(McEndpoint::Single(iref))
+                        if matches!(iref.base, McInstance::Bus(_))
+                );
+                if is_inst_bus {
+                    // Encode the bare bus-port name (XTAL), not the substituted
+                    // phrase ("XTAL{X1, X2}"): decode_return_endpoint splits
+                    // `owner.port` and looks the port up in names_to_id by exact
+                    // name before expanding the bus members by declaration order.
+                    let port_name = match &substituted {
+                        McPhrase::Endpoint(McEndpoint::Single(iref)) => {
+                            match &iref.base {
+                                McInstance::Bus(b) => b.name.clone(),
+                                _ => substituted.to_string(),
+                            }
+                        }
+                        _ => substituted.to_string(),
+                    };
+                    let ep_path = format!("{inst_name}.{port_name}");
+                    let encoded = format!("@@RETURN_EP:{ep_path}");
+                    LAST_RETURN_ENDPOINT.with(|cell| cell.replace(Some(encoded)));
+                } else {
+                    let bus =
+                        crate::semantic::basic::mc_fcall::get_right_bus_from_phrase(&substituted);
+                    let names: Vec<String> = bus.iter().map(|b| b.name.clone()).collect();
+                    if names.is_empty() {
+                        LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
+                    } else {
+                        let encoded = format!("@@RETURN_NETS:{}", names.join(";"));
+                        LAST_RETURN_ENDPOINT.with(|cell| cell.replace(Some(encoded)));
+                    }
+                }
+            }
+            McFuncReturn::Implicit | McFuncReturn::This => {
+                // case ①: face = instance own default shape. Clear any stale
+                // endpoint from a previous statement.
+                LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
+            }
         }
 
         Ok(FuncCallInst::PassThrough)
@@ -1821,20 +1968,28 @@ impl McModuleInst {
                 right_match: g.right_match,
             }),
             McPhrase::FuncCall(f) => {
-                // ── P2-7-XTAL: discriminate caller prefixing ──
-                // Class names (e.g. RES, CAP, DIO.ESD) start with uppercase →
-                //   caller is a user-specified instance name → do NOT prefix.
-                // Method names (e.g. setup, power, i2c) start with lowercase →
-                //   caller is a reference to an existing instance → prefix.
-                let func_name_str = f.func_name.to_string();
-                let is_class_name = func_name_str
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_uppercase());
+                // ── P2-7-XTAL: decide caller prefixing by the CALLER itself ──
+                // A class-construction caller (a FuncCall whose func_name is a
+                // registered class, e.g. `CAP(cload)` in `CAP(cload).Cap(_)`)
+                // creates a NEW anonymous component — prefixing it would corrupt
+                // its ctor args (`cload` → `Y2.cload`). A reference caller
+                // (Endpoint, or a method-chain FuncCall like `flash.init()`) refers
+                // to an existing instance → prefix.
+                //
+                // The old first-letter-uppercase-on-func_name heuristic misrouted
+                // both directions: an uppercase method `func Cap(gnd)` was wrongly
+                // treated as a class (and conversely its class-construction caller
+                // was handled only by accident of case). Strict full-name
+                // case-sensitive class check on the caller is the correct test.
+                let caller_is_class_construction = matches!(
+                    f.caller.as_deref(),
+                    Some(McPhrase::FuncCall(inner))
+                        if Self::is_registered_class_name(&inner.func_name.to_string())
+                );
                 McPhrase::FuncCall(McFuncCall {
                     id: 0,
-                    caller: if is_class_name {
-                        // Class construction: caller is instance name, don't prefix
+                    caller: if caller_is_class_construction {
+                        // Class construction caller: new anonymous component, don't prefix
                         f.caller.clone()
                     } else {
                         f.caller.as_ref().map(|c| {

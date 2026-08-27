@@ -11,6 +11,7 @@
 //! - `node_to_netpoint`                              —— single McBus → NetPoint
 //! - `is_port` / `find_component` / `find_submodule` / `ensure_label` —— lookup helpers
 
+use super::funccall::FaceSide;
 use super::McModuleInst;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{InstError, NetPoint};
@@ -359,15 +360,22 @@ impl McModuleInst {
             }
 
             McPhrase::Transposed(inner_line) => {
-                // ── P1 fix: Transposed(FuncCall) special handling ─────────────
-                // FuncCall left/right are class name placeholders (e.g., "CAP.in"/"CAP.out"),
-                // direct reading goes through node_to_netpoint → @_phantom_ path.
-                // Must delegate to FuncCall resolve methods, which query auto_inst_map
-                // to find real instance names (e.g., "@?CAP_3"), and filter class name placeholders through P0-4.B.
-                if let McPhrase::FuncCall(ref f) = **inner_line {
-                    let mut left_pts = self.resolve_funccall_left_points(inner_line, &f.left)?;
-                    let right_pts = self.resolve_funccall_right_points(inner_line, &f.right)?;
-                    // Transposed: merge left + right (all pins exposed on both sides)
+                // ── func-return-design §6.2: Transposed(FuncCall) face ─────
+                // The connection face comes from the unified FuncCall face
+                // resolver (return face for case ②, instance own face for ①).
+                // case ②'s stereo return node has both mouths on the SAME
+                // return face — resolve once, no duplication.
+                if let McPhrase::FuncCall(_) = **inner_line {
+                    let key = Self::member_key(inner_line);
+                    let symmetric = self.auto_inst_map.get(&key).is_some_and(|v| {
+                        v.starts_with("@@RETURN_EP:") || v.starts_with("@@RETURN_NETS:")
+                    });
+                    if symmetric {
+                        return self.resolve_funccall_face(inner_line, FaceSide::Left);
+                    }
+                    // case ①: merge entry + exit faces (all pins exposed on both sides)
+                    let mut left_pts = self.resolve_funccall_face(inner_line, FaceSide::Left)?;
+                    let right_pts = self.resolve_funccall_face(inner_line, FaceSide::Right)?;
                     left_pts.extend(right_pts);
                     return Ok(left_pts);
                 }
@@ -401,7 +409,7 @@ impl McModuleInst {
                 Ok(all_points)
             }
 
-            McPhrase::FuncCall(ref f) => self.resolve_funccall_left_points(phrase, &f.left),
+            McPhrase::FuncCall(_) => self.resolve_funccall_face(phrase, FaceSide::Left),
 
             McPhrase::Closure(ref c) => {
                 // Phase 3.3: closure's left interface is its parameter declaration
@@ -889,10 +897,17 @@ impl McModuleInst {
             }
 
             McPhrase::Transposed(inner_line) => {
-                // ── P1 fix: mirror get_left_points Transposed(FuncCall) handling
-                if let McPhrase::FuncCall(ref f) = **inner_line {
-                    let mut left_pts = self.resolve_funccall_left_points(inner_line, &f.left)?;
-                    let right_pts = self.resolve_funccall_right_points(inner_line, &f.right)?;
+                // ── func-return-design §6.2: mirror get_left_points Transposed(FuncCall) face
+                if let McPhrase::FuncCall(_) = **inner_line {
+                    let key = Self::member_key(inner_line);
+                    let symmetric = self.auto_inst_map.get(&key).is_some_and(|v| {
+                        v.starts_with("@@RETURN_EP:") || v.starts_with("@@RETURN_NETS:")
+                    });
+                    if symmetric {
+                        return self.resolve_funccall_face(inner_line, FaceSide::Left);
+                    }
+                    let mut left_pts = self.resolve_funccall_face(inner_line, FaceSide::Left)?;
+                    let right_pts = self.resolve_funccall_face(inner_line, FaceSide::Right)?;
                     left_pts.extend(right_pts);
                     return Ok(left_pts);
                 }
@@ -922,7 +937,7 @@ impl McModuleInst {
                 Ok(all_points)
             }
 
-            McPhrase::FuncCall(ref f) => self.resolve_funccall_right_points(member, &f.right),
+            McPhrase::FuncCall(_) => self.resolve_funccall_face(member, FaceSide::Right),
 
             McPhrase::Closure(ref c) => {
                 Ok(c.right.iter().map(|e| self.node_to_netpoint(e)).collect())
@@ -1358,13 +1373,13 @@ impl McModuleInst {
         // solution: generate unique isolated endpoint (not registered as label), prevent cross-call merging.
         // ★ P0.5-2 fix: use rsplit_once to handle multi-segment class names
         //   (e.g. "DIO.ESD.in" → class_part="DIO.ESD", suffix="in").
+        // ★ P2-7-XTAL: strict full-name case-sensitive class check (not
+        //   first-letter-uppercase) — `Cap.in` from a method named Cap is not
+        //   a class ghost and must not be isolated.
         if let Some((class_part, suffix)) = element.name.rsplit_once('.') {
             if (suffix == "in" || suffix == "out")
                 && !class_part.is_empty()
-                && class_part
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_uppercase())
+                && Self::is_registered_class_name(class_part)
             {
                 // secondary confirmation: definitely not existing instance
                 if self.find_component(class_part).is_none()
@@ -1717,15 +1732,20 @@ impl McModuleInst {
                         };
 
                         if filtered.len() >= 2 {
-                            // ── Same-name multi-pin group (`3 = GND; 4 = GND`) ──
-                            // All resolved pins share the group name (member_name
-                            // is empty for every pin) and are ONE logical net
-                            // (same-name-pin-group.md §2). Point resolution returns
-                            // a single logical slot point carrying the physical
-                            // pads; the pads fan in onto the peer net at connection
-                            // generation (create_connection / add_connection), so
-                            // §5.2 row checks see 1*1 for `spk.GND`.
-                            if filtered.iter().all(|(m, _)| m.is_empty()) {
+                            // ── Same-name multi-pin group ──
+                            // All resolved pins carry the SAME member name — either
+                            // all empty (`spk{GND}`) or all explicitly identical
+                            // (`ps [19,32,48,64] = VDD` → every pin named VDD). A
+                            // same-name group is ONE logical net (same-name-pin-group.md
+                            // §2): in vector circuits a same-name pin is taken once,
+                            // not once per physical pad — that is the basic rule for
+                            // shape computation (vec-dianlu.md §5.2). Point resolution
+                            // returns a single logical slot point carrying the
+                            // physical pads; the pads fan in onto the peer net at
+                            // connection generation (create_connection /
+                            // add_connection), so §5.2 row checks see 1*1.
+                            let first_name = &filtered[0].0;
+                            if filtered.iter().all(|(m, _)| m == first_name) {
                                 let pads: Vec<NetPoint> = filtered
                                     .iter()
                                     .map(|(_, pin_id)| {
@@ -1745,8 +1765,8 @@ impl McModuleInst {
                                 .with_member_name(port_base)
                                 .with_same_name_pads(pads)]);
                             }
-                            // Normal N-member bus port: one physical lane point
-                            // per member.
+                            // Normal N-member bus port (distinct member names):
+                            // one physical lane point per member.
                             return Some(
                                 filtered
                                     .iter()

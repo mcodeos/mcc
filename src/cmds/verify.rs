@@ -339,9 +339,7 @@ fn compare_instances(
 /// this record is a sub-target call), and its nested child records.
 ///
 /// Returns `None` when the record produced nothing (no products, no merged
-/// sub-module body, no children): Pass2 can emit a duplicated empty record
-/// for a builtin twopin call (e.g. `.Cap(GND)` double-dispatch), which would
-/// otherwise render as a bare noise label.
+/// sub-module body, no children).
 fn record_tree_node(
     idx: usize,
     groups: &mcc::ProductGroups,
@@ -665,7 +663,6 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                     mcc::ExpansionKind::InstanceMethod,
                     mcc::ExpansionKind::UserFunc,
                     mcc::ExpansionKind::ModuleCall,
-                    mcc::ExpansionKind::BuiltinTwopin,
                 ];
                 let body: Vec<usize> = recs
                     .iter()
