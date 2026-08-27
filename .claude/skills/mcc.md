@@ -13,6 +13,19 @@
   root (`env!("CARGO_MANIFEST_DIR")`).
 - Applies to the whole project including test code and test data.
 
+- **Never hardcode symbol-name lists to special-case language behavior.** Do not
+  gate semantics on a hardcoded list of component/method names (`"Cap"`,
+  `"Pullup"`, `"Pulldown"`, …) when the behavior can be derived from the
+  language itself — syntax (`_` placeholders, Sets, the `=>` prefix), the
+  actual arguments, or structural shape. Detection is argument-based, never
+  name-based. If a rule is specified to apply uniformly (e.g. the `=>`
+  prefix-fill rule applies to ALL methods), implement it uniformly; a hardcoded
+  name gate is a smell that the rule was mis-specified — re-derive the rule
+  from the language rather than extending the list. (Example: P2-5 lane
+  expansion decided by `fc_params_reference_bus_in_set`, not by "is this
+  method called Pullup".)
+- Applies to the whole project including test code and test data.
+
 ***
 
 ## 1. Quick Reference

@@ -1399,6 +1399,16 @@ module top {
     fn d7_pullup_degenerate_signal_bridge() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = r#"
+component RES(rs::UV.OHM) {
+    pins = [
+        io [1,2] = NODE{P, N}
+    ]
+    func Pullup(net, vcc) {
+        net - this{1}
+        this{2} - vcc
+        return net
+    }
+}
 module top {
     io SCL, SDA
     RES(10k).Pullup(SCL, SDA)

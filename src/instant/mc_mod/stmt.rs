@@ -63,26 +63,23 @@ impl McModuleInst {
             return Ok(());
         }
 
-        // ── Root cause C: detect `.Cap(_, _)` chain shunt before the member
-        // loop so the §11.6 defer flag also covers normal processing ──
+        // ── Root cause C: detect `.Cap([a, b])` chain shunt before the member
+        // loop so the vector-shunt series goes through wire_chain_with_shunts ──
         let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
         let has_shunt = shunt.iter().any(|&s| s);
         if has_shunt {
-            // §11.6: `.Cap(_, _)` defers BOTH pin bindings to the outer chain
-            // (no implicit GND). Set the defer flag for the whole series so
-            // wire_builtin_twopin does not E4176 the empty-target call during
-            // the normal member loop; wire_chain_with_shunts wires both pins.
-            return self.with_twopin_defer(true, |this| {
-                this.process_series_members(&members, &shunt, dir)
-            });
+            // §11.6: the `.Cap([a, b])` member defers BOTH pin bindings to the
+            // outer chain; wire_chain_with_shunts wires the pass-through lanes
+            // and the cap pins from the explicit vector members.
+            return self.process_series_members(&members, &shunt, dir);
         }
         self.process_series_members(&members, &shunt, dir)
     }
 
     /// Process a flattened series' members: P2-5 expansion, normal member loop,
     /// chain-shunt wiring, lane-by-lane wiring, and adjacent pairing. `shunt` is
-    /// the chain-shunt bitmap computed by `process_stmt`; the caller has already
-    /// set the §11.6 `defer_twopin_placeholders` flag when the series is a shunt.
+    /// the chain-shunt bitmap computed by `process_stmt`; the shunt members are
+    /// wired by `wire_chain_with_shunts` after the normal member loop.
     fn process_series_members(
         &mut self,
         members: &[McPhrase],
@@ -105,8 +102,26 @@ impl McModuleInst {
         while i < members.len() {
             let (should_expand, n_items, fc_is_left) = match &members[i] {
                 McPhrase::Multiple(inner) if inner.len() > 1 => {
-                    if i + 1 < members.len() && Self::is_builtin_twopin_phrase(&members[i + 1]) {
-                        (true, inner.len(), false) // Multiple left, FuncCall right
+                    if i + 1 < members.len() {
+                        // ── P2-5 §8: arg-based detection — the FuncCall's
+                        // folded Set arg carries this bus as a MEMBER (a `_`
+                        // placeholder in the Set filled by the `=>` prefix).
+                        // No method-name list: any method whose bus actual
+                        // lane-expands is handled here.
+                        let bus_actual = match &members[i + 1] {
+                            McPhrase::FuncCall(fc) => match Self::multiple_base_bus(inner) {
+                                Some(base_bus) => {
+                                    Self::fc_params_reference_bus_in_set(fc, &base_bus)
+                                }
+                                None => false,
+                            },
+                            _ => false,
+                        };
+                        if bus_actual {
+                            (true, inner.len(), false) // Multiple left, FuncCall right
+                        } else {
+                            (false, 0, false)
+                        }
                     } else {
                         (false, 0, false)
                     }
@@ -145,6 +160,17 @@ impl McModuleInst {
                     // skips the second (and subsequent) builtin twopin
                     // instantiations (e.g. I2C0 SCL+SDA Pullup only creates 1 RES).
                     Self::reset_phrase_ids(&mut fc_clone);
+                    // ── P2-5 fix: substitute the lane into the folded params so
+                    // each expanded call binds cleanly. `I2C0 => RES(10kΩ).Pullup([_, VDD])`
+                    // folds to `.Pullup([I2C0, VDD])`; per lane the bus `uC.I2C0`
+                    // inside the Set must become `uC.I2C0.SCL` (§5 lane expansion)
+                    // so the Pullup body wires pin2→VDD instead of leaving it
+                    // dangling on a failed bind.
+                    if let McPhrase::FuncCall(fc_ref) = &mut fc_clone {
+                        if let Some((base_bus, lane_name)) = Self::bus_lane_of(item) {
+                            Self::substitute_bus_in_fc_params(fc_ref, &base_bus, &lane_name);
+                        }
+                    }
                     let pair = if fc_is_left {
                         McPhrase::Series(vec![fc_clone, item.clone()], dir)
                     } else {
@@ -289,6 +315,87 @@ impl McModuleInst {
 
     fn is_uscore_param(p: &McParamValue) -> bool {
         matches!(p, McParamValue::NONE(_)) || matches!(p, McParamValue::Opd(McOpd::Uscore))
+    }
+
+    /// unified-twopin-no-builtin v2.0: the library func is the only
+    /// implementation of `.Cap/.Pullup/.Pulldown`; this name check only gates
+    /// the P1-D legacy fallback for builtin-named calls that ordinary method
+    /// dispatch (Iter-2.2) could not handle. Cap is strict-case (a CMIE class
+    /// `CAP` construction must not be intercepted); Pullup/Pulldown are
+    /// case-insensitive (bare-call alias `RES(..).PULLUP(..)`).
+    fn is_builtin_twopin_net_fn(name: &str) -> bool {
+        let last = name.rsplit('.').next().unwrap_or("");
+        if last == "Cap" {
+            return true;
+        }
+        let u = last.to_uppercase();
+        matches!(u.as_str(), "PULLUP" | "PULLDOWN")
+    }
+
+    /// True when every actual parameter is a `_` placeholder (possibly nested
+    /// in a Set/list), i.e. the call carries no explicit network endpoint
+    /// (§11.6). `.Cap(_)` / `.Cap(_, _)` / `.Cap([_, _])` all qualify. These
+    /// must not dispatch as a method — binding `_` to a formal would emit
+    /// garbage nets. The folded chain-shunt form (`[A,B] => CAP(..).Cap(_)`)
+    /// has already been rewritten to `.Cap([A, B])` (non-placeholder) and
+    /// dispatches normally.
+    fn is_all_placeholder_params(params: &[McParamValue]) -> bool {
+        !params.is_empty() && params.iter().all(Self::is_placeholder_param)
+    }
+
+    fn is_placeholder_param(p: &McParamValue) -> bool {
+        match p {
+            McParamValue::NONE(_) => true,
+            McParamValue::Opd(McOpd::Uscore) => true,
+            McParamValue::Set(vals) => {
+                !vals.is_empty() && vals.iter().all(Self::is_placeholder_param)
+            }
+            _ => false,
+        }
+    }
+
+    /// unified-twopin-no-builtin v2.0: dispatch a builtin-named twopin call
+    /// (`.Cap/.Pullup/.Pulldown`) as an ordinary method on the resolved
+    /// instance — the library func is the only implementation. Looks up the
+    /// func in the instance's component/sub-module def and calls
+    /// `instantiate_instance_method` (arity guard mirrors Iter-2.2). Returns
+    /// true when dispatched; false when the instance has no such func or the
+    /// arity guard rejects the call (the caller falls through to the generic
+    /// FuncCall path).
+    fn dispatch_twopin_as_method(
+        &mut self,
+        inst_name: &str,
+        fc: &crate::semantic::basic::mc_fcall::McFuncCall,
+        key: u32,
+    ) -> Result<bool, InstError> {
+        let func_name_str = fc.func_name.to_string();
+        let func_def = self
+            .components
+            .iter()
+            .find(|c| c.name == inst_name)
+            .and_then(|c| c.def.funcs.find(&func_name_str).cloned())
+            .or_else(|| {
+                self.sub_modules
+                    .iter()
+                    .find(|m| m.name == inst_name)
+                    .and_then(|m| m.def.funcs.find(&func_name_str).cloned())
+            });
+        let Some(func_def) = func_def else {
+            return Ok(false);
+        };
+        let func_arity = func_def.params.iter().count();
+        let call_arity = fc.params.len();
+        if (func_arity > 0 && call_arity > 0) || (func_arity == 0 && call_arity == 0) {
+            let result = self.instantiate_instance_method(
+                inst_name, &func_def, &fc.params, &fc.left, &fc.right,
+            )?;
+            if matches!(result, FuncCallInst::PassThrough) {
+                self.auto_inst_map.insert(key, inst_name.to_string());
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     fn shunt_chain_points(&mut self, m: &McPhrase, right_side: bool) -> Vec<NetPoint> {
@@ -560,16 +667,98 @@ impl McModuleInst {
         }
     }
 
-    /// P2-5: Check if a phrase is a builtin twopin FuncCall that should be expanded
-    /// when adjacent to a multi-member bus (Pullup/Pulldown only, NOT Cap).
-    fn is_builtin_twopin_phrase(member: &McPhrase) -> bool {
-        match member {
-            McPhrase::FuncCall(fc) => {
-                let name = fc.func_name.to_string();
-                let last = name.rsplit('.').next().unwrap_or(&name);
-                last.eq_ignore_ascii_case("Pullup") || last.eq_ignore_ascii_case("Pulldown")
-            }
+    /// ── P2-5 §8: arg-based lane-expansion detection (no builtin-name lists) ──
+    /// The decision to lane-expand a FuncCall rests entirely on its actuals:
+    /// the multi-member bus is present as a Set MEMBER (a `_` placeholder the
+    /// `=>` prefix filled), never on what the method is called.
+    ///
+    /// Base bus of a multi-member `Multiple` — derived from the first lane's
+    /// dotted name (`uC.I2C0.SCL` → `uC.I2C0`). The FuncCall is expanded iff
+    /// that bus shows up inside one of its Set actuals.
+    fn multiple_base_bus(inner: &[McPhrase]) -> Option<String> {
+        Self::bus_lane_of(inner.first()?).map(|(base, _)| base)
+    }
+
+    fn fc_params_reference_bus_in_set(
+        fc: &crate::semantic::basic::mc_fcall::McFuncCall,
+        base_bus: &str,
+    ) -> bool {
+        fc.params
+            .iter()
+            .any(|p| Self::param_references_bus_in_set(p, base_bus))
+    }
+
+    /// True when `base_bus` appears as a Set member (not as a whole top-level
+    /// value). A whole-value bus (e.g. `Cap(V3V3)` where the bus fills the
+    /// entire Set formal) is handled by `align_vector_bindings` instead, and
+    /// must NOT trigger lane expansion here.
+    fn param_references_bus_in_set(p: &McParamValue, base_bus: &str) -> bool {
+        match p {
+            McParamValue::Set(vs) => vs.iter().any(|v| match v {
+                McParamValue::Opd(McOpd::Id(ids)) => ids.to_string() == base_bus,
+                McParamValue::Set(_) => Self::param_references_bus_in_set(v, base_bus),
+                _ => false,
+            }),
             _ => false,
+        }
+    }
+
+    /// ── P2-5 lane substitution ────────────────────────────────────────────
+    /// Extract (base_bus, lane_name) from a lane endpoint phrase. P2-5's
+    /// `inner` Multiple holds per-member bus endpoints produced by
+    /// `expand_multi_member_buses` (e.g. `Bus("uC.I2C0.SCL")` →
+    /// `("uC.I2C0", "SCL")`). Returns None for anything that is not such a
+    /// dotted bus lane.
+    fn bus_lane_of(phrase: &McPhrase) -> Option<(String, String)> {
+        if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Bus(bus),
+            ..
+        })) = phrase
+        {
+            let name = &bus.name;
+            let dot = name.rfind('.')?;
+            let (base, lane) = name.split_at(dot);
+            let lane = &lane[1..];
+            if !base.is_empty() && !lane.is_empty() {
+                return Some((base.to_string(), lane.to_string()));
+            }
+        }
+        None
+    }
+
+    /// Replace every `base_bus` reference in the FuncCall's params with the
+    /// lane endpoint `base_bus.lane_name` (e.g. `uC.I2C0` → `uC.I2C0.SCL`),
+    /// recursing into Sets so a folded `[I2C0, VDD]` actual becomes
+    /// `[I2C0.SCL, VDD]` for the per-lane expanded call.
+    fn substitute_bus_in_fc_params(
+        fc: &mut crate::semantic::basic::mc_fcall::McFuncCall,
+        base_bus: &str,
+        lane_name: &str,
+    ) {
+        let lane_ids =
+            crate::semantic::basic::mc_ids::McIds::from(format!("{base_bus}.{lane_name}").as_str());
+        for p in fc.params.iter_mut() {
+            Self::substitute_bus_in_param_value(p, base_bus, &lane_ids);
+        }
+    }
+
+    fn substitute_bus_in_param_value(
+        p: &mut McParamValue,
+        base_bus: &str,
+        lane_ids: &crate::semantic::basic::mc_ids::McIds,
+    ) {
+        match p {
+            McParamValue::Opd(McOpd::Id(ids)) => {
+                if ids.to_string() == base_bus {
+                    *ids = lane_ids.clone();
+                }
+            }
+            McParamValue::Set(vs) => {
+                for v in vs.iter_mut() {
+                    Self::substitute_bus_in_param_value(v, base_bus, lane_ids);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1014,6 +1203,36 @@ impl McModuleInst {
         }
     }
 
+    /// Is `name` (of the form `owner.port`) a same-name component pin group?
+    ///
+    /// A same-name group is a bus port whose resolved pins ALL carry the same
+    /// member name — either all empty (`spk{GND}`) or all explicitly identical
+    /// (`ps [19,32,48,64] = VDD` → every pad named "VDD"). In vector circuits a
+    /// same-name pin is taken once, not once per pad (same-name-pin-group.md §2):
+    /// it is a single logical net and counts as ONE lane in shape computation
+    /// (vec-dianlu.md §5.2). Distinct-member buses (SPI.CS / SPI.SCLK / …) are
+    /// NOT same-name groups and stay multi-lane. `name` that isn't a component
+    /// port at all returns false.
+    fn is_same_name_component_group(&self, name: &str) -> bool {
+        let Some((owner, port)) = name.split_once('.') else {
+            return false;
+        };
+        if port.contains('.') {
+            return false;
+        }
+        let Some(comp) = self.find_component(owner) else {
+            return false;
+        };
+        let Some(pids) = comp.find_bus_port_pin_ids(port) else {
+            return false;
+        };
+        if pids.len() < 2 {
+            return false;
+        }
+        let first = &pids[0].0;
+        pids.iter().all(|(m, _)| m == first)
+    }
+
     /// Convert McPhrase to expanded McPhrase list
     /// Series is recursively expanded to individual member McPhrases
     pub(super) fn phrase_to_members(&self, phrase: &McPhrase) -> Vec<McPhrase> {
@@ -1369,6 +1588,21 @@ impl McModuleInst {
                 };
 
                 if members.len() > 1 {
+                    // ── Same-name component pin group: ONE lane, not N ──
+                    // `U1B.VDD` with members [19,32,48,64] are the physical pads
+                    // of a same-name pin group (`ps [19,32,48,64] = VDD`): every
+                    // pad carries the same member name "VDD". In vector circuits
+                    // a same-name pin is taken once, not once per pad
+                    // (same-name-pin-group.md §2) — that is the basic rule for
+                    // shape computation (vec-dianlu.md §5.2). Do NOT expand to a
+                    // Multiple of pin lanes; keep the bare Bus so point resolution
+                    // routes it through expand_port_lanes, which collapses the
+                    // group to a single logical point carrying the pads.
+                    if self.is_same_name_component_group(&data.name) {
+                        return vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McInstance::Bus(McBus::new(&data.name)),
+                        )))];
+                    }
                     mcc_dbg!(
                         "inst::mod",
                         "[P2-5-BUS] module='{}' expanding bus '{}' to Multiple with members {:?}",
@@ -2387,6 +2621,24 @@ impl McModuleInst {
         Ok(())
     }
 
+    /// Store the result of a PassThrough method expansion in auto_inst_map.
+    /// `instantiate_instance_method` encodes the func's return value into
+    /// LAST_RETURN_ENDPOINT (`@@RETURN_EP:` / `@@RETURN_NETS:`) when the func
+    /// returns an endpoint; consume it here so later chain members resolve
+    /// their face from the func's return value. Without this the plain
+    /// instance name is stored and the return face degenerates to the
+    /// instance's own pins (e.g. `XTAL4.Setup(...) -> [U2.XIN, U2.XOUT]`
+    /// would see only the NC pin instead of the 2-lane XTAL{X1,X2} return).
+    fn stash_pass_through(&mut self, key: u32, inst_name: &str) {
+        let return_ep = super::fcallinst::LAST_RETURN_ENDPOINT
+            .with(|cell| cell.borrow_mut().take());
+        if let Some(encoded) = return_ep {
+            self.auto_inst_map.insert(key, encoded);
+        } else {
+            self.auto_inst_map.insert(key, inst_name.to_string());
+        }
+    }
+
     pub(super) fn process_member_internal(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
         match phrase {
             McPhrase::Parallel(stmts) => {
@@ -2727,83 +2979,141 @@ impl McModuleInst {
                 // funcs tables may have empty-shell methods of the same name,
                 // once entered will be treated as "Instance method has no
                 // parsed stmts", completely losing builtin wiring.
-                if !Self::is_builtin_twopin_net_fn(&fc.func_name.to_string()) {
-                    if let Some(caller_box) = &fc.caller {
-                        if let Some(inst_name) = Self::extract_caller_inst_name(caller_box.as_ref())
-                        {
-                            let func_name_str = fc.func_name.to_string();
+                // ── All-`_` placeholder twopin calls ─────────────────────
+                // `.Cap(_)` / `.Cap([_, _])` carry no explicit endpoint;
+                // dispatching them would bind `_` to a Multiple formal and
+                // emit garbage nets. §11.6: placeholders do not implicitly
+                // connect to GND. (The folded chain-shunt form `[A,B] =>
+                // CAP(..).Cap(_)` has already become `.Cap([A, B])` and
+                // dispatches normally.)
+                if Self::is_all_placeholder_params(&fc.params) {
+                    let reason = format!(
+                        "'{}' has only `_` placeholder arguments and no network \
+                         endpoints; placeholders do not implicitly connect to \
+                         GND (§11.6)",
+                        fc.func_name
+                    );
+                    crate::db::diagnostic::diagnostic::diagnostic_log(
+                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        0,
+                        0,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::INST_PARAM_BIND_FAILED,
+                            &[
+                                &fc.func_name.to_string(),
+                                &fc.func_name.to_string(),
+                                &reason,
+                            ],
+                        ),
+                        &[],
+                    );
+                    return Ok(());
+                }
 
-                            // Component instance method
-                            let comp_func = self
-                                .components
-                                .iter()
-                                .find(|c| c.name == inst_name)
-                                .and_then(|c| c.def.funcs.find(&func_name_str).cloned());
-                            if let Some(func_def) = comp_func {
-                                // arity guard: only dispatch when formals and
-                                // actuals agree (mirrors the dotted-chain guard
-                                // below). A no-arg method called with args would
-                                // otherwise silently drop the args and wrongly
-                                // expand the body.
-                                let func_arity = func_def.params.iter().count();
-                                let call_arity = fc.params.len();
-                                if (func_arity > 0 && call_arity > 0)
-                                    || (func_arity == 0 && call_arity == 0)
-                                {
-                                    let key = Self::member_key(phrase);
-                                    let result = self.instantiate_instance_method(
-                                        &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
-                                    )?;
-                                    if matches!(result, FuncCallInst::PassThrough) {
-                                        self.auto_inst_map.insert(key, inst_name.clone());
+                // ── Iter-2.2: ordinary instance-method dispatch ──────────
+                // Runs for ALL method calls including `.Cap/.Pullup/.Pulldown`
+                // — the library func (`func Cap([net1, net2])` etc.) is now the
+                // only implementation (unified-twopin-no-builtin v2.0). If the
+                // caller's component/sub-module def declares the func, dispatch
+                // via instantiate_instance_method. The auto_inst_map caller
+                // fallback below resolves `CAP(100nF)` constructions whose
+                // instance is registered under the construction's own key.
+                if let Some(caller_box) = &fc.caller {
+                    // ── Iter-2.2 (Finding-A): auto_inst_map caller fallback ──
+                    // `extract_caller_inst_name` on a caller-less construction
+                    // FuncCall (`mic(V3V3)`, `DIO.ESD(5V)`) returns the *class*
+                    // name ("mic", "DIO.ESD"), which is not a declared instance
+                    // (construction created `_MIC1` / `_DIO_ESD1`). The caller
+                    // chain recursion above already registered the created
+                    // instance under member_key(caller); look it up so methods
+                    // dispatch onto the constructed instance.
+                    let mut inst_name = Self::extract_caller_inst_name(caller_box.as_ref());
+                    if let Some(nm) = &inst_name {
+                        let known = self.components.iter().any(|c| c.name == *nm)
+                            || self.sub_modules.iter().any(|m| m.name == *nm);
+                        if !known {
+                            if let McPhrase::FuncCall(caller_fc) = caller_box.as_ref() {
+                                if let Some(real) = self.auto_inst_map.get(&caller_fc.id).cloned() {
+                                    if !real.starts_with("@@") {
+                                        inst_name = Some(real);
                                     }
-                                    return Ok(());
                                 }
                             }
+                        }
+                    }
+                    if let Some(inst_name) = inst_name {
+                        let func_name_str = fc.func_name.to_string();
 
-                            // Sub-module instance method
-                            let sub_func = self
-                                .sub_modules
-                                .iter()
-                                .find(|m| m.name == inst_name)
-                                .and_then(|m| m.def.funcs.find(&func_name_str).cloned());
-                            if let Some(func_def) = sub_func {
-                                // arity guard (mirrors the component-method and
-                                // dotted-chain guards): don't dispatch a no-arg
-                                // method called with args.
-                                let func_arity = func_def.params.iter().count();
-                                let call_arity = fc.params.len();
-                                if (func_arity > 0 && call_arity > 0)
-                                    || (func_arity == 0 && call_arity == 0)
-                                {
-                                    let key = Self::member_key(phrase);
-                                    let result = self.instantiate_instance_method(
-                                        &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
-                                    )?;
-                                    if matches!(result, FuncCallInst::PassThrough) {
-                                        self.auto_inst_map.insert(key, inst_name.clone());
-                                    }
-                                    return Ok(());
+                        // Component instance method
+                        let comp_func = self
+                            .components
+                            .iter()
+                            .find(|c| c.name == inst_name)
+                            .and_then(|c| c.def.funcs.find(&func_name_str).cloned());
+                        if let Some(func_def) = comp_func {
+                            // arity guard: only dispatch when formals and
+                            // actuals agree (mirrors the dotted-chain guard
+                            // below). A no-arg method called with args would
+                            // otherwise silently drop the args and wrongly
+                            // expand the body.
+                            let func_arity = func_def.params.iter().count();
+                            let call_arity = fc.params.len();
+                            if (func_arity > 0 && call_arity > 0)
+                                || (func_arity == 0 && call_arity == 0)
+                            {
+                                let key = Self::member_key(phrase);
+                                let result = self.instantiate_instance_method(
+                                    &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
+                                )?;
+                                if matches!(result, FuncCallInst::PassThrough) {
+                                    self.stash_pass_through(key, &inst_name);
                                 }
+                                return Ok(());
                             }
+                        }
 
-                            // ── P1 fix: dotted scope-chain drill down ──────────────
-                            // inst_name like "mcu.uC" → look up
-                            // components["uC"].funcs["i2c"] in sub_modules["mcu"].
-                            // This handles the dispatch path after `uC.i2c(0x36)` in
-                            // func body is prefixed to `mcu.uC.i2c(0x36)`.
-                            if inst_name.contains('.') {
-                                let segs: Vec<&str> = inst_name.split('.').collect();
-                                if segs.len() >= 2 {
-                                    // Try sub_modules[seg0].components[seg1].funcs[func]
-                                    if let Some(sub) =
-                                        self.sub_modules.iter().find(|m| m.name == segs[0])
-                                    {
-                                        let inner_comp_func = sub
-                                            .components
-                                            .iter()
-                                            .find(|c| c.name == segs[1])
-                                            .and_then(|c| {
+                        // Sub-module instance method
+                        let sub_func = self
+                            .sub_modules
+                            .iter()
+                            .find(|m| m.name == inst_name)
+                            .and_then(|m| m.def.funcs.find(&func_name_str).cloned());
+                        if let Some(func_def) = sub_func {
+                            // arity guard (mirrors the component-method and
+                            // dotted-chain guards): don't dispatch a no-arg
+                            // method called with args.
+                            let func_arity = func_def.params.iter().count();
+                            let call_arity = fc.params.len();
+                            if (func_arity > 0 && call_arity > 0)
+                                || (func_arity == 0 && call_arity == 0)
+                            {
+                                let key = Self::member_key(phrase);
+                                let result = self.instantiate_instance_method(
+                                    &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
+                                )?;
+                                if matches!(result, FuncCallInst::PassThrough) {
+                                    self.stash_pass_through(key, &inst_name);
+                                }
+                                return Ok(());
+                            }
+                        }
+
+                        // ── P1 fix: dotted scope-chain drill down ──────────────
+                        // inst_name like "mcu.uC" → look up
+                        // components["uC"].funcs["i2c"] in sub_modules["mcu"].
+                        // This handles the dispatch path after `uC.i2c(0x36)` in
+                        // func body is prefixed to `mcu.uC.i2c(0x36)`.
+                        if inst_name.contains('.') {
+                            let segs: Vec<&str> = inst_name.split('.').collect();
+                            if segs.len() >= 2 {
+                                // Try sub_modules[seg0].components[seg1].funcs[func]
+                                if let Some(sub) =
+                                    self.sub_modules.iter().find(|m| m.name == segs[0])
+                                {
+                                    let inner_comp_func =
+                                        sub.components.iter().find(|c| c.name == segs[1]).and_then(
+                                            |c| {
                                                 let f = c.def.funcs.find(&func_name_str)?;
                                                 // arity guard
                                                 let func_arity = f.params.iter().count();
@@ -2815,125 +3125,120 @@ impl McModuleInst {
                                                 } else {
                                                     None
                                                 }
-                                            });
-                                        if let Some(func_def) = inner_comp_func {
-                                            let key = Self::member_key(phrase);
-                                            let result = self.instantiate_instance_method(
-                                                &inst_name, &func_def, &fc.params, &fc.left,
-                                                &fc.right,
-                                            )?;
-                                            if matches!(result, FuncCallInst::PassThrough) {
-                                                self.auto_inst_map.insert(key, inst_name.clone());
-                                            }
-                                            return Ok(());
+                                            },
+                                        );
+                                    if let Some(func_def) = inner_comp_func {
+                                        let key = Self::member_key(phrase);
+                                        let result = self.instantiate_instance_method(
+                                            &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
+                                        )?;
+                                        if matches!(result, FuncCallInst::PassThrough) {
+                                            self.stash_pass_through(key, &inst_name);
                                         }
+                                        return Ok(());
                                     }
+                                }
 
-                                    // Try sub_modules[seg0].sub_modules[seg1].funcs[func]
-                                    if let Some(sub) =
-                                        self.sub_modules.iter().find(|m| m.name == segs[0])
-                                    {
-                                        let inner_sub_func = sub
-                                            .sub_modules
-                                            .iter()
-                                            .find(|m| m.name == segs[1])
-                                            .and_then(|m| {
-                                                m.def.funcs.find(&func_name_str).cloned()
-                                            });
-                                        if let Some(func_def) = inner_sub_func {
-                                            let key = Self::member_key(phrase);
-                                            let result = self.instantiate_instance_method(
-                                                &inst_name, &func_def, &fc.params, &fc.left,
-                                                &fc.right,
-                                            )?;
-                                            if matches!(result, FuncCallInst::PassThrough) {
-                                                self.auto_inst_map.insert(key, inst_name.clone());
-                                            }
-                                            return Ok(());
+                                // Try sub_modules[seg0].sub_modules[seg1].funcs[func]
+                                if let Some(sub) =
+                                    self.sub_modules.iter().find(|m| m.name == segs[0])
+                                {
+                                    let inner_sub_func = sub
+                                        .sub_modules
+                                        .iter()
+                                        .find(|m| m.name == segs[1])
+                                        .and_then(|m| m.def.funcs.find(&func_name_str).cloned());
+                                    if let Some(func_def) = inner_sub_func {
+                                        let key = Self::member_key(phrase);
+                                        let result = self.instantiate_instance_method(
+                                            &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
+                                        )?;
+                                        if matches!(result, FuncCallInst::PassThrough) {
+                                            self.stash_pass_through(key, &inst_name);
                                         }
+                                        return Ok(());
                                     }
                                 }
                             }
+                        }
 
-                            // ── Iter-6.S4 ────────────────────────────────────
-                            // Chained call fallback: caller has been successfully
-                            // resolved as some known instance (component / sub_module),
-                            // but the called method does not **exist** in that
-                            // instance type's funcs table.
-                            //
-                            // Typical scenario (main.mc:34):
-                            //   `mcu.setup(V3V3, V1V2).add_caps().i2c().do_flash(flash)`
-                            // These 4 methods are currently not defined in the module.
-                            //
-                            // Before fix: fall through to `instantiate_funccall` below,
-                            //         treated as globally unknown class, generates
-                            //         `@?add_caps_1` style stubs, polluting components list
-                            //         + silently swallowing errors (iter6 P0-1).
-                            // After fix: explicit warning + skip.
-                            //   - Don't construct stub, don't call instantiate_funccall;
-                            //   - **Don't** write auto_inst_map (see Iter-6.S4.2 fix note).
-                            //
-                            // Each layer on the chain will individually fall to here
-                            // (4 warnings), letting the author immediately see the
-                            // complete "undefined method" list.
-                            //
-                            // ── Iter-6.S4.2 removed the original auto_inst_map.insert ────────
-                            // Originally there was a line here
-                            // `self.auto_inst_map.insert(key, inst_name)`, intent was
-                            // "in case this chain isn't an isolated line but participates
-                            // in adjacency, get_left/right_points can also resolve ports
-                            // from inst_name".
-                            //
-                            // Tests found this insert triggers a **stale entry bug from
-                            // pointer reuse**:
-                            //   1. do_flash chain's 4 layers each insert one
-                            //      auto_inst_map[layer_phrase_addr] = "mcu"
-                            //   2. After that line's process_stmt returns, the 4 McPhrase
-                            //      nodes' memory is freed
-                            //   3. When next line `mic(V3V3).MIC -> ...` is parsed, new
-                            //      McPhrase is allocated on the heap, at least one new
-                            //      address happens to land on the just-freed old address
-                            //   4. resolve_funccall_right(mic FuncCall) uses the new
-                            //      address to query map, **hits stale entry** "mcu"
-                            //      → mic is incorrectly parsed as mcu's output port
-                            //   5. Eventually mic.MIC and mcu's internal MIC/DAC_OUT/
-                            //      SPK_MUTE three independent signals short into a 5-endpoint
-                            //      super net
-                            //
-                            // Since the chain in the example project is actually an isolated line, the
-                            // assumption in (b) doesn't happen; and outer's parsing in
-                            // (a) actually comes from extract_caller_inst_name going
-                            // through FuncCall recursion (Iter-6.S2) to derive along
-                            // structure, no map needed.
-                            //
-                            // Fix: directly remove the insert. Chain layer fallback
-                            // no longer writes to the map.
-                            //
-                            // Note: the pointer reuse risk from auto_inst_map being
-                            // persistent across process_stmt is not further aggravated
-                            // here, the root fix is Iter-6.S4.3 adding per-line clear in
-                            // phases.rs's instantiate_stmts_resilient.
-                            let inst_is_component =
-                                self.components.iter().any(|c| c.name == inst_name);
-                            let inst_is_submodule =
-                                self.sub_modules.iter().any(|m| m.name == inst_name);
-                            if inst_is_component || inst_is_submodule {
-                                let owner_kind = if inst_is_component {
-                                    "component"
-                                } else {
-                                    "sub-module"
-                                };
-                                self.record_warning(
+                        // ── Iter-6.S4 ────────────────────────────────────
+                        // Chained call fallback: caller has been successfully
+                        // resolved as some known instance (component / sub_module),
+                        // but the called method does not **exist** in that
+                        // instance type's funcs table.
+                        //
+                        // Typical scenario (main.mc:34):
+                        //   `mcu.setup(V3V3, V1V2).add_caps().i2c().do_flash(flash)`
+                        // These 4 methods are currently not defined in the module.
+                        //
+                        // Before fix: fall through to `instantiate_funccall` below,
+                        //         treated as globally unknown class, generates
+                        //         `@?add_caps_1` style stubs, polluting components list
+                        //         + silently swallowing errors (iter6 P0-1).
+                        // After fix: explicit warning + skip.
+                        //   - Don't construct stub, don't call instantiate_funccall;
+                        //   - **Don't** write auto_inst_map (see Iter-6.S4.2 fix note).
+                        //
+                        // Each layer on the chain will individually fall to here
+                        // (4 warnings), letting the author immediately see the
+                        // complete "undefined method" list.
+                        //
+                        // ── Iter-6.S4.2 removed the original auto_inst_map.insert ────────
+                        // Originally there was a line here
+                        // `self.auto_inst_map.insert(key, inst_name)`, intent was
+                        // "in case this chain isn't an isolated line but participates
+                        // in adjacency, get_left/right_points can also resolve ports
+                        // from inst_name".
+                        //
+                        // Tests found this insert triggers a **stale entry bug from
+                        // pointer reuse**:
+                        //   1. do_flash chain's 4 layers each insert one
+                        //      auto_inst_map[layer_phrase_addr] = "mcu"
+                        //   2. After that line's process_stmt returns, the 4 McPhrase
+                        //      nodes' memory is freed
+                        //   3. When next line `mic(V3V3).MIC -> ...` is parsed, new
+                        //      McPhrase is allocated on the heap, at least one new
+                        //      address happens to land on the just-freed old address
+                        //   4. resolve_funccall_right(mic FuncCall) uses the new
+                        //      address to query map, **hits stale entry** "mcu"
+                        //      → mic is incorrectly parsed as mcu's output port
+                        //   5. Eventually mic.MIC and mcu's internal MIC/DAC_OUT/
+                        //      SPK_MUTE three independent signals short into a 5-endpoint
+                        //      super net
+                        //
+                        // Since the chain in the example project is actually an isolated line, the
+                        // assumption in (b) doesn't happen; and outer's parsing in
+                        // (a) actually comes from extract_caller_inst_name going
+                        // through FuncCall recursion (Iter-6.S2) to derive along
+                        // structure, no map needed.
+                        //
+                        // Fix: directly remove the insert. Chain layer fallback
+                        // no longer writes to the map.
+                        //
+                        // Note: the pointer reuse risk from auto_inst_map being
+                        // persistent across process_stmt is not further aggravated
+                        // here, the root fix is Iter-6.S4.3 adding per-line clear in
+                        // phases.rs's instantiate_stmts_resilient.
+                        let inst_is_component = self.components.iter().any(|c| c.name == inst_name);
+                        let inst_is_submodule =
+                            self.sub_modules.iter().any(|m| m.name == inst_name);
+                        if inst_is_component || inst_is_submodule {
+                            let owner_kind = if inst_is_component {
+                                "component"
+                            } else {
+                                "sub-module"
+                            };
+                            self.record_warning(
+                                crate::errcodes::INST_CHAIN_LINK_SKIPPED,
+                                crate::errcodes::format_msg(
                                     crate::errcodes::INST_CHAIN_LINK_SKIPPED,
-                                    crate::errcodes::format_msg(
-                                        crate::errcodes::INST_CHAIN_LINK_SKIPPED,
-                                        &[&func_name_str, &owner_kind, &inst_name],
-                                    ),
-                                );
-                                // ── Iter-6.S4.2 ──
-                                // No longer self.auto_inst_map.insert(...) —— see comment above
-                                return Ok(());
-                            }
+                                    &[&func_name_str, &owner_kind, &inst_name],
+                                ),
+                            );
+                            // ── Iter-6.S4.2 ──
+                            // No longer self.auto_inst_map.insert(...) —— see comment above
+                            return Ok(());
                         }
                     }
                 }
@@ -2959,36 +3264,29 @@ impl McModuleInst {
                 // Below follows P1-D builtin twopin.
                 let key = Self::member_key(phrase);
 
-                // ── P1-D ────────────────────────────────────────────────
-                // Built-in chained wiring function: `.Cap(a, b)` / `.Pullup(a, b)` /
-                // `.Pulldown(a, b)`
-                // These are not global classes or user functions, but compile-time
-                // built-ins —— semantics: "take the 2-pin element constructed by the
-                // caller, connect its two pins out per args".
-                //
-                // Supported arg forms:
-                //   1 arg, 1-wide: pin1 → arg   (pin2 left for outer chain to continue;
-                //                                e.g. in `CAP(v).Cap(x) -> y`, y connects to pin2)
-                //   1 arg, 2-wide: pin1 → arg[0], pin2 → arg[1]
-                //                  (e.g. `.Cap(dcdc{Vin, GND})` or `.Cap([V, G])`)
-                //   2 args:        pin1 → args[0], pin2 → args[1]
-                //   `.Cap(_)`:     all args are `_`, not wired here, passed to outer chain
-                //
-                // After processing, point the outer key to the caller's 2-pin instance,
-                // so the chain `... -> CAP(v).Cap(x) -> ...` can find the component's
-                // left_pin/right_pin in resolve_funccall_*_points and continue properly.
+                // ── P1-D: legacy fallback for builtin-named twopin calls ──
+                // unified-twopin-no-builtin v2.0: the library func is the only
+                // implementation of `.Cap/.Pullup/.Pulldown`. Iter-2.2 above
+                // already dispatched the normal cases (caller resolves to a
+                // declared/constructed instance whose def declares the func).
+                // This fallback only handles the residual paths Iter-2.2 cannot
+                // reach:
+                //   - caller is a parse-time `Endpoint(Component(name))` (Iter-5.E)
+                //   - anonymous component construction embedded in the caller
+                //   - the caller phrase was transformed (type-based search)
+                // Each resolves the real instance and dispatches the method the
+                // same way Iter-2.2 does. If the resolved instance has no such
+                // func, `dispatch_twopin_as_method` returns false and the call
+                // falls through to the generic FuncCall path (there is no
+                // builtin to synthesize wiring anymore).
                 if Self::is_builtin_twopin_net_fn(&fc.func_name.to_string()) {
                     if let Some(caller_box) = &fc.caller {
                         let caller_key = Self::member_key(caller_box.as_ref());
                         let map_hit = self.auto_inst_map.get(&caller_key).cloned();
                         if let Some(caller_inst_name) = map_hit {
-                            self.wire_builtin_twopin(
-                                &caller_inst_name,
-                                &fc.params,
-                                &fc.func_name.to_string(),
-                            )?;
-                            self.auto_inst_map.insert(key, caller_inst_name);
-                            return Ok(());
+                            if self.dispatch_twopin_as_method(&caller_inst_name, fc, key)? {
+                                return Ok(());
+                            }
                         }
                         // ── Iter-5.E (Part 1) ─────────────────────────────────
                         // In the case where auto_inst_map doesn't hit, if the caller
@@ -3005,13 +3303,9 @@ impl McModuleInst {
                             if let McInstance::Component(c) = &ir.base {
                                 let caller_inst_name = c.name.to_string();
                                 if !caller_inst_name.is_empty() {
-                                    self.wire_builtin_twopin(
-                                        &caller_inst_name,
-                                        &fc.params,
-                                        &fc.func_name.to_string(),
-                                    )?;
-                                    self.auto_inst_map.insert(key, caller_inst_name);
-                                    return Ok(());
+                                    if self.dispatch_twopin_as_method(&caller_inst_name, fc, key)? {
+                                        return Ok(());
+                                    }
                                 } else if !c.params.is_empty() {
                                     // Anonymous component with params - instantiate it first
                                     let result = self.instantiate_component_construction(
@@ -3032,13 +3326,11 @@ impl McModuleInst {
                                             for conn in new_connections {
                                                 self.add_connection(conn);
                                             }
-                                            self.wire_builtin_twopin(
-                                                &inst_name,
-                                                &fc.params,
-                                                &fc.func_name.to_string(),
-                                            )?;
-                                            self.auto_inst_map.insert(key, inst_name);
-                                            return Ok(());
+                                            if self
+                                                .dispatch_twopin_as_method(&inst_name, fc, key)?
+                                            {
+                                                return Ok(());
+                                            }
                                         }
                                     }
                                 }
@@ -3071,13 +3363,9 @@ impl McModuleInst {
                                 })
                             }) {
                                 let caller_inst_name = comp.name.clone();
-                                self.wire_builtin_twopin(
-                                    &caller_inst_name,
-                                    &fc.params,
-                                    &fc.func_name.to_string(),
-                                )?;
-                                self.auto_inst_map.insert(key, caller_inst_name);
-                                return Ok(());
+                                if self.dispatch_twopin_as_method(&caller_inst_name, fc, key)? {
+                                    return Ok(());
+                                }
                             }
                         }
                     }
@@ -3151,12 +3439,12 @@ impl McModuleInst {
                             // (all caps, e.g. "CAP"); P0-4 stub also normalizes to
                             // the same namespace.
                             let class_name = fc.func_name.to_string();
-                            let last_seg = class_name.rsplit('.').next().unwrap_or("");
-                            let class_looking = class_name.contains('.')
-                                || last_seg
-                                    .chars()
-                                    .next()
-                                    .is_some_and(|c| c.is_ascii_uppercase());
+                            // ── P2-7-XTAL: strict full-name case-sensitive class
+                            // check (replaces first-letter-uppercase + contains('.')
+                            // heuristic). `Cap`/`Reset` are method names, not
+                            // classes → not class-looking. `CAP`, `DIO.ESD` are
+                            // registered classes → class-looking (stub/reuse).
+                            let class_looking = Self::is_registered_class_name(&class_name);
                             let caller_name = match &fc.caller {
                                 None => String::new(),
                                 Some(caller_box) => match caller_box.as_ref() {
@@ -3170,11 +3458,12 @@ impl McModuleInst {
                                     _ => String::new(),
                                 },
                             };
-                            let caller_looks_like_class = caller_name
-                                .chars()
-                                .next()
-                                .is_some_and(|c| c.is_ascii_uppercase())
-                                && !caller_name.chars().any(|c| c.is_ascii_digit());
+                            // ── P2-7-XTAL: strict full-name class check — an
+                            // instance name (Y2, R442) is never a registered
+                            // class, so the old uppercase-first + no-digit
+                            // heuristic is replaced by the exact CMIE lookup.
+                            let caller_looks_like_class =
+                                Self::is_registered_class_name(&caller_name);
                             let caller_unknown = caller_name.is_empty()
                                 || caller_looks_like_class
                                 || (!self.is_port(&caller_name)

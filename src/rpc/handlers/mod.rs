@@ -39,7 +39,7 @@ use crate::search_api::{walk_defs, SearchInputs, SearchKind};
 use crate::McURI;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -451,6 +451,68 @@ pub(crate) fn run_full_build_envelope(
     let instance_count = count_instance_json(pass2.get("instances"));
     let net_count = pass2["nets"].as_array().map(|v| v.len()).unwrap_or(0);
 
+    // ── Categorized statistics, mirroring `output/mod.rs` `render_envelope_text`
+    //    Summary block: namespace classes split system/project, the classes
+    //    actually instantiated (used) split system/project, and the instance
+    //    breakdown by kind. A class counts as *system* when it is defined only
+    //    in the system space — a same-named project definition shadows it. ──
+    let (ns_mod_sys, ns_mod_proj) = def_class_split(pass1["definitions"].get("modules"));
+    let (ns_comp_sys, ns_comp_proj) = def_class_split(pass1["definitions"].get("components"));
+    let (ns_iface_sys, ns_iface_proj) = def_class_split(pass1["definitions"].get("interfaces"));
+
+    let mut sys_mods = std::collections::HashSet::new();
+    let mut proj_mods = std::collections::HashSet::new();
+    let mut sys_comps = std::collections::HashSet::new();
+    let mut proj_comps = std::collections::HashSet::new();
+    for d in pass1["definitions"]["modules"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let name = d["name"].as_str().unwrap_or_default().to_string();
+        if d["uri"].as_str().map(is_system_uri).unwrap_or(false) {
+            sys_mods.insert(name);
+        } else {
+            proj_mods.insert(name);
+        }
+    }
+    for d in pass1["definitions"]["components"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let name = d["name"].as_str().unwrap_or_default().to_string();
+        if d["uri"].as_str().map(is_system_uri).unwrap_or(false) {
+            sys_comps.insert(name);
+        } else {
+            proj_comps.insert(name);
+        }
+    }
+    let mut used_modules = std::collections::BTreeSet::new();
+    let mut used_components = std::collections::BTreeSet::new();
+    let mut module_insts = 0usize;
+    let mut component_insts = 0usize;
+    tally_build_stats(
+        &inst,
+        &mut used_modules,
+        &mut used_components,
+        &mut module_insts,
+        &mut component_insts,
+    );
+    let is_system_class = |name: &str,
+                           system: &std::collections::HashSet<String>,
+                           project: &std::collections::HashSet<String>| {
+        system.contains(name) && !project.contains(name)
+    };
+    let used_modules_system = used_modules
+        .iter()
+        .filter(|n| is_system_class(n, &sys_mods, &proj_mods))
+        .count();
+    let used_components_system = used_components
+        .iter()
+        .filter(|n| is_system_class(n, &sys_comps, &proj_comps))
+        .count();
+
     let summary = json!({
         "module_count": module_count,
         "component_count": component_count,
@@ -460,6 +522,20 @@ pub(crate) fn run_full_build_envelope(
         "errors": errors,
         "warnings": warnings,
         "elapsed_ms": t0.elapsed().as_millis(),
+        "stats": {
+            "ns_modules_system": ns_mod_sys,
+            "ns_modules_project": ns_mod_proj,
+            "ns_components_system": ns_comp_sys,
+            "ns_components_project": ns_comp_proj,
+            "ns_interfaces_system": ns_iface_sys,
+            "ns_interfaces_project": ns_iface_proj,
+            "used_modules_system": used_modules_system,
+            "used_modules_project": used_modules.len() - used_modules_system,
+            "used_components_system": used_components_system,
+            "used_components_project": used_components.len() - used_components_system,
+            "module_insts": module_insts,
+            "component_insts": component_insts,
+        },
     });
 
     Ok(json!({
@@ -527,6 +603,45 @@ fn count_instance_json(node: Option<&Value>) -> usize {
         total += count_instance_json(Some(sub));
     }
     total
+}
+
+/// Count how many of a pass1 definition array live in the system space
+/// (`/mcode/`) vs the project. Returns `(system, project)`.
+fn def_class_split(arr: Option<&Value>) -> (usize, usize) {
+    let Some(arr) = arr.and_then(|v| v.as_array()) else {
+        return (0, 0);
+    };
+    let sys = arr
+        .iter()
+        .filter(|d| d["uri"].as_str().map(is_system_uri).unwrap_or(false))
+        .count();
+    (sys, arr.len() - sys)
+}
+
+/// Walk the instance tree, collecting per-kind instance counts and the distinct
+/// set of classes actually instantiated (mirrors `output/mod.rs` `tally_tree`).
+fn tally_build_stats(
+    node: &crate::MccProjectTree,
+    used_modules: &mut std::collections::BTreeSet<String>,
+    used_components: &mut std::collections::BTreeSet<String>,
+    module_insts: &mut usize,
+    component_insts: &mut usize,
+) {
+    *module_insts += 1;
+    *component_insts += node.components.len();
+    used_modules.insert(node.def.name.to_string());
+    for c in &node.components {
+        used_components.insert(c.def.name.to_string());
+    }
+    for sub in &node.sub_modules {
+        tally_build_stats(
+            sub,
+            used_modules,
+            used_components,
+            module_insts,
+            component_insts,
+        );
+    }
 }
 
 // ============================================================================
@@ -759,20 +874,44 @@ pub(crate) fn collect_pass2(top: &str, inst: &crate::MccProjectTree) -> Value {
 
 pub(crate) fn extract_connections(inst: &crate::MccProjectTree) -> Vec<Value> {
     let mut out = Vec::new();
-    walk_connections(inst, &mut out);
+    walk_connections(inst, "", &mut out);
     out
 }
 
-pub(crate) fn walk_connections(inst: &crate::MccProjectTree, out: &mut Vec<Value>) {
+/// Flatten the instance tree's connections into envelope rows. Each row carries
+/// its module scope (e.g. `main.speaker`) because connection ids and instance
+/// names repeat across modules — the CLI's `ConnectionEntry` requires it. The
+/// net name is resolved against this module's net table so every connection
+/// gets the same surviving name as the matching nets row (mirrors
+/// `cmds::parse::walk_connections`); the statement label is only a fallback.
+pub(crate) fn walk_connections(inst: &crate::MccProjectTree, scope: &str, out: &mut Vec<Value>) {
+    let my_scope = if scope.is_empty() {
+        inst.name.clone()
+    } else {
+        format!("{}.{}", scope, inst.name)
+    };
+    let mut point_to_net: HashMap<&str, &str> = HashMap::new();
+    for (net_name, points) in &inst.nets {
+        for p in points {
+            point_to_net.entry(p.path.as_str()).or_insert(net_name);
+        }
+    }
     for conn in &inst.connections {
+        let net_name = conn
+            .points
+            .iter()
+            .find_map(|p| point_to_net.get(p.path.as_str()).copied())
+            .map(str::to_string)
+            .or_else(|| conn.net_name.clone());
         out.push(json!({
             "id": conn.id,
-            "net_name": conn.net_name,
+            "module": my_scope,
+            "net_name": net_name,
             "points": conn.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
         }));
     }
     for sub in &inst.sub_modules {
-        walk_connections(sub, out);
+        walk_connections(sub, &my_scope, out);
     }
 }
 
@@ -825,17 +964,24 @@ pub(crate) fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
 
 pub(crate) fn extract_nets(inst: &crate::MccProjectTree) -> Vec<Value> {
     let mut nets = Vec::new();
-    walk_nets(inst, &mut nets);
+    walk_nets(inst, "", &mut nets);
     nets
 }
 
-pub(crate) fn walk_nets(inst: &crate::MccProjectTree, out: &mut Vec<Value>) {
+/// Flatten the instance tree's nets into envelope rows, each tagged with its
+/// module scope (`main.speaker`) as the CLI's `NetEntry` requires.
+pub(crate) fn walk_nets(inst: &crate::MccProjectTree, scope: &str, out: &mut Vec<Value>) {
+    let my_scope = if scope.is_empty() {
+        inst.name.clone()
+    } else {
+        format!("{}.{}", scope, inst.name)
+    };
     for (name, points) in inst.sorted_nets() {
         let points: Vec<String> = points.iter().map(|point| point.path.clone()).collect();
-        out.push(json!({ "name": name, "points": points }));
+        out.push(json!({ "module": my_scope, "name": name, "points": points }));
     }
     for sub in &inst.sub_modules {
-        walk_nets(sub, out);
+        walk_nets(sub, &my_scope, out);
     }
 }
 

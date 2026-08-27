@@ -357,9 +357,12 @@ impl McCode {
             }
 
             // ★ Push line_index onto thread-local stack so
-            // Location::new can resolve (line, col) for E1000 errors.
+            // Location::new can resolve (line, col) for both the E1000 error
+            // tokens and the structured parser dlog entries (mc_dlog_add).
             // At this point the file has not yet been inserted into
-            // WORKSPACE.mcodes (that happens in loader.rs step 5.5).
+            // WORKSPACE.mcodes (that happens in loader.rs step 5.5), so the
+            // thread-local stack is the only place the (line, col) can be
+            // resolved from byte offsets.
             if let Some(ref line_index) = self.line_index {
                 crate::db::infra::context::push_line_index(self.uri.clone(), line_index.clone());
             }
@@ -389,10 +392,6 @@ impl McCode {
                         .add_diagnostic(diagnostic);
                     err_ptr = err.next;
                 }
-            }
-
-            if self.line_index.is_some() {
-                crate::db::infra::context::pop_line_index();
             }
 
             // Collect structured diagnostics from parser (mc_dlog_add)
@@ -432,6 +431,12 @@ impl McCode {
                 }
             }
 
+            // Pop only after BOTH the error-token collection and the dlog
+            // collection above have converted byte positions to (line, col).
+            if self.line_index.is_some() {
+                crate::db::infra::context::pop_line_index();
+            }
+
             // Free the loaded content
             libc::free(fcontent_ptr as *mut libc::c_void);
 
@@ -466,6 +471,15 @@ impl McCode {
             return;
         }
 
+        // Build line index so Location::new can resolve (line, col) for the
+        // parser diagnostics emitted below (mirrors parse_ast).
+        unsafe {
+            let fcontent_cstr = std::ffi::CStr::from_ptr(fcontent_ptr as *mut i8);
+            if let Ok(fcontent) = fcontent_cstr.to_str() {
+                self.line_index = Some(LineIndex::new(fcontent));
+            }
+        }
+
         unsafe {
             crate::ast::c_bindings::mcc_reset(0);
 
@@ -484,6 +498,13 @@ impl McCode {
             let ast = AstNode::new(crate::ast::c_bindings::mcc_parse());
             if !ast.is_null() {
                 self.ast = ast;
+            }
+
+            // ★ Push line_index onto thread-local stack so Location::new can
+            // resolve (line, col) for both the E1000 error tokens and the
+            // structured parser dlog entries (mirrors parse_ast).
+            if let Some(ref line_index) = self.line_index {
+                crate::db::infra::context::push_line_index(self.uri.clone(), line_index.clone());
             }
 
             // Collect error tokens from parser and create diagnostics
@@ -546,6 +567,12 @@ impl McCode {
                         ),
                     }
                 }
+            }
+
+            // Pop only after BOTH the error-token collection and the dlog
+            // collection above have converted byte positions to (line, col).
+            if self.line_index.is_some() {
+                crate::db::infra::context::pop_line_index();
             }
 
             libc::free(fcontent_ptr as *mut libc::c_void);
@@ -742,6 +769,15 @@ impl McCode {
                 self.ast = ast;
             }
 
+            // ★ Push line_index onto thread-local stack so Location::new can
+            // resolve (line, col) for both the E1000 error tokens and the
+            // structured parser dlog entries. The file may not be in
+            // WORKSPACE.mcodes yet when parsed from memory, so the thread-local
+            // stack is the only place the (line, col) can be resolved.
+            if let Some(ref line_index) = self.line_index {
+                crate::db::infra::context::push_line_index(self.uri.clone(), line_index.clone());
+            }
+
             // Collect error tokens from parser and create diagnostics
             {
                 let mut err_ptr = crate::ast::c_bindings::mcc_get_error_tokens();
@@ -801,6 +837,12 @@ impl McCode {
                         ),
                     }
                 }
+            }
+
+            // Pop only after BOTH the error-token collection and the dlog
+            // collection above have converted byte positions to (line, col).
+            if self.line_index.is_some() {
+                crate::db::infra::context::pop_line_index();
             }
 
             libc::free(fcontent_ptr as *mut libc::c_void);

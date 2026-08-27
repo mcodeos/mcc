@@ -69,12 +69,27 @@ pub enum ReturnShape {
 
 /// ★ P4.1: Extract right-side buses from a McPhrase (for Endpoint return shape).
 /// Uses phrase's own `right` representation; for labels/buses, returns a descriptive bus.
-fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
+/// `pub(crate)`: instantiate_instance_method reuses it to encode the substituted
+/// return bus into `@@RETURN_NETS:` (func-return-design §7).
+pub(crate) fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
     match phrase {
         McPhrase::Endpoint(ep) => {
             // For endpoint return: derive bus from the endpoint type
             match ep {
                 McEndpoint::Single(ir) => {
+                    // A multi-member bus return (`return XTAL{X1, X2}`) is a
+                    // vector of N lanes — one per member (Pass2 emits one
+                    // `@@RETURN_EP` per member pin). Expand to per-member buses
+                    // so the Pass1 `->` opcheck counts N rows, not the 1*1
+                    // shorthand of the collapsed bus name.
+                    let bus = ir.to_bus();
+                    if bus.member.len() >= 2 {
+                        return bus
+                            .member
+                            .iter()
+                            .map(|m| McBus::new(&format!("{}.{}", bus.name, m)))
+                            .collect();
+                    }
                     let name = ir.to_string();
                     vec![McBus::new(&name)]
                 }
@@ -129,6 +144,43 @@ fn pre_param_to_label(v: &McParamValue) -> McPhrase {
             McOpd::Uscore => McPhrase::label("_".to_string()),
         },
         other => McPhrase::label(other.to_string()),
+    }
+}
+
+/// Does a param value contain a `_` placeholder, either bare or inside a
+/// Set (`[_, VDD]`)? Used to decide whether the `=>` prefix can fold into the
+/// placeholder position (§1: prefix fills the leading `_`).
+fn param_contains_uscore(p: &McParamValue) -> bool {
+    match p {
+        McParamValue::NONE(_) | McParamValue::Opd(McOpd::Uscore) => true,
+        McParamValue::Set(vs) => vs.iter().any(param_contains_uscore),
+        _ => false,
+    }
+}
+
+/// Replace the leading `_` placeholder in `p` with `prefix`, recursing into
+/// Sets so `[_, VDD]` + `I2C0` → `[I2C0, VDD]`. Returns (new_value, replaced).
+/// Only the FIRST placeholder in the parameter list is replaced — a later
+/// `_` (e.g. `.Pullup(VDD, _)`) keeps its open-slot meaning.
+fn fold_prefix_into_uscore(p: &McParamValue, prefix: &McParamValue) -> (McParamValue, bool) {
+    match p {
+        McParamValue::NONE(_) => (prefix.clone(), true),
+        McParamValue::Opd(McOpd::Uscore) => (prefix.clone(), true),
+        McParamValue::Set(vs) => {
+            let mut new_vs = Vec::with_capacity(vs.len());
+            let mut done = false;
+            for v in vs {
+                if done {
+                    new_vs.push(v.clone());
+                } else {
+                    let (nv, rep) = fold_prefix_into_uscore(v, prefix);
+                    new_vs.push(nv);
+                    done = rep;
+                }
+            }
+            (McParamValue::Set(new_vs), done)
+        }
+        _ => (p.clone(), false),
     }
 }
 
@@ -545,21 +597,18 @@ impl McFuncCall {
             // the chain's left port expands to the vector lanes (§1.2).
             let pre_label = pre_param_to_label(&pre_param);
 
-            // ── R3: `=>` fold unified rules ───────────────────────────────────────
+            // ── R3: `=>` fold unified rules (§1) ──────────────────────────────
+            // One rule, no method-name list: the `=>` prefix is an actual that
+            // fills the leading `_` placeholder position of the right-hand
+            // method call. All-placeholder → the prefix is the whole actual;
+            // a leading `_` (bare or inside a Set) → replace it in place; no
+            // placeholder → prepend (legacy keep).
             let is_uscore = |p: &McParamValue| {
                 matches!(p, McParamValue::NONE(_)) || matches!(p, McParamValue::Opd(McOpd::Uscore))
             };
-            let m_last = method_name_opt
-                .as_ref()
-                .map(|m| m.to_string())
-                .unwrap_or_default();
-            let m_last = m_last.rsplit('.').next().unwrap_or("").to_string();
-            let is_twopin = m_last == "Cap"
-                || m_last.eq_ignore_ascii_case("Pullup")
-                || m_last.eq_ignore_ascii_case("Pulldown");
             let all_ph = !method_params.is_empty() && method_params.iter().all(&is_uscore);
 
-            let all_method_params: Vec<McParamValue> = if is_twopin && all_ph {
+            let all_method_params: Vec<McParamValue> = if all_ph {
                 // (a) `.Cap(_)` + `=>` prefix → fold the prefix into the
                 // placeholder position (parameter prefixing, §1.2).
                 // `[V3V3, GND] => CAP(..).Cap(_)` → `.Cap([V3V3, GND])`,
@@ -571,16 +620,28 @@ impl McFuncCall {
                 // time (member[0] → pin1, member[1] → pin2, §11.6); a scalar
                 // prefix folds to `.Cap(SIG)` which is E4176 (strict arity).
                 vec![pre_param.clone()]
-            } else if is_twopin && method_params.iter().any(&is_uscore) {
-                // (b) `.Pullup(_, VDD)` / `.Cap(x, _)`:
-                // Keep `_` as-is — the chain processing (lane-by-lane expansion)
-                // will connect the signal to the correct pin. Replacing `_` with
-                // pre_param here is dangerous when pre_param is a Multi (e.g. I2C0
-                // with 2 members SCL/SDA): wire_builtin_twopin would get 3 targets
-                // (SCL, SDA, VDD) and drop VDD, shorting the Pullup.
-                method_params
+            } else if method_params.iter().any(&param_contains_uscore) {
+                // (b) `(_ , VDD)` / `([_, VDD])` / `(x, _)` on any method:
+                // The `=>` prefix fills the LEADING `_` placeholder (§1). A bare
+                // `_` is replaced outright; a `_` inside a Set is replaced in
+                // place so the folded call keeps ONE Set actual `[I2C0, VDD]`
+                // that binds whole to the Set formal (strict arity — actuals
+                // bind to formals, no auto-split). P2-5 then substitutes each
+                // bus lane into the folded Set for the per-lane calls.
+                let mut folded: Vec<McParamValue> = Vec::with_capacity(method_params.len());
+                let mut done = false;
+                for p in &method_params {
+                    if done {
+                        folded.push(p.clone());
+                    } else {
+                        let (np, rep) = fold_prefix_into_uscore(p, &pre_param);
+                        folded.push(np);
+                        done = rep;
+                    }
+                }
+                folded
             } else {
-                // (c) Non-two-pin: keep original prepend
+                // (c) No placeholder: keep original prepend
                 let mut v = vec![pre_param.clone()];
                 v.extend(method_params);
                 v

@@ -40,11 +40,11 @@ use super::mc_net::{
 };
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
-use crate::semantic::common::IOType;
+use crate::semantic::common::{IOType, McCMIE};
 use crate::semantic::mc_func::McFunction;
 use crate::semantic::module::McModule;
 use crate::vector::model::trunk::TrunkKind;
-use crate::{current_uri, McURI};
+use crate::{current_uri, McIds, McURI};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -159,15 +159,6 @@ pub struct McModuleInst {
     /// explicitly called from a parent module (e.g. `mcu.i2c()`).
     pub(super) auto_invoked_funcs: HashSet<String>,
 
-    /// §11.6 chain-shunt context: when set, `wire_builtin_twopin` defers a
-    /// `.Cap(_, _)` all-placeholder call (both endpoints provided by the outer
-    /// chain) instead of reporting E4176. Set for the whole series by
-    /// `process_series` when it detects a chain shunt; RAII save/restore via
-    /// `with_twopin_defer` so recursive `process_stmt` calls (P2-5 expansion)
-    /// re-enter `process_series` without leaking the flag into the next
-    /// standalone `.Cap(_, _)`.
-    pub(super) defer_twopin_placeholders: bool,
-
     /// P6 passthrough scope: stack of enclosing function formal-name sets.
     /// Each function / instance-method body expansion pushes its formal names;
     /// a nested call's vector-width check reads the stack to decide whether a
@@ -250,6 +241,25 @@ impl McModuleInst {
         current_uri::try_get().unwrap_or_default()
     }
 
+    /// P2-7-XTAL: strict full-name, case-sensitive class check.
+    ///
+    /// Replaces the old first-letter-uppercase heuristic. A component may
+    /// define uppercase methods (`func Cap(...)`, `func Reset()`) that are
+    /// NOT classes, so the only reliable "is this a class name?" test is an
+    /// exact, case-sensitive match against the registered CMIE class table:
+    ///   - `"Cap"`   → false (a method name; the class is "CAP")
+    ///   - `"CAP"`   → true  (component class)
+    ///   - `"DIO.ESD"` → true (dotted component class)
+    /// No `to_uppercase()` normalization is applied, so a func named `Cap`
+    /// can never be mistaken for the `CAP` class.
+    pub(super) fn is_registered_class_name(name: &str) -> bool {
+        let ids = McIds::from(name);
+        matches!(
+            crate::db::cmie::cmie::mcb_get_cmie(&ids, &current_uri::get()),
+            Some(McCMIE::Component(_)) | Some(McCMIE::Module(_)) | Some(McCMIE::Interface(_))
+        )
+    }
+
     /// Create a new module instance
     pub fn new(name: &str, def: Arc<McModule>) -> Self {
         let def_uri = Self::resolve_def_uri(&def);
@@ -279,7 +289,6 @@ impl McModuleInst {
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
-            defer_twopin_placeholders: false,
             func_scope: Vec::new(),
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
@@ -322,7 +331,6 @@ impl McModuleInst {
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
-            defer_twopin_placeholders: false,
             func_scope: Vec::new(),
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
@@ -816,23 +824,6 @@ impl McModuleInst {
         self.current_trunk = saved_group;
         self.current_trunk_kind = saved_kind;
         self.current_trunk_iface = saved_iface;
-        r
-    }
-
-    /// RAII save/restore for `defer_twopin_placeholders`. The chain-shunt
-    /// series (`[V3V3,GND] -> CAP(..).Cap(_, _) -> [VCC,VSS]`) defers both pin
-    /// bindings to the outer chain (§11.6); recursive `process_stmt` calls
-    /// (P2-5 expansion) re-enter `process_series` and install their own value,
-    /// so the save/restore must survive early returns inside `f`.
-    pub(super) fn with_twopin_defer<R>(
-        &mut self,
-        defer: bool,
-        f: impl FnOnce(&mut Self) -> R,
-    ) -> R {
-        let saved = self.defer_twopin_placeholders;
-        self.defer_twopin_placeholders = defer;
-        let r = f(self);
-        self.defer_twopin_placeholders = saved;
         r
     }
 

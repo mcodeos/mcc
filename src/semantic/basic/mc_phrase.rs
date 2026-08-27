@@ -1381,6 +1381,41 @@ impl McPhrase {
                         };
 
                         if let Some(ref name) = name {
+                            // "this"/"pins" in a func body refer to the enclosing
+                            // instance and only bind to a real component at
+                            // instantiation time. Build the two-sided Node from
+                            // `this.<pin>` labels directly (mirrors how `this.1` /
+                            // `this{1,3}` resolve later), without the not-found error.
+                            if name == "this" || name == "pins" {
+                                let left_members: Vec<McBus> = right1
+                                    .iter()
+                                    .map(|r| McBus::new(&format!("{name}.{r}")))
+                                    .collect();
+                                let right_members: Vec<McBus> = right2
+                                    .iter()
+                                    .map(|r| McBus::new(&format!("{name}.{r}")))
+                                    .collect();
+                                if !left_members.is_empty() || !right_members.is_empty() {
+                                    return Some(McPhrase::Endpoint(McEndpoint::Node {
+                                        input: left_members
+                                            .iter()
+                                            .map(|bus| {
+                                                McEndpoint::Single(McInstanceRef::new(
+                                                    McInstance::Bus(bus.clone()),
+                                                ))
+                                            })
+                                            .collect(),
+                                        output: right_members
+                                            .iter()
+                                            .map(|bus| {
+                                                McEndpoint::Single(McInstanceRef::new(
+                                                    McInstance::Bus(bus.clone()),
+                                                ))
+                                            })
+                                            .collect(),
+                                    }));
+                                }
+                            }
                             // Try looking up in symbol table first
                             if let Some(ident) = context.find_inst(name) {
                                 let resolved: McPhrase = ident.into();
@@ -1834,10 +1869,21 @@ impl McPhrase {
             MCAST_OPD_RIGHTARROW => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
-                let opd1 = McPhrase::new(&opd1_node, context);
-                let opd2 = McPhrase::new(&opd2_node, context);
-                let opd1 = opd1?;
-                let opd2 = opd2?;
+                let mut opd1 = McPhrase::new(&opd1_node, context)?;
+                let opd2 = McPhrase::new(&opd2_node, context)?;
+
+                // ★ Eager return-shape resolution (func-return-design §7): the
+                // `->` opcheck below runs DURING the body parse — before the
+                // "Pass1b" `fill_return_shapes` hook — so a `return <expr>`
+                // call head (`Y3.Setup(pwr.GND) -> [XIN, XOUT]`) otherwise
+                // opchecks against its 1*1 receiver fallback and a legal
+                // multi-member return face is rejected (E4007). Resolve the
+                // head now; calls that can't resolve yet (same-module funcs
+                // still being parsed) stay None and fall back to the receiver
+                // shape, exactly as before.
+                if let McPhrase::FuncCall(fc) = &mut opd1 {
+                    McFuncCall::fill_return_shape(fc, context);
+                }
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
@@ -2337,10 +2383,13 @@ impl McPhrase {
                 input.iter().flat_map(|e| e.get_left()).collect()
             }
             McPhrase::Transposed(mc_line) => mc_line.get_right(),
-            // ★ P4.1: consume the resolved return shape (eval.md §8.1).
-            // `This` / unresolved → caller shape (f.left); `Label` → left is empty ([0|N]).
+            // ★ P4.1 / func-return-design v2.1 §1: consume the resolved return
+            // shape (eval.md §8.1). The return face is a symmetric stereo node:
+            // case ② `Label{bus}` → BOTH left and right mouths expose the return
+            // bus (N lanes, pass-through); case ① `This` / unresolved → caller
+            // shape (f.left).
             McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
-                Some(ReturnShape::Label { .. }) => Vec::new(),
+                Some(ReturnShape::Label { bus }) => bus.clone(),
                 Some(ReturnShape::This) | None => f.left.clone(),
             },
             McPhrase::Lead => vec![McBus::new("(lead)")],
@@ -3972,10 +4021,11 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
             // unresolved reuse the declared operand side. Inlined here — no
             // delegation to the symbol-level get_left/get_right.
             if right {
-                match &fc.resolved_return_shape {
+                let r = match &fc.resolved_return_shape {
                     Some(ReturnShape::Label { bus }) => bus.clone(),
                     Some(ReturnShape::This) | None => fc.right.clone(),
-                }
+                };
+                r
             } else {
                 match &fc.resolved_return_shape {
                     Some(ReturnShape::Label { .. }) => Vec::new(),
