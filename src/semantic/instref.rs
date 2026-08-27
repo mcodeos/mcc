@@ -15,40 +15,6 @@ use crate::{
     },
 };
 
-/// Extract member aliases from a composite pin name.
-///
-/// Supports `[Vin, GND]` / `{VDD, GND}` / `DC{Vin, GND}` / `IVCC5I[VCC5I,GNDP]`。
-/// Skips segments with containing colon (`:`) or underscore (`_`).
-fn extract_bracket_members(key: &str) -> Vec<String> {
-    let (open, close) = if key.contains('{') {
-        ('{', '}')
-    } else if key.contains('[') {
-        ('[', ']')
-    } else {
-        return Vec::new();
-    };
-    let start = match key.find(open) {
-        Some(i) => i + 1,
-        None => return Vec::new(),
-    };
-    let end = match key.rfind(close) {
-        Some(i) if i > start => i,
-        _ => return Vec::new(),
-    };
-    key[start..end]
-        .split(',')
-        .map(|s| s.trim())
-        .filter(|s| {
-            !s.is_empty()
-                && !s.contains(':')
-                && s.chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphabetic() || c == '_')
-        })
-        .map(|s| s.to_string())
-        .collect()
-}
-
 fn validate_inst_member_ref(
     base_name: &str,
     members: &[String],
@@ -127,10 +93,16 @@ fn validate_component_pin_ref(
     // Thus, "Vin"/"GND" are not found in `names_to_id`, `pin_id_to_names`, or `pins`.
     //
     // Last line of defense: Scan all Interface entries in names_to_id,
-    // extract bus/list members from `name` field (user aliases),
+    // extract bus/list members from the structured `iface.name` (user aliases),
     // build { user alias → Interface entry key } map.
     // When a match is found, convert user alias to "Interface entry key.member" form,
     // so that connection generation can hit registered paths.
+    //
+    // AST-driven: composite member aliases live in the Interface binding's
+    // structured name (`DC{Vin, GND}` → `as_bus()`, `[Vin, GND]` → `is_list()`
+    // + `expand()`). The `names_to_id` KEY string is only re-derived from that
+    // structure at registration; re-parsing the key text here would violate the
+    // AST-driven rule, so no string-level bracket splitting is performed.
     use crate::semantic::component::mc_pins::McPinPort;
     let mut iface_alias_to_key: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
@@ -160,15 +132,6 @@ fn validate_component_pin_ref(
                     }
                 }
             }
-        }
-    }
-
-    // ── P0-2: Extract member aliases from composite KEY names ──
-    for key in comp.base.pins.names_to_id.keys() {
-        for alias in extract_bracket_members(key) {
-            iface_alias_to_key
-                .entry(alias)
-                .or_insert_with(|| key.clone());
         }
     }
 

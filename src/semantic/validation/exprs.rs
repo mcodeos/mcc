@@ -6,15 +6,16 @@
 //!
 //! Checks:
 //!   Q1 — `this` used outside instance context
-//!   Q2 — `pins.X` where X not in pin table
 //!   Q3 — `_` as sole net endpoint
 //!   E4 — constant expression overflow
 //!   V3 — reversed curly brace range (5:2)
 //!   V4 — single-element range (3:3)
 //!   C5 — IDX key collision in module instances
 
+use super::body::collect_referenced_names;
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
-use std::collections::HashMap;
+use crate::semantic::basic::mc_phrase::McPhrase;
+use std::collections::{HashMap, HashSet};
 
 pub struct ExprsCheck;
 
@@ -31,7 +32,6 @@ impl ValidationCheck for ExprsCheck {
 
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_this_outside_instance(acc); // Q1
-        check_pins_ref_not_found(acc); // Q2
         check_uscore_sole_endpoint(acc); // Q3
         check_constant_overflow(acc); // E4
         check_reversed_range(acc); // V3 + V4
@@ -41,8 +41,10 @@ impl ValidationCheck for ExprsCheck {
 
 /// Q1: `this` used outside instance context.
 ///
-/// Scans module net phrase text for the `this` keyword. `this` should only
-/// appear inside function bodies, not in top-level net connections.
+/// `this` refers to the current instance and is only valid inside function
+/// bodies, not in top-level net connections. Detected structurally: `this`
+/// parses to an endpoint label `Label("this")`, collected by walking the
+/// phrase AST rather than by re-scanning the statement's display text.
 fn check_this_outside_instance(acc: &mut CheckAccumulator) {
     let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
@@ -53,25 +55,22 @@ fn check_this_outside_instance(acc: &mut CheckAccumulator) {
         let m = entry.value();
         // Only check top-level net stmts (not func body stmts)
         for phrase in &m.stmts {
-            let text = format!("{}", phrase);
-            // Check for `this` as a standalone token
-            for word in text.split_whitespace() {
-                let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-                if clean == "this" {
-                    acc.push(CheckResult {
-                        check_name: "exprs",
-                        severity: CheckSeverity::Error,
-                        uri: Some(uri.clone()),
-                        span: Some(m.span.start..m.span.end),
-                        message: format!(
-                            "'this' used in top-level net line: '{}'. \
-                             'this' is only valid inside instance/function contexts.",
-                            text.trim()
-                        ),
-                        code: crate::errcodes::EXPR_THIS_TOP_LEVEL,
-                    });
-                    break; // One diagnostic per phrase
-                }
+            let mut names = HashSet::new();
+            collect_referenced_names(phrase, &mut names);
+            if names.contains("this") {
+                let text = format!("{}", phrase);
+                acc.push(CheckResult {
+                    check_name: "exprs",
+                    severity: CheckSeverity::Error,
+                    uri: Some(uri.clone()),
+                    span: Some(m.span.start..m.span.end),
+                    message: format!(
+                        "'this' used in top-level net line: '{}'. \
+                         'this' is only valid inside instance/function contexts.",
+                        text.trim()
+                    ),
+                    code: crate::errcodes::EXPR_THIS_TOP_LEVEL,
+                });
             }
         }
     }
@@ -80,6 +79,8 @@ fn check_this_outside_instance(acc: &mut CheckAccumulator) {
 /// Q3: `_` as the sole net endpoint.
 ///
 /// A net that connects only to `_` (underscore/NC placeholder) is meaningless.
+/// `_` parses to `McPhrase::Lead`, so an all-`Lead` series (e.g. `_ -> _`)
+/// is detected structurally without splitting the statement's display text.
 fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
     let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
@@ -89,38 +90,22 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
         }
         let m = entry.value();
         for phrase in &m.stmts {
-            let text = format!("{}", phrase);
-            if !text.contains("->") {
-                continue;
-            }
-            let parts: Vec<&str> = text.split("->").collect();
-            if parts.len() != 2 {
-                continue;
-            }
-            let left_clean: Vec<&str> = parts[0]
-                .split(',')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty() && *s != "_")
-                .collect();
-            let right_clean: Vec<&str> = parts[1]
-                .split(',')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty() && *s != "_")
-                .collect();
-
-            if left_clean.is_empty() && right_clean.is_empty() {
-                acc.push(CheckResult {
-                    check_name: "exprs",
-                    severity: CheckSeverity::Warning,
-                    uri: Some(uri.clone()),
-                    span: Some(m.span.start..m.span.end),
-                    message: format!(
-                        "Net '{}' connects only to '_' (placeholder). \
-                         This connection has no effect.",
-                        text.trim()
-                    ),
-                    code: crate::errcodes::EXPR_PLACEHOLDER_ONLY,
-                });
+            if let McPhrase::Series(items, _) = phrase {
+                if !items.is_empty() && items.iter().all(|p| matches!(p, McPhrase::Lead)) {
+                    let text = format!("{}", phrase);
+                    acc.push(CheckResult {
+                        check_name: "exprs",
+                        severity: CheckSeverity::Warning,
+                        uri: Some(uri.clone()),
+                        span: Some(m.span.start..m.span.end),
+                        message: format!(
+                            "Net '{}' connects only to '_' (placeholder). \
+                             This connection has no effect.",
+                            text.trim()
+                        ),
+                        code: crate::errcodes::EXPR_PLACEHOLDER_ONLY,
+                    });
+                }
             }
         }
     }
@@ -362,197 +347,6 @@ fn check_idx_key_collision(acc: &mut CheckAccumulator) {
                     code: crate::errcodes::IDX_MULTIPLE_SLICE_SPEC,
                 });
             }
-        }
-    }
-}
-
-// ============================================================================
-// Q2: `pins.X` where X not in pin table
-// ============================================================================
-
-/// Scans component function bodies and module body stmts for `pins.X`
-/// references, and verifies that X exists in the relevant pin/port table.
-fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
-    // ── Component-level: function body stmts ──
-    {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            let uri = entry.key().uri.to_string();
-            if super::is_test_file(&uri) {
-                continue;
-            }
-            let comp = entry.value();
-
-            // Build set of valid pin names for this component
-            let pin_names: std::collections::HashSet<String> =
-                comp.pins.names_to_id.keys().cloned().collect();
-
-            // Also collect from McPins.pins entries
-            let pin_id_names: std::collections::HashSet<String> = comp
-                .pins
-                .pins
-                .values()
-                .flat_map(|p| p.names.iter().cloned())
-                .collect();
-
-            let all_pin_names: std::collections::HashSet<String> =
-                pin_names.union(&pin_id_names).cloned().collect();
-
-            if all_pin_names.is_empty() {
-                continue;
-            }
-
-            let comp_span = comp.span.start..comp.span.end;
-
-            // Check function body stmts
-            for func in comp.funcs.iter() {
-                for phrase in &func.stmts {
-                    scan_pins_refs(
-                        &format!("{}", phrase),
-                        &all_pin_names,
-                        &uri,
-                        &format!("component '{}' function '{}'", comp.name, func.name),
-                        comp_span.clone(),
-                        acc,
-                    );
-                }
-            }
-
-            // Check bus member names that reference pins
-            for (_name, (_iotype, instance)) in comp.insts.iter_with_iotype() {
-                if let crate::McInstance::Bus(bus) = instance {
-                    for member in &bus.member {
-                        if let Some((prefix, suffix)) = member.split_once('.') {
-                            if prefix == "pins" && !all_pin_names.contains(suffix) {
-                                acc.push(CheckResult {
-                                    check_name: "exprs",
-                                    severity: CheckSeverity::Warning,
-                                    uri: Some(uri.clone()),
-                                    span: Some(comp.span.start..comp.span.end),
-                                    message: format!(
-                                        "Component '{}': 'pins.{}' references pin '{}' which \
-                                         is not a defined pin name.",
-                                        comp.name, suffix, suffix
-                                    ),
-                                    code: crate::errcodes::EXPR_PINS_X_UNDEFINED,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Module-level: body stmts ──
-    {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let uri = entry.key().uri.to_string();
-            if super::is_test_file(&uri) {
-                continue;
-            }
-            let m = entry.value();
-
-            // Build set of valid port/instance names
-            let port_names: std::collections::HashSet<String> =
-                m.insts.iter_instance_names().cloned().collect();
-
-            if port_names.is_empty() {
-                continue;
-            }
-
-            let mod_span = m.span.start..m.span.end;
-
-            // Check module body stmts
-            for phrase in &m.stmts {
-                scan_pins_refs(
-                    &format!("{}", phrase),
-                    &port_names,
-                    &uri,
-                    &format!("module '{}'", entry.key().ident),
-                    mod_span.clone(),
-                    acc,
-                );
-            }
-
-            // Check function body stmts within module
-            for func in m.funcs.iter() {
-                for phrase in &func.stmts {
-                    scan_pins_refs(
-                        &format!("{}", phrase),
-                        &port_names,
-                        &uri,
-                        &format!("module '{}' function '{}'", entry.key().ident, func.name),
-                        mod_span.clone(),
-                        acc,
-                    );
-                }
-            }
-        }
-    }
-}
-
-/// Scan phrase text for `pins.XXX` patterns and verify XXX is a known pin name.
-fn scan_pins_refs(
-    text: &str,
-    valid_names: &std::collections::HashSet<String>,
-    uri: &str,
-    context: &str,
-    span: std::ops::Range<usize>,
-    acc: &mut CheckAccumulator,
-) {
-    let mut search_from = 0usize;
-    while let Some(dot_pos) = text[search_from..].find("pins.") {
-        let abs_dot = search_from + dot_pos;
-        let after_dot = abs_dot + 5; // "pins." is 5 chars
-
-        if let Some(rest) = text.get(after_dot..) {
-            let pin_ref: String = rest
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
-
-            if !pin_ref.is_empty() && !valid_names.contains(&pin_ref) {
-                // Skip sub-member access: pins.VDD.something
-                let after_pin_ref = after_dot + pin_ref.len();
-                let has_sub_member = text
-                    .get(after_pin_ref..)
-                    .map_or(false, |s| s.starts_with('.'));
-
-                if !has_sub_member {
-                    acc.push(CheckResult {
-                        check_name: "exprs",
-                        severity: CheckSeverity::Warning,
-                        uri: Some(uri.to_string()),
-                        span: Some(span.clone()),
-                        message: format!(
-                            "In {}: 'pins.{}' references '{}' which is not a defined pin/port. \
-                             Known names: {}",
-                            context,
-                            pin_ref,
-                            pin_ref,
-                            if valid_names.len() <= 10 {
-                                let mut names: Vec<_> = valid_names.iter().collect();
-                                names.sort();
-                                names
-                                    .into_iter()
-                                    .map(|s| s.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            } else {
-                                format!("{} names", valid_names.len())
-                            }
-                        ),
-                        code: crate::errcodes::EXPR_PINS_X_UNDEFINED,
-                    });
-                }
-            }
-        }
-
-        search_from = after_dot;
-        if search_from >= text.len() {
-            break;
         }
     }
 }

@@ -275,6 +275,19 @@ fn compare_instances(
             }
         }
     }
+    // Bare connection endpoints that are ports/labels (owner-less points whose
+    // path has no instance prefix, e.g. the `VBUS` side of `DAP_USB_Vbus ->
+    // VBUS`) are real netlist nodes too. A net may be named after one label
+    // while other declared ports/labels join it as points; they must still
+    // count as present in the expansion.
+    let mut point_labels: HashSet<String> = HashSet::new();
+    for conn in &inst.connections {
+        for p in &conn.points {
+            if p.owner.is_none() && !p.path.contains('.') {
+                point_labels.insert(p.path.clone());
+            }
+        }
+    }
 
     // Every source name must appear somewhere in the expansion. Components and
     // modules must be strictly declared-expanded; interfaces, buses and labels
@@ -293,6 +306,9 @@ fn compare_instances(
     for n in &net_labels {
         expanded_any.insert(n.clone());
     }
+    for n in &point_labels {
+        expanded_any.insert(n.clone());
+    }
 
     let mut missing: Vec<String> = source_names.difference(&expanded_any).cloned().collect();
     missing.sort();
@@ -305,6 +321,9 @@ fn compare_instances(
 
     let mut expanded_all: Vec<(String, String, String, u32)> = expanded.clone();
     for n in &net_labels {
+        expanded_all.push((n.clone(), "label".to_string(), "derived".to_string(), 0));
+    }
+    for n in &point_labels {
         expanded_all.push((n.clone(), "label".to_string(), "derived".to_string(), 0));
     }
     expanded_all.sort_by(|a, b| (a.0.clone(), a.1.clone()).cmp(&(b.0.clone(), b.1.clone())));
@@ -674,11 +693,21 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                     // exist by construction.
                     return false;
                 }
-                body.iter().all(|&k| {
-                    let r = &inst.expansion.records[k];
-                    if r.skipped {
-                        return true; // deliberate empty expansion (P2-8)
-                    }
+                // P2-8 (`skipped`) records are deliberate — the module method
+                // was already auto-invoked during the sub-module's own
+                // instantiation, so the explicit call correctly expands
+                // nothing here (design §5.1). They must not count toward a
+                // "surprise empty" flag; a statement whose only body records
+                // are skipped is intentional, not a mismatch.
+                let active: Vec<usize> = body
+                    .iter()
+                    .copied()
+                    .filter(|&k| !inst.expansion.records[k].skipped)
+                    .collect();
+                if active.is_empty() {
+                    return false;
+                }
+                active.iter().all(|&k| {
                     let g = &groups.by_record[k];
                     g.components.is_empty() && g.sub_modules.is_empty() && g.connections.is_empty()
                 })

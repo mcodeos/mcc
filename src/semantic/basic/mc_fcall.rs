@@ -356,15 +356,10 @@ impl McFuncCall {
                 .and_then(|n| McIds::new(&n))
                 .map(|ids| ids.to_string())
                 .unwrap_or_default();
-            if func_name_from_ast.contains("Cap")
-                || func_name_from_ast.contains("Pullup")
-                || func_name_from_ast.contains("Pulldown")
-            {
-                mcc_dbg!(
-                    "sem::fcall",
-                    "[FCALL-PARSE-DBG] func={func_name_from_ast} children={children:?}",
-                );
-            }
+            mcc_dbg!(
+                "sem::fcall",
+                "[FCALL-PARSE-DBG] func={func_name_from_ast} children={children:?}",
+            );
         }
 
         // === Handle pre-closure parameter (vin => CAP(10uF).Cap(_)) ===

@@ -24,6 +24,18 @@
   from the language rather than extending the list. (Example: P2-5 lane
   expansion decided by `fc_params_reference_bus_in_set`, not by "is this
   method called Pullup".)
+- **Parsing derives structure from the AST, never from string re-parsing.**
+  In parsing, rely on the AST as ground truth — do not do your own string
+  searching. Never re-derive language structure by rendering an `McPhrase` /
+  `AstNode` back to display text (`format!("{}", phrase)`) and then splitting,
+  regex-matching, or substring-searching that text for `->`, `,`, `.`, `]`,
+  etc. to recover what the typed tree already holds. Walk the typed structure
+  instead (`McPhrase::Member`, `FuncCall.caller`, `McInstanceRef`,
+  `find_inst`, `find_pin`, `find_port`, …) and anchor diagnostics at the real
+  source node (`node.span`), not at coordinates guessed from re-parsed text.
+  If a decision needs `str::contains` / `.split()` on a phrase's display
+  string, the shape you are looking for is (or should be) a variant already
+  present in the AST — extend the parser rather than re-parsing its output.
 - Applies to the whole project including test code and test data.
 
 ***
