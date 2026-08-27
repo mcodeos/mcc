@@ -2,14 +2,17 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! FuncCall instantiation dispatch + built-in twopin + endpoint resolution
+//! FuncCall instantiation dispatch + endpoint resolution
 //!
 //! - `FuncCallInst` (enum)        —— FuncCall instantiation result
 //! - `instantiate_funccall`       —— FuncCall dispatch entry (with DepthGuard)
-//! - `is_builtin_twopin_net_fn` / `wire_builtin_twopin` —— `.Cap/.Pullup/.Pulldown`
 //! - `find_user_func`             —— user function lookup
 //! - `resolve_funccall_face`       —— FuncCall chain-member face resolution
 //!   (func-return-design §6.2: return face for case ②, instance face for case ①)
+//!
+//! unified-twopin-no-builtin v2.0: there is no built-in twopin wiring path —
+//! `.Cap/.Pullup/.Pulldown` dispatch as ordinary methods onto the library funcs
+//! (cap.mc / res.mc), whose body and return value are the only wiring source.
 //!
 //! The actual component / module / user_func / instance_method instantiation
 //! is in `funccall_inst.rs`, and iterated call expansion is in `iterated.rs`.
@@ -200,15 +203,14 @@ impl McModuleInst {
         // Regular aliases (ESD→DIO.ESD etc.) are independent of "whether there's a
         // caller", because they are all independent CMIE classes. But PULLUP/PULLDOWN
         // are an exception: they can be used either as chain method
-        // (`RES(10k).Pullup(sig, rail)`, taken by is_builtin_twopin_net_fn, not
-        // entering this path), or as bare call (`PULLUP(10k)` standalone as 2-pin
+        // (`RES(10k).Pullup(sig, rail)`, which dispatches as an ordinary method and
+        // never enters this path), or as bare call (`PULLUP(10k)` standalone as 2-pin
         // element). The latter currently all gets lost (`@?PULLUP_1.1` not found).
         //
-        // Here we **must** use caller.is_none() as the gate: otherwise in chain
-        // method form, if outer `.Pullup(...)` is not taken by P1-D (e.g. old
-        // version with case mismatch), this path will use the RES alias to
-        // construct a new isolated RES instance, putting inner's real RES and this
-        // outer's "ghost RES" side by side, replicating the bug we meant to fix.
+        // Here we **must** gate on "caller is not FuncCall": in chain-method form
+        // (`RES(10k).Pullup(...)`) the caller is the inner RES FuncCall, and this
+        // alias path must stay off — otherwise it would construct a new isolated
+        // RES instance alongside the real one, replicating the bug we meant to fix.
         //
         // ── ★ ITER-2 fix (first-run feedback): relaxed gate ─────────────────
         //
@@ -222,11 +224,11 @@ impl McModuleInst {
         // What we should really block is **only chain-method form**
         // (`RES(10k).PULLUP(...)`):
         //   - That kind of fc.caller = inner FuncCall (RES construction);
-        //   - This path should be taken by P1-D's wire_builtin_twopin, not enter
-        //     instantiate_funccall;
-        //   - If P1-D misses due to pointer mismatch, and here we use the RES alias
-        //     to construct a new RES instance, it will be side by side with the
-        //     already-existing RES_X (replicating the bug).
+        //   - Chain-method form dispatches as an ordinary method before reaching
+        //     instantiate_funccall (unified-twopin-no-builtin v2.0: no P1-D path);
+        //   - If it did reach here, the RES alias would construct a new isolated
+        //     RES instance side by side with the already-existing RES_X
+        //     (replicating the bug) — so the gate below stays off for it.
         //
         // Chained connection (`A -> PULLUP(x) -> B`) has caller as Endpoint/Lead/
         // other phrase, **not** FuncCall; in this case using the alias is safe
@@ -234,34 +236,47 @@ impl McModuleInst {
         //
         // Fix gate: use "caller is not FuncCall" instead of "caller is None".
         let caller_is_funccall = matches!(caller, Some(McPhrase::FuncCall(_)));
+        // Class-alias fallback (ESD → DIO.ESD; bare PULLUP/PULLDOWN → RES).
+        let alias_fallback = || {
+            let raw_name = func_name.to_string();
+            // First try the regular alias (ESD→DIO.ESD etc.), no caller gating
+            let standard_alias = crate::vector::graph::naming::canonicalize_class_alias(&raw_name);
+            // Then try the bare-call-specific alias (PULLUP/PULLDOWN→RES), only
+            // enabled when caller is not FuncCall (i.e. not chain-method form)
+            let bare_alias = if !caller_is_funccall {
+                crate::vector::graph::naming::canonicalize_class_alias_bare_call(&raw_name)
+            } else {
+                None
+            };
+            match standard_alias.or(bare_alias) {
+                Some(canonical) => {
+                    let canon_ids = crate::semantic::basic::mc_ids::McIds::from(canonical.as_str());
+                    let uri = current_uri::get();
+                    mcb_get_cmie(&canon_ids, &uri)
+                }
+                None => None,
+            }
+        };
         let cmie_raw = mcb_get_cmie(func_name, &current_uri::get());
         // Only use direct lookup if it's a Component or Module; otherwise
         // fall through to alias fallback (e.g. "ESD" → "DIO.ESD").
+        //
+        // ★ Enum shadowing: a resolve against the caller module's context can
+        // return an Enum that shares the class name (e.g. `enum CAP` for
+        // capacitor dielectrics vs `component CAP`). A class construction in a
+        // system-library component method body (xtal.mc's Setup: `CAP(cload)`)
+        // resolves that way and would be dropped as "cannot instantiate Enum".
+        // Prefer the same-named Component/Module from the global mcode class
+        // tables before falling back to aliases.
         let cmie = match cmie_raw {
             Some(c @ McCMIE::Component(_)) | Some(c @ McCMIE::Module(_)) => Some(c),
-            _ => {
-                let raw_name = func_name.to_string();
-                // First try the regular alias (ESD→DIO.ESD etc.), no caller gating
-                let standard_alias =
-                    crate::vector::graph::naming::canonicalize_class_alias(&raw_name);
-                // Then try the bare-call-specific alias (PULLUP/PULLDOWN→RES), only
-                // enabled when caller is not FuncCall (i.e. not chain-method form)
-                let bare_alias = if !caller_is_funccall {
-                    crate::vector::graph::naming::canonicalize_class_alias_bare_call(&raw_name)
-                } else {
-                    None
-                };
-                match standard_alias.or(bare_alias) {
-                    Some(canonical) => {
-                        let canon_ids =
-                            crate::semantic::basic::mc_ids::McIds::from(canonical.as_str());
-                        let uri = current_uri::get();
-                        let result = mcb_get_cmie(&canon_ids, &uri);
-                        result
-                    }
-                    None => None,
+            Some(McCMIE::Enum(_)) => {
+                match crate::db::resolve::policy::Resolver::resolve_system(func_name) {
+                    Some(c @ McCMIE::Component(_)) | Some(c @ McCMIE::Module(_)) => Some(c),
+                    _ => alias_fallback(),
                 }
             }
+            _ => alias_fallback(),
         };
         if let Some(cmie) = cmie {
             match cmie {

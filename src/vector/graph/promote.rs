@@ -107,9 +107,6 @@ pub fn apply_promote_in_place(graph: &mut McVecGraph) -> Vec<VizNet> {
     let box_ids: HashSet<i64> = graph.boxes.iter().map(|b| b.id).collect();
     let result = classify_nets_by_box_coverage(&graph.nets, &box_ids);
 
-    // ★ NEW: hand the to-be-dropped dropped/orphan nets to the probe (only prints when MC_NET_PROBE is enabled)
-    super::netprobe::probe_promote(&graph.name, &result.kept, &result.dropped, &result.orphan);
-
     // ★ P08: use merge_net_kinds to merge, instead of hard-overwriting to SubModuleIO
     let mut kept = result.kept;
     for n in &mut kept {

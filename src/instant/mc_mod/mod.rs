@@ -254,8 +254,25 @@ impl McModuleInst {
     /// can never be mistaken for the `CAP` class.
     pub(super) fn is_registered_class_name(name: &str) -> bool {
         let ids = McIds::from(name);
+        let cur = current_uri::get();
+        // Primary: resolve in the current file context. A name resolving to a
+        // Component/Module/Interface is a class name.
+        if matches!(
+            crate::db::cmie::cmie::mcb_get_cmie(&ids, &cur),
+            Some(McCMIE::Component(_)) | Some(McCMIE::Module(_)) | Some(McCMIE::Interface(_))
+        ) {
+            return true;
+        }
+        // Fallback: the current-context resolve may have hit an *enum* that
+        // shares the name (e.g. `enum CAP` for capacitor dielectrics vs
+        // `component CAP`). A class-construction inside a system-library
+        // component method body (e.g. `CAP(cload)` in xtal.mc's `Setup`)
+        // resolves against the *caller module's* context, where the enum can
+        // shadow the component class. The global mcode class tables are
+        // authoritative for "is this a registered component/module/interface
+        // class name" (strict full-name, case-sensitive — A4).
         matches!(
-            crate::db::cmie::cmie::mcb_get_cmie(&ids, &current_uri::get()),
+            crate::db::resolve::policy::Resolver::resolve_system(&ids),
             Some(McCMIE::Component(_)) | Some(McCMIE::Module(_)) | Some(McCMIE::Interface(_))
         )
     }

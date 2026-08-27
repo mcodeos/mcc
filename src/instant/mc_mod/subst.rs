@@ -65,7 +65,8 @@ impl McModuleInst {
             McParamValue::Phrase(phrase) => {
                 // Net expression as parameter (e.g., [dc.VDD_3V3 -> wm7121.VCC])
                 // Return the left endpoint as the primary connection target.
-                // The -> connection itself is handled by wire_builtin_twopin.
+                // The -> connection itself is wired by the normal instantiation
+                // path (method body / func-return face, unified-twopin v2.0).
                 phrase.get_left()
             }
             McParamValue::InlineAttrs(attrs) => {

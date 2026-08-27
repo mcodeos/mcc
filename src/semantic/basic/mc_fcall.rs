@@ -13,7 +13,6 @@ use crate::ast::c_macros::*;
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::query::refs::mcb_register_declare_class;
-use crate::semantic::common::ConnDir;
 use crate::semantic::common::McCMIE;
 use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
@@ -113,37 +112,6 @@ pub(crate) fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
             let name = format!("{}", other);
             vec![McBus::new(&name)]
         }
-    }
-}
-
-/// Build the chain-head phrase for a `=>` parameter prefix (§1.2).
-///
-/// Converts the prefix `McParamValue` into the chain's left port
-/// **structurally** — never by stringifying and re-parsing. The original ids
-/// structure must be preserved:
-///   - a `Set` prefix `[a, b]` stays a `Multiple` of its members (the chain's
-///     left port resolves to the vector's member lanes);
-///   - a `Phrase` value stays the phrase itself (a DC parameter reference
-///     `[V3V3, GND]` arriving as a Phrase must not collapse into a single
-///     label named `[V3V3, GND]`, which instance-prefixing turns into
-///     `flash.[V3V3, GND]`);
-///   - an `Ids` / `Opd` becomes a label of the ids (a bare id / dot-member /
-///     DC-bus name expands through the existing port/bus resolution);
-///   - only scalar literals (Const/Int/...) fall back to a value label.
-fn pre_param_to_label(v: &McParamValue) -> McPhrase {
-    match v {
-        McParamValue::Set(values) => {
-            McPhrase::Multiple(values.iter().map(pre_param_to_label).collect())
-        }
-        McParamValue::Phrase(p) => (**p).clone(),
-        McParamValue::Ids(ids) => McPhrase::label(ids.to_string()),
-        McParamValue::Opd(opd) => match opd {
-            McOpd::Id(ids) | McOpd::This(ids) | McOpd::Pins(ids) => {
-                McPhrase::label(ids.to_string())
-            }
-            McOpd::Uscore => McPhrase::label("_".to_string()),
-        },
-        other => McPhrase::label(other.to_string()),
     }
 }
 
@@ -592,11 +560,6 @@ impl McFuncCall {
         if pre_param_opt.is_some() && instance_name.is_some() && method_name_opt.is_some() {
             let pre_param = pre_param_opt.unwrap();
 
-            // Create pre_param as Label (for Series display: pre_param -> ...).
-            // A Set prefix `[V3V3, GND]` becomes a Multiple of member labels so
-            // the chain's left port expands to the vector lanes (§1.2).
-            let pre_label = pre_param_to_label(&pre_param);
-
             // ── R3: `=>` fold unified rules (§1) ──────────────────────────────
             // One rule, no method-name list: the `=>` prefix is an actual that
             // fills the leading `_` placeholder position of the right-hand
@@ -647,8 +610,9 @@ impl McFuncCall {
                 v
             };
 
-            // R4: don't instantiate at parse time. Built-in two-pin components handled by instantiation-phase process_member_internal
-            // unified creation —— same P1-D branch-1 path as `->` form, consistent naming/wiring.
+            // R4: don't instantiate at parse time. Two-pin components are
+            // handled by instantiation-phase process_member_internal — the
+            // library func is the only wiring source (unified-twopin v2.0).
 
             // Create inner FuncCall: ClassName(instance_params)
             let inner_call = McFuncCall {
@@ -678,11 +642,12 @@ impl McFuncCall {
                 named_ctor: false,
             };
 
-            // Create Series: pre_param -> funcall
-            return Some(McPhrase::Series(
-                vec![pre_label, McPhrase::FuncCall(outer_call)],
-                ConnDir::Undirected,
-            ));
+            // param-prefix-design v2.0 §6: the `=>` prefix folds to a plain
+            // FuncCall (args already prefixed) — no pre_label chain member is
+            // synthesized. For chain-prefix forms (`A -> B => f(_)`) the
+            // pre-chain `A -> B` already provides B as a member; the fold only
+            // appends f(B). `pre_closure` stays set for display.
+            return Some(McPhrase::FuncCall(outer_call));
         }
 
         // === Iter 2: detect DECLARE child node ===

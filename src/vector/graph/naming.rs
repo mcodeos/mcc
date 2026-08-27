@@ -100,8 +100,8 @@ const TWOPIN_CLASS_KEYWORDS: &[&str] = &[
 /// -> `instantiate_funccall` returns `PassThrough` -> stmt.rs generates `@?ESD_N` stub
 /// -> subsequent resolve can't find `@?ESD_N.1` -> entire net lost (viz.md A1 diagnostic chain).
 ///
-/// **Note**: `Pullup` / `Pulldown` are chain-methods (caller.Pullup(...)), going through
-/// `is_builtin_twopin_net_fn` path, **not** in this table, otherwise it would rename the actual
+/// **Note**: `Pullup` / `Pulldown` are chain-methods (caller.Pullup(...)), dispatched as
+/// ordinary methods, **not** in this table, otherwise it would rename the actual
 /// RES instance corresponding to the caller.
 const CLASS_ALIAS_TO_CANONICAL: &[(&str, &str)] = &[
     ("ESD", "DIO.ESD"),
@@ -160,10 +160,10 @@ pub fn canonicalize_class_alias(class_name: &str) -> Option<String> {
 ///
 /// `PULLUP` / `PULLDOWN` are essentially a specific semantic role of a resistor (RES), not
 /// independent CMIE classes. **As a chain method** (`RES(10k).Pullup(sig, V3V3)`) it's already
-/// taken over by `is_builtin_twopin_net_fn`, going through the `wire_builtin_twopin` path, not
-/// entering `instantiate_funccall`'s alias fallback -- there **absolutely cannot** do Pullup->RES,
-/// otherwise it would create another orphan RES instance on the outer `.Pullup(...)` (this is the
-/// thing explicitly warned about in the `CLASS_ALIAS_TO_CANONICAL` comment).
+/// dispatched as an ordinary method before reaching `instantiate_funccall`'s alias fallback --
+/// there **absolutely cannot** do Pullup->RES, otherwise it would create another orphan RES
+/// instance on the outer `.Pullup(...)` (this is the thing explicitly warned about in the
+/// `CLASS_ALIAS_TO_CANONICAL` comment).
 ///
 /// **But** the bare call `PULLUP(10k)` (no caller, appearing alone as a 2-pin component) is
 /// another valid syntax, currently falls to the P0-4 stub path producing `@?PULLUP_N` -- this
