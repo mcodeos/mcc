@@ -6,9 +6,19 @@
 //!
 //! Runs after `mcb_pass2()` when the full flattened netlist (`InstTable`) is available.
 
-use crate::instant::insttab::{InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry};
+use crate::instant::insttab::{
+    is_ground_name, is_supply_name, InstEntry, InstKind, InstOrigin, InstTable, MemberRole,
+    NetEntry,
+};
+use crate::semantic::basic::mc_kvs::KVSValue;
+use crate::semantic::basic::mc_literal::McLiteral;
+use crate::semantic::basic::mc_param::McParamValue;
+use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::IOType;
+use crate::semantic::component::mc_attr::McAttrVal;
+use crate::semantic::component::mc_pins::McPinPort;
 use std::collections::HashSet;
+
 /// Run all electrical net checks and return diagnostics.
 pub fn run_net_checks(table: &InstTable) -> Vec<NetCheckResult> {
     let mut results = Vec::new();
@@ -221,70 +231,231 @@ fn check_unconnected_outputs(table: &InstTable, results: &mut Vec<NetCheckResult
     }
 }
 
-// ── P3+P4: Voltage mismatch between connected power nets ──
+// ── P3+P4: Voltage mismatch between power pins on the same net ──
+//
+// The declared operating voltage of a power pin is READ from the pin's
+// declaration — its attribute KVS (`voltage` / `volt` key) or, for pins bound
+// to a power interface, the interface binding's volt parameter (`::DC(3.3V)`).
+// No voltage is ever guessed from net names: the old net-name heuristic
+// (`VCC_5V` → 5.0, `3V3` → 3.3) is gone. A pin that declares a *range*
+// (`2.5V~5.5V`, `±`) is a tolerance statement, not a fixed rail, and is
+// skipped. A net carrying two supply pins whose declared voltage sets share
+// no common value (within tolerance) is reported as a short.
 fn check_voltage_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    // Extract voltage hints from net names (e.g., "VCC_5V" → 5.0, "VCC_3V3" → 3.3)
-    fn parse_voltage(name: &str) -> Option<f32> {
-        let name = name.to_uppercase();
-        if let Some(v) = name
-            .strip_prefix("VCC_")
-            .or_else(|| name.strip_prefix("VDD_"))
-        {
-            let v = v.replace('V', ".").replace("_", ".");
-            if let Ok(val) = v.parse::<f32>() {
-                return Some(val);
-            }
-        }
-        // Direct voltage suffix: "5V", "3V3", "1V8"
-        if let Some(idx) = name.find('V') {
-            let prefix = &name[..idx];
-            let clean = prefix
-                .replace('_', "")
-                .replace("VCC", "")
-                .replace("VDD", "");
-            if !clean.is_empty() {
-                let clean = clean.replace("V", ".").trim_matches('.').to_string();
-                if let Ok(val) = clean.parse::<f32>() {
-                    return Some(val);
-                }
-            }
-        }
-        None
-    }
-
-    let mut net_voltages: Vec<(&NetEntry, f32)> = Vec::new();
+    const TOL: f64 = 0.5;
     for net in table.get_nets() {
-        if let Some(v) = parse_voltage(&net.name) {
-            net_voltages.push((net, v));
+        // (pin path, declared alternative voltages) for supply pins on this net
+        let mut declared: Vec<(String, Vec<f64>)> = Vec::new();
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) {
+                continue;
+            }
+            let Some(voltages) = pin_declared_voltages(table, entry) else {
+                continue;
+            };
+            if voltages.is_empty() {
+                continue;
+            }
+            declared.push((entry.path.clone(), voltages));
         }
-    }
-    // Check for voltage differences on connected paths (approximate — just compare names)
-    for i in 0..net_voltages.len() {
-        for j in i + 1..net_voltages.len() {
-            let (n1, v1) = net_voltages[i];
-            let (n2, v2) = net_voltages[j];
-            if (v1 - v2).abs() > 0.5 && has_shared_point(table, n1, n2) {
-                let (pos, uri) = best_pos(table, &n1.points);
+        if declared.len() < 2 {
+            continue;
+        }
+        // Conflict: two pins whose declared sets share no value within TOL.
+        for i in 0..declared.len() {
+            let (p1, v1) = &declared[i];
+            let mut conflicted = false;
+            for j in i + 1..declared.len() {
+                let (p2, v2) = &declared[j];
+                let compatible = v1.iter().any(|a| v2.iter().any(|b| (a - b).abs() <= TOL));
+                if compatible {
+                    continue;
+                }
+                let (pos, uri) = best_pos(table, &net.points);
                 results.push(NetCheckResult {
                     check: "voltage-mismatch",
                     severity: "error",
                     message: format!(
-                        "Power nets '{}' ({}V) and '{}' ({}V) may be shorted.",
-                        n1.name, v1, n2.name, v2
+                        "Net '{}': power pins '{}' ({}V) and '{}' ({}V) declare \
+                         incompatible voltages; they may be shorted.",
+                        net.name,
+                        p1,
+                        fmt_voltages(v1),
+                        p2,
+                        fmt_voltages(v2)
                     ),
-                    net_name: format!("{}+{}", n1.name, n2.name),
+                    net_name: net.name.clone(),
                     code: crate::errcodes::NET_VOLTAGE_MISMATCH,
                     pos,
                     uri,
                 });
+                conflicted = true;
+                break;
+            }
+            if conflicted {
+                break;
             }
         }
     }
 }
 
-fn has_shared_point(_table: &InstTable, n1: &NetEntry, n2: &NetEntry) -> bool {
-    let p1: HashSet<u32> = n1.points.iter().cloned().collect();
-    n2.points.iter().any(|id| p1.contains(id))
+/// Read the operating voltages a pin declares, from its definition:
+///
+/// 1. **Attribute KVS** — the pin's `voltage` / `volt` key (e.g.
+///    `voltage:3.3V`, `voltage:[1.2V, 1.3V]`). Read from `McPin.values`.
+/// 2. **Interface binding** — for pins bound to a power interface
+///    (`[VDD, GND]::DC(3.3V)`, `VIN{Vin, GND}::DC(5V)`), the interface
+///    binding's volt parameter. Found by locating the `McPinPort::Interface`
+///    whose `registered_pins` / member names include this pin.
+///
+/// Only SUPPLY pins (power-typed or power-named, ground excluded) are
+/// voltage sources: a signal pin's `voltage` attribute describes signal
+/// levels, not the rail. Ground pins (GND/VSS) are the reference and never
+/// participate. Range values (`2.5V~5.5V`) are skipped — they declare
+/// tolerance, not a fixed rail. Returns `None` when the pin is not a supply
+/// pin or declares no concrete voltage.
+fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64>> {
+    let comp_entry = entry.parent_id.and_then(|pid| table.get_entry(pid))?;
+    if comp_entry.class_name.is_empty() {
+        return None;
+    }
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
+    let def_entry = comps
+        .iter()
+        .find(|e| e.key().ident.to_string() == comp_entry.class_name)?;
+    let def = def_entry.value();
+
+    let pin_id = entry.path.rsplit('.').next().unwrap_or("");
+    let pin = def.pins.pins.get(pin_id).or_else(|| {
+        def.pins
+            .pins
+            .values()
+            .find(|p| p.names.iter().any(|n| n == &entry.class_name))
+    })?;
+
+    // Supply pin only. Ground / reference pins (GND, VSS, VSSA, EPAD — the
+    // exposed pad) are the return path and never declare a rail, even though
+    // they are typically `Power`-typed; a shared ground pin legitimately
+    // belongs to several rails (e.g. the EPAD of a multi-rail MCU), so it
+    // must not seed a voltage comparison. A pin is a supply candidate when
+    // it is power-named (leaf of `VIN.Vin` → `Vin`) or `Power`-typed and it
+    // is not a ground reference.
+    let leaf = entry.class_name.rsplit('.').next().unwrap_or("");
+    let is_ground = is_ground_name(leaf)
+        || is_ground_name(pin_id)
+        || pin.names.iter().any(|n| is_ground_name(n))
+        || leaf.eq_ignore_ascii_case("EPAD")
+        || pin_id.eq_ignore_ascii_case("EPAD");
+    if is_ground {
+        return None;
+    }
+    let is_supply = is_supply_name(leaf) || matches!(pin.iotype, IOType::Power);
+    if !is_supply {
+        return None;
+    }
+
+    let mut out: Vec<f64> = Vec::new();
+    // 1) Attribute KVS voltage.
+    for val in pin.values.iter() {
+        if let McAttrVal::KVS(kvs) = val {
+            let key = kvs.key.to_string().to_lowercase();
+            if key.contains("volt") {
+                collect_kvs_voltage(&kvs.value, &mut out);
+            }
+        }
+    }
+    // 2) Interface binding volt parameter.
+    for port in def.pins.names_to_id.values() {
+        let McPinPort::Interface(iface) = port else {
+            continue;
+        };
+        let owns_pin = iface.registered_pins.iter().any(|r| r == &pin_id)
+            || iface
+                .pin_name_mapping
+                .iter()
+                .any(|n| n == &entry.class_name);
+        if !owns_pin {
+            continue;
+        }
+        for p in &iface.params {
+            if let McParamValue::UValue(uv) = p {
+                if matches!(uv.unit(), McUnit::Volt) && !uv.is_range_or_plusminus() {
+                    out.push(uv.value());
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    out.dedup();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// Extract scalar voltages from a KVS value:
+/// `Const(Keyword("3.3V"))` → 3.3; `Square([Uval(1.2V), Uval(1.3V)])` →
+/// [1.2, 1.3]; nested `low:`/`high:` sub-keys are recursed. Ranges
+/// (`0V ~ 0.7V`) are skipped — only concrete scalar volts count.
+fn collect_kvs_voltage(value: &KVSValue, out: &mut Vec<f64>) {
+    match value {
+        KVSValue::Const(c) => {
+            if let crate::semantic::basic::mc_literal::McConst::Keyword(s) = c {
+                if let Some(v) = parse_voltage_str(s) {
+                    out.push(v);
+                }
+            }
+        }
+        KVSValue::Square(vals) => {
+            for a in vals {
+                match a {
+                    McAttrVal::AttrLiteral(McLiteral::Uval(uv)) => {
+                        if matches!(uv.unit(), McUnit::Volt) && !uv.is_range_or_plusminus() {
+                            out.push(uv.value());
+                        }
+                    }
+                    McAttrVal::KVS(nested) => collect_kvs_voltage(&nested.value, out),
+                    _ => {}
+                }
+            }
+        }
+        KVSValue::Nested(list) => {
+            for k in list {
+                collect_kvs_voltage(&k.value, out);
+            }
+        }
+    }
+}
+
+/// Parse a scalar voltage text to volts: `"3.3V"` → 3.3, `"3V3"` → 3.3,
+/// `"5"` → 5.0. Non-numeric / symbolic values (`0.7*VDD`, ranges) return None.
+fn parse_voltage_str(s: &str) -> Option<f64> {
+    let s = s.trim();
+    if s.is_empty() || s.contains('~') || s.contains('±') || s.contains('*') {
+        return None;
+    }
+    let digits = s.strip_suffix(['V', 'v']).unwrap_or(s);
+    if digits.contains('V') || digits.contains('v') {
+        digits
+            .replace(['V', 'v'], ".")
+            .trim_matches('.')
+            .parse()
+            .ok()
+    } else {
+        digits.parse().ok()
+    }
+}
+
+/// Format a declared-voltage set for display: `[3.3]` → `3.3`, `[1.2, 3.3]` → `1.2/3.3`.
+fn fmt_voltages(vs: &[f64]) -> String {
+    vs.iter()
+        .map(|v| format!("{v}"))
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 // ── P9: Component instances with no pins connected to any net ──

@@ -319,6 +319,25 @@ impl std::fmt::Debug for McUnitValue {
     }
 }
 
+impl McUnitValue {
+    /// True when this value is a range (`2.5V~5.5V`) or plus-minus (`±20%`)
+    /// form — i.e. the single `value()` is NOT the whole declared quantity.
+    ///
+    /// The range/± forms are parsed by the AST into a single `McUnitValue`
+    /// whose `value()` keeps the nominal/low bound while the full source text
+    /// is preserved in `raw` (see `with_raw_text`). Reading that parser-owned
+    /// marker directly (not via `Display`) is the structural way to tell "a
+    /// declared scalar" apart from "a declared range": a scalar `3.3V` has
+    /// `raw = "3.3V"`, a range `2.5V~5.5V` has `raw = "2.5V~5.5V"`. Callers
+    /// that must NOT treat a flexible range as a fixed value (ERC voltage
+    /// comparisons) use this to skip such values.
+    pub fn is_range_or_plusminus(&self) -> bool {
+        self.raw
+            .as_deref()
+            .is_some_and(|r| r.contains('~') || r.contains('±'))
+    }
+}
+
 fn extract_value_and_unit<'a>(node: &'a AstNode, data: &'a str) -> Option<(f64, &'a str)> {
     // Compile the unit-value regex once instead of on every call — the
     // pattern is constant, so caching it avoids the regex compile cost on

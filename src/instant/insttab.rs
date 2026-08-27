@@ -145,7 +145,7 @@ pub fn infer_member_role(
 }
 
 /// Check if a name looks like Ground.
-fn is_ground_name(s: &str) -> bool {
+pub(crate) fn is_ground_name(s: &str) -> bool {
     let u = s.to_uppercase();
     matches!(
         u.as_str(),
@@ -154,7 +154,7 @@ fn is_ground_name(s: &str) -> bool {
 }
 
 /// Check if a name looks like Power (not Ground).
-fn is_supply_name(s: &str) -> bool {
+pub(crate) fn is_supply_name(s: &str) -> bool {
     let u = s.to_uppercase();
     if is_ground_name(&u) {
         return false;
