@@ -622,15 +622,13 @@ impl McFunction {
                             }
                             let parsed = McFuncConds::from_conds(&raw_conds, &mut wrapper);
                             if !parsed.if_blocks.is_empty() || !parsed.else_stmts.is_empty() {
-                                if self.name.to_string().contains("i2c") {
-                                    mcc_dbg!(
-                                        "sem::fcall",
-                                        "[COND-PARSE] func={} if_blocks={} else_stmts={}",
-                                        self.name,
-                                        parsed.if_blocks.len(),
-                                        parsed.else_stmts.len()
-                                    );
-                                }
+                                mcc_dbg!(
+                                    "sem::fcall",
+                                    "[COND-PARSE] func={} if_blocks={} else_stmts={}",
+                                    self.name,
+                                    parsed.if_blocks.len(),
+                                    parsed.else_stmts.len()
+                                );
                                 self.conds.push(parsed);
                             }
                         }

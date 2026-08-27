@@ -1213,6 +1213,76 @@ impl McPhrase {
 
                 // Handle the case where left is FuncCall or other Phrase - create Member variant
                 if right.len() == 1 && !right[0].is_empty() {
+                    // Chained member on a method/instance call (`X6.setup(GND).XTAL`,
+                    // `mic(V3V3).MIC`) names a pin/port of the base instance. Validate
+                    // it against the base's class pins/ports here — AST-level, no text
+                    // re-parsing — so a typo like `.XTALXX` is flagged (E3179 / E1803)
+                    // instead of silently yielding no connection points in Pass2.
+                    // `CAP(1uF).Cap(...)` style ctor-method chains resolve no base
+                    // instance (`base_instance_name` recurses the caller, which is a
+                    // class ctor with caller=None) and fall through unvalidated.
+                    let member = right[0].clone();
+                    // Resolve the base instance: recurse the caller chain for
+                    // method calls (`X6.setup(GND)` → "X6"), falling back to the
+                    // callee name itself for ctor-style instance calls
+                    // (`mic(V3V3)` → "mic") when it names a real instance.
+                    // Method names (`Cap`, `Pullup`, `setup`) never resolve, so
+                    // those chains fall through unvalidated.
+                    let base = base_instance_name(&left_opd).or_else(|| match &left_opd {
+                        McPhrase::FuncCall(fc) => {
+                            let name = fc.func_name.to_string();
+                            context.find_inst(&name).is_some().then_some(name)
+                        }
+                        _ => None,
+                    });
+                    if let Some(base) = base {
+                        match context.find_inst(&base) {
+                            Some(McInstance::Component(c)) => {
+                                if c.find_pin(&member).is_none() {
+                                    let available: Vec<&str> = c
+                                        .base
+                                        .pins
+                                        .names_to_id
+                                        .keys()
+                                        .map(|s| s.as_str())
+                                        .collect();
+                                    dlog_error(
+                                        crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                        node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                            &[
+                                                &member as &dyn std::fmt::Display,
+                                                &base as &dyn std::fmt::Display,
+                                                &available.join(", ") as &dyn std::fmt::Display,
+                                            ],
+                                        ),
+                                    );
+                                    return None;
+                                }
+                            }
+                            Some(McInstance::Module(m)) => {
+                                if m.base.insts.find_port(&member).is_none() {
+                                    let available: Vec<&str> =
+                                        m.base.insts.iter_ports().map(|(name, _)| name).collect();
+                                    dlog_error(
+                                        crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                        node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                            &[
+                                                &member as &dyn std::fmt::Display,
+                                                &base as &dyn std::fmt::Display,
+                                                &available.join(", ") as &dyn std::fmt::Display,
+                                            ],
+                                        ),
+                                    );
+                                    return None;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                     let member_ep =
                         McEndpoint::Single(McInstanceRef::new(McInstance::Label(right[0].clone())));
                     return Some(McPhrase::Member(Box::new(left_opd), member_ep));

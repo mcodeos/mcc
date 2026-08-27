@@ -5,12 +5,10 @@
 //! Type and expression validation checks.
 //!
 //! Checks:
-//!   Q7 — Closure with undeclared free variable
 //!   E1 — Type mismatch in param binding (arg value vs declared param type)
 //!   E3 — Unit dimension mismatch (wrong physical unit in argument)
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
-use std::collections::HashSet;
 
 pub struct TypesCheck;
 
@@ -26,175 +24,7 @@ impl ValidationCheck for TypesCheck {
     }
 
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
-        check_closure_free_vars(acc); // Q7
         check_param_type_mismatch(acc); // E1 + E3
-    }
-}
-
-// ============================================================================
-// Q7: Closure with undeclared free variable
-// ============================================================================
-
-/// Scan module body text for closure expressions (`|x, y| { ... }`) and
-/// verify that all identifiers used inside the closure body are either
-/// declared as closure parameters or are known module-level names.
-fn check_closure_free_vars(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let m = entry.value();
-        let mod_span = Some(m.span.start..m.span.end);
-
-        // Collect known module-level names (instances, params)
-        let known_names: HashSet<String> = {
-            let mut s: HashSet<String> = m.insts.iter_instance_names().cloned().collect();
-            for d in m.params.iter() {
-                if let Some(n) = d.get_primary_name() {
-                    s.insert(n);
-                }
-            }
-            s
-        };
-
-        for phrase in &m.stmts {
-            let text = format!("{}", phrase);
-            check_closure_in_text(
-                &text,
-                &uri,
-                &entry.key().ident.to_string(),
-                &known_names,
-                &mod_span,
-                acc,
-            );
-        }
-
-        // Also check function body stmts
-        for func in m.funcs.iter() {
-            for phrase in &func.stmts {
-                let text = format!("{}", phrase);
-                let mut func_known = known_names.clone();
-                for d in func.params.iter() {
-                    if let Some(n) = d.get_primary_name() {
-                        func_known.insert(n);
-                    }
-                }
-                check_closure_in_text(
-                    &text,
-                    &uri,
-                    &format!("{}::{}", entry.key().ident, func.name),
-                    &func_known,
-                    &mod_span,
-                    acc,
-                );
-            }
-        }
-    }
-}
-
-/// Scan a single text line for `|params| {body}` closure patterns.
-fn check_closure_in_text(
-    text: &str,
-    uri: &str,
-    context: &str,
-    known_names: &HashSet<String>,
-    module_span: &Option<std::ops::Range<usize>>,
-    acc: &mut CheckAccumulator,
-) {
-    // Find closure patterns: |param1, param2| { ... } or |param1, param2| -> ...
-    let mut search_from = 0usize;
-    while let Some(pipe_pos) = text[search_from..].find('|') {
-        let abs_pipe = search_from + pipe_pos;
-        let after_first_pipe = &text[abs_pipe + 1..];
-
-        // Find matching closing pipe
-        if let Some(close_pipe) = after_first_pipe.find('|') {
-            let params_str = &after_first_pipe[..close_pipe].trim();
-            let after_close = &after_first_pipe[close_pipe + 1..];
-
-            // Parse closure params
-            let closure_params: HashSet<String> = params_str
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty() && *s != "_")
-                .collect();
-
-            if closure_params.is_empty() {
-                search_from = abs_pipe + 1;
-                continue;
-            }
-
-            // Find closure body: `{ ... }` must immediately follow `|...|`
-            // (ignoring whitespace and optional `->`).  Otherwise the first
-            // `{` could be a bus-member access like `DC2{VDD, GND}`, not
-            // the closure body (Defect 82).
-            let brace_pos = after_close.find('{');
-            let leading_text = after_close[..brace_pos.unwrap_or(after_close.len())].trim();
-            let is_closure = leading_text.is_empty() || leading_text == "->";
-            if !is_closure {
-                search_from = abs_pipe + 1;
-                continue;
-            }
-
-            let body_start = brace_pos.map(|p| p + 1);
-            let body_end =
-                body_start.and_then(|start| after_close[start..].find('}').map(|e| start + e));
-
-            if let (Some(start), Some(end)) = (body_start, body_end) {
-                let body_text = &after_close[start..end];
-
-                // Extract identifiers from body text
-                let body_idents: HashSet<String> = body_text
-                    .split_whitespace()
-                    .map(|w| {
-                        w.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-                            .to_string()
-                    })
-                    .filter(|s| {
-                        !s.is_empty()
-                            && s.chars()
-                                .next()
-                                .map_or(false, |c| c.is_alphabetic() || c == '_')
-                            && *s != "this"
-                            && *s != "pins"
-                            && *s != "return"
-                            && *s != "_"
-                    })
-                    .collect();
-
-                // Find free variables: used in body but not in closure params
-                let free_vars: Vec<String> = body_idents
-                    .iter()
-                    .filter(|id| {
-                        !closure_params.contains(*id) && !known_names.contains(*id) && id.len() > 1
-                    })
-                    .cloned()
-                    .collect();
-
-                if !free_vars.is_empty() {
-                    acc.push(CheckResult {
-                        check_name: "types",
-                        severity: CheckSeverity::Warning,
-                        uri: Some(uri.to_string()),
-                        span: module_span.clone(),
-                        message: format!(
-                            "In {}: closure |{}| uses undeclared free variable(s): {}. \
-                             These names are not closure params or known module identifiers.",
-                            context,
-                            params_str,
-                            free_vars.join(", ")
-                        ),
-                        code: crate::errcodes::TYPE_CLOSURE_FREE_VAR,
-                    });
-                }
-            }
-
-            search_from = abs_pipe + close_pipe + 2;
-        } else {
-            break;
-        }
     }
 }
 

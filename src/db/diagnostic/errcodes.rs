@@ -973,9 +973,6 @@ pub const REF_INTEGRITY: u32 = 5102;
 /// Function has parameters but no body (empty implementation).
 pub const FUNC_PARAMS_NO_BODY: u32 = 5103;
 
-/// pins.X references an undefined pin name.
-pub const EXPR_PINS_X_UNDEFINED: u32 = 5104;
-
 // ============================================================================
 // Pass3: ports / pins (5150-5199)
 // ============================================================================
@@ -998,20 +995,8 @@ pub const PIN_UNCONNECTED: u32 = 5155;
 /// Pin uses conflicting option names.
 pub const PIN_CONFLICTING_OPTIONS: u32 = 5156;
 
-/// Return statement used outside a function.
-pub const FUNC_RETURN_OUTSIDE_FUNCTION: u32 = 5157;
-
-/// Return statement specifies a literal instead of an endpoint.
-pub const FUNC_RETURN_LITERAL_INVALID: u32 = 5158;
-
-/// Empty instance table in a [] :: TYPE declaration.
-pub const INST_EMPTY_TABLE: u32 = 5159;
-
 /// this :: TYPE declaration is not allowed.
 pub const INST_THIS_TYPE: u32 = 5160;
-
-/// Role used as a function-call argument.
-pub const FUNC_ROLE_AS_ARG: u32 = 5161;
 
 /// Module port is declared but never connected.
 pub const MODULE_PORT_UNUSED: u32 = 5162;
@@ -1083,15 +1068,6 @@ pub const IFACE_PIN_COUNT_MISMATCH: u32 = 5262;
 
 /// Function shares its name with a port/param.
 pub const FUNC_SHARES_NAME_WITH_PORT: u32 = 5263;
-
-/// Net connects two outputs.
-pub const NET_BOTH_OUTPUTS: u32 = 5264;
-
-/// Inline function body literal used as a call argument.
-pub const FUNC_INLINE_BODY_LITERAL_ARG: u32 = 5265;
-
-/// Function declares parameters it never uses.
-pub const FUNC_PARAMS_UNUSED: u32 = 5266;
 
 /// Spec key appears more than once.
 pub const SPEC_KEY_DUPLICATE: u32 = 5267;
@@ -1245,9 +1221,6 @@ pub const HW_IFACE_NEVER_BOUND: u32 = 5511;
 // ============================================================================
 // Pass3: type / unit compatibility (5550-5599)
 // ============================================================================
-
-/// Closure references a free variable that is not declared.
-pub const TYPE_CLOSURE_FREE_VAR: u32 = 5551;
 
 /// Incompatible types or unit types.
 pub const TYPE_INCOMPATIBLE: u32 = 5552;
@@ -1558,7 +1531,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SPEC_KEY_UNDECLARED_PARAM, "Spec key references a parameter that is not declared.", "Spec key references a parameter that is not declared."),
     entry!(REF_INTEGRITY, "Reference integrity violation.", "Reference integrity violation."),
     entry!(FUNC_PARAMS_NO_BODY, "Function has parameters but no body (empty implementation).", "Function has parameters but no body (empty implementation)."),
-    entry!(EXPR_PINS_X_UNDEFINED, "pins.X references an undefined pin name.", "pins.X references an undefined pin name."),
     // ---- section ----
     entry!(INST_DECLARED_MULTIPLE, "Instance is declared more than once in the module.", "Instance is declared more than once in the module."),
     entry!(PORT_DUPLICATE_NAME, "Duplicate port name in the module — ambiguous.", "Duplicate port name in the module — ambiguous."),
@@ -1566,11 +1538,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NAME_PARAM_AND_INSTANCE, "Name is both a value parameter and an instance.", "Name is both a value parameter and an instance."),
     entry!(PIN_UNCONNECTED, "Pin is not connected to any net.", "Pin is not connected to any net."),
     entry!(PIN_CONFLICTING_OPTIONS, "Pin uses conflicting option names.", "Pin uses conflicting option names."),
-    entry!(FUNC_RETURN_OUTSIDE_FUNCTION, "Return statement used outside a function.", "Return statement used outside a function."),
-    entry!(FUNC_RETURN_LITERAL_INVALID, "Return statement specifies a literal instead of an endpoint.", "Return statement specifies a literal instead of an endpoint."),
-    entry!(INST_EMPTY_TABLE, "Empty instance table in a [] :: TYPE declaration.", "Empty instance table in a [] :: TYPE declaration."),
     entry!(INST_THIS_TYPE, "this :: TYPE declaration is not allowed.", "this :: TYPE declaration is not allowed."),
-    entry!(FUNC_ROLE_AS_ARG, "Role used as a function-call argument.", "Role used as a function-call argument."),
     entry!(MODULE_PORT_UNUSED, "Module port is declared but never connected.", "Module port is declared but never connected."),
     entry!(COND_SINGLE_BINARY, "Condition compares against a single binary value.", "Condition compares against a single binary value."),
     // ---- section ----
@@ -1594,9 +1562,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DEFINE_NON_ATTR_CLAUSE, "Define contains a non-attribute clause.", "Define contains a non-attribute clause."),
     entry!(IFACE_PIN_COUNT_MISMATCH, "Interface expects more pins than are bound.", "Interface expects more pins than are bound."),
     entry!(FUNC_SHARES_NAME_WITH_PORT, "Function shares its name with a port/param.", "Function shares its name with a port/param."),
-    entry!(NET_BOTH_OUTPUTS, "Net connects two outputs.", "Net connects two outputs."),
-    entry!(FUNC_INLINE_BODY_LITERAL_ARG, "Inline function body literal used as a call argument.", "Inline function body literal used as a call argument."),
-    entry!(FUNC_PARAMS_UNUSED, "Function declares parameters it never uses.", "Function declares parameters it never uses."),
     entry!(SPEC_KEY_DUPLICATE, "Spec key appears more than once.", "Spec key appears more than once."),
     // ---- section ----
     entry!(DEF_AMBIGUOUS_NAME, "Same name used for different definition kinds.", "Same name used for different definition kinds."),
@@ -1646,7 +1611,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(HW_FUNC_PARAM_SHADOWS_PIN, "Function parameter shadows a pin name.", "Function parameter shadows a pin name."),
     entry!(HW_IFACE_NEVER_BOUND, "Interface is defined but never bound.", "Interface is defined but never bound."),
     // ---- section ----
-    entry!(TYPE_CLOSURE_FREE_VAR, "Closure references a free variable that is not declared.", "Closure references a free variable that is not declared."),
     entry!(TYPE_INCOMPATIBLE, "Incompatible types or unit types.", "Incompatible types or unit types."),
     // ---- section ----
     entry!(UNUSED_PARAM_OR_PORT, "Parameter or port is declared but never used.", "Parameter or port is declared but never used."),

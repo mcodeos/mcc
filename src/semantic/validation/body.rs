@@ -6,15 +6,12 @@
 //!
 //! Checks:
 //!   L1 — Mixed `.` and `/` path separators in URIs
-//!   P6 — `return` outside function context
-//!   P7 — `return` with literal instead of endpoint
-//!   S3 — Empty bracket instance list (`[] :: TYPE`)
 //!   S4 — `this` on LHS of `::` declaration
-//!   S6 — `role` keyword used as call argument value
 //!   T1 — Bitwise operator (`&`/`|`) in condition context
 //!   C4-ext — Module port declared but never connected in any net
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
+use crate::semantic::basic::mc_conds::McCondition;
 use crate::semantic::basic::mc_endpoint::McEndpoint;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
@@ -35,11 +32,7 @@ impl ValidationCheck for BodyCheck {
 
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_mixed_path_separators(acc); // L1
-        check_return_outside_function(acc); // P6
-        check_return_with_literal(acc); // P7
-        check_empty_bracket_list(acc); // S3
         check_this_lhs_declaration(acc); // S4
-        check_role_as_call_arg(acc); // S6
         check_bitwise_in_condition(acc); // T1
         check_unconnected_module_ports(acc); // C4-ext
     }
@@ -134,226 +127,8 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
 }
 
 // ============================================================================
-// P6: `return` outside function context
-// ============================================================================
-
-/// In MCode, `return` is only valid inside `func` bodies. A `return` in a
-/// module's top-level net stmts or component attribute body is an error.
-fn check_return_outside_function(acc: &mut CheckAccumulator) {
-    // ── Module top-level body stmts ──
-    {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let uri = entry.key().uri.to_string();
-            if super::is_test_file(&uri) {
-                continue;
-            }
-            let m = entry.value();
-
-            // Check top-level module body stmts (not inside functions)
-            for phrase in &m.stmts {
-                let text = format!("{}", phrase);
-                if text_contains_keyword(&text, "return") {
-                    acc.push(CheckResult {
-                        check_name: "body",
-                        severity: CheckSeverity::Error,
-                        uri: Some(uri.clone()),
-                        span: Some(m.span.start..m.span.end),
-                        message: format!(
-                            "Module '{}': 'return' used outside function context: '{}'. \
-                             'return' is only valid inside 'func' bodies.",
-                            entry.key().ident,
-                            text.trim()
-                        ),
-                        code: crate::errcodes::FUNC_RETURN_OUTSIDE_FUNCTION,
-                    });
-                    break; // One diagnostic per module for this check
-                }
-            }
-        }
-    }
-
-    // ── Component top-level body (attributes) ──
-    // Component bodies are parsed into structured attrs/pins/funcs, not raw stmts.
-    // A `return` in a component attr value would be unusual but checking attr
-    // value text would produce false positives. Skip component-level check —
-    // the parser would catch `return` as a syntax error in component context.
-}
-
-/// Check if `text` contains `keyword` as a standalone token (word boundary).
-fn text_contains_keyword(text: &str, keyword: &str) -> bool {
-    // Simple: check each whitespace-separated token
-    for word in text.split_whitespace() {
-        let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-        if clean == keyword {
-            return true;
-        }
-    }
-    false
-}
-
-// ============================================================================
 // P7: `return` with literal instead of endpoint
 // ============================================================================
-
-/// When `return` appears in a function body, it should specify a net endpoint
-/// (port name, instance pin, label), not a bare literal value.
-///
-/// Examples:
-///   ✓ `return VDD`          (endpoint)
-///   ✓ `return dc_out.VDD`   (instance endpoint)
-///   ✗ `return 42`           (bare integer)
-///   ✗ `return "done"`       (bare string)
-///   ✗ `return 3.3V`         (unit value — no named endpoint)
-fn check_return_with_literal(acc: &mut CheckAccumulator) {
-    // ── Module functions ──
-    {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let uri = entry.key().uri.to_string();
-            if super::is_test_file(&uri) {
-                continue;
-            }
-            let m = entry.value();
-            let mod_span = Some(m.span.start..m.span.end);
-            for func in m.funcs.iter() {
-                for phrase in &func.stmts {
-                    let text = format!("{}", phrase);
-                    check_return_literal_in_text(
-                        &text,
-                        &uri,
-                        &format!("module '{}' func '{}'", entry.key().ident, func.name),
-                        &mod_span,
-                        acc,
-                    );
-                }
-            }
-        }
-    }
-
-    // ── Component functions ──
-    {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            let uri = entry.key().uri.to_string();
-            if super::is_test_file(&uri) {
-                continue;
-            }
-            let comp = entry.value();
-            let comp_span = Some(comp.span.start..comp.span.end);
-            for func in comp.funcs.iter() {
-                for phrase in &func.stmts {
-                    let text = format!("{}", phrase);
-                    check_return_literal_in_text(
-                        &text,
-                        &uri,
-                        &format!("component '{}' func '{}'", comp.name, func.name),
-                        &comp_span,
-                        acc,
-                    );
-                }
-            }
-        }
-    }
-}
-
-/// Scan text for `return <literal>` patterns where the return value is not
-/// a named endpoint.
-fn check_return_literal_in_text(
-    text: &str,
-    uri: &str,
-    context: &str,
-    def_span: &Option<std::ops::Range<usize>>,
-    acc: &mut CheckAccumulator,
-) {
-    let lower = text.to_lowercase();
-    let return_positions: Vec<usize> = lower.match_indices("return").map(|(i, _)| i).collect();
-
-    for pos in return_positions {
-        let after_return = &text[pos + 6..].trim_start(); // skip "return"
-        if after_return.is_empty() {
-            continue; // bare `return` is fine (implicit return)
-        }
-
-        // Get the first token after `return`
-        let first_token = after_return
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '_');
-
-        if first_token.is_empty() {
-            continue;
-        }
-
-        // Check if the first token is a literal:
-        // - Integer: all digits
-        // - Float: digits with a decimal point
-        // - String: quoted text
-        // - Unit value: digits followed by unit chars (e.g., "5V", "3.3V", "100nF")
-        let is_quoted = first_token.starts_with('"') || first_token.starts_with('\'');
-        let is_numeric = first_token.chars().all(|c| c.is_ascii_digit());
-        let is_float = first_token.chars().all(|c| c.is_ascii_digit() || c == '.')
-            && first_token.contains('.')
-            && !first_token.starts_with('.');
-        let is_unit = first_token.starts_with(|c: char| c.is_ascii_digit() || c == '.')
-            && first_token.chars().any(|c| c.is_alphabetic());
-
-        if is_quoted || is_numeric || is_float || is_unit {
-            acc.push(CheckResult {
-                check_name: "body",
-                severity: CheckSeverity::Warning,
-                uri: Some(uri.to_string()),
-                span: def_span.clone(),
-                message: format!(
-                    "In {}: 'return {}' — 'return' should specify a net endpoint (port/instance), \
-                     not a literal value.",
-                    context, first_token
-                ),
-                code: crate::errcodes::FUNC_RETURN_LITERAL_INVALID,
-            });
-        }
-    }
-}
-
-// ============================================================================
-// S3: Empty bracket instance list (`[] :: TYPE`)
-// ============================================================================
-
-/// An empty `[] :: TYPE(...)` declares a zero-length instance vector.
-/// This is almost certainly a mistake — the user likely intended to
-/// specify a range or list of instances.
-fn check_empty_bracket_list(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let m = entry.value();
-
-        for phrase in &m.stmts {
-            let text = format!("{}", phrase);
-            // Look for `[] ::` pattern
-            if text.contains("[] ::") || text.contains("[]::") {
-                acc.push(CheckResult {
-                    check_name: "body",
-                    severity: CheckSeverity::Error,
-                    uri: Some(uri.clone()),
-                    span: Some(m.span.start..m.span.end),
-                    message: format!(
-                        "Module '{}': empty bracket instance list '[] :: TYPE' in '{}'. \
-                         An empty instance list creates no instances — remove it or \
-                         specify a range like '[1:4]'.",
-                        entry.key().ident,
-                        text.trim()
-                    ),
-                    code: crate::errcodes::INST_EMPTY_TABLE,
-                });
-            }
-        }
-    }
-}
 
 // ============================================================================
 // S4: `this` on LHS of `::` declaration
@@ -362,6 +137,11 @@ fn check_empty_bracket_list(acc: &mut CheckAccumulator) {
 /// `this :: TYPE` is invalid syntax. The `this` keyword refers to the
 /// current instance and cannot be used as a new instance name.
 /// Valid: `r1 :: RES(10k)`  Invalid: `this :: RES(10k)`
+///
+/// `this :: RES(...)` parses as an ordinary instance declaration whose name is
+/// the reserved keyword — detect it structurally by instance kind, not by
+/// re-scanning the declaration's display text. A bare `this` used as a net
+/// endpoint parses to `McInstance::Label("this")` and is NOT a declaration.
 fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
     let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
@@ -370,83 +150,24 @@ fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
             continue;
         }
         let m = entry.value();
-
-        for phrase in &m.stmts {
-            let text = format!("{}", phrase);
-            // Look for `this ::` pattern (with optional whitespace)
-            let cleaned: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-
-            if cleaned.starts_with("this::") {
-                acc.push(CheckResult {
-                    check_name: "body",
-                    severity: CheckSeverity::Error,
-                    uri: Some(uri.clone()),
-                    span: Some(m.span.start..m.span.end),
-                    message: format!(
-                        "Module '{}': 'this :: TYPE' in '{}'. \
-                         'this' refers to the current instance and cannot be used \
-                         as a new instance name on the LHS of '::'.",
-                        entry.key().ident,
-                        text.trim()
-                    ),
-                    code: crate::errcodes::INST_THIS_TYPE,
-                });
-            }
-        }
-    }
-}
-
-// ============================================================================
-// S6: `role` keyword used as call argument value
-// ============================================================================
-
-/// The `role` keyword is reserved for interface role selection. Passing
-/// `role` as a positional argument to a component/module constructor is
-/// likely a mistake.
-///
-/// Example: `AMP(role, 5V)` — `role` is not a value, it's a keyword.
-fn check_role_as_call_arg(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let m = entry.value();
-
-        // Check all instance calls for `role` as an argument
-        for (inst_name, (_iotype, instance)) in m.insts.iter_with_iotype() {
-            // Get the arg list text from the instance
-            let args: Vec<String> = match instance {
-                crate::McInstance::Component(c2) => {
-                    c2.params.iter().map(|p| p.to_string()).collect()
-                }
-                crate::McInstance::Interface(i2) => {
-                    i2.params.iter().map(|p| p.to_string()).collect()
-                }
-                crate::McInstance::Module(m2) => m2.args.iter().map(|a| a.to_string()).collect(),
-                _ => continue,
-            };
-
-            for arg in &args {
-                let cleaned = arg.trim();
-                if cleaned == "role" {
-                    acc.push(CheckResult {
-                        check_name: "body",
-                        severity: CheckSeverity::Error,
-                        uri: Some(uri.clone()),
-                        span: Some(m.span.start..m.span.end),
-                        message: format!(
-                            "Module '{}': instance '{}' passes 'role' as a call argument. \
-                             'role' is a keyword, not a value. Did you mean to select \
-                             a specific role (e.g. 'DCE') or declare a role parameter?",
-                            entry.key().ident,
-                            inst_name
-                        ),
-                        code: crate::errcodes::FUNC_ROLE_AS_ARG,
-                    });
-                }
-            }
+        let span = m.span.start..m.span.end;
+        let declared_this = m.insts.iter_with_iotype().any(|(name, (_io, inst))| {
+            name == "this" && !matches!(inst, crate::McInstance::Label(_))
+        });
+        if declared_this {
+            acc.push(CheckResult {
+                check_name: "body",
+                severity: CheckSeverity::Error,
+                uri: Some(uri.clone()),
+                span: Some(span),
+                message: format!(
+                    "Module '{}': 'this :: TYPE' is invalid — 'this' refers to the \
+                     current instance and cannot be used as a new instance name \
+                     on the LHS of '::'.",
+                    entry.key().ident
+                ),
+                code: crate::errcodes::INST_THIS_TYPE,
+            });
         }
     }
 }
@@ -459,7 +180,10 @@ fn check_role_as_call_arg(acc: &mut CheckAccumulator) {
 /// `|` (bitwise OR) where `&&` (logical AND) or `||` (logical OR) is
 /// intended is a common mistake.
 ///
-/// We detect this by scanning the text of cond_pins/cond_attrs conditions.
+/// A condition of the form `In { Literal(0|1) In ... }` — comparing against a
+/// single binary value — suggests a bitwise-operation result is being used as
+/// a boolean; worth a review for clarity. Detected structurally on
+/// `McCondition`, not by scanning its `Debug` text.
 fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
     let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
@@ -473,78 +197,67 @@ fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
         // Inspect conditional pin conditions
         for (idx, cp) in comp.cond_pins.iter().enumerate() {
             for (bidx, (cond, _pins)) in cp.if_blocks.iter().enumerate() {
-                let cond_text = format!("{:?}", cond);
-                check_condition_for_bitwise(
-                    &cond_text,
-                    &uri,
-                    &format!(
-                        "component '{}' cond_pins[{}] if-block[{}]",
-                        comp.name, idx, bidx
-                    ),
-                    &comp_span,
-                    acc,
-                );
+                if is_single_binary_in(cond) {
+                    push_single_binary_diag(
+                        acc,
+                        &uri,
+                        &comp_span,
+                        &comp.name.to_string(),
+                        &format!("cond_pins[{}] if-block[{}]", idx, bidx),
+                    );
+                }
             }
         }
 
         // Inspect conditional attr conditions
         for (idx, ca) in comp.cond_attrs.iter().enumerate() {
             for (bidx, (cond, _attrs)) in ca.if_blocks.iter().enumerate() {
-                let cond_text = format!("{:?}", cond);
-                check_condition_for_bitwise(
-                    &cond_text,
-                    &uri,
-                    &format!(
-                        "component '{}' cond_attrs[{}] if-block[{}]",
-                        comp.name, idx, bidx
-                    ),
-                    &comp_span,
-                    acc,
-                );
+                if is_single_binary_in(cond) {
+                    push_single_binary_diag(
+                        acc,
+                        &uri,
+                        &comp_span,
+                        &comp.name.to_string(),
+                        &format!("cond_attrs[{}] if-block[{}]", idx, bidx),
+                    );
+                }
             }
         }
     }
 }
 
-/// Check a condition's debug representation for bitwise operators that
-/// might have been intended as logical operators.
-///
-/// The `McCondition` enum uses Rust's `Debug` formatting, so comparisons
-/// appear as e.g. `Eq { left: Ident(...), right: Literal("5") }`.
-/// Single `&`/`|` wouldn't normally survive parsing into McCondition
-/// (they'd be parsed as arithmetic), so this is a heuristic check
-/// on the raw `{:?}` text.
-fn check_condition_for_bitwise(
-    cond_text: &str,
-    uri: &str,
-    context: &str,
-    comp_span: &Option<std::ops::Range<usize>>,
-    acc: &mut CheckAccumulator,
-) {
-    // McCondition::In with a single binary value ("0" or "1") could indicate
-    // that a bitwise operation result is being used as a boolean condition.
-    // e.g., `if flags & MASK:` where the condition checks if a single-bit
-    // result equals 0 or 1 — this is valid but worth reviewing for clarity.
-    if cond_text.contains("In {") {
-        let value_count = cond_text.match_indices("Literal(").count();
-        if value_count == 1 {
-            if cond_text.contains("Literal(\"0\")") || cond_text.contains("Literal(\"1\")") {
-                acc.push(CheckResult {
-                    check_name: "body",
-                    severity: CheckSeverity::Info,
-                    uri: Some(uri.to_string()),
-                    span: comp_span.clone(),
-                    message: format!(
-                        "In {}: condition compares against a single binary value. \
-                         If this is a bitwise operation result used as boolean, \
-                         consider using explicit comparison (e.g., `(flags & MASK) != 0`).",
-                        context
-                    ),
-                    code: crate::errcodes::COND_SINGLE_BINARY,
-                });
-            }
+/// `In { Literal("0"|"1"), .. }` — comparing against a single binary value
+/// on the left side of the `In` condition.
+fn is_single_binary_in(cond: &McCondition) -> bool {
+    use crate::semantic::basic::mc_conds::McCondOperand;
+    match cond {
+        McCondition::In { left, .. } => {
+            matches!(left, McCondOperand::Literal(v) if v == "0" || v == "1")
         }
+        _ => false,
     }
+}
+
+fn push_single_binary_diag(
+    acc: &mut CheckAccumulator,
+    uri: &str,
+    comp_span: &Option<std::ops::Range<usize>>,
+    comp_name: &str,
+    where_: &str,
+) {
+    acc.push(CheckResult {
+        check_name: "body",
+        severity: CheckSeverity::Info,
+        uri: Some(uri.to_string()),
+        span: comp_span.clone(),
+        message: format!(
+            "In component '{}' {}: condition compares against a single binary value. \
+             If this is a bitwise operation result used as boolean, consider using \
+             explicit comparison (e.g., `(flags & MASK) != 0`).",
+            comp_name, where_
+        ),
+        code: crate::errcodes::COND_SINGLE_BINARY,
+    });
 }
 
 // ============================================================================
