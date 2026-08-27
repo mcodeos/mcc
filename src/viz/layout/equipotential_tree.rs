@@ -1094,15 +1094,43 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
     // Pass 2: inheritance — nets not touching the layer anchor share a member
     // box with a regioned net; inherit its region. Iterate to a fixed point
     // (a net's partner may itself be resolved by inheritance).
+    //
+    // ★ M16: a net resolved by inheritance is WEAK — it may be revised once a
+    // better partner resolves. The DAC junction net `_net27` used to stick with
+    // South because GND (resolved in Pass 0, lowest nid) was the only candidate
+    // when `_net27`'s turn came before its `_net31` partner; the row side only
+    // became available later. Re-examining weak nets each sweep lets the best
+    // partner (W/E preferred, see [`inherited_region`]) win regardless of
+    // resolution order. Strong resolutions (Pass 0 ground, Pass 1 anchor nets,
+    // satellite / adopted) are never revised.
+    let mut weak: Vec<bool> = vec![false; topos.len()];
     for _ in 0..topos.len() {
+        let mut changed = false;
         for i in 0..topos.len() {
-            if resolved[i] {
+            if resolved[i] && !weak[i] {
                 continue;
             }
-            if let Some(r) = inherited_region(topos, i, &resolved) {
-                topos[i].lane.region = r;
-                resolved[i] = true;
+            let Some(r) = inherited_region(topos, i, &resolved) else {
+                continue;
+            };
+            if resolved[i] {
+                if topos[i].lane.region == r {
+                    continue;
+                }
+                crate::vlog!(
+                    "[region] revise '{}' {:?} → {:?} (a W/E partner resolved)",
+                    topos[i].net_name,
+                    topos[i].lane.region,
+                    r
+                );
             }
+            topos[i].lane.region = r;
+            resolved[i] = true;
+            weak[i] = true;
+            changed = true;
+        }
+        if !changed {
+            break;
         }
     }
 
@@ -1500,7 +1528,7 @@ fn satellite_side_claims(
 fn inherited_region(topos: &[NetTopology], idx: usize, resolved: &[bool]) -> Option<Region> {
     let topo = &topos[idx];
     let member_box_ids: Vec<i64> = topo.groups.iter().map(|g| g.box_id).collect();
-    let mut candidates: Vec<(bool, i64, Region)> = Vec::new();
+    let mut candidates: Vec<(bool, u8, i64, Region)> = Vec::new();
     for (j, other) in topos.iter().enumerate() {
         if j == idx || !resolved[j] {
             continue;
@@ -1510,15 +1538,33 @@ fn inherited_region(topos: &[NetTopology], idx: usize, resolved: &[bool]) -> Opt
             .iter()
             .any(|g| member_box_ids.contains(&g.box_id));
         if shares {
+            // ★ M16: prefer a W/E partner over a N/S one. A junction net that
+            // shares a two-pin part with BOTH a row net and a hanging rail (e.g.
+            // the DAC chain's `_net27`: R2/C7 on the row with `_net31`, C8/R3
+            // down to GND) must inherit the ROW side. GND resolves first (Pass 0,
+            // nid 0) and used to hand the junction net South, which put its
+            // Series members on Top/Bottom slots (box-centre taps, missed M8
+            // carve) and dropped the net out of the W/E chain. The trunk of such
+            // a net lies on the row, so a W/E partner is the right parent when
+            // one exists; a pure N/S net has no W/E partner and keeps South.
+            let is_ns = match other.lane.region {
+                Region::North | Region::South => 1u8,
+                _ => 0,
+            };
             candidates.push((
                 other.groups.len() == 1, // terminal-only sorts last
+                is_ns,
                 other.nid,
                 other.lane.region,
             ));
         }
     }
-    candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-    candidates.first().map(|(_, _, r)| *r)
+    candidates.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+    candidates.first().map(|(_, _, _, r)| *r)
 }
 
 /// Majority IO direction of this net's pins on its anchor box.
@@ -3760,6 +3806,22 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
     // bridge. Allocate each member box exactly ONCE, first owner in topo order
     // (the same order `place_members` uses, so the column matches the y).
     let mut claimed: BTreeSet<i64> = BTreeSet::new();
+    // ★ M16.3b: boxes some W/E net owns as a REGULAR member (gi > 0). A 2-pin
+    // sub-anchor that also appears as a regular member of another W/E net must
+    // keep that placement — its own net's pass runs first in topo order and
+    // would otherwise hijack the box with its own (possibly far) run origin,
+    // yanking it off the member net's column (`moddcdc` `_R2`: VCC_1V2's
+    // anchor, also `_net15`'s bridge — re-allocating it from VCC_1V2's origin
+    // put it 250px west with its pin off the span).
+    let mut member_owned: BTreeSet<i64> = BTreeSet::new();
+    for topo in topos.iter() {
+        if !matches!(topo.lane.region, Region::West | Region::East) {
+            continue;
+        }
+        for g in topo.groups.iter().skip(1) {
+            member_owned.insert(g.box_id);
+        }
+    }
     for (ti, topo) in topos.iter().enumerate() {
         let is_east = match topo.lane.region {
             Region::West => false,
@@ -3776,7 +3838,36 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             .copied()
             .unwrap_or_else(|| net_anchor_pin_x(graph, topo));
         let outward = if is_east { 1.0 } else { -1.0 };
-        for (gi, group) in topo.groups.iter().enumerate().skip(1) {
+        for (gi, group) in topo.groups.iter().enumerate().filter(|(_, g)| {
+            // The layer anchor is placed by P2 — never re-allocated here.
+            if g.box_id == layer_anchor {
+                return false;
+            }
+            // A terminal-only net's anchor has a degenerate row; never re-allocate
+            // it (same guard as `place_members_for_topo`).
+            if topo.terminal_only && g.box_id == topo.anchor {
+                return false;
+            }
+            // ★ M16.3: a run's SUB-ANCHOR — a non-layer 2-pin part that anchors
+            // its own net (e.g. the DAC junction `_R3`) — is a member like any
+            // other and must be re-allocated on the run. The old `skip(1)` left
+            // it at the provisional x P4's `span_lo` fallback gave it, far left
+            // of the junction, so the junction trunk had to cross the whole IC
+            // to reach it. Multi-pin Sink anchors keep their P4 x.
+            if g.box_id == topo.anchor {
+                // ★ M16.3b: but NOT when another W/E net already owns the box
+                // as a regular member — that net's column is authoritative and
+                // this one would only drag it to its own origin.
+                if member_owned.contains(&g.box_id) {
+                    return false;
+                }
+                return graph
+                    .boxes
+                    .iter()
+                    .any(|b| b.id == g.box_id && b.pins.len() == 2);
+            }
+            true
+        }) {
             let Some(b) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
                 continue;
             };
