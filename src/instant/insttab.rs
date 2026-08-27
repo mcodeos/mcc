@@ -274,6 +274,11 @@ pub struct InstEntry {
     pub io_type: IOType,
     /// Unified source position in the definition file (from NetPoint / AST)
     pub src_pos: Option<crate::semantic::common::SourcePos>,
+    /// Coarse fallback position for diagnostics: where the entity was *declared*
+    /// (e.g. a component pin's pin-id in the component body). Used only when
+    /// `src_pos` is None (unconnected pins/ports have no wiring site, so the
+    /// declaration site is the best anchor). `src_pos` (wiring site) always wins.
+    pub fallback_pos: Option<crate::semantic::common::SourcePos>,
     /// URI of the file where this instance was defined
     pub def_uri: String,
     /// ★ Member role and voltage (for interface members / power pins)
@@ -460,6 +465,7 @@ impl InstTable {
             class_name,
             io_type,
             src_pos,
+            fallback_pos: None,
             def_uri,
             member_info: None,
             not_fitted: false,
@@ -805,6 +811,24 @@ impl InstTable {
                         inst.def_uri.to_string(),
                     );
 
+                    // ── Fallback position for unconnected pins ──
+                    // An unconnected pin never appears in a net, so `flatten_nets`
+                    // can't back-fill a wiring site into `src_pos`. Anchor the
+                    // pin's diagnostics at its declaration instead: the pin-id
+                    // span in the component body (`io [12,13] = UART1...`).
+                    // Only set when the span exists AND the entry has no position
+                    // of its own (declaration is strictly weaker than a wiring site).
+                    if let Some(entry) = self.entries.get_mut(&pin_id) {
+                        if entry.src_pos.is_none() && entry.fallback_pos.is_none() {
+                            if let Some(r) = comp.def.pins.pin_id_spans.get(pin_name) {
+                                entry.fallback_pos = Some(crate::semantic::common::SourcePos::new(
+                                    comp.def.uri.clone(),
+                                    r.start as u32,
+                                ));
+                            }
+                        }
+                    }
+
                     // Set member_info role (Ground/Power) — consumed by the viz
                     // projection layer for rail classification, not for net merging.
                     let (role, _inferred) = infer_member_role(
@@ -1050,7 +1074,7 @@ impl InstTable {
                                 Some(parent_id),
                                 String::new(),
                                 np.iotype.clone(),
-                                np.src_pos,
+                                np.src_pos.clone(),
                                 String::new(),
                             );
                             ids.push(pin_id);
@@ -1058,6 +1082,22 @@ impl InstTable {
                     }
                 }
                 for id in ids {
+                    // ★ Back-fill entry src_pos from the net point, so net-level
+                    // diagnostics (E4103 undriven-net, driver-conflict,
+                    // voltage-mismatch, …) resolve to the wiring site instead of
+                    // offset 0 → file:1:1. Entries registered earlier (bus
+                    // members, ports, pins) carry no position; the net point's
+                    // src_pos is the first real position available. Only
+                    // back-fill when the position lives in the entry's own file
+                    // — a position from a library func body (e.g. res.mc) would
+                    // be interpreted in the wrong file otherwise.
+                    if let Some(sp) = &np.src_pos {
+                        if let Some(entry) = self.entries.get_mut(&id) {
+                            if entry.src_pos.is_none() && sp.uri == entry.def_uri {
+                                entry.src_pos = Some(sp.clone());
+                            }
+                        }
+                    }
                     point_ids.push(id);
                 }
             }

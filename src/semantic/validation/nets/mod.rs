@@ -54,9 +54,16 @@ pub struct NetCheckResult {
 }
 
 /// Extract the best available source position from an InstEntry.
+/// `src_pos` is the wiring site (preferred); `fallback_pos` is the declaration
+/// site used for unconnected pins/ports; `(0, uri)` is the last resort.
 fn entry_pos(entry: &InstEntry) -> (u32, String) {
-    let pos = entry.src_pos.as_ref().map(|p| p.offset).unwrap_or(0);
-    (pos, entry.def_uri.clone())
+    if let Some(p) = &entry.src_pos {
+        return (p.offset, p.uri.clone());
+    }
+    if let Some(p) = &entry.fallback_pos {
+        return (p.offset, p.uri.clone());
+    }
+    (0, entry.def_uri.clone())
 }
 
 /// §2.19 OR semantics: an entry is NC if its iotype is `NonCon` (the `nc`
@@ -70,15 +77,19 @@ fn is_nc_entry(entry: &InstEntry) -> bool {
 fn best_pos(table: &InstTable, ids: &[u32]) -> (u32, String) {
     for id in ids {
         if let Some(entry) = table.get_entry(*id) {
-            if entry.src_pos.is_some() && !entry.def_uri.is_empty() {
-                return (
-                    entry.src_pos.as_ref().map(|p| p.offset).unwrap(),
-                    entry.def_uri.clone(),
-                );
+            if let Some(p) = &entry.src_pos {
+                return (p.offset, p.uri.clone());
             }
         }
     }
-    // Fallback: any entry
+    // Fallback: any entry — prefer a declaration (fallback) position over (0, uri)
+    for id in ids {
+        if let Some(entry) = table.get_entry(*id) {
+            if let Some(p) = &entry.fallback_pos {
+                return (p.offset, p.uri.clone());
+            }
+        }
+    }
     for id in ids {
         if let Some(entry) = table.get_entry(*id) {
             if !entry.def_uri.is_empty() {

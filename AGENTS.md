@@ -34,3 +34,20 @@ files. Use portable forms instead: `~` in docs and shell examples, `$HOME`-
 derived paths (`PathBuf::from(home)` in Rust tests), or paths relative to the
 project root (`env!("CARGO_MANIFEST_DIR")`). This applies to the whole project
 including test code and test data.
+
+## Rule: diagnostics must carry a real source position
+
+Every diagnostic mcc emits — `--dlog` one-line output, `check`/`parse` reports,
+and the LSP layer — must be anchored at the source position where the problem
+actually lives, never fabricated and never `file:1:1` unless no position exists
+at all.
+
+- Connection-level diagnostics anchor at the wiring statement
+  (`ConnectionInst::source_span` → `NetPoint::src_pos`).
+- Unconnected pins/ports have no wiring site; anchor at their declaration via
+  `InstEntry::fallback_pos` (component pin-id span in the component body, or
+  the module span for ports).
+- `pos == 0` is only acceptable when the entity truly has no source position
+  (e.g. synthetic anonymous net points). If you are about to emit a diagnostic
+  with a zero offset, thread a real span through instead of falling back
+  silently.

@@ -12,7 +12,7 @@
 //! - `InstError`      - Instantiation Error
 //! - `NetTable`       - Network Table (union-find)
 
-use crate::semantic::common::{ConnDir, ConnOp, IOType};
+use crate::semantic::common::{ConnDir, ConnOp, IOType, SourcePos};
 use crate::vector::model::trunk::TrunkCtx;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -943,7 +943,7 @@ impl NetTable {
             return;
         }
         self.port_names.insert(canon.clone());
-        self.ensure_point(&canon, None, iotype.clone());
+        self.ensure_point(&canon, None, iotype.clone(), None);
         // If normalization changed the name, also add the original name to
         // the port set (prevents missing it on name fallback)
         if canon != name {
@@ -1006,9 +1006,23 @@ impl NetTable {
         // ── Iter-10.1: normalize path ──
         let canon_paths: Vec<String> = kept.iter().map(|p| canonicalize_path(&p.path)).collect();
 
+        // Effective per-point source position: prefer the point's own (e.g. a
+        // pin declaration), fall back to the connection's statement span (the
+        // wiring site). This is the ONLY place the net list gets point
+        // positions, and it feeds net-level diagnostics (E4103 etc.) — without
+        // it every net diagnostic resolves to offset 0 → file:1:1.
+        let conn_src = conn.source_span.clone();
+        let eff_pos =
+            |p: &NetPoint| -> Option<SourcePos> { p.src_pos.clone().or_else(|| conn_src.clone()) };
+
         if kept.len() == 1 {
             let p = kept[0];
-            self.ensure_point(&canon_paths[0], p.owner.clone(), p.iotype.clone());
+            self.ensure_point(
+                &canon_paths[0],
+                p.owner.clone(),
+                p.iotype.clone(),
+                eff_pos(p),
+            );
             return;
         }
 
@@ -1017,9 +1031,15 @@ impl NetTable {
             &canon_paths[0],
             kept[0].owner.clone(),
             kept[0].iotype.clone(),
+            eff_pos(kept[0]),
         );
         for (i, p) in kept[1..].iter().enumerate() {
-            let other = self.ensure_point(&canon_paths[i + 1], p.owner.clone(), p.iotype.clone());
+            let other = self.ensure_point(
+                &canon_paths[i + 1],
+                p.owner.clone(),
+                p.iotype.clone(),
+                eff_pos(p),
+            );
             self.union(first, other);
         }
 
@@ -1230,8 +1250,24 @@ impl NetTable {
     /// Ensure the point is registered, return its index
     ///
     /// ── Iter-10.1: path already normalized at the caller, used directly here ──
-    fn ensure_point(&mut self, path: &str, owner: Option<String>, iotype: IOType) -> usize {
+    ///
+    /// `src_pos` is stored when a point is first created; if the point already
+    /// exists with no position and a more specific one arrives (e.g. a port
+    /// first registered bare, then referenced by a connection), it is
+    /// back-filled. The first position wins on ties.
+    fn ensure_point(
+        &mut self,
+        path: &str,
+        owner: Option<String>,
+        iotype: IOType,
+        src_pos: Option<SourcePos>,
+    ) -> usize {
         if let Some(&idx) = self.path_to_idx.get(path) {
+            if let Some(sp) = src_pos {
+                if self.points[idx].src_pos.is_none() {
+                    self.points[idx].src_pos = Some(sp);
+                }
+            }
             return idx;
         }
         let idx = self.points.len();
@@ -1240,7 +1276,7 @@ impl NetTable {
             path: path.to_string(),
             owner,
             iotype,
-            src_pos: None,
+            src_pos,
             member_name: None,
             same_name_pads: Vec::new(),
         });
