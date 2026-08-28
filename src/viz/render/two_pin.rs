@@ -21,15 +21,22 @@ impl BoxShape for TwoPinShape {
             "#333"
         };
 
-        let name_label = format!(
-            r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
+        // Virtual instantiation view (mcd docs-mc 16-export-viz §6): suppress
+        // the fabricated instance name (`u_1`); the class-name label below
+        // identifies the part instead. Mirrors ic.rs / multi_pin.rs.
+        let name_label = if b.suppress_instance_name {
+            String::new()
+        } else {
+            format!(
+                r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
           font-size="11" font-weight="500" fill="{col}">{name}</text>
 "##,
-            b.x,
-            b.y - 14.0,
-            col = color,
-            name = b.name,
-        );
+                b.x,
+                b.y - 14.0,
+                col = color,
+                name = b.name,
+            )
+        };
         let cls_label = if !b.class_name.is_empty() {
             format!(
                 r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
@@ -58,5 +65,56 @@ impl BoxShape for TwoPinShape {
             h = b.h,
             col = color,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vector::graph::{BoxKind, IoSummary, Symbol};
+
+    fn mk_box(name: &str, class_name: &str, suppress: bool) -> McVecBox {
+        let mut b = McVecBox::new_v2(
+            1,
+            name.into(),
+            class_name.into(),
+            BoxKind::TwoPin,
+            Symbol::Unknown,
+            None,
+            None,
+            2,
+            IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
+        );
+        b.x = 10.0;
+        b.y = 20.0;
+        b.w = 40.0;
+        b.h = 16.0;
+        b.suppress_instance_name = suppress;
+        b
+    }
+
+    #[test]
+    fn real_two_pin_shows_instance_and_class_name() {
+        let b = mk_box("J1", "CONN", false);
+        let svg = TwoPinShape.render(&b);
+        assert!(svg.contains(">J1</text>"), "{svg}");
+        assert!(svg.contains(">CONN</text>"), "{svg}");
+    }
+
+    #[test]
+    fn virtual_two_pin_hides_fabricated_instance_name() {
+        // mcd docs-mc 16-export-viz §6: a virtually instantiated part (wrapper
+        // `u_1`) must not leak its fabricated instance name — the class name
+        // identifies the part instead. This is the `Symbol::Unknown` /
+        // `BoxKind::TwoPin` fallback path (e.g. parameterized-pin connectors).
+        let b = mk_box("u_1", "WTB.MOLEX_KK", true);
+        let svg = TwoPinShape.render(&b);
+        assert!(!svg.contains("u_1"), "instance name must not render: {svg}");
+        assert!(
+            svg.contains(">WTB.MOLEX_KK</text>"),
+            "class name should render: {svg}"
+        );
     }
 }
