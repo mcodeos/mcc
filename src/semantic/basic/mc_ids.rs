@@ -297,6 +297,20 @@ impl McIds {
         Some(McIds { segments })
     }
 
+    /// Build `McIds` from a CMIE declaration's `MCAST_IDS` node, including a
+    /// following dotted suffix. The grammar emits `mc_ids MCPT_DOT mc_int`
+    /// (`TTL.7400`) with the `.int` as a SIBLING of the ids node; [`McIds::new`]
+    /// alone returns only the prefix (`TTL`), collapsing all dotted-numeric
+    /// definitions to one name. [`McOpd::new`](crate::semantic::basic::mc_opd)
+    /// already appends the sibling — CMIE name extraction must do the same.
+    pub fn new_with_dot(node: &AstNode) -> Option<Self> {
+        let mut ids = Self::new(node)?;
+        if let Some(next) = node.get_next() {
+            ids.append(&next);
+        }
+        Some(ids)
+    }
+
     pub fn append(&mut self, node: &AstNode) {
         node.iter().for_each(|each| match each.get_type() {
             MCAST_OPD_DOT => {

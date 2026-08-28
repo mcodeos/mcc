@@ -40,7 +40,7 @@ impl McInterface {
         let span = crate::ast::ast_semantic::Span { start, end };
 
         let mut ret = Self {
-            name: McIds::new(&name_node.get_sub_node()?)?,
+            name: McIds::new_with_dot(&name_node.get_sub_node()?)?,
             params: McParamDeclares::new(),
             attrs: McAttributes::new(),
             pins: McPins::new(),
