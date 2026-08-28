@@ -142,7 +142,11 @@ impl AstNode {
     /// next/sub fields), which would cause .data to be a small integer (e.g. 0x24 / 0x1),
     /// which would pass to `CStr::from_ptr` and cause SIGSEGV.
     /// Here we validate .data is a valid heap pointer before dereferencing.
-    fn data_as_cstr(&self) -> Option<&std::ffi::CStr> {
+    ///
+    /// Every consumer must go through this accessor (never
+    /// `CStr::from_ptr(node.get_data())` directly): a NULL / small-integer
+    /// `.data` deref segfaults inside `strlen`.
+    pub fn data_as_cstr(&self) -> Option<&std::ffi::CStr> {
         if self.is_null() {
             return None;
         }

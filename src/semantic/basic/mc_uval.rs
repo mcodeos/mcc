@@ -109,51 +109,33 @@ impl McUnitValueDeclare {
     fn node_to_string(node: &AstNode) -> String {
         match node.get_type() {
             MCAST_STRING => {
-                unsafe {
-                    let c_str =
-                        std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char);
-                    if let Ok(str_value) = c_str.to_str() {
-                        if str_value.starts_with('"')
-                            && str_value.ends_with('"')
-                            && str_value.len() >= 2
-                        {
-                            return str_value[1..str_value.len() - 1].to_string();
-                        }
-                        return str_value.to_string();
+                // Guarded accessor: the C parser can emit a NULL/small .data.
+                if let Some(str_value) = node.data_as_cstr().and_then(|c| c.to_str().ok()) {
+                    if str_value.starts_with('"')
+                        && str_value.ends_with('"')
+                        && str_value.len() >= 2
+                    {
+                        return str_value[1..str_value.len() - 1].to_string();
                     }
+                    return str_value.to_string();
                 }
                 String::new()
             }
-            MCAST_INT | MCAST_HEX => {
-                unsafe {
-                    let c_str =
-                        std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char);
-                    if let Ok(str_value) = c_str.to_str() {
-                        return str_value.to_string();
-                    }
-                }
-                String::new()
-            }
-            MCAST_FLOAT => {
-                unsafe {
-                    let c_str =
-                        std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char);
-                    if let Ok(str_value) = c_str.to_str() {
-                        return str_value.to_string();
-                    }
-                }
-                String::new()
-            }
-            MCAST_CONST => {
-                unsafe {
-                    let c_str =
-                        std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char);
-                    if let Ok(str_value) = c_str.to_str() {
-                        return str_value.to_string();
-                    }
-                }
-                String::new()
-            }
+            MCAST_INT | MCAST_HEX => node
+                .data_as_cstr()
+                .and_then(|c| c.to_str().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            MCAST_FLOAT => node
+                .data_as_cstr()
+                .and_then(|c| c.to_str().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            MCAST_CONST => node
+                .data_as_cstr()
+                .and_then(|c| c.to_str().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
             _ => node.to_string().unwrap_or_default(),
         }
     }
@@ -193,8 +175,9 @@ impl McUnitValue {
             return None;
         };
 
-        let data_ptr = child_node.get_data() as *const i8;
-        let Ok(data_str) = (unsafe { std::ffi::CStr::from_ptr(data_ptr).to_str() }) else {
+        // Guarded accessor: the C parser can emit a NULL/small .data that
+        // would segfault inside CStr::from_ptr -> strlen.
+        let Some(data_str) = child_node.data_as_cstr().and_then(|c| c.to_str().ok()) else {
             dlog_error(
                 crate::errcodes::UVAL_DATA_NODE_INVALID,
                 &child_node,

@@ -47,11 +47,7 @@ impl McInt {
     pub fn new(node: &AstNode) -> Option<Self> {
         match node.get_type() {
             MCAST_INT => {
-                let str_value = unsafe {
-                    std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char)
-                        .to_str()
-                        .expect("Bad encoding")
-                };
+                let str_value = node.data_as_cstr()?.to_str().expect("Bad encoding");
 
                 match str_value.parse::<i64>() {
                     Ok(value) => Some(Self { value }),
@@ -59,11 +55,7 @@ impl McInt {
                 }
             }
             MCAST_UNIT_INT => {
-                let str_value = unsafe {
-                    std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char)
-                        .to_str()
-                        .expect("Bad encoding")
-                };
+                let str_value = node.data_as_cstr()?.to_str().expect("Bad encoding");
 
                 // Remove unit part
                 let num_str = str_value.split_whitespace().next().unwrap_or(str_value);
@@ -95,11 +87,7 @@ impl McHex {
         if node.get_type() != MCAST_HEX {
             return None;
         }
-        let str_value = unsafe {
-            std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char)
-                .to_str()
-                .expect("Bad encoding")
-        };
+        let str_value = node.data_as_cstr()?.to_str().expect("Bad encoding");
 
         let hex_str = str_value.trim_start_matches("0x").trim_start_matches("0X");
         match i64::from_str_radix(hex_str, 16) {
@@ -156,11 +144,7 @@ impl McFloat {
     pub fn new(node: &AstNode) -> Option<Self> {
         match node.get_type() {
             MCAST_FLOAT => {
-                let str_value = unsafe {
-                    std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char)
-                        .to_str()
-                        .expect("Bad encoding")
-                };
+                let str_value = node.data_as_cstr()?.to_str().expect("Bad encoding");
 
                 match str_value.parse::<f64>() {
                     Ok(value) => Some(Self { value }),
@@ -199,9 +183,9 @@ pub struct McString {
 impl McString {
     pub fn new(node: &AstNode) -> Option<Self> {
         match node.get_type() {
-            MCAST_STRING => unsafe {
-                let c_str = std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char);
-                if let Ok(str_value) = c_str.to_str() {
+            MCAST_STRING => {
+                // Guarded accessor: the C parser can emit a NULL/small .data.
+                if let Ok(str_value) = node.data_as_cstr()?.to_str() {
                     // Strip surrounding quotes if present
                     let value = if str_value.starts_with('"')
                         && str_value.ends_with('"')
@@ -215,7 +199,7 @@ impl McString {
                 } else {
                     None
                 }
-            },
+            }
             _ => None,
         }
     }
@@ -244,13 +228,11 @@ impl McConst {
     pub fn new(node: &AstNode) -> Option<Self> {
         // Only handle MCK_CONST keyword constant
         if node.is_type(MCAST_CONST) {
-            unsafe {
-                let c_str = std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char);
-                if let Ok(str_value) = c_str.to_str() {
-                    Some(McConst::Keyword(str_value.to_string()))
-                } else {
-                    None
-                }
+            // Guarded accessor: the C parser can emit a NULL/small .data.
+            if let Ok(str_value) = node.data_as_cstr()?.to_str() {
+                Some(McConst::Keyword(str_value.to_string()))
+            } else {
+                None
             }
         } else {
             None

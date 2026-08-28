@@ -26,16 +26,12 @@ impl McUnitValueAt {
         let left_node = &sub;
         let right_node = left_node.get_next()?;
 
-        let data_str = || -> Option<&'static str> {
-            let ptr = left_node.get_data() as *const i8;
-            // SAFETY: the pointer is valid for the lifetime of this call
-            unsafe { std::ffi::CStr::from_ptr(ptr).to_str().ok() }
+        let data_str = || -> Option<&str> {
+            // Guarded accessor: the C parser can emit a NULL/small .data that
+            // would segfault inside CStr::from_ptr -> strlen.
+            left_node.data_as_cstr()?.to_str().ok()
         };
-        let data_str2 = || -> Option<&'static str> {
-            let ptr = right_node.get_data() as *const i8;
-            // SAFETY: the pointer is valid for the lifetime of this call
-            unsafe { std::ffi::CStr::from_ptr(ptr).to_str().ok() }
-        };
+        let data_str2 = || -> Option<&str> { right_node.data_as_cstr()?.to_str().ok() };
 
         let left = McUnitValue::from_data_and_type(left_node, data_str()?)?;
         let right = McUnitValue::from_data_and_type(&right_node, data_str2()?)?;
