@@ -34,7 +34,7 @@
 //! once its anchor box is placed), so the layout phase and the render replay are
 //! constructively identical (A2).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{BoxKind, EntrySide, McVecGraph, NetKind, PinSlot, VizNet};
@@ -2406,6 +2406,18 @@ pub(crate) fn chain_plan_for(
                 ground_adoptable: is_ground && !t.groups.iter().any(|g| g.box_id == layer_anchor),
                 // ★ M11.2: the row already ends at another component.
                 ends_at_component: sat_nets.contains(&i),
+                // ★ M16.1: a net anchored on a non-layer-anchor MULTI-PIN box
+                // (mic's `mic`, not wm7121) must not be chained into another of
+                // that box's nets through a two-pin part — see `best_extension`.
+                anchor_box: (t.anchor != layer_anchor)
+                    .then(|| {
+                        graph
+                            .boxes
+                            .iter()
+                            .find(|b| b.id == t.anchor && b.pins.len() >= 3)
+                            .map(|b| b.id)
+                    })
+                    .flatten(),
             }
         })
         .collect();
@@ -2780,6 +2792,52 @@ pub(crate) fn assign_rows(
         })
         .collect();
     free_order.sort_by_key(|&i| topos[i].nid);
+    // ★ M16.3: nets sharing a multi-pin anchor are laid out in PHYSICAL PIN
+    // order, not nid order. `mic`'s P pin sits before N in the box, so
+    // MIC.P must take the upper row: a differential pair reads as P/N lanes,
+    // and with N above, the N-side ESD clamps' leads thread straight through
+    // the P trunk (two same-colour crossings that look like a merge). Groups
+    // sort at their anchor's smallest nid; non-shared nets keep pure nid
+    // order — the stable `sort_by_key` leaves everything else untouched.
+    let mut free_anchor_count: HashMap<i64, usize> = HashMap::new();
+    for &i in &free_order {
+        *free_anchor_count.entry(topos[i].anchor).or_default() += 1;
+    }
+    let rank: BTreeMap<usize, (i64, usize)> = free_order
+        .iter()
+        .filter(|&&i| {
+            let b = topos[i].anchor;
+            free_anchor_count[&b] >= 2
+                && graph
+                    .boxes
+                    .iter()
+                    .any(|bx| bx.id == b && bx.pins.len() >= 3)
+        })
+        .map(|&i| {
+            let b = topos[i].anchor;
+            let min_nid = free_order
+                .iter()
+                .filter(|&&j| topos[j].anchor == b)
+                .map(|&j| topos[j].nid)
+                .min()
+                .unwrap_or(topos[i].nid);
+            let pin_idx = graph
+                .boxes
+                .iter()
+                .find(|bx| bx.id == b)
+                .and_then(|bx| {
+                    topos[i]
+                        .groups
+                        .iter()
+                        .find(|g| g.box_id == b)
+                        .and_then(|g| g.pin_ids.first())
+                        .and_then(|&pid| bx.pins.iter().position(|p| p.id == pid))
+                })
+                .unwrap_or(usize::MAX);
+            (i, (min_nid, pin_idx))
+        })
+        .collect();
+    free_order.sort_by_key(|&i| rank.get(&i).copied().unwrap_or((topos[i].nid, 0)));
     for i in free_order {
         is_free[i] = true;
         let region = topos[i].lane.region;
@@ -2941,7 +2999,16 @@ pub(crate) fn assign_rows(
                 continue;
             };
             let base = if region == Region::South {
-                box_bottom + RAIL_GAP
+                // ★ M16.2: the South rail must clear the free-net rows below
+                // the box. M16.1 can split a component's nets onto separate
+                // lanes below the anchor (mic MIC.P/MIC.N) — a rail fixed at
+                // `box_bottom + RAIL_GAP` would land BETWEEN those lanes,
+                // invert an ESD clamp hanging on them, and read as a short.
+                let free_max = (0..n)
+                    .filter(|&i| is_free[i])
+                    .filter_map(|i| net_band[i].map(|b| band_y[b]))
+                    .fold(box_bottom, f64::max);
+                free_max + RAIL_GAP
             } else {
                 ic_top - RAIL_GAP
             };
@@ -3011,7 +3078,14 @@ pub(crate) fn assign_rows(
             continue;
         };
         let base = if region == Region::South {
-            box_bottom + RAIL_GAP
+            // ★ M16.2: same as the fixed-point pass — rail clears the free
+            // rows below the box so a split differential pair (mic) keeps its
+            // ESD clamps clamped to GND below both lanes.
+            let free_max = (0..n)
+                .filter(|&i| is_free[i])
+                .filter_map(|i| net_band[i].map(|b| band_y[b]))
+                .fold(box_bottom, f64::max);
+            free_max + RAIL_GAP
         } else {
             ic_top - RAIL_GAP
         };
@@ -3563,6 +3637,35 @@ fn chain_origins(
                 foot += b.w.max(TWO_PIN_SYMBOL_H) + COL_CLEAR;
             }
             if k + 1 >= members.len() {
+                // ★ M17: a run's TAIL net that grows in the OPPOSITE direction
+                // from the run must start its members at its OWN port of the
+                // joint part, not at the continued run cursor. `moddcdc`'s
+                // `VCC_1V2` is the tail of the `LX` run: the run grows west
+                // (LX→L1), but VCC_1V2's members grow east, so the continued
+                // cursor put `_C3`'s tap at x=-12 — underneath `_L1`'s body —
+                // and the carve dropped that trunk segment, orphaning the
+                // tooth. Growing from the joint's port (L1's east pin at 24)
+                // puts every hanging member on the far side of the joint, where
+                // the trunk survives.
+                let prev = members.get(k.wrapping_sub(1)).copied();
+                let tail_side = match topos[i].lane.region {
+                    Region::West => -1.0,
+                    _ => 1.0,
+                };
+                if dir * tail_side < 0.0 {
+                    if let Some(pj) = prev {
+                        let joint = chain_groups(&topos[i], layer_anchor)
+                            .map(|g| g.box_id)
+                            .find(|id| topos[pj].groups.iter().any(|h| h.box_id == *id));
+                        if let Some(bid) = joint {
+                            if let Some(&(_, cx)) = series_x.iter().find(|(b, _)| *b == bid) {
+                                if let Some(b) = graph.boxes.iter().find(|b| b.id == bid) {
+                                    origins.insert(topos[i].nid, cx + tail_side * b.w / 2.0);
+                                }
+                            }
+                        }
+                    }
+                }
                 // ★ M12.3: the run's TAIL can still carry an Along part whose
                 // far net owns no trunk — an adopted terminal-only ground, or a
                 // bare rail label. Such a partner never enters `members`, so the
@@ -3838,6 +3941,27 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
             .copied()
             .unwrap_or_else(|| net_anchor_pin_x(graph, topo));
         let outward = if is_east { 1.0 } else { -1.0 };
+        // ★ M18: x-intervals on this net's row where the trunk is DEFLECTED —
+        // a foreign body sits on the row there, so a member hung in the
+        // interval would run its tooth through that glyph instead of to the
+        // trunk. Mirrors the carve's `foreign` set (non-own horizontal bodies
+        // lying on the axis); the net's own hanging members are carved, not
+        // blocking.
+        let own_ids: std::collections::HashSet<i64> =
+            topo.groups.iter().skip(1).map(|g| g.box_id).collect();
+        let blocked: Vec<(f64, f64)> = graph
+            .boxes
+            .iter()
+            .filter(|b| b.w > 0.0 && b.h > 0.0)
+            .filter(|b| {
+                b.slots
+                    .iter()
+                    .any(|s| matches!(s.side, EntrySide::Left | EntrySide::Right))
+            })
+            .filter(|b| topo.lane.axis + 0.5 <= b.y + b.h && topo.lane.axis - 0.5 >= b.y)
+            .filter(|b| !own_ids.contains(&b.id))
+            .map(|b| (b.x - JOG_OFFSET, b.x + b.w + JOG_OFFSET))
+            .collect();
         for (gi, group) in topo.groups.iter().enumerate().filter(|(_, g)| {
             // The layer anchor is placed by P2 — never re-allocated here.
             if g.box_id == layer_anchor {
@@ -3922,6 +4046,12 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
                 h: b.h,
                 row_y: topo.lane.axis,
                 anchor_pin_x,
+                // ★ M18: the partner net's row — the far end of this member's
+                // vertical tooth (a cap's GND hang reaches the rail below, a
+                // bridge's tooth spans both rows). `None` (no partner, or a
+                // vertical partner) ⇒ no tooth strip to reserve.
+                partner_y: partner.as_ref().and_then(|p| p.row),
+                blocked: blocked.clone(),
             };
             if is_east {
                 east.push(m);
@@ -5344,6 +5474,13 @@ pub(crate) fn realize(
         x2: span_hi,
         y2: axis,
     }];
+    // ★ FIX: a Series body whose OWN pin sits at the net's span END cannot be
+    // carved out — carving would sever that pin with no trunk piece left to
+    // reach it (moddcdc `_net8`: the L1 body spans the trunk's west end, so
+    // the carve dropped the degenerate `[53,53]` and the inductor's left port
+    // dangled). Skip the carve for such bodies; M15 below deflects the trunk
+    // around them instead.
+    let mut must_deflect: Vec<(f64, f64)> = Vec::new();
     for group in topo.groups.iter().skip(1) {
         let Some(b) = graph.boxes.iter().find(|b| b.id == group.box_id) else {
             continue;
@@ -5376,6 +5513,14 @@ pub(crate) fn realize(
             continue;
         }
         let (bx, bw) = (b.x, b.w);
+        // Own-pin-at-span-edge → skip the carve (see `must_deflect` above).
+        let (tx, _ty) = member_pin_point(b, group);
+        let own_pin_at_span_edge = ((tx - bx).abs() <= 0.5 && (bx - span_lo).abs() <= 0.5)
+            || ((tx - (bx + bw)).abs() <= 0.5 && ((bx + bw) - span_hi).abs() <= 0.5);
+        if own_pin_at_span_edge {
+            must_deflect.push((bx, bx + bw));
+            continue;
+        }
         let mut next: Vec<Segment> = Vec::new();
         for seg in trunk_pieces.drain(..) {
             let (lo, hi) = (seg.x1.min(seg.x2), seg.x1.max(seg.x2));
@@ -5421,7 +5566,7 @@ pub(crate) fn realize(
     // so excluding those (and only those) keeps each body handled exactly once.
     let own_ids: std::collections::HashSet<i64> =
         topo.groups.iter().skip(1).map(|g| g.box_id).collect();
-    let foreign: Vec<(f64, f64)> = graph
+    let mut foreign: Vec<(f64, f64)> = graph
         .boxes
         .iter()
         .filter(|b| !own_ids.contains(&b.id) && b.w > 0.0 && b.h > 0.0)
@@ -5436,6 +5581,9 @@ pub(crate) fn realize(
         })
         .map(|b| (b.x, b.x + b.w))
         .collect();
+    // The skipped-carve bodies above ARE `own_ids`, so the box filter dropped
+    // them; add their intervals back so the trunk deflects around them.
+    foreign.extend(must_deflect.iter().copied());
     // `(x_lo, x_hi, gutter_y)` per deflected run — teeth and anchor pins draw
     // to the deflected level when their x falls inside one.
     let mut deflect_regions: Vec<(f64, f64, f64)> = Vec::new();
@@ -6319,20 +6467,111 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
                 // slot, `realize`'s `anchor_pins` is empty and the ground glyph
                 // falls back to the degenerate lane span (x=0) instead of hanging
                 // off the box — so it ignores the canvas shift and clips.
+                //
+                // ★ FIX: when the box DOES sit in a net (the mic `mic` box
+                // anchoring MIC.P~0/MIC.N~0, or the differential `C1` cap), the
+                // old all-Right@0.5 slot with no entry_point left every port NC
+                // and the cap's left lead dangling. Give connected pins a real
+                // side — the pin's net region for multi-pin boxes, the two ends
+                // for a 2-pin symbol body (drawn horizontally) — and synthesize
+                // the entry_points so the renderer draws wired pins.
                 if b.slots.is_empty() {
-                    for (i, p) in b.pins.iter().enumerate() {
-                        b.slots.push(PinSlot {
-                            pin_id: p.id,
-                            number: i as u32,
-                            name: if p.description.is_empty() {
-                                p.pin_id.clone()
+                    let connected: Vec<(i64, EntrySide)> = b
+                        .pins
+                        .iter()
+                        .filter_map(|p| {
+                            let side = topos.iter().find_map(|t| {
+                                t.groups
+                                    .iter()
+                                    .any(|g| g.box_id == b.id && g.pin_ids.contains(&p.id))
+                                    .then(|| t.lane.region.entry_side())
+                            })?;
+                            Some((p.id, side))
+                        })
+                        .collect();
+                    if !connected.is_empty() && b.pins.len() == 2 {
+                        for (k, &(pid, _)) in connected.iter().enumerate() {
+                            let side = if k == 0 {
+                                EntrySide::Left
                             } else {
-                                p.description.clone()
-                            },
-                            side: EntrySide::Right,
-                            offset: 0.5,
-                            connected: true,
-                        });
+                                EntrySide::Right
+                            };
+                            let name = b
+                                .pins
+                                .iter()
+                                .find(|p| p.id == pid)
+                                .map(|p| {
+                                    if p.description.is_empty() {
+                                        p.pin_id.clone()
+                                    } else {
+                                        p.description.clone()
+                                    }
+                                })
+                                .unwrap_or_else(|| pid.to_string());
+                            b.slots.push(PinSlot {
+                                pin_id: pid,
+                                number: k as u32,
+                                name: name.clone(),
+                                side,
+                                offset: 0.5,
+                                connected: true,
+                            });
+                            b.entry_points
+                                .push(crate::vector::graph::boxdef::EntryPoint {
+                                    pin_id: pid,
+                                    pin_name: name,
+                                    side,
+                                    offset: 0.5,
+                                });
+                        }
+                    } else if !connected.is_empty() {
+                        let n = connected.len();
+                        for (k, &(pid, side)) in connected.iter().enumerate() {
+                            let offset = (k as f64 + 1.0) / (n as f64 + 1.0);
+                            let name = b
+                                .pins
+                                .iter()
+                                .find(|p| p.id == pid)
+                                .map(|p| {
+                                    if p.description.is_empty() {
+                                        p.pin_id.clone()
+                                    } else {
+                                        p.description.clone()
+                                    }
+                                })
+                                .unwrap_or_else(|| pid.to_string());
+                            b.slots.push(PinSlot {
+                                pin_id: pid,
+                                number: k as u32,
+                                name: name.clone(),
+                                side,
+                                offset,
+                                connected: true,
+                            });
+                            b.entry_points
+                                .push(crate::vector::graph::boxdef::EntryPoint {
+                                    pin_id: pid,
+                                    pin_name: name,
+                                    side,
+                                    offset,
+                                });
+                        }
+                    }
+                    if b.slots.is_empty() {
+                        for (i, p) in b.pins.iter().enumerate() {
+                            b.slots.push(PinSlot {
+                                pin_id: p.id,
+                                number: i as u32,
+                                name: if p.description.is_empty() {
+                                    p.pin_id.clone()
+                                } else {
+                                    p.description.clone()
+                                },
+                                side: EntrySide::Right,
+                                offset: 0.5,
+                                connected: true,
+                            });
+                        }
                     }
                 }
                 fallback_x += 160.0;

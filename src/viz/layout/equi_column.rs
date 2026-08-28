@@ -193,7 +193,24 @@ pub struct SideMember {
     pub row_y: f64,
     /// The net's anchor tap pin x this member grows from.
     pub anchor_pin_x: f64,
+    /// ★ M18: the partner net's lane (the far end of this member's vertical
+    /// tooth). `Some` ⇒ the allocator reserves the column strip from `row_y`
+    /// to `partner_y` so no other member's body lands where this tooth runs —
+    /// a cap's GND hang reaches the rail below, a bridge's tooth spans two
+    /// rows. `None` = no tooth strip to reserve.
+    pub partner_y: Option<f64>,
+    /// ★ M18: x-intervals this member's tap must not fall inside. On those
+    /// spans the net's trunk is DEFLECTED (a foreign body sits on the row), so
+    /// a tooth hung there would run through the foreign glyph instead of
+    /// reaching the row. Mirrors the carve's `foreign`/`must_deflect` set.
+    pub blocked: Vec<(f64, f64)>,
 }
+
+/// Half-width of the tooth strip the allocator reserves for a vertical tooth.
+/// The tooth is drawn ~1px wide; reserving 1px around its x is enough to catch
+/// a foreign body whose interior the tooth would cross (bodies overlapping the
+/// line by a full pixel are exactly the ones that cross it).
+pub const TOOTH_EPS: f64 = 0.5;
 
 /// Priority for side allocation: spanning/series first (anchor-near), then
 /// vertical shunts, then the rest.
@@ -235,6 +252,9 @@ pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize
     // occupancy entry: (member_idx, x_lo, x_hi, y_lo, y_hi) — the member idx is
     // kept so `reduce_crossings` can exclude the two swaps' own slots.
     let mut occupied: Vec<(usize, f64, f64, f64, f64)> = Vec::new();
+    // ★ M18: placed vertical teeth, kept SEPARATE from `occupied` so
+    // `reduce_crossings` (which reasons about body boxes) is untouched.
+    let mut teeth: Vec<(usize, f64, f64, f64, f64)> = Vec::new();
     let mut result: Vec<f64> = vec![0.0; members.len()];
     for &i in &order {
         let e = &members[i];
@@ -242,6 +262,12 @@ pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize
         // vertical extent: conservative — allow room for an up or down hang.
         let y_lo = e.row_y - MEMBER_GAP - e.h;
         let y_hi = e.row_y + MEMBER_GAP + e.h;
+        // ★ M18: the member's own tooth strip — the column from this row down
+        // (or up) to its partner's row.
+        let tooth_y = e.partner_y.map(|py| {
+            let (tlo, thi) = (e.row_y.min(py), e.row_y.max(py));
+            (tlo, thi)
+        });
         // Step outward (away from the anchor, along `dir`) until a candidate
         // clears every already-placed member in both axes.
         let mut k = 0usize;
@@ -253,11 +279,31 @@ pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize
             let cx = e.anchor_pin_x + dir * (COL_MARGIN + k as f64 * COL_STEP);
             let x_lo = cx - half_w;
             let x_hi = cx + half_w;
-            let collides = occupied.iter().any(|&(_, oxl, oxh, oyl, oyh)| {
-                x_lo < oxh && x_hi > oxl && y_lo < oyh && y_hi > oyl
-            });
+            // ★ M18: never hang a member where its net's trunk is deflected —
+            // the tooth there runs through the foreign body, not to the row.
+            let deflected = e.blocked.iter().any(|&(blo, bhi)| cx > blo && cx < bhi);
+            let collides = deflected
+                || occupied.iter().any(|&(_, oxl, oxh, oyl, oyh)| {
+                    // candidate body vs placed body.
+                    if x_lo < oxh && x_hi > oxl && y_lo < oyh && y_hi > oyl {
+                        return true;
+                    }
+                    // candidate tooth vs placed body (a cap hung below a
+                    // divider whose body the tooth would cross).
+                    tooth_y.map_or(false, |(tlo, thi)| {
+                        cx - TOOTH_EPS < oxh && cx + TOOTH_EPS > oxl && tlo < oyh && thi > oyl
+                    })
+                })
+                || teeth.iter().any(|&(_, oxl, oxh, oyl, oyh)| {
+                    // candidate body vs placed tooth (a member whose body a
+                    // previously-hung tooth would cross).
+                    x_lo < oxh && x_hi > oxl && y_lo < oyh && y_hi > oyl
+                });
             if !collides {
                 occupied.push((i, x_lo, x_hi, y_lo, y_hi));
+                if let Some((tlo, thi)) = tooth_y {
+                    teeth.push((i, cx - TOOTH_EPS, cx + TOOTH_EPS, tlo, thi));
+                }
                 result[i] = cx;
                 break;
             }
@@ -265,6 +311,9 @@ pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize
             if k > 64 {
                 // Degenerate: force the current spot and move on.
                 occupied.push((i, x_lo, x_hi, y_lo, y_hi));
+                if let Some((tlo, thi)) = tooth_y {
+                    teeth.push((i, cx - TOOTH_EPS, cx + TOOTH_EPS, tlo, thi));
+                }
                 result[i] = cx;
                 break;
             }
@@ -392,6 +441,8 @@ mod tests {
                 h: 60.0,
                 row_y: 100.0,
                 anchor_pin_x: 100.0,
+                partner_y: None,
+                blocked: vec![],
             },
             SideMember {
                 idx: Some((1, 0)),
@@ -400,6 +451,8 @@ mod tests {
                 h: 60.0,
                 row_y: 200.0,
                 anchor_pin_x: 100.0,
+                partner_y: None,
+                blocked: vec![],
             },
         ];
         let out = allocate_columns_for_side(&members, -1.0);
@@ -493,6 +546,8 @@ mod tests {
                 h: 60.0,
                 row_y: 100.0,
                 anchor_pin_x: 100.0,
+                partner_y: None,
+                blocked: vec![],
             },
             SideMember {
                 idx: Some((0, 1)),
@@ -501,6 +556,8 @@ mod tests {
                 h: 60.0,
                 row_y: 200.0,
                 anchor_pin_x: 200.0,
+                partner_y: None,
+                blocked: vec![],
             },
         ];
         // Simulate the inverted greedy result: a(100) out at 300, b(200) in at 200.
@@ -547,6 +604,8 @@ mod tests {
                 h: 60.0,
                 row_y: 100.0,
                 anchor_pin_x: 100.0,
+                partner_y: None,
+                blocked: vec![],
             },
             SideMember {
                 idx: Some((0, 1)),
@@ -555,6 +614,8 @@ mod tests {
                 h: 60.0,
                 row_y: 200.0,
                 anchor_pin_x: 200.0,
+                partner_y: None,
+                blocked: vec![],
             },
         ];
         let mut result = vec![194.0, 244.0]; // already in anchor order
