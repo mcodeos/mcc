@@ -44,11 +44,17 @@ pub fn mcb_component_count() -> usize {
 
 // === pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> { ===
 /// Get all module names in a specific file (by URI)
+///
+/// Key comparison uses [`uri_equivalent`] (not raw `==`): workspace keys are
+/// canonicalized (resolving `/tmp`→`/private/tmp` etc.), so a caller's raw
+/// path must be tested bidirectionally or real modules under a symlinked path
+/// would be reported as absent — misclassifying them as virtual targets.
 pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> {
+    let canonical = mcb_canonicalize_uri(uri);
     workspace::WORKSPACE
         .modules
         .iter()
-        .filter(|entry| entry.key().uri == *uri)
+        .filter(|entry| uri_equivalent(&entry.key().uri.as_uri(), uri.as_str(), &canonical))
         .map(|entry| entry.key().ident.to_string())
         .collect()
 }

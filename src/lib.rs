@@ -370,6 +370,21 @@ pub fn mcc_virtual_build(
     crate::build::virtual_inst::virtual_build(target, uri)
 }
 
+/// Append a synthetic wrapper module for every virtual target at once and
+/// reload the file a single time.
+///
+/// Without this, a component/interface-only file with N parts is re-read and
+/// re-parsed once per target (each `virtual_build_flat` wraps one part),
+/// costing O(n²) on the number of parts. Call once before a multi-target loop
+/// (build.viz / `build --viz`) to make it O(n). Returns how many wrappers were
+/// newly installed.
+pub fn mcc_virtual_install_synthetic_views(
+    targets: &[String],
+    uri: &McURI,
+) -> Result<usize, Box<dyn Error>> {
+    crate::build::virtual_inst::install_synthetic_views(targets, uri)
+}
+
 /// Like [`mcc_virtual_build`] but also flattens to the instance table.
 pub fn mcc_virtual_build_flat(
     target: &str,

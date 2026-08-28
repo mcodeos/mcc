@@ -215,6 +215,17 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         &mut tracker,
     ));
 
+    // ── 2.5. Batch-install synthetic wrappers for every virtual target ──
+    // Done after the Pass1 report (so the envelope still shows the real
+    // component count, not the VIRT_ wrappers) and before any per-target build.
+    // Each per-target install re-reads + re-parses the whole file, so without
+    // this a component library with N parts would be re-parsed N times.
+    if let Err(e) = mcc::mcc_virtual_install_synthetic_views(&targets, &entry_uri) {
+        let err = RpcError::invalid_params(format!("{:#}", e));
+        emit_err(&mcc::cli::globals().format, err)?;
+        return Ok(BuildOutcome { exit_code: 1 });
+    }
+
     // ── 3. Pass2 ──
     // The envelope carries the first target's Pass 2 tree (matching
     // `--format json`); viz still renders all targets.
@@ -242,7 +253,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         if targets.len() > 1 {
             // Render all targets (peer modules, or several components /
             // interfaces in one file): build viz for each and combine them.
-            let mut svgs: Vec<(String, String)> = Vec::new();
+            let mut svgs: Vec<(Option<String>, String)> = Vec::new();
             let mut total_boxes = 0;
             let mut total_edges = 0;
             let mut netcheck_errors = 0usize;
@@ -299,7 +310,14 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         let doc = mcc::viz::api::render_with(graph, opts);
 
                         if let Some(root_layer) = doc.root_layer() {
-                            svgs.push((target.clone(), root_layer.svg.clone()));
+                            // Virtual (component/interface) targets get no
+                            // heading in the combined view — see combine_svgs.
+                            let label = if is_virtual {
+                                None
+                            } else {
+                                Some(target.clone())
+                            };
+                            svgs.push((label, root_layer.svg.clone()));
                         }
                     }
                     Err(e) => {
