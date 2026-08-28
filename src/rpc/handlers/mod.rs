@@ -392,10 +392,7 @@ pub(crate) fn run_full_build_envelope(
     // carries the first target's Pass 2 tree (mirrors the CLI build).
     let targets = crate::mcc_virtual_resolve_targets(&mc_uri, top)
         .map_err(|e| JsonRpcError::custom(32107, &e))?;
-    let top_name = targets
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "".to_string());
+    let top_name = targets.first().cloned().unwrap_or_else(|| "".to_string());
 
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::mcc_virtual_build(&top_name, &mc_uri)

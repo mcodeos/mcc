@@ -123,6 +123,158 @@ pub fn virtual_build_flat(
     crate::mcc_build_flat(&McIds::from(mod_name.as_str()), uri, start_id)
 }
 
+/// Prepare the graph of a virtually-instantiated component/interface for
+/// rendering (mcd docs-mc 16-export-viz §6):
+///
+/// - Switch to the device pipeline (`LayerStyle::Device`) so the wrapped unit
+///   renders as an IC instead of a block-diagram stub (root-block).
+/// - Suppress the fabricated instance name (`u_1`) on the wrapped box, so the
+///   view shows only the class name and the pins.
+/// - Synthesize one entry point per physical pin (evenly spread on the left /
+///   right edges), so the renderer draws a stub + pin number + pin name + io
+///   marker per pin instead of an NC cross (a virtual view never wires pins).
+///
+/// Modules (real top-level `module`s) keep the default block rendering; this
+/// helper is only applied to component/interface virtual targets.
+pub fn prepare_virtual_graph(
+    mut graph: crate::vector::graph::McVecGraph,
+    target: &str,
+) -> crate::vector::graph::McVecGraph {
+    graph.layer_style = crate::vector::graph::LayerStyle::Device;
+    let mod_name = synthetic_module_name(target);
+    for b in &mut graph.boxes {
+        if b.class_name == target || b.name == mod_name || b.class_name == mod_name {
+            b.suppress_instance_name = true;
+            synthesize_pin_entry_points(b);
+        }
+    }
+    graph
+}
+
+/// Give every physical pin of a box its own entry point (stub) so the virtual
+/// component view draws pin number + name + io marker on each pin.
+///
+/// Pin placement (mcd docs-mc 16-export-viz §6):
+/// - When the component declares a `layout` attribute, pins are assigned to the
+///   edges it specifies (`left`/`right`/`top`/`bottom`), in declaration order.
+/// - Otherwise pins are arranged **counterclockwise** around the box on the
+///   left/right columns only (pin 1 top-left, left top→bottom, right
+///   bottom→top), ordered by **numeric pin number** (not alphabetical).
+fn synthesize_pin_entry_points(b: &mut crate::vector::graph::McVecBox) {
+    use crate::vector::graph::{EntryPoint, EntrySide};
+    let n = b.pins.len();
+    if n == 0 {
+        return;
+    }
+    let pin_ids: Vec<String> = b.pins.iter().map(|p| p.pin_id.clone()).collect();
+
+    if let Some(layout) = crate::vector::graph::fromblock::component_pin_layout(&b.class_name) {
+        assign_by_layout(b, &layout, &pin_ids);
+        return;
+    }
+
+    // Arrangement order follows the numeric pin number, never the string sort
+    // (1, 2, ..., 9, 10, 11, ...; not 1, 10, 11, ..., 2, 20, ...).
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&i, &j| {
+        let na = b.pins[i].pin_id.parse::<u32>().ok();
+        let nb = b.pins[j].pin_id.parse::<u32>().ok();
+        match (na, nb) {
+            (Some(x), Some(y)) => x.cmp(&y),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => b.pins[i].pin_id.cmp(&b.pins[j].pin_id),
+        }
+    });
+
+    // Default: only the left/right columns, counterclockwise (DIP convention):
+    // pin 1 at top-left, left side reads top→bottom, right side reads
+    // bottom→top. No pins on the top/bottom edges.
+    let left_count = (n + 1) / 2;
+    let right_count = n - left_count;
+    for (i, &pin_i) in order.iter().enumerate() {
+        let p = &b.pins[pin_i];
+        let (side, rank, count) = if i < left_count {
+            (EntrySide::Left, i, left_count)
+        } else {
+            (EntrySide::Right, i - left_count, right_count)
+        };
+        let offset = match side {
+            EntrySide::Left => (rank as f64 + 1.0) / (count as f64 + 1.0),
+            // Right column continues counterclockwise from the bottom-left:
+            // the first right pin sits at the bottom, the last at the top.
+            EntrySide::Right => 1.0 - (rank as f64 + 1.0) / (count as f64 + 1.0),
+            EntrySide::Top | EntrySide::Bottom => unreachable!(),
+        };
+        b.entry_points.push(EntryPoint {
+            pin_id: p.id,
+            pin_name: p.description.clone(),
+            side,
+            offset,
+        });
+    }
+}
+
+/// Assign pins to edges according to the component's `layout` attribute.
+/// Pins missing from the layout fall back to the left edge.
+fn assign_by_layout(
+    b: &mut crate::vector::graph::McVecBox,
+    layout: &crate::vector::graph::boxdef::PinLayout,
+    pin_ids: &[String],
+) {
+    use crate::vector::graph::{EntryPoint, EntrySide};
+    let mut used = std::collections::HashSet::new();
+    let mut push = |side: EntrySide, ids: &[String], acc: &mut Vec<EntryPoint>| {
+        let mut rank = 0usize;
+        let mut count = 0usize;
+        for pid in ids {
+            if pin_ids.iter().any(|p| p == pid) {
+                count += 1;
+            }
+        }
+        if count == 0 {
+            return;
+        }
+        for pid in ids {
+            if let Some(p) = b.pins.iter().find(|p| &p.pin_id == pid) {
+                used.insert(p.id);
+                let offset = (rank as f64 + 1.0) / (count as f64 + 1.0);
+                acc.push(EntryPoint {
+                    pin_id: p.id,
+                    pin_name: p.description.clone(),
+                    side,
+                    offset,
+                });
+                rank += 1;
+            }
+        }
+    };
+
+    let mut eps = Vec::new();
+    push(EntrySide::Left, &layout.left, &mut eps);
+    push(EntrySide::Right, &layout.right, &mut eps);
+    push(EntrySide::Top, &layout.top, &mut eps);
+    push(EntrySide::Bottom, &layout.bottom, &mut eps);
+
+    // Unassigned pins: spread on the left edge below the declared ones.
+    let mut rank = 0usize;
+    let unassigned: Vec<&crate::vector::graph::boxdef::BoxPin> =
+        b.pins.iter().filter(|p| !used.contains(&p.id)).collect();
+    let count = unassigned.len();
+    for p in unassigned {
+        let offset = 1.0 - (rank as f64 + 1.0) / (count as f64 + 1.0);
+        eps.push(EntryPoint {
+            pin_id: p.id,
+            pin_name: p.description.clone(),
+            side: EntrySide::Left,
+            offset,
+        });
+        rank += 1;
+    }
+
+    b.entry_points = eps;
+}
+
 /// Install a synthetic module that wraps `target` (a component or interface)
 /// and return the synthetic module name.
 ///
@@ -148,7 +300,13 @@ fn synthetic_module_name(target: &str) -> String {
     // identifier even when the source class has dots (e.g. USB.MINIB).
     let clean: String = target
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("VIRT_{clean}")
 }

@@ -398,6 +398,12 @@ pub struct McVecBox {
     /// bridge/shunt across two parallel lanes (e.g., CAP' in two-lane series).
     pub visual_role: Option<VisualRole>,
 
+    /// ★ Virtual instantiation view (mcd docs-mc 16-export-viz §6): suppress the
+    /// instance-name label. Used by the synthetic module wrapper (VIRT_<Name>)
+    /// whose instance (u_1) is a fabrication, not a real designator — the box
+    /// then shows only the class name and the physical pins.
+    pub suppress_instance_name: bool,
+
     /// Geometry + entry points owned by a deterministic placer (ladder). Passes that
     /// reposition boxes heuristically must skip these.
     pub geom_locked: bool,
@@ -543,6 +549,7 @@ impl McVecBox {
             origin: crate::instant::insttab::InstOrigin::Declared,
             custom_symbol: None,
             visual_role: None,
+            suppress_instance_name: false,
             geom_locked: false,
             anchor_hint: None,
             geom_writer: None,

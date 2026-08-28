@@ -385,6 +385,16 @@ pub fn mcc_virtual_build_flat(
     crate::build::virtual_inst::virtual_build_flat(target, uri, start_id)
 }
 
+/// Prepare a virtually-instantiated component/interface graph for rendering:
+/// device pipeline (physical pins visible) + suppressed fabricated instance
+/// name (mcd docs-mc 16-export-viz §6).
+pub fn mcc_virtual_prepare_graph(
+    graph: crate::vector::graph::McVecGraph,
+    target: &str,
+) -> crate::vector::graph::McVecGraph {
+    crate::build::virtual_inst::prepare_virtual_graph(graph, target)
+}
+
 pub fn debug_get_def(class_name: &McIds, uri: &McURI) {
     builder::mcb_debug_get_cmie(class_name, uri);
 }

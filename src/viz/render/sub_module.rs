@@ -15,6 +15,7 @@
 //! marker but keeps onclick drill-down.
 
 use crate::vector::graph::McVecBox;
+use crate::vector::graph::{BoxKind, Symbol};
 
 use super::pin_render::{render_pin, PinRenderOpts, PinStyle};
 
@@ -33,6 +34,7 @@ fn submodule_pin_opts() -> PinRenderOpts {
         style: PinStyle::Stub,
         show_number: false,
         show_name: false, // ★ P-3: one name per edge, on the line only
+        show_io: false,
     }
 }
 
@@ -51,25 +53,45 @@ pub fn render_sub_module_root(b: &McVecBox) -> String {
 
 fn render_sub_module_impl(b: &McVecBox, is_root: bool) -> String {
     // ── All port pins (stub + function name) ──
+    // Module borders keep the concise sub-module style (no pin numbers, the
+    // name rides on the net line). A real component box in the root block
+    // diagram carries genuine pin ids/names, so it draws number + name.
     let pins: String = b
         .entry_points
         .iter()
-        .map(|ep| render_pin(b, ep, submodule_pin_opts()))
+        .map(|ep| {
+            let opts = if b.symbol == Symbol::Module || b.kind == BoxKind::SubModule {
+                submodule_pin_opts()
+            } else {
+                PinRenderOpts {
+                    style: PinStyle::Stub,
+                    show_number: true,
+                    show_name: true,
+                    show_io: false,
+                }
+            };
+            render_pin(b, ep, opts)
+        })
         .collect();
 
     if is_root {
         // Root layer: solid border, thick stroke, name centered inside, no + corner.
         let name_x = b.x + b.w / 2.0;
         let name_y = b.y + b.h / 2.0;
-        let name_svg = format!(
-            r##"    <text x="{:.1}" y="{:.1}" text-anchor="middle"
+        // Virtual instantiation view suppresses the fabricated module name.
+        let name_svg = if b.suppress_instance_name {
+            String::new()
+        } else {
+            format!(
+                r##"    <text x="{:.1}" y="{:.1}" text-anchor="middle"
           font-size="14" font-weight="700" fill="#212121"
           dominant-baseline="central">{}</text>
 "##,
-            name_x,
-            name_y,
-            escape_xml(&b.name)
-        );
+                name_x,
+                name_y,
+                escape_xml(&b.name)
+            )
+        };
         let class_svg = if !b.class_name.is_empty() {
             format!(
                 r##"    <text x="{:.1}" y="{:.1}" text-anchor="middle"
@@ -105,14 +127,19 @@ fn render_sub_module_impl(b: &McVecBox, is_root: bool) -> String {
         // Sub-layer: dashed border, name outside, + corner marker.
         let label_x = b.x;
         let name_y = b.y - 14.0;
-        let name_svg = format!(
-            r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
+        // Virtual instantiation view suppresses the fabricated module name.
+        let name_svg = if b.suppress_instance_name {
+            String::new()
+        } else {
+            format!(
+                r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
           font-size="14" font-weight="700" fill="#212121">{}</text>
 "##,
-            label_x,
-            name_y,
-            escape_xml(&b.name)
-        );
+                label_x,
+                name_y,
+                escape_xml(&b.name)
+            )
+        };
         let class_svg = if !b.class_name.is_empty() {
             format!(
                 r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"

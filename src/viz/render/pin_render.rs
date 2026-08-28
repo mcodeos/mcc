@@ -45,6 +45,10 @@ pub struct PinRenderOpts {
     pub style: PinStyle,
     pub show_number: bool,
     pub show_name: bool,
+    /// Draw the io-type label (`in`/`out`/`io`/`ps`/`gnd`) on the stub. Used
+    /// by the virtual component view where pins carry no nets (mcd docs-mc
+    /// 16-export-viz §6).
+    pub show_io: bool,
 }
 
 impl PinRenderOpts {
@@ -54,6 +58,7 @@ impl PinRenderOpts {
             style: PinStyle::Stub,
             show_number: true,
             show_name: true,
+            show_io: false,
         }
     }
 
@@ -64,7 +69,31 @@ impl PinRenderOpts {
             style: PinStyle::Dot,
             show_number: false,
             show_name: false,
+            show_io: false,
         }
+    }
+
+    /// Virtual component view: stub + number + name + io-type label.
+    pub fn for_virtual_ic() -> Self {
+        Self {
+            style: PinStyle::Stub,
+            show_number: true,
+            show_name: true,
+            show_io: true,
+        }
+    }
+}
+
+/// Short label for a pin's io direction (shown on the stub in the virtual view).
+fn io_type_label(io: IoDirection) -> &'static str {
+    match io {
+        IoDirection::Input => "in",
+        IoDirection::Output => "out",
+        IoDirection::Bidir => "io",
+        IoDirection::Power => "ps",
+        IoDirection::Ground => "gnd",
+        IoDirection::Passive => "pas",
+        IoDirection::Unknown => "",
     }
 }
 
@@ -164,11 +193,35 @@ pub fn render_pin(b: &McVecBox, ep: &EntryPoint, opts: PinRenderOpts) -> String 
         _ => String::new(),
     };
 
+    // Io-type label (virtual view only): drawn on the stub, further out than
+    // the pin number, so the reader sees in/out/io/ps/gnd per pin.
+    let io_svg = match (opts.show_io, pin.map(|p| p.io)) {
+        (true, Some(io)) => {
+            let label = io_type_label(io);
+            if label.is_empty() {
+                String::new()
+            } else {
+                let (ix, iy, anchor) = match ep.side {
+                    EntrySide::Left => (cx - 16.0, cy, "end"),
+                    EntrySide::Right => (cx + 16.0, cy, "start"),
+                    EntrySide::Top => (cx, cy - 16.0, "middle"),
+                    EntrySide::Bottom => (cx, cy + 16.0, "middle"),
+                };
+                format!(
+                    r##"<text x="{:.1}" y="{:.1}" font-size="8" fill="#1565C0"
+                    text-anchor="{anchor}" dominant-baseline="central">{}</text>"##,
+                    ix, iy, label
+                )
+            }
+        }
+        _ => String::new(),
+    };
+
     format!(
-        r##"    <g class="pin" data-pin-id="{}">{}{}{}
+        r##"    <g class="pin" data-pin-id="{}">{}{}{}{}
     </g>
 "##,
-        ep.pin_id, marker, number_svg, name_svg
+        ep.pin_id, marker, number_svg, name_svg, io_svg
     )
 }
 

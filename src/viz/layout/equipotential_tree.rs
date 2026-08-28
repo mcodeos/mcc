@@ -6458,8 +6458,13 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
             if !b.geom_locked && b.kind != BoxKind::PowerLabel {
                 b.x = fallback_x;
                 b.y = fallback_y;
-                b.w = 120.0;
-                b.h = 60.0;
+                // ★ Size the box from its pins so a many-pin component (e.g. a
+                // 24-pin DIP viewed via virtual instantiation) does not cram all
+                // pins onto a fixed 120x60 box. 20 px per pin + `PIN_MARGIN` on
+                // each edge; width from the longest pin name.
+                let (max_per_side, label_w) = fallback_box_dims(b);
+                b.w = label_w.max(MIN_BOX_W);
+                b.h = (max_per_side as f64 * 20.0 + 2.0 * PIN_MARGIN).max(60.0);
                 b.geom_locked = true;
                 // ★ M6.5: a box that is ONLY the anchor of a terminal-only net
                 // (e.g. a lone testpoint in a per-consumer ground net) is placed
@@ -6586,6 +6591,40 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
         "[equi-tree] layout_device_layer done: {} placed, {} fallback",
         placed_count, unplaced_count,
     );
+}
+
+/// Fallback box dimensions for a box with no net topology: the most loaded
+/// edge (entry points per side) sets the height (20 px per pin), the longest
+/// pin label sets the width. Falls back to the current entry-point counts when
+/// available, otherwise the physical pin list.
+fn fallback_box_dims(b: &crate::vector::graph::McVecBox) -> (usize, f64) {
+    use crate::vector::graph::EntrySide;
+    let mut per_side = [0usize; 4];
+    let mut longest = 0usize;
+    if !b.entry_points.is_empty() {
+        for ep in &b.entry_points {
+            let idx = match ep.side {
+                EntrySide::Left => 0,
+                EntrySide::Right => 1,
+                EntrySide::Top => 2,
+                EntrySide::Bottom => 3,
+            };
+            per_side[idx] += 1;
+        }
+        for p in &b.pins {
+            longest = longest.max(p.description.len());
+        }
+    } else {
+        let n = b.pins.len();
+        per_side[0] = (n + 1) / 2;
+        per_side[1] = n / 2;
+        for p in &b.pins {
+            longest = longest.max(p.description.len());
+        }
+    }
+    let max_per_side = per_side.iter().copied().max().unwrap_or(0).max(2);
+    let label_w = longest as f64 * LABEL_CHAR_W + 2.0 * LABEL_PAD;
+    (max_per_side, label_w)
 }
 
 /// Build equipotential trees for all nets in the graph (render phase, read-only).

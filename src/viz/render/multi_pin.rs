@@ -12,14 +12,18 @@ pub struct MultiPinShape;
 
 impl BoxShape for MultiPinShape {
     fn render(&self, b: &McVecBox) -> String {
-        let name_label = format!(
-            r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
+        let name_label = if b.suppress_instance_name {
+            String::new()
+        } else {
+            format!(
+                r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
           font-size="13" font-weight="600" fill="#311B92">{name}</text>
 "##,
-            b.x,
-            b.y - 14.0,
-            name = b.name,
-        );
+                b.x,
+                b.y - 14.0,
+                name = b.name,
+            )
+        };
         let cls_label = if !b.class_name.is_empty() {
             format!(
                 r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
