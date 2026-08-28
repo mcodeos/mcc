@@ -6594,13 +6594,25 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
 }
 
 /// Fallback box dimensions for a box with no net topology: the most loaded
-/// edge (entry points per side) sets the height (20 px per pin), the longest
-/// pin label sets the width. Falls back to the current entry-point counts when
-/// available, otherwise the physical pin list.
+/// edge (entry points per side) sets the height (20 px per pin), and the box
+/// width fits the LONGEST LEFT label PLUS the LONGEST RIGHT label. The
+/// renderer draws both columns' names INSIDE the box — left from the left edge
+/// inward, right from the right edge inward (`pin_render.rs` `label_positions`)
+/// — so a single-widest-label width lets a long left name collide with a long
+/// right name mid-box (e.g. `PRIMARY\+` | `SECONDARY\-` on a transformer).
+/// Falls back to the current entry-point counts when available, otherwise the
+/// physical pin list.
 fn fallback_box_dims(b: &crate::vector::graph::McVecBox) -> (usize, f64) {
     use crate::vector::graph::EntrySide;
     let mut per_side = [0usize; 4];
-    let mut longest = 0usize;
+    let mut side_w = [0f64; 4]; // widest label per side (rendered name)
+    let label_for = |p: &crate::vector::graph::boxdef::BoxPin| -> String {
+        if p.description.is_empty() {
+            p.pin_id.clone()
+        } else {
+            p.description.clone()
+        }
+    };
     if !b.entry_points.is_empty() {
         for ep in &b.entry_points {
             let idx = match ep.side {
@@ -6610,20 +6622,35 @@ fn fallback_box_dims(b: &crate::vector::graph::McVecBox) -> (usize, f64) {
                 EntrySide::Bottom => 3,
             };
             per_side[idx] += 1;
-        }
-        for p in &b.pins {
-            longest = longest.max(p.description.len());
+            // The renderer draws `description` when present, else pin_id (the
+            // same source of truth as `find_pin`), so measure THAT — not the
+            // entry-point's `pin_name` alone.
+            let name = b
+                .pins
+                .iter()
+                .find(|p| p.id == ep.pin_id)
+                .map(label_for)
+                .unwrap_or_else(|| ep.pin_name.clone());
+            let w = name.chars().count() as f64 * LABEL_CHAR_W;
+            side_w[idx] = side_w[idx].max(w);
         }
     } else {
         let n = b.pins.len();
         per_side[0] = (n + 1) / 2;
         per_side[1] = n / 2;
-        for p in &b.pins {
-            longest = longest.max(p.description.len());
+        for (i, p) in b.pins.iter().enumerate() {
+            let name = label_for(p);
+            let w = name.chars().count() as f64 * LABEL_CHAR_W;
+            let idx = if i < per_side[0] { 0 } else { 1 };
+            side_w[idx] = side_w[idx].max(w);
         }
     }
     let max_per_side = per_side.iter().copied().max().unwrap_or(0).max(2);
-    let label_w = longest as f64 * LABEL_CHAR_W + 2.0 * LABEL_PAD;
+    // Left + right labels both render INSIDE the box, so their widths ADD
+    // (`left_longest + right_longest + padding`) — same rule as the wired
+    // path in `assign_anchor_slots`. Top/bottom names spread along the width
+    // at slot spacing and don't widen the box.
+    let label_w = (side_w[0] + side_w[1]) + 3.0 * LABEL_PAD;
     (max_per_side, label_w)
 }
 
