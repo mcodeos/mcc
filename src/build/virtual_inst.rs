@@ -170,8 +170,16 @@ pub fn virtual_build_flat(
         return crate::mcc_build_flat(&McIds::from(target), uri, start_id);
     }
     let mod_name = ensure_synthetic_view(target, uri)?;
-    let (tree, mut table) = crate::mcc_build_flat(&McIds::from(mod_name.as_str()), uri, start_id)?;
-    table.mark_synthetic_by_path_prefix(&mod_name);
+    // Build through `mcb_pass2_flat_with` so the wrapper module is flagged
+    // `synthetic` BEFORE the electrical net checks run — otherwise the checks
+    // report E4112/E4116 on the unwired standalone component/interface view.
+    let canonical_uri: crate::McURI = crate::db::infra::init::mcb_canonicalize_uri(uri).into();
+    let ident = crate::McIds::from(mod_name.as_str());
+    let (tree, table) = crate::build::pass2::mcb_pass2_flat_with(
+        &crate::McSpaceName::new(&ident, canonical_uri),
+        start_id,
+        Some(&mod_name),
+    )?;
     Ok((tree, table))
 }
 

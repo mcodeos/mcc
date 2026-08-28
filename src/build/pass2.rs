@@ -138,8 +138,26 @@ pub fn mcb_pass2_flat(
     entry: &McSpaceName,
     start_id: u32,
 ) -> Result<(MccProjectTree, crate::instant::insttab::InstTable), Box<dyn Error>> {
+    mcb_pass2_flat_with(entry, start_id, None)
+}
+
+/// Like [`mcb_pass2_flat`], but marks every entry under `synthetic_prefix` (a
+/// virtual-instantiation wrapper module, e.g. `VIRT_XTAL4`) as `synthetic`
+/// BEFORE the electrical net checks run. The unwired/pin-count checks skip
+/// synthetic instances, so a standalone component/interface file view must not
+/// report E4112 "no pins connected" / E4116 "N of M pins connected" — an
+/// unwired box is exactly what such a view IS. (`virtual_build_flat` builds the
+/// synthetic wrapper module through this entry point.)
+pub(crate) fn mcb_pass2_flat_with(
+    entry: &McSpaceName,
+    start_id: u32,
+    synthetic_prefix: Option<&str>,
+) -> Result<(MccProjectTree, crate::instant::insttab::InstTable), Box<dyn Error>> {
     let inst = mcb_pass2(entry)?;
-    let table = crate::instant::insttab::InstTable::from_module_inst(&inst, start_id);
+    let mut table = crate::instant::insttab::InstTable::from_module_inst(&inst, start_id);
+    if let Some(prefix) = synthetic_prefix {
+        table.mark_synthetic_by_path_prefix(prefix);
+    }
     // ★ Electrical checks after pass2
     let net_results = crate::semantic::validation::nets::run_net_checks(&table);
     let saved_uri = crate::current_uri::try_get();
