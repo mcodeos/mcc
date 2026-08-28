@@ -477,8 +477,13 @@ fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCheckResult>)
         .flat_map(|n| n.points.iter().cloned())
         .collect();
     for (_, entry) in table.iter() {
+        // Skip synthetic virtual-instantiation wrappers: a component/interface
+        // viewed standalone is by definition unwired — the E4112 unwired check
+        // is meaningless for the fabricated VIRT_* unit (its whole point is a
+        // box with no nets), and it fires on every such view.
         if matches!(entry.kind, crate::instant::insttab::InstKind::Component)
             && !entry.class_name.is_empty()
+            && !entry.synthetic
         {
             let pins = table.get_pins_of(entry.id);
             if !pins.is_empty() && pins.iter().all(|p| !connected.contains(&p.id)) {
@@ -728,8 +733,12 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
         .collect();
     let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for (_, entry) in table.iter() {
+        // Same synthetic-wraper carve-out as E4112: a virtually-instantiated
+        // component is never wired, so "N of M pins connected" (E4116) is a
+        // guaranteed false positive on every component/interface file view.
         if !matches!(entry.kind, crate::instant::insttab::InstKind::Component)
             || entry.class_name.is_empty()
+            || entry.synthetic
         {
             continue;
         }
