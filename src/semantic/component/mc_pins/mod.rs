@@ -1505,6 +1505,15 @@ impl McPins {
                                                                                 // For Variable (like A[20,21]), use expand() to get separate elements
                                                                                 grp.extend(deep.expand());
                                                                             }
+                                                                            McExpression::Slice(
+                                                                                _,
+                                                                                _,
+                                                                            ) => {
+                                                                                // For Slice (like 20:22), expand() to individual pin ids
+                                                                                grp.extend(
+                                                                                    deep.expand(),
+                                                                                );
+                                                                            }
                                                                             _ => {
                                                                                 if let Some(s) = deep.evaluate() {
                                                                                     grp.push(s);
@@ -1519,6 +1528,15 @@ impl McPins {
                                                                             _,
                                                                         ) => {
                                                                             // For Variable (like A[20,21]), use expand() to get separate elements
+                                                                            grp.extend(
+                                                                                inner.expand(),
+                                                                            );
+                                                                        }
+                                                                        McExpression::Slice(
+                                                                            _,
+                                                                            _,
+                                                                        ) => {
+                                                                            // For Slice (like 20:22), expand() to individual pin ids
                                                                             grp.extend(
                                                                                 inner.expand(),
                                                                             );
