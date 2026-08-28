@@ -244,6 +244,16 @@ pub struct NetView {
     /// This is the "may end at a component" branch of the end rule, and it is
     /// what stops a run from trying to continue horizontally THROUGH a component.
     pub ends_at_component: bool,
+    /// ★ M16.1: the MULTI-PIN box this net is anchored on, when that box is not
+    /// the layer anchor. Two nets of the same component joined by a two-pin part
+    /// are that component's sibling pins with a BRIDGE between them (the mic
+    /// differential pair through `C1`), not a collinear series continuation — a
+    /// run must never absorb one into the other, or both trunks collapse onto a
+    /// single row and the two signals read as one wire.
+    ///
+    /// `None` for the layer anchor and for 2-pin anchors (a resistor between
+    /// `_net3`/`_net4` legitimately chains its two ends).
+    pub anchor_box: Option<i64>,
 }
 
 /// The analysis result.
@@ -653,6 +663,13 @@ fn best_extension(
         // Ground is never an extension — it is ADOPTED in step 3.5, after every
         // run has finished, so a cap can never outrank a real signal branch.
         if nets[other].is_ground || region[other].is_some() {
+            continue;
+        }
+        // ★ M16.1: two nets anchored on the SAME multi-pin component are sibling
+        // pins with a BRIDGE between them (mic `MIC.P`/`MIC.N` through the 470pF
+        // `C1`), not one collinear signal. Chaining them puts both trunks on one
+        // row and the pair reads as a single overlapping wire.
+        if nets[cur].anchor_box.is_some() && nets[cur].anchor_box == nets[other].anchor_box {
             continue;
         }
         let (named, size) = reach_score(other, nets, parts, incident, region);
