@@ -33,6 +33,8 @@ pub mod interact;
 pub mod shell;
 pub mod theme;
 
+use std::path::Path;
+
 use super::doc::VizDocument;
 
 // ============================================================================
@@ -54,6 +56,18 @@ pub fn wrap_document(doc: &VizDocument) -> String {
     let js = interact::js();
     let doc_json = doc.to_json();
     shell::wrap(&doc.root_name, css, &doc_json, js)
+}
+
+/// Root name for the combined multi-target view: the entry file's base name
+/// (e.g. `74ahc` for `mclibs/digital/74ahc.mc`). The stacked view aggregates
+/// several targets of one file, so the file itself is the view's identity —
+/// not the generic `all_targets` that used to show up in the title / breadcrumb.
+pub fn combined_view_name(entry: &str) -> String {
+    Path::new(entry)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "all_targets".to_string())
 }
 
 // ============================================================================

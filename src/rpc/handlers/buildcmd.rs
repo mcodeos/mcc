@@ -234,8 +234,9 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
         doc
     } else {
         let combined_svg = crate::viz::template::combine_svgs(&svgs);
-        let mut doc = crate::viz::doc::VizDocument::new(1000, "all_targets".into());
-        let mut layer = crate::viz::layer::VizLayer::new(1000, "all_targets".into(), None);
+        let root_name = crate::viz::template::combined_view_name(&mc_uri);
+        let mut doc = crate::viz::doc::VizDocument::new(1000, root_name.clone());
+        let mut layer = crate::viz::layer::VizLayer::new(1000, root_name, None);
         layer.svg = combined_svg;
         doc.add_layer(layer);
         doc

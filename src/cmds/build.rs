@@ -341,9 +341,12 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             // Combine all SVGs into one big SVG, stacked vertically
             let combined_svg = mcc::viz::template::combine_svgs(&svgs);
 
-            // Build a single-layer VizDocument with the combined SVG
-            let mut doc = mcc::viz::doc::VizDocument::new(1000, "all_targets".into());
-            let mut layer = mcc::viz::layer::VizLayer::new(1000, "all_targets".into(), None);
+            // Build a single-layer VizDocument with the combined SVG. The root
+            // layer carries the entry file's base name so the title / breadcrumb
+            // show the file, not the generic "all_targets".
+            let root_name = mcc::viz::template::combined_view_name(&entry_uri);
+            let mut doc = mcc::viz::doc::VizDocument::new(1000, root_name.clone());
+            let mut layer = mcc::viz::layer::VizLayer::new(1000, root_name, None);
             layer.svg = combined_svg;
             doc.add_layer(layer);
 
