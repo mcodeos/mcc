@@ -146,7 +146,8 @@ pub struct G13Reading {
     /// rail, pin2 down toward the GND symbol, |Δx| vs the anchor pin ≤ 1 grid.
     pub s3_decouple_ok: usize,
     pub s3_decouple_total: usize,
-    /// S4 passives with a GND end standing vertically.
+    /// S4 passives with a GND end standing vertically, or horizontal with a
+    /// per-consumer (rule g) ground glyph placed on the pin's side.
     pub s4_gnd_vertical_ok: usize,
     pub s4_gnd_total: usize,
     /// S4 series-chain members sharing the chain's orientation.
@@ -520,10 +521,33 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
         }
 
         // ── S4a: passive with one GND end stands vertically ──
+        // Rule-g relaxation (§2.2 principle 1/2): a horizontal GND-end passive
+        // is also acceptable when its GND end is a **per-consumer** ground net
+        // (rule g split the rail so the ground glyph sits adjacent on that pin's
+        // side — the short straight-stub form). Shared multi-box ground nets
+        // still require the vertical stance (glyph below the pin).
         let (g0, g1) = (is_gnd_end(0), is_gnd_end(1));
         if g0 != g1 {
             r.s4_gnd_total += 1;
-            if vertical {
+            let ok = if vertical {
+                true
+            } else {
+                let gnd_ep = if g0 { e0 } else { e1 };
+                graph.nets.iter().any(|n| {
+                    matches!(n.kind, NetKind::Ground)
+                        && n.endpoints
+                            .iter()
+                            .any(|e| e.box_id == b.id && e.pin_id == gnd_ep.pin_id)
+                        && {
+                            let mut boxes: Vec<i64> =
+                                n.endpoints.iter().map(|e| e.box_id).collect();
+                            boxes.sort_unstable();
+                            boxes.dedup();
+                            boxes.len() == 1
+                        }
+                })
+            };
+            if ok {
                 r.s4_gnd_vertical_ok += 1;
             }
         }
@@ -1147,7 +1171,7 @@ impl RenderGolden {
             "G13.S4a_gnd_vertical",
             r.g13.s4_gnd_vertical_ok,
             r.g13.s4_gnd_total,
-            "grounded passives stand vertically",
+            "grounded passives stand vertically (or horizontal with a per-consumer rule-g ground glyph)",
         ));
         findings.push(ratio_check(
             "G13.S4b_chain_aligned",
