@@ -1,0 +1,12 @@
+[project]
+name = "hbl"
+version = "0.1.0"
+entry = "src/hbl.mc"
+top_module = "main"
+
+[dependencies]
+mcode = "*"
+
+[config.trace]
+enabled = false
+ast = true

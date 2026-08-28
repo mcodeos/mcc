@@ -13,8 +13,8 @@ use std::sync::Mutex;
 static REPRO_LOCK: Mutex<()> = Mutex::new(());
 
 fn server_data_root() -> PathBuf {
-    let home = std::env::var("HOME").expect("HOME set");
-    PathBuf::from(home).join(".mcode")
+    // Runtime-resolved system root (MCC_SYSTEM_ROOT env or ~/.mcode default).
+    mcc::cli::datadir::data_root()
 }
 
 fn count_bad() -> Vec<String> {
@@ -34,19 +34,14 @@ fn system_lib_reload_keeps_global_tables() {
         .without_time()
         .try_init();
 
-    let project_root = {
-        let home = std::env::var("HOME").expect("HOME set");
-        PathBuf::from(home).join("work/mo/mcd/projects/hbl")
-    };
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl");
     let sys_root = server_data_root();
     std::env::set_current_dir(&project_root).expect("chdir project root");
     mcc::mcc_set_system_root(sys_root.as_path());
     mcc::mcc_set_project_root(&project_root);
 
-    // Clean baseline: init + load mcode.
+    // Clean baseline: standard init auto-loads mcode from the system root.
     mcc::mcc_init();
-    let mcode_root = mcc::mcb_get_system_root().join("mcode");
-    assert!(mcc::mcb_load_lib("mcode", &mcode_root));
 
     // Probe file exercising the failing construct.
     let probe_uri = "/virtual/probe_cap.mc";
