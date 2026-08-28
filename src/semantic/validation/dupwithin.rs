@@ -25,16 +25,18 @@ impl ValidationCheck for DupWithinCheck {
         {
             let comps = &crate::db::cmie::tables::WORKSPACE.components;
             for entry in comps.iter() {
+                let uri = entry.key().uri.to_string();
                 let comp = entry.value();
-                check_pin_name_duplicates(comp.name.to_string(), comp, acc);
+                check_pin_name_duplicates(uri, comp.name.to_string(), comp, acc);
             }
         }
         // Check enums
         {
             let enums = &crate::db::cmie::tables::WORKSPACE.enums;
             for entry in enums.iter() {
+                let uri = entry.key().uri.to_string();
                 let e = entry.value();
-                check_enum_value_duplicates(e.name.to_string(), e, acc);
+                check_enum_value_duplicates(uri, e.name.to_string(), e, acc);
             }
         }
     }
@@ -42,6 +44,7 @@ impl ValidationCheck for DupWithinCheck {
 
 /// H1: duplicate pin names in a component's pin definitions
 fn check_pin_name_duplicates(
+    uri: String,
     comp_name: String,
     comp: &crate::McComponent,
     acc: &mut CheckAccumulator,
@@ -60,7 +63,7 @@ fn check_pin_name_duplicates(
             acc.push(CheckResult {
                 check_name: "dup-within",
                 severity: CheckSeverity::Warning,
-                uri: None,
+                uri: Some(uri.clone()),
                 span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Pin name '{}' appears {} times in component '{}'. \
@@ -77,6 +80,7 @@ fn check_pin_name_duplicates(
 
 /// H2: duplicate enum value names within an enum definition
 fn check_enum_value_duplicates(
+    uri: String,
     enum_name: String,
     edef: &crate::semantic::mc_enum::McEnumDef,
     acc: &mut CheckAccumulator,
@@ -91,7 +95,7 @@ fn check_enum_value_duplicates(
             acc.push(CheckResult {
                 check_name: "dup-within",
                 severity: CheckSeverity::Error,
-                uri: None,
+                uri: Some(uri.clone()),
                 span: Some(edef.span[0] as usize..edef.span[1] as usize),
                 message: format!(
                     "Enum value '{}' appears {} times in enum '{}'.",

@@ -118,11 +118,13 @@ impl ValidationCheck for DuplicateCmieCheck {
                     };
                     let first = non_test[0];
                     for other in &non_test[1..] {
+                        // Attribute to the shadowing definition's own file+span
+                        // (the actionable location), never to the symbol name.
                         acc.push(CheckResult {
                             check_name: self.name(),
                             severity: self.default_severity(),
-                            uri: Some(name.clone()),
-                            span: uri_spans.get(first.as_str()).cloned(),
+                            uri: Some(other.to_string()),
+                            span: uri_spans.get(other.as_str()).cloned(),
                             message: format!(
                                 "CMIE {} '{}' defined in both '{}' and '{}'. \
                                  The latter shadows the former.",
