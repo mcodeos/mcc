@@ -28,7 +28,7 @@ impl McDefineDef {
             .get_sub_node() // ids
             .expect(MISSING_SUBNODE);
         let mut ret = Self {
-            name: McIds::new(&ids_node)?,
+            name: McIds::new_with_dot(&ids_node)?,
             attrs: McAttributes::new(),
             body: subnodes
                 .iter()

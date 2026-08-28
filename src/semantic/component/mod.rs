@@ -97,7 +97,7 @@ impl McComponent {
         let subnodes = node.get_sub_node()?;
 
         //1. new with name
-        let comp_name = McIds::new(
+        let comp_name = McIds::new_with_dot(
             &subnodes
                 .iter()
                 .find(|x| x.is_type(MCAST_NAME))?

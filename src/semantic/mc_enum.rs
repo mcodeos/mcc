@@ -70,7 +70,7 @@ impl McEnumDef {
             }
         };
 
-        let name = McIds::new(&name_ids)?;
+        let name = McIds::new_with_dot(&name_ids)?;
 
         //2. Get enum values
         let body_node: AstNode = match subnodes

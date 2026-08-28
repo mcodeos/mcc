@@ -1321,7 +1321,7 @@ impl McCode {
             {
                 let decl_type = node.get_type();
                 let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
-                if let Some(class_name) = McIds::new(
+                if let Some(class_name) = McIds::new_with_dot(
                     &subnodes
                         .iter()
                         .find(|x| x.is_type(MCAST_NAME))

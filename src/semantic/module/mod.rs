@@ -52,7 +52,7 @@ impl McModule {
                 .iter()
                 .find(|x| x.is_type(MCAST_NAME))
                 .and_then(|n| n.get_sub_node())
-                .and_then(|n| McIds::new(&n));
+                .and_then(|n| McIds::new_with_dot(&n));
 
             let Some(body) = subnodes.iter().find(|x| x.is_type(MCAST_BODY)) else {
                 dlog_error(
