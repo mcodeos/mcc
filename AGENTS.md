@@ -51,3 +51,19 @@ at all.
   (e.g. synthetic anonymous net points). If you are about to emit a diagnostic
   with a zero offset, thread a real span through instead of falling back
   silently.
+
+## Rule: no auto-commit; manual testing and manual commit
+
+Never commit (nor stage, amend, push, or open a PR) automatically after
+finishing changes. Leave the working tree for the user to test manually; the
+user commits manually. You may propose a ready-to-use commit message and
+stage files only when the user explicitly asks, but still wait for the user's
+manual confirmation before committing.
+
+## Rule: targeted tests only; full regression is manual
+
+Do not run the full regression suite (`cargo test` without a filter) after
+every change. After each change run only the targeted tests that cover the
+modified area (for example `cargo test --lib`, a specific `--test` target, or
+a single named test), and verify the build compiles. The full regression suite
+is launched manually by the user (`cargo test` / `cargo test --no-fail-fast`).
