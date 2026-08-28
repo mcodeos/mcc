@@ -18,7 +18,7 @@ use mcc::viz::api::{render_with_metrics, RenderOpts};
 use mcc::McIds;
 
 fn hbl_project_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("projects/hbl")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl")
 }
 
 /// The mcc_* workspace is global state; rendering must be serialized (parallel
@@ -31,12 +31,10 @@ fn build_hbl_graph() -> McVecGraph {
     let entry_path = project_root.join("src/hbl.mc");
     let entry_uri: String = entry_path.to_string_lossy().into_owned();
 
-    mcc::mcc_init_no_lib();
-    let mcode_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mcode");
-    mcc::mcc_set_system_root(mcode_dir.as_path());
+    // Standard startup: mcc_init() auto-loads the mcode system library from the
+    // data root (~/.mcode by default).
+    mcc::mcc_init();
     mcc::mcc_set_project_root(&project_root);
-    mcc::mcc_clear_workspace();
-    mcc::mcb_load_lib("mcode", mcode_dir.as_path());
     mcc::mcc_load_project(&entry_uri);
 
     let (tree, table) =
@@ -183,4 +181,171 @@ fn e2e_diag_graph_nets() {
     }
     let graph = build_hbl_graph();
     walk(&graph, 0);
+}
+
+// ─── ★ P7-GND · render-level acceptance ────────────────────────────────────
+// Projection splits each sub-layer's driverless Ground rail per consumer box;
+// equipotential_tree then draws one ground glyph (3-bar symbol in #2980B9) per
+// consumer on a short straight stub, instead of dragging every tap to one
+// cross-board trunk + lone glyph. Assert that on the REAL hbl render.
+
+/// Ground-colored (0x2980B9) axis-aligned segments, as (x1, y1, x2, y2).
+fn ground_color_lines(svg: &str) -> Vec<(f64, f64, f64, f64)> {
+    svg.split("<line")
+        .filter(|s| s.contains("#2980B9"))
+        .filter_map(|s| {
+            let attr = s.split('>').next()?;
+            let at = |k: &str| -> Option<f64> {
+                let key = format!("{k}=\"");
+                let i = attr.find(&key)?;
+                let rest = &attr[i + key.len()..];
+                let end = rest.find('"')?;
+                rest[..end].parse().ok()
+            };
+            Some((at("x1")?, at("y1")?, at("x2")?, at("y2")?))
+        })
+        .collect()
+}
+
+/// Count distinct ground-glyph centers: a ground symbol is 3 short stacked bars
+/// (horizontal bars for a vertical lead, vertical bars for a horizontal lead).
+/// Overlapping glyphs (two consumers placed at the same spot) still register
+/// their own bar triple only if the bars do not fully coincide — so the caller
+/// tolerates one collision per layer (see the box-collision note below).
+fn count_ground_glyphs(svg: &str) -> usize {
+    let lines = ground_color_lines(svg);
+    let hbars: Vec<(f64, f64)> = lines
+        .iter()
+        .filter(|(x1, y1, x2, y2)| {
+            (y1 - y2).abs() < 0.01 && (4.0..=40.0).contains(&(x1 - x2).abs())
+        })
+        .map(|(x1, y1, x2, _)| ((x1 + x2) / 2.0, *y1))
+        .collect();
+    let vbars: Vec<(f64, f64)> = lines
+        .iter()
+        .filter(|(x1, y1, x2, y2)| {
+            (x1 - x2).abs() < 0.01 && (4.0..=40.0).contains(&(y1 - y2).abs())
+        })
+        .map(|(x1, y1, _, y2)| (*x1, (y1 + y2) / 2.0))
+        .collect();
+
+    // Horizontal-bar stacks (vertical lead): center = x, bar row = y.
+    let n_h = {
+        let mut used = vec![false; hbars.len()];
+        let mut n = 0usize;
+        for i in 0..hbars.len() {
+            if used[i] {
+                continue;
+            }
+            used[i] = true;
+            let mut stack = 1usize;
+            for j in 0..hbars.len() {
+                if used[j] {
+                    continue;
+                }
+                if (hbars[j].0 - hbars[i].0).abs() < 8.0
+                    && (hbars[j].1 - hbars[i].1).abs() > 1.0
+                    && (hbars[j].1 - hbars[i].1).abs() < 30.0
+                {
+                    used[j] = true;
+                    stack += 1;
+                }
+            }
+            if stack >= 3 {
+                n += 1;
+            }
+        }
+        n
+    };
+    let n_v = {
+        let mut used = vec![false; vbars.len()];
+        let mut n = 0usize;
+        for i in 0..vbars.len() {
+            if used[i] {
+                continue;
+            }
+            used[i] = true;
+            let mut stack = 1usize;
+            for j in 0..vbars.len() {
+                if used[j] {
+                    continue;
+                }
+                if (vbars[j].1 - vbars[i].1).abs() < 8.0
+                    && (vbars[j].0 - vbars[i].0).abs() > 1.0
+                    && (vbars[j].0 - vbars[i].0).abs() < 30.0
+                {
+                    used[j] = true;
+                    stack += 1;
+                }
+            }
+            if stack >= 3 {
+                n += 1;
+            }
+        }
+        n
+    };
+    n_h + n_v
+}
+
+/// Longest ground-colored segment in the layer (cross-board trunks show up here).
+fn max_ground_segment_len(svg: &str) -> f64 {
+    ground_color_lines(svg)
+        .iter()
+        .map(|(x1, y1, x2, y2)| ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt())
+        .fold(0.0, f64::max)
+}
+
+/// Per-layer ground-net count from the built graph (one per consumer after rule g).
+fn ground_nets_by_bid(g: &McVecGraph, out: &mut std::collections::HashMap<i64, usize>) {
+    let n = g.nets.iter().filter(|n| n.kind == NetKind::Ground).count();
+    if n > 0 {
+        out.insert(g.bid, n);
+    }
+    for sg in &g.sub_graphs {
+        ground_nets_by_bid(sg, out);
+    }
+}
+
+/// ★ P7-GND: every sub-layer renders one ground glyph per consumer on a short
+/// straight stub — no cross-board trunk. (Two known pre-existing box collisions
+/// in the layout place a resistor+cap pair at one spot in DCDC/MIC, so their
+/// glyphs overlap; the assertion tolerates exactly one such collision.)
+#[test]
+fn e2e_hbl_per_consumer_ground_glyphs() {
+    let graph = build_hbl_graph();
+    let mut gnd_nets = std::collections::HashMap::new();
+    ground_nets_by_bid(&graph, &mut gnd_nets);
+    let (doc, _metrics) = render_with_metrics(graph, RenderOpts::default());
+
+    for (bid, net_count) in &gnd_nets {
+        let layer = doc.layers.get(bid).expect("layer rendered");
+        if layer.name == "main" {
+            continue; // root keeps one merged ground + one glyph (not split)
+        }
+        let glyphs = count_ground_glyphs(&layer.svg);
+        let maxlen = max_ground_segment_len(&layer.svg);
+        assert!(
+            glyphs >= 2,
+            "layer '{}': expected ≥2 per-consumer ground glyphs (rule g), got {glyphs} (svg {}B)",
+            layer.name,
+            layer.svg.len()
+        );
+        assert!(
+            glyphs >= net_count.saturating_sub(1),
+            "layer '{}': ground glyphs {glyphs} ≮ ground nets {net_count} (allow one collision)",
+            layer.name
+        );
+        assert!(
+            // After rule g every ground net is single-box, so the only long
+            // ground segment a layer may legitimately draw is an anchor box's
+            // OWN multi-pin trunk (e.g. usbsock's 5 GND pins, 260px — the moddcdc
+            // golden "same-box pins merge into one symbol"). That is bounded by
+            // the widest box in hbl (~390px). The OLD cross-board trunk — one GND
+            // net dragging 7 consumer boxes to a single glyph — measured ~800px.
+            maxlen < 400.0,
+            "layer '{}': ground segment length {maxlen:.0}px implies a cross-board trunk \
+             (rule g should split it; single-box trunks stay < 400px)",
+            layer.name
+        );
+    }
 }

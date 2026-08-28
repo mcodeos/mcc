@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use mcc::McIds;
 
 fn hbl_project_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("projects/hbl")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hbl")
 }
 
 static BUILD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -30,12 +30,10 @@ fn build_once() -> (String, String, String, String) {
         .to_string_lossy()
         .into_owned();
 
-    mcc::mcc_init_no_lib();
-    let mcode_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mcode");
-    mcc::mcc_set_system_root(mcode_dir.as_path());
+    // Standard startup: mcc_init() auto-loads the mcode system library from the
+    // data root (~/.mcode by default).
+    mcc::mcc_init();
     mcc::mcc_set_project_root(&project_root);
-    mcc::mcc_clear_workspace();
-    mcc::mcb_load_lib("mcode", mcode_dir.as_path());
     mcc::mcc_load_project(&entry_uri);
 
     let (tree, table) =
