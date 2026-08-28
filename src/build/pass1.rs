@@ -271,11 +271,12 @@ pub fn mcb_init_system_lib() {
         return;
     }
 
+    // Single resolved system root: the explicitly-set root, else the data root
+    // resolved from config (`MCC_SYSTEM_ROOT` env or `~/.mcode` default). Never
+    // a hardcoded `~/.mcode`.
     let system_root = mcb_get_system_root();
     let mcode_root = if system_root.as_os_str().is_empty() {
-        dirs::home_dir()
-            .map(|h| h.join(".mcode").join("mcode"))
-            .unwrap_or_else(|| PathBuf::from(".mcode/mcode"))
+        crate::cli::datadir::data_root().join("mcode")
     } else {
         system_root.join("mcode")
     };

@@ -173,6 +173,14 @@ pub fn mcc_log_global_diag(d: &GlobalDiag) {
 /// `~/.mcode`); project-directory probing was removed (use-design §19.10 D4).
 /// Subsequent calls skip when already set.
 pub fn mcc_set_system_root(_path: &Path) {
+    resolve_system_root_once();
+}
+
+/// Resolve the system root once from config (`MCC_SYSTEM_ROOT` env or the
+/// `~/.mcode` default) and store it in the global. All mcc code reads the
+/// resolved value via `mcb_get_system_root()`; nothing hardcodes the path.
+/// Subsequent calls skip when already set, so the first resolution wins.
+fn resolve_system_root_once() {
     let current = builder::mcb_get_system_root();
     if !current.as_os_str().is_empty() {
         debug!(target: "mcc::sysinit", system_root = ?current, "already set, skip");
@@ -202,6 +210,9 @@ pub fn mcc_set_project_root(path: &Path) {
 /// mcc interface
 pub fn mcc_init() {
     vector::graph::custom_symbol::clear_project_symbols();
+    // Resolve the system root once at startup so every later reference reads
+    // the same resolved path (MCC_SYSTEM_ROOT env or ~/.mcode default).
+    resolve_system_root_once();
     builder::mcb_init();
     builder::mcb_init_system_lib();
 }
@@ -209,6 +220,8 @@ pub fn mcc_init() {
 /// mcc interface (don't load system library, optional at server startup)
 pub fn mcc_init_no_lib() {
     vector::graph::custom_symbol::clear_project_symbols();
+    // Resolve the system root once at startup (same as `mcc_init`).
+    resolve_system_root_once();
     builder::mcb_init();
 }
 

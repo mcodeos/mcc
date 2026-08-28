@@ -153,11 +153,11 @@ fn main() -> ExitCode {
     }
 
     // ── 4. Dispatch to subcommands ────────────────────────────────────────────
-    // Commands that self-initialize via `init_local` (mcc_init_no_lib + system
-    // root + libs) or a manual `mcc_init_no_lib` must NOT be eagerly
-    // initialized here: `mcc_init()` would load mcode from the *unset* system
-    // root (~/.mcode) and the later set_system_root would then be skipped by
-    // the already-set guard, leaving stale libs from the wrong root.
+    // Commands that self-initialize via `init_local` (mcc_init_no_lib + libs)
+    // or a manual `mcc_init_no_lib` stay conservative here and are NOT eagerly
+    // initialized. `mcc_init()` now resolves the system root once (data root)
+    // before loading mcode, so eager init would be consistent — but these
+    // commands control their own lib loading and are left untouched.
     let need_mcc_init = match &cli.command {
         Some(Command::Start(_)) | Some(Command::Stop(_)) | Some(Command::Status(_)) => false,
         Some(Command::Config(_)) | Some(Command::Proj(_)) => false,
