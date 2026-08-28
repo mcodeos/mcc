@@ -29,11 +29,9 @@ pub struct McIda {
 
 impl McIda {
     pub fn new(node: &AstNode) -> Option<Self> {
-        let id_str = unsafe {
-            std::ffi::CStr::from_ptr(node.get_data() as *const std::ffi::c_char)
-                .to_str()
-                .expect("Bad encoding")
-        };
+        // Guarded accessor: the C parser can emit a NULL/small .data that
+        // would segfault inside CStr::from_ptr -> strlen.
+        let id_str = node.data_as_cstr()?.to_str().ok()?;
 
         // Directly parse the entire IDA string
         let segments = Self::parse_ida_string(id_str);

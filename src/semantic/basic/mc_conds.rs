@@ -358,10 +358,9 @@ impl McConds {
                         let val = child.to_string().unwrap_or_default();
                         operands.push(McCondOperand::Literal(val));
                     }
-                    MCAST_STRING => unsafe {
-                        let c_str =
-                            std::ffi::CStr::from_ptr(child.get_data() as *const std::ffi::c_char);
-                        if let Ok(str_value) = c_str.to_str() {
+                    MCAST_STRING => {
+                        // Guarded accessor: the C parser can emit a NULL/small .data.
+                        if let Ok(str_value) = child.data_as_cstr()?.to_str() {
                             let val = str_value.to_string();
                             let clean_val =
                                 if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
@@ -371,7 +370,7 @@ impl McConds {
                                 };
                             operands.push(McCondOperand::Literal(clean_val));
                         }
-                    },
+                    }
                     MCAST_OPD => {
                         if let Some(opd_subnode) = child.get_sub_node() {
                             if opd_subnode.get_type() == MCAST_IDS {
@@ -393,22 +392,18 @@ impl McConds {
                             let mut current = Some(vec_first);
                             while let Some(item) = current {
                                 if item.get_type() == MCAST_STRING {
-                                    unsafe {
-                                        let c_str = std::ffi::CStr::from_ptr(
-                                            item.get_data() as *const std::ffi::c_char
-                                        );
-                                        if let Ok(str_value) = c_str.to_str() {
-                                            let val = str_value.to_string();
-                                            let clean_val = if val.starts_with('"')
-                                                && val.ends_with('"')
-                                                && val.len() >= 2
-                                            {
-                                                val[1..val.len() - 1].to_string()
-                                            } else {
-                                                val
-                                            };
-                                            values.push(clean_val);
-                                        }
+                                    // Guarded accessor: the C parser can emit a NULL/small .data.
+                                    if let Ok(str_value) = item.data_as_cstr()?.to_str() {
+                                        let val = str_value.to_string();
+                                        let clean_val = if val.starts_with('"')
+                                            && val.ends_with('"')
+                                            && val.len() >= 2
+                                        {
+                                            val[1..val.len() - 1].to_string()
+                                        } else {
+                                            val
+                                        };
+                                        values.push(clean_val);
                                     }
                                 }
                                 current = item.get_next();
@@ -479,21 +474,16 @@ impl McConds {
                 let mut current = Some(vec_first);
                 while let Some(item) = current {
                     if item.get_type() == MCAST_STRING {
-                        unsafe {
-                            let c_str = std::ffi::CStr::from_ptr(
-                                item.get_data() as *const std::ffi::c_char
-                            );
-                            if let Ok(str_value) = c_str.to_str() {
-                                let val = str_value.to_string();
-                                let clean_val =
-                                    if val.starts_with('"') && val.ends_with('"') && val.len() >= 2
-                                    {
-                                        val[1..val.len() - 1].to_string()
-                                    } else {
-                                        val
-                                    };
-                                values.push(clean_val);
-                            }
+                        // Guarded accessor: the C parser can emit a NULL/small .data.
+                        if let Some(str_value) = item.data_as_cstr().and_then(|c| c.to_str().ok()) {
+                            let val = str_value.to_string();
+                            let clean_val =
+                                if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
+                                    val[1..val.len() - 1].to_string()
+                                } else {
+                                    val
+                                };
+                            values.push(clean_val);
                         }
                     }
                     current = item.get_next();
