@@ -6310,7 +6310,9 @@ mod tests {
     /// The C parser (`mcc_load_from_string` → `mcc_lex`/`mcc_parse`) keeps
     /// token/error state in process-global buffers, so it is not re-entrant.
     /// Tests that drive it must be serialized to avoid cross-test corruption.
-    static PARSE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// The lock is shared crate-wide (`MCC_TEST_PARSE_LOCK`) so tests in other
+    /// modules (e.g. `rpc::handlers::buildcmd::tests`) serialize with these.
+    use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
 
     /// Regression: declareb instances inside net expressions must be registered
     /// as LSP declarations (`res[1:2]::RES(0Ω)` → res1/res2, `C4::CAP()` → C4).
@@ -6322,7 +6324,7 @@ mod tests {
     /// interval at the instance-name span (what mcext goto-def consumes).
     #[test]
     fn declareb_inline_inst_registers_lsp_declaration() {
-        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
         crate::mcc_clear_workspace();
@@ -6398,7 +6400,7 @@ module main
     /// lapper and maps (via ref_def_map) to the pin in the component.
     #[test]
     fn module_member_chain_refs_resolve_in_lapper() {
-        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
         crate::mcc_clear_workspace();
@@ -6495,7 +6497,7 @@ module main
     /// scoped net refs and `.I2C0` resolved to the module port I2C0.
     #[test]
     fn fcall_chain_member_resolves_to_instance_pin() {
-        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
         crate::mcc_clear_workspace();
@@ -6583,7 +6585,7 @@ module main
     /// None — never a name-based guess (which would misattribute the def).
     #[test]
     fn position_hover_resolves_same_name_enum_and_component() {
-        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
         crate::mcc_clear_workspace();
@@ -6651,7 +6653,7 @@ module main
     /// — never a name-based guess at the same-named enum/component.
     #[test]
     fn position_goto_def_resolves_same_name_enum_and_component() {
-        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
         crate::mcc_clear_workspace();
@@ -6707,7 +6709,7 @@ module main
     /// the project scan swallow one of them by name-only dedup.
     #[test]
     fn completion_keeps_same_name_enum_and_component_candidates() {
-        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
         crate::mcc_clear_workspace();
@@ -6775,7 +6777,7 @@ module main
     /// loaded from disk.
     #[test]
     fn ref_def_map_entries_carry_ast_def_names() {
-        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         // Standard startup: mcc_init() auto-loads the mcode system library from the
         // data root (~/.mcode by default).
         crate::mcc_init();

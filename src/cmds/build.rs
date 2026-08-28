@@ -32,7 +32,6 @@ use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, BuildArgs, OutputFormat};
 use mcc::mcc_dbg;
 use mcc::viz::layout::FlowLayouter;
-use mcc::McIds;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -195,6 +194,20 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         }
     };
 
+    // Targets for the envelope and the viz (mcd docs-mc 16-export-viz §6):
+    // explicit --top → all modules in the entry file → all components → all
+    // interfaces. Components/interfaces are "virtually instantiated". Must be
+    // resolved BEFORE any virtual build replaces the file with its synthetic
+    // module (which would otherwise pollute the module list).
+    let targets = match mcc::mcc_virtual_resolve_targets(&entry_uri, mcc::cli::globals().top.as_deref()) {
+        Ok(t) => t,
+        Err(e) => {
+            let err = RpcError::invalid_params(e);
+            emit_err(&mcc::cli::globals().format, err)?;
+            return Ok(BuildOutcome { exit_code: 1 });
+        }
+    };
+
     // ── 2. Pass1 ──
     builder.set_pass1(crate::cmds::parse::public_collect_pass1(
         &entry_uri,
@@ -202,79 +215,21 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     ));
 
     // ── 3. Pass2 ──
-    let ident = McIds::from(top_name.as_str());
-    if mcc::get_def(&ident, &entry_uri).is_none() {
-        let err = RpcError::invalid_params(format!("'{}' not found", top_name));
-        emit_err(&mcc::cli::globals().format, err)?;
-        return Ok(BuildOutcome { exit_code: 1 });
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Top Module Selection Strategy
-    //
-    // Strategy 1: Module with Top (Instantiated Hierarchy)
-    //   - When a file contains modules with hierarchical instantiation (one module instantiates another),
-    //     use the specified --top module as the entry point.
-    //
-    // Priority for Top Module Selection:
-    //   1. CLI --top argument (highest priority): e.g., `mcc build --top MyModule`
-    //   2. Manifest top_module field: defined in manifest.toml
-    //   3. Fallback to "main" if no top is specified
-    //
-    // Strategy 2: No Top Module (Flat/Peer Modules)
-    //   - When a file contains multiple peer modules without hierarchical instantiation,
-    //     render ALL modules as if each were a top-level module.
-    //   - This is called "virtual instantiation" - each module is instantiated once
-    //     just to visualize/analyze the module definitions without hierarchical context.
-    //
-    // Detection: If no --top is specified and multiple modules exist in the file,
-    //            we assume virtual instantiation mode.
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    // Check if we should render all modules (no explicit --top specified and multiple modules exist)
-    let modules_in_file = mcc::mcc_get_modules_in_file(&entry_uri);
-    let should_render_all = modules_in_file.len() > 1 && mcc::cli::globals().top.is_none();
-
-    let inst = if should_render_all {
-        // Multi-module (virtual instantiation): the envelope carries the first
-        // module's Pass 2 tree (matching `--format json`); viz still renders all.
-        let first_mod_name = modules_in_file
-            .first()
-            .cloned()
-            .unwrap_or_else(|| top_name.clone());
-        let first_mod_ident = McIds::from(first_mod_name.as_str());
-
-        match mcc::mcc_build(&first_mod_ident, &entry_uri) {
-            Ok(first_inst) => {
-                builder.set_pass2(crate::cmds::parse::public_collect_pass2(
-                    &top_name,
-                    &first_inst,
-                    &mut tracker,
-                ));
-                first_inst
-            }
-            Err(e) => {
-                let err = RpcError::build_error(format!("{}", e));
-                emit_err(&mcc::cli::globals().format, err)?;
-                return Ok(BuildOutcome { exit_code: 1 });
-            }
+    // The envelope carries the first target's Pass 2 tree (matching
+    // `--format json`); viz still renders all targets.
+    let inst = match mcc::mcc_virtual_build(&top_name, &entry_uri) {
+        Ok(i) => {
+            builder.set_pass2(crate::cmds::parse::public_collect_pass2(
+                &top_name,
+                &i,
+                &mut tracker,
+            ));
+            i
         }
-    } else {
-        // Single module rendering (original logic)
-        match mcc::mcc_build(&ident, &entry_uri) {
-            Ok(i) => {
-                builder.set_pass2(crate::cmds::parse::public_collect_pass2(
-                    &top_name,
-                    &i,
-                    &mut tracker,
-                ));
-                i
-            }
-            Err(e) => {
-                let err = RpcError::build_error(format!("{}", e));
-                emit_err(&mcc::cli::globals().format, err)?;
-                return Ok(BuildOutcome { exit_code: 1 });
-            }
+        Err(e) => {
+            let err = RpcError::build_error(format!("{}", e));
+            emit_err(&mcc::cli::globals().format, err)?;
+            return Ok(BuildOutcome { exit_code: 1 });
         }
     };
 
@@ -283,23 +238,21 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     // ── 4. Viz generation ──
     if args.viz {
-        // Reuse should_render_all and modules_in_file computed earlier
-
-        if should_render_all {
-            // Render all modules: build viz for each module and combine them
+        if targets.len() > 1 {
+            // Render all targets (peer modules, or several components /
+            // interfaces in one file): build viz for each and combine them.
             let mut svgs: Vec<(String, String)> = Vec::new();
             let mut total_boxes = 0;
             let mut total_edges = 0;
             let mut netcheck_errors = 0usize;
 
-            for mod_name in &modules_in_file {
-                let mod_ident: McIds = McIds::from(mod_name.as_str());
+            for target in &targets {
                 let mod_uri = entry_uri.clone();
 
-                match mcc::mcc_build_flat(&mod_ident, &mod_uri, 1000) {
+                match mcc::mcc_virtual_build_flat(target, &mod_uri, 1000) {
                     Ok((mod_inst, mod_table)) => {
                         // ★ netcheck Tier 0: netlist health check (hard gate;
-                        // a module failing it skips viz entirely)
+                        // a target failing it skips viz entirely)
                         let nc_report = mcc::instant::netcheck::run(&mod_table);
                         nc_report.print();
                         if !nc_report.is_clean() {
@@ -307,7 +260,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                             mcc_dbg!(
                                 "build",
                                 "[gate] NETCHECK Tier 0 not clean for '{}' -> skip viz.",
-                                mod_name
+                                target
                             );
                             continue;
                         }
@@ -332,14 +285,14 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         let doc = mcc::viz::api::render_with(graph, opts);
 
                         if let Some(root_layer) = doc.root_layer() {
-                            svgs.push((mod_name.clone(), root_layer.svg.clone()));
+                            svgs.push((target.clone(), root_layer.svg.clone()));
                         }
                     }
                     Err(e) => {
                         mcc_dbg!(
                             "build",
-                            "[viz] skip module '{}': mcc_build_flat failed: {}",
-                            mod_name,
+                            "[viz] skip target '{}': mcc_virtual_build_flat failed: {}",
+                            target,
                             e
                         );
                     }
@@ -350,15 +303,15 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 if netcheck_errors > 0 {
                     return Ok(BuildOutcome { exit_code: 1 });
                 }
-                return Err(anyhow::anyhow!("viz: no modules rendered"));
+                return Err(anyhow::anyhow!("viz: no targets rendered"));
             }
 
             // Combine all SVGs into one big SVG, stacked vertically
-            let combined_svg = combine_svgs(&svgs);
+            let combined_svg = mcc::viz::template::combine_svgs(&svgs);
 
             // Build a single-layer VizDocument with the combined SVG
-            let mut doc = mcc::viz::doc::VizDocument::new(1000, "all_modules".into());
-            let mut layer = mcc::viz::layer::VizLayer::new(1000, "all_modules".into(), None);
+            let mut doc = mcc::viz::doc::VizDocument::new(1000, "all_targets".into());
+            let mut layer = mcc::viz::layer::VizLayer::new(1000, "all_targets".into(), None);
             layer.svg = combined_svg;
             doc.add_layer(layer);
 
@@ -374,15 +327,15 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             mcc_dbg!(
                 "build",
-                "[viz] rendered {} modules: {} boxes, {} edges",
+                "[viz] rendered {} targets: {} boxes, {} edges",
                 svgs.len(),
                 total_boxes,
                 total_edges
             );
         } else {
-            // Single module render (explicit --top or only one module)
-            let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000)
-                .map_err(|e| anyhow::anyhow!("mcc_build_flat failed: {}", e))?;
+            // Single target render (explicit --top or only one target)
+            let table = mcc::mcc_virtual_build_flat(&top_name, &entry_uri, 1000)
+                .map_err(|e| anyhow::anyhow!("mcc_virtual_build_flat failed: {}", e))?;
 
             // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
             if mcc::viz::log::enabled() {
@@ -539,115 +492,10 @@ fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper functions for multi-module SVG rendering (copied from parse.rs)
+// Multi-target SVG combination now lives in `viz::template::combine_svgs`
+// (shared with the RPC `build.viz` path, mcd docs-mc 16-export-viz §6).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Combine multiple SVG strings into one large SVG, stacked vertically with module labels.
-///
-/// Each input SVG's content is extracted from its `<svg>` tag and placed in a
-/// nested `<svg>` group with a title label. The combined canvas is sized to fit all.
-fn combine_svgs(svgs: &[(String, String)]) -> String {
-    let gap = 40.0; // vertical gap between modules
-    let label_height = 20.0;
-    let margin = 20.0;
-
-    // Parse each SVG to extract viewBox dimensions and inner content
-    let mut items: Vec<(String, f64, f64, String)> = Vec::new(); // (name, w, h, inner)
-    let mut max_w: f64 = 0.0;
-
-    for (name, svg) in svgs {
-        // Extract viewBox
-        let vb = extract_viewbox_build(svg);
-        let w = vb.0.max(1.0);
-        let h = vb.1.max(1.0);
-        max_w = max_w.max(w);
-
-        // Extract inner content (everything between <svg ...> and </svg>)
-        let inner = extract_svg_inner_build(svg);
-        items.push((name.clone(), w, h, inner));
-    }
-
-    let total_w = max_w + margin * 2.0;
-    let mut total_h = margin;
-    for (_, _, h, _) in &items {
-        total_h += label_height + *h + gap;
-    }
-    total_h += margin;
-
-    let mut out = format!(
-        r#"<svg viewBox="0 0 {:.1} {:.1}" xmlns="http://www.w3.org/2000/svg"
-     font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-     style="background:transparent">
-"#,
-        total_w, total_h
-    );
-
-    let mut y = margin;
-    for (name, w, h, inner) in &items {
-        // Module label
-        out.push_str(&format!(
-            r##"  <text x="{:.1}" y="{:.1}" font-size="16" font-weight="700" fill="#333">{}</text>
-"##,
-            margin,
-            y + 16.0,
-            escape_xml_viz_build(name)
-        ));
-        y += label_height;
-
-        // Nested SVG group, centered horizontally
-        let x_offset = (max_w - w) / 2.0 + margin;
-        out.push_str(&format!(
-            r##"  <g transform="translate({:.1},{:.1})">
-{}
-  </g>
-"##,
-            x_offset, y, inner
-        ));
-        y += h + gap;
-    }
-
-    out.push_str("</svg>\n");
-    out
-}
-
-/// Extract (width, height) from an SVG viewBox attribute.
-fn extract_viewbox_build(svg: &str) -> (f64, f64) {
-    // Find viewBox="0 0 W H"
-    if let Some(start) = svg.find("viewBox=\"") {
-        let rest = &svg[start + 9..];
-        if let Some(end) = rest.find('"') {
-            let vb = &rest[..end];
-            let parts: Vec<&str> = vb.split_whitespace().collect();
-            if parts.len() >= 4 {
-                let w = parts[2].parse::<f64>().unwrap_or(200.0);
-                let h = parts[3].parse::<f64>().unwrap_or(100.0);
-                return (w, h);
-            }
-        }
-    }
-    (200.0, 100.0)
-}
-
-/// Extract the inner content of an SVG (everything between the opening <svg...> and closing </svg>).
-fn extract_svg_inner_build(svg: &str) -> String {
-    // Find the first '>' after '<svg'
-    if let Some(start) = svg.find("<svg") {
-        if let Some(gt) = svg[start..].find('>') {
-            let inner_start = start + gt + 1;
-            if let Some(end) = svg.rfind("</svg>") {
-                return svg[inner_start..end].trim().to_string();
-            }
-        }
-    }
-    svg.to_string()
-}
-
-fn escape_xml_viz_build(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
 
 #[cfg(test)]
 mod phase0_golden {

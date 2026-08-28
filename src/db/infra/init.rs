@@ -10,6 +10,16 @@ use crate::{McSpaceName, McURI};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+// === pub(crate) fn mcb_test_parse_lock() -> std::sync::MutexGuard<'static, ()> { ===
+/// Serialize tests that drive the C parser / workspace tables. The parser
+/// keeps token/error state in process-global buffers, so it is not
+/// re-entrant across threads — every test that calls `mcc_load_from_string`,
+/// `mcc_load_project`, or clears the workspace must hold this same lock.
+/// [`crate::db::infra::mc_code::tests`]'s `PARSE_LOCK` and the
+/// `rpc::handlers::buildcmd::tests`' local lock both funnel through here.
+#[cfg(test)]
+pub(crate) static MCC_TEST_PARSE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 // === pub fn mcb_set_system_root(path: &Path) { ===
 pub fn mcb_set_system_root(path: &Path) {
     *global::mcc_system_root.lock().unwrap() = path.to_path_buf();

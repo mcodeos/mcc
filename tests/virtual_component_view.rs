@@ -1,0 +1,148 @@
+// Copyright (c) 2026 MCode
+//
+// Licensed under either of Apache License, Version 2.0 or MIT License at your option.
+
+// Virtual instantiation for non-project single-file views (mcd docs-mc
+// 16-export-viz §6): a file opened outside a project (no project.toml) that
+// has no `module` but declares components/interfaces must not fail with
+// "no top module found"; each unit is wrapped in a synthetic module so the
+// standard build + viz pipeline can render it standalone.
+
+use mcc::McURI;
+use std::fs;
+use std::sync::{Mutex, OnceLock};
+
+static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn fixture(name: &str, content: &str) -> (std::path::PathBuf, McURI) {
+    let dir = std::env::temp_dir().join(format!("mcc-virtual-{}-{}", name, std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("part.mc");
+    fs::write(&path, content).unwrap();
+    let uri: McURI = path.to_string_lossy().into_owned();
+    (path, uri)
+}
+
+fn setup(uri: &McURI) {
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    mcc::mcc_load_project(uri);
+}
+
+const COMPONENT_ONLY: &str = r#"
+component HUM011D_5_S
+{
+    partno = "HUM011D_5_S"
+    package = "USB-MINI-SOCKET"
+    pins = [
+        [1, [5,6,7]] = [VBUS, GND]::DC(5V)
+        2 = D\-
+        3 = D\+
+        4 = ID
+        8 = SHIELD3
+        9 = SHIELD4
+    ]
+}
+"#;
+
+#[test]
+fn component_only_file_resolves_and_builds() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture("comp", COMPONENT_ONLY);
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    assert_eq!(targets, vec!["HUM011D_5_S".to_string()]);
+
+    let (inst, table) = mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000)
+        .expect("virtual build must succeed");
+    assert_eq!(inst.name, "VIRT_HUM011D_5_S");
+
+    let mut pins = Vec::new();
+    for net in table.get_nets() {
+        for &pid in &net.points {
+            if let Some(e) = table.get_entry(pid) {
+                pins.push(e.path.clone());
+            }
+        }
+    }
+    // The lone component is unwired, so the component itself is present as an
+    // instance; the point here is the build succeeds instead of E32107.
+    let _ = pins;
+    let diags = mcc::mcc_diagnose_all();
+    let has_32107_style: Vec<_> = diags
+        .iter()
+        .filter(|d| d.msg.contains("no top module found"))
+        .collect();
+    assert!(has_32107_style.is_empty());
+
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn component_view_renders_box() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture("comp-viz", COMPONENT_ONLY);
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    let (inst, table) = mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000)
+        .expect("virtual build must succeed");
+    let block = mcc::build_mc_vec(&inst, &table);
+    let graph = mcc::build_mc_vec_graph(&block, &table);
+    let doc = mcc::viz::api::render(graph);
+    let html = mcc::viz::template::wrap_document(&doc);
+
+    assert!(
+        html.contains("u_1"),
+        "the wrapped component box must render, got {} bytes",
+        html.len()
+    );
+    assert!(doc.validate().is_empty(), "invalid visualization document");
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+const MULTI_MODULE: &str = r#"
+module BLINKER { }
+module BUZZER { }
+"#;
+
+#[test]
+fn multi_module_file_resolves_all_modules() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture("multi", MULTI_MODULE);
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    assert_eq!(targets.len(), 2);
+    assert!(targets.contains(&"BLINKER".to_string()));
+    assert!(targets.contains(&"BUZZER".to_string()));
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+const INTERFACE_ONLY: &str = r#"
+interface I2C(role)
+{
+    pins = [
+        1 = SCL
+        2 = SDA
+    ]
+    role Master { name = "Master" }
+}
+"#;
+
+#[test]
+fn interface_only_file_resolves_and_builds() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture("iface", INTERFACE_ONLY);
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    assert_eq!(targets, vec!["I2C".to_string()]);
+
+    let (inst, _table) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
+    assert_eq!(inst.name, "VIRT_I2C");
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}

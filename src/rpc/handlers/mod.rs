@@ -384,22 +384,21 @@ pub(crate) fn run_full_build_envelope(
     // the payload must carry the same (empty) list for byte-identical output.
     pass1["definitions"]["ports"] = Value::Array(vec![]);
 
-    let top_name = match top {
-        Some(t) => t.to_string(),
-        None => crate::mcb_get_module_name_by_uri(&mc_uri)
-            .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
-    };
-
-    let ident = crate::McIds::from(top_name.as_str());
-    if crate::get_def(&ident, &mc_uri).is_none() {
-        return Err(JsonRpcError::custom(
-            32107,
-            &format!("top module '{top_name}' not defined"),
-        ));
-    }
+    // Top selection (mcd docs-mc 16-export-viz §6): explicit top → all modules
+    // in the file → all components → all interfaces. Components and interfaces
+    // are "virtually instantiated" via a synthetic module so a component-only
+    // file (e.g. a connector library part) builds instead of failing with
+    // "no top module found". When several targets share the file, the envelope
+    // carries the first target's Pass 2 tree (mirrors the CLI build).
+    let targets = crate::mcc_virtual_resolve_targets(&mc_uri, top)
+        .map_err(|e| JsonRpcError::custom(32107, &e))?;
+    let top_name = targets
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "".to_string());
 
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_build(&ident, &mc_uri)
+        crate::mcc_virtual_build(&top_name, &mc_uri)
     }));
     let inst = match built {
         Ok(Ok(inst)) => inst,
