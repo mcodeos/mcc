@@ -180,7 +180,17 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
         crate::vector::builder::reset_np_warn_count();
         let t3 = std::time::Instant::now();
         let (vec_block, _report) = crate::build_mc_vec_with_report(&_inst, &table);
+        let is_virtual_target = !crate::mcc_get_modules_in_file(&mc_uri)
+            .iter()
+            .any(|m| m == target);
         let graph = crate::build_mc_vec_graph(&vec_block, &table);
+        // Virtual (component/interface) targets render in the device pipeline
+        // with the fabricated instance name hidden so the physical pins show.
+        let graph = if is_virtual_target {
+            crate::mcc_virtual_prepare_graph(graph, target)
+        } else {
+            graph
+        };
         tracing::info!(target: "mcc::perf", step = "vec_graph", ms = t3.elapsed().as_millis() as u64, "build.viz step");
 
         let opts = build_viz_render_opts(p.layouter.as_deref());
@@ -284,7 +294,8 @@ mod tests {
 
     /// Regression: `build.viz` on a component-only file (no project.toml, no
     /// module) must not fail with "no top module found". The component is
-    /// "virtually instantiated" (mcd docs-mc 16-export-viz §6) and rendered.
+    /// "virtually instantiated" (mcd docs-mc 16-export-viz §6) and rendered as
+    /// an IC with its physical pins; the fabricated instance name is hidden.
     #[test]
     fn build_viz_component_only_file() {
         let _guard = parse_lock();
@@ -308,9 +319,13 @@ component HUM011D_5_S
         let resp = handle_build_viz(Some(json!({ "entry": entry }))).expect("build.viz ok");
         let html = resp["html"].as_str().expect("html field");
         assert!(
-            html.contains("u_1"),
-            "component box must render, got {} bytes",
+            html.contains("HUM011D_5_S"),
+            "component class name must render, got {} bytes",
             html.len()
+        );
+        assert!(
+            !html.contains("u_1"),
+            "the fabricated instance name must be hidden"
         );
         assert_eq!(resp["top"], "HUM011D_5_S");
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
@@ -324,10 +339,7 @@ component HUM011D_5_S
         crate::mcc_set_system_root(std::path::Path::new(""));
         crate::mcc_clear_workspace();
 
-        let path = tmp_file(
-            "multi",
-            "module BLINKER { }\nmodule BUZZER { }\n",
-        );
+        let path = tmp_file("multi", "module BLINKER { }\nmodule BUZZER { }\n");
         let entry = path.to_string_lossy().into_owned();
 
         let resp = handle_build_viz(Some(json!({ "entry": entry }))).expect("build.viz ok");
@@ -352,21 +364,107 @@ component HUM011D_5_S
         );
         let entry = path.to_string_lossy().into_owned();
 
-        let resp = run_full_build_envelope(
-            &path,
-            None,
-            "mcc build",
-            "file",
-            "test",
-            true,
-        )
-        .expect("build.full ok");
+        let resp = run_full_build_envelope(&path, None, "mcc build", "file", "test", true)
+            .expect("build.full ok");
         let pass2 = &resp["pass2"];
         assert_eq!(pass2["top"], "HUM011D_5_S");
         assert_eq!(
             resp["summary"]["errors"], 0,
             "component-only build must not error"
         );
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    /// Regression: a file with both a module and a component resolves to the
+    /// module (mcd docs-mc 16-export-viz §6). The module's component box in
+    /// the block diagram must show its pin ids and names (not bare stubs).
+    #[test]
+    fn build_viz_module_contains_component_shows_pin_labels() {
+        let _guard = parse_lock();
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let path = tmp_file(
+            "modcomp",
+            r#"
+component TLE7368(partno)
+{
+    pins = [
+        in [1,18,19,36] = GNDA
+        in 9 = EN_UC
+        in 10 = EN_IGN
+    ]
+}
+
+module TLE7368E(pwr, EN_IGN, EN_UC)
+{
+    TLE7368("TLE7368E") tle
+}
+"#,
+        );
+        let entry = path.to_string_lossy().into_owned();
+
+        let resp = handle_build_viz(Some(json!({ "entry": entry }))).expect("build.viz ok");
+        assert_eq!(resp["top"], "TLE7368E", "module target must win");
+        let html = resp["html"].as_str().expect("html field");
+        let svg = html.replace("\\\"", "\"");
+        assert!(
+            svg.contains("EN_UC"),
+            "component pin name must render in the module block diagram"
+        );
+        assert!(
+            svg.contains("GNDA"),
+            "component pin name must render in the module block diagram"
+        );
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+    /// Regression: tc275-style pin/func constructs used to SIGSEGV in the
+    /// semantic layer because the C parser can emit AST nodes whose `.data`
+    /// pointer is NULL (the guarded `data_as_cstr` now returns None instead
+    /// of dereferencing NULL inside strlen).
+    /// Regression: tc275-style pin/func constructs used to SIGSEGV in the
+    /// semantic layer because the C parser can emit AST nodes whose `.data`
+    /// pointer is NULL (the guarded `data_as_cstr` now returns None instead
+    /// of dereferencing NULL inside strlen).
+    #[test]
+    fn build_viz_tc275_style_constructs() {
+        let _guard = parse_lock();
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let path = tmp_file(
+            "tc275",
+            r#"
+component TC275
+{
+    pins = [
+        101 = VSS
+        [1:9] = P02[0:8]
+        [102:103] = XTAL{X1,X2}
+        [111:115] = JTAG{TDI,TMS,TDO,_TRST,TCK}
+        [160:163] = P11[2:3,6,9]
+        [84,86:88] = P32[0,2:4]
+    ]
+    func CapDigital(gnd)
+    {
+        CAP(100nF).Cap([this{10,24,68,100,123}, gnd])
+        CAP(100nF).Cap([[pins{104,154}, pins.155, pins.164], gnd])
+    }
+    func HwReset()
+    {
+        PORST_OUT <- (R105 - _PORST) + q.d + (R106 - VEXT)
+    }
+}
+"#,
+        );
+        let entry = path.to_string_lossy().into_owned();
+
+        let resp = handle_build_viz(Some(json!({ "entry": entry }))).expect("build.viz ok");
+        let html = resp["html"].as_str().expect("html field");
+        assert_eq!(resp["top"], "TC275");
+        assert!(!html.is_empty());
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 }

@@ -58,14 +58,21 @@ impl BoxShape for IcShape {
         // ── Instance name + class name (top-left, outside the box) ──
         let label_x = b.x;
         let name_y = b.y - 14.0;
-        let name = format!(
-            r##"<text x="{:.1}" y="{:.1}" text-anchor="start" dominant-baseline="auto"
+        // The virtual instantiation view (mcd docs-mc 16-export-viz §6)
+        // suppresses the fabricated instance name (VIRT_<Name> wrapper's u_1):
+        // the box then shows only the class name.
+        let name = if b.suppress_instance_name {
+            String::new()
+        } else {
+            format!(
+                r##"<text x="{:.1}" y="{:.1}" text-anchor="start" dominant-baseline="auto"
             font-size="12" font-weight="700" fill="#1A237E">{}</text>"##,
-            label_x,
-            name_y,
-            // Anonymous ICs auto-named `_U3` display without the `_` marker.
-            escape_xml(display_name(&b.name))
-        );
+                label_x,
+                name_y,
+                // Anonymous ICs auto-named `_U3` display without the `_` marker.
+                escape_xml(display_name(&b.name))
+            )
+        };
 
         let class_svg = if !b.class_name.is_empty() {
             format!(
@@ -88,14 +95,25 @@ impl BoxShape for IcShape {
         let pins: String = if b.entry_points.is_empty() {
             String::new()
         } else {
+            let opts = if b.suppress_instance_name {
+                // Virtual component view: stub + number + name + io-type label.
+                PinRenderOpts::for_virtual_ic()
+            } else {
+                PinRenderOpts::for_ic()
+            };
             b.entry_points
                 .iter()
-                .map(|ep| render_pin(b, ep, PinRenderOpts::for_ic()))
+                .map(|ep| render_pin(b, ep, opts))
                 .collect()
         };
 
-        // ★ R-C2: draw NC pins (unconnected physical pins) on the right side
-        let nc_pins: String = {
+        // ★ R-C2: draw NC pins (unconnected physical pins) on the right side.
+        // In the virtual component view there is no wiring at all, so the
+        // "not connected" cross is meaningless — every pin already renders as
+        // a stub via its synthesized entry point.
+        let nc_pins: String = if b.suppress_instance_name {
+            String::new()
+        } else {
             let nc = b.nc_pins();
             if nc.is_empty() {
                 String::new()

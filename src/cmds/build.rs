@@ -199,14 +199,15 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     // interfaces. Components/interfaces are "virtually instantiated". Must be
     // resolved BEFORE any virtual build replaces the file with its synthetic
     // module (which would otherwise pollute the module list).
-    let targets = match mcc::mcc_virtual_resolve_targets(&entry_uri, mcc::cli::globals().top.as_deref()) {
-        Ok(t) => t,
-        Err(e) => {
-            let err = RpcError::invalid_params(e);
-            emit_err(&mcc::cli::globals().format, err)?;
-            return Ok(BuildOutcome { exit_code: 1 });
-        }
-    };
+    let targets =
+        match mcc::mcc_virtual_resolve_targets(&entry_uri, mcc::cli::globals().top.as_deref()) {
+            Ok(t) => t,
+            Err(e) => {
+                let err = RpcError::invalid_params(e);
+                emit_err(&mcc::cli::globals().format, err)?;
+                return Ok(BuildOutcome { exit_code: 1 });
+            }
+        };
 
     // ── 2. Pass1 ──
     builder.set_pass1(crate::cmds::parse::public_collect_pass1(
@@ -276,7 +277,20 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                             ss.total_nets,
                             ss.coverage() * 100.0
                         );
-                        let graph = mcc::build_mc_vec_graph(&vec_block, &mod_table);
+                        // Virtual (component/interface) targets render in the
+                        // device pipeline with the fabricated instance name
+                        // hidden so the physical pins (id + name) show.
+                        let is_virtual = !mcc::mcc_get_modules_in_file(&mod_uri)
+                            .iter()
+                            .any(|m| m == target);
+                        let graph = if is_virtual {
+                            mcc::mcc_virtual_prepare_graph(
+                                mcc::build_mc_vec_graph(&vec_block, &mod_table),
+                                target,
+                            )
+                        } else {
+                            mcc::build_mc_vec_graph(&vec_block, &mod_table)
+                        };
 
                         total_boxes += graph.boxes.len();
                         total_edges += graph.edges.len();
@@ -367,7 +381,20 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             }
 
             let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
-            let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
+            // Virtual (component/interface) targets render in the device
+            // pipeline with the fabricated instance name hidden so the
+            // physical pins (id + name) show.
+            let is_virtual = !mcc::mcc_get_modules_in_file(&entry_uri)
+                .iter()
+                .any(|m| *m == top_name);
+            let graph = if is_virtual {
+                mcc::mcc_virtual_prepare_graph(
+                    mcc::build_mc_vec_graph(&vec_block, &table.1),
+                    &top_name,
+                )
+            } else {
+                mcc::build_mc_vec_graph(&vec_block, &table.1)
+            };
 
             let opts = build_viz_opts(args.layouter.as_deref());
             let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
@@ -495,7 +522,6 @@ fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
 // Multi-target SVG combination now lives in `viz::template::combine_svgs`
 // (shared with the RPC `build.viz` path, mcd docs-mc 16-export-viz §6).
 // ─────────────────────────────────────────────────────────────────────────────
-
 
 #[cfg(test)]
 mod phase0_golden {

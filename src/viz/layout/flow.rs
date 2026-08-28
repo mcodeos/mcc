@@ -675,18 +675,37 @@ fn filter_ground_nets_for_main(graph: &mut McVecGraph) {
 // Size: height ∝ signal net count (vertical stretch, let parallel wire bundles spread apart)
 // ============================================================================
 
-/// Box height scaled by "total pin count" (only increase, never decrease).
+/// Box height scaled by "pin count per side" (only increase, never decrease).
 ///
-/// Pin count ≈ connected net count. More connections → taller box, pins on left/right naturally spread out;
-/// also ensures boxes like dcdc with "few signals but many power outputs" have enough vertical space to spread flags.
+/// Pins sit on the left/right edges, so the box only needs to span the most
+/// loaded side — sizing by the TOTAL pin count made multi-pin parts (e.g. the
+/// 37-pin TLE7368 module box) twice as tall as necessary and spaced the pins
+/// far apart. Pitch matches the virtual component view (`20 px`, mcd docs-mc
+/// 16-export-viz §6).
 fn size_by_core_fanout(graph: &mut McVecGraph) {
-    const PITCH: f64 = 28.0; // Vertical spacing reserved for each pin
+    const PITCH: f64 = 20.0; // Vertical spacing reserved for each pin
     const PAD: f64 = 26.0;
     for b in &mut graph.boxes {
         if is_rail_box(b) {
             continue; // flags stay small
         }
-        let n = b.entry_points.len().max(b.pins.len()) as f64;
+        let mut per_side = [0usize; 4];
+        if !b.entry_points.is_empty() {
+            for ep in &b.entry_points {
+                let idx = match ep.side {
+                    EntrySide::Left => 0,
+                    EntrySide::Right => 1,
+                    EntrySide::Top => 2,
+                    EntrySide::Bottom => 3,
+                };
+                per_side[idx] += 1;
+            }
+        } else {
+            let n = b.pins.len();
+            per_side[0] = (n + 1) / 2;
+            per_side[1] = n / 2;
+        }
+        let n = per_side.iter().copied().max().unwrap_or(0) as f64;
         let want_h = n * PITCH + PAD;
         if want_h > b.h {
             b.h = want_h;

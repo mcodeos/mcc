@@ -146,9 +146,9 @@ fn extract_component_value(_class_name: &str, _symbol: &Symbol) -> Option<String
 /// (core `McLayout{left,right,top,bottom}`) and converts each edge's `Vec<u32>` pin numbers
 /// to `Vec<String>` for drawing-side [`PinLayout`].
 ///
-/// Returns `None` when the component is not found or all four layout edges are empty
-/// (falls through to heuristic edge assignment).
-fn component_pin_layout(class_name: &str) -> Option<PinLayout> {
+/// Returns `None` when the component is not found or all four layout edges are
+/// empty (the caller falls back to the default pin-arrangement heuristic).
+pub(crate) fn component_pin_layout(class_name: &str) -> Option<PinLayout> {
     let comp = crate::db::cmie::tables::WORKSPACE.component_by_class(class_name)?;
     let layout = &comp.layout;
     if layout.left.is_empty()

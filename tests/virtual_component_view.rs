@@ -55,8 +55,8 @@ fn component_only_file_resolves_and_builds() {
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
     assert_eq!(targets, vec!["HUM011D_5_S".to_string()]);
 
-    let (inst, table) = mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000)
-        .expect("virtual build must succeed");
+    let (inst, table) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
     assert_eq!(inst.name, "VIRT_HUM011D_5_S");
 
     let mut pins = Vec::new();
@@ -87,19 +87,66 @@ fn component_view_renders_box() {
     setup(&uri);
 
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
-    let (inst, table) = mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000)
-        .expect("virtual build must succeed");
+    let (inst, table) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
     let block = mcc::build_mc_vec(&inst, &table);
-    let graph = mcc::build_mc_vec_graph(&block, &table);
+    let graph =
+        mcc::mcc_virtual_prepare_graph(mcc::build_mc_vec_graph(&block, &table), &targets[0]);
     let doc = mcc::viz::api::render(graph);
     let html = mcc::viz::template::wrap_document(&doc);
 
     assert!(
-        html.contains("u_1"),
-        "the wrapped component box must render, got {} bytes",
+        html.contains("HUM011D_5_S"),
+        "the component class name must render, got {} bytes",
         html.len()
     );
+    assert!(
+        !html.contains("u_1"),
+        "the fabricated instance name must be hidden"
+    );
     assert!(doc.validate().is_empty(), "invalid visualization document");
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn component_view_renders_pin_name_and_id() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture("comp-pins", COMPONENT_ONLY);
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    let (inst, table) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
+    let block = mcc::build_mc_vec(&inst, &table);
+    let graph =
+        mcc::mcc_virtual_prepare_graph(mcc::build_mc_vec_graph(&block, &table), &targets[0]);
+    let doc = mcc::viz::api::render(graph);
+    let html = mcc::viz::template::wrap_document(&doc);
+
+    // The SVG is JSON-escaped inside the HTML document (`\"`); unescape to
+    // assert on the rendered pin groups.
+    let svg = html.replace("\\\"", "\"");
+    for name in ["VBUS", "GND", "D-", "D+", "ID", "SHIELD3", "SHIELD4"] {
+        assert!(
+            svg.contains(name),
+            "pin name {name} must render on the component view"
+        );
+    }
+    // Pin ids 1..9: each physical pin renders a stub with its number.
+    for id in ["1", "5", "6", "7", "8", "9"] {
+        assert!(
+            svg.contains(&format!(">{id}<")),
+            "pin id {id} must render on the component view"
+        );
+    }
+    // Every pin draws a stub line; the virtual view wires nothing, so no NC
+    // cross marks appear.
+    let pin_groups = svg.matches("class=\"pin\"").count();
+    assert_eq!(pin_groups, 9, "all 9 pins must render as stubs");
+    assert!(
+        !svg.contains("stroke=\"#C0392B\""),
+        "virtual view must not draw NC cross marks"
+    );
     fs::remove_dir_all(path.parent().unwrap()).ok();
 }
 
@@ -144,5 +191,141 @@ fn interface_only_file_resolves_and_builds() {
     let (inst, _table) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
     assert_eq!(inst.name, "VIRT_I2C");
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn component_view_default_pin_order_is_counterclockwise() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture(
+        "ccw",
+        r#"
+component CONN12
+{
+    pins = [
+        9 = P9
+        10 = P10
+        11 = P11
+        12 = P12
+        5 = P5
+        6 = P6
+        7 = P7
+        8 = P8
+        1 = P1
+        2 = P2
+        3 = P3
+        4 = P4
+    ]
+}
+"#,
+    );
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    let (inst, table) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
+    let block = mcc::build_mc_vec(&inst, &table);
+    let graph =
+        mcc::mcc_virtual_prepare_graph(mcc::build_mc_vec_graph(&block, &table), &targets[0]);
+    let b = &graph.boxes[0];
+    let got: Vec<(&str, &str)> = b
+        .entry_points
+        .iter()
+        .map(|ep| {
+            let id = b
+                .pins
+                .iter()
+                .find(|p| p.id == ep.pin_id)
+                .map(|p| p.pin_id.as_str())
+                .unwrap_or_default();
+            (
+                id,
+                match ep.side {
+                    mcc::vector::graph::EntrySide::Top => "Top",
+                    mcc::vector::graph::EntrySide::Right => "Right",
+                    mcc::vector::graph::EntrySide::Bottom => "Bottom",
+                    mcc::vector::graph::EntrySide::Left => "Left",
+                },
+            )
+        })
+        .collect();
+    // 12 pins, no layout -> counterclockwise on the left/right columns only,
+    // ordered by numeric pin number (not alphabetical: 10/11/12 come after 9):
+    // left 6 (top→bottom), right 6 (bottom→top), no top/bottom pins.
+    let expected: Vec<(&str, &str)> = vec![
+        ("1", "Left"),
+        ("2", "Left"),
+        ("3", "Left"),
+        ("4", "Left"),
+        ("5", "Left"),
+        ("6", "Left"),
+        ("7", "Right"),
+        ("8", "Right"),
+        ("9", "Right"),
+        ("10", "Right"),
+        ("11", "Right"),
+        ("12", "Right"),
+    ];
+    assert_eq!(
+        got, expected,
+        "default pin order must be counterclockwise and numeric"
+    );
+    // Right column reads bottom→top (counterclockwise continuation).
+    let right_offsets: Vec<f64> = b
+        .entry_points
+        .iter()
+        .filter(|ep| matches!(ep.side, mcc::vector::graph::EntrySide::Right))
+        .map(|ep| ep.offset)
+        .collect();
+    assert!(
+        right_offsets.windows(2).all(|w| w[0] > w[1]),
+        "right column must run bottom→top, got {right_offsets:?}"
+    );
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn group_range_bus_pins_all_register() {
+    // Regression: `io [4:11] = IO0{0:7}` must register 8 pins (IO00..IO07).
+    // as_bus() used to ignore the numeric range inside curly braces, so the
+    // RHS bus had zero members and the whole slice registered no pins.
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture(
+        "busrange",
+        r#"
+component PCA9555(partno)
+{
+    pins = [
+        io [4:11] = IO0{0:7}
+        io [13:20] = IO1{0:7}
+    ]
+}
+"#,
+    );
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    let (inst, table) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
+    let block = mcc::build_mc_vec(&inst, &table);
+    let graph = mcc::build_mc_vec_graph(&block, &table);
+    let b = &graph.boxes[0];
+    assert_eq!(b.pins.len(), 16, "16 IO pins must register");
+    for i in 0..8 {
+        assert!(
+            b.pins.iter().any(|p| p.pin_id == format!("{}", 4 + i)),
+            "pin {} missing",
+            4 + i
+        );
+        assert!(
+            b.pins.iter().any(|p| p.pin_id == format!("{}", 13 + i)),
+            "pin {} missing",
+            13 + i
+        );
+    }
+    assert!(
+        b.pins.iter().any(|p| p.description == "IO07"),
+        "IO07 member name must be present"
+    );
     fs::remove_dir_all(path.parent().unwrap()).ok();
 }
