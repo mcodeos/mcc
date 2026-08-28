@@ -181,6 +181,28 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
         return;
     }
 
+    // Optimization: a file whose types are already registered in the workspace
+    // (pass1_complete) needs no disk re-read. Re-reading would replace the
+    // in-memory entry with fresh disk state, wiping any synthetic virtual
+    // modules (VIRT_*) installed since load and resetting modules_parsed —
+    // which forces mcb_parse_all_modules to re-derive the whole workspace on
+    // every load_project call (the "repeated loads get slower" regression).
+    // The workspace entry is authoritative once loaded; edits arrive through
+    // mcb_add_from_string / mcb_add, not through re-loading from disk. CLI
+    // builds start from a fresh workspace, so nothing is skipped there; this
+    // guard only short-circuits repeated server-side load_project calls.
+    // A workspace entry with pass1_complete == false means an earlier load
+    // aborted mid-parse — fall through and re-load from disk.
+    if workspace::WORKSPACE
+        .mcodes
+        .get(&canonical_uri)
+        .map(|e| e.pass1_complete)
+        .unwrap_or(false)
+    {
+        trace!(target: "mcc::builder", canonical = %canonical_uri, "load: skip (already in workspace, pass1 complete)");
+        return;
+    }
+
     // 2. Construct full file path
     let file_path = if Path::new(&canonical_uri).is_absolute() {
         PathBuf::from(&canonical_uri)

@@ -22,39 +22,24 @@ use crate::db::infra::init::*;
 /// ★ Fix: Parse modules in dependency order (topological sort based on uselist).
 /// Without this, DashMap iteration is unordered, so main.mc modules could be parsed
 /// before power.mc modules are registered, causing "definition not found" errors.
+///
+/// Incremental: a file is re-derived only when it needs it —
+/// - `modules_parsed == false` (freshly parsed THIS round, or never module-
+///   parsed): full re-derive via parse_pass1_modules_full. Such files were
+///   cleared by parse_ast/parse_ast_from_string and carry fresh parser +
+///   use-stage diagnostics that the module parse does NOT re-emit — keep them.
+/// - `modules_parsed && use_table_dirty`: its dependency graph changed since
+///   the lapper was built (create_lapper marks reverse-dependents dirty), so
+///   re-derive. Sweep its stale diagnostics first — everything it carries is
+///   re-emitted below.
+/// - `modules_parsed && !use_table_dirty` (clean): nothing changed, skip
+///   entirely — the file and its diagnostics stay as-is. This is what keeps
+///   repeated load_project/sem calls cheap instead of re-deriving every file.
+///
+/// The dirty flag is set DURING the loop (a re-derived dependency marks its
+/// reverse-dependents dirty), so the clean/dirty decision must be made per
+/// file at loop time, in topo order (deps first), not pre-computed.
 pub fn mcb_parse_all_modules() {
-    // ★ Clear stale diagnostics before this round re-emits them.
-    //
-    // Every call rebuilds the symbol lapper for ALL workspace files (the
-    // parse_pass1_modules_full() loop below) and re-runs every PostParse
-    // validator (including ImportsCheck, which re-emits USE_* 2xxx) over ALL
-    // files. Neither step clears what a previous round emitted, so diagnostics
-    // accumulate across load_project/sem calls — doubling per round — and
-    // stale resolution errors (E3157/E3071)
-    // emitted during a round where the mcode library was not yet loaded
-    // survive forever.
-    //
-    // Invariant: a workspace file has `modules_parsed == false` iff it was
-    // freshly parsed in THIS round (parse_ast/parse_ast_from_string clear the
-    // file's diagnostics, and file-level parsing never runs the module parse).
-    // Such files carry fresh parser and use-stage (parse_nsp) diagnostics that
-    // are NOT re-emitted by the topo loop — keep them. Files from earlier
-    // rounds (modules_parsed == true) are fully re-derived below, so their old
-    // entries are pure accumulation and must go.
-    let stale_uris: Vec<McURI> = workspace::WORKSPACE
-        .mcodes
-        .iter()
-        .filter(|e| e.value().modules_parsed)
-        .map(|e| McURI::from(e.key().as_str()))
-        .collect();
-    for uri in stale_uris {
-        workspace::WORKSPACE
-            .diagnostics
-            .lock()
-            .unwrap()
-            .clear_file(&uri);
-    }
-
     // 1. Collect all URIs and their dependencies
     let mut uri_deps: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
@@ -123,10 +108,31 @@ pub fn mcb_parse_all_modules() {
     // Use remove+insert instead of clone+insert to avoid AstNode ownership issues.
     // Clone creates a shallow AstNode copy (owned=false) that dangles when the
     // original (owned=true) is dropped during insert replacement.
+    //
+    // Clean files (modules_parsed && !use_table_dirty) are skipped: nothing in
+    // their dependency graph changed, so their modules, symbol lapper and
+    // diagnostics all remain valid from the last round. Only fresh or dirty
+    // files are re-derived.
+    let mut re_derived: Vec<String> = Vec::new();
     for uri in sorted_uris {
         let mcfile_opt = workspace::WORKSPACE.mcodes.remove(&uri).map(|(_k, v)| v);
 
         if let Some(mut mcfile) = mcfile_opt {
+            let is_clean = mcfile.modules_parsed && !mcfile.use_table_dirty;
+            if is_clean {
+                // Keep the file untouched; re-insert in place.
+                workspace::WORKSPACE.mcodes.insert(uri, mcfile);
+                continue;
+            }
+            if mcfile.modules_parsed {
+                // Dirty: its previous round's diagnostics are accumulation —
+                // everything the re-derive emits below replaces them.
+                workspace::WORKSPACE
+                    .diagnostics
+                    .lock()
+                    .unwrap()
+                    .clear_file(&McURI::from(uri.as_str()));
+            }
             crate::current_uri::set(&uri);
             // ★ The file was removed from `mcodes` during parsing, so diagnostic
             //   emission (e.g., E2008) cannot look up its `LineIndex` there.
@@ -137,14 +143,13 @@ pub fn mcb_parse_all_modules() {
                     idx.clone(),
                 )
             });
-            // Always fully re-derive: module parse (re-emits module
-            // diagnostics such as E5642 that the stale sweep above may have
-            // wiped) plus lapper rebuild. parse_pass1_modules_full is
+            // Fully re-derive: module parse (re-emits module diagnostics such
+            // as E5642) plus lapper rebuild. parse_pass1_modules_full is
             // idempotent across rounds — module registration replaces this
-            // file's prior entry instead of firing a spurious DUP_MODULE — so
-            // every round yields the same single set of diagnostics per file.
+            // file's prior entry instead of firing a spurious DUP_MODULE.
             mcfile.parse_pass1_modules_full();
             // _guard drops here, automatically pops line_index
+            re_derived.push(uri.clone());
             workspace::WORKSPACE.mcodes.insert(uri, mcfile);
         } else {
             // File was in uri_deps but not in workspace — log as dlog
@@ -157,16 +162,35 @@ pub fn mcb_parse_all_modules() {
     }
 
     // ★ Validation: run PostParse checks after all modules parsed.
+    //
+    // diagnostic_log appends (no dedup), so a validator result may only be
+    // emitted for a file that was re-derived this round (its diagnostics were
+    // just swept). Emitting for a clean file would append a duplicate of what
+    // that file already carries. Every validator attributes its results to a
+    // real workspace URI (file the definition lives in), so membership in
+    // re_derived is the exact filter; unattributable results (uri: None) are
+    // dropped rather than misattributed.
     {
         use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
         use crate::semantic::validation::CheckRegistry;
+        let re_derived_set: std::collections::HashSet<String> = re_derived.into_iter().collect();
+        // Nothing changed → nothing to (re)validate: every clean file already
+        // carries the results of its last re-derive round. Skip the full
+        // workspace validator pass on this all-clean hot path.
+        if re_derived_set.is_empty() {
+            return;
+        }
         let registry = CheckRegistry::with_defaults();
         let saved_uri = crate::current_uri::try_get();
         for r in registry.run_post_parse() {
-            // Switch current_uri to the file this diagnostic belongs to
-            if let Some(ref uri) = r.uri {
-                crate::current_uri::set(&McURI::from(uri.as_str()));
+            let Some(ref uri) = r.uri else {
+                continue;
+            };
+            if !re_derived_set.contains(uri) {
+                continue;
             }
+            // Switch current_uri to the file this diagnostic belongs to
+            crate::current_uri::set(&McURI::from(uri.as_str()));
             let level = match r.severity {
                 crate::semantic::validation::CheckSeverity::Error => DiagnosticLevel::Error,
                 crate::semantic::validation::CheckSeverity::Warning => DiagnosticLevel::Warning,
