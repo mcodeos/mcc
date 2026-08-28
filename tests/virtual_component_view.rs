@@ -329,3 +329,159 @@ component PCA9555(partno)
     );
     fs::remove_dir_all(path.parent().unwrap()).ok();
 }
+
+#[test]
+fn component_view_box_w_fits_left_plus_right_pin_names() {
+    // Regression: a long left-column name and a long right-column name both
+    // render INSIDE the box (left from the left edge inward, right from the
+    // right edge inward — `pin_render.rs` `label_positions`), so the box must
+    // be at least `left_longest + right_longest` wide. A single-widest-label
+    // width lets `PRIMARY+` collide with `SECONDARY+` mid-box.
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture(
+        "wide-pins",
+        r#"
+component XFR
+{
+    pins = [
+        1 = PRIMARY\+
+        2 = PRIMARY\-
+        3 = SECONDARY\+
+        4 = SECONDARY\-
+    ]
+}
+"#,
+    );
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    let (inst, table) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
+    let block = mcc::build_mc_vec(&inst, &table);
+    let mut graph =
+        mcc::mcc_virtual_prepare_graph(mcc::build_mc_vec_graph(&block, &table), &targets[0]);
+    // The fallback sizing runs inside the device layout; the render path calls
+    // it, so drive it directly to assert on the box width.
+    mcc::viz::layout::equipotential_tree::layout_device_layer(&mut graph);
+    let b = graph
+        .boxes
+        .iter()
+        .find(|b| b.class_name == "XFR")
+        .expect("XFR component box must be present");
+
+    let longest_on = |side: mcc::vector::graph::EntrySide| -> usize {
+        b.entry_points
+            .iter()
+            .filter(|ep| ep.side == side)
+            .map(|ep| {
+                b.pins
+                    .iter()
+                    .find(|p| p.id == ep.pin_id)
+                    .map(|p| {
+                        if p.description.is_empty() {
+                            p.pin_id.clone()
+                        } else {
+                            p.description.clone()
+                        }
+                    })
+                    .unwrap_or_default()
+                    .chars()
+                    .count()
+            })
+            .max()
+            .unwrap_or(0)
+    };
+    let left = longest_on(mcc::vector::graph::EntrySide::Left);
+    let right = longest_on(mcc::vector::graph::EntrySide::Right);
+    assert!(
+        left >= 8 && right >= 9,
+        "sides mis-assigned: {left} / {right}"
+    );
+    // 7 px/char (LABEL_CHAR_W) + 3 * 16 px pad (LABEL_PAD) — keep the literals
+    // in sync with the layout constants.
+    let need = (left + right) as f64 * 7.0 + 3.0 * 16.0;
+    assert!(
+        b.w >= need,
+        "box width {:.0} must fit left({left}) + right({right}) pin names (need {need:.0})",
+        b.w
+    );
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn virtual_view_skips_unwired_pin_diagnostics() {
+    // E4112 "no pins connected to any net" / E4116 "N of M pins connected" are
+    // false positives on a virtually-instantiated standalone component view —
+    // an unwired box is exactly what such a view IS. The fabricated wrapper is
+    // flagged `synthetic` at build time, and both checks must skip it.
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture(
+        "xtal-view",
+        r#"
+component XTAL.CERAMIC
+{
+    pins = [
+        [1,2] = XTAL{X1,X2}
+    ]
+}
+"#,
+    );
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    let (inst, table) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
+    let _ = (inst, table);
+
+    let diags = mcc::mcc_diagnose_all();
+    let bad: Vec<_> = diags
+        .iter()
+        .filter(|d| matches!(d.code, 4112 | 4116))
+        .collect();
+    assert!(
+        bad.is_empty(),
+        "virtual view must not report unwired / pin-count diagnostics: {:?}",
+        bad
+    );
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn virtual_targets_follow_source_declaration_order() {
+    // The multi-target combined viz view stacks one SVG per target, in the
+    // order `resolve_targets` hands back — and the workspace class table is a
+    // DashMap (hash order). Targets must follow the .mc source declaration
+    // order, not hash order and not alphabetical order (the names here are
+    // deliberately non-alphabetical: DELTA before ALPHA before CHARLIE).
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture(
+        "decl-order",
+        r#"
+component DELTA
+{
+    pins = [ 1 = X, "x" ]
+}
+component ALPHA
+{
+    pins = [ 1 = X, "x" ]
+}
+component CHARLIE
+{
+    pins = [ 1 = X, "x" ]
+}
+"#,
+    );
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    assert_eq!(
+        targets,
+        vec![
+            "DELTA".to_string(),
+            "ALPHA".to_string(),
+            "CHARLIE".to_string()
+        ],
+        "targets must follow source declaration order"
+    );
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
