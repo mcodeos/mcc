@@ -26,6 +26,7 @@ use super::capacitor::CapacitorShape;
 use super::diode::DiodeShape;
 use super::ic::IcShape;
 use super::inductor::InductorShape;
+use super::label_render::display_name;
 use super::multi_pin::MultiPinShape;
 use super::power_label::PowerLabelShape;
 use super::power_rail::PowerRailShape;
@@ -98,7 +99,7 @@ pub fn render_box(b: &McVecBox, is_root: bool) -> String {
                 h = b.h,
                 cx = cx,
                 cy = cy,
-                name = escape_xml_attr(&b.name),
+                name = escape_xml_attr(box_name_label(b)),
             )
         }
         Symbol::Unknown => {
@@ -161,11 +162,31 @@ fn escape_xml_attr(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Pick the visible label for a box's name slot (mcd docs-mc 16-export-viz §6).
+/// Virtual instantiation views must not leak the fabricated instance name
+/// (`u_1`) into the schematic — the box then shows its class name instead.
+/// Mirrors the `suppress_instance_name` convention in ic.rs / multi_pin.rs /
+/// two_pin.rs. Non-virtual boxes keep their instance name verbatim.
+fn box_name_label(b: &McVecBox) -> &str {
+    if b.suppress_instance_name {
+        if b.class_name.is_empty() {
+            ""
+        } else {
+            display_name(&b.class_name)
+        }
+    } else {
+        &b.name
+    }
+}
+
 /// Render a Dot label box — a small filled circle with the label text
 /// ★ C1b: Test point symbol — small circle pad with designator label
 fn render_test_point(b: &McVecBox) -> String {
     let cx = b.x + b.w / 2.0;
     let cy = b.y + b.h / 2.0;
+    // Virtual instantiation view suppresses the fabricated `u_1` name; the box
+    // shows its class name (e.g. `TP`) instead.
+    let label = box_name_label(b);
     format!(
         r##"  <g class="comp testpoint" data-id="{id}">
     <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}"
@@ -181,7 +202,7 @@ fn render_test_point(b: &McVecBox) -> String {
         h = b.h,
         cx = cx,
         cy = cy,
-        name = escape_xml_attr(&b.name),
+        name = escape_xml_attr(label),
     )
 }
 
@@ -202,7 +223,7 @@ fn render_dot_symbol(b: &McVecBox) -> String {
         cy = cy,
         r = r,
         lx = label_x,
-        name = escape_xml_attr(&b.name)
+        name = escape_xml_attr(box_name_label(b))
     )
 }
 
@@ -236,7 +257,7 @@ fn render_box_legacy(b: &McVecBox, is_root: bool) -> String {
                 h = b.h,
                 cx = cx,
                 cy = cy,
-                name = escape_xml_attr(&b.name),
+                name = escape_xml_attr(box_name_label(b)),
             )
         }
     }
@@ -300,5 +321,32 @@ mod tests {
         let b = mk(Symbol::Resistor, BoxKind::TwoPin);
         let svg = render_box(&b, false);
         assert!(!svg.contains(r#"class="comp custom""#));
+    }
+
+    /// mcd docs-mc 16-export-viz §6: a virtually instantiated test point
+    /// (wrapper `u_1`) must not leak its fabricated instance name — the box
+    /// shows its class name (e.g. `TP`) instead.
+    #[test]
+    fn virtual_test_point_hides_instance_name() {
+        let mut b = mk(Symbol::TestPoint, BoxKind::Dot);
+        b.name = "u_1".into();
+        b.class_name = "TP".into();
+        b.suppress_instance_name = true;
+        let svg = render_box(&b, false);
+        assert!(!svg.contains("u_1"), "instance name must not render: {svg}");
+        assert!(
+            svg.contains(">TP</text>"),
+            "class name should render: {svg}"
+        );
+    }
+
+    /// Non-virtual test points keep their instance name (TP1, TP2, …).
+    #[test]
+    fn real_test_point_keeps_instance_name() {
+        let mut b = mk(Symbol::TestPoint, BoxKind::Dot);
+        b.name = "TP3".into();
+        let svg = render_box(&b, false);
+        assert!(svg.contains(">TP3</text>"), "{svg}");
+        assert!(!svg.contains("u_1"), "{svg}");
     }
 }

@@ -346,6 +346,42 @@ component HUM011D_5_S
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
+    /// Regression: a two-pin passive (resistor) in a virtual component view
+    /// must not leak its fabricated instance name (`u_1`) as the designator
+    /// label — the resistor symbol renders with the class name instead.
+    #[test]
+    fn build_viz_two_pin_passive_hides_u1() {
+        let _guard = parse_lock();
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let path = tmp_file(
+            "twopin",
+            r#"
+component RES
+{
+    pins = [
+        1 = 1, "Term 1"
+        2 = 2, "Term 2"
+    ]
+}
+"#,
+        );
+        let entry = path.to_string_lossy().into_owned();
+
+        let resp = handle_build_viz(Some(json!({ "entry": entry }))).expect("build.viz ok");
+        let html = resp["html"].as_str().expect("html field");
+        assert!(
+            !html.contains("u_1"),
+            "fabricated instance name must be hidden"
+        );
+        // The resistor symbol's zigzag path (JSON-escaped in the embedded SVG,
+        // hence the escaping-agnostic `miter` probe).
+        assert!(html.contains("miter"), "the resistor zigzag must render");
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
     /// Multiple peer modules in one file are all rendered and combined.
     #[test]
     fn build_viz_multi_module_file() {

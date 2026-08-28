@@ -66,7 +66,17 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
             // because both fields were empty. Fall back to the box name so the
             // part still gets a label. ICs/modules are excluded — their name is
             // already drawn by the IC/sub-module shape.
-            let designator = if designator.is_empty() && !b.name.is_empty() {
+            // The virtual instantiation view (mcd docs-mc 16-export-viz §6)
+            // must not leak its fabricated instance name (`u_1`) into the
+            // designator — fall back to the class name instead, so a standalone
+            // RES / CAP still identifies itself by its own name.
+            let designator = if b.suppress_instance_name {
+                if designator.is_empty() && !b.class_name.is_empty() {
+                    display_name(&b.class_name)
+                } else {
+                    designator
+                }
+            } else if designator.is_empty() && !b.name.is_empty() {
                 display_name(&b.name)
             } else {
                 designator
@@ -153,7 +163,15 @@ pub(crate) fn designator_value_label_bounds(b: &McVecBox) -> Vec<LabelBounds> {
 
     // Mirror the name-fallback used by `render_designator_and_value` for
     // anonymous two-pin passives, so the metrics see the same label set.
-    let name_fallback = if designator.is_empty() && !b.name.is_empty() {
+    // Virtual views use the class name instead of the fabricated instance
+    // name, same as render.
+    let name_fallback = if b.suppress_instance_name {
+        if designator.is_empty() && !b.class_name.is_empty() {
+            display_name(&b.class_name)
+        } else {
+            designator
+        }
+    } else if designator.is_empty() && !b.name.is_empty() {
         display_name(&b.name)
     } else {
         designator
@@ -387,6 +405,36 @@ mod tests {
             "leading underscore must be hidden: {svg}"
         );
         assert_eq!(svg.matches("class=\"designator\"").count(), 1);
+    }
+
+    #[test]
+    fn virtual_passive_shows_class_name_not_instance_name() {
+        // Virtual instantiation view (mcd docs-mc 16-export-viz §6): the
+        // fabricated instance name (`u_1`) must not leak into the designator —
+        // the class name identifies the part instead.
+        let mut b = mk_box(Symbol::Resistor, None, None);
+        b.class_name = "RES".into();
+        b.name = "u_1".into();
+        b.suppress_instance_name = true;
+        let svg = render_designator_and_value(&b);
+        assert!(!svg.contains("u_1"), "instance name must not render: {svg}");
+        assert!(
+            svg.contains(">RES</text>"),
+            "class name should render as the label: {svg}"
+        );
+    }
+
+    #[test]
+    fn virtual_passive_keeps_real_designator() {
+        // A real designator still wins in the virtual view (no name/class
+        // fallback needed).
+        let mut b = mk_box(Symbol::Resistor, Some("R5"), None);
+        b.class_name = "RES".into();
+        b.name = "u_1".into();
+        b.suppress_instance_name = true;
+        let svg = render_designator_and_value(&b);
+        assert!(svg.contains(">R5</text>"), "designator should win: {svg}");
+        assert!(!svg.contains("u_1"), "instance name must not render: {svg}");
     }
 
     #[test]
