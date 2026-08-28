@@ -47,7 +47,10 @@ fn synthetic_modules() -> &'static RwLock<HashSet<String>> {
 }
 
 fn record_synthetic_module(name: &str) {
-    synthetic_modules().write().unwrap().insert(name.to_string());
+    synthetic_modules()
+        .write()
+        .unwrap()
+        .insert(name.to_string());
 }
 
 /// Is `name` a synthetic wrapper module fabricated by this process?
@@ -62,37 +65,48 @@ fn canonical(uri: &McURI) -> String {
     canonicalize_project_uri(uri)
 }
 
-/// Modules declared in `uri`, in registration order.
+/// Modules declared in `uri`, in source-declaration order.
+///
+/// The workspace class tables are `DashMap`s (hash order, not registration
+/// order), so a raw `iter()` hands targets back in an arbitrary sequence and
+/// the combined multi-target viz view renders them out of source order. Sort
+/// by the definition's declaration span instead.
 pub fn modules_in_file(uri: &McURI) -> Vec<String> {
     let c = canonical(uri);
-    workspace::WORKSPACE
+    let mut defs: Vec<(usize, String)> = workspace::WORKSPACE
         .modules
         .iter()
         .filter(|e| e.key().uri == c)
-        .map(|e| e.key().ident.to_string())
-        .collect()
+        .map(|e| (e.value().span.start, e.key().ident.to_string()))
+        .collect();
+    defs.sort_by_key(|(pos, _)| *pos);
+    defs.into_iter().map(|(_, name)| name).collect()
 }
 
-/// Components declared in `uri`, in registration order.
+/// Components declared in `uri`, in source-declaration order.
 pub fn components_in_file(uri: &McURI) -> Vec<String> {
     let c = canonical(uri);
-    workspace::WORKSPACE
+    let mut defs: Vec<(usize, String)> = workspace::WORKSPACE
         .components
         .iter()
         .filter(|e| e.key().uri == c)
-        .map(|e| e.key().ident.to_string())
-        .collect()
+        .map(|e| (e.value().span.start, e.key().ident.to_string()))
+        .collect();
+    defs.sort_by_key(|(pos, _)| *pos);
+    defs.into_iter().map(|(_, name)| name).collect()
 }
 
-/// Interfaces declared in `uri`, in registration order.
+/// Interfaces declared in `uri`, in source-declaration order.
 pub fn interfaces_in_file(uri: &McURI) -> Vec<String> {
     let c = canonical(uri);
-    workspace::WORKSPACE
+    let mut defs: Vec<(usize, String)> = workspace::WORKSPACE
         .interfaces
         .iter()
         .filter(|e| e.key().uri == c)
-        .map(|e| e.key().ident.to_string())
-        .collect()
+        .map(|e| (e.value().span.start, e.key().ident.to_string()))
+        .collect();
+    defs.sort_by_key(|(pos, _)| *pos);
+    defs.into_iter().map(|(_, name)| name).collect()
 }
 
 /// Resolve the build/viz targets for a file opened outside a project.
