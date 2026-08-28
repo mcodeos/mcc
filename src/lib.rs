@@ -345,6 +345,46 @@ pub fn mcc_get_modules_in_file(uri: &McURI) -> Vec<String> {
     builder::mcb_get_modules_in_file(uri)
 }
 
+/// Components declared in `uri`, in registration order.
+pub fn mcc_get_components_in_file(uri: &McURI) -> Vec<String> {
+    crate::build::virtual_inst::components_in_file(uri)
+}
+
+/// Interfaces declared in `uri`, in registration order.
+pub fn mcc_get_interfaces_in_file(uri: &McURI) -> Vec<String> {
+    crate::build::virtual_inst::interfaces_in_file(uri)
+}
+
+/// Resolve the build/viz targets for a file opened outside a project
+/// (mcd docs-mc 16-export-viz §6): modules → components → interfaces.
+pub fn mcc_virtual_resolve_targets(uri: &McURI, top: Option<&str>) -> Result<Vec<String>, String> {
+    crate::build::virtual_inst::resolve_targets(uri, top)
+}
+
+/// Build `target` to a module instance tree, wrapping components/interfaces in
+/// a synthetic module ("virtual instantiation") when the file has no module.
+pub fn mcc_virtual_build(
+    target: &str,
+    uri: &McURI,
+) -> Result<crate::build::pass2::MccProjectTree, Box<dyn Error>> {
+    crate::build::virtual_inst::virtual_build(target, uri)
+}
+
+/// Like [`mcc_virtual_build`] but also flattens to the instance table.
+pub fn mcc_virtual_build_flat(
+    target: &str,
+    uri: &McURI,
+    start_id: u32,
+) -> Result<
+    (
+        crate::build::pass2::MccProjectTree,
+        crate::instant::insttab::InstTable,
+    ),
+    Box<dyn Error>,
+> {
+    crate::build::virtual_inst::virtual_build_flat(target, uri, start_id)
+}
+
 pub fn debug_get_def(class_name: &McIds, uri: &McURI) {
     builder::mcb_debug_get_cmie(class_name, uri);
 }

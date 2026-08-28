@@ -174,9 +174,17 @@ pub fn build_from_manifest(
     let entry_uri = entry.to_string_lossy().to_string();
     mcc::mcc_load_project(&entry_uri);
 
-    // 4. Determine top module
+    // 4. Determine top module.
+    //    Priority (mcd docs-mc 16-export-viz §6): explicit top → targets in the
+    //    entry file (all modules → components → interfaces, virtually
+    //    instantiated) → first module anywhere in the workspace.
     let top_name = top
-        .or_else(|| mcc::mcb_get_module_name_by_uri(&entry_uri))
+        .map(|s| s.to_string())
+        .or_else(|| {
+            mcc::mcc_virtual_resolve_targets(&entry_uri, None)
+                .ok()
+                .and_then(|t| t.into_iter().next())
+        })
         .or_else(|| mcc::mcb_get_first_module_name())
         .ok_or_else(|| {
             anyhow::anyhow!(

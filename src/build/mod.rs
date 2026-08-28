@@ -2,3 +2,4 @@
 pub mod loader;
 pub mod pass1;
 pub mod pass2;
+pub mod virtual_inst;
