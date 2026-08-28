@@ -1005,6 +1005,15 @@ impl McIds {
                     match seg {
                         IdsSegment::Ida(ida) => result.extend(ida.expand()),
                         IdsSegment::Int(int_val) => result.push(int_val.to_string()),
+                        IdsSegment::Slice { from, to } => {
+                            // Expand a numeric range inside curly braces
+                            // (`IO0{0:7}` → IO0_0..IO0_7), mirroring the square
+                            // bracket form. Declaration order follows the slice
+                            // direction (§11.1).
+                            for i in expand_numeric_slice(from.value, to.value) {
+                                result.push(i.to_string());
+                            }
+                        }
                         _ => {}
                     }
                 }
