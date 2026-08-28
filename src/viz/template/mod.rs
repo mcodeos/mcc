@@ -60,31 +60,55 @@ pub fn wrap_document(doc: &VizDocument) -> String {
 // Multi-target combination
 // ============================================================================
 
-/// Stack several rendered SVGs vertically into one SVG, each labelled with its
-/// target name. Used by the multi-module viz (peer modules) and by the
-/// component/interface virtual-instantiation view (mcd docs-mc 16-export-viz
-/// §6), where several targets from one file share a single HTML document.
-pub fn combine_svgs(svgs: &[(String, String)]) -> String {
+/// Stack several rendered SVGs vertically into one SVG. Used by the multi-module
+/// viz (peer modules) and by the component/interface virtual-instantiation view
+/// (mcd docs-mc 16-export-viz §6), where several targets from one file share a
+/// single HTML document.
+///
+/// Each entry is `(label, svg)`: `Some(name)` renders a bold heading above the
+/// target (real user modules), `None` omits it (component/interface targets
+/// wrapped in a synthetic module — their heading would duplicate the IC's own
+/// class label and inflate the vertical gap). Every part is re-anchored at its
+/// viewBox origin so the per-part leading blank is dropped and targets stack
+/// with a uniform gap.
+pub fn combine_svgs(svgs: &[(Option<String>, String)]) -> String {
     let gap = 40.0; // vertical gap between targets
     let label_height = 20.0;
     let margin = 20.0;
 
-    let mut items: Vec<(String, f64, f64, String)> = Vec::new(); // (name, w, h, inner)
+    struct Item {
+        label: Option<String>,
+        ox: f64,
+        oy: f64,
+        w: f64,
+        h: f64,
+        inner: String,
+    }
+    let mut items: Vec<Item> = Vec::new();
     let mut max_w: f64 = 0.0;
 
-    for (name, svg) in svgs {
-        let vb = extract_viewbox(svg);
-        let w = vb.0.max(1.0);
-        let h = vb.1.max(1.0);
+    for (label, svg) in svgs {
+        let (ox, oy, w, h) = extract_viewbox(svg);
         max_w = max_w.max(w);
         let inner = extract_svg_inner(svg);
-        items.push((name.clone(), w, h, inner));
+        items.push(Item {
+            label: label.clone(),
+            ox,
+            oy,
+            w,
+            h,
+            inner,
+        });
     }
 
     let total_w = max_w + margin * 2.0;
     let mut total_h = margin;
-    for (_, _, h, _) in &items {
-        total_h += label_height + *h + gap;
+    for it in &items {
+        total_h += if it.label.is_some() {
+            label_height + it.h + gap
+        } else {
+            it.h + gap
+        };
     }
     total_h += margin;
 
@@ -97,46 +121,54 @@ pub fn combine_svgs(svgs: &[(String, String)]) -> String {
     );
 
     let mut y = margin;
-    for (name, w, h, inner) in &items {
-        out.push_str(&format!(
-            r##"  <text x="{:.1}" y="{:.1}" font-size="16" font-weight="700" fill="#333">{}</text>
+    for it in &items {
+        if let Some(label) = &it.label {
+            out.push_str(&format!(
+                r##"  <text x="{:.1}" y="{:.1}" font-size="16" font-weight="700" fill="#333">{}</text>
 "##,
-            margin,
-            y + 16.0,
-            escape_xml(name)
-        ));
-        y += label_height;
+                margin,
+                y + 16.0,
+                escape_xml(label)
+            ));
+            y += label_height;
+        }
 
-        let x_offset = (max_w - w) / 2.0 + margin;
+        let x_offset = (max_w - it.w) / 2.0 + margin;
+        // Outer translate positions the part frame; inner translate re-anchors
+        // the content at its viewBox origin so stacked parts share one baseline.
         out.push_str(&format!(
             r##"  <g transform="translate({:.1},{:.1})">
+  <g transform="translate({:.1},{:.1})">
 {}
   </g>
+  </g>
 "##,
-            x_offset, y, inner
+            x_offset, y, -it.ox, -it.oy, it.inner
         ));
-        y += h + gap;
+        y += it.h + gap;
     }
 
     out.push_str("</svg>\n");
     out
 }
 
-/// Extract (width, height) from an SVG viewBox attribute.
-fn extract_viewbox(svg: &str) -> (f64, f64) {
+/// Extract (origin-x, origin-y, width, height) from an SVG viewBox attribute.
+fn extract_viewbox(svg: &str) -> (f64, f64, f64, f64) {
     if let Some(start) = svg.find("viewBox=\"") {
         let rest = &svg[start + 9..];
         if let Some(end) = rest.find('"') {
             let vb = &rest[..end];
             let parts: Vec<&str> = vb.split_whitespace().collect();
             if parts.len() >= 4 {
+                let ox = parts[0].parse::<f64>().unwrap_or(0.0);
+                let oy = parts[1].parse::<f64>().unwrap_or(0.0);
                 let w = parts[2].parse::<f64>().unwrap_or(200.0);
                 let h = parts[3].parse::<f64>().unwrap_or(100.0);
-                return (w, h);
+                return (ox, oy, w, h);
             }
         }
     }
-    (200.0, 100.0)
+    (0.0, 0.0, 200.0, 100.0)
 }
 
 /// Extract the inner content of an SVG (everything between the opening

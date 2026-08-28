@@ -15,8 +15,45 @@
 use crate::build::pass1::canonicalize_project_uri;
 use crate::db::cmie::tables as workspace;
 use crate::{McIds, McURI};
+use std::collections::HashSet;
 use std::error::Error;
 use std::path::Path;
+use std::sync::{OnceLock, RwLock};
+
+/// Single source of the fabricated instance name inside a synthetic wrapper
+/// module (`module VIRT_<T> { <T> <INSTANCE> }`). Generation
+/// ([`synthetic_module_text`]) and identification ([`prepare_virtual_graph`])
+/// both read this constant — nothing downstream matches on the literal
+/// elsewhere, and the name is only ever treated as synthetic when it sits
+/// inside the wrapper module's own scope (an exact path under
+/// `VIRT_<T>.<INSTANCE>`), never globally.
+pub const SYNTHETIC_INSTANCE: &str = "u_1";
+
+/// Synthetic wrapper module names installed by [`install_synthetic_view`] /
+/// [`install_synthetic_views`].
+///
+/// These are fabricated `module VIRT_<T>` wrappers, not real user modules.
+/// [`resolve_targets`] must never hand one back as a build target: on a hot
+/// server the wrappers stay registered after the first `build.viz`, so a second
+/// resolution that reads the file's modules verbatim would re-target the
+/// wrappers themselves and render block-diagram stubs (`u_1` visible) instead
+/// of the wrapped unit as a device IC. Tracking the names we ourselves
+/// installed (not matching on the `VIRT_` prefix) keeps a genuine user module
+/// that happens to be named `VIRT_*` buildable.
+static SYNTHETIC_MODULES: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
+
+fn synthetic_modules() -> &'static RwLock<HashSet<String>> {
+    SYNTHETIC_MODULES.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+fn record_synthetic_module(name: &str) {
+    synthetic_modules().write().unwrap().insert(name.to_string());
+}
+
+/// Is `name` a synthetic wrapper module fabricated by this process?
+pub fn is_synthetic_module(name: &str) -> bool {
+    synthetic_modules().read().unwrap().contains(name)
+}
 
 /// Canonical form of `uri` for workspace-table key comparisons (the loader
 /// stores definitions under `canonicalize_project_uri`, so a raw path like
@@ -68,7 +105,13 @@ pub fn resolve_targets(uri: &McURI, top: Option<&str>) -> Result<Vec<String>, St
             return Ok(vec![t.to_string()]);
         }
     }
-    let mods = modules_in_file(uri);
+    // Exclude the synthetic wrapper modules (`module VIRT_<T>`) installed by a
+    // previous build.viz: they are fabrication, not user modules, and must not
+    // shadow the real components/interfaces they wrap. See [`SYNTHETIC_MODULES`].
+    let mods: Vec<String> = modules_in_file(uri)
+        .into_iter()
+        .filter(|m| !is_synthetic_module(m))
+        .collect();
     if !mods.is_empty() {
         return Ok(mods);
     }
@@ -100,11 +143,18 @@ pub fn virtual_build(
     if is_module_in_file(target, uri) {
         return crate::mcc_build(&McIds::from(target), uri);
     }
-    let mod_name = install_synthetic_view(target, uri)?;
+    let mod_name = ensure_synthetic_view(target, uri)?;
     crate::mcc_build(&McIds::from(mod_name.as_str()), uri)
 }
 
 /// Like [`virtual_build`] but returns the flattened instance table too.
+///
+/// When `target` is a component/interface wrapped in a synthetic module, the
+/// returned table's wrapper-module and wrapped-instance entries are marked
+/// `synthetic` (via the module name this function itself generated), so
+/// downstream build/diagnostic layers can distinguish the fabricated wrapper
+/// from real user modules and instances without matching on the `VIRT_`/`u_1`
+/// names.
 pub fn virtual_build_flat(
     target: &str,
     uri: &McURI,
@@ -119,8 +169,57 @@ pub fn virtual_build_flat(
     if is_module_in_file(target, uri) {
         return crate::mcc_build_flat(&McIds::from(target), uri, start_id);
     }
-    let mod_name = install_synthetic_view(target, uri)?;
-    crate::mcc_build_flat(&McIds::from(mod_name.as_str()), uri, start_id)
+    let mod_name = ensure_synthetic_view(target, uri)?;
+    let (tree, mut table) = crate::mcc_build_flat(&McIds::from(mod_name.as_str()), uri, start_id)?;
+    table.mark_synthetic_by_path_prefix(&mod_name);
+    Ok((tree, table))
+}
+
+/// Return the synthetic module name that wraps `target` (a component/interface),
+/// installing it only if it is not already present.
+///
+/// Installs re-parse the whole file, so when a previous call (e.g. a batch
+/// [`install_synthetic_views`]) already appended the wrapper, reuse it instead
+/// of reloading the source again.
+fn ensure_synthetic_view(target: &str, uri: &McURI) -> Result<String, Box<dyn Error>> {
+    let mod_name = synthetic_module_name(target);
+    if is_module_in_file(&mod_name, uri) {
+        return Ok(mod_name);
+    }
+    install_synthetic_view(target, uri)
+}
+
+/// Append a synthetic wrapper module for every component/interface target at
+/// once and reload the file a single time.
+///
+/// The per-target fallback ([`install_synthetic_view`]) reads the whole file
+/// from disk and re-parses it for each target, so a component-only library
+/// (e.g. `mclibs/digital/74ahc.mc`, 42 parts) was re-parsed N times — O(n²) on
+/// the number of parts. Installing all wrappers in one reload makes build.viz /
+/// `build --viz` over a component library O(n) instead.
+///
+/// Real module targets are skipped (they build directly). Returns the number of
+/// wrappers installed (0 when every target already had one).
+pub fn install_synthetic_views(targets: &[String], uri: &McURI) -> Result<usize, Box<dyn Error>> {
+    let missing: Vec<String> = targets
+        .iter()
+        .filter(|t| {
+            !is_module_in_file(t, uri) && !is_module_in_file(&synthetic_module_name(t), uri)
+        })
+        .cloned()
+        .collect();
+    if missing.is_empty() {
+        return Ok(0);
+    }
+    let original = std::fs::read_to_string(Path::new(uri))
+        .map_err(|e| format!("virtual instantiation: cannot read '{}': {e}", uri))?;
+    let mut combined = original;
+    for t in &missing {
+        combined.push_str(&synthetic_module_text(t, uri)?);
+        record_synthetic_module(&synthetic_module_name(t));
+    }
+    crate::mcc_load_from_string(uri, &combined);
+    Ok(missing.len())
 }
 
 /// Prepare the graph of a virtually-instantiated component/interface for
@@ -130,6 +229,10 @@ pub fn virtual_build_flat(
 ///   renders as an IC instead of a block-diagram stub (root-block).
 /// - Suppress the fabricated instance name (`u_1`) on the wrapped box, so the
 ///   view shows only the class name and the pins.
+/// - Rename the root layer to the real class name: the view's title and
+///   breadcrumb come from `graph.name` (viz api), which would otherwise show the
+///   synthetic wrapper name (`VIRT_<T>`) — the wrapper exists only to build,
+///   never to display.
 /// - Synthesize one entry point per physical pin (evenly spread on the left /
 ///   right edges), so the renderer draws a stub + pin number + pin name + io
 ///   marker per pin instead of an NC cross (a virtual view never wires pins).
@@ -141,9 +244,20 @@ pub fn prepare_virtual_graph(
     target: &str,
 ) -> crate::vector::graph::McVecGraph {
     graph.layer_style = crate::vector::graph::LayerStyle::Device;
+    graph.name = target.to_string();
     let mod_name = synthetic_module_name(target);
+    let mod_scope = format!("{mod_name}.");
     for b in &mut graph.boxes {
-        if b.class_name == target || b.name == mod_name || b.class_name == mod_name {
+        // Identify the fabricated wrapper by its own scope — the module box
+        // itself, plus the single generated instance inside it — never by
+        // matching the VIRT_/u_1 names against arbitrary boxes. A user's `u_1`
+        // outside this module, or a user box coincidentally named VIRT_*, is
+        // left untouched. (An interface wrapper has no instance box: its
+        // boundary ports render via the Device layer style set above.)
+        let is_module_box = b.inst_path == mod_name;
+        let is_wrapped_unit = b.inst_path.starts_with(&mod_scope) && b.class_name == target;
+        if is_module_box || is_wrapped_unit {
+            b.synthetic = true;
             b.suppress_instance_name = true;
             synthesize_pin_entry_points(b);
         }
@@ -284,15 +398,25 @@ fn assign_by_layout(
 fn install_synthetic_view(target: &str, uri: &McURI) -> Result<String, Box<dyn Error>> {
     let original = std::fs::read_to_string(Path::new(uri))
         .map_err(|e| format!("virtual instantiation: cannot read '{}': {e}", uri))?;
-    let mod_name = synthetic_module_name(target);
-    let synthetic = if interfaces_in_file(uri).iter().any(|i| i == target) {
-        synthesize_interface_module(target, uri)?
-    } else {
-        format!("\nmodule {mod_name}\n{{\n    {target} u_1\n}}\n")
-    };
+    let synthetic = synthetic_module_text(target, uri)?;
     let combined = format!("{original}\n{synthetic}");
     crate::mcc_load_from_string(uri, &combined);
+    let mod_name = synthetic_module_name(target);
+    record_synthetic_module(&mod_name);
     Ok(mod_name)
+}
+
+/// Source text of the synthetic module that wraps `target` (component →
+/// `module VIRT_<Name> { <target> u_1 }`, interface → boundary `io` ports).
+fn synthetic_module_text(target: &str, uri: &McURI) -> Result<String, Box<dyn Error>> {
+    let mod_name = synthetic_module_name(target);
+    if interfaces_in_file(uri).iter().any(|i| i == target) {
+        synthesize_interface_module(target, uri)
+    } else {
+        Ok(format!(
+            "\nmodule {mod_name}\n{{\n    {target} {SYNTHETIC_INSTANCE}\n}}\n"
+        ))
+    }
 }
 
 fn synthetic_module_name(target: &str) -> String {

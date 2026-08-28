@@ -220,6 +220,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                                               // ★ M0-B-D/E: pass through not_fitted / origin
             b.not_fitted = entry.not_fitted;
             b.origin = entry.origin.clone();
+            b.synthetic = entry.synthetic;
             Some(b)
         }
         // ★ P7-6: DetectedKind::Label branch removed — Label entries are no longer
@@ -250,6 +251,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 scope_chain,
             );
             b.set_pins(box_pins);
+            b.synthetic = entry.synthetic;
             Some(b)
         }
         DetectedKind::PowerLabel => {

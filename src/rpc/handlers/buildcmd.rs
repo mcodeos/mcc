@@ -153,7 +153,14 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     let targets = crate::mcc_virtual_resolve_targets(&mc_uri, top.as_deref())
         .map_err(|e| JsonRpcError::custom(32107, &e))?;
 
-    let mut svgs: Vec<(String, String)> = Vec::new();
+    // Batch-install the synthetic wrapper modules ONCE so the per-target loop
+    // below does not re-read + re-parse the whole file for each virtual target
+    // (a component library like mclibs/digital/74ahc.mc would otherwise pay
+    // N × full-file re-parse for N parts).
+    crate::mcc_virtual_install_synthetic_views(&targets, &mc_uri)
+        .map_err(|e| JsonRpcError::custom(32107, &e.to_string()))?;
+
+    let mut svgs: Vec<(Option<String>, String)> = Vec::new();
     let mut single_doc: Option<crate::viz::doc::VizDocument> = None;
     let mut top_name = String::new();
     for target in &targets {
@@ -198,7 +205,15 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
         let doc = crate::viz::api::render_with(graph, opts);
         tracing::info!(target: "mcc::perf", step = "render", ms = t4.elapsed().as_millis() as u64, "build.viz step");
         if let Some(root_layer) = doc.root_layer() {
-            svgs.push((target.clone(), root_layer.svg.clone()));
+            // Virtual (component/interface) targets get no heading in the
+            // combined view — the wrapper module's name is fabrication and its
+            // IC box already shows the class label.
+            let label = if is_virtual_target {
+                None
+            } else {
+                Some(target.clone())
+            };
+            svgs.push((label, root_layer.svg.clone()));
             if targets.len() == 1 {
                 single_doc = Some(doc);
             }
