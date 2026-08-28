@@ -6776,11 +6776,9 @@ module main
     #[test]
     fn ref_def_map_entries_carry_ast_def_names() {
         let _guard = PARSE_LOCK.lock().expect("test parse lock");
-        crate::mcc_init_no_lib();
-        let mcode_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mcode");
-        crate::mcc_set_system_root(mcode_dir.as_path());
-        crate::mcc_clear_workspace();
-        crate::mcb_load_lib("mcode", mcode_dir.as_path());
+        // Standard startup: mcc_init() auto-loads the mcode system library from the
+        // data root (~/.mcode by default).
+        crate::mcc_init();
 
         let main_src = r#"
 component TEST_PKG

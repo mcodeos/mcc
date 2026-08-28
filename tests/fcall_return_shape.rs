@@ -8,8 +8,8 @@
 //
 // NOTE: These tests share global mcc state, so a mutex serializes them.
 // Include the system library (mcode/) so known 2-pin classes (RES, CAP, DIO, etc.)
-// can be resolved. Run from workspace root with:
-//   MCC_SYSTEM_ROOT=.. cargo test --test fcall_return_shape
+// can be resolved. mcode loads from the standard data root (~/.mcode) unless
+// MCC_SYSTEM_ROOT is set to a different system root.
 
 use mcc::{McIds, McURI};
 use std::sync::{Mutex, OnceLock};
@@ -21,10 +21,12 @@ static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 fn build(source: &str) -> mcc::McModuleInst {
     let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
 
-    let system_root = std::env::var("MCC_SYSTEM_ROOT").unwrap_or_else(|_| "..".to_string());
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(&system_root));
-    mcc::mcc_clear_workspace();
+    // Runtime-resolved system root (MCC_SYSTEM_ROOT env or ~/.mcode default).
+    let system_root = mcc::cli::datadir::data_root();
+    mcc::mcc_set_system_root(&system_root);
+    // Standard startup: mcc_init() auto-loads the mcode system library from
+    // the system root.
+    mcc::mcc_init();
 
     let uri: McURI = "/mcc/fcall-return-shape-test.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);

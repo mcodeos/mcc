@@ -9,7 +9,7 @@
 // `mc_phrase` inside the braces, but `mc_phrase` has no bare-`mc_opd`
 // derivation — so a plain identifier option (`modldo{vin|vout}`) could never
 // be reduced by the GLR parser, and the whole connection line was dropped with
-// E1003/E1002 (e.g. mcd/projects/hbl/src/hbl.mc L24 `V5V ->
+// E1003/E1002 (e.g. mcs/hbl/src/hbl.mc L24 `V5V ->
 // modldo{vin|vout} -> V3V3`). The fix switches the brace elements to
 // `mc_idans` (identifier lists) and walks the full id chain in the semantic
 // layer so multi-member options like `mcu513{ MIC | DAC_OUT, SPK_MUTE }` keep
