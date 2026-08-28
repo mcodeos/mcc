@@ -1,0 +1,103 @@
+// Copyright (c) 2026 MCode
+//
+// Licensed under either of Apache License, Version 2.0 or MIT License at your option.
+
+// Regression: a mixed scalar + nested-group pin list such as
+// `[1, [5,6,7]] = [VBUS, GND]::DC(5V)` must bind pin 1 -> VBUS and pins 5,6,7
+// -> GND. parse_pinid used to drop the scalar `1` when a nested group was
+// present, leaving only one group `[5,6,7]` and raising E3111 (declares 2
+// pins but 1 group given).
+
+use mcc::{McIds, McURI};
+use std::sync::{Mutex, OnceLock};
+
+static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn build(lhs: &str) -> mcc::MccProjectTree {
+    let source = format!(
+        r#"
+interface DC(volt)
+{{
+    pins = [
+        1 = VCC5V0
+        2 = GND
+    ]
+}}
+
+component CONN
+{{
+    pins = [
+        {lhs} = [VBUS, GND]::DC(5V)
+    ]
+}}
+
+module main(ps GND)
+{{
+    CONN sock
+    sock.VBUS -> GND
+    sock.GND -> GND
+}}
+"#
+    );
+
+    let uri: McURI = "/mcc/iface-mixed-group.mc".to_string();
+    mcc::mcc_load_from_string(&uri, &source);
+    mcc::mcc_build(&McIds::from("main"), &uri).expect("build failed")
+}
+
+fn assert_binding(lhs: &str, expected: &[(&str, &str)]) {
+    let instance = build(lhs);
+
+    let diagnostics = mcc::mcc_diagnose_all();
+    let e3111: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::PARAM_DECLARE_IFACE_PINS)
+        .collect();
+    assert!(
+        e3111.is_empty(),
+        "E3111 must not fire for `{lhs} = [VBUS, GND]`: {:?}",
+        e3111
+            .iter()
+            .map(|d| (&d.msg, d.loc.pos))
+            .collect::<Vec<_>>()
+    );
+
+    let component = instance
+        .components
+        .iter()
+        .find(|component| component.name == "sock")
+        .expect("CONN instance");
+    for (pin, name) in expected {
+        assert_eq!(
+            component.pin_name(pin).as_deref(),
+            Some(*name),
+            "`{lhs}`: pin {pin} must bind to {name}"
+        );
+    }
+}
+
+#[test]
+fn scalar_then_group_binds_positionally() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    assert_binding(
+        "[1, [5,6,7]]",
+        &[("1", "VBUS"), ("5", "GND"), ("6", "GND"), ("7", "GND")],
+    );
+}
+
+#[test]
+fn group_then_scalar_preserves_source_order() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    assert_binding(
+        "[[5,6,7], 1]",
+        &[("5", "VBUS"), ("6", "VBUS"), ("7", "VBUS"), ("1", "GND")],
+    );
+}

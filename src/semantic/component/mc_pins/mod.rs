@@ -1476,9 +1476,18 @@ impl McPins {
                                 if let Some(expr) = McExpression::new(&exp_node) {
                                     match expr {
                                         McExpression::Set(items) => {
-                                            // Support two-level nesting: `[[9,10],[11,12]]`
-                                            let mut flat_ids = Vec::<String>::new();
-                                            let mut groups = Vec::<Vec<String>>::new();
+                                            // Two-level nesting: `[[9,10],[11,12]]`, and mixed
+                                            // forms like `[1, [5,6,7]]` where each top-level
+                                            // scalar is its own (singleton) group. Items are
+                                            // collected in source order so a group list with a
+                                            // scalar first still binds group↔member positionally.
+                                            enum PinPart {
+                                                Scalar(String),
+                                                Slice(Vec<String>),
+                                                Group(Vec<String>),
+                                            }
+                                            let mut parts: Vec<PinPart> = Vec::new();
+                                            let mut has_group = false;
 
                                             for item in items {
                                                 match item {
@@ -1526,7 +1535,8 @@ impl McPins {
                                                             }
                                                         }
                                                         if !grp.is_empty() {
-                                                            groups.push(grp);
+                                                            has_group = true;
+                                                            parts.push(PinPart::Group(grp));
                                                         }
                                                     }
                                                     _ => {
@@ -1534,8 +1544,12 @@ impl McPins {
                                                         if let McExpression::Slice(_, _) = item {
                                                             let ids = item.expand();
                                                             match ids.len() {
-                                                                1 => flat_ids.push(ids[0].clone()),
-                                                                2.. => flat_ids.extend(ids),
+                                                                1 => parts.push(PinPart::Scalar(
+                                                                    ids[0].clone(),
+                                                                )),
+                                                                2.. => {
+                                                                    parts.push(PinPart::Slice(ids))
+                                                                }
                                                                 _ => {}
                                                             }
                                                         } else if let McExpression::Variable(_) =
@@ -1545,25 +1559,46 @@ impl McPins {
                                                             // This preserves nesting: [A[20,21],A[22:23]] -> [[A20,A21],[A22,A23]]
                                                             let expanded = item.expand();
                                                             if !expanded.is_empty() {
-                                                                groups.push(expanded);
+                                                                has_group = true;
+                                                                parts
+                                                                    .push(PinPart::Group(expanded));
                                                             }
                                                         } else if let Some(s) = item.evaluate() {
-                                                            flat_ids.push(s);
+                                                            parts.push(PinPart::Scalar(s));
                                                         }
                                                     }
                                                 }
                                             }
 
-                                            if !groups.is_empty() {
+                                            if has_group {
+                                                // Mixed/nested form: every top-level item is a
+                                                // group in source order; scalars and slices
+                                                // become their own group.
+                                                let mut groups = Vec::<Vec<String>>::new();
+                                                for part in parts {
+                                                    match part {
+                                                        PinPart::Group(grp) => groups.push(grp),
+                                                        PinPart::Scalar(s) => groups.push(vec![s]),
+                                                        PinPart::Slice(ids) => groups.push(ids),
+                                                    }
+                                                }
                                                 Some(McPinPort::MultiGroup(groups))
-                                            } else if flat_ids.len() == 1 {
-                                                return Some(McPinPort::Single(
-                                                    flat_ids[0].clone(),
-                                                ));
-                                            } else if !flat_ids.is_empty() {
-                                                return Some(McPinPort::Multi(flat_ids));
                                             } else {
-                                                return None;
+                                                let mut flat_ids = Vec::<String>::new();
+                                                for part in parts {
+                                                    match part {
+                                                        PinPart::Scalar(s) => flat_ids.push(s),
+                                                        PinPart::Slice(ids) => flat_ids.extend(ids),
+                                                        PinPart::Group(_) => unreachable!(),
+                                                    }
+                                                }
+                                                if flat_ids.len() == 1 {
+                                                    Some(McPinPort::Single(flat_ids[0].clone()))
+                                                } else if !flat_ids.is_empty() {
+                                                    Some(McPinPort::Multi(flat_ids))
+                                                } else {
+                                                    None
+                                                }
                                             }
                                         }
                                         _ => {

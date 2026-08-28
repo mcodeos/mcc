@@ -1,0 +1,12 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "commit_message": {
+    "prompt": "Write the commit message in English using ASCII characters only (no CJK, no accented or non-ASCII characters). Use the conventional commits format: a subject line \"Type(scope): summary\" (Type in feat/fix/chore/docs/refactor/test/perf) and, for non-trivial changes, a blank line followed by a body explaining what changed and why. Match the repo's existing commit message style. The pre-commit and commit-msg hooks reject non-ASCII content, so verify the message is pure ASCII."
+  },
+  "command": {
+    "commit": {
+      "template": "Stage the relevant changes, inspect `git status` and `git diff`, then commit with a message written in English using ASCII characters only (no CJK, no accented letters), following the repo style `Type(scope): summary`. Never commit secrets; only stage what the user asked for.",
+      "description": "Stage and commit with an English-only message"
+    }
+  }
+}
