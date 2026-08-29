@@ -172,6 +172,14 @@ impl McPins {
         !self.dynamic_pins.is_empty()
     }
 
+    /// Whether this pin table holds any pin definitions at all: static pins,
+    /// registered/exported names, or dynamic (range) pins. A dynamic line like
+    /// `1:pin_count = 1:pin_count` populates `dynamic_pins`, not `names_to_id`,
+    /// so presence checks must not rely on `names_to_id` alone.
+    pub fn has_any_pins(&self) -> bool {
+        !self.pins.is_empty() || !self.names_to_id.is_empty() || !self.dynamic_pins.is_empty()
+    }
+
     /// §11.1: member names in **source declaration order** (the interface
     /// member vector order). Reads through `decl_order` — never the BTreeMap
     /// key order, whose numeric sort would silently reorder lanes for

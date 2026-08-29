@@ -33,9 +33,7 @@ impl ValidationCheck for HwCheck {
         check_pin_count_extremes(acc); // HW3
         check_role_peer_dangling(acc); // HW5
         check_single_ioc_type_component(acc); // HW6
-        check_component_metadata(acc); // HW7
         check_func_param_pin_shadow(acc); // HW8
-        check_unused_interface(acc); // HW9
     }
 }
 
@@ -323,10 +321,11 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
         }
 
         // HW3b: Zero pins but not abstract (has params or attrs suggesting it should have pins)
-        // Skip components with dynamic pin definitions (§2.20) — their pins
-        // are resolved at instantiation time, so the template has 0 static pins.
+        // Skip components with any pin definitions — dynamic pin definitions
+        // (§2.20) and conditional pin blocks (cond_pins) are resolved at
+        // instantiation time, so the template may legitimately have 0 static pins.
         if pin_count == 0
-            && !comp.pins.has_dynamic_pins()
+            && !comp.has_pin_defs()
             && !comp.params.is_empty()
             && !comp.attrs.is_empty()
             && comp.funcs.is_empty()
@@ -372,9 +371,8 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
             for attr in &role.attrs {
                 let key = attr.id.to_string().to_lowercase();
                 if key == "peer" {
-                    for val in &attr.values {
-                        let peer_name = format!("{}", val).trim().to_string();
-                        if !peer_name.is_empty() && !role_names.contains(&peer_name) {
+                    for peer_name in peer_role_names(&attr.values) {
+                        if !role_names.contains(&peer_name) {
                             acc.push(CheckResult {
                                 check_name: "hw",
                                 severity: CheckSeverity::Warning,
@@ -405,6 +403,36 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
             }
         }
     }
+}
+
+/// The role name(s) a `peer` attribute references.
+///
+/// `peer` accepts either a single role (`peer = Master2W`) or a set of roles
+/// (`peer = [Master, Slave]`). The set form parses as
+/// `McExpression::Set(..)`; read its items structurally instead of comparing
+/// the bracket-list display string as a whole (which never equals any single
+/// role name, so `peer = [Master, Slave]` would false-positive).
+fn peer_role_names(values: &[crate::McAttrVal]) -> Vec<String> {
+    let mut out = Vec::new();
+    for val in values {
+        if let crate::McAttrVal::AttrExpr(crate::semantic::basic::mc_expr::McExpression::Set(
+            items,
+        )) = val
+        {
+            out.extend(
+                items
+                    .iter()
+                    .map(|e| e.to_string().trim().to_string())
+                    .filter(|s| !s.is_empty()),
+            );
+        } else {
+            let s = format!("{}", val).trim().to_string();
+            if !s.is_empty() {
+                out.push(s);
+            }
+        }
+    }
+    out
 }
 
 // ============================================================================
@@ -490,41 +518,6 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
 }
 
 // ============================================================================
-// HW7: Component metadata completeness
-// ============================================================================
-
-/// Every component should ideally have a `description` attribute.
-/// Missing metadata makes library browsing and BOM generation harder.
-fn check_component_metadata(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let comp = entry.value();
-
-        let has_name = comp.attrs.iter().any(|a| a.id.to_string() == "name");
-        let has_desc = comp.attrs.iter().any(|a| a.id.to_string() == "description");
-
-        if has_name && !has_desc && comp.pins.pins.len() > 2 {
-            acc.push(CheckResult {
-                check_name: "hw",
-                severity: CheckSeverity::Hint,
-                uri: Some(uri.clone()),
-                span: Some(comp.span.start..comp.span.end),
-                message: format!(
-                    "Component '{}' has a name but no 'description' attribute. \
-                     Adding a description helps library maintainability.",
-                    comp.name
-                ),
-                code: crate::errcodes::HW_NAME_WITHOUT_DESC,
-            });
-        }
-    }
-}
-
-// ============================================================================
 // HW8: Function parameter shadows a component pin name
 // ============================================================================
 
@@ -568,58 +561,6 @@ fn check_func_param_pin_shadow(acc: &mut CheckAccumulator) {
                     }
                 }
             }
-        }
-    }
-}
-
-// ============================================================================
-// HW9: Unused interface — defined but never bound by any component
-// ============================================================================
-
-/// An interface that is defined in the workspace but never referenced by
-/// any component's pin bindings is dead code. It may indicate an incomplete
-/// component definition or an obsolete interface.
-fn check_unused_interface(acc: &mut CheckAccumulator) {
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-
-    // Collect all interface names that are bound by at least one component
-    let mut used_ifaces: HashSet<String> = HashSet::new();
-    for entry in comps.iter() {
-        let comp = entry.value();
-        for (_pin_name, port) in &comp.pins.names_to_id {
-            if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
-                used_ifaces.insert(iface.name.to_string());
-            }
-        }
-        // Also check param type declarations
-        for d in comp.params.iter() {
-            if let Some(class_name) = d.get_class_name() {
-                used_ifaces.insert(class_name);
-            }
-        }
-    }
-
-    for entry in ifaces.iter() {
-        let iface = entry.value();
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        if !used_ifaces.contains(&name) {
-            acc.push(CheckResult {
-                check_name: "hw",
-                severity: CheckSeverity::Info,
-                uri: Some(uri.clone()),
-                span: Some(iface.span.start..iface.span.end),
-                message: format!(
-                    "Interface '{}' is defined but never bound by any component. \
-                     Consider using it in a component definition or removing it.",
-                    name
-                ),
-                code: crate::errcodes::HW_IFACE_NEVER_BOUND,
-            });
         }
     }
 }

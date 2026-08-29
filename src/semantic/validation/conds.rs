@@ -53,7 +53,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
         // ── Conditional pins ──
         for (idx, cp) in comp.cond_pins.iter().enumerate() {
             for (bidx, (cond, pins)) in cp.if_blocks.iter().enumerate() {
-                if pins.names_to_id.is_empty() {
+                if !pins.has_any_pins() {
                     acc.push(CheckResult {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
@@ -69,7 +69,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                 }
             }
             if let Some(ref else_pins) = cp.else_pins {
-                if else_pins.names_to_id.is_empty() && !cp.if_blocks.is_empty() {
+                if !else_pins.has_any_pins() && !cp.if_blocks.is_empty() {
                     acc.push(CheckResult {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,

@@ -103,8 +103,6 @@ impl ValidationCheck for ExtraCheck {
         check_instance_class_found(acc);
         // D3: bus member collision
         check_bus_member_collision(acc);
-        // J5: copy-pasted function bodies (DRY)
-        check_dry_functions(acc);
         // F2: naming convention enforcement
         check_naming_convention(acc);
         check_func_name_conflict(acc); // R5
@@ -241,7 +239,7 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
         let comp = entry.value();
         let name = entry.key().ident.to_string();
         let has_params = !comp.params.is_empty();
-        let has_pins = !comp.pins.names_to_id.is_empty() || comp.pins.has_dynamic_pins();
+        let has_pins = comp.has_pin_defs();
         let has_attrs = comp.attrs.len() > 0;
         let has_funcs = !comp.funcs.is_empty();
         // M1: completely empty
@@ -480,51 +478,6 @@ fn check_bus_member_collision(acc: &mut CheckAccumulator) {
                     }
                     _ => {}
                 }
-            }
-        }
-    }
-}
-
-/// J5: copy-pasted function bodies (DRY violation).
-fn check_dry_functions(acc: &mut CheckAccumulator) {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let comp = entry.value();
-        if comp.funcs.len() < 2 {
-            continue;
-        }
-        let mut seen: std::collections::HashMap<u64, Vec<&str>> = std::collections::HashMap::new();
-        for func in comp.funcs.iter() {
-            let mut h = DefaultHasher::new();
-            func.stmts.len().hash(&mut h);
-            // Hash the McPhrase Display output as a body fingerprint
-            for stmt in &func.stmts {
-                format!("{}", stmt).hash(&mut h);
-            }
-            let hash = h.finish();
-            let name = func.name.to_string();
-            seen.entry(hash)
-                .or_default()
-                .push(Box::leak(name.into_boxed_str()));
-        }
-        for (_, names) in &seen {
-            if names.len() > 1 {
-                acc.push(CheckResult {
-                    check_name: "extra", severity: CheckSeverity::Info,
-                    uri: Some(uri.clone()), span: Some(comp.span.start..comp.span.end),
-                    message: format!(
-                        "Component '{}' has {} identical function bodies: {}. Consider refactoring.",
-                        entry.key().ident, names.len(),
-                        names.iter().map(|s| s as &str).collect::<Vec<_>>().join(", ")
-                    ),
-                    code: crate::errcodes::COMPONENT_DUPLICATE_FUNC_BODY,
-                });
             }
         }
     }
