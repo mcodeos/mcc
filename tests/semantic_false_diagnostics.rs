@@ -323,6 +323,37 @@ module main
 }
 
 #[test]
+fn embedded_square_interface_binding_has_no_pin_count_false_positive() {
+    // `io [3,4] = I2C[SDA,SCL]::I2C()` is the embedded-square list form: the
+    // single IDA `I2C[SDA,SCL]` registers its pins as `I2CSDA`/`I2CSCL`
+    // (prefix + member, see derive_interface_subnames). The E5262 interface
+    // pin-count check must count those physical pins as bound — a regression
+    // guard for the real `SYS.CLOCK` timer.mc binding that reported 0/2.
+    let source = r#"interface I2C
+{
+    pins = [
+        1 = SCL, "Serial Clock"
+        2 = SDA, "Serial Data"
+    ]
+}
+
+component CLOCK_GEN
+{
+    name = "Clock generator"
+    pins = [
+        io [3,4] = I2C[SDA,SCL]::I2C(), ["I2C data", "I2C clock"]
+    ]
+}
+
+module main
+{
+}
+"#;
+    let result = parse(source);
+    assert!(!has_code(&result, 5262), "unexpected E5262: {result}");
+}
+
+#[test]
 fn role_peer_multi_role_list_matches_defined_roles() {
     // `peer = [Master, Slave]` refers to multiple roles, each defined earlier
     // in the same interface. The check must compare each member individually,
