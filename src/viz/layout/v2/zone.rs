@@ -62,8 +62,6 @@ pub struct ZoneTree {
 struct TrieNode {
     /// Full path (e.g. "main.ldo")
     path: String,
-    /// Depth (starting from 0)
-    depth: usize,
     /// Box ids of this node (only leaves carry boxes)
     boxes: Vec<i64>,
     /// Child nodes
@@ -71,10 +69,9 @@ struct TrieNode {
 }
 
 impl TrieNode {
-    fn new(path: String, depth: usize) -> Self {
+    fn new(path: String) -> Self {
         TrieNode {
             path,
-            depth,
             boxes: Vec::new(),
             children: BTreeMap::new(),
         }
@@ -113,7 +110,7 @@ impl ZoneTree {
         }
 
         // ── 1. Build a prefix tree from inst_path ──
-        let mut root = TrieNode::new("".to_string(), 0);
+        let mut root = TrieNode::new("".to_string());
 
         for (box_id, path) in &zone_boxes {
             let segments: Vec<&str> = path.split('.').collect();
@@ -123,7 +120,7 @@ impl ZoneTree {
                 node = node
                     .children
                     .entry(seg.to_string())
-                    .or_insert_with(|| TrieNode::new(full_path, i + 1));
+                    .or_insert_with(|| TrieNode::new(full_path));
             }
             // Leaf node: add the box
             node.boxes.push(*box_id);

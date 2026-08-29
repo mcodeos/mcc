@@ -38,9 +38,8 @@
 //! - `obstacles::ObstacleMap` —— constructed separately for each net (exclude own endpoint box)
 //! - Here **newly create** one `ChannelMap`, shared by entire layer
 
-use crate::vector::graph::{BoxKind, McVecGraph, NetKind, NetRole, Segment, VizNet};
+use crate::vector::graph::{BoxKind, McVecGraph, NetKind, NetRole, VizNet};
 
-use super::audit;
 use super::channels::ChannelMap;
 use super::dispatch::{pick_router, RouteIntent, RouterChoice};
 use super::feedback::{self, RouteFeedbackConfig};
@@ -62,54 +61,6 @@ fn endpoint_rects(graph: &McVecGraph, net: &VizNet) -> Vec<(f64, f64, f64, f64)>
         }
     }
     out
-}
-
-/// Accumulate historical congestion cost at all cross-net wire intersection points (negotiated congestion: repeatedly colliding cells become more expensive → wire rip-up converges)
-fn bump_crossings(grid: &mut Grid, graph: &McVecGraph, amount: i64) {
-    let mut segs: Vec<(i64, &Segment)> = Vec::new();
-    for net in &graph.nets {
-        if let Some(r) = &net.route {
-            for s in &r.segments {
-                segs.push((net.nid, s));
-            }
-        }
-    }
-    for i in 0..segs.len() {
-        for j in (i + 1)..segs.len() {
-            if segs[i].0 == segs[j].0 {
-                continue;
-            }
-            if let Some((x, y)) = audit::seg_cross_point(segs[i].1, segs[j].1) {
-                grid.bump_history_at(x, y, amount);
-            }
-        }
-    }
-}
-
-/// Bounding box diagonal length of one net endpoint box center (wire rip-up reroute sorts by this from large to small, move blocking long wires first)
-fn net_span(graph: &McVecGraph, net: &VizNet) -> f64 {
-    let (mut minx, mut miny, mut maxx, mut maxy) = (
-        f64::INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::NEG_INFINITY,
-    );
-    let mut any = false;
-    for e in &net.endpoints {
-        if let Some(b) = graph.boxes.iter().find(|x| x.id == e.box_id) {
-            let (cx, cy) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
-            minx = minx.min(cx);
-            miny = miny.min(cy);
-            maxx = maxx.max(cx);
-            maxy = maxy.max(cy);
-            any = true;
-        }
-    }
-    if !any {
-        0.0
-    } else {
-        ((maxx - minx).powi(2) + (maxy - miny).powi(2)).sqrt()
-    }
 }
 
 /// P10 main entry: channel-aware routing for all nets in one layer graph

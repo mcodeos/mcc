@@ -251,13 +251,6 @@ fn find_box(graph: &McVecGraph, id: i64) -> Option<&McVecBox> {
     graph.boxes.iter().find(|b| b.id == id)
 }
 
-/// Get the entry_points for a box (sorted for deterministic output).
-fn sorted_entry_points(b: &McVecBox) -> Vec<&crate::vector::graph::boxdef::EntryPoint> {
-    let mut eps: Vec<&crate::vector::graph::boxdef::EntryPoint> = b.entry_points.iter().collect();
-    eps.sort_by_key(|e| (e.pin_id, e.pin_name.clone()));
-    eps
-}
-
 /// Find the net IDs connected to a given box.
 fn nets_for_box(graph: &McVecGraph, box_id: i64) -> Vec<&crate::vector::graph::VizNet> {
     graph

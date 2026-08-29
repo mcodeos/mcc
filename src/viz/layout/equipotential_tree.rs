@@ -343,11 +343,13 @@ pub(crate) struct RowPlan {
     pub ic_top: f64,
     pub ic_bottom: f64,
     /// M3.2: the ordered side/free band sequence (W/E side bands share an
-    /// index; free nets append after their partner). Carries the up/down
-    /// corridor demand so A11/A12 can be checked as a pure RowPlan self-test.
+    /// index; free nets append after their partner). Computed by the planner
+    /// for the A11/A12 corridor self-check; not yet read by the renderer.
+    #[allow(dead_code)]
     pub bands: Vec<RowBand>,
     /// M3.2: net index → band index (rows not on the side/free sequence —
     /// North/South rails — are `None` here).
+    #[allow(dead_code)]
     pub net_band: Vec<Option<usize>>,
 }
 
@@ -356,10 +358,13 @@ pub(crate) struct RowPlan {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RowBand {
     /// vertical demand below the row (members hanging South / Bridge-Drop down).
+    #[allow(dead_code)]
     pub down: f64,
     /// vertical demand above the row (members hanging North / Bridge-Drop up).
+    #[allow(dead_code)]
     pub up: f64,
     /// (nid, region) of every net on this band.
+    #[allow(dead_code)]
     pub occupants: Vec<(i64, Region)>,
 }
 
@@ -4131,9 +4136,6 @@ pub(crate) struct PartnerInfo {
     /// ★ M8.3: the partner's run root. Equal to mine ⇒ the part between us
     /// lies ALONG the row.
     run_root: i64,
-    /// ★ M8.3: the partner's depth along that run — decides which of the two
-    /// pins faces the anchor.
-    run_depth: usize,
     /// ★ M12.1: the partner is a ground COLUMN, so the part into it is
     /// horizontal on MY row regardless of where the node's own row is.
     ground_column: bool,
@@ -4159,7 +4161,6 @@ pub(crate) fn partner_info(
         kind: other.net_kind.clone(),
         is_terminal_only: other.terminal_only,
         run_root: other.run_root,
-        run_depth: other.run_depth,
         ground_column: other.ground_column,
     })
 }

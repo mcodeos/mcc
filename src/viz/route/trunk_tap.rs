@@ -840,9 +840,6 @@ mod tests {
     fn l_exit(x: f64, y: f64) -> ((f64, f64), ExitSide) {
         ((x, y), ExitSide::Left)
     }
-    fn b_exit(x: f64, y: f64) -> ((f64, f64), ExitSide) {
-        ((x, y), ExitSide::Bottom)
-    }
 
     #[test]
     fn spine_horizontal_two_facing_pins() {

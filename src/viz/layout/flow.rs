@@ -1550,16 +1550,6 @@ impl FlowLayouter {
     //  terminals render as pin decorations.)
 }
 
-fn place_single_row(graph: &mut McVecGraph) {
-    let mut cur_x = CANVAS_MARGIN;
-    let y = CANVAS_MARGIN;
-    for b in &mut graph.boxes {
-        b.x = cur_x;
-        b.y = y;
-        cur_x += b.w + 60.0;
-    }
-}
-
 /// Whether graph is "fully disconnected" —— no cross-box net (≥2 boxes but no inter-box connections).
 ///
 /// Such graphs through flow layering will collapse to sparse single column (see notes in layout), better to use grid arrangement.
@@ -1625,16 +1615,6 @@ fn place_grid(graph: &mut McVecGraph) {
 
 // ── Geometry utilities ──
 
-/// Absolute coordinates of edge midpoint
-fn edge_midpoint(b: &McVecBox, side: &EntrySide) -> (f64, f64) {
-    match side {
-        EntrySide::Top => (b.x + b.w / 2.0, b.y),
-        EntrySide::Bottom => (b.x + b.w / 2.0, b.y + b.h),
-        EntrySide::Left => (b.x, b.y + b.h / 2.0),
-        EntrySide::Right => (b.x + b.w, b.y + b.h / 2.0),
-    }
-}
-
 /// Pin's absolute coordinates (by side + offset)
 pub(crate) fn pin_abs(b: &McVecBox, side: &EntrySide, offset: f64) -> (f64, f64) {
     match side {
@@ -1642,41 +1622,6 @@ pub(crate) fn pin_abs(b: &McVecBox, side: &EntrySide, offset: f64) -> (f64, f64)
         EntrySide::Bottom => (b.x + b.w * offset, b.y + b.h),
         EntrySide::Left => (b.x, b.y + b.h * offset),
         EntrySide::Right => (b.x + b.w, b.y + b.h * offset),
-    }
-}
-
-/// Point (px,py) on a given edge → relative position offset along edge [0,1]
-fn offset_along_edge(b: &McVecBox, side: &EntrySide, px: f64, py: f64) -> f64 {
-    match side {
-        EntrySide::Top | EntrySide::Bottom => {
-            if b.w.abs() < 1e-6 {
-                0.5
-            } else {
-                (px - b.x) / b.w
-            }
-        }
-        EntrySide::Left | EntrySide::Right => {
-            if b.h.abs() < 1e-6 {
-                0.5
-            } else {
-                (py - b.y) / b.h
-            }
-        }
-    }
-}
-
-/// Rough estimate of label width (occupancy width when spreading along edge)
-fn label_width(name: &str) -> f64 {
-    (name.chars().count() as f64 * 8.0 + 14.0).max(34.0)
-}
-
-/// (outward_x, outward_y, opposite_side)
-fn outward_and_opposite(side: &EntrySide) -> (f64, f64, EntrySide) {
-    match side {
-        EntrySide::Top => (0.0, -1.0, EntrySide::Bottom),
-        EntrySide::Bottom => (0.0, 1.0, EntrySide::Top),
-        EntrySide::Left => (-1.0, 0.0, EntrySide::Right),
-        EntrySide::Right => (1.0, 0.0, EntrySide::Left),
     }
 }
 
@@ -1706,22 +1651,6 @@ mod tests {
         );
         b.h = 60.0;
         b
-    }
-
-    fn mk_rail(id: i64, name: &str, is_ground: bool) -> McVecBox {
-        McVecBox::new_v2(
-            id,
-            name.into(),
-            String::new(),
-            BoxKind::PowerLabel,
-            Symbol::PowerRail { is_ground },
-            None,
-            None,
-            1,
-            IoSummary::new(),
-            name.to_string(),
-            Vec::new(),
-        )
     }
 
     /// Signal chain src→mid→sink: root picks directed source src, single-sided, column index increasing
@@ -1830,9 +1759,6 @@ fn probe_no_ep_writes(pass: &str, graph: &McVecGraph, before: &HashMap<(i64, i64
 const MIN_BOX_W: f64 = 24.0;
 const MIN_BOX_H: f64 = 24.0;
 const SIZE_EPS: f64 = 1e-6;
-
-/// Threshold for long power/ground stub (same as special::LONG_PG_STUB).
-const LONG_PG_STUB: f64 = 120.0;
 
 /// Root-cause guard: floor degenerate boxes to minimum size, cutting the NaN
 /// propagation chain.
