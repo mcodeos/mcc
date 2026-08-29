@@ -478,6 +478,15 @@ fn check_empty_module(acc: &mut CheckAccumulator) {
         if super::is_test_file(&uri) {
             continue;
         }
+        let name = entry.key().ident.to_string();
+        // `module VIRT_<T>` wrappers fabricated by virtual instantiation are
+        // allowed to be empty — an interface wrapper carries no instance (its
+        // pins render as boundary ports, or are absent entirely when dynamic),
+        // and it is never user code. Skip them so building an interface-only
+        // library file does not report the fabricated module as a stub.
+        if crate::build::virtual_inst::is_synthetic_module(&name) {
+            continue;
+        }
         let m = entry.value();
         let has_params = !m.params.is_empty();
         let has_insts = !m.insts.is_empty();
@@ -493,7 +502,7 @@ fn check_empty_module(acc: &mut CheckAccumulator) {
                 message: format!(
                     "Module '{}' has no params, instances, net statements, or functions. \
                      Is this a stub?",
-                    entry.key().ident
+                    name
                 ),
                 code: crate::errcodes::MODULE_STUB,
             });

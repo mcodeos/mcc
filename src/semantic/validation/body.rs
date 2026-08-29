@@ -278,6 +278,15 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
         }
         let m = entry.value();
 
+        // Synthetic `module VIRT_<T>` wrappers fabricated for standalone
+        // component/interface views are never user module code: their `io`
+        // ports exist only to render boundary pins, so "declared but never
+        // connected" is expected. Skip them (mirrors the MODULE_STUB carve-out
+        // in conds.rs).
+        if crate::build::virtual_inst::is_synthetic_module(&entry.key().ident.to_string()) {
+            continue;
+        }
+
         // Collect all port/instance names declared in `insts`
         let declared: HashSet<String> = m.insts.iter_instance_names().cloned().collect();
 

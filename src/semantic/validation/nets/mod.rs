@@ -793,9 +793,14 @@ fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) 
         .flat_map(|n| n.points.iter().cloned())
         .collect();
     for (_, entry) in table.iter() {
+        // Same synthetic-wrapper carve-out as E4112/E4116: a virtually-
+        // instantiated interface's io ports render boundary pins and are never
+        // wired by definition, so "bidirectional port not connected" is the
+        // normal shape of the view, not a defect.
         if matches!(entry.io_type, IOType::InOut)
             && !connected.contains(&entry.id)
             && !is_nc_entry(entry)
+            && !entry.synthetic
         {
             let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {

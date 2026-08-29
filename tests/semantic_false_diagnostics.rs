@@ -321,3 +321,62 @@ module main
     let result = parse(source);
     assert!(!has_code(&result, 4102), "unexpected E4102: {result}");
 }
+
+// The synthetic-wrapper carve-out (`is_synthetic_module`) must only exempt
+// fabricated `VIRT_<T>` modules, never real user modules. These guards assert
+// genuine single-character / shadowing names are still flagged.
+
+#[test]
+fn real_module_single_char_instance_still_reports() {
+    let source = r#"interface ADC.DIFF(role)
+{
+    pins = [
+        1 = P, "Positive"
+        2 = N, "Negative"
+    ]
+}
+
+module main
+{
+    ADC.DIFF u
+}
+"#;
+    let result = parse(source);
+    assert!(has_code(&result, 5054), "expected E5054: {result}");
+}
+
+#[test]
+fn real_module_shadowing_instance_still_reports() {
+    let source = r#"interface LIN(role)
+{
+    pins = [
+        1 = LIN, "Data"
+    ]
+}
+
+module main
+{
+    LIN LIN
+}
+"#;
+    let result = parse(source);
+    assert!(has_code(&result, 5052), "expected E5052: {result}");
+    assert!(has_code(&result, 5056), "expected E5056: {result}");
+}
+
+#[test]
+fn real_module_shadowing_param_still_reports() {
+    let source = r#"interface LIN(role)
+{
+    pins = [
+        1 = LIN, "Data"
+    ]
+}
+
+module main(io LIN)
+{
+}
+"#;
+    let result = parse(source);
+    assert!(has_code(&result, 5057), "expected E5057: {result}");
+}

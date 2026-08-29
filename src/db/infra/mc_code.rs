@@ -414,6 +414,15 @@ impl McCode {
                     if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
                         continue; // skip less-specific error at same position
                     }
+                    // The synthetic interface wrapper (module VIRT_<T> { }) is
+                    // generated with an empty body — its normal, intended shape.
+                    // Suppress the parser's empty-body warning (2115) during a
+                    // synthetic-view reload (see build/virtual_inst.rs).
+                    if *code == errcodes::PARSER_EMPTY_BODY
+                        && crate::build::virtual_inst::is_loading_synthetic_view()
+                    {
+                        continue;
+                    }
                     last_end = pos.saturating_add(*len);
                     match level {
                         2 => crate::db::diagnostic::diagnostic::dlog_warning_at(
@@ -550,6 +559,15 @@ impl McCode {
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
                     if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
+                        continue;
+                    }
+                    // The synthetic interface wrapper (module VIRT_<T> { }) is
+                    // generated with an empty body — its normal, intended shape.
+                    // Suppress the parser's empty-body warning (2115) during a
+                    // synthetic-view reload (see build/virtual_inst.rs).
+                    if *code == errcodes::PARSER_EMPTY_BODY
+                        && crate::build::virtual_inst::is_loading_synthetic_view()
+                    {
                         continue;
                     }
                     last_end = pos.saturating_add(*len);
@@ -820,6 +838,15 @@ impl McCode {
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
                     if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
+                        continue;
+                    }
+                    // The synthetic interface wrapper (module VIRT_<T> { }) is
+                    // generated with an empty body — its normal, intended shape.
+                    // Suppress the parser's empty-body warning (2115) during a
+                    // synthetic-view reload (see build/virtual_inst.rs).
+                    if *code == errcodes::PARSER_EMPTY_BODY
+                        && crate::build::virtual_inst::is_loading_synthetic_view()
+                    {
                         continue;
                     }
                     last_end = pos.saturating_add(*len);

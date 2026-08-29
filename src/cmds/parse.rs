@@ -777,6 +777,7 @@ fn instance_to_node(inst: &mcc::MccProjectTree) -> InstanceNode {
         name: inst.name.to_string(),
         kind: "module".into(),
         class_name: inst.def.name.to_string(),
+        synthetic: mcc::mcc_is_synthetic_module(&inst.def.name.to_string()),
         ports,
         components,
         sub_modules,
