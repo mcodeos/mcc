@@ -527,6 +527,11 @@ pub const FUNC_STMT_DROPPED: u32 = 3134;
 /// Function call parse failure.
 pub const FCALL_PARSE_FAILED: u32 = 3135;
 
+/// A bare identifier in a function body's net statement does not resolve to a
+/// declared pin, interface, parameter member, or func-local instance of the
+/// component — it becomes a one-shot dangling net label.
+pub const FUNC_FLOATING_LABEL: u32 = 3136;
+
 // ============================================================================
 // Pass1c: instance declaration / reference (3150-3199)
 // ============================================================================
@@ -1376,6 +1381,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(FUNC_BODY_INVALID, "Invalid function body node.", "Invalid function body node."),
     entry!(FUNC_STMT_DROPPED, "A connection statement was dropped because McPhrase::new returned None.", "Connection statement dropped (McPhrase::new returned None): `{0}`"),
     entry!(FCALL_PARSE_FAILED, "Function call parse failure.", "Cannot chain `.{0}` after `{1}(...)`: function `{2}` returns a bus/label (endpoint), not `this`. Only functions that return `this` can be chained."),
+    entry!(FUNC_FLOATING_LABEL, "Net endpoint in a function body that resolves to nothing declared.", "`{0}` does not resolve to a declared pin, interface, parameter member, or instance of this component — floating label. If it is a local net, declare it (e.g. `RES R[1:2](...)`) or connect it to a component pin."),
     // ---- section ----
     entry!(INST_EXPR_PARSE_FAILED, "Failed to parse an instance in an expression context.", "Failed to parse MCAST_INSTANCE in expression context"),
     entry!(CURLY_MN_WRONG_BASE, "Curly-member construction requires a component or module base.", "CURLY_MN requires Component or Module"),

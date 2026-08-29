@@ -415,10 +415,12 @@ impl McPhrase {
                                 // Single segment — plain name.
                                 if chain.len() == 1 {
                                     warn_prefix_id_as_wire(&subnode, &ids.to_string());
+                                    let name = ids.to_string();
+                                    context.report_floating_label(&name, &subnode);
                                     return Some(
                                         context
-                                            .add_label(ids.to_string())
-                                            .unwrap_or_else(|| McPhrase::label(ids.to_string())),
+                                            .add_label(name.clone())
+                                            .unwrap_or_else(|| McPhrase::label(name)),
                                     );
                                 }
                                 // Two-segment dot access (`MIC.P`).
