@@ -85,6 +85,12 @@ impl ResultBuilder {
         self
     }
 
+    /// Attach the failure ledger report (resolve-gate-design.md §7.1-2).
+    pub fn set_ledger(&mut self, l: mcc::ledger::LedgerReport) -> &mut Self {
+        self.result.ledger = Some(l);
+        self
+    }
+
     /// Print a summary of collected diagnostics (without consuming self).
     /// Useful for displaying diagnostics before Net Summary.
     pub fn print_diagnostics_summary(&self) {

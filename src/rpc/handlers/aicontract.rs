@@ -51,7 +51,11 @@ pub fn handle_check(params: Option<Value>) -> RpcResult {
         return run_full_build(&abs_entry, None, "check", "file", &id, false);
     }
 
-    let bp = json!({ "entry": p.entry, "include_system": false });
+    let bp = json!({
+        "entry": p.entry,
+        "include_system": false,
+        "ledger": p.ledger,
+    });
     handle_build_full(Some(bp))
 }
 

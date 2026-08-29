@@ -35,6 +35,7 @@ pub fn handle_build_full(params: Option<Value>) -> RpcResult {
             "file",
             &id,
             p.include_system,
+            crate::semantic::validation::ledger::LedgerMode::from_flag(p.ledger.as_deref()),
         );
     }
 
@@ -51,6 +52,7 @@ pub fn handle_build_full(params: Option<Value>) -> RpcResult {
         "project",
         &id,
         p.include_system,
+        crate::semantic::validation::ledger::LedgerMode::from_flag(p.ledger.as_deref()),
     )
 }
 
@@ -423,8 +425,16 @@ component RES
         .unwrap();
         std::fs::write(root.join("c.mc"), "component cap\n{\n    Pin A, B;\n}\n").unwrap();
 
-        let resp = run_full_build_envelope(&root, None, "mcc build", "file", "test", true)
-            .expect("build.full dir ok");
+        let resp = run_full_build_envelope(
+            &root,
+            None,
+            "mcc build",
+            "file",
+            "test",
+            true,
+            crate::semantic::validation::ledger::LedgerMode::Summary,
+        )
+        .expect("build.full dir ok");
 
         // All three files (incl. the subfolder one) loaded in pass1.
         let loaded = resp["pass1"]["loaded_files"]
@@ -467,8 +477,16 @@ component RES
             "full-comp",
             "component HUM011D_5_S\n{\n    pins = [\n        1 = VBUS\n    ]\n}\n",
         );
-        let resp = run_full_build_envelope(&path, None, "mcc build", "file", "test", true)
-            .expect("build.full ok");
+        let resp = run_full_build_envelope(
+            &path,
+            None,
+            "mcc build",
+            "file",
+            "test",
+            true,
+            crate::semantic::validation::ledger::LedgerMode::Summary,
+        )
+        .expect("build.full ok");
         let pass2 = &resp["pass2"];
         assert_eq!(pass2["top"], "HUM011D_5_S");
         assert_eq!(

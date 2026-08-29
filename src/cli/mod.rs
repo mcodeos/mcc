@@ -298,6 +298,12 @@ pub struct CheckArgs {
     /// Run pin usage checks (unused pins, conflicting pin options)
     #[arg(long)]
     pub pins: bool,
+
+    /// Include the failure ledger (resolve-gate-design.md §7.1): summary
+    /// counts always; `--ledger` adds per-row detail, `--ledger=audit` adds
+    /// deferred / ambiguous-resolution detail.
+    #[arg(long, num_args = 0..=1, default_missing_value = "detail", require_equals = true)]
+    pub ledger: Option<String>,
 }
 
 // ============================================================================
