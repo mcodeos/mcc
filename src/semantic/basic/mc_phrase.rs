@@ -301,12 +301,13 @@ impl McPhrase {
                                             ),
                                         );
                                         return None;
-                                    } else {
-                                        // ★ Ledger (resolve-gate §1.2③): an undeclared
+                                    } else if context.is_declared_instance_name(&name) {
+                                        // ★ Ledger (resolve-gate §1.2③/§1.3): an undeclared
                                         // base in a curly member list (`NOPE{AAA, BBB}`)
-                                        // silently becomes a ghost bus. Record one
-                                        // Fallback row — same §1.3 structured-miss rule as
-                                        // the two-segment dot ghost-bus sites.
+                                        // silently becomes a ghost bus when the base is a
+                                        // declared instance name in scope (pass — same
+                                        // §1.3 structured-miss rule as the two-segment dot
+                                        // ghost-bus sites). Record one Fallback row.
                                         ledger::record(
                                             LedgerEntry::new(
                                                 LedgerKind::Fallback,
@@ -320,6 +321,29 @@ impl McPhrase {
                                         let members_clone = members.clone();
                                         context.upgrade_label_to_bus(&name);
                                         return context.add_bus(name_clone, members_clone);
+                                    } else {
+                                        // true miss (resolve-gate §1.3): base declared
+                                        // nowhere — suppress the curly ghost-bus, register a
+                                        // gate candidate, drop the phrase; the
+                                        // component-finish recheck errors E3182 if it stays
+                                        // unresolved.
+                                        context.register_gate_candidate(
+                                            &name,
+                                            &ids.to_string(),
+                                            node.get_pos(),
+                                            node.get_len(),
+                                        );
+                                        ledger::record(
+                                            LedgerEntry::new(
+                                                LedgerKind::UnresolvedRef,
+                                                ids.to_string(),
+                                                "mc_phrase.rs:304 gate undeclared base (E3182)",
+                                            )
+                                            .with_action(LedgerAction::Error)
+                                            .with_uri(context.uri().to_string())
+                                            .with_span(node.get_pos(), node.get_len()),
+                                        );
+                                        return None;
                                     }
                                 } else if let Some((component, interface, members)) =
                                     ids.as_component_member()
@@ -482,16 +506,42 @@ impl McPhrase {
                                 // Two-segment dot access (`MIC.P`).
                                 let base = &chain[0];
                                 let rest = chain[1..].join(".");
-                                // ★ Ledger (resolve-gate §1.2③): a two-segment
-                                // dot access that cannot resolve is silently absorbed
-                                // (ghost bus when base is undeclared, member fall-through
-                                // when add_bus_member misses). Record exactly one Fallback
-                                // row per phrase — never on the E1802 error path (that is
-                                // a loud error, not a silent fallback).
+                                // ★ Ledger (resolve-gate §1.2③/§1.3 entry gate): a
+                                // two-segment dot access that cannot resolve falls back
+                                // silently ONLY when the base is a declared instance
+                                // name in scope (pass — B-family deferral to §3: ghost
+                                // bus when base is not found, member fall-through when
+                                // add_bus_member misses). A true miss (base declared
+                                // nowhere) suppresses the phantom ghost-bus, registers a
+                                // gate candidate, records UnresolvedRef and drops the
+                                // phrase; the component-finish recheck errors E3182 if it
+                                // stays unresolved. Record exactly one ledger row per
+                                // phrase — never on the E1802 error path (that is a loud
+                                // error, not a silent fallback).
                                 let fallback_site: Option<&'static str>;
                                 if context.find_inst(base).is_none() {
-                                    context.add_bus(base.to_string(), vec![rest.clone()]);
-                                    fallback_site = Some("mc_phrase.rs:453 add_bus ghost-bus");
+                                    if context.is_declared_instance_name(base) {
+                                        context.add_bus(base.to_string(), vec![rest.clone()]);
+                                        fallback_site = Some("mc_phrase.rs:453 add_bus ghost-bus");
+                                    } else {
+                                        context.register_gate_candidate(
+                                            base,
+                                            &chain.join("."),
+                                            subnode.get_pos(),
+                                            subnode.get_len(),
+                                        );
+                                        ledger::record(
+                                            LedgerEntry::new(
+                                                LedgerKind::UnresolvedRef,
+                                                chain.join("."),
+                                                "mc_phrase.rs:492 gate undeclared base (E3182)",
+                                            )
+                                            .with_action(LedgerAction::Error)
+                                            .with_uri(context.uri().to_string())
+                                            .with_span(subnode.get_pos(), subnode.get_len()),
+                                        );
+                                        return None;
+                                    }
                                 } else {
                                     // E1802: Check if base is a Component and rest is a valid pin
                                     if let Some(McInstance::Component(c)) = context.find_inst(base)
@@ -653,9 +703,33 @@ impl McPhrase {
                             let fallback_site: Option<&'static str>;
                             let base_inst_opt = context.find_inst(base);
                             if base_inst_opt.is_none() {
-                                // Base instance not found - create a new bus
-                                context.add_bus(base.to_string(), vec![member.to_string()]);
-                                fallback_site = Some("mc_phrase.rs:598 add_bus ghost-bus");
+                                if context.is_declared_instance_name(base) {
+                                    // pass: base is a declared instance name in scope —
+                                    // keep the ghost-bus (B-family deferral to §3).
+                                    context.add_bus(base.to_string(), vec![member.to_string()]);
+                                    fallback_site = Some("mc_phrase.rs:598 add_bus ghost-bus");
+                                } else {
+                                    // true miss (resolve-gate §1.3): suppress the phantom,
+                                    // register a gate candidate, drop the phrase; the
+                                    // component-finish recheck errors E3182 if unresolved.
+                                    context.register_gate_candidate(
+                                        base,
+                                        id,
+                                        node.get_pos(),
+                                        node.get_len(),
+                                    );
+                                    ledger::record(
+                                        LedgerEntry::new(
+                                            LedgerKind::UnresolvedRef,
+                                            id.to_string(),
+                                            "mc_phrase.rs:683 gate undeclared base (E3182)",
+                                        )
+                                        .with_action(LedgerAction::Error)
+                                        .with_uri(context.uri().to_string())
+                                        .with_span(node.get_pos(), node.get_len()),
+                                    );
+                                    return None;
+                                }
                             } else {
                                 // Base instance found - check if it's a Component
                                 if let Some(McInstance::Component(c)) = base_inst_opt {
@@ -802,16 +876,41 @@ impl McPhrase {
                                 } else {
                                     let id = &data[idx];
                                     if let Some((base, member)) = id.split_once('.') {
-                                        // ★ Ledger (resolve-gate §1.2③): silent
-                                        // two-segment miss → one Fallback row per phrase.
+                                        // ★ Ledger (resolve-gate §1.2③/§1.3): silent
+                                        // two-segment miss → one row per phrase; true miss
+                                        // (base declared nowhere) drops the phrase instead
+                                        // of a phantom bus (E3182 at recheck).
                                         let fallback_site: Option<&'static str>;
                                         if context.find_inst(base).is_none() {
-                                            context.add_bus(
-                                                base.to_string(),
-                                                vec![member.to_string()],
-                                            );
-                                            fallback_site =
-                                                Some("mc_phrase.rs:737 add_bus ghost-bus");
+                                            if context.is_declared_instance_name(base) {
+                                                // pass: declared name in scope — ghost-bus.
+                                                context.add_bus(
+                                                    base.to_string(),
+                                                    vec![member.to_string()],
+                                                );
+                                                fallback_site =
+                                                    Some("mc_phrase.rs:737 add_bus ghost-bus");
+                                            } else {
+                                                // true miss: suppress phantom, register gate
+                                                // candidate, drop the phrase.
+                                                context.register_gate_candidate(
+                                                    base,
+                                                    id,
+                                                    node.get_pos(),
+                                                    node.get_len(),
+                                                );
+                                                ledger::record(
+                                                    LedgerEntry::new(
+                                                        LedgerKind::UnresolvedRef,
+                                                        id.to_string(),
+                                                        "mc_phrase.rs:858 gate undeclared base (E3182)",
+                                                    )
+                                                    .with_action(LedgerAction::Error)
+                                                    .with_uri(context.uri().to_string())
+                                                    .with_span(node.get_pos(), node.get_len()),
+                                                );
+                                                return None;
+                                            }
                                         } else {
                                             context.upgrade_label_to_bus(base);
                                             if let Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -907,6 +1006,15 @@ impl McPhrase {
                                 );
                             }
                         }
+                    }
+                    // ★ resolve-gate §1.3: note every declared instance name / FuncCall
+                    // caller in this DECLARE into the seen_callers set, so the ghost-bus
+                    // discriminator can pass a base that is a real declared name. Covers
+                    // the B-family (dTrigger/PL: FuncCall caller labels that never enter
+                    // insts because parse_declare is a no-op for them) as well as plain
+                    // instance names (timer/q: harmless redundancy with func.insts).
+                    for name in &names {
+                        context.note_func_call_caller(name);
                     }
                     if let Some(cls) = class_node {
                         if let Some(class_ids) = cls.get_sub_node().and_then(|cid| McIds::new(&cid))

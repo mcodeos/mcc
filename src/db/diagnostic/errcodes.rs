@@ -602,6 +602,15 @@ pub const IFACE_NO_TOPLEVEL_PINS: u32 = 3180;
 /// `out vout::DC(3.3V)` whose members are `{VCC, GND}`).
 pub const BUS_MEMBER_UNDECLARED: u32 = 3181;
 
+/// Phase 1 entry gate (resolve-gate-design.md §1.3/§1.4): the base name of a
+/// structured dot/array reference (e.g. `uC.ADC.P`, `RS485.A`) is not declared
+/// anywhere in scope — not an instance, func-local declare, module/component
+/// inst, or FuncCall caller name — and the reference did not resolve by the
+/// time its container finished parsing. The phantom bus was suppressed at parse
+/// time (so two such references cannot short two rails together); this error is
+/// the component-finish recheck's verdict.
+pub const INSTANCE_REF_UNDECLARED: u32 = 3182;
+
 // ============================================================================
 // Pass2: connection / shape (4000-4049)
 // ============================================================================
@@ -1404,6 +1413,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(COMPONENT_PIN_NOT_FOUND, "Pin(s) not found in the component or interface.", "Pin(s) '{0}' not found in component '{1}'. Available pins: [{2}]"),
     entry!(IFACE_NO_TOPLEVEL_PINS, "Interface has no top-level pin definitions (all pins are inside role blocks); no pin-to-member mapping is created.", "Interface '{0}' has no top-level pins (all pins are inside `role` blocks, e.g. UART.X); no pin-to-member mapping will be created. If you want the role-specific pins registered, list them explicitly (e.g. `pins = TX, RX, GND`)."),
     entry!(BUS_MEMBER_UNDECLARED, "Referenced member is not defined on the declared bus.", "Definition exists for '{0}': {2}; referenced member '{1}' is not defined."),
+    entry!(INSTANCE_REF_UNDECLARED, "A structured instance/member reference resolves to no declared instance in scope.", "The base name '{0}' of the structured reference '{1}' resolves to no declared instance in this component/module; declare it or fix the name."),
     // ---- section ----
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),

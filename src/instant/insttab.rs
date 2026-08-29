@@ -775,6 +775,24 @@ impl InstTable {
                 inst.def_uri.to_string(),
             );
 
+            // ★ Declaration-site fallback for unwired instances
+            // A fully-unconnected component never appears in a net, so no net
+            // point back-fills a wiring site into `src_pos` — net diagnostics
+            // (E4116 pin-count, E4112, …) would anchor at offset 0 → file:1:1.
+            // The module's instance table records the declaration span of
+            // `RES r1` (parse_declare → store_port_span); use it as the
+            // fallback so the report points at the declaration instead.
+            if let Some(span) = inst.def.insts.get_port_span(&comp.name) {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    if entry.src_pos.is_none() && entry.fallback_pos.is_none() {
+                        entry.fallback_pos = Some(crate::semantic::common::SourcePos::new(
+                            inst.def_uri.clone(),
+                            span.start as u32,
+                        ));
+                    }
+                }
+            }
+
             // ★ M0-B-D: pass through the nc marker
             if comp.nc {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
@@ -891,6 +909,20 @@ impl InstTable {
                 None,
                 inst.def_uri.to_string(),
             );
+
+            // ★ Declaration-site fallback (same rationale as pass-1): anchor
+            // net diagnostics for a never-wired func-created instance at the
+            // caller's declaration rather than offset 0 → file:1:1.
+            if let Some(span) = inst.def.insts.get_port_span(&comp.name) {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    if entry.src_pos.is_none() && entry.fallback_pos.is_none() {
+                        entry.fallback_pos = Some(crate::semantic::common::SourcePos::new(
+                            inst.def_uri.clone(),
+                            span.start as u32,
+                        ));
+                    }
+                }
+            }
 
             if comp.nc {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {

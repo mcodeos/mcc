@@ -7,7 +7,7 @@ use super::{
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
     basic::mc_fcall::McFuncCall,
     basic::mc_phrase::McPhrase,
-    mc_func::{HasFindInst, McFunctions},
+    mc_func::{GateCandidate, HasFindInst, McFunctions},
     mc_inst::{McInst, McInstance, McInstances},
 };
 use crate::db::context::DB;
@@ -41,6 +41,25 @@ pub struct McModule {
     /// Source span for LSP goto-definition (byte range in `uri`).
     pub span: crate::ast::ast_semantic::Span,
     anon_counter: usize,
+    /// resolve-gate §1.3: instance names / FuncCall callers noted during body
+    /// parse. Module-level B-family bases (e.g. `PL3085A(...) PL.Cap()` → `PL`)
+    /// never enter insts, so the ghost-bus discriminator passes them from this set.
+    pub(crate) seen_callers: Vec<String>,
+    /// resolve-gate §1.3: ghost-bus true-miss candidates registered at parse time,
+    /// rechecked at component-finish by validation::gate::GateCheck → E3182.
+    pub(crate) gate_candidates: Vec<GateCandidate>,
+    /// resolve-gate §1.6 ①: bare-identifier floating-label candidates from the
+    /// module **top-level body** net statements. Module funcs register into
+    /// their own `McFunction.floating_candidates`; this set covers the module
+    /// body itself. Both are consumed together by `validation::floating`
+    /// (E3136) — module-side port spelling errors were previously 0-diagnostic.
+    pub(crate) floating_candidates: Vec<(String, u32, u32)>,
+    /// Scratch buffer during body parse — `report_floating_label(&self, …)`
+    /// pushes here (the trait hook is `&self`, and `McModule` is shared across
+    /// threads behind `Arc` in the workspace table, so an `Arc<Mutex>`; the
+    /// `Arc` keeps the `#[derive(Clone)]` on the struct). Drained into
+    /// `floating_candidates` at the end of `parse_body`.
+    floating_pending: std::sync::Arc<std::sync::Mutex<Vec<(String, u32, u32)>>>,
 }
 
 impl McModule {
@@ -82,6 +101,10 @@ impl McModule {
                 uri: uri.clone(),
                 span: crate::ast::ast_semantic::Span { start, end },
                 anon_counter: 1,
+                seen_callers: Vec::new(),
+                gate_candidates: Vec::new(),
+                floating_candidates: Vec::new(),
+                floating_pending: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             };
 
             // 2. Parse parameters
@@ -133,6 +156,10 @@ impl McModule {
                 end: name.len(),
             },
             anon_counter: 1,
+            seen_callers: Vec::new(),
+            gate_candidates: Vec::new(),
+            floating_candidates: Vec::new(),
+            floating_pending: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -448,6 +475,11 @@ impl McModule {
                     .set_label_kind(&name, crate::semantic::mc_inst::LabelKind::Inline);
             }
         }
+
+        // resolve-gate §1.6 ①: drain the body-parse floating candidates
+        // (`report_floating_label` pushed into `floating_pending`) into the
+        // PostParse-visible set consumed by `validation::floating`.
+        self.floating_candidates = std::mem::take(&mut *self.floating_pending.lock().unwrap());
     }
 
     /// ★ LSP: Record net refs for instance-declaration constructor arguments
@@ -746,6 +778,41 @@ impl McModule {
 impl HasFindInst for McModule {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.find_inst_with_span(id).map(|(inst, _)| inst)
+    }
+
+    // ── resolve-gate §1.3 entry gate: module-level discriminator ──
+    fn is_declared_instance_name(&self, base: &str) -> bool {
+        if self.seen_callers.iter().any(|s| s == base) {
+            return true;
+        }
+        self.find_inst(base).is_some()
+    }
+
+    fn note_func_call_caller(&mut self, name: &str) {
+        if !self.seen_callers.iter().any(|s| s == name) {
+            self.seen_callers.push(name.to_string());
+        }
+    }
+
+    // resolve-gate §1.6 ①: module top-level body bare misses register as
+    // floating-label candidates (drained into `floating_candidates` at the end
+    // of `parse_body`; consumed by validation::floating → E3136). Without this,
+    // module-side port spelling errors were 0-diagnostic.
+    fn report_floating_label(&self, name: &str, node: &AstNode) {
+        self.floating_pending.lock().unwrap().push((
+            name.to_string(),
+            node.get_pos(),
+            node.get_len(),
+        ));
+    }
+
+    fn register_gate_candidate(&mut self, base: &str, form: &str, pos: u32, len: u32) {
+        self.gate_candidates.push(GateCandidate {
+            base: base.to_string(),
+            form: form.to_string(),
+            pos,
+            len,
+        });
     }
 
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance> {
