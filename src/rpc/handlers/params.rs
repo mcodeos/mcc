@@ -104,6 +104,11 @@ pub(crate) struct BuildFullParams {
     /// Whether to include system library definitions, default true
     #[serde(default = "default_true")]
     pub(crate) include_system: bool,
+    /// `--ledger` detail request (see `CheckRpcParams.ledger`). Threaded to the
+    /// envelope build so an explicit detail request is honored even when the
+    /// CLI routes through the daemon; default stays summary-only.
+    #[serde(default)]
+    pub(crate) ledger: Option<String>,
     /// Whether to output AST visit, default false
     #[serde(default)]
     /// Wire-contract field, accepted for forward compatibility; the handler
@@ -158,6 +163,12 @@ pub(crate) struct CheckRpcParams {
     #[serde(default)]
     #[allow(dead_code)]
     pub(crate) errors_only: bool,
+    /// `--ledger <target>` detail request (`Option<String>` keeps the CLI's
+    /// bare-`--ledger` default value). When set, the build response's ledger
+    /// carries per-row `detail`; default (extension / plain check) is
+    /// summary-only.
+    #[serde(default)]
+    pub(crate) ledger: Option<String>,
 }
 
 #[derive(Deserialize, Default)]

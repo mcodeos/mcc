@@ -293,6 +293,8 @@ pub(crate) fn run_full_build(
 ) -> RpcResult {
     let uri = entry.to_string_lossy().to_string();
     let mc_uri = McURI::from(uri.as_str());
+    // Fresh failure ledger per request (the daemon may be long-lived).
+    crate::semantic::validation::ledger::clear();
     crate::mcc_load_project(&mc_uri);
     let pass1 = collect_pass1(&mc_uri, include_system);
 
@@ -308,7 +310,8 @@ pub(crate) fn run_full_build(
             "component_count": crate::mcb_component_count(),
             "interface_count": crate::mcb_interface_count(),
             "top": top_name,
-        }
+        },
+        "ledger": crate::semantic::validation::ledger::build_report(crate::semantic::validation::ledger::LedgerMode::Summary),
     }))
 }
 
@@ -333,7 +336,12 @@ pub(crate) fn run_full_build_envelope(
     ws_kind: &str,
     ws_name: &str,
     _include_system: bool,
+    ledger_mode: crate::semantic::validation::ledger::LedgerMode,
 ) -> RpcResult {
+    // Fresh failure ledger per request (the daemon may be long-lived); the
+    // dir-no-manifest path below is reached after this clear.
+    crate::semantic::validation::ledger::clear();
+
     // Directory target (no project manifest) → directory batch mode: parse
     // every `.mc` file recursively and build each file's default top (§19.5
     // rule 3, use-design.md). A directory that *does* have a manifest is a
@@ -354,6 +362,7 @@ pub(crate) fn run_full_build_envelope(
                         ws_kind,
                         ws_name,
                         true,
+                        ledger_mode,
                     );
                 }
             }
@@ -437,6 +446,7 @@ pub(crate) fn run_full_build_envelope(
         "pass1": pass1,
         "pass2": pass2,
         "summary": summary,
+        "ledger": crate::semantic::validation::ledger::build_report(ledger_mode),
     }))
 }
 
@@ -588,6 +598,7 @@ fn run_full_build_dir_envelope(
         "pass1": pass1,
         "pass2": pass2,
         "summary": summary,
+        "ledger": crate::semantic::validation::ledger::build_report(crate::semantic::validation::ledger::LedgerMode::Summary),
     }))
 }
 

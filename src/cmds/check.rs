@@ -18,6 +18,7 @@ use crate::output::{
 };
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, CheckArgs};
+use mcc::ledger;
 use mcc::McURI;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -36,6 +37,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
                 "libs":  mcc::cli::globals().lib.clone(),
                 "strict": mcc::cli::globals().strict,
                 "errors_only": args.errors_only,
+                "ledger": args.ledger.clone(),
             }),
         )?;
         println!("{}", serde_json::to_string_pretty(&result)?);
@@ -50,6 +52,9 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         });
     }
 
+    // Fresh ledger per invocation: a long-lived server must not accumulate
+    // stale rows across requests, and repeated CLI runs must be reproducible.
+    ledger::clear();
     manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
 
     // Resolve the target into an entry URI.
@@ -247,6 +252,14 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
 
     let (error_count, warning_count) = count_severity(&filtered);
 
+    // ── Failure ledger snapshot (resolve-gate §7.1): every recording point has
+    // fired by now — Wire during parse (component-finish recheck), Phantom
+    // during the pass2 flat run above. Observation-only; never affects exit
+    // code or diagnostics. `--ledger` opens per-row detail (excluding the
+    // Deferred/ResolvedMany audit rows); `--ledger=audit` includes them. ──
+    let ledger_mode = ledger::LedgerMode::from_flag(args.ledger.as_deref());
+    let ledger_report = ledger::build_report(ledger_mode);
+
     // ── Build envelope ──
     let mut builder = ResultBuilder::start("mcc check").workspace(resolve_workspace_ref());
 
@@ -254,6 +267,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         loaded_files: vec![],
         diagnostics: filtered,
     });
+    builder.set_ledger(ledger_report.clone());
 
     let env = Envelope::ok(builder.finish());
     output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
@@ -265,6 +279,9 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         } else {
             eprintln!("check: {} errors, {} warnings", error_count, warning_count);
         }
+        if args.ledger.is_some() {
+            print_ledger(&ledger_report);
+        }
     }
 
     let exit_code = if error_count > 0 || (mcc::cli::globals().strict && warning_count > 0) {
@@ -273,4 +290,40 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         0
     };
     Ok(CheckOutcome { exit_code })
+}
+
+/// Text-mode rendering of the failure ledger (resolve-gate-design.md §7.1-2):
+/// summary counts (kind×form) always; per-row detail only when the row list was
+/// requested (`--ledger`). Rows that had no source node show `-` for location.
+fn print_ledger(report: &ledger::LedgerReport) {
+    eprintln!("── Failure Ledger (resolve-gate §1) ─────────────────────────────");
+    eprintln!(
+        "  total: {} (survived: {}, deferred resolved late: {})",
+        report.total, report.survived, report.resolved_late
+    );
+    for (kind, forms) in &report.by_kind_form {
+        if forms.is_empty() {
+            continue;
+        }
+        let count: usize = forms.values().sum();
+        let forms = forms
+            .iter()
+            .map(|(f, c)| format!("{f}×{c}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!("  {kind:<14} {count:<5} [{forms}]");
+    }
+    if !report.detail.is_empty() {
+        eprintln!("── detail ─────────────────────────────────────────────────────");
+        for row in &report.detail {
+            let loc = match (&row.file, row.line, row.column) {
+                (Some(f), Some(l), Some(c)) => format!("{f}:{l}:{c}"),
+                _ => "-".to_string(),
+            };
+            eprintln!(
+                "  {:<14} {:<24} {:<24} {:<8} {}",
+                row.kind, row.form, row.site, row.action, loc
+            );
+        }
+    }
 }

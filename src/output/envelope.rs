@@ -31,6 +31,7 @@
 //! - All enums use `#[serde(rename_all = "snake_case")]`, outputting lowercase without ambiguity.
 //! - All Diagnostics carry the `phase` field, ensuring the semantic level can be traced back to a specific pass.
 
+use mcc::ledger::LedgerReport;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -161,6 +162,12 @@ pub struct CommandResult {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub export: Option<ExportData>,
+
+    /// Failure ledger (resolve-gate-design.md §7.1-2): cross-pass record of
+    /// non-clean parses — silent fallbacks, phantoms, floating wires. Summary
+    /// counts always; `detail` rows only under `--ledger` / `--ledger=audit`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ledger: Option<LedgerReport>,
 
     pub summary: Summary,
 }
