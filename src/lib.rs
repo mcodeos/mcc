@@ -42,6 +42,7 @@ pub use crate::semantic::common::{
     ContainerKind, IOType, LeadKind, LookupResult, LookupSymbolKind, McCMIE, McSpaceName, McURI,
     ScopeFilter, ScopePath, SourcePos, SpaceLayer, UriId,
 };
+pub use crate::semantic::validation::ledger;
 pub use crate::semantic::{
     basic::{
         mc_endpoint::{McEndpoint, McInstanceRef},

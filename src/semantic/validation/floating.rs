@@ -21,6 +21,7 @@
 //! sibling func or a conditional block that registers in the component, not
 //! the func) is likewise not a dangling label.
 
+use super::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -110,6 +111,25 @@ fn check_floating_labels(acc: &mut CheckAccumulator) {
                     }
                 }
             }
+            // ── Failure ledger (observation-only) ────────────────────────────
+            // Every name that survived the component-finish recheck is a
+            // floating label: referenced once it is a dangling net (E3136
+            // below); referenced 2+ it is a shared rail that also resolves to
+            // nothing declared. Both are recorded so the miss is attributable.
+            let refs = counts.endpoint;
+            let action = if refs == 1 && counts.other == 0 {
+                LedgerAction::Warning
+            } else {
+                LedgerAction::Silent
+            };
+            ledger::record(
+                LedgerEntry::new(LedgerKind::Wire, name.clone(), comp.name.to_string())
+                    .with_action(action)
+                    .with_uri(uri.clone())
+                    .with_span(pos, len)
+                    .with_refs(refs),
+            );
+
             if counts.endpoint != 1 || counts.other != 0 {
                 continue;
             }
