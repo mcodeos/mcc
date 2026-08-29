@@ -1,0 +1,14 @@
+{
+  "total": 0,
+  "survived": 0,
+  "resolved_late": 0,
+  "by_kind_form": {
+    "deferred": {},
+    "fallback": {},
+    "phantom": {},
+    "resolved_many": {},
+    "unresolved_ref": {},
+    "wire": {}
+  },
+  "rows": []
+}

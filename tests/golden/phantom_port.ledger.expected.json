@@ -1,0 +1,28 @@
+{
+  "total": 2,
+  "survived": 2,
+  "resolved_late": 0,
+  "by_kind_form": {
+    "deferred": {},
+    "fallback": {},
+    "phantom": {
+      "MIC{P, N}": 1,
+      "dc{VDD_3V3, GND}": 1
+    },
+    "resolved_many": {},
+    "unresolved_ref": {},
+    "wire": {}
+  },
+  "rows": [
+    {
+      "kind": "phantom",
+      "form": "MIC{P, N}",
+      "site": "net-point"
+    },
+    {
+      "kind": "phantom",
+      "form": "dc{VDD_3V3, GND}",
+      "site": "net-point"
+    }
+  ]
+}

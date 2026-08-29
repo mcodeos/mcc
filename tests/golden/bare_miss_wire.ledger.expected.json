@@ -1,0 +1,22 @@
+{
+  "total": 1,
+  "survived": 1,
+  "resolved_late": 0,
+  "by_kind_form": {
+    "deferred": {},
+    "fallback": {},
+    "phantom": {},
+    "resolved_many": {},
+    "unresolved_ref": {},
+    "wire": {
+      "DC": 1
+    }
+  },
+  "rows": [
+    {
+      "kind": "wire",
+      "form": "DC",
+      "site": "FLT"
+    }
+  ]
+}
