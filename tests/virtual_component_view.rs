@@ -447,6 +447,51 @@ component XTAL.CERAMIC
 }
 
 #[test]
+fn virtual_view_skips_floating_and_boundary_port_diagnostics() {
+    // E4108 (floating input), E4110 (unconnected output), E4114 (unused module
+    // port) and E4117 (floating bidirectional) are all false positives on a
+    // virtually-instantiated standalone component view, exactly like E4112/E4116:
+    // the fabricated VIRT_* wrapper is marked `synthetic` at build time (the
+    // wrapper, the instance AND every pin under the path prefix), and every net
+    // check that fires on unwired pins must skip it. Fixture mirrors
+    // mclibs/clock/mcp7940m.mc (ps / in / io / out / nc pin shape).
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture(
+        "rtc-view",
+        r#"
+component SYS.Clock.MCP7940M
+{
+    pins = [
+        ps [8,4] = [VCC,VSS]::DC()
+        in [1,2] = XTAL{X1,X2}
+        io [5,6] = I2C{SDA,SCL}
+        out 7 = MFP
+        nc 3 = NC
+    ]
+}
+"#,
+    );
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    let (inst, table) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
+    let _ = (inst, table);
+
+    let diags = mcc::mcc_diagnose_all();
+    let bad: Vec<_> = diags
+        .iter()
+        .filter(|d| matches!(d.code, 4108 | 4110 | 4112 | 4114 | 4116 | 4117))
+        .collect();
+    assert!(
+        bad.is_empty(),
+        "virtual view must not report unwired / floating / port diagnostics: {:?}",
+        bad
+    );
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
 fn virtual_targets_follow_source_declaration_order() {
     // The multi-target combined viz view stacks one SVG per target, in the
     // order `resolve_targets` hands back — and the workspace class table is a
