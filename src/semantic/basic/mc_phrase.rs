@@ -28,6 +28,7 @@ use crate::{
         context::resolve_cmie,
         instref::validate_inst_reference,
         mc_ifs::Mc2Interface,
+        validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind},
     },
     McIds,
 };
@@ -157,8 +158,23 @@ impl McPhrase {
                         }
                     }
                     // fallback: existing behavior
+                    // ★ Ledger (resolve-gate §1.2③): D9 — a multi-segment `this.y.2`
+                    // miss (2+ dot siblings) silently becomes a literal `this.y` label
+                    // with the tail dropped. Single-segment `this.X` is the legitimate
+                    // pin-transparency path (`this.ANODE` → component pin) — excluded.
                     let mut this_ids = McIds::from("this");
                     this_ids.append(&nextnode);
+                    if nextnode.get_next().is_some() {
+                        ledger::record(
+                            LedgerEntry::new(
+                                LedgerKind::Fallback,
+                                this_ids.to_string(),
+                                "mc_phrase.rs:172 this.y.N multi-segment miss",
+                            )
+                            .with_uri(context.uri().to_string())
+                            .with_span(node.get_pos(), node.get_len()),
+                        );
+                    }
                     context.add_label(this_ids.to_string())
                 } else {
                     // bare "this" — keep as label (2-pin passthrough handled later)
@@ -286,6 +302,20 @@ impl McPhrase {
                                         );
                                         return None;
                                     } else {
+                                        // ★ Ledger (resolve-gate §1.2③): an undeclared
+                                        // base in a curly member list (`NOPE{AAA, BBB}`)
+                                        // silently becomes a ghost bus. Record one
+                                        // Fallback row — same §1.3 structured-miss rule as
+                                        // the two-segment dot ghost-bus sites.
+                                        ledger::record(
+                                            LedgerEntry::new(
+                                                LedgerKind::Fallback,
+                                                ids.to_string(),
+                                                "mc_phrase.rs:304 add_bus curly ghost-bus",
+                                            )
+                                            .with_uri(context.uri().to_string())
+                                            .with_span(node.get_pos(), node.get_len()),
+                                        );
                                         let name_clone = name.clone();
                                         let members_clone = members.clone();
                                         context.upgrade_label_to_bus(&name);
@@ -321,6 +351,19 @@ impl McPhrase {
                                                 &[&interface, &full_name, &component],
                                             ),
                                         );
+                                        // ★ Ledger (resolve-gate §1.2③): component found but
+                                        // the curly interface members miss → UnresolvedRef
+                                        // (action=error+drop, IFACE_MEMBER_NOT_FOUND).
+                                        ledger::record(
+                                            LedgerEntry::new(
+                                                LedgerKind::UnresolvedRef,
+                                                ids.to_string(),
+                                                "mc_phrase.rs:361 interface member not found",
+                                            )
+                                            .with_action(LedgerAction::Error)
+                                            .with_uri(context.uri().to_string())
+                                            .with_span(node.get_pos(), node.get_len()),
+                                        );
                                     } else {
                                         dlog_error(
                                             crate::errcodes::IFACE_CURLY_MEMBER_INVALID,
@@ -329,6 +372,19 @@ impl McPhrase {
                                                 crate::errcodes::IFACE_CURLY_MEMBER_INVALID,
                                                 &[&component, &component, &interface],
                                             ),
+                                        );
+                                        // ★ Ledger (resolve-gate §1.2③): component base of a
+                                        // curly interface member is undeclared → UnresolvedRef
+                                        // (action=error+drop, IFACE_CURLY_MEMBER_INVALID).
+                                        ledger::record(
+                                            LedgerEntry::new(
+                                                LedgerKind::UnresolvedRef,
+                                                ids.to_string(),
+                                                "mc_phrase.rs:382 interface curly member invalid",
+                                            )
+                                            .with_action(LedgerAction::Error)
+                                            .with_uri(context.uri().to_string())
+                                            .with_span(node.get_pos(), node.get_len()),
                                         );
                                     }
                                     return None;
@@ -426,8 +482,16 @@ impl McPhrase {
                                 // Two-segment dot access (`MIC.P`).
                                 let base = &chain[0];
                                 let rest = chain[1..].join(".");
+                                // ★ Ledger (resolve-gate §1.2③): a two-segment
+                                // dot access that cannot resolve is silently absorbed
+                                // (ghost bus when base is undeclared, member fall-through
+                                // when add_bus_member misses). Record exactly one Fallback
+                                // row per phrase — never on the E1802 error path (that is
+                                // a loud error, not a silent fallback).
+                                let fallback_site: Option<&'static str>;
                                 if context.find_inst(base).is_none() {
                                     context.add_bus(base.to_string(), vec![rest.clone()]);
+                                    fallback_site = Some("mc_phrase.rs:453 add_bus ghost-bus");
                                 } else {
                                     // E1802: Check if base is a Component and rest is a valid pin
                                     if let Some(McInstance::Component(c)) = context.find_inst(base)
@@ -452,6 +516,21 @@ impl McPhrase {
                                                             as &dyn std::fmt::Display,
                                                     ],
                                                 ),
+                                            );
+                                            // ★ Ledger (resolve-gate §1.2③): a structured
+                                            // miss that errors loudly — member not found on a
+                                            // resolved component instance — records an
+                                            // UnresolvedRef row (action=error+drop, E3179).
+                                            // Observation only: the loud error/drop stands.
+                                            ledger::record(
+                                                LedgerEntry::new(
+                                                    LedgerKind::UnresolvedRef,
+                                                    chain.join("."),
+                                                    "mc_phrase.rs:527 component pin not found",
+                                                )
+                                                .with_action(LedgerAction::Error)
+                                                .with_uri(context.uri().to_string())
+                                                .with_span(subnode.get_pos(), subnode.get_len()),
                                             );
                                             return None;
                                         }
@@ -485,6 +564,18 @@ impl McPhrase {
                                             McInstanceRef::new(McInstance::Bus(bus)),
                                         )));
                                     }
+                                    fallback_site = Some("mc_phrase.rs:512 member fall-through");
+                                }
+                                if let Some(site) = fallback_site {
+                                    ledger::record(
+                                        LedgerEntry::new(
+                                            LedgerKind::Fallback,
+                                            chain.join("."),
+                                            site,
+                                        )
+                                        .with_uri(context.uri().to_string())
+                                        .with_span(subnode.get_pos(), subnode.get_len()),
+                                    );
                                 }
                                 let member_ref = McBus::member_ref(base, rest);
                                 Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
@@ -507,6 +598,8 @@ impl McPhrase {
                                 }
                             }
                             // fallback: bare "this" or unresolved member
+                            // (unreachable in practice — the top-level MCAST_OPD_THIS
+                            // arm handles `this.X` first and records D9 there).
                             context.add_label(ids.to_string())
                         }
                         McOpd::Pins(ids) => context.add_label(ids.to_string()),
@@ -554,10 +647,15 @@ impl McPhrase {
                     } else {
                         let id = &data[0];
                         if let Some((base, member)) = id.split_once('.') {
+                            // ★ Ledger (resolve-gate §1.2③): silent two-segment
+                            // miss → one Fallback row per phrase (same contract as the
+                            // McOpd::Id dot chain above).
+                            let fallback_site: Option<&'static str>;
                             let base_inst_opt = context.find_inst(base);
                             if base_inst_opt.is_none() {
                                 // Base instance not found - create a new bus
                                 context.add_bus(base.to_string(), vec![member.to_string()]);
+                                fallback_site = Some("mc_phrase.rs:598 add_bus ghost-bus");
                             } else {
                                 // Base instance found - check if it's a Component
                                 if let Some(McInstance::Component(c)) = base_inst_opt {
@@ -581,6 +679,19 @@ impl McPhrase {
                                                     &available.join(", ") as &dyn std::fmt::Display,
                                                 ],
                                             ),
+                                        );
+                                        // ★ Ledger (resolve-gate §1.2③): structured
+                                        // member miss on a resolved component → UnresolvedRef
+                                        // (action=error+drop, E3179). Observation only.
+                                        ledger::record(
+                                            LedgerEntry::new(
+                                                LedgerKind::UnresolvedRef,
+                                                format!("{base}.{member}"),
+                                                "mc_phrase.rs:683 component pin not found",
+                                            )
+                                            .with_action(LedgerAction::Error)
+                                            .with_uri(context.uri().to_string())
+                                            .with_span(node.get_pos(), node.get_len()),
                                         );
                                         return None;
                                     }
@@ -612,6 +723,14 @@ impl McPhrase {
                                         McInstanceRef::new(McInstance::Bus(bus)),
                                     )));
                                 }
+                                fallback_site = Some("mc_phrase.rs:654 member fall-through");
+                            }
+                            if let Some(site) = fallback_site {
+                                ledger::record(
+                                    LedgerEntry::new(LedgerKind::Fallback, id.to_string(), site)
+                                        .with_uri(context.uri().to_string())
+                                        .with_span(node.get_pos(), node.get_len()),
+                                );
                             }
                             let member_ref = McBus::member_ref(base, member.to_string());
                             Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
@@ -683,11 +802,16 @@ impl McPhrase {
                                 } else {
                                     let id = &data[idx];
                                     if let Some((base, member)) = id.split_once('.') {
+                                        // ★ Ledger (resolve-gate §1.2③): silent
+                                        // two-segment miss → one Fallback row per phrase.
+                                        let fallback_site: Option<&'static str>;
                                         if context.find_inst(base).is_none() {
                                             context.add_bus(
                                                 base.to_string(),
                                                 vec![member.to_string()],
                                             );
+                                            fallback_site =
+                                                Some("mc_phrase.rs:737 add_bus ghost-bus");
                                         } else {
                                             context.upgrade_label_to_bus(base);
                                             if let Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -704,6 +828,19 @@ impl McPhrase {
                                                     )),
                                                 ));
                                             }
+                                            fallback_site =
+                                                Some("mc_phrase.rs:760 member fall-through");
+                                        }
+                                        if let Some(site) = fallback_site {
+                                            ledger::record(
+                                                LedgerEntry::new(
+                                                    LedgerKind::Fallback,
+                                                    id.to_string(),
+                                                    site,
+                                                )
+                                                .with_uri(context.uri().to_string())
+                                                .with_span(node.get_pos(), node.get_len()),
+                                            );
                                         }
                                         let member_ref =
                                             McBus::member_ref(base, member.to_string());
@@ -1120,6 +1257,19 @@ impl McPhrase {
                                                 ],
                                             ),
                                         );
+                                        // ★ Ledger (resolve-gate §1.2③): connection-side
+                                        // member miss on a resolved component (dot_or_curly
+                                        // Multiple path) → UnresolvedRef (action=error+drop).
+                                        ledger::record(
+                                            LedgerEntry::new(
+                                                LedgerKind::UnresolvedRef,
+                                                format!("{inst_name}.{member}"),
+                                                "mc_phrase.rs:1263 dot_or_curly pin not found",
+                                            )
+                                            .with_action(LedgerAction::Error)
+                                            .with_uri(context.uri().to_string())
+                                            .with_span(node.get_pos(), node.get_len()),
+                                        );
                                         return None;
                                     }
                                 }
@@ -1145,6 +1295,18 @@ impl McPhrase {
                                             &available.join(", ") as &dyn std::fmt::Display,
                                         ],
                                     ),
+                                );
+                                // ★ Ledger (resolve-gate §1.2③): dot_or_curly fully
+                                // failed on a resolved component (None path).
+                                ledger::record(
+                                    LedgerEntry::new(
+                                        LedgerKind::UnresolvedRef,
+                                        format!("{inst_name}.{member}"),
+                                        "mc_phrase.rs:1301 dot_or_curly None pin not found",
+                                    )
+                                    .with_action(LedgerAction::Error)
+                                    .with_uri(context.uri().to_string())
+                                    .with_span(node.get_pos(), node.get_len()),
                                 );
                                 return None;
                             }
@@ -1181,6 +1343,18 @@ impl McPhrase {
                                                 ],
                                             ),
                                         );
+                                        // ★ Ledger (resolve-gate §1.2③): dot_or_curly
+                                        // Multiple path on a resolved module instance.
+                                        ledger::record(
+                                            LedgerEntry::new(
+                                                LedgerKind::UnresolvedRef,
+                                                format!("{inst_name}.{member}"),
+                                                "mc_phrase.rs:1348 dot_or_curly module port not found",
+                                            )
+                                            .with_action(LedgerAction::Error)
+                                            .with_uri(context.uri().to_string())
+                                            .with_span(node.get_pos(), node.get_len()),
+                                        );
                                         return None;
                                     }
                                 }
@@ -1206,6 +1380,18 @@ impl McPhrase {
                                             &available.join(", ") as &dyn std::fmt::Display,
                                         ],
                                     ),
+                                );
+                                // ★ Ledger (resolve-gate §1.2③): dot_or_curly fully
+                                // failed on a resolved module instance (None path).
+                                ledger::record(
+                                    LedgerEntry::new(
+                                        LedgerKind::UnresolvedRef,
+                                        format!("{inst_name}.{member}"),
+                                        "mc_phrase.rs:1386 dot_or_curly module None port not found",
+                                    )
+                                    .with_action(LedgerAction::Error)
+                                    .with_uri(context.uri().to_string())
+                                    .with_span(node.get_pos(), node.get_len()),
                                 );
                                 return None;
                             }
@@ -1260,6 +1446,18 @@ impl McPhrase {
                                             ],
                                         ),
                                     );
+                                    // ★ Ledger (resolve-gate §1.2③): chained-member
+                                    // miss on a resolved component base (`f(x).NOPE`).
+                                    ledger::record(
+                                        LedgerEntry::new(
+                                            LedgerKind::UnresolvedRef,
+                                            format!("{base}.{member}"),
+                                            "mc_phrase.rs:1451 chained component pin not found",
+                                        )
+                                        .with_action(LedgerAction::Error)
+                                        .with_uri(context.uri().to_string())
+                                        .with_span(node.get_pos(), node.get_len()),
+                                    );
                                     return None;
                                 }
                             }
@@ -1278,6 +1476,18 @@ impl McPhrase {
                                                 &available.join(", ") as &dyn std::fmt::Display,
                                             ],
                                         ),
+                                    );
+                                    // ★ Ledger (resolve-gate §1.2③): chained-member
+                                    // miss on a resolved module base (`f(x).NOPE`).
+                                    ledger::record(
+                                        LedgerEntry::new(
+                                            LedgerKind::UnresolvedRef,
+                                            format!("{base}.{member}"),
+                                            "mc_phrase.rs:1482 chained module port not found",
+                                        )
+                                        .with_action(LedgerAction::Error)
+                                        .with_uri(context.uri().to_string())
+                                        .with_span(node.get_pos(), node.get_len()),
                                     );
                                     return None;
                                 }
@@ -1351,6 +1561,18 @@ impl McPhrase {
                     if members.is_empty() {
                         return None;
                     }
+                    // ★ Ledger (resolve-gate §1.2③): dot_or_curly missed the
+                    // base's pins, so the curly group silently becomes a member-list
+                    // bus. Record the original `base{members}` form.
+                    ledger::record(
+                        LedgerEntry::new(
+                            LedgerKind::Fallback,
+                            format!("{name}{{{}}}", members.join(",")),
+                            "mc_phrase.rs:1357 curly member-list fallback",
+                        )
+                        .with_uri(context.uri().to_string())
+                        .with_span(node.get_pos(), node.get_len()),
+                    );
                     return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                         McInstance::Bus(McBus::new_with_members(&name, members)),
                     ))));
@@ -3821,6 +4043,13 @@ fn module_port_elems(
 /// operands delegate to `get_left()` / `get_right()`, except that multi-member
 /// interfaces and component port references present their full member count so
 /// the Pass1 check sees the same width Pass2 will expand.
+/// Readable ledger form for a group: `(opd1, opd2, …)`. Display only — the
+/// ledger records the fallback annotation, never re-parses it.
+fn group_display_form(g: &McGroup) -> String {
+    let inner: Vec<String> = g.opds.iter().map(|o| o.to_string()).collect();
+    format!("({})", inner.join(", "))
+}
+
 fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst) -> Vec<McBus> {
     match phrase {
         // A transposed operand is first transposed via strict math transpose
@@ -4223,16 +4452,39 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
         // A shape-matched Group exposes the port of its first operand
         // (mirrors get_left/get_right, but recursing context-aware so a
         // transposed / member / bus head keeps its expanded width).
+        //
+        // ★ Ledger (resolve-gate §1.2③): a mismatched branch shape is silently
+        // absorbed into a `<error:shape_mismatch>` placeholder bus. Record it
+        // at the emission point (the live opcheck path; mc_group.rs get_left /
+        // get_right is the legacy duplicate). No node span here — deep in shape
+        // evaluation — so the group's display form carries identity and
+        // request-scoped dedup collapses re-probes of the same group.
         McPhrase::Group(ref g) => {
             if right {
                 if g.right_match && !g.opds.is_empty() {
                     eval_port_elems(&g.opds[0], true, context)
                 } else {
+                    ledger::record(
+                        LedgerEntry::new(
+                            LedgerKind::Fallback,
+                            group_display_form(g),
+                            "mc_phrase.rs:4327 eval_port_elems right shape_mismatch",
+                        )
+                        .with_uri(context.uri().to_string()),
+                    );
                     vec![McBus::new("<error:shape_mismatch>")]
                 }
             } else if g.left_match && !g.opds.is_empty() {
                 eval_port_elems(&g.opds[0], false, context)
             } else {
+                ledger::record(
+                    LedgerEntry::new(
+                        LedgerKind::Fallback,
+                        group_display_form(g),
+                        "mc_phrase.rs:4340 eval_port_elems left shape_mismatch",
+                    )
+                    .with_uri(context.uri().to_string()),
+                );
                 vec![McBus::new("<error:shape_mismatch>")]
             }
         }

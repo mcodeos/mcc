@@ -26,6 +26,7 @@ use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_inst::McInstance;
+use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -757,7 +758,7 @@ impl McModuleInst {
                             crate::db::diagnostic::diagnostic::diagnostic_log_at(
                                 crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                 crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
-                                uri,
+                                uri.clone(),
                                 pos,
                                 pt.path.len() as u32,
                                 &crate::errcodes::format_msg(
@@ -765,6 +766,19 @@ impl McModuleInst {
                                     &[&pin_name, owner, &available.join(", ")],
                                 ),
                                 &[],
+                            );
+                            // ★ Ledger (resolve-gate §1.2③): pass2 net-point pin
+                            // miss on a resolved component → UnresolvedRef
+                            // (action mirrors the Warning-level diagnostic).
+                            ledger::record(
+                                LedgerEntry::new(
+                                    LedgerKind::UnresolvedRef,
+                                    pt.path.clone(),
+                                    "phases.rs:pass2 net-point pin not found",
+                                )
+                                .with_action(LedgerAction::Warning)
+                                .with_uri(uri)
+                                .with_span(pos, pt.path.len() as u32),
                             );
                         }
                     } else if let Some(sub) = self.find_submodule(owner) {
@@ -795,7 +809,7 @@ impl McModuleInst {
                             crate::db::diagnostic::diagnostic::diagnostic_log_at(
                                 crate::errcodes::MODULE_PORT_NOT_FOUND,
                                 crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
-                                uri,
+                                uri.clone(),
                                 pos,
                                 pt.path.len() as u32,
                                 &crate::errcodes::format_msg(
@@ -803,6 +817,18 @@ impl McModuleInst {
                                     &[&port_name, owner, &available.join(", ")],
                                 ),
                                 &[],
+                            );
+                            // ★ Ledger (resolve-gate §1.2③): pass2 net-point port
+                            // miss on a resolved sub-module → UnresolvedRef.
+                            ledger::record(
+                                LedgerEntry::new(
+                                    LedgerKind::UnresolvedRef,
+                                    pt.path.clone(),
+                                    "phases.rs:pass2 net-point port not found",
+                                )
+                                .with_action(LedgerAction::Warning)
+                                .with_uri(uri)
+                                .with_span(pos, pt.path.len() as u32),
                             );
                         }
                     }
