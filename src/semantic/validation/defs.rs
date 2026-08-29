@@ -5,7 +5,10 @@
 //! Definition structure validation.
 //!
 //! Checks:
-//!   A4 — interface/component name collision (same name used for both)
+//!   A4 — cross-kind name collision (interface/enum, component/module).
+//!         A component and an interface may share the same name — name
+//!         resolution is kind-aware, so the comp↔iface pair is intentionally
+//!         NOT reported (see `db/resolve/policy.rs` `resolve_interface`).
 //!   A5 — missing required CMIE (instance class not found in any table)
 //!   M2 — `.int` suffix on class name in wrong context (component)
 //!   M5 — `.int` suffix on enum/interface
@@ -33,7 +36,11 @@ impl ValidationCheck for DefsCheck {
     }
 }
 
-/// A4: Same ident used for both a component and an interface.
+/// A4: Cross-kind name collision. A component and an interface may share the
+/// same name — resolution is kind-aware (`Resolver::resolve_interface` for
+/// interface bindings, components-first `resolve_class` for instantiation), so
+/// the comp↔iface pair is intentionally NOT reported. Only interface↔enum and
+/// component↔module collisions are.
 fn check_name_collision(acc: &mut CheckAccumulator) {
     let comps = &crate::db::cmie::tables::WORKSPACE.components;
     let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
@@ -45,37 +52,6 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
     let iface_names: HashSet<String> = ifaces.iter().map(|e| e.key().ident.to_string()).collect();
     let enum_names: HashSet<String> = enums.iter().map(|e| e.key().ident.to_string()).collect();
     let mod_names: HashSet<String> = modules.iter().map(|e| e.key().ident.to_string()).collect();
-
-    // Component ↔ Interface collisions
-    for name in comp_names.intersection(&iface_names) {
-        let comp_spans: Vec<_> = comps
-            .iter()
-            .filter(|e| {
-                e.key().ident.to_string() == *name
-                    && !super::is_test_file(e.key().uri.as_uri().as_ref())
-            })
-            .map(|e| {
-                (
-                    e.key().uri.clone(),
-                    e.value().span.start..e.value().span.end,
-                )
-            })
-            .collect();
-        for (uri, span) in &comp_spans {
-            acc.push(CheckResult {
-                check_name: "defs",
-                severity: CheckSeverity::Warning,
-                uri: Some(uri.to_string()),
-                span: Some(span.clone()),
-                message: format!(
-                    "'{}' is defined as both a component and an interface. \
-                     This creates ambiguity for name resolution.",
-                    name
-                ),
-                code: crate::errcodes::DEF_AMBIGUOUS_NAME,
-            });
-        }
-    }
 
     // Interface ↔ Enum collisions
     for name in iface_names.intersection(&enum_names) {
