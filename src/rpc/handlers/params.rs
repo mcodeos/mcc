@@ -106,6 +106,9 @@ pub(crate) struct BuildFullParams {
     pub(crate) include_system: bool,
     /// Whether to output AST visit, default false
     #[serde(default)]
+    /// Wire-contract field, accepted for forward compatibility; the handler
+    /// does not consume it yet.
+    #[allow(dead_code)]
     pub(crate) include_ast: bool,
     #[serde(default)]
     pub(crate) libs: Vec<String>,
@@ -118,8 +121,10 @@ pub(crate) struct BuildVizParams {
     pub(crate) entry: Option<String>,
     #[serde(default)]
     pub(crate) top: Option<String>,
-    /// Whether to include system library definitions, default true
+    /// Whether to include system library definitions, default true.
+    /// Wire-contract field; accepted but not yet consumed by the handler.
     #[serde(default = "default_true")]
+    #[allow(dead_code)]
     pub(crate) include_system: bool,
     #[serde(default)]
     pub(crate) libs: Vec<String>,
@@ -146,9 +151,12 @@ pub(crate) struct CheckRpcParams {
     pub(crate) content: Option<String>,
     #[serde(default)]
     pub(crate) libs: Vec<String>,
+    /// Wire-contract fields; accepted but not yet consumed by the handler.
     #[serde(default)]
+    #[allow(dead_code)]
     pub(crate) strict: bool,
     #[serde(default)]
+    #[allow(dead_code)]
     pub(crate) errors_only: bool,
 }
 
@@ -164,17 +172,13 @@ pub(crate) struct ExtractRpcParams {
     pub(crate) libs: Vec<String>,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct UploadFile {
-    pub(crate) path: String,
-    pub(crate) content: String,
-}
-
 #[derive(Default, Deserialize)]
 pub(crate) struct ParseParams {
     #[serde(default)]
     pub(crate) entry: Option<String>,
+    /// Wire-contract field; accepted but not yet consumed by the handler.
     #[serde(default)]
+    #[allow(dead_code)]
     pub(crate) top: Option<String>,
     /// System libraries to load (e.g. like ["mc/mcode"]);
     #[serde(default)]

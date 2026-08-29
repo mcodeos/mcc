@@ -66,11 +66,6 @@ impl Envelope {
             error: Some(error),
         }
     }
-
-    pub fn with_id(mut self, id: u32) -> Self {
-        self.id = Some(id);
-        self
-    }
 }
 
 // ============================================================================
@@ -86,7 +81,9 @@ pub struct RpcError {
 }
 
 impl RpcError {
-    /// 32110: Pass1 (parse) error
+    /// 32110: Pass1 (parse) error. No production caller; kept for the
+    /// envelope serialization tests.
+    #[allow(dead_code)]
     pub fn parse_error(msg: impl Into<String>) -> Self {
         Self {
             code: 32110,
@@ -99,15 +96,6 @@ impl RpcError {
     pub fn build_error(msg: impl Into<String>) -> Self {
         Self {
             code: 32111,
-            message: msg.into(),
-            data: None,
-        }
-    }
-
-    /// 32112: User input file / path not found
-    pub fn not_found(msg: impl Into<String>) -> Self {
-        Self {
-            code: 32112,
             message: msg.into(),
             data: None,
         }
@@ -129,11 +117,6 @@ impl RpcError {
             message: msg.into(),
             data: None,
         }
-    }
-
-    pub fn with_data(mut self, data: serde_json::Value) -> Self {
-        self.data = Some(data);
-        self
     }
 }
 
@@ -193,12 +176,6 @@ impl WorkspaceRef {
         Self {
             kind: WorkspaceKind::Project,
             name: name.into(),
-        }
-    }
-    pub fn sandbox(id: impl Into<String>) -> Self {
-        Self {
-            kind: WorkspaceKind::Sandbox,
-            name: id.into(),
         }
     }
 }
