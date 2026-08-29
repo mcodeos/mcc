@@ -203,11 +203,6 @@ pub fn set_targets(base_level: &str, targets: &[(String, String)]) -> bool {
     reload_filter(&spec)
 }
 
-/// Return the current per-target overrides (empty if none have been set).
-pub fn get_targets() -> HashMap<String, String> {
-    targets_map().lock().unwrap().clone()
-}
-
 // ============================================================================
 // Initialization
 // ============================================================================

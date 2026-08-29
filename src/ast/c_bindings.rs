@@ -17,6 +17,10 @@ pub struct McDlogEntryFFI {
 }
 
 // #[link(name = "mcast", kind = "static")]
+// The full C parser ABI is kept intact even where Rust doesn't call every
+// entry today (visit/error-token/dlog helpers); removing declarations would
+// silently break the mcast ABI contract.
+#[allow(dead_code)]
 extern "C" {
     pub fn mcc_reset(log_flags: libc::c_uchar);
     pub fn mcc_load(file: *mut i8) -> *mut i8;

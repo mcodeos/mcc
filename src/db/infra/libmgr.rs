@@ -321,8 +321,6 @@ pub fn mcb_unload_lib(name: &str) -> bool {
 pub enum ClearScope {
     /// Full reset: loaded libs, global tables, and the active workspace.
     Full,
-    /// Active workspace only.
-    Active,
     /// Unload one library: remove its definitions from global and workspace
     /// tables (requires the library's uri set).
     Lib,
@@ -341,9 +339,6 @@ pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
             global::mcc_interfaces.clear();
             global::mcc_enums.clear();
             global::mcc_defines.clear();
-            workspace::WORKSPACE.clear_active();
-        }
-        ClearScope::Active => {
             workspace::WORKSPACE.clear_active();
         }
         ClearScope::Lib => {

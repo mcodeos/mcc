@@ -47,7 +47,7 @@ use crate::db::infra::global;
 use crate::db::infra::mc_use::{McUse, McUsePrefix};
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
-use crate::{ast::ast_node::AstNode, ast::c_macros::*, semantic::common::McCMIE};
+use crate::{ast::ast_node::AstNode, ast::c_macros::*};
 use crate::{current_uri, mcb_loaded_libs, McComponent, McIds, McModule, McSpaceName, McURI};
 use line_index::LineIndex;
 use rust_lapper::Interval;
@@ -71,8 +71,6 @@ pub fn mcb_reset_ast_visit_flag() {
 pub struct McCode {
     pub(crate) mcbase: bool,
     pub(crate) uri: McURI,
-    /// Canonical (symlink-resolved) path for reliable file comparison.
-    pub(crate) canonical_uri: String,
     pub(crate) ast: AstNode,
     pub(crate) tokens: Arc<Mutex<McSemTokens>>,
     pub(crate) symbols: Arc<Mutex<McSemSymbols>>,
@@ -218,7 +216,6 @@ impl McCode {
             mcbase: base
                 || crate::db::infra::libmgr::file_is_system_library(Path::new(&canonical_uri)),
             uri: uri.clone(),
-            canonical_uri,
             ast: AstNode::new(null_mut()),
             tokens: Arc::new(Mutex::new(McSemTokens::new())),
             symbols: Arc::new(Mutex::new(McSemSymbols::new())),
@@ -236,7 +233,6 @@ impl McCode {
         Self {
             mcbase: false,
             uri: String::new(),
-            canonical_uri: String::new(),
             ast: AstNode::new(null_mut()),
             tokens: Arc::new(Mutex::new(McSemTokens::new())),
             symbols: Arc::new(Mutex::new(McSemSymbols::new())),
@@ -256,7 +252,6 @@ impl McCode {
         Some(McCode {
             mcbase: crate::db::infra::libmgr::file_is_system_library(Path::new(&canonical_uri)),
             uri: uri.clone(),
-            canonical_uri,
             ast: AstNode::new(null_mut()),
             tokens: Arc::new(Mutex::new(McSemTokens::new())),
             symbols: Arc::new(Mutex::new(McSemSymbols::new())),
@@ -1368,201 +1363,6 @@ impl McCode {
         decl_type == MCAST_ENUM
     }
 
-    /// Load a single CMIE from mcode base lib and add to global tables
-    pub fn parse_cmie_single(&mut self, ident: &McIds) -> Option<McCMIE> {
-        for node in self.ast.iter() {
-            if node.is_type(MCAST_INTERFACE)
-                || node.is_type(MCAST_COMPONENT)
-                || node.is_type(MCAST_MODULE)
-                || node.is_type(MCAST_ENUM)
-                || node.is_type(MCAST_DEFINE)
-            {
-                let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
-                if let Some(name) = McIds::new(
-                    &subnodes
-                        .iter()
-                        .find(|x| x.is_type(MCAST_NAME))
-                        .expect(MISSING_SUBNODE)
-                        .get_sub_node() // ids
-                        .expect(MISSING_SUBNODE),
-                ) {
-                    if ident == &name {
-                        match node.get_type() {
-                            MCAST_COMPONENT => {
-                                if let Some(comp) = McComponent::new(&node, &self.uri) {
-                                    let components_guard = &global::mcc_components;
-                                    let result = components_guard
-                                        .entry(McSpaceName {
-                                            ident: comp.name.clone(),
-                                            uri: crate::semantic::common::uri_intern(&self.uri),
-                                        })
-                                        .and_modify(|_| {
-                                            dlog_error(
-                                                crate::errcodes::DUP_COMPONENT,
-                                                &node,
-                                                &crate::errcodes::format_msg(
-                                                    crate::errcodes::DUP_COMPONENT,
-                                                    &[],
-                                                ),
-                                            );
-                                        })
-                                        .or_insert(Arc::new(comp));
-                                    return Some(McCMIE::Component(result.value().clone()));
-                                };
-                            }
-
-                            MCAST_MODULE => {
-                                // Phase 3: pre-parse function bodies before Arc wrapping
-                                if let Some(mdl) = McModule::new(&node, &self.uri) {
-                                    let modules_guard = &global::mcc_modules;
-                                    let result = modules_guard
-                                        .entry(McSpaceName {
-                                            ident: mdl.name.clone(),
-                                            uri: crate::semantic::common::uri_intern(&self.uri),
-                                        })
-                                        .and_modify(|_| {
-                                            dlog_error(
-                                                crate::errcodes::DUP_MODULE,
-                                                &node,
-                                                &crate::errcodes::format_msg(
-                                                    crate::errcodes::DUP_MODULE,
-                                                    &[],
-                                                ),
-                                            );
-                                        })
-                                        .or_insert(Arc::new(mdl));
-                                    return Some(McCMIE::Module(result.value().clone()));
-                                }
-                            }
-                            MCAST_INTERFACE => {
-                                if let Some(ifs) = McInterface::new(&node, &self.uri) {
-                                    let ifs_guard = &global::mcc_interfaces;
-                                    let result = ifs_guard
-                                        .entry(McSpaceName {
-                                            ident: ifs.name.clone(),
-                                            uri: crate::semantic::common::uri_intern(&self.uri),
-                                        })
-                                        .and_modify(|_| {
-                                            dlog_error(
-                                                crate::errcodes::DUP_INTERFACE,
-                                                &node,
-                                                &crate::errcodes::format_msg(
-                                                    crate::errcodes::DUP_INTERFACE,
-                                                    &[],
-                                                ),
-                                            );
-                                        })
-                                        .or_insert(Arc::new(ifs));
-                                    return Some(McCMIE::Interface(result.value().clone()));
-                                }
-                            }
-                            MCAST_ENUM => {
-                                if let Some(enum_def) = McEnumDef::new(&node, &self.uri) {
-                                    // ★ LSP: register class + values in global table before
-                                    //   moving enum_def into Arc, so the value spans remain
-                                    //   accessible here. Clone out everything we need first
-                                    //   because add_* methods take &mut self.
-                                    let self_uri = self.uri.clone();
-                                    let class_name_ids = McIds::from(enum_def.name.clone());
-                                    let class_span =
-                                        enum_def.span[0] as usize..enum_def.span[1] as usize;
-                                    let value_spans: Vec<(usize, usize)> = enum_def
-                                        .values
-                                        .iter()
-                                        .map(|v| (v.span[0] as usize, v.span[1] as usize))
-                                        .collect();
-                                    if let Some(class_id) = self.add_enum_class(
-                                        &self_uri,
-                                        &class_name_ids,
-                                        class_span.clone(),
-                                    ) {
-                                        for (idx, (vs, ve)) in value_spans.iter().enumerate() {
-                                            self.add_enum_value(
-                                                &self_uri,
-                                                class_id,
-                                                idx as u32,
-                                                *vs..*ve,
-                                            );
-                                        }
-                                    }
-
-                                    let space_name = McSpaceName {
-                                        ident: enum_def.name.clone(),
-                                        uri: crate::semantic::common::uri_intern(&self.uri),
-                                    };
-                                    let arc_enum = Arc::new(enum_def);
-                                    if self.mcbase {
-                                        let enums_guard = &global::mcc_enums;
-                                        enums_guard
-                                            .entry(space_name.clone())
-                                            .and_modify(|_| {
-                                                dlog_error(
-                                                    crate::errcodes::DUP_ENUM,
-                                                    &node,
-                                                    &crate::errcodes::format_msg(
-                                                        crate::errcodes::DUP_ENUM,
-                                                        &[],
-                                                    ),
-                                                );
-                                            })
-                                            .or_insert(arc_enum.clone());
-                                    } else {
-                                        let enums_guard = &workspace::WORKSPACE.enums;
-                                        enums_guard
-                                            .entry(space_name.clone())
-                                            .and_modify(|_| {
-                                                dlog_error(
-                                                    crate::errcodes::DUP_ENUM,
-                                                    &node,
-                                                    &crate::errcodes::format_msg(
-                                                        crate::errcodes::DUP_ENUM,
-                                                        &[],
-                                                    ),
-                                                );
-                                            })
-                                            .or_insert(arc_enum.clone());
-                                    }
-                                    return Some(McCMIE::Enum(arc_enum));
-                                }
-                            }
-                            MCAST_DEFINE => {
-                                // P1-10: a define cannot be represented as an
-                                // McCMIE (component/module/interface/enum only).
-                                // Report the mismatch instead of panicking.
-                                dlog_error(
-                                    crate::errcodes::CMIE_IS_DEFINE,
-                                    &node,
-                                    &crate::errcodes::format_msg(
-                                        crate::errcodes::CMIE_IS_DEFINE,
-                                        &[&name],
-                                    ),
-                                );
-                                return None;
-                            }
-                            // Defensive fallback: the outer scan guard only admits
-                            // the five declaration types above, so this arm is
-                            // unreachable in practice. Keep it diagnostic-based
-                            // rather than panicking (P1-10).
-                            _ => {
-                                dlog_error(
-                                    crate::errcodes::CMIE_LOAD_REJECTED,
-                                    &node,
-                                    &crate::errcodes::format_msg(
-                                        crate::errcodes::CMIE_LOAD_REJECTED,
-                                        &[&node.get_type() as &dyn std::fmt::Display],
-                                    ),
-                                );
-                                return None;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
     /// Parse current file, add all definitions to project tables (parse_cmie_to_project)
     /// Phase 1a: only register component/interface/enum definitions to the global table
     /// This step does not parse module body, ensuring cross-file type definitions are ready first
@@ -2171,22 +1971,6 @@ impl McCode {
             );
         }
         result
-    }
-    pub fn add_declare_class(&mut self, uri: &McURI, span: Span, class_id: DeclareId) {
-        match self.symbols.lock() {
-            Ok(sem) => match sem.global_table.lock() {
-                Ok(mut gt) => {
-                    let gt: &mut crate::ast::ast_semantic::GlobalSymbolTable = &mut gt;
-                    let _refid = gt.add_declare_class(uri, span, class_id);
-                }
-                Err(e) => {
-                    tracing::error!(target: "mcc::code", error = %e, "global_table mutex poisoned (add_declare_class)")
-                }
-            },
-            Err(e) => {
-                tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (add_declare_class)")
-            }
-        }
     }
 
     /// Register an enum class definition (`enum PKG { ... }`) in the global
@@ -3389,8 +3173,6 @@ impl McCode {
             }
         }
     }
-
-    pub fn pass2(&mut self) {}
 
     /// Re-resolve a class reference at a given span in the source file.
     /// Used when the class couldn't be resolved during parsing (sentinel entry
@@ -6253,12 +6035,6 @@ impl McCode {
             _ => "Syntax error",
         }
     }
-}
-
-fn attr_key_name(attr_node: &AstNode) -> Option<String> {
-    let sub = attr_node.get_sub_node()?;
-    let ids_node = sub.get_sub_node()?;
-    crate::semantic::basic::mc_ids::McIds::new(&ids_node).map(|ids| ids.to_string())
 }
 
 fn extract_dot_pair(value_node: &AstNode) -> Option<(String, String, u32, u32, u32, u32)> {

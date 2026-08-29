@@ -95,8 +95,3 @@ pub fn mcb_init() {
     crate::db::infra::libmgr::clear_state(crate::db::infra::libmgr::ClearScope::Full, None);
     // System library loading is uniformly handled by mcb_init_system_lib()
 }
-
-// === pub fn mcb_workspace_clear() { ===
-pub fn mcb_workspace_clear() {
-    crate::db::infra::libmgr::clear_state(crate::db::infra::libmgr::ClearScope::Active, None);
-}

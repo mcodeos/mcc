@@ -148,10 +148,8 @@ impl std::fmt::Display for McUnitValueDeclare {
 
 #[derive(Clone)]
 pub struct McUnitValue {
-    plusminus: bool,
     value: f64,
     unit: McUnit,
-    at: Option<Box<McUnitValue>>,
     /// Original source text (e.g. "32kHz", "3.3V", "±15kV"). When present the
     /// Display impl echoes it verbatim so tools round-trip the author's
     /// notation instead of re-rendering the normalized value.
@@ -396,10 +394,8 @@ fn parse_volt_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Volt,
-        at: None,
         raw: None,
     })
 }
@@ -431,10 +427,8 @@ fn parse_amp_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Amp,
-        at: None,
         raw: None,
     })
 }
@@ -462,10 +456,8 @@ fn parse_capc_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Cap,
-        at: None,
         raw: None,
     })
 }
@@ -493,10 +485,8 @@ fn parse_induct_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Ind,
-        at: None,
         raw: None,
     })
 }
@@ -527,10 +517,8 @@ fn parse_time_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Time,
-        at: None,
         raw: None,
     })
 }
@@ -563,10 +551,8 @@ fn parse_length_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Len,
-        at: None,
         raw: None,
     })
 }
@@ -606,10 +592,8 @@ fn parse_power_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Wat,
-        at: None,
         raw: None,
     })
 }
@@ -627,10 +611,8 @@ fn parse_resist_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Ohm,
-        at: None,
         raw: None,
     })
 }
@@ -668,10 +650,8 @@ fn parse_temperature_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: converted_value,
         unit,
-        at: None,
         raw: None,
     })
 }
@@ -699,10 +679,8 @@ fn parse_freq_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Hz,
-        at: None,
         raw: None,
     })
 }
@@ -711,7 +689,6 @@ fn parse_gain_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     let (value, unit_str) = extract_value_and_unit(node, data)?;
 
     Some(McUnitValue {
-        plusminus: false,
         value,
         unit: match unit_str {
             "dB" | "dBm" | "dBw" | "dBi" | "dBd" | "dBc" | "dBV" | "dBu" | "dBFS" | "dBμV"
@@ -728,7 +705,6 @@ fn parse_gain_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
                 return None;
             }
         },
-        at: None,
         raw: None,
     })
 }
@@ -752,10 +728,8 @@ fn parse_ppm_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Ppm,
-        at: None,
         raw: None,
     })
 }
@@ -779,10 +753,8 @@ fn parse_percent_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Percent,
-        at: None,
         raw: None,
     })
 }
@@ -813,10 +785,8 @@ fn parse_comm_speed_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Baud,
-        at: None,
         raw: None,
     })
 }
@@ -862,10 +832,8 @@ fn parse_data_size_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::DataSize,
-        at: None,
         raw: None,
     })
 }
@@ -904,10 +872,8 @@ fn parse_sps_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Sps,
-        at: None,
         raw: None,
     })
 }
@@ -1136,10 +1102,8 @@ fn parse_conductance_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Siemens,
-        at: None,
         raw: None,
     })
 }
@@ -1149,42 +1113,32 @@ fn parse_responsivity_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
 
     if unit_str == "A/W" {
         Some(McUnitValue {
-            plusminus: false,
             value,
             unit: McUnit::Responsivity,
-            at: None,
             raw: None,
         })
     } else if unit_str == "mA/W" {
         Some(McUnitValue {
-            plusminus: false,
             value: value * 1e-3,
             unit: McUnit::Responsivity,
-            at: None,
             raw: None,
         })
     } else if unit_str == "μA/W" || unit_str == "µA/W" || unit_str == "uA/W" {
         Some(McUnitValue {
-            plusminus: false,
             value: value * 1e-6,
             unit: McUnit::Responsivity,
-            at: None,
             raw: None,
         })
     } else if unit_str == "nA/W" {
         Some(McUnitValue {
-            plusminus: false,
             value: value * 1e-9,
             unit: McUnit::Responsivity,
-            at: None,
             raw: None,
         })
     } else if unit_str == "kA/W" {
         Some(McUnitValue {
-            plusminus: false,
             value: value * 1e3,
             unit: McUnit::Responsivity,
-            at: None,
             raw: None,
         })
     } else {
@@ -1202,17 +1156,13 @@ fn parse_angle_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
 
     match unit_str {
         "rad" => Some(McUnitValue {
-            plusminus: false,
             value,
             unit: McUnit::Angle,
-            at: None,
             raw: None,
         }),
         "deg" | "°" => Some(McUnitValue {
-            plusminus: false,
             value: value * std::f64::consts::PI / 180.0, // Convert degrees to radians
             unit: McUnit::Angle,
-            at: None,
             raw: None,
         }),
         _ => {
@@ -1234,31 +1184,23 @@ fn parse_angular_rate_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
 
     match unit_str {
         "rad/s" => Some(McUnitValue {
-            plusminus: false,
             value,
             unit: McUnit::AngularRate,
-            at: None,
             raw: None,
         }),
         "deg/s" => Some(McUnitValue {
-            plusminus: false,
             value: value * std::f64::consts::PI / 180.0, // Convert degrees to radians
             unit: McUnit::AngularRate,
-            at: None,
             raw: None,
         }),
         "rpm" => Some(McUnitValue {
-            plusminus: false,
             value: value * 2.0 * std::f64::consts::PI / 60.0, // Convert rpm to rad/s
             unit: McUnit::AngularRate,
-            at: None,
             raw: None,
         }),
         "rps" => Some(McUnitValue {
-            plusminus: false,
             value: value * 2.0 * std::f64::consts::PI, // Convert rps to rad/s
             unit: McUnit::AngularRate,
-            at: None,
             raw: None,
         }),
         _ => {
@@ -1293,10 +1235,8 @@ fn parse_energy_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Energy,
-        at: None,
         raw: None,
     })
 }
@@ -1318,10 +1258,8 @@ fn parse_efield_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Efield,
-        at: None,
         raw: None,
     })
 }
@@ -1343,10 +1281,8 @@ fn parse_hfield_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Hfield,
-        at: None,
         raw: None,
     })
 }
@@ -1372,10 +1308,8 @@ fn parse_flux_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Flux,
-        at: None,
         raw: None,
     })
 }
@@ -1402,10 +1336,8 @@ fn parse_bfield_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Bfield,
-        at: None,
         raw: None,
     })
 }
@@ -1430,10 +1362,8 @@ fn parse_slew_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Slew,
-        at: None,
         raw: None,
     })
 }
@@ -1443,10 +1373,8 @@ fn parse_noise_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
 
     // For noise density, we just store the value as-is with the appropriate unit
     Some(McUnitValue {
-        plusminus: false,
         value,
         unit: McUnit::Noise,
-        at: None,
         raw: None,
     })
 }
@@ -1477,10 +1405,8 @@ fn parse_charge_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     };
 
     Some(McUnitValue {
-        plusminus: false,
         value: value * multiplier,
         unit: McUnit::Charge,
-        at: None,
         raw: None,
     })
 }

@@ -13,4 +13,3 @@ pub mod gotodef;
 pub mod hover;
 pub mod references;
 pub mod sem;
-pub mod symbols;

@@ -12,25 +12,6 @@ use crate::ast::ast_semantic::{McSemSymbols, SymbolKind};
 use crate::db::resolve::Resolver;
 use crate::{McCMIE, McIds, McURI};
 
-/// Resolve a member access on a CMIE instance via the class definition.
-///
-/// `resolve_class` handles P3→P4→P5 class lookup — same-file and cross-file
-/// are treated identically. Returns the definition location and the appropriate
-/// Ref SymbolKind. The caller creates a local Def via `register_def` and uses
-/// the resulting DeclareId for Layer 2 Ref→Def matching.
-///
-/// e.g., `RES(10kΩ).Pullup(...)` → class="RES", member="Pullup"
-///       → returns (res.mc, pullup_span_in_res_mc, FuncRef)
-pub(crate) fn resolve_cmie_member(
-    class_name: &str,
-    member_name: &str,
-    from_uri: &McURI,
-) -> Option<(McURI, std::ops::Range<usize>, SymbolKind)> {
-    let ids = McIds::from(class_name);
-    let cmie = Resolver::resolve_class(from_uri, &ids)?;
-    member_of(&cmie, member_name)
-}
-
 /// Same as [`resolve_cmie_member`], but for callers that already hold the
 /// referencing file's `symbols` lock (`create_lapper`). The class lookup runs
 /// through [`Resolver::resolve_class_locked`], which reads the RefDefMap from

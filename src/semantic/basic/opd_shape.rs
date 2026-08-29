@@ -144,6 +144,10 @@ impl OpdShape {
     /// Directional reverse (vec-arch.md §5.2 / §6.3): swaps the left/right
     /// ports where they are independent (row vector / node), and is an
     /// identity for point / column / unknown.
+    ///
+    /// Not yet wired into a production path; kept as tested semantic API
+    /// (see the `reverse_*` tests below).
+    #[allow(dead_code)]
     pub fn reverse(&self) -> OpdShape {
         match self {
             OpdShape::Point(_) | OpdShape::Column(_) | OpdShape::Unknown => self.clone(),

@@ -724,22 +724,6 @@ impl McModule {
         McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(inst)))
     }
 
-    /// Add bus to symbol table
-    pub(crate) fn add_bus(&mut self, name: String, members: Vec<String>) -> McPhrase {
-        let bus = McBus::new_with_members(&name, members);
-        let inst = McInstance::Bus(bus);
-        self.insts.create_inst(&name, inst.clone());
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(inst)))
-    }
-
-    /// Add list to symbol table
-    pub(crate) fn add_list(&mut self, name: String, members: Vec<String>) -> McPhrase {
-        let list = McList::new_with_members(&name, members);
-        let inst = McInstance::List(list);
-        self.insts.create_inst(&name, inst.clone());
-        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(inst)))
-    }
-
     /// Get all input ports' McBus
     pub fn get_input_elements(&self) -> Vec<McBus> {
         self.insts

@@ -54,18 +54,6 @@ impl McBus {
         }
     }
 
-    pub(crate) fn new_with_name_and_members(
-        name: String,
-        members: Vec<String>,
-        full_members: Vec<String>,
-    ) -> Self {
-        Self {
-            name,
-            member: members,
-            full_members,
-        }
-    }
-
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -74,24 +62,10 @@ impl McBus {
     /// netlist or LSP output (Defect 89).
     pub(crate) const ERROR_PREFIX: &'static str = "<error:";
 
-    /// Returns true if this bus was created as a sentinel to represent an
-    /// error condition (e.g. empty endpoint list, shape mismatch).
-    pub(crate) fn is_error(&self) -> bool {
-        self.name.starts_with(Self::ERROR_PREFIX)
-    }
-
     pub(crate) fn add_member(&mut self, name: &str) {
         if !self.full_members.contains(&name.to_string()) {
             self.full_members.push(name.to_string());
         }
-    }
-
-    pub(super) fn has_member(&self) -> bool {
-        !self.member.is_empty()
-    }
-
-    pub(crate) fn has_full_member(&self, member: &str) -> bool {
-        self.full_members.contains(&member.to_string())
     }
 
     pub(crate) fn get_full_members(&self) -> &Vec<String> {
@@ -104,33 +78,6 @@ impl McBus {
             member: vec![member.clone()],
             full_members: vec![member],
         }
-    }
-
-    /// Find member, return new McBus with full path
-    pub(crate) fn find_member(&self, id: &str) -> McBus {
-        if let Some(found) = self.find_member_opt(id) {
-            found
-        } else {
-            McBus {
-                name: format!("{}.<error:{}>", self.name, id),
-                member: Vec::new(),
-                full_members: Vec::new(),
-            }
-        }
-    }
-
-    /// Option version of find member
-    pub(crate) fn find_member_opt(&self, id: &str) -> Option<McBus> {
-        for each in self.member.iter() {
-            if *each == id {
-                return Some(McBus {
-                    name: format!("{}.{}", self.name, each),
-                    member: Vec::new(),
-                    full_members: Vec::new(),
-                });
-            }
-        }
-        None
     }
 
     /// Calculate node size (number of leaf nodes)
@@ -191,13 +138,6 @@ impl std::fmt::Debug for McList {
 }
 
 impl McList {
-    pub(crate) fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            member: Vec::new(),
-        }
-    }
-
     pub(crate) fn new_with_members(name: &str, members: Vec<String>) -> Self {
         Self {
             name: name.to_string(),
@@ -211,10 +151,6 @@ impl McList {
 
     pub(crate) fn add_member(&mut self, name: &str) {
         self.member.push(name.to_string());
-    }
-
-    pub(super) fn has_member(&self) -> bool {
-        !self.member.is_empty()
     }
 }
 

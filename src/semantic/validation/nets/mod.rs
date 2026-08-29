@@ -415,10 +415,9 @@ fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64
 fn collect_kvs_voltage(value: &KVSValue, out: &mut Vec<f64>) {
     match value {
         KVSValue::Const(c) => {
-            if let crate::semantic::basic::mc_literal::McConst::Keyword(s) = c {
-                if let Some(v) = parse_voltage_str(s) {
-                    out.push(v);
-                }
+            let crate::semantic::basic::mc_literal::McConst::Keyword(s) = c;
+            if let Some(v) = parse_voltage_str(s) {
+                out.push(v);
             }
         }
         KVSValue::Square(vals) => {
