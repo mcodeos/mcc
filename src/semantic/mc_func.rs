@@ -120,6 +120,11 @@ pub trait HasFindInst {
     /// so the port reference must present an unknown (empty) shape instead of
     /// a fixed 1*1. Internal labels keep their declared single-point shape.
     ///
+    /// Hook invoked when a bare identifier in a net statement does not resolve
+    /// to any instance in scope. Default: no-op. The func-body context
+    /// overrides this to warn about floating labels.
+    fn report_floating_label(&self, _name: &str, _node: &AstNode) {}
+
     /// Default implementation returns `false` (not a port).
     fn is_declared_port(&self, _name: &str) -> bool {
         false
@@ -182,7 +187,17 @@ pub trait HasFindInst {
 /// Composite context for func body parsing: first searches func params,
 /// then falls back to the parent (module/component) for module-level instances.
 struct FuncBodyContext<'a> {
+    /// Single-name func params (exact-match scope for `find_inst`). Bracket
+    /// members (`[net1, net2]`) are NOT included here — `get_primary_name`
+    /// returns None for a Multiple — so they fall through to the label path
+    /// and are filtered out again after the body loop via `self.params`.
     param_names: &'a [String],
+    /// Bare identifiers that failed `find_inst` (name + source pos/len),
+    /// collected during the body loop and filtered afterwards against the
+    /// func's own `params` (member-aware) and `insts` (func-local declares).
+    /// A `RefCell` avoids the borrow conflict with `self.insts.parse`
+    /// mutating the same table mid-loop.
+    pending_floating: &'a std::cell::RefCell<Vec<(String, u32, u32)>>,
     parent: &'a mut dyn HasFindInst,
 }
 
@@ -304,6 +319,17 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
     fn scope_name(&self) -> Option<String> {
         self.parent.scope_name()
     }
+
+    fn report_floating_label(&self, name: &str, node: &AstNode) {
+        // Record every bare identifier that failed find_inst. Param members
+        // and func-local declares are filtered out after the body loop
+        // (`self.params` / `self.insts`) — the actual member width of a
+        // bracket param is substituted at instantiation, and a func-local
+        // declare (e.g. `RES R[1:2](5.1kΩ)` → R1) is a real instance.
+        self.pending_floating
+            .borrow_mut()
+            .push((name.to_string(), node.get_pos(), node.get_len()));
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -377,6 +403,12 @@ pub struct McFunction {
     /// Lines are pre-parsed into McPhrase; evaluated at instantiation time
     /// against actual parameter values.
     pub conds: Vec<crate::semantic::basic::mc_conds::McFuncConds>,
+    /// Bare identifiers in the body that failed `find_inst` and are not a
+    /// declared param member or func-local instance (name, pos, len). A
+    /// post-parse check (E3136) counts how many times each name is referenced
+    /// across all funcs of the component and warns for single-use dangling
+    /// labels. Populated by [`McFunction::parse_body`].
+    pub(crate) floating_candidates: Vec<(String, u32, u32)>,
     /// Pre-parsed function body connections (needs to be called after McModule is built to fill parse_body)
     pub called_time: u32,
     anon_counter: usize,
@@ -414,6 +446,7 @@ impl McFunction {
             stmts: Vec::new(),
             stmt_offsets: Vec::new(),
             conds: Vec::new(),
+            floating_candidates: Vec::new(),
             called_time: 0,
             anon_counter: 1,
             uri: None,
@@ -468,8 +501,12 @@ impl McFunction {
             .iter()
             .filter_map(|p| p.get_primary_name())
             .collect();
+        // Bare identifiers that failed find_inst are recorded here and
+        // filtered after the body loop against the func's own params/insts.
+        let pending_floating = std::cell::RefCell::new(Vec::new());
         let mut wrapper = FuncBodyContext {
             param_names: &param_names,
+            pending_floating: &pending_floating,
             parent: context,
         };
         if let Some(body_nodes) = body.get_sub_node() {
@@ -641,6 +678,31 @@ impl McFunction {
                         );
                     }
                 }
+            }
+
+            // ── E3136 FUNC_FLOATING_LABEL ─────────────────────────────────────
+            // A bare identifier that failed find_inst is a floating net
+            // endpoint unless it is declared by this func body:
+            //   * param member, incl. bracket form `[net1, net2]` — the actual
+            //     member width is substituted at instantiation (params.find);
+            //   * func-local declare (`RES R[1:2](5.1kΩ)` → R1,
+            //     `CAP ccp(220nF, 25V)` → ccp) — lands in `self.insts` during
+            //     the loop.
+            // Anything still unresolved is recorded as a candidate for the
+            // post-parse FloatingLabelCheck (E3136), which counts how many
+            // times the name is referenced across all funcs of the component
+            // and warns for single-use dangling labels (declarations in a
+            // sibling func or a conditional block are resolved there via the
+            // component's final instance table).
+            drop(wrapper);
+            for (name, pos, len) in pending_floating.into_inner() {
+                if self.params.find(&name).is_some() {
+                    continue;
+                }
+                if self.insts.get(&name).is_some() {
+                    continue;
+                }
+                self.floating_candidates.push((name, pos, len));
             }
 
             // ★ Smart Param (M5): Finalize after body parsed
