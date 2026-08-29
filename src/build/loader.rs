@@ -310,6 +310,49 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     }
 }
 
+// === pub fn mcb_add_directory_recursive(root: &Path, loaded: &mut HashSet<String>) ===
+/// Recursively load every `.mc` file under `root` (directory batch mode for a
+/// build target with no project manifest).
+///
+/// Each file is loaded as its own entry with its own `use` closure (so a file
+/// in a subfolder that `use ./utils/mcu`-style references a sibling resolves
+/// against its own directory, matching browse mode). A shared `loaded` set
+/// deduplicates files reachable through multiple closures. Callers run
+/// `mcb_parse_all_modules` afterwards (see `mcc_load_directory_all`).
+pub fn mcb_add_directory_recursive(root: &Path, loaded: &mut HashSet<String>) {
+    for f in collect_mc_files(root) {
+        let uri = McURI::from(f.to_string_lossy().as_ref());
+        mcb_add_recursive(&uri, loaded, false);
+    }
+}
+
+/// Recursively collect every `.mc` file under `root`, skipping hidden
+/// directories (leading `.`). Sorted for deterministic order.
+pub fn collect_mc_files(root: &Path) -> Vec<PathBuf> {
+    fn walk(current: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(current) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if !p
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+                {
+                    walk(&p, out);
+                }
+            } else if p.extension().is_some_and(|ext| ext == "mc") {
+                out.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, &mut out);
+    out.sort();
+    out
+}
+
 // === pub fn mcb_loaded_file_count() -> usize { ===
 /// Get number of loaded files
 pub fn mcb_loaded_file_count() -> usize {

@@ -11,7 +11,7 @@
 //1. lib internal
 use crate::db::diagnostic::diagnostic::Diagnostic;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 
@@ -237,6 +237,29 @@ pub fn mcc_load_project(entry_uri: &McURI) {
     let mut loaded = HashSet::new();
     builder::mcb_add_recursive(entry_uri, &mut loaded, false);
     builder::mcb_parse_all_modules();
+}
+
+/// Collect every `.mc` file under `root` recursively (hidden directories
+/// skipped), sorted. Shared by `mcc build <dir>` and the extension's Build
+/// Project when the target directory has no project manifest (use-design.md
+/// §19.5 rule 3: directory batch mode).
+pub fn mcc_collect_mc_files(root: &Path) -> Vec<PathBuf> {
+    builder::collect_mc_files(root)
+}
+
+/// Load every `.mc` file under `root` into the active workspace and parse all
+/// modules. Each file is loaded as its own entry with its own `use` closure
+/// (shared `loaded` set dedupes); returns the collected file list so callers
+/// can iterate per-file targets for Pass 2. This is the loader half of
+/// directory batch mode — Pass 1 diagnostics then cover the whole folder.
+pub fn mcc_load_directory_all(root: &Path) -> Vec<PathBuf> {
+    use std::collections::HashSet;
+    let files = builder::collect_mc_files(root);
+    builder::mc_code::mcb_reset_ast_visit_flag();
+    let mut loaded = HashSet::new();
+    builder::mcb_add_directory_recursive(root, &mut loaded);
+    builder::mcb_parse_all_modules();
+    files
 }
 
 /// Load .mc file from memory string (no disk file dependency)
