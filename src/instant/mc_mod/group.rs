@@ -906,10 +906,6 @@ impl McModuleInst {
     }
 }
 
-fn last_seg(path: &str) -> &str {
-    path.rsplit('.').next().unwrap_or(path)
-}
-
 fn is_ground_name(s: &str) -> bool {
     let u = s.to_uppercase();
     matches!(u.as_str(), "GND" | "VSS" | "AGND" | "DGND" | "PGND")

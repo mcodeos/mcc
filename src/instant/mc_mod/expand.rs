@@ -29,14 +29,16 @@ use crate::semantic::scope::{ResolveScope, ScopeChain};
 // the recursive terminals that `resolve_inst_chain` needs; `NetPoint` is
 // terminal-only and would break arbitrary-depth DOT resolution.
 
-/// P1: func param bindings — returns a `NetPoint` owned by the expanded
-/// instance. Keeps the shadow warning when a param hides a same-named pin
-/// (original `ExpansionContext::resolve_name` behavior, §3.5).
+// Instance-layer scope units (T = NetPoint). `resolve_name` (their former
+// production consumer) was removed; these are kept as test-covered behavior
+// for the P1/P2/P3 resolution chain (see the `*_scope_resolves_*` tests).
+#[allow(dead_code)]
 struct FuncBindingsScope<'a> {
     instance: &'a McComponentInst,
     param_bindings: &'a McParamBindings,
 }
 
+#[allow(dead_code)]
 impl<'a> FuncBindingsScope<'a> {
     fn new(instance: &'a McComponentInst, param_bindings: &'a McParamBindings) -> Self {
         Self {
@@ -81,10 +83,12 @@ impl ResolveScope<NetPoint> for FuncBindingsScope<'_> {
 }
 
 /// P2: instance pins.
+#[allow(dead_code)]
 struct InstancePinsScope<'a> {
     pins: &'a HashMap<String, NetPoint>,
 }
 
+#[allow(dead_code)]
 impl<'a> InstancePinsScope<'a> {
     fn new(pins: &'a HashMap<String, NetPoint>) -> Self {
         Self { pins }
@@ -98,10 +102,12 @@ impl ResolveScope<NetPoint> for InstancePinsScope<'_> {
 }
 
 /// P3: parent module labels.
+#[allow(dead_code)]
 struct ParentLabelsScope<'a> {
     labels: &'a HashMap<String, NetPoint>,
 }
 
+#[allow(dead_code)]
 impl<'a> ParentLabelsScope<'a> {
     fn new(labels: &'a HashMap<String, NetPoint>) -> Self {
         Self { labels }
@@ -115,10 +121,12 @@ impl ResolveScope<NetPoint> for ParentLabelsScope<'_> {
 }
 
 /// P3: parent module ports.
+#[allow(dead_code)]
 struct ParentPortsScope<'a> {
     ports: &'a [PortInst],
 }
 
+#[allow(dead_code)]
 impl<'a> ParentPortsScope<'a> {
     fn new(ports: &'a [PortInst]) -> Self {
         Self { ports }
@@ -263,6 +271,11 @@ impl ResolveScope<InstEntry> for ModuleBusesScope<'_> {
 /// Uses [`Arc`] for compound types ([`McComponentInst`], [`McModuleInst`])
 /// so that [`resolve_inst_chain`] can recursively call
 /// [`InstFindInst::find_inst`] on sub-modules without lifetime constraints.
+///
+/// `Port`/`Label`/`Bus` payloads are read only by the terminal-resolution
+/// tests (`resolve_*_terminal`); production code matches on the variant and
+/// ignores the payload (a terminal stops DOT descent).
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum InstEntry {
     /// A component instance (e.g. `R1`, `U1`) — holds the actual instance
@@ -307,50 +320,19 @@ pub trait InstFindInst {
 
 /// Pass2 func body expansion name resolver.
 ///
-/// Provides name resolution during component function body expansion
-/// with the same priority as [`McComponent::find_inst_with_span`].
-///
-/// Priority chain:
-/// 1. func params (param bindings)
-/// 2. instance pins
-/// 3. parent scope (module ports, labels)
+/// Provides name resolution during component function body expansion.
+/// Only the expanded instance is consulted directly: func params are
+/// substituted via [`substitute_stmt`](crate::instant::mc_mod::subst), and
+/// parent-scope resolution goes through [`resolve_inst_chain`] instead.
 pub struct ExpansionContext<'a> {
     /// The component instance being expanded
     pub instance: &'a McComponentInst,
-    /// Parameter bindings from the instantiation site
-    pub param_bindings: &'a McParamBindings,
-    /// Parent module scope for resolving external references
-    pub parent_scope: &'a McModuleInst,
 }
 
 impl<'a> ExpansionContext<'a> {
     /// Create a new expansion context.
-    pub fn new(
-        instance: &'a McComponentInst,
-        param_bindings: &'a McParamBindings,
-        parent_scope: &'a McModuleInst,
-    ) -> Self {
-        Self {
-            instance,
-            param_bindings,
-            parent_scope,
-        }
-    }
-
-    /// Resolve a name to a [`NetPoint`] using the component priority chain.
-    ///
-    /// Priority (instance-layer scope chain, mechanism A, §7.2):
-    /// 1. func params (matched against binding declare names)
-    /// 2. instance pins (`self.instance.pins`)
-    /// 3. parent scope — module labels and ports
-    pub fn resolve_name(&self, name: &str) -> Option<NetPoint> {
-        ScopeChain::new(vec![
-            Box::new(FuncBindingsScope::new(self.instance, self.param_bindings)),
-            Box::new(InstancePinsScope::new(&self.instance.pins)),
-            Box::new(ParentLabelsScope::new(&self.parent_scope.labels)),
-            Box::new(ParentPortsScope::new(&self.parent_scope.ports)),
-        ])
-        .resolve(name)
+    pub fn new(instance: &'a McComponentInst) -> Self {
+        Self { instance }
     }
 }
 

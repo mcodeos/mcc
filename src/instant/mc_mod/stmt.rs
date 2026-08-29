@@ -3509,17 +3509,3 @@ impl McModuleInst {
         }
     }
 }
-
-/// Determine if it's a single-end connection: a and b have the same length and
-/// each pair of points has equal paths
-fn is_single_ended(a: &[NetPoint], b: &[NetPoint]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    // Compare one by one after sorting by path
-    let mut a_paths: Vec<&str> = a.iter().map(|p| p.path.as_str()).collect();
-    let mut b_paths: Vec<&str> = b.iter().map(|p| p.path.as_str()).collect();
-    a_paths.sort_unstable();
-    b_paths.sort_unstable();
-    a_paths == b_paths
-}

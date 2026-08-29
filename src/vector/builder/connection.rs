@@ -53,20 +53,6 @@ pub(crate) struct ConnPair {
 }
 
 impl ConnPair {
-    /// Construction without provenance (equivalent to pre-refactor behavior)
-    pub(crate) fn plain(left: i64, right: i64) -> Self {
-        Self {
-            left,
-            right,
-            lane: None,
-            dir: ConnDir::Undirected,
-            via: None,
-            source_span: None,
-            trunk: None,
-            op: None,
-        }
-    }
-
     /// Construction with direction but no provenance
     pub(crate) fn plain_with_dir(left: i64, right: i64, dir: ConnDir) -> Self {
         Self {
@@ -126,7 +112,10 @@ impl ConnPair {
         self
     }
 
-    /// Set the connection operator carried from `ConnectionInst.op`
+    /// Set the connection operator carried from `ConnectionInst.op`.
+    /// Production always passes the op through `plain`; this builder is
+    /// exercised only by the `plain_with_dir(...).with_op(...)` tests.
+    #[allow(dead_code)]
     pub(crate) fn with_op(mut self, op: ConnOp) -> Self {
         self.op = Some(op);
         self
