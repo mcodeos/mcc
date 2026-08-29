@@ -173,9 +173,13 @@ fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
         .flat_map(|n| n.points.iter().cloned())
         .collect();
     for (_, entry) in table.iter() {
+        // Same synthetic-wrapper carve-out as E4112/E4116: a virtually-
+        // instantiated component/interface is never wired by definition, so
+        // its unwired pins are the normal shape of the view, not a defect.
         if matches!(entry.io_type, IOType::In)
             && !connected.contains(&entry.id)
             && !is_nc_entry(entry)
+            && !entry.synthetic
         {
             let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
@@ -224,9 +228,13 @@ fn check_unconnected_outputs(table: &InstTable, results: &mut Vec<NetCheckResult
         .flat_map(|n| n.points.iter().cloned())
         .collect();
     for (_, entry) in table.iter() {
+        // Same synthetic-wrapper carve-out as E4112/E4116: a virtually-
+        // instantiated component/interface is never wired by definition, so
+        // its unwired output pins are the normal shape of the view.
         if matches!(entry.io_type, IOType::Out)
             && !connected.contains(&entry.id)
             && !is_nc_entry(entry)
+            && !entry.synthetic
         {
             let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
@@ -682,6 +690,10 @@ fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult
         ) && !connected.contains(&entry.id)
             && !entry.class_name.is_empty()
             && !is_nc_entry(entry)
+            // Same synthetic-wrapper carve-out as E4112/E4116: a virtually-
+            // instantiated component/interface is never wired by definition,
+            // so its boundary ports are the normal shape of the view.
+            && !entry.synthetic
         {
             let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
