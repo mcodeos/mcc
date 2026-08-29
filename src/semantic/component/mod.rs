@@ -39,6 +39,9 @@ use std::sync::Arc;
 pub struct CondPins {
     pub if_blocks: Vec<(McCondition, McPins)>,
     pub else_pins: Option<McPins>,
+    /// Source span of the whole `if`/`else if`/`else` chain (byte range in `uri`),
+    /// so diagnostics point at the conditional block instead of the component name.
+    pub span: Range<usize>,
 }
 
 /// A conditional attribute block: a condition and its parsed attributes
@@ -46,6 +49,8 @@ pub struct CondPins {
 pub struct CondAttrs {
     pub if_blocks: Vec<(McCondition, McAttributes)>,
     pub else_attrs: Option<McAttributes>,
+    /// Source span of the whole `if`/`else if`/`else` chain (byte range in `uri`).
+    pub span: Range<usize>,
 }
 
 #[derive(Debug)]
@@ -221,6 +226,12 @@ impl McComponent {
             for child in body_subnodes.iter() {
                 let child_type = child.get_type();
                 if child_type == MCAST_COND_IF {
+                    // The `if` chain node nests every `else if` / `else` branch
+                    // beneath it, so its span covers the whole conditional block.
+                    // Diagnostics for the chain anchor here instead of at the
+                    // component declaration line.
+                    let chain_span =
+                        (child.get_pos() as usize)..((child.get_pos() + child.get_len()) as usize);
                     if let Some(conds_obj) = McConds::new(&child) {
                         // Try to evaluate with default params first
                         if !default_params.is_empty() {
@@ -285,6 +296,7 @@ impl McComponent {
                             cond_pins.push(CondPins {
                                 if_blocks: if_pin_blocks,
                                 else_pins,
+                                span: chain_span.clone(),
                             });
                         }
 
@@ -329,6 +341,7 @@ impl McComponent {
                             cond_attrs.push(CondAttrs {
                                 if_blocks: if_attr_blocks,
                                 else_attrs,
+                                span: chain_span.clone(),
                             });
                         }
                     }

@@ -7,6 +7,7 @@
 //! Checks:
 //!   T3 — empty conditional body (if-block with no pins/attrs)
 //!   T4 — conditional without else coverage (missing else branch)
+//!   COND_DUPLICATE — a later if/else-if branch repeats an earlier branch's condition
 //!   O3 — IO type on component pin (context-dependent warning)
 //!   O4 — `|` pin alternatives producing potentially conflicting net roles
 
@@ -28,6 +29,7 @@ impl ValidationCheck for CondsCheck {
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_empty_cond_body(acc); // T3
         check_missing_else(acc); // T4
+        check_duplicate_conditions(acc); // COND_DUPLICATE
         check_pin_io_context(acc); // O3
         check_pin_alt_roles(acc); // O4
         check_param_pin_name_collision(acc); // cross-CMIE
@@ -58,7 +60,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: Some(comp.span.start..comp.span.end),
+                        span: Some(cp.span.clone()),
                         message: format!(
                             "Component '{}': cond_pins[{}] if-block[{}] (cond={:?}) has an empty body. \
                              The condition selects no pins.",
@@ -74,7 +76,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: Some(comp.span.start..comp.span.end),
+                        span: Some(cp.span.clone()),
                         message: format!(
                             "Component '{}': cond_pins[{}] else-block has an empty body. \
                              No pins selected for the default case.",
@@ -94,7 +96,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: Some(comp.span.start..comp.span.end),
+                        span: Some(ca.span.clone()),
                         message: format!(
                             "Component '{}': cond_attrs[{}] if-block[{}] (cond={:?}) has an empty body. \
                              The condition selects no attributes.",
@@ -110,7 +112,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: Some(comp.span.start..comp.span.end),
+                        span: Some(ca.span.clone()),
                         message: format!(
                             "Component '{}': cond_attrs[{}] else-block has an empty body. \
                              No attributes selected for the default case.",
@@ -145,7 +147,7 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
                     check_name: "conds",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: Some(comp.span.start..comp.span.end),
+                    span: Some(cp.span.clone()),
                     message: format!(
                         "Component '{}': cond_pins[{}] has {} if-block(s) but no else block. \
                          Pins may be undefined for uncovered parameter values.",
@@ -164,7 +166,7 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
                     check_name: "conds",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: Some(comp.span.start..comp.span.end),
+                    span: Some(ca.span.clone()),
                     message: format!(
                         "Component '{}': cond_attrs[{}] has {} if-block(s) but no else block. \
                          Attributes may be undefined for uncovered parameter values.",
@@ -174,6 +176,69 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
                     ),
                     code: crate::errcodes::COND_IF_WITHOUT_ELSE,
                 });
+            }
+        }
+    }
+}
+
+// ============================================================================
+// COND_DUPLICATE: Duplicate condition within one if/else-if chain
+// ============================================================================
+
+/// A later `else if` that repeats an earlier branch's condition verbatim is
+/// dead code — had the earlier condition been true, that branch would already
+/// have been selected, so the duplicate can never match. Comparison is exact
+/// structural equality of the parsed condition (no implication checking).
+fn check_duplicate_conditions(acc: &mut CheckAccumulator) {
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
+    for entry in comps.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        let comp = entry.value();
+
+        for (idx, ca) in comp.cond_attrs.iter().enumerate() {
+            for (bidx, (cond, _)) in ca.if_blocks.iter().enumerate() {
+                if let Some(pidx) = ca.if_blocks[..bidx]
+                    .iter()
+                    .position(|(prev, _)| prev == cond)
+                {
+                    acc.push(CheckResult {
+                        check_name: "conds",
+                        severity: CheckSeverity::Warning,
+                        uri: Some(uri.clone()),
+                        span: Some(ca.span.clone()),
+                        message: format!(
+                            "Component '{}': cond_attrs[{}] if-block[{}] repeats the condition \
+                             of if-block[{}] ({}) — the later branch can never be selected.",
+                            comp.name, idx, bidx, pidx, cond
+                        ),
+                        code: crate::errcodes::COND_DUPLICATE,
+                    });
+                }
+            }
+        }
+
+        for (idx, cp) in comp.cond_pins.iter().enumerate() {
+            for (bidx, (cond, _)) in cp.if_blocks.iter().enumerate() {
+                if let Some(pidx) = cp.if_blocks[..bidx]
+                    .iter()
+                    .position(|(prev, _)| prev == cond)
+                {
+                    acc.push(CheckResult {
+                        check_name: "conds",
+                        severity: CheckSeverity::Warning,
+                        uri: Some(uri.clone()),
+                        span: Some(cp.span.clone()),
+                        message: format!(
+                            "Component '{}': cond_pins[{}] if-block[{}] repeats the condition \
+                             of if-block[{}] ({}) — the later branch can never be selected.",
+                            comp.name, idx, bidx, pidx, cond
+                        ),
+                        code: crate::errcodes::COND_DUPLICATE,
+                    });
+                }
             }
         }
     }

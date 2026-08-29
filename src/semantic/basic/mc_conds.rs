@@ -14,7 +14,10 @@ pub struct McCond {
     pub block: AstNode,
 }
 
-#[derive(Debug, Clone)]
+/// Structural equality (PartialEq) lets the validator detect a condition that
+/// exactly duplicates an earlier branch of the same if/else-if chain — the
+/// later branch is dead code.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McCondition {
     Eq {
         left: McCondOperand,
@@ -58,7 +61,7 @@ pub enum McCondition {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McCondOperand {
     Ident(McIds),
     Literal(String),

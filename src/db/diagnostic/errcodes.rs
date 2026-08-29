@@ -1178,6 +1178,10 @@ pub const PARAM_PIN_NAME_SHADOW: u32 = 5458;
 /// Module is a stub.
 pub const MODULE_STUB: u32 = 5459;
 
+/// A later if/else-if branch duplicates an earlier branch's condition —
+/// the later branch can never be selected.
+pub const COND_DUPLICATE: u32 = 5460;
+
 // ============================================================================
 // Pass3: hardware checks (5500-5549)
 // ============================================================================
@@ -1585,6 +1589,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PIN_IO_MIX_ANALOG_POWER, "Pin mixes Analog and Power IO types.", "Pin mixes Analog and Power IO types."),
     entry!(PARAM_PIN_NAME_SHADOW, "Parameter shares its name with a pin.", "Parameter shares its name with a pin."),
     entry!(MODULE_STUB, "Module is a stub.", "Module is a stub."),
+    entry!(COND_DUPLICATE, "Duplicate condition in if/else-if chain.", "A later if/else-if branch duplicates an earlier branch's condition, so it can never be selected."),
     // ---- section ----
     entry!(HW_POWER_PINS_EXCESS, "Too many power pins.", "Too many power pins."),
     entry!(HW_PIN_NUMBER_GAP, "Pin numbers have gaps.", "Pin numbers have gaps."),
