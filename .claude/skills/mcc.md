@@ -1017,7 +1017,7 @@ curl -X POST http://127.0.0.1:8080/rpc \
 | 5351-5357          | Instance / attribute checks      | Reserved keyword, arg count, nesting too deep                 |
 | 5401-5412          | Enum / expression checks         | Duplicate value, reversed range, `this` at top level          |
 | 5451-5459          | Condition blocks                 | Empty body, if without else, NC at component level            |
-| 5501-5511          | Hardware checks                  | Power pins excess, pin number gaps, NC contiguous             |
+| 5501-5510          | Hardware checks                  | Power pins excess, pin number gaps, NC contiguous             |
 | 5551-5552          | Type / unit compatibility        | Free closure variable, incompatible types                     |
 | 5641-5643          | Global diagnostics               | Unused param/port, untyped param                              |
 | 6001-6004          | ERC                              | Single-point net, unconnected port, multi-drive, floating net |

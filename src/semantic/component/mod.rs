@@ -91,6 +91,15 @@ impl McComponent {
         }
     }
 
+    /// Whether this component has any pin definitions: static pins, dynamic
+    /// (range) pins, or conditional pin blocks. Conditional pins are stored
+    /// separately in `cond_pins` (evaluated at instantiation time when the
+    /// governing params are bound), so a component whose pins live inside
+    /// `if`/`else` blocks still counts as having pins here.
+    pub fn has_pin_defs(&self) -> bool {
+        self.pins.has_any_pins() || !self.cond_pins.is_empty()
+    }
+
     pub fn new(node: &AstNode, uri: &McURI) -> Option<Self> {
         // MCK_COMPONENT
         // |- MCAST_NAME - MCAST_PARAMS (option) - MCAST_BODY

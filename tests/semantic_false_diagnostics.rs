@@ -322,6 +322,60 @@ module main
     assert!(!has_code(&result, 4102), "unexpected E4102: {result}");
 }
 
+#[test]
+fn role_peer_multi_role_list_matches_defined_roles() {
+    // `peer = [Master, Slave]` refers to multiple roles, each defined earlier
+    // in the same interface. The check must compare each member individually,
+    // not the whole bracket-list text (which never equals a single role name).
+    let source = r#"interface UART.RS485
+{
+    role Master
+    {
+        name = "RS485 Master"
+    }
+    role Slave
+    {
+        name = "RS485 Slave"
+    }
+    role Repeater
+    {
+        name = "RS485 Repeater"
+        peer = [Master, Slave]
+    }
+}
+
+module main
+{
+}
+"#;
+    let result = parse(source);
+    assert!(!has_code(&result, 5506), "unexpected E5506: {result}");
+}
+
+#[test]
+fn role_peer_list_missing_member_still_reports() {
+    // A peer list with a genuinely undefined member must still be flagged.
+    let source = r#"interface UART.RS485
+{
+    role Master
+    {
+        name = "RS485 Master"
+    }
+    role Repeater
+    {
+        name = "RS485 Repeater"
+        peer = [Master, Slave]
+    }
+}
+
+module main
+{
+}
+"#;
+    let result = parse(source);
+    assert!(has_code(&result, 5506), "expected E5506: {result}");
+}
+
 // The synthetic-wrapper carve-out (`is_synthetic_module`) must only exempt
 // fabricated `VIRT_<T>` modules, never real user modules. These guards assert
 // genuine single-character / shadowing names are still flagged.

@@ -1051,9 +1051,6 @@ pub const COMPONENT_MIXED_CASE: u32 = 5257;
 /// Bus has a duplicate member.
 pub const BUS_DUPLICATE_MEMBER: u32 = 5258;
 
-/// Component has functions with the same body.
-pub const COMPONENT_DUPLICATE_FUNC_BODY: u32 = 5259;
-
 /// Define has no attributes.
 pub const DEFINE_NO_ATTRS: u32 = 5260;
 
@@ -1206,14 +1203,8 @@ pub const HW_IFACE_ROLE_UNBOUND: u32 = 5506;
 /// All pins have the same IO type.
 pub const HW_ALL_SAME_IO_TYPE: u32 = 5507;
 
-/// Has a name but no description.
-pub const HW_NAME_WITHOUT_DESC: u32 = 5509;
-
 /// Function parameter shadows a pin name.
 pub const HW_FUNC_PARAM_SHADOWS_PIN: u32 = 5510;
-
-/// Interface is defined but never bound.
-pub const HW_IFACE_NEVER_BOUND: u32 = 5511;
 
 // ============================================================================
 // Pass3: type / unit compatibility (5550-5599)
@@ -1553,7 +1544,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_CLASS_NOT_LOADED, "Instance references a class that is not loaded.", "Instance references a class that is not loaded."),
     entry!(COMPONENT_MIXED_CASE, "Component name uses mixed case; convention is UPPER_SNAKE.", "Component name uses mixed case; convention is UPPER_SNAKE."),
     entry!(BUS_DUPLICATE_MEMBER, "Bus has a duplicate member.", "Bus has a duplicate member."),
-    entry!(COMPONENT_DUPLICATE_FUNC_BODY, "Component has functions with the same body.", "Component has functions with the same body."),
     entry!(DEFINE_NO_ATTRS, "Define has no attributes.", "Define has no attributes."),
     entry!(DEFINE_NON_ATTR_CLAUSE, "Define contains a non-attribute clause.", "Define contains a non-attribute clause."),
     entry!(IFACE_PIN_COUNT_MISMATCH, "Interface expects more pins than are bound.", "Interface expects more pins than are bound."),
@@ -1603,9 +1593,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(HW_NC_PINS_CONTIGUOUS, "Consecutive NC pins.", "Consecutive NC pins."),
     entry!(HW_IFACE_ROLE_UNBOUND, "Interface role is never bound.", "Interface role is never bound."),
     entry!(HW_ALL_SAME_IO_TYPE, "All pins have the same IO type.", "All pins have the same IO type."),
-    entry!(HW_NAME_WITHOUT_DESC, "Has a name but no description.", "Has a name but no description."),
+
     entry!(HW_FUNC_PARAM_SHADOWS_PIN, "Function parameter shadows a pin name.", "Function parameter shadows a pin name."),
-    entry!(HW_IFACE_NEVER_BOUND, "Interface is defined but never bound.", "Interface is defined but never bound."),
     // ---- section ----
     entry!(TYPE_INCOMPATIBLE, "Incompatible types or unit types.", "Incompatible types or unit types."),
     // ---- section ----
