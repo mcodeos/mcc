@@ -192,7 +192,6 @@ fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
             continue;
         }
         let comp = entry.value();
-        let comp_span = Some(comp.span.start..comp.span.end);
 
         // Inspect conditional pin conditions
         for (idx, cp) in comp.cond_pins.iter().enumerate() {
@@ -201,7 +200,7 @@ fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
                     push_single_binary_diag(
                         acc,
                         &uri,
-                        &comp_span,
+                        &Some(cp.span.clone()),
                         &comp.name.to_string(),
                         &format!("cond_pins[{}] if-block[{}]", idx, bidx),
                     );
@@ -216,7 +215,7 @@ fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
                     push_single_binary_diag(
                         acc,
                         &uri,
-                        &comp_span,
+                        &Some(ca.span.clone()),
                         &comp.name.to_string(),
                         &format!("cond_attrs[{}] if-block[{}]", idx, bidx),
                     );
