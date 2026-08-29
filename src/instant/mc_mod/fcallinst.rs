@@ -1666,7 +1666,7 @@ impl McModuleInst {
                 // Build ExpansionContext for this stmt (lifetime scoped per iteration)
                 let expansion_ctx = this
                     .find_component(inst_name)
-                    .map(|comp| ExpansionContext::new(comp, bindings, this));
+                    .map(|comp| ExpansionContext::new(comp));
                 let substituted = if bindings.is_empty() {
                     stmt.clone()
                 } else {
@@ -1722,7 +1722,7 @@ impl McModuleInst {
                     self.with_func_stmt(func_def, None, |this| -> Result<(), _> {
                         let expansion_ctx = this
                             .find_component(inst_name)
-                            .map(|comp| ExpansionContext::new(comp, bindings, this));
+                            .map(|comp| ExpansionContext::new(comp));
                         let substituted = if bindings.is_empty() {
                             stmt.clone()
                         } else {
@@ -1890,15 +1890,6 @@ impl McModuleInst {
     // ========================================================================
     // Label/reference prefixing inside instance method bodies
     // ========================================================================
-
-    /// Prefix labels/identifiers in a connection line with instance name.
-    ///
-    /// When expanding instance method bodies, local labels need to be prefixed
-    /// with the instance name to avoid conflicts with parent module labels.
-    pub(super) fn prefix_instance_stmt(phrase: &McPhrase, inst_name: &str) -> McPhrase {
-        let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
-        Self::prefix_instance_phrase_with_skip(phrase, inst_name, &empty)
-    }
 
     /// ── Iter-2.3 ────────────────────────────────────────────────────────
     /// skip-aware version: names in the `skip` set are **not** prefixed with inst_name.

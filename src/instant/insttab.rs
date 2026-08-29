@@ -15,7 +15,6 @@
 //! ```
 
 use super::mc_mod::McModuleInst;
-use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::common::IOType;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -188,18 +187,6 @@ pub(crate) fn is_supply_name(s: &str) -> bool {
         }
     }
     false
-}
-
-/// Extract voltage from interface params (first UValue param with Volt unit).
-pub fn extract_voltage_from_params(params: &[McParamValue]) -> Option<Volt> {
-    for p in params {
-        if let McParamValue::UValue(uv) = p {
-            if matches!(uv.unit(), crate::semantic::basic::mc_uval::McUnit::Volt) {
-                return Some(Volt { value: uv.value() });
-            }
-        }
-    }
-    None
 }
 
 // ============================================================================

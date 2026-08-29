@@ -595,22 +595,13 @@ pub(crate) fn add_result(
 pub enum CmieKind {
     Component,
     Module,
+    /// Interface search narrowing — the interface feature is not yet fully
+    /// implemented, so no caller constructs this variant yet.
+    #[allow(dead_code)]
     Interface,
     Enum,
     /// Search all container types (no narrowing).
     Any,
-}
-
-impl CmieKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Component => "component",
-            Self::Module => "module",
-            Self::Interface => "interface",
-            Self::Enum => "enum",
-            Self::Any => "any",
-        }
-    }
 }
 
 /// Reference to a resolved CMIE container — result of [`find_container`].
@@ -620,27 +611,12 @@ impl CmieKind {
 ///
 /// After obtaining a `ContainerRef`, callers resolve members through the
 /// container's unified category chain ([`container_scope`], design
-/// name-resolution-chain-modular.md §3.3) or its thin `find_inst_with_span`
-/// wrapper.
+/// name-resolution-chain-modular.md §3.3).
 pub enum ContainerRef {
     Component(Arc<crate::semantic::component::McComponent>),
     Module(Arc<crate::semantic::module::McModule>),
     Interface(Arc<crate::semantic::mc_ifs::McInterface>),
     Enum(Arc<crate::semantic::mc_enum::McEnumDef>),
-}
-
-impl ContainerRef {
-    /// Delegate to the container's unified category chain
-    /// ([`container_scope`], design name-resolution-chain-modular.md §3.3) —
-    /// thin wrapper returning the `(inst, span)` pair.
-    pub fn find_inst_with_span(
-        &self,
-        name: &str,
-    ) -> Option<(crate::McInstance, Option<Range<usize>>)> {
-        container_scope(self)
-            .resolve(name)
-            .map(|r| (r.inst, r.span))
-    }
 }
 
 /// Cross-library container discovery — the bridging function between global
@@ -896,34 +872,6 @@ pub fn lookup_sub_def(
         }
     }
 
-    None
-}
-
-// === fn find_param_def_span( ===
-/// Helper: find a param def span by name using the public iterator.
-pub(crate) fn find_param_def_span(
-    params: &crate::semantic::basic::mc_param::McParamDeclares,
-    name: &str,
-) -> Option<Range<usize>> {
-    for (n, span) in params.iter_defs_with_span() {
-        if n == name {
-            return Some(span);
-        }
-    }
-    None
-}
-
-// === fn find_param_port_span( ===
-/// Helper: find a param port span by name using the public iterator.
-pub(crate) fn find_param_port_span(
-    params: &crate::semantic::basic::mc_param::McParamDeclares,
-    name: &str,
-) -> Option<Range<usize>> {
-    for (n, span) in params.iter_ports_with_span() {
-        if n == name {
-            return Some(span);
-        }
-    }
     None
 }
 

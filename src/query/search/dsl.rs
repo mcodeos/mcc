@@ -472,14 +472,6 @@ impl<'a> Parser<'a> {
         self.src[self.pos..].chars().next()
     }
 
-    fn peek_at(&self, offset: usize) -> Option<char> {
-        self.src[self.pos + offset..].chars().next()
-    }
-
-    fn starts_with_ci(&self, kw: &str) -> bool {
-        self.src[self.pos..].to_ascii_lowercase().starts_with(kw)
-    }
-
     fn skip_ws(&mut self) {
         while let Some(c) = self.peek() {
             if c.is_whitespace() {
@@ -859,20 +851,6 @@ impl<'a> Parser<'a> {
         Ok(s)
     }
 
-    fn starts_expression(&self) -> bool {
-        let s = self.src[self.pos..].trim_start();
-        if s.is_empty() {
-            return false;
-        }
-        let c = s.chars().next().unwrap();
-        c == '('
-            || s.to_ascii_lowercase().starts_with("not ")
-            || s.to_ascii_lowercase().starts_with("not\t")
-            || s.to_ascii_lowercase().starts_with("not(")
-            || s.to_ascii_lowercase().starts_with("not\r")
-            || matches!(c, 'a'..='z' | 'A'..='Z' | '_')
-    }
-
     fn compile_comparison(
         &self,
         field: Field,
@@ -1065,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn si_M_vs_m_distinct() {
+    fn si_m_vs_m_distinct() {
         // M (mega) vs m (milli)
         let v = |s: &str| match compile(&format!("attr(x)>{s}")).unwrap() {
             Expr::Predicate(Predicate::Comparison(c)) => match c.value {

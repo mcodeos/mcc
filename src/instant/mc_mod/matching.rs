@@ -108,24 +108,6 @@ pub fn pair_members_to_lanes(members: &[String], arg_lanes: &[NetPoint]) -> Vec<
 // Checked zip (§4 Z1/Z2)
 // ============================================================================
 
-/// Pair two sequences positionally; equal width only (Z1). An unequal width is
-/// a hard error (Z2) — never flatten and never drop excess members. Returns
-/// `Err((left_len, right_len))` on mismatch.
-pub fn zip_checked<A, B>(left: &[A], right: &[B]) -> Result<Vec<(A, B)>, (usize, usize)>
-where
-    A: Clone,
-    B: Clone,
-{
-    if left.len() != right.len() {
-        return Err((left.len(), right.len()));
-    }
-    Ok(left
-        .iter()
-        .zip(right.iter())
-        .map(|(a, b)| (a.clone(), b.clone()))
-        .collect())
-}
-
 // ============================================================================
 // Name helpers
 // ============================================================================
