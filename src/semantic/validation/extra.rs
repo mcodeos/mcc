@@ -188,6 +188,9 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
                 // Interface members are stored as "I2C0.SCL", "I2C0.SDA" in
                 // pin_id_to_names, so we match both exact and dot-prefixed forms.
                 // For list-form names like [VDD, GND], match the list members.
+                // For embedded-square names like I2C[SDA, SCL] (single IDA
+                // segment, §2.1) pins register as prefix+member (I2CSDA, I2CSCL)
+                // — see derive_interface_subnames.
                 let bound_count = if iface.name.is_list() {
                     if let Some(members) = iface.name.list_members() {
                         phys_pins
@@ -197,6 +200,12 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
                     } else {
                         0
                     }
+                } else if let Some(members) = iface.name.embedded_square_members() {
+                    let prefix = iface.name.base_name();
+                    phys_pins
+                        .iter()
+                        .filter(|n| members.iter().any(|m| n.as_str() == format!("{prefix}{m}")))
+                        .count()
                 } else {
                     let dot_prefix = format!("{}.", pin_name);
                     phys_pins
