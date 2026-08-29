@@ -1,0 +1,22 @@
+{
+  "total": 1,
+  "survived": 1,
+  "resolved_late": 0,
+  "by_kind_form": {
+    "deferred": {},
+    "fallback": {
+      "this.y.2": 1
+    },
+    "phantom": {},
+    "resolved_many": {},
+    "unresolved_ref": {},
+    "wire": {}
+  },
+  "rows": [
+    {
+      "kind": "fallback",
+      "form": "this.y.2",
+      "site": "this.y.N multi-segment miss"
+    }
+  ]
+}

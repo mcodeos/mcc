@@ -1,0 +1,27 @@
+{
+  "total": 2,
+  "survived": 2,
+  "resolved_late": 0,
+  "by_kind_form": {
+    "deferred": {},
+    "fallback": {
+      "([GND, X], r1)": 2
+    },
+    "phantom": {},
+    "resolved_many": {},
+    "unresolved_ref": {},
+    "wire": {}
+  },
+  "rows": [
+    {
+      "kind": "fallback",
+      "form": "([GND, X], r1)",
+      "site": "eval_port_elems left shape_mismatch"
+    },
+    {
+      "kind": "fallback",
+      "form": "([GND, X], r1)",
+      "site": "eval_port_elems right shape_mismatch"
+    }
+  ]
+}
