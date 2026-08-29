@@ -43,6 +43,7 @@ use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::{IOType, McCMIE};
 use crate::semantic::mc_func::McFunction;
 use crate::semantic::module::McModule;
+use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use crate::vector::model::trunk::TrunkKind;
 use crate::{current_uri, McIds, McURI};
 use std::collections::{HashMap, HashSet};
@@ -725,6 +726,17 @@ impl McModuleInst {
                 let key = format!("@_phantom_{type_name}");
                 let counter = self.auto_inst_counter.entry(key.clone()).or_insert(0);
                 *counter += 1;
+                // Failure ledger (observation-only): an `.in`/`.out` access to a
+                // component whose type declares no such pin is isolated into a
+                // phantom instance (points.rs P7/P2 fix) — silently broken.
+                ledger::record(
+                    LedgerEntry::new(
+                        LedgerKind::Phantom,
+                        type_name.to_string(),
+                        self.name.clone(),
+                    )
+                    .with_action(LedgerAction::Silent),
+                );
                 (format!("{key}_{counter}"), 0)
             }
             AutoNameKind::Stub => {

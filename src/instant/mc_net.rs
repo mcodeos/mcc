@@ -13,6 +13,7 @@
 //! - `NetTable`       - Network Table (union-find)
 
 use crate::semantic::common::{ConnDir, ConnOp, IOType, SourcePos};
+use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use crate::vector::model::trunk::TrunkCtx;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -147,6 +148,10 @@ impl NetPoint {
                 .lock()
                 .unwrap()
                 .push((p.to_string(), None));
+            ledger::record(
+                LedgerEntry::new(LedgerKind::Phantom, p.to_string(), "net-point")
+                    .with_action(LedgerAction::Silent),
+            );
             quarantine
         } else {
             p.to_string()
@@ -172,6 +177,10 @@ impl NetPoint {
                 .lock()
                 .unwrap()
                 .push((p.to_string(), None));
+            ledger::record(
+                LedgerEntry::new(LedgerKind::Phantom, p.to_string(), "net-point")
+                    .with_action(LedgerAction::Silent),
+            );
             quarantine
         } else {
             p.to_string()

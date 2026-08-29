@@ -168,6 +168,7 @@ pub mod hw;
 pub mod imports;
 pub mod insts;
 pub mod interface;
+pub mod ledger;
 pub mod naming;
 pub mod nets;
 pub mod pins;
