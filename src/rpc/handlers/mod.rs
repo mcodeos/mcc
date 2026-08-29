@@ -334,6 +334,33 @@ pub(crate) fn run_full_build_envelope(
     ws_name: &str,
     _include_system: bool,
 ) -> RpcResult {
+    // Directory target (no project manifest) → directory batch mode: parse
+    // every `.mc` file recursively and build each file's default top (§19.5
+    // rule 3, use-design.md). A directory that *does* have a manifest is a
+    // misbehaving caller — resolve its project entry and build that instead.
+    if entry.is_dir() {
+        if let Some(manifest_path) = crate::cli::datadir::find_manifest_in(entry) {
+            let content = std::fs::read_to_string(&manifest_path).ok();
+            if let Some(rel) = content
+                .as_deref()
+                .and_then(|c| parse_manifest_field(c, "entry"))
+            {
+                let entry_file = manifest_path.parent().unwrap_or(entry).join(&rel);
+                if entry_file.is_file() {
+                    return run_full_build_envelope(
+                        &entry_file,
+                        top,
+                        command,
+                        ws_kind,
+                        ws_name,
+                        true,
+                    );
+                }
+            }
+        }
+        return run_full_build_dir_envelope(entry, top, command, ws_kind, ws_name);
+    }
+
     let t0 = std::time::Instant::now();
     let uri = entry.to_string_lossy().to_string();
     let mc_uri = McURI::from(uri.as_str());
@@ -401,6 +428,194 @@ pub(crate) fn run_full_build_envelope(
     pass2["diagnostics"] = Value::Array(take_diags("pass2"));
 
     // ── Summary, mirroring ResultBuilder::finish() ──
+    let summary = build_envelope_summary(&pass0, &pass1, &pass2, Some(&inst), t0);
+
+    Ok(json!({
+        "command": command,
+        "workspace": { "kind": ws_kind, "name": ws_name },
+        "pass0": pass0,
+        "pass1": pass1,
+        "pass2": pass2,
+        "summary": summary,
+    }))
+}
+
+/// Directory batch build for a build target that is a directory with no
+/// project manifest (use-design.md §19.5 rule 3 — `mcc build <dir>` / the
+/// extension's Build Project on a toml-less folder).
+///
+/// Every `.mc` file under `entry` (recursively, hidden dirs skipped) is loaded
+/// and its Pass 1 diagnostics collected — the whole folder is parsed, not a
+/// single entry. Pass 2 then builds each file's default top (modules directly,
+/// components/interfaces virtually instantiated) and aggregates the
+/// diagnostics; a file whose build fails is recorded as a Pass 2 error and
+/// skipped, so one bad file never aborts the folder report. The envelope
+/// carries the first successfully-built tree (mirroring the single-file
+/// contract). An explicit `top` builds that target from the first file that
+/// declares it instead of per-file defaults.
+fn run_full_build_dir_envelope(
+    entry: &Path,
+    top: Option<&str>,
+    command: &str,
+    ws_kind: &str,
+    ws_name: &str,
+) -> RpcResult {
+    let t0 = std::time::Instant::now();
+    let root_str = entry.to_string_lossy().to_string();
+
+    // ── Diagnostic cursor (same phase batching as the single-file path) ──
+    let mut cursor = 0usize;
+    let mut take_diags = |phase: &str| -> Vec<Value> {
+        let all = crate::mcc_diagnose_all();
+        let slice = if cursor <= all.len() {
+            &all[cursor..]
+        } else {
+            &[]
+        };
+        let out: Vec<Value> = slice.iter().map(|d| mcc_diag_to_json(d, phase)).collect();
+        cursor = all.len();
+        out
+    };
+
+    let pass0 = json!({ "loaded_files": [], "diagnostics": take_diags("pass0") });
+
+    // Parse the whole folder: every file + its `use` closure, shared dedup.
+    let files = crate::mcc_load_directory_all(entry);
+
+    let mut pass1 = collect_pass1(&root_str, true);
+    pass1["diagnostics"] = Value::Array(take_diags("pass1"));
+    // Same contract as the single-file path: ports never populated locally.
+    pass1["definitions"]["ports"] = Value::Array(vec![]);
+
+    // ── Pass 2: per-file default top build, aggregated ──
+    let mut top_name = String::new();
+    let mut first_inst: Option<crate::MccProjectTree> = None;
+    let mut failures: Vec<Value> = Vec::new();
+    let build_one =
+        |target: &str, file: &Path, failures: &mut Vec<Value>| -> Option<crate::MccProjectTree> {
+            let uri = file.to_string_lossy().to_string();
+            let mc_uri = McURI::from(uri.as_str());
+            let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::mcc_virtual_build(target, &mc_uri)
+            }));
+            match built {
+                Ok(Ok(inst)) => Some(inst),
+                Ok(Err(e)) => {
+                    failures.push(build_failure_diag(
+                        "pass2",
+                        &uri,
+                        &format!("build failed: {e}"),
+                    ));
+                    None
+                }
+                Err(_) => {
+                    failures.push(build_failure_diag(
+                        "pass2",
+                        &uri,
+                        "Pass2 build panicked (engine bug); skipped",
+                    ));
+                    None
+                }
+            }
+        };
+
+    if let Some(t) = top {
+        // Explicit top: build it from the first file that declares it.
+        for f in &files {
+            let uri = f.to_string_lossy().to_string();
+            let mc_uri = McURI::from(uri.as_str());
+            let declares = crate::mcc_get_modules_in_file(&mc_uri)
+                .iter()
+                .chain(crate::mcc_get_components_in_file(&mc_uri).iter())
+                .chain(crate::mcc_get_interfaces_in_file(&mc_uri).iter())
+                .any(|name| name == t);
+            if !declares {
+                continue;
+            }
+            if let Some(inst) = build_one(t, f, &mut failures) {
+                top_name = t.to_string();
+                first_inst = Some(inst);
+            }
+            break;
+        }
+    } else {
+        for f in &files {
+            let uri = f.to_string_lossy().to_string();
+            let mc_uri = McURI::from(uri.as_str());
+            let targets = match crate::mcc_virtual_resolve_targets(&mc_uri, None) {
+                Ok(t) => t,
+                Err(_) => continue, // pass1 already reports the file's problems
+            };
+            let Some(tgt) = targets.first().cloned() else {
+                continue;
+            };
+            // Build each file's default top; keep the first successful tree.
+            if first_inst.is_none() {
+                if let Some(inst) = build_one(&tgt, f, &mut failures) {
+                    top_name = tgt;
+                    first_inst = Some(inst);
+                }
+            } else {
+                // Only collect diagnostics for the remaining files.
+                let _ = build_one(&tgt, f, &mut failures);
+            }
+        }
+    }
+
+    let mut pass2_diags = take_diags("pass2");
+    pass2_diags.extend(failures);
+    let pass2 = match &first_inst {
+        Some(inst) => {
+            let mut p2 = collect_pass2(&top_name, inst);
+            p2["diagnostics"] = Value::Array(pass2_diags);
+            p2
+        }
+        None => json!({
+            "top": top_name,
+            "instances": Value::Null,
+            "connections": [],
+            "nets": [],
+            "diagnostics": pass2_diags,
+        }),
+    };
+
+    let summary = build_envelope_summary(&pass0, &pass1, &pass2, first_inst.as_ref(), t0);
+
+    Ok(json!({
+        "command": command,
+        "workspace": { "kind": ws_kind, "name": ws_name },
+        "pass0": pass0,
+        "pass1": pass1,
+        "pass2": pass2,
+        "summary": summary,
+    }))
+}
+
+/// An error diagnostic JSON for a Pass 2 build failure, in the same shape as
+/// [`mcc_diag_to_json`] so the client's Diagnostic type deserializes it.
+fn build_failure_diag(phase: &str, uri: &str, msg: &str) -> Value {
+    json!({
+        "phase": phase,
+        "severity": "error",
+        "code": 32107,
+        "message": msg,
+        "location": { "file": uri, "line": 0, "column": 0, "pos": 0, "len": 0 },
+        "suggestions": [],
+        "related": [],
+    })
+}
+
+/// Assemble the envelope summary from the three phase snapshots, mirroring
+/// `ResultBuilder::finish()`. `inst` is the Pass 2 tree that produced
+/// `pass2`; `None` (directory mode with no buildable file) zeroes the used /
+/// instance statistics while namespace class counts still come from pass1.
+fn build_envelope_summary(
+    pass0: &Value,
+    pass1: &Value,
+    pass2: &Value,
+    inst: Option<&crate::MccProjectTree>,
+    t0: std::time::Instant,
+) -> Value {
     let all_diags: Vec<&Value> = pass0["diagnostics"]
         .as_array()
         .into_iter()
@@ -472,13 +687,15 @@ pub(crate) fn run_full_build_envelope(
     let mut used_components = std::collections::BTreeSet::new();
     let mut module_insts = 0usize;
     let mut component_insts = 0usize;
-    tally_build_stats(
-        &inst,
-        &mut used_modules,
-        &mut used_components,
-        &mut module_insts,
-        &mut component_insts,
-    );
+    if let Some(inst) = inst {
+        tally_build_stats(
+            inst,
+            &mut used_modules,
+            &mut used_components,
+            &mut module_insts,
+            &mut component_insts,
+        );
+    }
     let is_system_class = |name: &str,
                            system: &std::collections::HashSet<String>,
                            project: &std::collections::HashSet<String>| {
@@ -493,7 +710,7 @@ pub(crate) fn run_full_build_envelope(
         .filter(|n| is_system_class(n, &sys_comps, &proj_comps))
         .count();
 
-    let summary = json!({
+    json!({
         "module_count": module_count,
         "component_count": component_count,
         "interface_count": interface_count,
@@ -516,16 +733,7 @@ pub(crate) fn run_full_build_envelope(
             "module_insts": module_insts,
             "component_insts": component_insts,
         },
-    });
-
-    Ok(json!({
-        "command": command,
-        "workspace": { "kind": ws_kind, "name": ws_name },
-        "pass0": pass0,
-        "pass1": pass1,
-        "pass2": pass2,
-        "summary": summary,
-    }))
+    })
 }
 
 /// Envelope `Diagnostic` JSON from an `mcc::Diagnostic`, mirroring the binary

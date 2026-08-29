@@ -401,6 +401,59 @@ component RES
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
+    /// Directory batch mode (unified principle, use-design §19.5 rule 3): a
+    /// no-toml folder passed to `build.full` recurses over every `.mc` file
+    /// (incl. subfolders), Pass1 covers all files, Pass2 builds each file's
+    /// default top, and the envelope carries the first successful tree.
+    #[test]
+    fn build_full_directory_batch() {
+        let _guard = parse_lock();
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let root = std::env::temp_dir().join(format!("mcc-dirbatch-{}", std::process::id()));
+        let sub = root.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(root.join("a.mc"), "module main\n{\n}\n").unwrap();
+        std::fs::write(
+            sub.join("b.mc"),
+            "component res\n{\n    Pin A, B;\n}\nmodule top2\n{\n}\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("c.mc"), "component cap\n{\n    Pin A, B;\n}\n").unwrap();
+
+        let resp = run_full_build_envelope(&root, None, "mcc build", "file", "test", true)
+            .expect("build.full dir ok");
+
+        // All three files (incl. the subfolder one) loaded in pass1.
+        let loaded = resp["pass1"]["loaded_files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| f["is_system"] == false)
+            .map(|f| f["uri"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            loaded.len(),
+            3,
+            "every .mc file under the folder must load: {loaded:?}"
+        );
+        assert!(
+            loaded.iter().any(|u| u.ends_with("sub/b.mc")),
+            "subfolder file must be included: {loaded:?}"
+        );
+        // a.mc `main` + sub/b.mc `top2` (c.mc defines only a component).
+        assert_eq!(resp["summary"]["module_count"], 2);
+
+        // Pass2: first file's default top; the component-only file is
+        // virtualized per-file, not an error that aborts the report.
+        assert_eq!(resp["pass2"]["top"], "main");
+        assert!(resp["pass2"]["instances"]["name"] == "main");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     /// Regression: `build.full` (the "mcc build" envelope) on a component-only
     /// file must succeed with the component as top instead of E32107.
     #[test]
