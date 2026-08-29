@@ -156,28 +156,23 @@ Note: `mcc <file> <top>` legacy shorthand is not supported; always pass the
 ### 2.1 `parse` — Parse & Analyze
 
 ```bash
-# Parse a single file
+# Parse a single file / project directory (auto-detects project.toml)
 mcc parse path/to/file.mc
-
-# Parse a project directory (auto-detects project.toml)
 mcc parse ./my-project
 
 # Parse a code snippet directly
 mcc parse --code "RES(100Ω, 250V)" --lib mcode
 
-# Parse with top module and visualization
-mcc parse example.mc --top main --viz
-
 # Parse-only, no instantiation
 mcc parse example.mc --pass1
 
-# Output as JSON
+# Parse + instantiate, or all the way through visualization
+mcc parse example.mc --pass2 --top main
+mcc parse example.mc --top main --viz
+
+# Output as JSON / show AST / limit tree depth
 mcc parse example.mc -f json-pretty -o result.json
-
-# Show AST
 mcc parse example.mc --ast
-
-# Limit tree depth
 mcc parse example.mc --top main --depth 3
 ```
 
@@ -232,10 +227,8 @@ mcc check example.mc --dlog
 ### 2.3 `build` — Manifest-driven Build
 
 ```bash
-# Build from project.toml in current directory
+# Build from project.toml in current directory (or with explicit entry)
 mcc build
-
-# Build with explicit entry file
 mcc build path/to/main.mc
 
 # Build with library and top module
@@ -243,12 +236,9 @@ mcc build path/to/main.mc --lib mcode --top my_top_module
 
 # With visualization
 mcc build --viz
-mcc build path/to/main.mc --viz
 
-# JSON output
+# JSON output / include system library in output
 mcc build path/to/main.mc -f json -o output.json
-
-# Include system library in output
 mcc build --include-system
 ```
 
@@ -360,18 +350,11 @@ Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
 | `--type KIND`                 | —                                   | instances     | filter sub-instances by kind (component\|module\|label\|interface\|bus\|busref\|list)                                                 |
 | `--span`                      | —                                   | show all text | append `@start:end` source spans to `show all` file-layer details (hidden by default)                                                 |
 | `-l, --lib NAME` (repeatable) | all                                 | all           | load a library into scope (mcode, installed, or project)                                                                              |
-| `-f, --format FMT`            | all                                 | all           | `text` (default) / `json` / `json-pretty` / `yaml` / `csv`                                                                            |
-| `-o, --output FILE`           | all                                 | all           | write rendered output to a file instead of stdout                                                                                     |
-| `-L, --local`                 | all                                 | all           | run locally, skip delegation to a running `mcc start` server                                                                          |
-| `-c, --cwd DIR`               | all                                 | all           | change working directory before running                                                                                               |
-| `-e, --entry FILE`            | all                                 | all           | entry file for browse mode without a manifest                                                                                         |
 
-> All parameters are accepted by both commands; the matrix shows where each one
-> takes effect. Target-specific parameters (`--scope`, `--filter`, `--top`,
-> `--type`, `--span`) are silently ignored when used on a target they do not
-> apply to (e.g. `mcc show pins RES --scope system` ignores `--scope`).
-> Truly orthogonal parameters (`-F`, `-l`, `-f`, `-o`, `-L`, `-c`, `-e`) take
-> effect on every `list` / `show` target.
+> Target-specific parameters (`--scope`, `--filter`, `--top`, `--type`,
+> `--span`) are silently ignored on targets they don't apply to. Orthogonal
+> flags `-f`/`-o` (format/output), `-L` (local), `-c` (cwd), `-e` (entry) apply
+> to every `list` / `show` target.
 
 #### Common queries
 
@@ -622,102 +605,19 @@ Error format:
 # Health check
 curl -s -X POST http://127.0.0.1:8080/health
 
-# Server info / list all methods
+# JSON-RPC: one canonical call — swap method/params as needed (full reference below)
 curl -s -X POST http://127.0.0.1:8080/rpc \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"server.info","params":{},"id":1}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"server.methods","params":{},"id":2}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"check","params":{"uri":"/path/to/file.mc","libs":["mcode"]}}'
 
-# Initialize (load system libs)
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"init","params":{},"id":1}'
-
-# Parse a file / code snippet
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"parse","params":{"entry":"/path/to/file.mc","libs":["mcode"]}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"parse","params":{"entry":"/path/to/file.mc","content":"component FOO() { pins=[1=1,2=2] }","libs":["mcode"]}}'
-
-# Check file / code snippet
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"check","params":{"entry":"/path/to/file.mc","libs":["mcode"]}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"check","params":{"entry":"/path/to/file.mc","content":"component FOO() { pins=[1=1,2=2] }","libs":["mcode"]}}'
-
-# Semantic tokens + lapper symbols (LSP core)
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"sem","params":{"uri":"/path/to/file.mc"}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"sem","params":{"uri":"/path/to/file.mc","content":"use mcode\n\ncomponent MCU.FOO() { ... }"}}'
-
-# Go-to-definition / find references / hover / completion
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"def","params":{"name":"RES"}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"refs","params":{"name":"CAP"}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"hover","params":{"name":"RES","uri":"/path/to/file.mc"}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"completion","params":{"uri":"/path/to/file.mc","line":100,"column":10}}'
-
-# Show component / dump
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"show.component","params":{"name":"RES"}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"show.dump","params":{"name":"CAP"}}'
-
-# Get diagnostics / project symbols
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"diagnostics","params":{"uri":"/path/to/file.mc"},"id":5}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"project_symbols","params":{},"id":6}'
-
-# Search / query
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"defs.search","params":{"pattern":"RES","kind":"component"}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"defs.query","params":{"expr":"kind=component AND name=RES*","limit":50}}'
-
-# Dynamic file management
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"add_file","params":{"uri":"/path/to/new_file.mc"}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"remove_file","params":{"uri":"/path/to/file.mc"}}'
-
-# Build / export / ERC / report
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"build.full","params":{"entry":"/path/to/file.mc","top":"TOP","libs":["mcode"]}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"export","params":{"kind":"netlist","entry":"/path/to/file.mc","top":"TOP","libs":["mcode"]}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"erc","params":{}}'
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"report","params":{}}'
+# Representative params (method tables below are authoritative; server.methods/caps list live methods):
+#   parse / check   {"uri":"/path/to/file.mc","libs":["mcode"]}   # content: for inline snippets
+#   sem             {"uri":"/path/to/file.mc"}                     # LSP semantic tokens+symbols
+#   diagnostics     {"uri":"/path/to/file.mc"}
+#   def / refs      {"name":"RES"}                                 # go-to-def / references
+#   build.full      {"entry":"/path/to/file.mc","top":"TOP","libs":["mcode"]}
+#   show.*          {"name":"RES"}                                 # show.component/dump/all
+#   lib.*           {}                                              # lib.list / info / load / unload
 ```
 
 ### RPC Methods Reference
@@ -888,14 +788,14 @@ In `~/work/mo/mcc/.vscode/launch.json`:
 **"mcc"** — Debug a one-shot CLI run:
 
 - Program: `target/debug/mcc`
-- Args: `parse mc/projects/hbl/hbl.mc`
-- Env: `RUST_BACKTRACE=1`, `MCC_SYSTEM_ROOT=${workspaceFolder}/mc`
+- Args: `parse ../mcs/hbl/src/hbl.mc` (hbl project lives in `~/work/mo/mcs/hbl`)
+- Env: `RUST_BACKTRACE=1`
 - cwd: `${workspaceFolder}`
 
 ```bash
 # Equivalent command line
 cd ~/work/mo/mcc
-MCC_SYSTEM_ROOT=./mc RUST_BACKTRACE=1 cargo run -- parse mc/projects/hbl/hbl.mc
+RUST_BACKTRACE=1 cargo run -- parse ../mcs/hbl/src/hbl.mc
 ```
 
 ### 5.2 Logging
@@ -926,6 +826,33 @@ MC_VIZ_DUMP=1 mcc parse example.mc --viz --top main
 ```
 
 ### 5.3 Server Debugging
+
+> **⚠️ Stale server = stale results (bites repeatedly — read before debugging).**
+> A running `mcc start` server holds the **library and all parsed definitions
+> in memory from the moment it started**. It does NOT re-read `~/.mcode/mcode`
+> or pick up a rebuilt `mcc` binary on its own.
+>
+> After you edit an mcode library file or `cargo build` mcc, a still-running
+> server keeps serving the OLD library / OLD binary — so CLI commands that
+> default to RPC delegation (no `-L`) report phantom diagnostics like
+> `E4176 Too many arguments: expected 1, got 3` on a signature you already
+> fixed. Symptoms: a change verifies fine with `--local` but "still broken"
+> in the default/IDE path.
+>
+> First line of defense — verify locally, bypassing any server:
+> ```bash
+> mcc check file.mc -L        # -L / --local: run in this process, skip RPC
+> ```
+> If local is clean but the default path errors → a stale server is up. Then:
+> ```bash
+> mcc status                  # is a server running? (also: lsof -i :8080)
+> mcc stop                    # graceful stop; kill $(cat ~/.mcode/logs/mcc.pid) if hung
+> # restart fresh AFTER library edits / rebuilds so it loads new state:
+> mcc start -b --port 8080 --lib mcode
+> ```
+> The IDE LSP (`mcodels`) spawns/attaches to this server; after a restart it
+> reconnects on the next request (reload the VS Code window if old
+> diagnostics linger).
 
 ```bash
 # Background daemon with library preload (most common)
@@ -1079,9 +1006,9 @@ curl -X POST http://127.0.0.1:8080/rpc \
 | 4050-4058          | Netlist heuristics (D-series)    | Ghost port, merged short, sort hazard, floating `_`           |
 | 4081-4098          | Layout attribute errors          | Missing subnode, type mismatch, malformed edge                |
 | 4101-4118          | Netlist / interface binding      | Multi-drive, no driver, unconnected, backfeed risk            |
-| 4150-4175          | Instantiation checks             | Chain link skipped, arg count mismatch, bind failed           |
+| 4150-4178          | Instantiation checks             | Chain link skipped, arg count mismatch, bind failed           |
 | 5001-5003          | Cross-file duplicates            | Same name defined in another file                             |
-| 5051-5057          | Naming / style                   | Lowercase component, single-char instance, shadows CMIE       |
+| 5050-5099          | Naming / style                   | Lowercase component, single-char instance, shadows CMIE       |
 | 5101-5104          | Reference integrity              | Undeclared spec key, function without body                    |
 | 5151-5163          | Ports / pins                     | Duplicate port, unused pin/port, conflicting options          |
 | 5201-5206          | Functions / roles / defaults     | Bad param default, enum single value                          |
@@ -1112,6 +1039,14 @@ The D1-d7 detector codes referenced by build.rs tests map as follows:
 When modifying mcode library files:
 
 ```bash
+# 0. Sync the repo library into the runtime dir, then restart any stale server.
+#    mcc reads ~/.mcode/mcode at RUNTIME, and a running `mcc start` server holds
+#    its own in-memory copy — it does not pick up file edits. Skip this step and
+#    you will chase phantom diagnostics that vanish under --local (§5.3).
+bash ~/work/mo/mcode/cp.sh        # repo mcode -> ~/.mcode/mcode
+mcc stop || true                  # kill any stale server (also: lsof -i :8080)
+mcc check ./path/to/changed.mc -L # -L forces local: verify against on-disk state
+
 # 1. Check modified file for syntax errors
 mcc check ./path/to/changed.mc
 
@@ -1119,7 +1054,7 @@ mcc check ./path/to/changed.mc
 mcc parse ./path/to/changed.mc --lib mcode
 
 # 3. Build a test project that uses the changed component
-cd ~/work/mo/mcd/projects/hbl
+cd ~/work/mo/mcs/hbl
 mcc build
 
 # 4. Full rebuild with visualization
@@ -1129,6 +1064,11 @@ mcc build --viz
 cd ~/work/mo/mcc
 cargo test
 ```
+
+After editing a library file, always re-sync (`cp.sh`) AND restart the server
+before trusting a default `mcc check` / IDE diagnostic. A clean result from a
+`-L` run proves the source is fine; a still-failing default run means the
+server is serving stale state (§5.3).
 
 ### 6.6 Lapper / RefDefMap Debug Dump
 
@@ -1187,111 +1127,25 @@ diff <(mcc show lapper file.mc 2>/dev/null | grep MAP) \
      <(mcc show lapper --lib mcode file.mc 2>/dev/null | grep MAP)
 ```
 
-**JSON analysis — check if Lapper IDs match RefDefMap IDs (root cause of F12 failure):**
+**JSON analysis — F12 failure root cause (Lapper ID vs RefDefMap ID match):**
 
 ```bash
-# If Lapper ClassRef IDs don't match RefDef ClassRef IDs → F12 goto-def fails
 mcc show lapper us513.mc --lib mcode -f json | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-# ClassRef kind=1: lapper interval id must match ref_def_map entry ref_id
-lapper_ids = {e['id'] for e in d['lapper'] if e['kind']==1}
-refdef_ids = {e['ref_id'] for e in d['ref_def_map']['entries'] if e['ref_kind']==1}
-print(f'Lapper ClassRef IDs: {sorted(lapper_ids)}')
-print(f'RefDef ClassRef IDs: {sorted(refdef_ids)}')
-print(f'Matched: {sorted(lapper_ids & refdef_ids)}')
-print(f'MISMATCHED: {sorted(lapper_ids - refdef_ids)}')  # Mismatch = F12 broken
+l={e['id'] for e in d['lapper'] if e['kind']==1}          # ClassRef kind=1
+r={e['ref_id'] for e in d['ref_def_map']['entries'] if e['ref_kind']==1}
+print('MISMATCHED:', sorted(l - r))                       # non-empty = F12 broken
 "
 ```
 
 **Quick debug flow (F12 goto-def issues):**
 
 ```bash
-# 1. Verify the definition exists and is correct
-mcc show interface DC --lib mcode
-mcc show component CAP --lib mcode
-
-# 2. Verify def returns the correct target
-mcc def DC --lib mcode
-mcc def CAP --lib mcode
-
-# 3. Inspect raw lapper + RefDefMap data (key step!)
-mcc show lapper us513.mc --lib mcode -f json | python3 -m json.tool
+mcc show interface DC --lib mcode && mcc show component CAP --lib mcode  # def exists?
+mcc def DC --lib mcode && mcc def CAP --lib mcode                        # correct target?
+mcc show lapper us513.mc --lib mcode -f json | python3 -m json.tool      # raw data
 ```
-
-**End-to-end server example (F12 goto-def on CAP/RES in us513.mc):**
-
-```bash
-# 1. Start server with mcode preloaded
-cd ~/work/mo/mcc
-./target/debug/mcc start --lib mcode -b --log-file /tmp/mcc.log
-
-# 2. Inspect lapper symbols via sem RPC (all ClassRef/ClassDef)
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"sem","params":{"uri":"~/work/mo/mcd/projects/hbl/src/us513.mc"}}' | python3 -m json.tool
-
-# 3. Test go-to-definition
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"def","params":{"name":"CAP"}}'
-
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"def","params":{"name":"RES"}}'
-
-# 4. Find references
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"refs","params":{"name":"CAP"}}'
-
-# 5. Get diagnostics for the file
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"diagnostics","params":{"uri":"~/work/mo/mcd/projects/hbl/src/us513.mc"}}'
-
-# 6. Show full definitions
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"show.component","params":{"name":"CAP"}}'
-
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"show.component","params":{"name":"RES"}}'
-
-# 7. Stop server
-./target/debug/mcc stop
-```
-
-### 6.7 RPC-Based Debug Session
-
-```bash
-# Terminal 1: Start server
-cd ~/work/mo/mcc
-MCC_SYSTEM_ROOT=./mc cargo run -- start --port 8080 --log-level debug --lib mcode
-
-# Terminal 2: Interact via curl
-# Initialize and load project
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"set_project_root","params":{"path":"/path/to/project"},"id":1}'
-
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"load_project","params":{"uri":"file:///path/to/project/src/main.mc"},"id":2}'
-
-# Get project symbols
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"project_symbols","params":{},"id":3}' | python3 -m json.tool
-
-# Build
-curl -s -X POST http://127.0.0.1:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"build.full","params":{"uri":"file:///path/to/project/src/main.mc","top":"main"},"id":4}'
-```
-
-***
 
 ## 7. LSP Extension (mcext)
 
@@ -1323,7 +1177,7 @@ RUST_LOG=trace cargo run --bin mcodels
 
 # Start extension development host
 # Use "Debug Extension + LSP Server" launch config, or:
-code --extensionDevelopmentPath=~/work/mo/mcext ~/work/mo/mcd/projects/hbl
+code --extensionDevelopmentPath=~/work/mo/mcext ~/work/mo/mcs/hbl
 ```
 
 ### Key LSP Features
@@ -1450,7 +1304,7 @@ Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json
     "mcc": {
       "command": "~/work/mo/mcc/target/debug/mcc-mcp",
       "env": {
-        "MCC_PROJECT_ROOT": "~/work/mo/mcd/projects/hbl"
+        "MCC_PROJECT_ROOT": "~/work/mo/mcs/hbl"
       }
     }
   }
@@ -1462,7 +1316,7 @@ Claude Code:
 ```bash
 claude mcp add mcc -- ~/work/mo/mcc/target/debug/mcc-mcp
 # with a project binding:
-claude mcp add mcc --env MCC_PROJECT_ROOT=~/work/mo/mcd/projects/hbl \
+claude mcp add mcc --env MCC_PROJECT_ROOT=~/work/mo/mcs/hbl \
   -- ~/work/mo/mcc/target/debug/mcc-mcp
 ```
 

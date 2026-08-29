@@ -7,11 +7,11 @@
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/mcc",
             "args": [
-                "mc/projects/hbl/hbl.mc"
+                "parse",
+                "../mcs/hbl/src/hbl.mc"
             ],
             "env": {
-                "RUST_BACKTRACE": "1",
-                "MCC_SYSTEM_ROOT": "${workspaceFolder}/mc"
+                "RUST_BACKTRACE": "1"
             },
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
