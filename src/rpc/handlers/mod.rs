@@ -49,13 +49,6 @@ pub(crate) use params::*;
 pub(crate) mod params;
 pub use crate::lsp::sem::{classify_token_by_symbol, try_lookup_sem};
 
-// C bindings for controlling log output
-extern "C" {
-    fn mcc_reset(log_flags: libc::c_uchar);
-}
-
-pub(crate) const MCC_SYSTEM_ENV: &str = "MCC_SYSTEM_ROOT";
-
 pub(crate) fn mcc_system_root() -> PathBuf {
     // Single source of truth: delegate to datadir::data_root() (which honors
     // $MCC_SYSTEM_ROOT). The cwd/mc/ probe and the `~/.mcode` fallback live
@@ -71,17 +64,8 @@ pub(crate) fn projects_dir() -> PathBuf {
 pub(crate) fn project_dir(id: &str) -> PathBuf {
     projects_dir().join(id)
 }
-pub(crate) fn project_src_dir(id: &str) -> PathBuf {
-    project_dir(id).join("src")
-}
-pub(crate) fn project_src_dir_from_root(root: &Path, _id: &str) -> PathBuf {
-    root.join("src")
-}
 pub(crate) fn project_manifest(id: &str) -> PathBuf {
     project_dir(id).join("manifest.toml")
-}
-pub(crate) fn project_manifest_from_root(root: &Path, _id: &str) -> PathBuf {
-    root.join("manifest.toml")
 }
 pub(crate) fn mcode_dir() -> PathBuf {
     mcc_system_root().join("mcode")
@@ -640,130 +624,6 @@ fn tally_build_stats(
     }
 }
 
-// ============================================================================
-// Internal: Memory load version (no disk file dependency)
-// ============================================================================
-
-/// Parse entry filename from memory store
-pub(crate) fn resolve_virtual_entry(
-    store: &BTreeMap<String, String>,
-    entry: Option<&str>,
-) -> Result<String, JsonRpcError> {
-    if let Some(rel) = entry {
-        if store.contains_key(rel) {
-            return Ok(rel.to_string());
-        }
-        return Err(JsonRpcError::custom(
-            -32105,
-            &format!("entry not found: {rel}"),
-        ));
-    }
-    // Auto select: main.mc > first .mc file
-    for cand in &["main.mc"] {
-        if store.contains_key(*cand) {
-            return Ok(cand.to_string());
-        }
-    }
-    store
-        .keys()
-        .find(|k| k.ends_with(".mc"))
-        .cloned()
-        .ok_or_else(|| JsonRpcError::custom(32105, "no .mc entry found"))
-}
-
-/// Load all files from memory and execute Pass1
-pub(crate) fn run_pass1_from_memory(
-    vdir: &str,
-    entry_name: &str,
-    store: &BTreeMap<String, String>,
-    command: &str,
-    ws_kind: &str,
-    ws_name: &str,
-    include_system: bool,
-) -> RpcResult {
-    let entry_uri = format!("{vdir}/{entry_name}");
-    info!(target: "crate::pass1", "----------------------------------------");
-    info!(target: "crate::pass1", "[Pass 1] Loading from memory: {}", entry_uri);
-    info!(target: "crate::pass1", "----------------------------------------");
-
-    // Load all files to builder
-    for (fname, content) in store.iter() {
-        let file_uri = format!("{vdir}/{fname}");
-        crate::mcc_load_from_string(&file_uri, content);
-    }
-
-    let _mc_uri = McURI::from(entry_uri.as_str());
-    let pass1 = collect_pass1(&entry_uri, include_system);
-
-    let module_count = crate::mcb_module_count();
-    let component_count = crate::mcb_component_count();
-    let interface_count = crate::mcb_interface_count();
-
-    Ok(json!({
-        "command": command,
-        "workspace": {"kind": ws_kind, "name": ws_name},
-        "pass1": pass1,
-        "summary": {
-            "module_count": module_count,
-            "component_count": component_count,
-            "interface_count": interface_count,
-        }
-    }))
-}
-
-/// Execute Pass1 + Pass2 from memory
-pub(crate) fn run_full_build_from_memory(
-    vdir: &str,
-    entry_name: &str,
-    store: &BTreeMap<String, String>,
-    top: Option<&str>,
-    command: &str,
-    ws_kind: &str,
-    ws_name: &str,
-    include_system: bool,
-    include_ast: bool,
-) -> RpcResult {
-    // Set AST visit output flag
-    if include_ast {
-        unsafe {
-            mcc_reset(0xFF);
-        }
-    } else {
-        unsafe {
-            mcc_reset(0);
-        }
-    }
-
-    let entry_uri = format!("{vdir}/{entry_name}");
-    info!(target: "crate::pass1", "----------------------------------------");
-    info!(target: "crate::pass1", "[Pass 1] Loading from memory: {}", entry_uri);
-    info!(target: "crate::pass1", "----------------------------------------");
-
-    // Load all files to builder
-    for (fname, content) in store.iter() {
-        let file_uri = format!("{vdir}/{fname}");
-        crate::mcc_load_from_string(&file_uri, content);
-    }
-
-    let mc_uri = McURI::from(entry_uri.as_str());
-    let pass1 = collect_pass1(&entry_uri, include_system);
-
-    let (top_name, pass2) = execute_pass2(&mc_uri, top)?;
-
-    Ok(json!({
-        "command": command,
-        "workspace": {"kind": ws_kind, "name": ws_name},
-        "pass1": pass1,
-        "pass2": pass2,
-        "summary": {
-            "module_count": crate::mcb_module_count(),
-            "component_count": crate::mcb_component_count(),
-            "interface_count": crate::mcb_interface_count(),
-            "top": top_name,
-        }
-    }))
-}
-
 pub(crate) fn collect_pass1(_uri: &str, include_system: bool) -> Value {
     let all_modules = crate::mcb_iter_modules_with_span();
     let all_components = crate::mcb_iter_components_with_span();
@@ -1028,12 +888,6 @@ pub(crate) fn is_system_uri(uri: &str) -> bool {
     uri.contains("/mcode/") || uri.contains("\\mcode\\")
 }
 
-pub(crate) fn collect_definitions(
-    items: Vec<(String, String, [usize; 2])>,
-) -> Vec<(String, String, [usize; 2])> {
-    items
-}
-
 pub(crate) fn refs_json(items: &[(String, String, [usize; 2])]) -> Vec<Value> {
     items
         .iter()
@@ -1059,11 +913,6 @@ pub(crate) fn load_libs_rpc(libs: &[String]) {
         crate::mcb_load_lib_by_name(name);
     }
 }
-
-/// Overlay URI used when `content` is provided — virtual file, never touches disk.
-/// Phase 8.1: uses per-request unique URIs to prevent concurrent AI clients from
-/// stepping on each other's workspace data.
-pub(crate) const CHECK_OVERLAY_URI: &str = "/mcc/check.mc";
 
 use std::sync::atomic::{AtomicU64, Ordering};
 static OVERLAY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -1397,29 +1246,6 @@ pub(crate) fn io_err(e: std::io::Error) -> JsonRpcError {
 // Auxiliary: file / path handling
 // ============================================================================
 
-pub(crate) fn write_files(root: &Path, files: &[UploadFile]) -> (Vec<String>, Vec<String>) {
-    let mut uploaded = Vec::new();
-    let mut skipped = Vec::new();
-    for f in files {
-        if !is_safe_relative(&f.path) {
-            skipped.push(format!("{} (unsafe path)", f.path));
-            continue;
-        }
-        let target = root.join(&f.path);
-        if let Some(parent) = target.parent() {
-            if let Err(e) = fs::create_dir_all(parent) {
-                skipped.push(format!("{} (mkdir: {})", f.path, e));
-                continue;
-            }
-        }
-        match fs::write(&target, &f.content) {
-            Ok(_) => uploaded.push(f.path.clone()),
-            Err(e) => skipped.push(format!("{} ({})", f.path, e)),
-        }
-    }
-    (uploaded, skipped)
-}
-
 pub(crate) fn is_safe_relative(p: &str) -> bool {
     use std::path::Component;
     let path = Path::new(p);
@@ -1433,91 +1259,6 @@ pub(crate) fn is_safe_relative(p: &str) -> bool {
         }
     }
     true
-}
-
-pub(crate) fn extract_archive(
-    format: &str,
-    data_b64: &str,
-    dest: &Path,
-    strip: usize,
-) -> Result<Vec<String>, JsonRpcError> {
-    use base64::Engine;
-    let data = base64::engine::general_purpose::STANDARD
-        .decode(data_b64)
-        .map_err(|e| JsonRpcError::custom(32103, &format!("base64 decode: {e}")))?;
-    match format {
-        "tar.gz" | "tgz" => extract_tar_gz(&data, dest, strip),
-        "tar" => extract_tar(&data, dest, strip),
-        other => Err(JsonRpcError::custom(
-            32104,
-            &format!("unsupported archive format: {other}"),
-        )),
-    }
-}
-
-pub(crate) fn extract_tar_gz(
-    data: &[u8],
-    dest: &Path,
-    strip: usize,
-) -> Result<Vec<String>, JsonRpcError> {
-    use flate2::read::GzDecoder;
-    use tar::Archive;
-    let gz = GzDecoder::new(data);
-    let mut archive = Archive::new(gz);
-    extract_tar_entries(&mut archive, dest, strip)
-}
-
-pub(crate) fn extract_tar(
-    data: &[u8],
-    dest: &Path,
-    strip: usize,
-) -> Result<Vec<String>, JsonRpcError> {
-    use tar::Archive;
-    let mut archive = Archive::new(data);
-    extract_tar_entries(&mut archive, dest, strip)
-}
-
-pub(crate) fn extract_tar_entries<R: std::io::Read>(
-    archive: &mut tar::Archive<R>,
-    dest: &Path,
-    strip: usize,
-) -> Result<Vec<String>, JsonRpcError> {
-    let mut extracted = Vec::new();
-    let entries = archive
-        .entries()
-        .map_err(|e| JsonRpcError::custom(32103, &format!("tar entries: {e}")))?;
-    for entry in entries {
-        let mut entry =
-            entry.map_err(|e| JsonRpcError::custom(32103, &format!("tar entry: {e}")))?;
-        let entry_path = entry
-            .path()
-            .map_err(|e| JsonRpcError::custom(32103, &format!("tar path: {e}")))?
-            .to_path_buf();
-        let stripped: PathBuf = entry_path.components().skip(strip).collect();
-        if stripped.as_os_str().is_empty() {
-            continue;
-        }
-        if stripped.is_absolute()
-            || stripped
-                .components()
-                .any(|c| matches!(c, std::path::Component::ParentDir))
-        {
-            continue;
-        }
-        let target = dest.join(&stripped);
-        if entry.header().entry_type().is_dir() {
-            let _ = fs::create_dir_all(&target);
-            continue;
-        }
-        if let Some(parent) = target.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        entry
-            .unpack(&target)
-            .map_err(|e| JsonRpcError::custom(32103, &format!("unpack: {e}")))?;
-        extracted.push(stripped.to_string_lossy().to_string());
-    }
-    Ok(extracted)
 }
 
 pub(crate) fn resolve_project_entry(
@@ -1604,22 +1345,12 @@ pub(crate) fn scan_mc_files_recursive(root: &Path, current: &Path, out: &mut Vec
     }
 }
 
-pub(crate) fn read_manifest_entry(name: &str) -> Option<String> {
-    let content = fs::read_to_string(project_manifest(name)).ok()?;
-    parse_manifest_field(&content, "entry")
-}
-
 pub(crate) fn read_project_entry_from_workspace() -> Option<String> {
     let (_, _, root_str) = crate::workspace_info();
     let root = PathBuf::from(&root_str);
     let manifest = crate::cli::datadir::find_manifest_in(&root)?;
     let content = fs::read_to_string(&manifest).ok()?;
     parse_manifest_field(&content, "entry")
-}
-
-pub(crate) fn read_manifest_top(name: &str) -> Option<String> {
-    let content = fs::read_to_string(project_manifest(name)).ok()?;
-    parse_manifest_field(&content, "top_module")
 }
 
 pub(crate) fn read_project_top_from_workspace() -> Option<String> {
@@ -1654,17 +1385,6 @@ pub(crate) fn parse_manifest_field(content: &str, key: &str) -> Option<String> {
         }
     }
     None
-}
-
-pub(crate) fn activate_workspace(name: &str) -> Result<(), JsonRpcError> {
-    let (active, _, _) = crate::workspace_info();
-    if active == name {
-        return Ok(());
-    }
-    if !crate::workspace_switch(name) {
-        return Err(JsonRpcError::custom(32102, "workspace not found"));
-    }
-    Ok(())
 }
 
 pub(crate) fn resolve_lib_root(name: &str) -> Result<PathBuf, JsonRpcError> {

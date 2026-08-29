@@ -22,21 +22,6 @@ pub trait OutputRenderer {
     fn net_summary(&self, inst: &MccProjectTree);
 
     fn viz_written(&self, path: &str, bytes: usize);
-
-    fn section(&self, title: &str);
-    fn info(&self, msg: &str);
-
-    fn sort_mode(&self) -> PinSortMode {
-        PinSortMode::PinId
-    }
-}
-
-pub fn for_format(format: OutputFormat) -> Box<dyn OutputRenderer> {
-    if format.is_structured() {
-        Box::new(SilentRenderer)
-    } else {
-        Box::new(TextRenderer::with_sort(PinSortMode::PinId))
-    }
 }
 
 pub fn for_format_with_sort(format: OutputFormat, sort: PinSortMode) -> Box<dyn OutputRenderer> {
@@ -62,8 +47,6 @@ impl OutputRenderer for SilentRenderer {
     fn nets(&self, _: &MccProjectTree, _: usize) {}
     fn net_summary(&self, _: &MccProjectTree) {}
     fn viz_written(&self, _: &str, _: usize) {}
-    fn section(&self, _: &str) {}
-    fn info(&self, _: &str) {}
 }
 
 struct TextRenderer {
@@ -77,10 +60,6 @@ impl TextRenderer {
 }
 
 impl OutputRenderer for TextRenderer {
-    fn sort_mode(&self) -> PinSortMode {
-        self.sort
-    }
-
     fn pass1_header(&self, uri: &str) {
         println!("\n═══════════════════════════════════════════════════════════════");
         println!(" Pass 1");
@@ -197,13 +176,5 @@ impl OutputRenderer for TextRenderer {
 
     fn viz_written(&self, path: &str, bytes: usize) {
         info!(target: "mcc::parse", "✓ wrote {} ({} bytes)", path, bytes);
-    }
-
-    fn section(&self, title: &str) {
-        println!("===== {} =====", title);
-    }
-
-    fn info(&self, msg: &str) {
-        info!(target: "mcc::parse", "{}", msg);
     }
 }

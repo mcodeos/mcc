@@ -414,8 +414,6 @@ component RES
             "full-comp",
             "component HUM011D_5_S\n{\n    pins = [\n        1 = VBUS\n    ]\n}\n",
         );
-        let entry = path.to_string_lossy().into_owned();
-
         let resp = run_full_build_envelope(&path, None, "mcc build", "file", "test", true)
             .expect("build.full ok");
         let pass2 = &resp["pass2"];

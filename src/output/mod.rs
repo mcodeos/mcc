@@ -880,16 +880,6 @@ fn write_out(buf: &str, target: Option<&Path>) -> Result<()> {
 // OutputFormat extension
 // ============================================================================
 
-/// Write any serializable data in the specified format to stdout or a file
-pub fn print_report<T: Serialize + std::fmt::Display>(
-    data: &T,
-    format: OutputFormat,
-    output: &Option<String>,
-) -> Result<()> {
-    let target = output.as_ref().map(|s| Path::new(s.as_str()));
-    emit(data, format, target)
-}
-
 pub trait OutputFormatExt {
     /// JSON / JsonPretty / Yaml count as structured (go through envelope), Text and Csv do not.
     fn is_structured(&self) -> bool;
