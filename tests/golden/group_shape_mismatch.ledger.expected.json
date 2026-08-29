@@ -1,6 +1,6 @@
 {
-  "total": 2,
-  "survived": 2,
+  "total": 3,
+  "survived": 3,
   "resolved_late": 0,
   "by_kind_form": {
     "deferred": {},
@@ -10,7 +10,9 @@
     "phantom": {},
     "resolved_many": {},
     "unresolved_ref": {},
-    "wire": {}
+    "wire": {
+      "X": 1
+    }
   },
   "rows": [
     {
@@ -22,6 +24,11 @@
       "kind": "fallback",
       "form": "([GND, X], r1)",
       "site": "eval_port_elems right shape_mismatch"
+    },
+    {
+      "kind": "wire",
+      "form": "X",
+      "site": "main"
     }
   ]
 }

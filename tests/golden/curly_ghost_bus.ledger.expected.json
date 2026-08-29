@@ -4,19 +4,19 @@
   "resolved_late": 0,
   "by_kind_form": {
     "deferred": {},
-    "fallback": {
-      "dc{VDD_3V3, GND}": 1
-    },
+    "fallback": {},
     "phantom": {},
     "resolved_many": {},
-    "unresolved_ref": {},
+    "unresolved_ref": {
+      "dc{VDD_3V3, GND}": 1
+    },
     "wire": {}
   },
   "rows": [
     {
-      "kind": "fallback",
+      "kind": "unresolved_ref",
       "form": "dc{VDD_3V3, GND}",
-      "site": "add_bus curly ghost-bus"
+      "site": "gate undeclared base (E3182)"
     }
   ]
 }

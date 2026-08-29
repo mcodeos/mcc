@@ -28,7 +28,7 @@ use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::mc_func::HasFindInst;
+use crate::semantic::mc_func::{HasFindInst, McFunctions};
 use crate::semantic::mc_inst::McInstance;
 
 pub struct FloatingLabelCheck;
@@ -50,105 +50,179 @@ impl ValidationCheck for FloatingLabelCheck {
 }
 
 /// Emit E3136 for every candidate name referenced exactly once across all
-/// funcs of its component.
+/// funcs of its owner — a component or a module (§1.6 ①: the consumption side
+/// extends to modules; module funcs register candidates through the shared
+/// func-body context, module top-level body through `McModule.floating_candidates`).
 fn check_floating_labels(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
+    for entry in crate::db::cmie::tables::WORKSPACE.components.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();
-
-        // Gather candidate names (name → first occurrence pos/len) from every
-        // func. A name can be recorded by several funcs (each hits the fallback
-        // independently before a label exists); keep the earliest span.
-        let mut candidates: std::collections::BTreeMap<String, (u32, u32)> =
-            std::collections::BTreeMap::new();
-        for func in comp.funcs.iter() {
-            for (name, pos, len) in &func.floating_candidates {
-                candidates
-                    .entry(name.clone())
-                    .or_insert_with(|| (*pos, *len));
-            }
+        check_owner_floating_labels(
+            acc,
+            "Component",
+            &comp.name.to_string(),
+            &uri,
+            &comp.funcs,
+            &[],
+            &[],
+            |name| comp.find_inst(name),
+        );
+    }
+    for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
         }
-        if candidates.is_empty() {
+        let module = entry.value();
+        check_owner_floating_labels(
+            acc,
+            "Module",
+            &module.name.to_string(),
+            &uri,
+            &module.funcs,
+            &module.stmts,
+            &module.floating_candidates,
+            |name| module.find_inst(name),
+        );
+    }
+}
+
+/// Shared E3136 pass over one owner's func bodies (plus, for modules, the
+/// top-level body statements and their candidates).
+#[allow(clippy::too_many_arguments)]
+fn check_owner_floating_labels<F>(
+    acc: &mut CheckAccumulator,
+    owner_kind: &str,
+    owner_name: &str,
+    uri: &str,
+    funcs: &McFunctions,
+    top_stmts: &[McPhrase],
+    top_candidates: &[(String, u32, u32)],
+    find_inst: F,
+) where
+    F: Fn(&str) -> Option<McInstance>,
+{
+    // Gather candidate names (name → first occurrence pos/len) from every
+    // func plus the module top-level body. A name can be recorded by several
+    // funcs (each hits the fallback independently before a label exists); keep
+    // the earliest span.
+    let mut candidates: std::collections::BTreeMap<String, (u32, u32)> =
+        std::collections::BTreeMap::new();
+    for func in funcs.iter() {
+        for (name, pos, len) in &func.floating_candidates {
+            candidates
+                .entry(name.clone())
+                .or_insert_with(|| (*pos, *len));
+        }
+    }
+    for (name, pos, len) in top_candidates {
+        candidates
+            .entry(name.clone())
+            .or_insert_with(|| (*pos, *len));
+    }
+    if candidates.is_empty() {
+        return;
+    }
+
+    for (name, (pos, len)) in candidates {
+        // Implicit power-rail labels (`VCC`, `GND`, `V3V3`, …) are
+        // conventional rails the net layer already recognizes via
+        // is_supply_name / is_ground_name (insttab.rs) without a local
+        // declaration. A reference to an implicit rail is not a dangling
+        // typo — skip it entirely (no E3136, no Wire ledger row).
+        let upper = name.to_uppercase();
+        if crate::instant::insttab::is_supply_name(&upper)
+            || crate::instant::insttab::is_ground_name(&upper)
+        {
             continue;
         }
 
-        for (name, (pos, len)) in candidates {
-            // Declared somewhere by the time the component finished parsing —
-            // a real instance (pin / param / inst / component / func), not a
-            // dangling label. Func-local declares were already excluded during
-            // the body parse; this covers declarations in sibling funcs or
-            // conditional blocks that only become visible after this func's
-            // body was parsed.
-            if let Some(inst) = comp.find_inst(&name) {
-                if !matches!(inst, McInstance::Label(_)) {
-                    continue;
-                }
+        // Declared somewhere by the time the owner finished parsing — a real
+        // instance (pin / port / param / inst / component / func), not a
+        // dangling label. Func-local declares were already excluded during
+        // the body parse; this covers declarations in sibling funcs or
+        // conditional blocks that only become visible after this func's
+        // body was parsed.
+        if let Some(inst) = find_inst(&name) {
+            if !matches!(inst, McInstance::Label(_)) {
+                continue;
             }
+        }
 
-            // Count references across all funcs (top-level stmts + conditional
-            // blocks). A floating label is one referenced exactly once and only
-            // as a net endpoint — it has no peer to join a net with. A name
-            // used as a call receiver or argument (`ld.ldrop(VSW, ...)`) is an
-            // instance reference, not a wire, so it neither triggers nor adds
-            // to the wire count.
-            let mut counts = RefCounts::default();
-            for func in comp.funcs.iter() {
-                for stmt in &func.stmts {
-                    count_refs(stmt, &name, &mut counts, true);
-                }
-                for cond in &func.conds {
-                    for block in &cond.if_blocks {
-                        for stmt in &block.stmts {
-                            count_refs(stmt, &name, &mut counts, true);
-                        }
-                    }
-                    for stmt in &cond.else_stmts {
+        // Count references across all funcs (top-level stmts + conditional
+        // blocks) and, for modules, the top-level body. A floating label is
+        // one referenced exactly once and only as a net endpoint — it has no
+        // peer to join a net with. A name used as a call receiver or argument
+        // (`ld.ldrop(VSW, ...)`) is an instance reference, not a wire, so it
+        // neither triggers nor adds to the wire count.
+        let mut counts = RefCounts::default();
+        for func in funcs.iter() {
+            for stmt in &func.stmts {
+                count_refs(stmt, &name, &mut counts, true);
+            }
+            for cond in &func.conds {
+                for block in &cond.if_blocks {
+                    for stmt in &block.stmts {
                         count_refs(stmt, &name, &mut counts, true);
                     }
                 }
+                for stmt in &cond.else_stmts {
+                    count_refs(stmt, &name, &mut counts, true);
+                }
             }
-            // ── Failure ledger (observation-only) ────────────────────────────
-            // Every name that survived the component-finish recheck is a
-            // floating label: referenced once it is a dangling net (E3136
-            // below); referenced 2+ it is a shared rail that also resolves to
-            // nothing declared. Both are recorded so the miss is attributable.
-            let refs = counts.endpoint;
-            let action = if refs == 1 && counts.other == 0 {
-                LedgerAction::Warning
-            } else {
-                LedgerAction::Silent
-            };
-            ledger::record(
-                LedgerEntry::new(LedgerKind::Wire, name.clone(), comp.name.to_string())
-                    .with_action(action)
-                    .with_uri(uri.clone())
-                    .with_span(pos, len)
-                    .with_refs(refs),
-            );
-
-            if counts.endpoint != 1 || counts.other != 0 {
-                continue;
-            }
-
-            acc.push(CheckResult {
-                check_name: "floating_label",
-                severity: CheckSeverity::Warning,
-                uri: Some(uri.clone()),
-                span: Some((pos as usize)..((pos + len) as usize)),
-                message: format!(
-                    "Component '{}': '{}' in a function body resolves to no declared pin, \
-                     interface, parameter member, or func-local instance — floating net label. \
-                     It is referenced only once and connects to nothing else; declare it or fix \
-                     the name.",
-                    comp.name, name
-                ),
-                code: crate::errcodes::FUNC_FLOATING_LABEL,
-            });
         }
+        for stmt in top_stmts {
+            count_refs(stmt, &name, &mut counts, true);
+        }
+        // ── Failure ledger (observation-only) ────────────────────────────
+        // Every name that survived the owner-finish recheck is a floating
+        // label: referenced once it is a dangling net (E3136 below);
+        // referenced 2+ it is a shared rail that also resolves to nothing
+        // declared. Both are recorded so the miss is attributable.
+        let refs = counts.endpoint;
+        let action = if refs == 1 && counts.other == 0 {
+            LedgerAction::Warning
+        } else {
+            LedgerAction::Silent
+        };
+        ledger::record(
+            LedgerEntry::new(LedgerKind::Wire, name.clone(), owner_name.to_string())
+                .with_action(action)
+                .with_uri(uri.to_string())
+                .with_span(pos, len)
+                .with_refs(refs),
+        );
+
+        if counts.endpoint != 1 || counts.other != 0 {
+            continue;
+        }
+
+        let (where_clause, scope_kinds) = if owner_kind == "Module" {
+            (
+                "a module body or function",
+                "no declared port, interface, or instance",
+            )
+        } else {
+            (
+                "a function body",
+                "no declared pin, interface, parameter member, or func-local instance",
+            )
+        };
+        acc.push(CheckResult {
+            check_name: "floating_label",
+            severity: CheckSeverity::Warning,
+            uri: Some(uri.to_string()),
+            span: Some((pos as usize)..((pos + len) as usize)),
+            message: format!(
+                "{owner_kind} '{owner_name}': '{name}' in {where_clause} resolves to {scope_kinds} \
+                 — floating net label. It is referenced only once and connects to nothing else; \
+                 declare it or fix the name."
+            ),
+            code: crate::errcodes::FUNC_FLOATING_LABEL,
+        });
     }
 }
 

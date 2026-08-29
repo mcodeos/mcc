@@ -213,6 +213,7 @@ impl Ledger {
     pub fn clear(&mut self) {
         self.entries.clear();
         self.seen.clear();
+        self.resolved_late = 0;
     }
 
     pub fn record(&mut self, entry: LedgerEntry) {
@@ -228,6 +229,14 @@ impl Ledger {
             return;
         }
         self.entries.push(entry);
+    }
+
+    /// A Deferred/UnresolvedRef candidate that the component-finish recheck
+    /// resolved to a late-declared instance (resolve-gate-design.md §1.3): the
+    /// gate does not error and the candidate is counted as late-resolved. The
+    /// parse-time row is kept for audit value; `survived` never counts it.
+    pub fn mark_resolved_late(&mut self) {
+        self.resolved_late += 1;
     }
 
     /// Snapshot into a serializable report. Summary counts (kind×form) are
@@ -384,6 +393,12 @@ pub fn record(entry: LedgerEntry) {
 /// long-lived server (RPC) does not accumulate stale rows across requests.
 pub fn clear() {
     LEDGER.lock().unwrap().clear();
+}
+
+/// Count one Deferred/UnresolvedRef candidate that the component-finish
+/// recheck resolved to a late-declared instance (no error emitted).
+pub fn mark_resolved_late() {
+    LEDGER.lock().unwrap().mark_resolved_late();
 }
 
 /// Snapshot the current ledger into a report.

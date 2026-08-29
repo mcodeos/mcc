@@ -58,6 +58,23 @@ impl McFuncReturn {
     }
 }
 
+/// A Phase 1 entry-gate (resolve-gate-design.md §1.3) candidate: the base name of a
+/// structured dot access was not declared in scope at parse time, so the ghost
+/// bus was suppressed (the statement produced no net). The component-finish
+/// recheck re-resolves the base against the final symbol table: a late-declared
+/// instance dismisses the candidate (`resolved_late`), a still-missing name
+/// errors with [`INSTANCE_REF_UNDECLARED`](crate::errcodes::INSTANCE_REF_UNDECLARED).
+#[derive(Debug, Clone)]
+pub struct GateCandidate {
+    /// The undeclared base name (e.g. `uC` in `uC.ADC.P`).
+    pub base: String,
+    /// The full chain as written (e.g. `uC.ADC.P`).
+    pub form: String,
+    /// Source position of the failing reference (for the error span).
+    pub pos: u32,
+    pub len: u32,
+}
+
 /// Trait for types that can provide instance lookup for symbol resolution
 pub trait HasFindInst {
     fn find_inst(&self, id: &str) -> Option<McInstance>;
@@ -124,6 +141,38 @@ pub trait HasFindInst {
     /// to any instance in scope. Default: no-op. The func-body context
     /// overrides this to warn about floating labels.
     fn report_floating_label(&self, _name: &str, _node: &AstNode) {}
+
+    /// Phase 1 entry-gate discriminator (resolve-gate-design.md §1.4/v1.17): true
+    /// when `base` is an instance name established in the enclosing scope —
+    /// a declared instance, func-local declare, or FuncCall caller/instance
+    /// name — as opposed to a genuine miss (typo / forgotten declaration).
+    /// The ghost-bus fallback consults this to decide pass (keep the ghost bus,
+    /// defer to §3 materialization, no error) vs true miss (suppress + register
+    /// candidate + error after the component-finish recheck).
+    ///
+    /// Default: `find_inst` only — correct for scopes that never see caller
+    /// names or func-local declares (McInterface/McEnumDef). The func-body
+    /// context additionally consults func-local declares and noted caller
+    /// names; `McModule` consults module body caller names.
+    fn is_declared_instance_name(&self, base: &str) -> bool {
+        self.find_inst(base).is_some()
+    }
+
+    /// Note that `name` was established as an instance reference in the current
+    /// body — a FuncCall caller / inline-constructed instance (e.g.
+    /// `TTL.D dTrigger.Cap()` → `dTrigger`, `PL3085A(powerSupply) PL.Cap()` →
+    /// `PL`). Such names are not registered in any insts table — they become
+    /// caller Label phrases — yet they are legitimate instance references that
+    /// must pass the Phase 1 gate. Default no-op.
+    fn note_func_call_caller(&mut self, _name: &str) {}
+
+    /// Register a Phase 1 gate candidate: `base` was the undeclared base of a
+    /// structured dot access whose phantom bus was suppressed (the statement
+    /// returned `None`). The component-finish recheck errors if `base` still
+    /// resolves to nothing (§5 item 23: suppression is what keeps two such
+    /// references from shorting two rails together through a shared ghost net).
+    /// Default no-op.
+    fn register_gate_candidate(&mut self, _base: &str, _form: &str, _pos: u32, _len: u32) {}
 
     /// Default implementation returns `false` (not a port).
     fn is_declared_port(&self, _name: &str) -> bool {
@@ -198,6 +247,16 @@ struct FuncBodyContext<'a> {
     /// A `RefCell` avoids the borrow conflict with `self.insts.parse`
     /// mutating the same table mid-loop.
     pending_floating: &'a std::cell::RefCell<Vec<(String, u32, u32)>>,
+    /// Names established as instance references in this func body: FuncCall
+    /// caller names (`TTL.D dTrigger.Cap()` → `dTrigger`, noted via
+    /// `note_func_call_caller`) plus func-local declares registered into
+    /// `func.insts` during the loop (noted by `parse_body`). The Phase 1
+    /// ghost-bus discriminator passes these (resolve-gate §1.4).
+    seen_callers: &'a std::cell::RefCell<Vec<String>>,
+    /// Phase 1 gate candidates: structured dot-access bases that were not
+    /// declared in scope at parse time, so their phantom bus was suppressed.
+    /// Drained into `McFunction.gate_candidates` after the body loop.
+    gate_candidates: &'a std::cell::RefCell<Vec<GateCandidate>>,
     parent: &'a mut dyn HasFindInst,
 }
 
@@ -330,6 +389,37 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
             .borrow_mut()
             .push((name.to_string(), node.get_pos(), node.get_len()));
     }
+
+    fn is_declared_instance_name(&self, base: &str) -> bool {
+        // Func params and the parent container chain (`find_inst`) plus the
+        // func body's own established instance references: func-local declares
+        // (registered into func.insts during the loop — the `instance_chain`
+        // does NOT include func.insts, so `find_inst` alone cannot see them)
+        // and FuncCall caller names.
+        if self.param_names.iter().any(|p| p == base) {
+            return true;
+        }
+        if self.seen_callers.borrow().iter().any(|s| s == base) {
+            return true;
+        }
+        self.find_inst(base).is_some()
+    }
+
+    fn note_func_call_caller(&mut self, name: &str) {
+        let mut s = self.seen_callers.borrow_mut();
+        if !s.iter().any(|x| x == name) {
+            s.push(name.to_string());
+        }
+    }
+
+    fn register_gate_candidate(&mut self, base: &str, form: &str, pos: u32, len: u32) {
+        self.gate_candidates.borrow_mut().push(GateCandidate {
+            base: base.to_string(),
+            form: form.to_string(),
+            pos,
+            len,
+        });
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -409,6 +499,14 @@ pub struct McFunction {
     /// across all funcs of the component and warns for single-use dangling
     /// labels. Populated by [`McFunction::parse_body`].
     pub(crate) floating_candidates: Vec<(String, u32, u32)>,
+    /// Names established as instance references in this func body (FuncCall
+    /// caller names + func-local declares), for the Phase 1 discriminator and
+    /// the component-finish recheck. Populated by [`McFunction::parse_body`].
+    pub(crate) seen_callers: Vec<String>,
+    /// Phase 1 gate candidates whose phantom bus was suppressed at parse time.
+    /// The component-finish recheck re-resolves each against the final symbol
+    /// table. Populated by [`McFunction::parse_body`].
+    pub(crate) gate_candidates: Vec<GateCandidate>,
     /// Pre-parsed function body connections (needs to be called after McModule is built to fill parse_body)
     pub called_time: u32,
     anon_counter: usize,
@@ -447,6 +545,8 @@ impl McFunction {
             stmt_offsets: Vec::new(),
             conds: Vec::new(),
             floating_candidates: Vec::new(),
+            seen_callers: Vec::new(),
+            gate_candidates: Vec::new(),
             called_time: 0,
             anon_counter: 1,
             uri: None,
@@ -504,9 +604,16 @@ impl McFunction {
         // Bare identifiers that failed find_inst are recorded here and
         // filtered after the body loop against the func's own params/insts.
         let pending_floating = std::cell::RefCell::new(Vec::new());
+        // Phase 1: names established as instance references in this body
+        // (caller names + func-local declares) and gate candidates whose
+        // phantom bus was suppressed. Drained into `self` after the loop.
+        let seen_callers = std::cell::RefCell::new(Vec::new());
+        let gate_candidates = std::cell::RefCell::new(Vec::new());
         let mut wrapper = FuncBodyContext {
             param_names: &param_names,
             pending_floating: &pending_floating,
+            seen_callers: &seen_callers,
+            gate_candidates: &gate_candidates,
             parent: context,
         };
         if let Some(body_nodes) = body.get_sub_node() {
@@ -542,7 +649,7 @@ impl McFunction {
                 match body_node.get_type() {
                     // MCAST_DECLARE: component/module instantiation
                     MCAST_DECLARE => {
-                        self.insts.parse(&body_node, &uri);
+                        self.parse_declare_note(&body_node, &uri, &seen_callers);
                     }
 
                     MCAST_NET => {
@@ -561,7 +668,7 @@ impl McFunction {
 
                             // MCAST_DECLARE inside MCAST_NET is a declaration - process it
                             if subnode.get_type() == MCAST_DECLARE {
-                                self.insts.parse(&subnode, &uri);
+                                self.parse_declare_note(&subnode, &uri, &seen_callers);
                                 continue;
                             }
 
@@ -695,6 +802,10 @@ impl McFunction {
             // sibling func or a conditional block are resolved there via the
             // component's final instance table).
             drop(wrapper);
+            // Phase 1: drain the body's caller names and gate candidates into
+            // the func for the component-finish recheck.
+            self.seen_callers = seen_callers.into_inner();
+            self.gate_candidates = gate_candidates.into_inner();
             for (name, pos, len) in pending_floating.into_inner() {
                 if self.params.find(&name).is_some() {
                     continue;
@@ -716,6 +827,33 @@ impl McFunction {
             let diags = self.params.finalize(Some(body), &func_name);
             for d in &diags {
                 crate::mcc_log_global_diag(d);
+            }
+        }
+    }
+
+    /// Parse a func-body DECLARE into `self.insts` and note any newly
+    /// registered instance names into the Phase 1 `seen_callers` set (set
+    /// difference, same shape as `McFunction::parse_declare`). Func-local
+    /// declares (e.g. `SYS.Calendar timer`, `Transistor q`) live in
+    /// `func.insts`, which the body context's `instance_chain` does NOT
+    /// include — so without this note the ghost-bus discriminator would
+    /// misclassify a legitimate `timer.I2C` / `q.g` reference as a true miss.
+    fn parse_declare_note(
+        &mut self,
+        node: &AstNode,
+        uri: &crate::McURI,
+        seen_callers: &std::cell::RefCell<Vec<String>>,
+    ) {
+        let before: std::collections::HashSet<String> =
+            self.insts.iter().map(|(n, _)| n.to_string()).collect();
+        self.insts.parse(node, uri);
+        for (name, _) in self.insts.iter() {
+            if before.contains(name) {
+                continue;
+            }
+            let mut sc = seen_callers.borrow_mut();
+            if !sc.iter().any(|s| s == name) {
+                sc.push(name.to_string());
             }
         }
     }

@@ -10,6 +10,7 @@
 //!   N10 — single-character or overly short instance names
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
+use crate::semantic::mc_inst::McInstance;
 use std::collections::HashSet;
 
 pub struct NamingCheck;
@@ -191,19 +192,34 @@ fn check_short_instance_names(acc: &mut CheckAccumulator) {
         }
         let m = entry.value();
 
-        for name in m.insts.iter_instance_names() {
+        for (name, (_, inst)) in m.insts.insts() {
             // Skip special names
             if name.starts_with('@') || name.starts_with('[') {
                 continue;
             }
 
-            // Single character names like "A", "B", "X" are too cryptic
+            // Skip floating net labels: a bare miss like `X -> VDD` makes a
+            // one-shot `McInstance::Label`, which is not a user-chosen instance
+            // name (E3136 covers the dangling-label case) and has no
+            // declaration site to point at.
+            if matches!(inst, McInstance::Label(_)) {
+                continue;
+            }
+
+            // Single character names like "A", "B", "X" are too cryptic.
+            // Point at the instance's own declaration span when recorded
+            // (parse_declare / port registration store one), falling back to
+            // the module name span when the instance has no source position.
             if name.len() == 1 {
+                let span = m
+                    .insts
+                    .get_port_span(name)
+                    .unwrap_or_else(|| m.span.start..m.span.end);
                 acc.push(CheckResult {
                     check_name: "naming",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: Some(m.span.start..m.span.end),
+                    span: Some(span),
                     message: format!(
                         "Module '{}': instance '{}' is a single character. \
                          Use descriptive names like 'r1', 'led1', 'usb_socket'.",

@@ -128,6 +128,7 @@ impl CheckRegistry {
         r.register(Box::new(exprs::ExprsCheck));
         r.register(Box::new(extra::ExtraCheck));
         r.register(Box::new(floating::FloatingLabelCheck));
+        r.register(Box::new(gate::GateCheck));
         r.register(Box::new(insts::InstsCheck));
         r.register(Box::new(body::BodyCheck));
         r.register(Box::new(hw::HwCheck));
@@ -164,6 +165,7 @@ pub mod enums;
 pub mod exprs;
 pub mod extra;
 pub mod floating;
+pub mod gate;
 pub mod hw;
 pub mod imports;
 pub mod insts;

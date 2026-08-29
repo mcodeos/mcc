@@ -150,6 +150,26 @@ fn check_undriven_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
         let has_input = points
             .iter()
             .any(|e| matches!(e.io_type, IOType::In | IOType::InOut));
+        // A net named after an implicit power rail (`VCC`, `GND`, `V3V3`, …)
+        // is a source by convention — a bare `VCC -> x.signal` at module
+        // scope supplies the net; it does not hang undriven. Mirrors the
+        // floating-label carve-out (floating.rs) and infer_member_role's rail
+        // classification.
+        if is_supply_name(&net.name) || is_ground_name(&net.name) {
+            continue;
+        }
+        // A net containing a module-boundary port (`x.signal -> D_STATUS.1`)
+        // receives its drive from the enclosing scope through that port; the
+        // flat table keeps the parent-side connection as a separate net sharing
+        // the port entry, so drive cannot be judged here. Port connectivity is
+        // checked at the boundary instead (check_floating_inputs / C4
+        // unused-module-port / check_floating_outputs).
+        let has_boundary_port = points
+            .iter()
+            .any(|e| matches!(e.kind, crate::instant::insttab::InstKind::Port));
+        if has_boundary_port {
+            continue;
+        }
         if !has_driver && has_input && !points.is_empty() {
             let (pos, uri) = best_pos(table, &net.points);
             results.push(NetCheckResult {

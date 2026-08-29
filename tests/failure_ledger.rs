@@ -67,52 +67,63 @@ fn rows_with_action(kind: &str) -> Vec<(String, String, String)> {
 }
 
 #[test]
-fn two_segment_dot_ghost_bus_records_fallback() {
+fn two_segment_dot_undeclared_base_records_unresolved_ref_error() {
     let lock = lock();
 
-    // `MISSING.PIN` — a two-segment dot access on an undeclared base — is
-    // silently absorbed into a ghost bus. Must record exactly one Fallback row.
+    // `MISSING.PIN` — a two-segment dot access on a base declared nowhere — is
+    // a §1.3 true miss: the phantom ghost-bus is suppressed, the statement is
+    // dropped, and the reference is registered as a gate candidate. Records
+    // one UnresolvedRef row (action=error); the component-finish recheck
+    // errors E3182 because MISSING stays undeclared. No Fallback row.
     let src = "module main {\n    io VDD\n    func main() {\n        MISSING.PIN -> VDD\n    }\n}";
     let codes = build_codes(src);
     assert!(
+        codes.contains(&mcc::errcodes::INSTANCE_REF_UNDECLARED),
+        "true miss must error E3182 at component-finish; got codes: {codes:?}"
+    );
+    assert!(
         !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
-        "ghost-bus is a Fallback, not a floating Wire; got codes: {codes:?}"
+        "true miss is an UnresolvedRef, not a floating Wire; got codes: {codes:?}"
     );
     let fb = rows("fallback");
     assert_eq!(
         fb.len(),
-        1,
-        "expected one ghost-bus Fallback row, got {fb:?}"
+        0,
+        "a true miss is not a Fallback ghost-bus, got {fb:?}"
     );
-    assert_eq!(fb[0].0, "MISSING.PIN");
+    let ur = rows_with_action("unresolved_ref");
+    assert_eq!(ur.len(), 1, "expected one UnresolvedRef row, got {ur:?}");
+    assert_eq!(ur[0].0, "MISSING.PIN");
+    assert_eq!(ur[0].2, "error", "true miss row action should be error");
     assert!(
-        fb[0].1.contains("ghost-bus"),
-        "site should name the ghost-bus site, got {:?}",
-        fb[0].1
+        ur[0].1.contains("gate undeclared base"),
+        "site should name the gate site, got {:?}",
+        ur[0].1
     );
 
     drop(lock);
 }
 
 #[test]
-fn member_fall_through_records_fallback() {
+fn late_declared_base_resolves_at_finish_no_error() {
     let lock = lock();
 
-    // `bus.NOPE` — a two-segment dot on a *declared* base whose member misses
-    // — is the member fall-through. Must record one Fallback row.
-    let src = "module main {\n    io VDD\n    func main() {\n        bus1.NOPE -> VDD\n    }\n}";
-    build_codes(src);
-    let fb = rows("fallback");
-    assert_eq!(
-        fb.len(),
-        1,
-        "expected one member fall-through row, got {fb:?}"
-    );
-    assert_eq!(fb[0].0, "bus1.NOPE");
+    // A forward reference to a func-call caller declared later in the same
+    // component (`dTrigger.VCC` in func A, `dTrigger.Cap()` in func B) is a
+    // true miss at parse time (the caller name is not yet visible in A's scope),
+    // but it resolves at component-finish → §1.3 `resolved_late`, balanced in
+    // the ledger, no E3182. The forward-reference statement itself is dropped
+    // (produces no net) — that is the designed §1.3 parse-time suppression.
+    let src = "component D {\n    pins = [ 1 = VCC 2 = GND ]\n    func Cap() {}\n}\ncomponent T {\n    func A() {\n        VDD + dTrigger.VCC\n    }\n    func B() {\n        D dTrigger.Cap()\n    }\n}\nmodule main {\n    io VDD\n}";
+    let codes = build_codes(src);
     assert!(
-        fb[0].1.contains("ghost-bus") || fb[0].1.contains("fall-through"),
-        "site should name the ghost-bus or member fall-through site, got {:?}",
-        fb[0].1
+        !codes.contains(&mcc::errcodes::INSTANCE_REF_UNDECLARED),
+        "late-declared base must not error E3182; got codes: {codes:?}"
+    );
+    let report = ledger::build_report(LedgerMode::Audit);
+    assert!(
+        report.resolved_late > 0,
+        "late-declared candidate must be balanced via resolved_late"
     );
 
     drop(lock);

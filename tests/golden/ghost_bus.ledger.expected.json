@@ -4,19 +4,19 @@
   "resolved_late": 0,
   "by_kind_form": {
     "deferred": {},
-    "fallback": {
-      "MISSING.PIN": 1
-    },
+    "fallback": {},
     "phantom": {},
     "resolved_many": {},
-    "unresolved_ref": {},
+    "unresolved_ref": {
+      "MISSING.PIN": 1
+    },
     "wire": {}
   },
   "rows": [
     {
-      "kind": "fallback",
+      "kind": "unresolved_ref",
       "form": "MISSING.PIN",
-      "site": "add_bus ghost-bus"
+      "site": "gate undeclared base (E3182)"
     }
   ]
 }
