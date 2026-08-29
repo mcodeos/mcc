@@ -34,6 +34,4 @@ impl std::fmt::Display for ParseError {
 
 pub(crate) mod message {
     pub const MISSING_SUBNODE: &str = "AST: Missing subnode";
-    pub const TYPE_MISMATCH: &str = "AST: Node type mismatch";
-    pub const AST_EMPTY: &str = "AST: Node is empty";
 }

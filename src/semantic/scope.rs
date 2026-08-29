@@ -713,7 +713,10 @@ pub fn class_chain<'a>(uri: &'a McURI) -> ScopeChain<'a, ContainerRef> {
 
 /// Unified base-name resolution result — the exit of the two chains.
 pub enum BaseResolved {
-    /// P1-P2 instance chain hit (`McInstance` + span).
+    /// P1-P2 instance chain hit (`McInstance` + span). Produced by
+    /// [`first_hop`] but only the `Container` exit is consumed by current
+    /// callers; the payload is retained for the chain contract.
+    #[allow(dead_code)]
     Inst(Resolved),
     /// P3-P5 class chain hit (container reference).
     Container(ContainerRef),

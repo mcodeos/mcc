@@ -5,7 +5,8 @@
 // Many internal functions are used across files within the crate but the
 // compiler cannot track cross-file usage (e.g., RPC handlers registered
 // via register_all(), phrase ID assignment in instantiation pipeline).
-#![allow(dead_code)]
+// Removed the crate-wide #![allow(dead_code)] so real dead code surfaces as
+// warnings; legitimate registry-driven items keep a local #[allow(dead_code)].
 
 //1. lib internal
 use crate::db::diagnostic::diagnostic::Diagnostic;
@@ -937,59 +938,6 @@ fn print_member_info_indent(member: &StmtMemberInfo, indent: usize, idx: usize) 
         }
         StmtMemberInfo::Endpoint { info } => {
             mcc_dbg!("parse::phrase", "{pad}[{idx}] Endpoint({info})");
-        }
-    }
-}
-
-/// Print members of an McPhrase
-fn print_phrase_members(phrase: &McPhrase, indent: usize) {
-    match phrase {
-        McPhrase::Series(phrases, _) => {
-            for (j, p) in phrases.iter().enumerate() {
-                print_phrase_members(p, indent);
-                if j < phrases.len() - 1 {
-                    mcc_dbg!("parse::phrase", "{}    ---", " ".repeat(indent));
-                }
-            }
-        }
-        McPhrase::Parallel(phrases) => {
-            for (k, p) in phrases.iter().enumerate() {
-                print_phrase_members(p, indent);
-                if k < phrases.len() - 1 {
-                    mcc_dbg!("parse::phrase", "{}    ---", " ".repeat(indent));
-                }
-            }
-        }
-        McPhrase::Closure(c) => {
-            for (k, p) in c.body.iter().enumerate() {
-                mcc_dbg!("parse::phrase", "{}    body[{}]:", " ".repeat(indent), k);
-                print_phrase_members(p, indent + 4);
-            }
-        }
-        McPhrase::Group(g) => {
-            for (k, p) in g.opds.iter().enumerate() {
-                print_phrase_members(p, indent);
-                if k < g.opds.len() - 1 {
-                    mcc_dbg!("parse::phrase", "{}    ---", " ".repeat(indent));
-                }
-            }
-        }
-        McPhrase::FuncCall(f) => {
-            if let Some(c) = &f.caller {
-                mcc_dbg!("parse::phrase", "{}    caller:", " ".repeat(indent));
-                print_phrase_members(c, indent + 4);
-            }
-        }
-        McPhrase::Transposed(line) => {
-            print_phrase_members(line, indent);
-        }
-        McPhrase::Member(phrase, ep) => {
-            print_phrase_members(phrase, indent);
-            mcc_dbg!("parse::phrase", "{}    .{}", " ".repeat(indent), ep);
-        }
-        _ => {
-            // For other phrase types, just show the phrase type
-            mcc_dbg!("parse::phrase", "{}    {:?}", " ".repeat(indent), phrase);
         }
     }
 }

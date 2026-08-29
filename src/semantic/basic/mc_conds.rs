@@ -235,19 +235,6 @@ impl McConds {
         Some(McCond { condition, block })
     }
 
-    fn parse_cond_else(node: &AstNode) -> Option<AstNode> {
-        let Some(subnodes) = node.get_sub_node() else {
-            return None;
-        };
-
-        for child in subnodes.iter() {
-            if child.get_type() == MCAST_COND_BLOCK || child.get_type() == MCAST_NET {
-                return Some(child.clone());
-            }
-        }
-        None
-    }
-
     fn parse_cond_else_with_cond(node: &AstNode) -> Option<(Option<McCondition>, AstNode)> {
         let Some(subnodes) = node.get_sub_node() else {
             return None;

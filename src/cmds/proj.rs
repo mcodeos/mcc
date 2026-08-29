@@ -105,21 +105,3 @@ pub fn resolve_workspace_ref() -> WorkspaceRef {
         _ => WorkspaceRef::project(id),
     }
 }
-
-pub fn active_project_name() -> String {
-    let (id, kind, _) = mcc::workspace_info();
-    if kind == "Project" {
-        id
-    } else {
-        String::new()
-    }
-}
-
-pub fn active_project_root() -> Option<String> {
-    let (id, kind, root) = mcc::workspace_info();
-    if kind == "Project" && !id.is_empty() {
-        Some(root)
-    } else {
-        None
-    }
-}

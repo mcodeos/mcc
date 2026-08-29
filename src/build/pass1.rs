@@ -6,9 +6,7 @@ use crate::db::cmie::tables as workspace;
 use crate::db::infra::libmgr;
 use crate::db::infra::mc_code::McCode;
 use crate::McURI;
-use std::fs;
 use std::path::Path;
-use std::path::PathBuf;
 use tracing::{debug, trace};
 
 use crate::db::infra::init::*;
@@ -235,28 +233,6 @@ pub(crate) fn canonicalize_project_uri(uri: &McURI) -> String {
         .canonicalize()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| uri.clone())
-}
-
-// === fn scan_mc_files(dir: &Path) -> Vec<PathBuf> { ===
-/// Recursively scan all .mc files in the directory
-pub(crate) fn scan_mc_files(dir: &Path) -> Vec<PathBuf> {
-    let mut result = Vec::new();
-    let Ok(entries) = fs::read_dir(dir) else {
-        return result;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            // Skip doc directory (documentation is not .mc definitions)
-            if path.file_name().is_some_and(|n| n == "doc") {
-                continue;
-            }
-            result.extend(scan_mc_files(&path));
-        } else if path.extension().is_some_and(|ext| ext == "mc") {
-            result.push(path);
-        }
-    }
-    result
 }
 
 // === pub fn mcb_init_system_lib() { ===

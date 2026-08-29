@@ -7,26 +7,6 @@ use crate::ast::c_macros::*;
 use crate::semantic::basic::mc_uval::McUnitValue;
 use std::fmt;
 
-/// Basic data types
-#[derive(Debug, Clone)]
-pub enum McType {
-    Int,
-    Hex,
-    Float,
-    String,
-}
-
-impl std::fmt::Display for McType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            McType::Int => write!(f, "INT"),
-            McType::Hex => write!(f, "HEX"),
-            McType::Float => write!(f, "FLOAT"),
-            McType::String => write!(f, "STRING"),
-        }
-    }
-}
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct McInt {
     pub value: i64,

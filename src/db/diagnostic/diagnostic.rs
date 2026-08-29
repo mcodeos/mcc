@@ -51,14 +51,6 @@ pub struct DiagnosticManager {
 }
 
 pub mod message_templates {
-    pub const INVALID_IO_TYPE: &str = "Invalid IO type '{0}'";
-    pub const CANNOT_TRANSPOSE: &str = "Cannot transpose";
-    pub const NOT_SUPPORT: &str = "Not support";
-    pub const SHAPE_MISMATCH: &str = "Cannot connect. Shape mismatch. Left: {0}, right: {1}";
-
-    pub const RANGE_UNIT_MISMATCH: &str =
-        "Unit mismatch. Lower bound has unit {0} while upper bound has unit {1}";
-
     pub(super) fn format(msg: &str, args: &[&dyn std::fmt::Display]) -> String {
         let mut message = msg.to_string();
         for (i, arg) in args.iter().enumerate() {
@@ -395,28 +387,6 @@ pub fn dlog_error_at(code: u32, pos: Position, len: u32, msg: &str) {
         "{msg}"
     );
     diagnostic_log(code, DiagnosticLevel::Error, pos, len, msg, &[]);
-}
-pub fn dlog_info(code: u32, node: &AstNode, msg: &str) {
-    let full_msg = msg.to_string();
-    diagnostic_log(
-        code,
-        DiagnosticLevel::Info,
-        node.get_pos(),
-        node.get_len(),
-        &full_msg,
-        &[],
-    );
-}
-pub fn dlog_hint(code: u32, node: &AstNode, msg: &str) {
-    let full_msg = msg.to_string();
-    diagnostic_log(
-        code,
-        DiagnosticLevel::Hint,
-        node.get_pos(),
-        node.get_len(),
-        &full_msg,
-        &[],
-    );
 }
 
 pub fn dlog_clear_file(uri: &McURI) {

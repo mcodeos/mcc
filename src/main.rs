@@ -6,7 +6,7 @@
 //!
 //! Many helper functions are used across cmds/ files; the compiler
 //! cannot track cross-file usage within the binary crate.
-#![allow(dead_code)]
+//! Crate-wide #![allow(dead_code)] removed so real dead code surfaces.
 //!
 //! ## Initialization flow
 //!

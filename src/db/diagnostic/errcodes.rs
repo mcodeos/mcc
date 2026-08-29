@@ -951,9 +951,6 @@ pub const NAME_PIN_MIXED_CONVENTION: u32 = 5053;
 /// Instance name is a single character.
 pub const NAME_INSTANCE_SINGLE_CHAR: u32 = 5054;
 
-/// Pin name is purely numeric.
-pub const NAME_PIN_NUMERIC: u32 = 5055;
-
 /// Port/instance name shadows a library CMIE name.
 pub const NAME_PORT_INST_SHADOWS_CMIE: u32 = 5056;
 
@@ -1524,7 +1521,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NAME_PORT_SHADOWS_CMIE, "Port name shadows a library CMIE name.", "Port name shadows a library CMIE name."),
     entry!(NAME_PIN_MIXED_CONVENTION, "Pins use mixed naming conventions.", "Pins use mixed naming conventions."),
     entry!(NAME_INSTANCE_SINGLE_CHAR, "Instance name is a single character.", "Instance name is a single character."),
-    entry!(NAME_PIN_NUMERIC, "Pin name is purely numeric.", "Pin name is purely numeric."),
     entry!(NAME_PORT_INST_SHADOWS_CMIE, "Port/instance name shadows a library CMIE name.", "Port/instance name shadows a library CMIE name."),
     entry!(NAME_PARAM_SHADOWS_CMIE, "Parameter name shadows a library CMIE name.", "Parameter name shadows a library CMIE name."),
     // ---- section ----

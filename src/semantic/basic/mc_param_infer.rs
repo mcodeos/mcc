@@ -28,6 +28,11 @@ pub struct UsageSite {
     pub pos: usize,
 }
 
+/// Usage taxonomy for parameter-type inference. Several kinds are classified
+/// by the engine but not yet emitted by the current parsers (CtorArg /
+/// ReturnValue / MemberAccess), and `Assignment` is constructed only in tests —
+/// kept as the complete taxonomy rather than pruning per-parser.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UsageKind {
     /// `P -> net`, `net -> P`, `P - net`, `P + net`, `net - P`, `net + P`
@@ -59,11 +64,11 @@ pub enum UsageKind {
 /// Result of usage-based type inference for a single parameter.
 #[derive(Debug, Clone)]
 pub struct InferenceResult {
-    pub param_name: String,
     pub param_type: McParamType,
     /// 0.0 = no confidence (mixed/unused), 1.0 = certain
     pub confidence: f32,
-    /// Number of usage sites found
+    /// Number of usage sites found; read by the `infer_*` tests.
+    #[allow(dead_code)]
     pub usage_count: usize,
 }
 
@@ -253,10 +258,9 @@ fn spec_key_to_unit(key: &str) -> Option<McParamTypeKind> {
 }
 
 /// Aggregate usage sites into a parameter type with confidence.
-pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResult {
+pub fn aggregate_usages(usages: &[UsageSite]) -> InferenceResult {
     if usages.is_empty() {
         return InferenceResult {
-            param_name: param_name.to_string(),
             param_type: McParamType::unknown(),
             confidence: 0.0,
             usage_count: 0,
@@ -315,7 +319,6 @@ pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResu
     // Strong signals: all usages agree
     if label_count as f32 == total && label_count > 0 {
         return InferenceResult {
-            param_name: param_name.to_string(),
             param_type: McParamType {
                 kind: McParamTypeKind::Label,
                 direction: None,
@@ -327,7 +330,6 @@ pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResu
 
     if string_count as f32 == total && string_count > 0 {
         return InferenceResult {
-            param_name: param_name.to_string(),
             param_type: McParamType {
                 kind: McParamTypeKind::BasicString { default_val: None },
                 direction: None,
@@ -342,7 +344,6 @@ pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResu
         let ratio = *count as f32 / total;
         if ratio >= 0.8 {
             return InferenceResult {
-                param_name: param_name.to_string(),
                 param_type: McParamType {
                     kind: McParamTypeKind::UnitValue { unit: unit.clone() },
                     direction: None,
@@ -363,7 +364,6 @@ pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResu
     if ratio >= 0.8 {
         if label_count == max_count {
             return InferenceResult {
-                param_name: param_name.to_string(),
                 param_type: McParamType {
                     kind: McParamTypeKind::Label,
                     direction: None,
@@ -374,7 +374,6 @@ pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResu
         }
         if numeric_count == max_count {
             return InferenceResult {
-                param_name: param_name.to_string(),
                 param_type: McParamType {
                     kind: McParamTypeKind::BareNumeric,
                     direction: None,
@@ -385,7 +384,6 @@ pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResu
         }
         if string_count == max_count {
             return InferenceResult {
-                param_name: param_name.to_string(),
                 param_type: McParamType {
                     kind: McParamTypeKind::BasicString { default_val: None },
                     direction: None,
@@ -398,7 +396,6 @@ pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResu
 
     // Mixed signals, cannot determine
     InferenceResult {
-        param_name: param_name.to_string(),
         param_type: McParamType::unknown(),
         confidence: 0.0,
         usage_count: usages.len(),
@@ -408,7 +405,7 @@ pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResu
 /// Full inference pipeline for a single parameter.
 pub fn infer_param(param_name: &str, body: &AstNode) -> InferenceResult {
     let usages = collect_usages(param_name, body);
-    aggregate_usages(param_name, &usages)
+    aggregate_usages(&usages)
 }
 
 /// Check for unused parameters — uses all_name_forms() for IDX-aware matching.
@@ -438,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_empty_usages() {
-        let result = aggregate_usages("test", &[]);
+        let result = aggregate_usages(&[]);
         assert_eq!(result.confidence, 0.0);
         assert_eq!(result.usage_count, 0);
     }
@@ -459,7 +456,7 @@ mod tests {
                 pos: 2,
             },
         ];
-        let result = aggregate_usages("dc24v", &usages);
+        let result = aggregate_usages(&usages);
         assert!(result.confidence >= 0.9);
         assert_eq!(result.param_type.kind, McParamTypeKind::Label);
     }
@@ -476,7 +473,7 @@ mod tests {
                 pos: 1,
             },
         ];
-        let result = aggregate_usages("partno", &usages);
+        let result = aggregate_usages(&usages);
         assert!(result.confidence >= 0.9);
         assert!(matches!(
             result.param_type.kind,

@@ -625,7 +625,11 @@ impl Shape {
         Self { rows }
     }
 
-    /// 1*1 node (single point: label / single pin)
+    /// 1*1 node (single point: label / single pin).
+    ///
+    /// Test-covered helpers below (is_row / is_multi_row / node) have no
+    /// production caller yet; kept for the shape-classifier tests.
+    #[allow(dead_code)]
     pub fn node() -> Self {
         Self { rows: 1 }
     }
@@ -645,11 +649,13 @@ impl Shape {
     }
 
     /// Single row (1*1 node)
+    #[allow(dead_code)]
     pub fn is_row(&self) -> bool {
         self.rows == 1
     }
 
     /// Multiple rows (N*1 column vector)
+    #[allow(dead_code)]
     pub fn is_multi_row(&self) -> bool {
         self.rows >= 2
     }

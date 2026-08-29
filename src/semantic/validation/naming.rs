@@ -8,7 +8,6 @@
 //!   J1 — lowercase component name (should be UPPER_SNAKE)
 //!   N9 — mixed pin naming conventions within a single component
 //!   N10 — single-character or overly short instance names
-//!   N11 — pin names that are purely numeric (confusing with pin IDs)
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
@@ -44,7 +43,6 @@ impl ValidationCheck for NamingCheck {
         check_lowercase_components(acc); // J1
         check_mixed_pin_naming(acc); // N9
         check_short_instance_names(acc); // N10
-        check_numeric_pin_names(acc); // N11
         check_lib_name_shadow(acc, &lib_names); // extended J3
     }
 }
@@ -208,52 +206,6 @@ fn check_short_instance_names(acc: &mut CheckAccumulator) {
                     code: crate::errcodes::NAME_INSTANCE_SINGLE_CHAR,
                 });
             }
-        }
-    }
-}
-
-// ============================================================================
-// N11: Pin names that are purely numeric
-// ============================================================================
-
-/// Pin names like "1", "2", "3" (instead of functional names like "VCC",
-/// "GND", "A1") lose semantic meaning. While common for simple passive
-/// components (resistors, capacitors), for active components with >3 pins,
-/// purely numeric names suggest incomplete documentation.
-fn check_numeric_pin_names(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let comp = entry.value();
-
-        let pin_count = comp.pins.names_to_id.len();
-        if pin_count <= 3 {
-            continue; // Passives often have numeric pins (1, 2, 3)
-        }
-
-        let numeric_count = comp
-            .pins
-            .names_to_id
-            .keys()
-            .filter(|n| n.chars().all(|c| c.is_ascii_digit()))
-            .count();
-
-        if numeric_count as f64 / pin_count as f64 > 0.8 && pin_count > 4 {
-            acc.push(CheckResult {
-                check_name: "naming",
-                severity: CheckSeverity::Info,
-                uri: Some(uri.clone()),
-                span: Some(comp.span.start..comp.span.end),
-                message: format!(
-                    "Component '{}': {}/{} pin names are purely numeric. \
-                     Consider adding functional names for clarity.",
-                    comp.name, numeric_count, pin_count
-                ),
-                code: crate::errcodes::NAME_PIN_NUMERIC,
-            });
         }
     }
 }

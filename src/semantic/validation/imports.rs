@@ -200,10 +200,3 @@ fn build_cmie_name_set() -> HashSet<String> {
     }
     names
 }
-
-/// Build a set of local names from a file's spacenames map.
-fn build_local_name_set(
-    spacenames: &std::collections::BTreeMap<crate::McIds, crate::McSpaceName>,
-) -> HashSet<String> {
-    spacenames.iter().map(|(k, _)| k.to_string()).collect()
-}

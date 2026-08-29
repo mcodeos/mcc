@@ -3206,50 +3206,6 @@ impl McPhrase {
         }
     }
 
-    /// Helper function to recursively extract method name from AST nodes
-    fn extract_method_name(node: &AstNode) -> Option<McIds> {
-        // First check if this is a direct method call pattern
-        let node_type = node.get_type();
-
-        // For OPD_FCALL nodes, we need to look at the structure
-        if node_type == MCAST_OPD_FCALL {
-            // Check if there's a dot notation in the children
-            for child in node.iter() {
-                if child.get_type() == MCAST_OPD_DOT {
-                    // For OPD_DOT, look for the method name in its children
-                    for dot_child in child.iter() {
-                        if dot_child.get_type() == MCAST_NAME {
-                            let node_copy = dot_child.clone();
-                            return McIds::new(&node_copy);
-                        }
-                    }
-                }
-            }
-        }
-
-        // For MCAST_NAME nodes, extract directly
-        if node_type == MCAST_NAME {
-            let node_copy = node.clone();
-            return McIds::new(&node_copy);
-        }
-
-        // If that fails, check for OPD_DOT, DECLARE, or other nodes
-        if node_type == MCAST_OPD_DOT || node_type == MCAST_DECLARE {
-            for child in node.iter() {
-                if let Some(name) = Self::extract_method_name(&child) {
-                    return Some(name);
-                }
-            }
-        }
-
-        // For other nodes, check their subnodes
-        if let Some(subnode) = node.get_sub_node() {
-            return Self::extract_method_name(&subnode);
-        }
-
-        None
-    }
-
     fn upgrade_new_label_or_bus(self, context: &mut dyn HasFindInst) -> McPhrase {
         match self {
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {

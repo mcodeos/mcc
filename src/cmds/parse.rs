@@ -155,19 +155,19 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     // Accept all CMIE types — tree/ast view works for component/interface/enum too.
     enum ParseTarget {
-        Module(std::sync::Arc<mcc::McModule>),
-        Component(std::sync::Arc<mcc::McComponent>),
-        Interface(std::sync::Arc<mcc::McInterface>),
-        Enum(std::sync::Arc<mcc::McEnumDef>),
+        Module,
+        Component,
+        Interface,
+        Enum,
     }
     let parse_target: Option<ParseTarget> = match &cmie {
-        Some(McCMIE::Module(m)) => Some(ParseTarget::Module(m.clone())),
-        Some(McCMIE::Component(c)) => Some(ParseTarget::Component(c.clone())),
-        Some(McCMIE::Interface(i)) => Some(ParseTarget::Interface(i.clone())),
-        Some(McCMIE::Enum(e)) => Some(ParseTarget::Enum(e.clone())),
+        Some(McCMIE::Module(_)) => Some(ParseTarget::Module),
+        Some(McCMIE::Component(_)) => Some(ParseTarget::Component),
+        Some(McCMIE::Interface(_)) => Some(ParseTarget::Interface),
+        Some(McCMIE::Enum(_)) => Some(ParseTarget::Enum),
         _ => None,
     };
-    let is_module = matches!(parse_target, Some(ParseTarget::Module(_)));
+    let is_module = matches!(parse_target, Some(ParseTarget::Module));
 
     // ── 6. Pass1 assembly ──
     if stages.pass1 {

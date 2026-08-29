@@ -18,7 +18,6 @@
 //! PR-4 daemonization, each workspace holds independent tables, routed via RPC to the
 //! corresponding workspace.
 
-use crate::ast::ast_semantic::{DeclareId, Span};
 use crate::db::diagnostic::diagnostic::DiagnosticManager;
 use crate::db::infra::mc_code::McCode;
 use crate::semantic::component::McComponent;
@@ -26,7 +25,7 @@ use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
-use crate::{ContainerKind, McSpaceName, McURI};
+use crate::{McSpaceName, McURI};
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -57,8 +56,6 @@ pub struct WorkspaceMeta {
     pub id: String,
     pub kind: WorkspaceKind,
     pub root: PathBuf,
-    pub entry: Option<String>,
-    pub top_module: Option<String>,
 }
 
 impl Default for WorkspaceMeta {
@@ -67,8 +64,6 @@ impl Default for WorkspaceMeta {
             id: "default".into(),
             kind: WorkspaceKind::Project,
             root: PathBuf::from("."),
-            entry: None,
-            top_module: None,
         }
     }
 }
@@ -135,38 +130,13 @@ impl WorkspaceManager {
     // Query
     // ================================================================
 
-    /// Look up a class in the global class table by (uri, kind, name).
-    pub fn lookup_global_class(
-        &self,
-        uri: &str,
-        kind: ContainerKind,
-        name: &str,
-    ) -> Option<(DeclareId, Span)> {
-        let table = self.lsp.class_table.lock().ok()?;
-        table
-            .get(&(uri.to_string(), kind, name.to_string()))
-            .cloned()
-    }
-
-    /// Look up a class in the global class table by name (any kind, any URI).
-    pub fn lookup_global_class_by_name(
-        &self,
-        name: &str,
-    ) -> Option<(DeclareId, Span, String, ContainerKind)> {
-        let table = self.lsp.class_table.lock().ok()?;
-        table.iter().find_map(|((uri, kind, n), &(id, ref span))| {
-            if n == name {
-                Some((id, span.clone(), uri.clone(), *kind))
-            } else {
-                None
-            }
-        })
-    }
-
+    /// Currently-active workspace id / kind — used by tests.
+    #[allow(dead_code)]
     pub fn active_id(&self) -> String {
         self.meta.lock().unwrap().id.clone()
     }
 
+    #[allow(dead_code)]
     pub fn active_kind(&self) -> WorkspaceKind {
         self.meta.lock().unwrap().kind.clone()
     }
@@ -244,8 +214,6 @@ impl WorkspaceManager {
             id: id.clone(),
             kind,
             root,
-            entry: None,
-            top_module: None,
         };
 
         info!(target: "mcc::workspace", id = %id, "created and switched to new workspace");

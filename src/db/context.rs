@@ -7,19 +7,14 @@
 //! Provides concrete implementations of [`crate::semantic::context`] traits
 //! backed by the global workspace / system tables in `db/`.
 
-use crate::ast::ast_semantic::{DeclareId, Span};
-use crate::semantic::context::{DiagnosticSeverity, DiagnosticSink, NameResolver, SymbolRegistry};
+use crate::semantic::context::NameResolver;
 use crate::{McCMIE, McIds, McURI};
 
 // ============================================================================
-// DbContext — single struct implementing all three traits
+// DbContext — NameResolver over the global workspace / system tables
 // ============================================================================
 
 pub struct DbContext;
-
-fn mk_span(pos: u32, len: u32) -> Span {
-    pos as usize..(pos + len) as usize
-}
 
 impl NameResolver for DbContext {
     fn resolve(&self, class_name: &McIds, from_uri: &McURI) -> Option<(McCMIE, McURI)> {
@@ -28,131 +23,6 @@ impl NameResolver for DbContext {
 
     fn resolve_system(&self, class_name: &McIds) -> Option<McCMIE> {
         crate::db::resolve::Resolver::resolve_system(class_name)
-    }
-}
-
-impl SymbolRegistry for DbContext {
-    fn register_instance_decl(
-        &self,
-        uri: &str,
-        scope: Option<&str>,
-        name: &str,
-        pos: u32,
-        len: u32,
-    ) -> u32 {
-        let span = mk_span(pos, len);
-        let mc_uri = McURI::from(uri);
-        if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
-            if let Ok(mut sem) = mcode.symbols.lock() {
-                // register under the real scope key (same
-                // (file_id, container_id, func_id) as lapper-time register_def)
-                // instead of the all-zero SourceLocation::from_span, so the
-                // parse-time id matches the InstDef id.
-                let id = crate::refdef::register::register_instance_decl_parse_time(
-                    &mut sem,
-                    &mc_uri,
-                    scope,
-                    name,
-                    span.clone(),
-                );
-                return id.raw();
-            }
-        }
-        0
-    }
-
-    fn register_instance_ref(
-        &self,
-        uri: &str,
-        decl_id: u32,
-        _scope: Option<&str>,
-        pos: u32,
-        len: u32,
-    ) {
-        let span = mk_span(pos, len);
-        let mc_uri = McURI::from(uri);
-        if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
-            if let Ok(mut sem) = mcode.symbols.lock() {
-                sem.local_table.add_inst(span, DeclareId::from_raw(decl_id));
-            }
-        }
-    }
-
-    fn lookup_instance_decl(&self, uri: &str, name: &str, scope: Option<&str>) -> Option<u32> {
-        let mc_uri = McURI::from(uri);
-        let scope_str = scope.unwrap_or("");
-        // First try the exact file
-        if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
-            if let Ok(sem) = mcode.symbols.lock() {
-                // Use scope_index for precise scope-based lookup
-                if let Some((id, _)) = sem.local_table.lookup_by_scope_name(scope_str, name) {
-                    return Some(id.raw());
-                }
-                // Fallback: iterate and match by name only
-                for ((_fid, _cid, _fnid, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
-                    if n == name {
-                        return Some(id.raw());
-                    }
-                }
-            }
-        }
-        // Cross-file fallback: search all loaded files
-        for entry in crate::db::cmie::tables::WORKSPACE.mcodes.iter() {
-            if let Ok(sem) = entry.value().symbols.lock() {
-                if let Some((id, _)) = sem.local_table.lookup_by_scope_name(scope_str, name) {
-                    return Some(id.raw());
-                }
-            }
-        }
-        None
-    }
-
-    fn register_declare_class(&self, uri: &str, class_name: &str, pos: u32, len: u32) {
-        let span = mk_span(pos, len);
-        let _ = crate::db::cmie::tables::WORKSPACE
-            .lsp
-            .class_table
-            .lock()
-            .map(|mut t| {
-                t.insert(
-                    (
-                        uri.to_string(),
-                        crate::ContainerKind::Component,
-                        class_name.to_string(),
-                    ),
-                    (DeclareId::from_raw(0), span),
-                )
-            });
-    }
-
-    fn find_refs(&self, name: &str) -> Vec<(String, String, (u32, u32))> {
-        crate::query::refs::mcb_get_refs(name)
-            .into_iter()
-            .map(|(uri, scope, span)| (uri, scope, (span.start as u32, span.end as u32)))
-            .collect()
-    }
-}
-
-impl DiagnosticSink for DbContext {
-    fn report(
-        &self,
-        code: u32,
-        severity: DiagnosticSeverity,
-        _uri: &str,
-        pos: u32,
-        len: u32,
-        message: &str,
-        _suggestions: &[String],
-    ) {
-        let level = match severity {
-            DiagnosticSeverity::Hint => crate::db::diagnostic::diagnostic::DiagnosticLevel::Hint,
-            DiagnosticSeverity::Info => crate::db::diagnostic::diagnostic::DiagnosticLevel::Info,
-            DiagnosticSeverity::Warning => {
-                crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning
-            }
-            DiagnosticSeverity::Error => crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-        };
-        crate::db::diagnostic::diagnostic::diagnostic_log(code, level, pos, len, message, &[]);
     }
 }
 
