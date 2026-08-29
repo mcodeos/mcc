@@ -198,6 +198,12 @@ impl ResultBuilder {
 /// Recursively count total instances in the instance tree (including submodules).
 fn count_instances(node: Option<&InstanceNode>) -> usize {
     let Some(n) = node else { return 0 };
+    // A synthetic VIRT_<T> wrapper (fabricated so a standalone component or
+    // interface file can be built) is not a real instance — exclude its whole
+    // tree, so a library build reports instances=0 instead of 2 (wrapper + unit).
+    if n.synthetic {
+        return 0;
+    }
     let mut total = 1;
     total += n.components.len();
     for sub in &n.sub_modules {
@@ -224,6 +230,7 @@ mod tests {
             name: "main".into(),
             kind: "module".into(),
             class_name: "Main".into(),
+            synthetic: false,
             ports: vec![],
             components: vec![ComponentInfo {
                 name: "R1".into(),
@@ -244,6 +251,7 @@ mod tests {
                 name: "child".into(),
                 kind: "module".into(),
                 class_name: "Sub".into(),
+                synthetic: false,
                 ports: vec![],
                 components: vec![],
                 sub_modules: vec![],
@@ -251,5 +259,27 @@ mod tests {
         };
         // root + 1 component + 1 submodule = 3
         assert_eq!(count_instances(Some(&n)), 3);
+    }
+
+    #[test]
+    fn pass2_synthetic_wrapper_counts_as_zero() {
+        // A synthetic VIRT_<T> wrapper is fabricated so a standalone component
+        // or interface file can be built; it is not a real instance, so its
+        // whole tree must be excluded from the count.
+        let n = InstanceNode {
+            name: "VIRT_AMP".into(),
+            kind: "module".into(),
+            class_name: "VIRT_AMP".into(),
+            synthetic: true,
+            ports: vec![],
+            components: vec![ComponentInfo {
+                name: "u_1".into(),
+                class_name: "AMP".into(),
+                pins: vec![],
+                nc: false,
+            }],
+            sub_modules: vec![],
+        };
+        assert_eq!(count_instances(Some(&n)), 0);
     }
 }

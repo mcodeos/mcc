@@ -58,6 +58,60 @@ pub fn is_synthetic_module(name: &str) -> bool {
     synthetic_modules().read().unwrap().contains(name)
 }
 
+// Whether the current thread is reloading a synthetic view
+// ([`install_synthetic_views`] / [`install_synthetic_view`]).
+//
+// The reload runs the C parser + PostParse validation synchronously, and the
+// parser flags the fabricated interface wrapper's empty body with
+// `MCD_W1105_EMPTY_BODY` (2115). An empty body is that wrapper's normal,
+// intended shape — its `io` ports render boundary pins and there is nothing to
+// declare inside — so the parser diagnostic is suppressed while this is set
+// (see `db/infra/mc_code.rs`). Mirrors the MODULE_STUB carve-out for synthetic
+// wrappers in `semantic/validation/conds.rs`.
+//
+// Thread-local, not a process global: a load on another thread (a concurrent
+// RPC request) must never inherit the suppression.
+std::thread_local! {
+    static LOADING_SYNTHETIC_VIEW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Is the current thread reloading a synthetic view?
+pub(crate) fn is_loading_synthetic_view() -> bool {
+    LOADING_SYNTHETIC_VIEW.with(|f| f.get())
+}
+
+/// RAII guard that marks the current thread as reloading a synthetic view for
+/// the duration of the reload. Dropped when the reload's scope ends, so the
+/// flag cannot leak if `mcc_load_from_string` panics.
+pub(crate) struct SyntheticViewLoadGuard;
+
+impl SyntheticViewLoadGuard {
+    pub(crate) fn new() -> Self {
+        LOADING_SYNTHETIC_VIEW.with(|f| f.set(true));
+        SyntheticViewLoadGuard
+    }
+}
+
+impl Drop for SyntheticViewLoadGuard {
+    fn drop(&mut self) {
+        LOADING_SYNTHETIC_VIEW.with(|f| f.set(false));
+    }
+}
+
+/// Re-apply synthetic markers to a freshly-flattened instance table.
+///
+/// `InstTable::from_module_inst` builds a new table without the synthetic flags
+/// that `mcb_pass2_flat_with` attached during the virtual build, so a standalone
+/// component/interface view's unwired ports would be re-flagged by the
+/// electrical net checks (floating-bidirectional, etc.). Mark every entry under
+/// each recorded wrapper module as synthetic again, mirroring
+/// `mark_synthetic_by_path_prefix` at the generation site.
+pub fn mark_synthetic_flat_entries(table: &mut crate::instant::insttab::InstTable) {
+    for name in synthetic_modules().read().unwrap().iter() {
+        table.mark_synthetic_by_path_prefix(name);
+    }
+}
+
 /// Canonical form of `uri` for workspace-table key comparisons (the loader
 /// stores definitions under `canonicalize_project_uri`, so a raw path like
 /// `/var/folders/...` must be normalized to match `/private/var/folders/...`).
@@ -240,6 +294,9 @@ pub fn install_synthetic_views(targets: &[String], uri: &McURI) -> Result<usize,
         combined.push_str(&synthetic_module_text(t, uri)?);
         record_synthetic_module(&synthetic_module_name(t));
     }
+    // Guard the reload so parser diagnostics that can only come from the
+    // fabricated wrappers (e.g. 2115 empty body) are suppressed.
+    let _guard = SyntheticViewLoadGuard::new();
     crate::mcc_load_from_string(uri, &combined);
     Ok(missing.len())
 }
@@ -422,9 +479,15 @@ fn install_synthetic_view(target: &str, uri: &McURI) -> Result<String, Box<dyn E
         .map_err(|e| format!("virtual instantiation: cannot read '{}': {e}", uri))?;
     let synthetic = synthetic_module_text(target, uri)?;
     let combined = format!("{original}\n{synthetic}");
-    crate::mcc_load_from_string(uri, &combined);
+    // Record the fabricated module before reloading: mcc_load_from_string runs
+    // the PostParse validation synchronously, so the marker must be in place
+    // for checks that must not flag synthetic wrappers (e.g. MODULE_STUB).
     let mod_name = synthetic_module_name(target);
     record_synthetic_module(&mod_name);
+    // Guard the reload so parser diagnostics that can only come from the
+    // fabricated wrapper (e.g. 2115 empty body) are suppressed.
+    let _guard = SyntheticViewLoadGuard::new();
+    crate::mcc_load_from_string(uri, &combined);
     Ok(mod_name)
 }
 

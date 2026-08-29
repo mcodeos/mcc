@@ -272,6 +272,13 @@ pub struct InstanceNode {
     /// "module" | "component"
     pub kind: String,
     pub class_name: String,
+    /// True when this node is a synthetic `VIRT_<T>` wrapper fabricated so a
+    /// standalone component/interface file can be built. Set at tree→node
+    /// conversion time (in the building process) and carried in the envelope,
+    /// so instance counts can exclude wrappers even after an RPC round-trip
+    /// (the client process has no synthetic-name registry).
+    #[serde(default)]
+    pub synthetic: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<PortInfo>,
     #[serde(skip_serializing_if = "Vec::is_empty")]

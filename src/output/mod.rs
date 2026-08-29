@@ -794,6 +794,12 @@ fn tally_tree(
         used_components: &mut std::collections::BTreeSet<String>,
         out: &mut TreeTallies,
     ) {
+        // A synthetic VIRT_<T> wrapper (fabricated so a standalone component or
+        // interface file can be built) is not a real instance — exclude its whole
+        // tree from the tally (mirrors `count_instances` in output/builder.rs).
+        if n.synthetic {
+            return;
+        }
         out.module_insts += 1;
         out.component_insts += n.components.len();
         used_modules.insert(n.class_name.clone());

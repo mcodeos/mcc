@@ -401,6 +401,17 @@ pub fn mcc_virtual_build_flat(
     crate::build::virtual_inst::virtual_build_flat(target, uri, start_id)
 }
 
+/// Re-apply synthetic markers to a freshly-flattened instance table.
+///
+/// The CLI build's electrical net-check pass rebuilds the table via
+/// `InstTable::from_module_inst`, which drops the synthetic flags that
+/// `mcb_pass2_flat_with` attached to the virtual wrapper's entries — without
+/// this, the unwired interface/component view's ports are re-flagged as
+/// floating by the net checks.
+pub fn mcc_virtual_mark_synthetic_flat_entries(table: &mut crate::instant::insttab::InstTable) {
+    crate::build::virtual_inst::mark_synthetic_flat_entries(table);
+}
+
 /// Prepare a virtually-instantiated component/interface graph for rendering:
 /// device pipeline (physical pins visible) + suppressed fabricated instance
 /// name (mcd docs-mc 16-export-viz §6).
@@ -409,6 +420,13 @@ pub fn mcc_virtual_prepare_graph(
     target: &str,
 ) -> crate::vector::graph::McVecGraph {
     crate::build::virtual_inst::prepare_virtual_graph(graph, target)
+}
+
+/// True when `name` is a synthetic `VIRT_<T>` wrapper module fabricated for
+/// virtual instantiation of a standalone component/interface file. The bin
+/// crate's output layer uses this to exclude wrappers from instance counts.
+pub fn mcc_is_synthetic_module(name: &str) -> bool {
+    crate::build::virtual_inst::is_synthetic_module(name)
 }
 
 pub fn debug_get_def(class_name: &McIds, uri: &McURI) {

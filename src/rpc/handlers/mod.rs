@@ -575,6 +575,13 @@ fn mcc_diag_to_json(d: &crate::McDiagnostic, phase: &str) -> Value {
 /// components + submodules), mirroring `ResultBuilder`'s `count_instances`.
 fn count_instance_json(node: Option<&Value>) -> usize {
     let Some(n) = node else { return 0 };
+    // A synthetic VIRT_<T> wrapper (fabricated so a standalone component or
+    // interface file can be built) is not a real instance — exclude its whole
+    // tree (mirrors `count_instances` in output/builder.rs), so a library
+    // build reports instances=0 instead of 2 (wrapper + unit).
+    if n["synthetic"].as_bool().unwrap_or(false) {
+        return 0;
+    }
     let mut total = 1;
     if let Some(cs) = n["components"].as_array() {
         total += cs.len();
@@ -607,6 +614,12 @@ fn tally_build_stats(
     module_insts: &mut usize,
     component_insts: &mut usize,
 ) {
+    // A synthetic VIRT_<T> wrapper (fabricated so a standalone component or
+    // interface file can be built) is not a real instance — exclude its whole
+    // tree (mirrors `tally_tree` in output/mod.rs).
+    if crate::mcc_is_synthetic_module(&node.def.name.to_string()) {
+        return;
+    }
     *module_insts += 1;
     *component_insts += node.components.len();
     used_modules.insert(node.def.name.to_string());
@@ -812,6 +825,7 @@ pub(crate) fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
         "name":        inst.name.to_string(),
         "kind":        "module",
         "class_name":  inst.def.name.to_string(),
+        "synthetic":   crate::mcc_is_synthetic_module(&inst.def.name.to_string()),
         "ports":       ports,
         "components":  components,
         "sub_modules": sub_modules,
