@@ -8,6 +8,7 @@ use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::mc_inst::McInstance;
+use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use tracing::warn;
 
 /// Group
@@ -57,6 +58,19 @@ impl McGroup {
             self.opds[0].get_left()
         } else {
             warn!(target: "mcc::group", "Left shape mismatch in Group");
+            // ★ Ledger (resolve-gate §1.2③): shape mismatch is silently
+            // absorbed into a `<error:shape_mismatch>` placeholder bus. Record it
+            // (no uri/span here — deep in instantiation — so the opds display
+            // form carries identity and request-scoped dedup collapses re-probes
+            // of the same group).
+            ledger::record(
+                LedgerEntry::new(
+                    LedgerKind::Fallback,
+                    group_form(&self.opds),
+                    "mc_group.rs:70 left shape_mismatch",
+                )
+                .with_action(LedgerAction::Silent),
+            );
             vec![McBus::new("<error:shape_mismatch>")]
         }
     }
@@ -67,9 +81,24 @@ impl McGroup {
             self.opds[0].get_right()
         } else {
             warn!(target: "mcc::group", "Right shape mismatch in Group");
+            ledger::record(
+                LedgerEntry::new(
+                    LedgerKind::Fallback,
+                    group_form(&self.opds),
+                    "mc_group.rs:88 right shape_mismatch",
+                )
+                .with_action(LedgerAction::Silent),
+            );
             vec![McBus::new("<error:shape_mismatch>")]
         }
     }
+}
+
+/// Readable ledger form for a group: `(opd1, opd2, …)`. Display only — the
+/// ledger records the fallback annotation, never re-parses it.
+fn group_form(opds: &[McPhrase]) -> String {
+    let inner: Vec<String> = opds.iter().map(|o| o.to_string()).collect();
+    format!("({})", inner.join(", "))
 }
 
 /// Helper: check group shape match and upgrade
