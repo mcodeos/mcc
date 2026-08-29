@@ -282,23 +282,6 @@ pub(crate) mod test_util {
         )
     }
 
-    /// Build a passive device (R/C/L)
-    pub fn mk_passive(id: i64, name: &str) -> McVecBox {
-        McVecBox::new_v2(
-            id,
-            name.into(),
-            String::new(),
-            BoxKind::TwoPin,
-            crate::vector::graph::Symbol::Unknown,
-            None,
-            None,
-            2,
-            IoSummary::new(),
-            format!("main.{}", name),
-            Vec::new(),
-        )
-    }
-
     /// Build a signal net (with given endpoints)
     pub fn mk_signal_net(id: i64, name: &str, endpoints: Vec<EndpointRef>) -> VizNet {
         VizNet::new(id, name.into(), NetKind::Signal, NetRole::Signal, endpoints)

@@ -48,8 +48,6 @@ use super::ladder_model::LadderModel;
 // Constants
 // ============================================================================
 
-/// Canvas margin: left anchor's x, and every anchor's y.
-const MARGIN: f64 = 100.0;
 /// Horizontal clearance between a series box and the neighbouring bridge box.
 const COL_GAP: f64 = 16.0;
 /// Column pitch floor (keeps short ladders from looking cramped).
@@ -176,14 +174,10 @@ pub fn apply_ladder_model_at(
 
 struct Plan {
     left_w: f64,
-    anchor_h_now: f64,
     elem_w: f64,
     elem_h: f64,
     bridge_w: f64,
     bridge_h: f64,
-    /// lane -> the left anchor's pin on that lane (index == lane).
-    left_lane_pin: Vec<i64>,
-    right_lane_pin: Vec<i64>,
     /// series box -> (pin facing the lower column, pin facing the higher column)
     series_pins: HashMap<i64, (i64, i64)>,
     /// bridge box -> (pin on the upper lane, pin on the lower lane)
@@ -227,8 +221,6 @@ impl Plan {
         }
 
         let left_box = graph.boxes.iter().find(|b| b.id == m.left)?;
-        let right_box = graph.boxes.iter().find(|b| b.id == m.right)?;
-        let anchor_h_now = left_box.h.max(right_box.h);
         let left_w = left_box.w;
 
         // ── anchor pin per lane ──
@@ -316,13 +308,10 @@ impl Plan {
 
         Some(Plan {
             left_w,
-            anchor_h_now,
             elem_w: elem_long,
             elem_h: elem_short,
             bridge_w: br_short, // vertical: short side across
             bridge_h: br_long,
-            left_lane_pin,
-            right_lane_pin,
             series_pins,
             bridge_pins,
         })

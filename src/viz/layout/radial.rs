@@ -210,7 +210,9 @@ enum Sector {
     North,
     /// S — signal out of hub
     South,
-    /// E — only external port connections
+    /// E — only external port connections. Not yet assigned by the sector
+    /// planner (no construction site); kept for the external-port checks.
+    #[allow(dead_code)]
     East,
 }
 

@@ -471,27 +471,6 @@ mod tests {
         b
     }
 
-    fn make_ic_box(id: i64, name: &str, x: f64, y: f64) -> crate::vector::graph::McVecBox {
-        let mut b = crate::vector::graph::McVecBox::new_v2(
-            id,
-            name.into(),
-            "".into(),
-            BoxKind::MultiPin,
-            Symbol::Ic,
-            None,
-            None,
-            8,
-            IoSummary::new(),
-            name.to_string(),
-            Vec::new(),
-        );
-        b.x = x;
-        b.y = y;
-        b.w = 100.0;
-        b.h = 120.0;
-        b
-    }
-
     #[test]
     fn optimizer_zero_overlap() {
         let mut graph = McVecGraph::new(1, "test".into());

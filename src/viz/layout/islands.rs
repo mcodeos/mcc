@@ -90,11 +90,9 @@ pub struct Decomposition {
 enum Band {
     Sp {
         model: SpModel,
-        island_idx: usize,
     },
     Ladder {
         model: LadderModel,
-        island_idx: usize,
     },
     Direct {
         db: DirectBand,
@@ -787,20 +785,14 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
             continue;
         }
         crate::vlog!("[islands] band SP island#{i}: size={:?}", model.size());
-        bands.push(Band::Sp {
-            model,
-            island_idx: i,
-        });
+        bands.push(Band::Sp { model });
     }
     for (model, i) in ladder_models {
         if !claimed.contains(&i) {
             continue;
         }
         crate::vlog!("[islands] band Ladder island#{i}: size={:?}", model.size());
-        bands.push(Band::Ladder {
-            model,
-            island_idx: i,
-        });
+        bands.push(Band::Ladder { model });
     }
     for db in &d.direct_bands {
         let left_name = box_owned
