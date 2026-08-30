@@ -91,3 +91,77 @@ fn declared_base_member_access_is_untouched() {
 
     drop(lock);
 }
+
+#[test]
+fn four_gate_forms_each_error_once() {
+    use mcc::ledger::{self, LedgerMode};
+
+    let lock = lock();
+
+    // Phase 2 convergence (§1.2②): the four gate-site shapes of an undeclared-base
+    // reference all dispatch through the single `resolve_reference` entry, so
+    // each produces exactly one E3182 (the finish recheck) plus exactly one
+    // UnresolvedRef(error) ledger row at the shared "gate undeclared base"
+    // site — and never a silent Fallback row.
+    let cases: &[(&str, &str)] = &[
+        // Site A: curly member list on an undeclared base (`NOPE{AAA, BBB}`).
+        (
+            "curly as_bus",
+            "module main {\n    io VDD\n    func main() {\n        NOPE{AAA, BBB} -> VDD\n    }\n}",
+        ),
+        // Site B: two-segment dot chain (`MISSING.PIN`).
+        (
+            "two-segment dot chain",
+            "module main {\n    io VDD\n    func main() {\n        MISSING.PIN -> VDD\n    }\n}",
+        ),
+        // Site C: single dotted token (`BASE.MEMBER`, MCAST_IDA path).
+        (
+            "single dotted token",
+            "module main {\n    io VDD\n    func main() {\n        BASE.MEMBER -> VDD\n    }\n}",
+        ),
+        // Site D: multi-item Multiple with one dotted miss alongside a
+        // declared item (`M1.PIN + VDD`).
+        (
+            "multi-item Multiple",
+            "module main {\n    io VDD\n    func main() {\n        M1.PIN + VDD -> VDD\n    }\n}",
+        ),
+    ];
+    for (name, src) in cases {
+        ledger::clear();
+        let codes = build_codes(src);
+        let e3182 = codes
+            .iter()
+            .filter(|c| **c == mcc::errcodes::INSTANCE_REF_UNDECLARED)
+            .count();
+        assert_eq!(
+            e3182, 1,
+            "{name}: expected exactly one E3182 for the undeclared base; got codes: {codes:?}"
+        );
+        let report = ledger::build_report(LedgerMode::Audit);
+        let ur: Vec<_> = report
+            .detail
+            .iter()
+            .filter(|r| r.kind == "unresolved_ref")
+            .collect();
+        assert_eq!(
+            ur.len(),
+            1,
+            "{name}: expected one UnresolvedRef row; got {ur:?}"
+        );
+        assert_eq!(
+            ur[0].action, "error",
+            "{name}: true-miss row action should be error"
+        );
+        assert_eq!(
+            ur[0].site, "gate undeclared base (E3182)",
+            "{name}: row site should be the shared gate site; got {:?}",
+            ur[0].site
+        );
+        assert!(
+            !report.detail.iter().any(|r| r.kind == "fallback"),
+            "{name}: a true miss is not a silent Fallback ghost-bus; got {report:?}"
+        );
+    }
+
+    drop(lock);
+}
