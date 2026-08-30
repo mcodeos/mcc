@@ -27,6 +27,8 @@
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex};
 
+use crate::semantic::basic::form::Form;
+
 // ============================================================================
 // Kinds & actions
 // ============================================================================
@@ -146,6 +148,10 @@ pub struct LedgerEntry {
     /// Wire-only: how many net endpoints reference the name (denoise — a name
     /// referenced twice or more is a shared floating net, not a single typo).
     pub refs: Option<u32>,
+    /// Syntactic form class from the resolve-gate classifier (§1.2①). Internal
+    /// observation hook only — NOT serialized into [`LedgerDetailRow`]; the
+    /// reported `form` field stays the text-as-written, so goldens are stable.
+    pub form_class: Option<Form>,
 }
 
 impl LedgerEntry {
@@ -159,6 +165,7 @@ impl LedgerEntry {
             pos: 0,
             len: 0,
             refs: None,
+            form_class: None,
         }
     }
 
@@ -180,6 +187,12 @@ impl LedgerEntry {
 
     pub fn with_refs(mut self, refs: u32) -> Self {
         self.refs = Some(refs);
+        self
+    }
+
+    /// Attach the resolve-gate form class (internal hook; not serialized).
+    pub fn with_form_class(mut self, form: Form) -> Self {
+        self.form_class = Some(form);
         self
     }
 }
