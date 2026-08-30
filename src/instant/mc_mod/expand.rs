@@ -813,6 +813,7 @@ mod inst_scope_tests {
                 cond_pins: Vec::new(),
                 cond_attrs: Vec::new(),
                 span: crate::ast::ast_semantic::Span { start: 0, end: 0 },
+                anon_counter: 1,
             }),
             params: McParamBindings::new(),
             raw_params: Vec::new(),

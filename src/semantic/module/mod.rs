@@ -45,8 +45,9 @@ pub struct McModule {
     /// parse. Module-level B-family bases (e.g. `PL3085A(...) PL.Cap()` → `PL`)
     /// never enter insts, so the ghost-bus discriminator passes them from this set.
     pub(crate) seen_callers: Vec<String>,
-    /// resolve-gate §1.3: ghost-bus true-miss candidates registered at parse time,
-    /// rechecked at component-finish by validation::gate::GateCheck → E3182.
+    /// resolve-gate §1.3 (relax-everything): ghost-bus true-miss candidates registered at
+    /// parse time, rechecked at component-finish by validation::gate::GateCheck
+    /// → E3137 single-use inline-net warning / resolved_late balance.
     pub(crate) gate_candidates: Vec<GateCandidate>,
     /// resolve-gate §1.6 ①: bare-identifier floating-label candidates from the
     /// module **top-level body** net statements. Module funcs register into
@@ -873,9 +874,13 @@ impl HasFindInst for McModule {
     }
 
     fn add_bus(&mut self, name: String, members: Vec<String>) -> Option<McPhrase> {
+        // An inlined ghost-bus (resolve-gate relax-everything) is a statement-tree net
+        // node, NOT a declaration — never register it into `insts`, or the
+        // finish recheck (gate.rs `base_declared_by_finish`) would mistake the
+        // base for a late-declared instance and skip E3137. Net joining in
+        // pass2 is driven by the bus name in the statement tree.
         let bus = McBus::new_with_members(&name, members);
         let inst = McInstance::Bus(bus);
-        self.insts.create_inst(&name, inst.clone());
         Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
             inst,
         ))))

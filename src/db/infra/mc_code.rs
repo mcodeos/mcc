@@ -6123,8 +6123,17 @@ mod tests {
     /// The twopin early-return in `McPhrase::new` (MCAST_DECLARE) bypasses
     /// `context.parse_declare()`, so instance names were never registered —
     /// only the class ref was. This test asserts the declaration is present in
-    /// `name_to_declare_id` and that `lapper_module_ports` produced a LabelDef
-    /// interval at the instance-name span (what mcext goto-def consumes).
+    /// `name_to_declare_id` and that the lapper produced an InstDef interval at
+    /// each instance-name span (what mcext goto-def consumes).
+    ///
+    /// UART0/UART1 are declared by the chain itself; MIC/ADC are NOT declared —
+    /// under the resolve-gate relax-everything (v1.20) an undeclared base on the left of
+    /// `->` inlines a ghost bus instead of gating the statement (E3182 is
+    /// gone), so the `[C4::CAP(),C5::CAP()]` vector operand is still reached
+    /// and the registration under test happens. The single-use inline ghost
+    /// nets warn E3137 (MIC/ADC), which is expected and unrelated to this
+    /// regression. (A former `P MIC`/`P ADC` stand-in class `P` was removed:
+    /// it resolved to no loaded class — E3157/E5256 — and is unnecessary.)
     #[test]
     fn declareb_inline_inst_registers_lsp_declaration() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");

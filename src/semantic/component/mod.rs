@@ -71,6 +71,11 @@ pub struct McComponent {
     pub cond_attrs: Vec<CondAttrs>,
     /// Source span for LSP goto-definition (byte range in `uri`).
     pub span: crate::ast::ast_semantic::Span,
+    /// Counter for anonymous-instance names (`@{classname}{counter}`), mirroring
+    /// `McModule::anon_counter`. Anonymous chains in component func bodies
+    /// (`XTAL2(...).Setup(VSS)`) name their receiver here (§3.1). pass2 never
+    /// materializes comp.base.insts, so these names stay dormant until Part 3.
+    pub anon_counter: usize,
 }
 
 impl McComponent {
@@ -135,6 +140,7 @@ impl McComponent {
             cond_pins: Vec::new(),
             cond_attrs: Vec::new(),
             span: crate::ast::ast_semantic::Span { start, end },
+            anon_counter: 1,
         };
 
         //2. param
@@ -480,12 +486,39 @@ impl HasFindInst for McComponent {
         &self.uri
     }
 
-    fn parse_declare(&mut self, _node: &AstNode) -> Vec<McInstance> {
-        Vec::new()
+    fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance> {
+        // Mirror McFunction::parse_declare (mc_func.rs:1205) — the set-difference
+        // (set-difference) pattern: snapshot the name set, register via the shared
+        // `McInstances::parse_declare` monster (mc_inst.rs:1355), then return the
+        // delta. A component func body's chained declare (`XTAL2 y(...).Setup(VSS)`)
+        // routes here through FuncBodyContext::parse_declare (mc_func.rs:408), so
+        // the subinstance now registers into the component's `insts` — the receiver
+        // endpoint resolves and sibling funcs' `find_inst("y")` works (§3.1).
+        // pass2 never materializes comp.base.insts, so registration is safe.
+        let before: std::collections::HashSet<String> =
+            self.insts.iter().map(|(k, _)| k.to_string()).collect();
+        self.insts
+            .parse_declare(node, &self.uri, &crate::semantic::common::IOType::None);
+        self.insts
+            .iter()
+            .filter(|(k, _)| !before.contains(*k))
+            .map(|(_, inst)| inst.clone())
+            .collect()
     }
 
-    fn add_component(&mut self, _name: String, _comp: Mc2Component) -> Option<McPhrase> {
-        None
+    fn add_component(&mut self, name: String, comp: Mc2Component) -> Option<McPhrase> {
+        // Mirror McModule::add_component (module/mod.rs:740): create the
+        // instance and — for `@`-prefixed anonymous names — skip insts
+        // registration (they are created inline in connection stmts, so
+        // nothing should declare them a second time). The Endpoint phrase is
+        // what carries the receiver into the chain (`XTAL2(...).Setup(VSS)`).
+        let inst = McInstance::Component(Arc::new(comp));
+        if !name.starts_with('@') {
+            self.insts.create_inst(&name, inst.clone());
+        }
+        Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+            inst,
+        ))))
     }
 
     fn add_module(
@@ -496,8 +529,15 @@ impl HasFindInst for McComponent {
         None
     }
 
-    fn gen_anon_name(&mut self, _classname: &str) -> String {
-        String::new()
+    fn gen_anon_name(&mut self, classname: &str) -> String {
+        // Mirror McModule::gen_anon_name (module/mod.rs:1059): `@`-prefix marks
+        // the name as an inline anonymous instance (iter_port_names skips it,
+        // pass2 auto-name skips it). Without this, anonymous chains in
+        // component func bodies (`XTAL2(...).Setup(VSS)`) fall through to a
+        // bare FuncCall with caller=None and the receiver never resolves (§3.1).
+        let name = format!("@{}{}", classname, self.anon_counter);
+        self.anon_counter += 1;
+        name
     }
 
     fn upgrade_label_to_bus(&mut self, _name: &str) -> bool {

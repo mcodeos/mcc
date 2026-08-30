@@ -320,14 +320,14 @@ impl McPhrase {
                                         node.get_pos(),
                                         node.get_len(),
                                     ) {
-                                        RefVerdict::Deferred => {
-                                            // ★ Ledger (resolve-gate §1.2③/§1.3): an
-                                            // undeclared base in a curly member list
-                                            // (`NOPE{AAA, BBB}`) silently becomes a ghost bus
-                                            // when the base is a declared instance name in
-                                            // scope (pass — same §1.3 structured-miss rule as
-                                            // the two-segment dot ghost-bus sites). Record one
-                                            // Fallback row.
+                                        RefVerdict::Deferred | RefVerdict::UnresolvedRef { .. } => {
+                                            // ★ Ledger (resolve-gate §1.2③/§1.3): a curly
+                                            // member list on an unresolved base
+                                            // (`NOPE{AAA, BBB}`) becomes a ghost bus whether
+                                            // the base is a declared instance name in scope
+                                            // (pass — §1.3) or declared nowhere (relax-everything, true
+                                            // miss, no E3182): both inline the bus and the net
+                                            // layer decides. Record one Fallback row.
                                             ledger::record(
                                                 LedgerEntry::new(
                                                     LedgerKind::Fallback,
@@ -342,7 +342,6 @@ impl McPhrase {
                                             context.upgrade_label_to_bus(&name);
                                             return context.add_bus(name_clone, members_clone);
                                         }
-                                        RefVerdict::UnresolvedRef { .. } => return None,
                                         RefVerdict::Resolved
                                         | RefVerdict::Wire
                                         | RefVerdict::ResolvedMany(_) => {
@@ -521,26 +520,25 @@ impl McPhrase {
                                 // at §1.2②): the miss decision lives in
                                 // `HasFindInst::resolve_reference` — Deferred (base is a
                                 // declared instance name in scope → keep the ghost-bus,
-                                // §3 deferral) keeps `add_bus`; UnresolvedRef (true miss →
-                                // phantom suppressed, gate candidate registered, error row
-                                // recorded) drops the phrase and the finish recheck errors
-                                // E3182; Resolved is the loud E1802 / member-access path,
-                                // unchanged. Record exactly one Fallback row per ghost-bus
-                                // phrase — never on the E1802 error path (that is a loud
-                                // error, not a silent fallback).
+                                // §3 deferral) and UnresolvedRef (base declared nowhere →
+                                // relax-everything, ghost-bus inlined, no E3182) both keep `add_bus`;
+                                // Resolved is the loud E1802 / member-access path, unchanged.
+                                // Record exactly one Fallback row per ghost-bus phrase — never
+                                // on the E1802 error path (that is a loud error, not a silent
+                                // fallback).
                                 let fallback_site: Option<&'static str>;
                                 match context.resolve_reference(
                                     &ids,
                                     subnode.get_pos(),
                                     subnode.get_len(),
                                 ) {
-                                    RefVerdict::Deferred => {
-                                        // §1.3 pass: base is a declared instance name in
-                                        // scope — keep the ghost-bus, defer to §3.
+                                    RefVerdict::Deferred | RefVerdict::UnresolvedRef { .. } => {
+                                        // §1.3 pass (declared base) — or, since relax-everything, a
+                                        // base declared nowhere (true miss, no E3182): both
+                                        // keep the ghost-bus; the net layer decides.
                                         context.add_bus(base.to_string(), vec![rest.clone()]);
                                         fallback_site = Some("mc_phrase.rs:453 add_bus ghost-bus");
                                     }
-                                    RefVerdict::UnresolvedRef { .. } => return None,
                                     RefVerdict::Resolved => {
                                         // E1802: Check if base is a Component and rest is a valid pin
                                         if let Some(McInstance::Component(c)) =
@@ -722,13 +720,13 @@ impl McPhrase {
                                 node.get_pos(),
                                 node.get_len(),
                             ) {
-                                RefVerdict::Deferred => {
-                                    // pass: base is a declared instance name in scope —
-                                    // keep the ghost-bus (B-family deferral to §3).
+                                RefVerdict::Deferred | RefVerdict::UnresolvedRef { .. } => {
+                                    // pass (declared base) — or, since relax-everything, a base
+                                    // declared nowhere (true miss, no E3182): both keep the
+                                    // ghost-bus (B-family deferral to §3 / net-layer decide).
                                     context.add_bus(base.to_string(), vec![member.to_string()]);
                                     fallback_site = Some("mc_phrase.rs:598 add_bus ghost-bus");
                                 }
-                                RefVerdict::UnresolvedRef { .. } => return None,
                                 RefVerdict::Resolved => {
                                     // Base instance found - check if it's a Component
                                     if let Some(McInstance::Component(c)) = context.find_inst(base)
@@ -890,10 +888,10 @@ impl McPhrase {
                                         // ★ Ledger (resolve-gate §1.2③/§1.3, converged at
                                         // §1.2②): the miss decision lives in
                                         // `HasFindInst::resolve_reference` — one row per
-                                        // phrase; true miss (base declared nowhere) drops the
-                                        // phrase instead of a phantom bus (E3182 at recheck).
-                                        // Build an AST-faithful 2-segment dot chain (the
-                                        // tokenizer yields one dotted MCAST_IDA token).
+                                        // phrase; a base declared nowhere inlines the phantom
+                                        // ghost-bus (relax-everything, no E3182) and the net layer
+                                        // decides. Build an AST-faithful 2-segment dot chain
+                                        // (the tokenizer yields one dotted MCAST_IDA token).
                                         let ref_ids = McIds::from_dot_pair(base, member);
                                         let fallback_site: Option<&'static str>;
                                         match context.resolve_reference(
@@ -901,8 +899,11 @@ impl McPhrase {
                                             node.get_pos(),
                                             node.get_len(),
                                         ) {
-                                            RefVerdict::Deferred => {
-                                                // pass: declared name in scope — ghost-bus.
+                                            RefVerdict::Deferred
+                                            | RefVerdict::UnresolvedRef { .. } => {
+                                                // pass (declared base) — or, since relax-everything, a
+                                                // base declared nowhere (true miss, no E3182):
+                                                // both keep the ghost-bus; the net layer decides.
                                                 context.add_bus(
                                                     base.to_string(),
                                                     vec![member.to_string()],
@@ -910,7 +911,6 @@ impl McPhrase {
                                                 fallback_site =
                                                     Some("mc_phrase.rs:737 add_bus ghost-bus");
                                             }
-                                            RefVerdict::UnresolvedRef { .. } => return None,
                                             RefVerdict::Resolved => {
                                                 context.upgrade_label_to_bus(base);
                                                 if let Some(McPhrase::Endpoint(
@@ -2055,8 +2055,21 @@ impl McPhrase {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
-                let opd1 = McPhrase::new(&opd1_node, context)?;
-                let opd2 = McPhrase::new(&opd2_node, context)?;
+                let mut opd1 = McPhrase::new(&opd1_node, context)?;
+                let mut opd2 = McPhrase::new(&opd2_node, context)?;
+
+                // ★ Eager return-shape resolution (§3.2): `+` is Parallel — both
+                // arms are connection faces — so fill both, mirroring the `->`
+                // site. The opcheck below runs DURING the body parse, before the
+                // "Pass1b" hook, so a `return <expr>` call head otherwise
+                // opchecks against its 1*1 receiver fallback. Calls that can't
+                // resolve yet stay None and fall back, exactly as before.
+                if let McPhrase::FuncCall(fc) = &mut opd1 {
+                    McFuncCall::fill_return_shape(fc, context);
+                }
+                if let McPhrase::FuncCall(fc) = &mut opd2 {
+                    McFuncCall::fill_return_shape(fc, context);
+                }
 
                 // Infer shapes and upgrade phrases before checking connectivity
                 // ★ P4.3 single-port representative rule:
@@ -2212,8 +2225,18 @@ impl McPhrase {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
-                let opd1 = McPhrase::new(&opd1_node, context)?;
+                let mut opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
+
+                // ★ Eager return-shape resolution (§3.2): fill opd1 (the call
+                // head) before the opcheck below runs during parse — mirroring
+                // the `->` site. `XTAL2 y(...).Setup(VSS) - XTAL` needs Setup's
+                // `return XTAL{X1,X2}` 2-wide face to opcheck against the 2-pin
+                // `XTAL`; unresolved calls stay None and fall back as before.
+                if let McPhrase::FuncCall(fc) = &mut opd1 {
+                    McFuncCall::fill_return_shape(fc, context);
+                }
+
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 // ── P1.3: inst 1*1/1*2 constraint for +/- ──
@@ -2357,8 +2380,17 @@ impl McPhrase {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
-                let opd1 = McPhrase::new(&opd1_node, context)?;
+                let mut opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
+
+                // ★ Eager return-shape resolution (§3.2): fill the ORIGINAL opd1
+                // (the left operand) before the swap + opcheck below — mirroring
+                // the `->` site. opd2 is typically the source/Label in the
+                // `y.Setup(VSS) <- ...` trigger; unresolved calls stay None and
+                // fall back, exactly as before.
+                if let McPhrase::FuncCall(fc) = &mut opd1 {
+                    McFuncCall::fill_return_shape(fc, context);
+                }
 
                 // Note: swap order here for shape inference, because data flow is opd2 -> opd1
                 let (opd2, opd1) = infer_shape_and_upgrade(opd2, opd1, context);

@@ -67,39 +67,40 @@ fn rows_with_action(kind: &str) -> Vec<(String, String, String)> {
 }
 
 #[test]
-fn two_segment_dot_undeclared_base_records_unresolved_ref_error() {
+fn two_segment_dot_undeclared_base_inlines_ghost_bus() {
     let lock = lock();
 
-    // `MISSING.PIN` — a two-segment dot access on a base declared nowhere — is
-    // a §1.3 true miss: the phantom ghost-bus is suppressed, the statement is
-    // dropped, and the reference is registered as a gate candidate. Records
-    // one UnresolvedRef row (action=error); the component-finish recheck
-    // errors E3182 because MISSING stays undeclared. No Fallback row.
+    // `MISSING.PIN` — a two-segment dot access on a base declared nowhere.
+    // relax-everything: the ghost-bus is kept and inlined (no E3182); the finish
+    // recheck warns E3137 because the inline net is referenced exactly once.
+    // One Fallback row records the ghost-bus; no UnresolvedRef rows remain.
     let src = "module main {\n    io VDD\n    func main() {\n        MISSING.PIN -> VDD\n    }\n}";
     let codes = build_codes(src);
     assert!(
-        codes.contains(&mcc::errcodes::INSTANCE_REF_UNDECLARED),
-        "true miss must error E3182 at component-finish; got codes: {codes:?}"
+        !codes.contains(&mcc::errcodes::INSTANCE_REF_UNDECLARED),
+        "E3182 is gone after relax-everything; got codes: {codes:?}"
+    );
+    assert!(
+        codes.contains(&mcc::errcodes::SINGLE_USE_INLINE_NET),
+        "single-use inline net warns E3137; got codes: {codes:?}"
     );
     assert!(
         !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
-        "true miss is an UnresolvedRef, not a floating Wire; got codes: {codes:?}"
+        "a structured miss is a ghost-bus, not a floating Wire; got codes: {codes:?}"
     );
     let fb = rows("fallback");
     assert_eq!(
         fb.len(),
-        0,
-        "a true miss is not a Fallback ghost-bus, got {fb:?}"
+        1,
+        "one Fallback row for the inlined ghost-bus, got {fb:?}"
+    );
+    assert!(
+        fb[0].0.contains("MISSING"),
+        "the Fallback form should name the reference, got {:?}",
+        fb[0].0
     );
     let ur = rows_with_action("unresolved_ref");
-    assert_eq!(ur.len(), 1, "expected one UnresolvedRef row, got {ur:?}");
-    assert_eq!(ur[0].0, "MISSING.PIN");
-    assert_eq!(ur[0].2, "error", "true miss row action should be error");
-    assert!(
-        ur[0].1.contains("gate undeclared base"),
-        "site should name the gate site, got {:?}",
-        ur[0].1
-    );
+    assert_eq!(ur.len(), 0, "no UnresolvedRef rows remain, got {ur:?}");
 
     drop(lock);
 }

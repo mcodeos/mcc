@@ -184,6 +184,7 @@ Key flags (see also Global Flags above; `--lib`/`--top`/`-f`/`-o` are global):
 | `-l, --lib NAME`            | Load a library (global, repeatable)                              |
 | `-t, --top NAME`            | Top-level module name (global)                                   |
 | `--dlog`                    | Only output diagnostics as `file:line:col: level[code]: message` |
+| `--ignore-warnings CODES`   | Suppress warning-level diagnostics by code (global, e.g. `E3137[,E…]`); errors are never suppressed |
 | `--sort {pinid\|interface}` | Pin sorting mode                                                 |
 | `--pass1`                   | Parse only (no instantiation)                                    |
 | `--pass2`                   | Parse + instantiate                                              |
@@ -567,6 +568,16 @@ mcc config get trace.parser
 mcc config set trace.pass1 true
 mcc config reset
 ```
+
+> **Warning suppression.** Warning-only diagnostics can be suppressed per code,
+> either on the CLI (`--ignore-warnings E3137`) or via the config key
+> `diag.ignore_warnings` (project `project.toml`:
+> `[config.diag] ignore_warnings = ["E3137"]`, or global `~/.mcode/config/mcc.yaml`).
+> Errors are never suppressed. E3137 (`SINGLE_USE_INLINE_NET`) is the
+> resolve-gate relax-everything single-use inline ghost-net warning — an undeclared
+> structured base (`uC.ADC.P`) referenced exactly once; a shared/multi-use ghost
+> net is left to the net layer (netcheck R03 flags a net holding both a supply
+> and a ground).
 
 ***
 

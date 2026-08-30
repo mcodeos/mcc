@@ -532,6 +532,12 @@ pub const FCALL_PARSE_FAILED: u32 = 3135;
 /// component — it becomes a one-shot dangling net label.
 pub const FUNC_FLOATING_LABEL: u32 = 3136;
 
+/// An inline ghost-net created from a structured reference whose base resolves
+/// to no declared instance (resolve-gate relax-everything — the bus is kept, not dropped)
+/// is referenced only once — almost always a typo or a forgotten declaration.
+/// Referenced twice or more it is a shared net and left alone.
+pub const SINGLE_USE_INLINE_NET: u32 = 3137;
+
 // ============================================================================
 // Pass1c: instance declaration / reference (3150-3199)
 // ============================================================================
@@ -1391,6 +1397,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(FUNC_STMT_DROPPED, "A connection statement was dropped because McPhrase::new returned None.", "Connection statement dropped (McPhrase::new returned None): `{0}`"),
     entry!(FCALL_PARSE_FAILED, "Function call parse failure.", "Cannot chain `.{0}` after `{1}(...)`: function `{2}` returns a bus/label (endpoint), not `this`. Only functions that return `this` can be chained."),
     entry!(FUNC_FLOATING_LABEL, "Net endpoint in a function body that resolves to nothing declared.", "`{0}` does not resolve to a declared pin, interface, parameter member, or instance of this component — floating label. If it is a local net, declare it (e.g. `RES R[1:2](...)`) or connect it to a component pin."),
+    entry!(SINGLE_USE_INLINE_NET, "An inline ghost-net (reference base resolves to no declared instance) is referenced only once.", "`{0}` has no declared base and connects to nothing else — inline ghost-net referenced only once; declare it or fix the name."),
     // ---- section ----
     entry!(INST_EXPR_PARSE_FAILED, "Failed to parse an instance in an expression context.", "Failed to parse MCAST_INSTANCE in expression context"),
     entry!(CURLY_MN_WRONG_BASE, "Curly-member construction requires a component or module base.", "CURLY_MN requires Component or Module"),

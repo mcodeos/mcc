@@ -311,6 +311,7 @@ pub fn mcc_diagnose(uri: &McURI) -> Vec<Diagnostic> {
         .get_diagnostics_for_file(uri)
         .into_iter()
         .cloned()
+        .filter(|d| !crate::db::diagnostic::diagnostic::is_diagnostic_ignored(d))
         .collect()
 }
 
@@ -321,6 +322,34 @@ pub fn mcc_diagnose_all() -> Vec<Diagnostic> {
         .unwrap()
         .get_diagnostics()
         .to_vec()
+        .into_iter()
+        .filter(|d| !crate::db::diagnostic::diagnostic::is_diagnostic_ignored(d))
+        .collect()
+}
+
+/// Set the warning diagnostic codes to suppress from all output (CLI + LSP).
+/// Codes may be written as `E3137` or `3137`. See `diag.ignore_warnings`.
+pub fn set_ignored_warnings(codes: impl IntoIterator<Item = String>) {
+    crate::db::diagnostic::diagnostic::set_ignored_warnings(codes);
+}
+
+/// Load `diag.ignore_warnings` from the merged global + project config and
+/// merge the CLI `--ignore-warnings` codes over them, seeding the process-wide
+/// suppression set. Call once at CLI startup (after cwd is set).
+pub fn load_ignore_warnings(project_root: Option<&std::path::Path>, cli_codes: &[String]) {
+    use crate::cli::config::{load_global_config, load_project_config, merge_configs};
+    let global = load_global_config().unwrap_or_default();
+    let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
+    let merged = merge_configs(&global, local.as_ref());
+    let mut codes = merged.diag.ignore_warnings.clone();
+    for raw in cli_codes {
+        codes.extend(
+            raw.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+        );
+    }
+    set_ignored_warnings(codes);
 }
 
 /// Clear workspace state (for test isolation).

@@ -31,6 +31,12 @@ pub struct Cli {
     #[arg(long, short = 'q', global = true)]
     pub quiet: bool,
 
+    /// Suppress warning diagnostics with the given codes, comma-separated
+    /// (e.g. `--ignore-warnings E3137,E5641`). Warning-only; errors are never
+    /// suppressed. Merges over `diag.ignore_warnings` in mcc.yaml.
+    #[arg(long, global = true, value_name = "CODES")]
+    pub ignore_warnings: Vec<String>,
+
     /// Log lines include timestamp, module and file:line
     #[arg(long = "origin", short = 'g', global = true)]
     pub origin: bool,
