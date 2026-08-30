@@ -16,3 +16,12 @@ plan/
 test/
 unitest/
 circuit.html
+*.html
+mcc-cli
+mcs
+
+# Local authored content — keep out of the upstream repo
+mcd/
+mclibs/
+t/
+MCODE-AI-RULES.md

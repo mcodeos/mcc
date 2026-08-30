@@ -151,9 +151,19 @@ impl McModuleInst {
         // ★ P9-A2: compute source_span and trunk once for this connection
         // Decision A (§7.1): source_span carries a **byte offset**, not a line
         // number; display layers convert offset → line via the owning file.
+        //
+        // ★ Library-function expansion: when `current_func_span` points into a
+        // DIFFERENT file than this module (e.g. the `Cap` method body in
+        // `cap.mc`), that span is the library author's code, not the user's.
+        // Attribute the connection to the user's statement that triggered the
+        // call (`current_stmt_span`) so per-statement grouping (ground split)
+        // and diagnostics see the real source line.
         let source_span: Option<crate::semantic::common::SourcePos> =
             match (&self.current_func_span, &self.current_stmt_span) {
-                // Func-body expansion context (func may live in another file)
+                (Some(spos), Some(s)) if spos.uri != self.def_uri => Some(
+                    crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.offset),
+                ),
+                // Func-body expansion context (func in this module's file)
                 (Some(spos), _) => Some(spos.clone()),
                 (None, Some(s)) => Some(crate::semantic::common::SourcePos::new(
                     self.def_uri.clone(),
@@ -603,10 +613,15 @@ impl McModuleInst {
         lane: Option<u16>,
     ) -> ConnectionInst {
         // Decision A (§7.1): source_span carries a byte offset (see the other
-        // construction site in this file).
+        // construction site in this file). Library-function expansion
+        // (`current_func_span` in a different file, e.g. the `Cap` body in
+        // `cap.mc`) is attributed to the user's statement that triggered it.
         let source_span: Option<crate::semantic::common::SourcePos> =
             match (&self.current_func_span, &self.current_stmt_span) {
-                // Func-body expansion context (func may live in another file)
+                (Some(spos), Some(s)) if spos.uri != self.def_uri => Some(
+                    crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.offset),
+                ),
+                // Func-body expansion context (func in this module's file)
                 (Some(spos), _) => Some(spos.clone()),
                 (None, Some(s)) => Some(crate::semantic::common::SourcePos::new(
                     self.def_uri.clone(),
