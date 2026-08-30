@@ -620,6 +620,53 @@ impl McIds {
         matches!(self.last_segment(), Some(IdsSegment::Square(_)))
     }
 
+    /// Any outer Curly group (`DC2{VDD,GND}`), anywhere in the segment list —
+    /// distinct from `is_curly_bracket()` (last segment only).
+    pub fn has_curly(&self) -> bool {
+        self.segments
+            .iter()
+            .any(|seg| matches!(seg, IdsSegment::Curly(_)))
+    }
+
+    /// Any dot access (`A.B` → DotIda/DotInt), anywhere in the segment list.
+    /// Exactly equivalent to `to_string().contains('.')` for outer segments,
+    /// without re-parsing display output (AST-driven guideline).
+    pub fn has_dot(&self) -> bool {
+        self.segments
+            .iter()
+            .any(|seg| matches!(seg, IdsSegment::DotIda(_) | IdsSegment::DotInt(_)))
+    }
+
+    /// Count of square-bearing segments: an outer `Square` counts one, and an
+    /// `Ida`/`DotIda` with an embedded square counts one. Used to detect
+    /// matrix forms (`A[1:2][3:4]`, `R[1:2]C[1:3]`) where more than one
+    /// segment carries a square.
+    pub fn square_segment_count(&self) -> usize {
+        self.segments
+            .iter()
+            .map(|seg| match seg {
+                IdsSegment::Square(_) => 1,
+                IdsSegment::Ida(ida) => usize::from(ida.has_square()),
+                IdsSegment::DotIda(ida) => usize::from(ida.has_square()),
+                _ => 0,
+            })
+            .sum()
+    }
+
+    /// Build a two-segment dot-chain `McIds` from already-split parts (for
+    /// tokenizer paths that yield one dotted token, e.g. a single MCAST_IDA
+    /// whose text contains a `.`). AST-faithful: base as `Ida`, member as
+    /// `DotIda` — `from(&str)` on a dotted token keeps the dot inside one Id,
+    /// which would misclassify. `to_string()` reproduces `base.member`.
+    pub(crate) fn from_dot_pair(base: &str, member: &str) -> Self {
+        Self {
+            segments: vec![
+                IdsSegment::Ida(Box::new(McIda::from(base))),
+                IdsSegment::DotIda(Box::new(McIda::from(member))),
+            ],
+        }
+    }
+
     pub fn expand(&self) -> Vec<String> {
         // First expand each segment to get possible string lists for each segment
         let expanded_segments: Vec<Vec<String>> = self
