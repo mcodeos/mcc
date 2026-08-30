@@ -27,8 +27,9 @@ impl McModuleInst {
     /// # Example
     /// ```text
     /// cx[1:2].Cap(XTAL.X<1:2>, gnd)
-    /// → cx1.Cap(XTAL.X1, gnd) + cx2.Cap(XTAL.X2, gnd)
-    /// → creates two independent CAP component instances
+    /// → cx1.Cap(XTAL.X<1:2>, gnd) + cx2.Cap(XTAL.X<1:2>, gnd)
+    /// → each member receives the full arg list, broadcast unchanged (§5 item 17);
+    ///   creates two independent CAP component instances
     /// ```
     ///
     /// # Return value
@@ -153,6 +154,12 @@ impl McModuleInst {
 
         let mut all_components = Vec::new();
         let mut all_connections = Vec::new();
+        // §3.3: true once any item dispatched as a method onto a materialized
+        // member. `instantiate_instance_method` returns PassThrough by design
+        // (its products are side effects on `self`), so an empty Components
+        // result is still a successful per-member dispatch — it must not be
+        // reported as "all pass-through, iterated connection dropped".
+        let mut dispatched_any = false;
 
         for (i, item) in items.iter().enumerate() {
             // 1. Process the caller of each item (recursive instantiation)
@@ -168,6 +175,61 @@ impl McModuleInst {
 
             // 3. Resolve indices in parameters (e.g. XTAL.X<1:2> expands to XTAL.X1, XTAL.X2)
             let resolved_params = Self::resolve_indexed_params(params, i, count);
+
+            // 3.5 ── §3.3: per-member method dispatch ─────────────────────
+            // Array receiver whose members are already-materialized instances
+            // (`r[1:2]::RES(0)` then `r[1:2].Pullup([net,vcc])`): each item
+            // (`U1.r1`) is a real instance. Dispatch the method on it rather
+            // than feeding `instantiate_funccall` — a bare-call alias
+            // (PULLUP/PULLDOWN→RES) would otherwise hijack the per-item call
+            // and construct a phantom `r[1:2]` RES (§2.6 Table A, E3179).
+            // `resolved_params` is already broadcast (every member gets the
+            // full arg list, §5 item 17).
+            let func_name_str = func_name.to_string();
+            if let Some(inst_name) = Self::iterated_item_inst_name(item) {
+                let member_func = self
+                    .components
+                    .iter()
+                    .find(|c| c.name == inst_name)
+                    .and_then(|c| c.def.funcs.find(&func_name_str).cloned())
+                    .or_else(|| {
+                        self.sub_modules
+                            .iter()
+                            .find(|m| m.name == inst_name)
+                            .and_then(|m| m.def.funcs.find(&func_name_str).cloned())
+                    });
+                if let Some(func_def) = member_func {
+                    let result = self.instantiate_instance_method(
+                        &inst_name,
+                        &func_def,
+                        &resolved_params,
+                        &item_left_elems,
+                        right,
+                    )?;
+                    match result {
+                        FuncCallInst::Components {
+                            new_components,
+                            new_connections,
+                        } => {
+                            all_components.extend(new_components);
+                            all_connections.extend(new_connections);
+                        }
+                        FuncCallInst::SubModule {
+                            inst,
+                            new_connections,
+                        } => {
+                            self.add_submodule(inst);
+                            all_connections.extend(new_connections);
+                        }
+                        // PassThrough is the normal method-dispatch result —
+                        // run_component_method / run_submodule_method already
+                        // added the body's products to `self` as side effects.
+                        FuncCallInst::PassThrough => {}
+                    }
+                    dispatched_any = true;
+                    continue;
+                }
+            }
 
             // 4. Call instantiate_funccall for each iterated item
             let result = match self.instantiate_funccall(
@@ -221,7 +283,16 @@ impl McModuleInst {
         // ── Iter-6.S5.2-diag ──
 
         if all_components.is_empty() && all_connections.is_empty() {
-            Ok(Some(FuncCallInst::PassThrough))
+            if dispatched_any {
+                // Per-member method dispatch succeeded (side-effect products);
+                // an empty result must not degrade to "all pass-through".
+                Ok(Some(FuncCallInst::Components {
+                    new_components: Vec::new(),
+                    new_connections: Vec::new(),
+                }))
+            } else {
+                Ok(Some(FuncCallInst::PassThrough))
+            }
         } else {
             Ok(Some(FuncCallInst::Components {
                 new_components: all_components,
@@ -232,39 +303,47 @@ impl McModuleInst {
 
     /// Resolve index-related values in parameters
     ///
-    /// For each parameter value:
-    /// - If it is `Set` (e.g. `[DC1, DC2]`), take the element at `index`
-    /// - If it is `Opdc::Vector` (IDA expansion such as `X<1:2>` → `[X1, X2]`), take the element at `index`
-    /// - Other types remain unchanged (e.g. the constant `gnd` is identical for every iteration)
+    /// Every parameter value is **broadcast unchanged** to every iterated
+    /// member. The member loop supplies the receiver identity via
+    /// `item_left_elems` (each item's own pins) — it never splits a `Set`
+    /// arg list or a `Vector` (`X<1:2>`) across members. §5 item 17:
+    /// `res[1:2].Pullup([net,vcc])` → res1, res2 each get one `net - RES - vcc`.
     ///
     /// # Parameters
     /// - `params` — the original parameter list
-    /// - `index` — current iteration index
+    /// - `index` — current iteration index (retained for signature stability)
     /// - `total` — total iteration count (used for bounds checking)
     fn resolve_indexed_params(
         params: &[McParamValue],
-        index: usize,
+        _index: usize,
         _total: usize,
     ) -> Vec<McParamValue> {
-        params
-            .iter()
-            .map(|p| {
-                match p {
-                    // Set: [DC1, DC2] → take the element at position `index`
-                    McParamValue::Set(values) => {
-                        if index < values.len() {
-                            values[index].clone()
-                        } else {
-                            // When out of bounds, use the last element (broadcasting semantics)
-                            values.last().cloned().unwrap_or_else(|| p.clone())
-                        }
-                    }
-                    // Opdc SquareVec: IDA expansion result such as X<1:2> → [X1, X2]
-                    // Take the element at position `index`
-                    // Other types (constants, single IDs, etc.) → broadcast directly
-                    _ => p.clone(),
-                }
-            })
-            .collect()
+        params.iter().cloned().collect()
+    }
+
+    /// §3.3: extract the materialized instance name from an iterated item.
+    ///
+    /// A bare array caller (`r[1:2]`) is synthesized into per-member items as
+    /// `Endpoint(Single(Label("U1.r1")))` (or a plain `Label`/`Bus`) — the
+    /// full dotted name of the already-declared member instance, which the
+    /// `#[...]` expansion preserved. Returns `None` for anything that isn't a
+    /// plain named instance reference (construction callers etc.).
+    fn iterated_item_inst_name(item: &McPhrase) -> Option<String> {
+        match item {
+            McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+                McInstance::Label(s) => Some(s.clone()),
+                McInstance::Bus(b) if b.member.is_empty() => Some(b.name.clone()),
+                _ => None,
+            },
+            McPhrase::Endpoint(McEndpoint::List(refs)) => refs.first().and_then(|ep| match ep {
+                McEndpoint::Single(iref) => match &iref.base {
+                    McInstance::Label(s) => Some(s.clone()),
+                    McInstance::Bus(b) if b.member.is_empty() => Some(b.name.clone()),
+                    _ => None,
+                },
+                _ => None,
+            }),
+            _ => None,
+        }
     }
 }

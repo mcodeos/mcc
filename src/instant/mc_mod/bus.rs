@@ -338,7 +338,12 @@ impl McModuleInst {
                     };
                     // ── P3-1: normalize alias to physical pin ID (e.g. uC.VDD → uC.5) ──
                     let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
-                    NetPoint::with_owner(&path, base_name, IOType::None)
+                    // ── §3.3: owner is the deepest known component prefix of the
+                    // path, not the split_once base. `U1.cap1.1` → owner=`U1.cap1`
+                    // (the materialized member), else validate_expanded_net_points
+                    // looks `cap1.1` up in U1's pins → E3179. ──
+                    let owner = self.deepest_component_owner(&path).to_string();
+                    NetPoint::with_owner(&path, &owner, IOType::None)
                 })
                 .collect());
         }

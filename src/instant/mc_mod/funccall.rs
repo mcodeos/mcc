@@ -340,6 +340,18 @@ impl McModuleInst {
                 }
             }
         } else {
+            // ── §3.3: CMIE-miss method-call fall-through ──
+            // The class-name lookup above only sees Component/Module/
+            // Interface constructions. An iterated method call
+            // (`cap[1:2].Cap(...)` per-item) carries its materialized
+            // member as the left endpoint (`U1.cap1`) and `func_name` as
+            // the method (`Cap`) — not a class. Resolve it against the
+            // caller's type before declaring the call dead; otherwise
+            // every iterated `.Cap`/`.Pullup` family degenerates to
+            // pass-through (§2.6 Table A, E0944 0-connection root cause).
+            if let Some(fc) = self.try_resolve_instance_method(&name_str, params, left, right)? {
+                return Ok(fc);
+            }
             // ★ P0.5-2: CMIE not found → class not loaded.
             // Record as failed so that resolve_funccall_left/right_points
             // return empty and prevent class-name fragments from entering nets.
@@ -442,6 +454,34 @@ impl McModuleInst {
                 ),
             );
             return Ok(None);
+        }
+
+        // ── §3.3: materialized subinstance dispatch (full dotted name) ──
+        // resolve_inst_chain can only descend Component→pin, so a materialized
+        // subinstance like `U1.cap1` (created by materialize_declared_/deferred_
+        // subinstances) never resolves through the chain. Mirror stmt.rs's
+        // Iter-2.2 path: exact match on the flat component list. Pins are not
+        // components and can't dispatch methods, so an exact dotted-name match
+        // never shadows a pin-name caller.
+        if let Some(comp) = self.components.iter().find(|c| c.name == caller_path) {
+            if let Some(func) = comp.def.funcs.find(name_str) {
+                let func_clone = func.clone();
+                let full_scope = caller_path;
+                crate::db::diagnostic::diagnostic::dlog_trace(
+                    944,
+                    &format!(
+                        "try_resolve_instance_method: resolved '{full_scope}.{name_str}' (materialized subinstance) — instantiating in module '{}'",
+                        self.name,
+                    ),
+                );
+                return Ok(Some(self.instantiate_instance_method(
+                    &full_scope,
+                    &func_clone,
+                    params,
+                    left,
+                    right,
+                )?));
+            }
         }
 
         // Resolve the full scope chain via InstFindInst. `entry` is owned, so
