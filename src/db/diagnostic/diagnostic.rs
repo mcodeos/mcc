@@ -5,9 +5,40 @@
 use crate::ast::ast_node::AstNode;
 use crate::db::cmie::tables as workspace;
 use crate::McURI;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
+use std::sync::{Mutex, OnceLock};
 pub type Position = u32;
+
+// ============================================================================
+// Warning-code suppression (`diag.ignore_warnings` config + `--ignore-warnings`
+// CLI flag). Warning severity only — errors are never suppressed by this path.
+// ============================================================================
+
+static IGNORED_WARNINGS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn ignored_warnings() -> &'static Mutex<HashSet<String>> {
+    IGNORED_WARNINGS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Set the set of warning diagnostic codes to suppress (replaces any previous
+/// list). Codes may be written as `E3137` or `3137`. Callers merge config +
+/// CLI values before calling.
+pub fn set_ignored_warnings(codes: impl IntoIterator<Item = String>) {
+    let mut guard = ignored_warnings().lock().unwrap();
+    guard.clear();
+    guard.extend(codes);
+}
+
+/// Is `d` suppressed by the ignore set? Only `Warning` level diagnostics are
+/// considered — an Error is never filtered by this mechanism.
+pub fn is_diagnostic_ignored(d: &Diagnostic) -> bool {
+    if d.level != DiagnosticLevel::Warning {
+        return false;
+    }
+    let guard = ignored_warnings().lock().unwrap();
+    guard.contains(&format!("E{}", d.code)) || guard.contains(&d.code.to_string())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticLevel {

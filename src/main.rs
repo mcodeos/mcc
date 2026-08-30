@@ -135,6 +135,9 @@ fn main() -> ExitCode {
         mcc::load_trace_config(project_root.as_deref());
     }
 
+    // ── 3.6b. Warning suppression: `diag.ignore_warnings` config + `--ignore-warnings` ──
+    mcc::load_ignore_warnings(project_root.as_deref(), &cli.ignore_warnings);
+
     // ── 3.7. Apply -D debug-target flags (CLI > config file) ─────────
     if !cli.debug_targets.is_empty() {
         let base = mcc::cli::config::base_level(cli.verbose, cli.quiet);

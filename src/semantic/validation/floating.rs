@@ -232,16 +232,16 @@ fn check_owner_floating_labels<F>(
 
 /// Reference counts for a candidate label name across a component's funcs.
 #[derive(Default)]
-struct RefCounts {
+pub(crate) struct RefCounts {
     /// References as a net endpoint (the label appears in a connection's
     /// endpoint tree) — the "is it really a wire" signal.
-    endpoint: u32,
+    pub(crate) endpoint: u32,
     /// References outside net endpoints: as a method-call receiver
     /// (`ld.ldrop`) or call argument (`ld.ldrop(VSW, ...)`), or as the tail of
     /// a member access (`X.Y`). An inline-constructed instance is only ever
     /// referenced this way, so it neither triggers E3136 nor contributes to a
     /// label's wire count.
-    other: u32,
+    pub(crate) other: u32,
 }
 
 /// Count occurrences of `name` in a phrase tree.
@@ -250,7 +250,8 @@ struct RefCounts {
 /// resolved to the same label on a later use) or as a bare id value passed to a
 /// function call. `net_ctx` is false when the phrase was reached through a call
 /// receiver or argument — its endpoints are instance references, not wires.
-fn count_refs(phrase: &McPhrase, name: &str, c: &mut RefCounts, net_ctx: bool) {
+/// Shared with `gate::GateCheck` (E3137 single-use inline-net counting).
+pub(crate) fn count_refs(phrase: &McPhrase, name: &str, c: &mut RefCounts, net_ctx: bool) {
     use McPhrase::*;
     match phrase {
         Endpoint(ep) => {

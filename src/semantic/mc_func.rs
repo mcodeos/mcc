@@ -17,7 +17,6 @@ use crate::{
     ast::error::message::*,
     semantic::basic::form::{classify, reference_parts, Form, RefVerdict},
     semantic::basic::mc_param::McParamDeclares,
-    semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind},
 };
 
 // ============================================================================
@@ -171,21 +170,22 @@ pub trait HasFindInst {
     fn note_func_call_caller(&mut self, _name: &str) {}
 
     /// Register a Phase 1 gate candidate: `base` was the undeclared base of a
-    /// structured dot access whose phantom bus was suppressed (the statement
-    /// returned `None`). The component-finish recheck errors if `base` still
-    /// resolves to nothing (§5 item 23: suppression is what keeps two such
-    /// references from shorting two rails together through a shared ghost net).
-    /// Default no-op.
+    /// structured dot access whose ghost-bus is inlined (relax-everything — the statement
+    /// is kept). The component-finish recheck warns E3137 if the inline net is
+    /// still referenced only once, and balances late-declared refs (§5 item 23:
+    /// inlining is what can join two rails through a shared ghost net — the R03
+    /// short check catches that). Default no-op.
     fn register_gate_candidate(&mut self, _base: &str, _form: &str, _pos: u32, _len: u32) {}
 
     /// Phase 2 entry — the single reference-resolution entry (§1.2②, plan step 3):
     /// classify the reference form, derive base/member, and run the Phase 1
     /// miss decision once for every gate site (mc_phrase.rs A/B/C/D). What it
-    /// converges is the *miss action* — suppress the phantom ghost-bus, register
-    /// the gate candidate, record the UnresolvedRef(Error) ledger row, and tell
-    /// the caller to drop the statement. Found-base handling (E1802 member
-    /// validation, `add_bus_member`, LSP registration, member fall-through) and
-    /// the `as_component_member` branch stay at each site.
+    /// converges is the *miss action* — relax-everything: the phantom ghost-bus is kept
+    /// and inlined (no E3182), the gate candidate is registered (for the finish
+    /// recheck's E3137 single-use warning / late-resolution balance), and the
+    /// caller adds the bus. Found-base handling (E1802 member validation,
+    /// `add_bus_member`, LSP registration, member fall-through) and the
+    /// `as_component_member` branch stay at each site.
     ///
     /// Default impl is scope-agnostic; it inherits the scope discriminator via
     /// the [`is_declared_instance_name`] override (FuncBodyContext / McModule
@@ -212,20 +212,12 @@ pub trait HasFindInst {
             // behavior unchanged; only the dispatch moves here).
             return RefVerdict::Deferred;
         }
-        // True miss: suppress the phantom, register the candidate, record the
-        // error row, and drop the statement at the call site.
+        // True miss (relax-everything): the base is declared nowhere. The ghost-bus is
+        // inlined at the call site (no E3182; the net layer decides via the
+        // E3137 single-use warning / R03 short check). Register the candidate
+        // so the finish recheck can still balance late-declared refs and warn
+        // on single-use inline nets.
         self.register_gate_candidate(&base, &ids.to_string(), pos, len);
-        ledger::record(
-            LedgerEntry::new(
-                LedgerKind::UnresolvedRef,
-                ids.to_string(),
-                "gate undeclared base (E3182)",
-            )
-            .with_action(LedgerAction::Error)
-            .with_form_class(form)
-            .with_uri(self.uri().to_string())
-            .with_span(pos, len),
-        );
         RefVerdict::UnresolvedRef { base, member }
     }
 
@@ -1126,8 +1118,12 @@ impl HasFindInst for McFunction {
     }
 
     fn add_bus(&mut self, name: String, members: Vec<String>) -> Option<McPhrase> {
+        // An inlined ghost-bus (resolve-gate relax-everything) is a statement-tree net
+        // node, NOT a declaration — never register it into `insts`, or the
+        // finish recheck (gate.rs `base_declared_by_finish`) would mistake the
+        // base for a late-declared instance and skip E3137. Net joining in
+        // pass2 is driven by the bus name in the statement tree.
         let inst = McInstance::Bus(McBus::new_with_members(&name, members));
-        self.insts.create_inst(&name, inst.clone());
         Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
             inst,
         ))))

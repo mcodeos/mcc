@@ -65,6 +65,18 @@ pub struct MccConfig {
 
     #[serde(default)]
     pub libs: LibsConfig,
+
+    #[serde(default)]
+    pub diag: DiagConfig,
+}
+
+/// Diagnostic rendering configuration.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct DiagConfig {
+    /// Warning diagnostic codes to suppress from output, e.g. `["E3137"]`.
+    /// Mirrored by the CLI `--ignore-warnings` flag (CLI merges over config).
+    #[serde(default)]
+    pub ignore_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -324,11 +336,20 @@ pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig
                 disable_mcode: local.libs.disable_mcode.or(global.libs.disable_mcode),
             };
 
+            let diag = DiagConfig {
+                ignore_warnings: if local.diag.ignore_warnings.is_empty() {
+                    global.diag.ignore_warnings.clone()
+                } else {
+                    local.diag.ignore_warnings.clone()
+                },
+            };
+
             MccConfig {
                 trace,
                 parser,
                 output,
                 libs,
+                diag,
             }
         }
         None => global.clone(),
