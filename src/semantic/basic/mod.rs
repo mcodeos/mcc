@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+pub(crate) mod form;
 pub(crate) mod mc_bus;
 pub(crate) mod mc_closure;
 pub(crate) mod mc_conds;
