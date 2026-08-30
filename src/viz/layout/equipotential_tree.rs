@@ -18,11 +18,11 @@
 //! one in-place glyph per endpoint, all into `rail_decorations` — that rule
 //! governs non-device layers. The device layer here is different on purpose:
 //! **one ground net → one trunk → one ground glyph** (`A9` in `equi_audit`).
-//! `moddcdc` carries five separate GND nets (the projection layer explodes a
-//! driverless ground rail per consumer, and `coalesce.rs` keeps Power/Ground out
-//! of the union-find), and the target schematic draws five independent ground
-//! symbols. Do NOT "fix" this layer to match `rails.rs` R-1 — it is a different
-//! rendering contract.
+//! The projection layer strictly preserves the pass2 netlist, so the number of
+//! ground glyphs equals the number of ground nets the netlist declares — a
+//! single `GND`/`vin.GND` net (however many consumers it touches) renders as
+//! exactly one trunk with one ground symbol. Do NOT "fix" this layer to match
+//! `rails.rs` R-1 — it is a different rendering contract.
 //!
 //! ## M1 row model
 //! Every trunk is a horizontal row. A W/E net, whose trunk used to be vertical,
@@ -313,6 +313,12 @@ pub struct NetTopology {
     /// live rows) and its glyph continues OUTWARD off the row it was adopted
     /// onto. Written by `assign_rows` from [`super::equi_chain::ChainPlan`].
     pub(crate) ground_column: bool,
+    /// ★ Two-pin-signal rule: how many of this net's groups sit on a MULTI-PIN
+    /// component (`BoxKind::MultiPin` / `SubModule`). A net with EXACTLY 2 such
+    /// pins (e.g. `lpa.5` ↔ `spk.2`) is a point-to-point signal — the two pins
+    /// are the horizontal start/end and every other member hangs vertically
+    /// (see `tap_role`). Pure topology, set at build; never a rect (A2).
+    pub(crate) device_pin_groups: usize,
 }
 
 /// M2: where a net's row came from.
@@ -563,6 +569,19 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
         }
     }
 
+    // ★ Two-pin-signal rule: count groups on MULTI-PIN components
+    // (`BoxKind::MultiPin` / `SubModule`). A net with exactly 2 such pins
+    // (e.g. `lpa.5` ↔ `spk.2`) is a point-to-point signal — `tap_role` then
+    // hangs every other member (two-pin passive / test point) vertically.
+    let device_pin_groups = groups
+        .iter()
+        .filter(|g| {
+            graph.boxes.iter().any(|b| {
+                b.id == g.box_id && matches!(b.kind, BoxKind::MultiPin | BoxKind::SubModule)
+            })
+        })
+        .count();
+
     Some(NetTopology {
         nid: net.nid,
         net_name: net.name.clone(),
@@ -583,6 +602,7 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
         run_depth: 0,
         outer_end_taken: false,
         ground_column: false,
+        device_pin_groups,
     })
 }
 
@@ -1837,6 +1857,17 @@ fn place_satellites(
             Region::West => ax - MEMBER_GAP - box_w,
             _ => ax + aw + MEMBER_GAP,
         };
+        if b.name.contains("dio") || b.name.contains("DIO") {
+            crate::vlog!(
+                "[dbg-sat] satellite box={} w={:.0} h={:.0} facing={:?} away={:?} region={:?}",
+                b.name,
+                box_w,
+                box_h,
+                rows,
+                away,
+                region
+            );
+        }
         b.geom_locked = true;
 
         b.slots.clear();
@@ -4139,6 +4170,10 @@ pub(crate) struct PartnerInfo {
     /// ★ M12.1: the partner is a ground COLUMN, so the part into it is
     /// horizontal on MY row regardless of where the node's own row is.
     ground_column: bool,
+    /// ★ Two-pin-signal rule: the partner net's device-pin count (see
+    /// `NetTopology::device_pin_groups`). Used so a two-pin part shared with a
+    /// two-device-pin net is vertical whichever net places it first.
+    device_pin_groups: usize,
 }
 
 /// Find the net that shares this member box with `topos[idx]`, on a pin this
@@ -4162,6 +4197,7 @@ pub(crate) fn partner_info(
         is_terminal_only: other.terminal_only,
         run_root: other.run_root,
         ground_column: other.ground_column,
+        device_pin_groups: other.device_pin_groups,
     })
 }
 
@@ -4196,7 +4232,16 @@ pub(crate) fn tap_role(
     layer_anchor: i64,
 ) -> TapRole {
     let my_row = me.lane.axis;
-    match member.pins.len() {
+    let is_diode = member.name.contains("dio") || member.name.contains("DIO");
+    // ★ Two-pin-signal rule: this net (or the member's partner net) has EXACTLY
+    // TWO device pins (multi-pin component pins, e.g. `lpa.5` ↔ `spk.2`) ⇒ it is
+    // a point-to-point signal: the two pins are the horizontal start/end and
+    // every other member hangs VERTICALLY instead of lying along the trunk.
+    // Only the Series (horizontal) branches are gated — a member already
+    // vertical (Bridge/Drop) keeps hanging toward its partner.
+    let two_pin_signal =
+        me.device_pin_groups == 2 || p.as_ref().is_some_and(|p| p.device_pin_groups == 2);
+    let role = match member.pins.len() {
         0 | 1 => TapRole::InlineEnd,
         n if n >= 3 => TapRole::Sink,
         _ => match p {
@@ -4219,7 +4264,14 @@ pub(crate) fn tap_role(
             // ground adopted as this run's outer end (`equi_chain` step 3.5)
             // carries this run's `run_root`, which is precisely the statement
             // "the cap lies along the row and the glyph is its far end".
-            Some(p) if p.run_root == me.run_root && me.net_kind != NetKind::Ground => {
+            //
+            // ★ Two-pin-signal: a two-device-pin net is point-to-point, so the
+            // same-run part hangs vertically instead of lying along the trunk.
+            Some(p)
+                if p.run_root == me.run_root
+                    && me.net_kind != NetKind::Ground
+                    && !two_pin_signal =>
+            {
                 TapRole::Series {
                     partner: p.topo_idx,
                 }
@@ -4228,9 +4280,11 @@ pub(crate) fn tap_role(
             // row: the part lies ALONG my row and stops at the column's x, and
             // the node's own short vertical joins the cold pins. Deliberately
             // NOT collinear — A28 exempts a ground-column partner.
-            Some(p) if p.ground_column && me.net_kind != NetKind::Ground => TapRole::Series {
-                partner: p.topo_idx,
-            },
+            Some(p) if p.ground_column && me.net_kind != NetKind::Ground && !two_pin_signal => {
+                TapRole::Series {
+                    partner: p.topo_idx,
+                }
+            }
             // ★ M16: a decoupling cap hung to its OWN terminal-only ground (a
             // per-consumer `GND@xx` = the cap's second pin + a glyph) from a
             // Power net that is anchored DIRECTLY on the IC (the layer anchor)
@@ -4244,7 +4298,8 @@ pub(crate) fn tap_role(
                 if p.kind == NetKind::Ground
                     && p.is_terminal_only
                     && me.net_kind != NetKind::Ground
-                    && me.anchor == layer_anchor =>
+                    && me.anchor == layer_anchor
+                    && !two_pin_signal =>
             {
                 TapRole::Series {
                     partner: p.topo_idx,
@@ -4261,7 +4316,7 @@ pub(crate) fn tap_role(
             Some(p) if p.is_terminal_only => TapRole::Drop { dir: 0.0 },
             Some(p) => match p.row {
                 None => TapRole::Drop { dir: 0.0 },
-                Some(r) if (r - my_row).abs() < 1.0 => TapRole::Series {
+                Some(r) if (r - my_row).abs() < 1.0 && !two_pin_signal => TapRole::Series {
                     partner: p.topo_idx,
                 },
                 Some(r) => TapRole::Bridge {
@@ -4270,7 +4325,18 @@ pub(crate) fn tap_role(
                 },
             },
         },
-    }
+    };
+    crate::vlog!(
+        "[dbg-tap] id={} box={:?} role={:?} net={} kind={:?} anchor={} la={}",
+        member.id,
+        member.name,
+        role,
+        me.net_name,
+        me.net_kind,
+        me.anchor,
+        layer_anchor
+    );
+    role
 }
 
 /// Shunt slots: the pin on this net (entry) faces the tap, the other pin
@@ -6416,7 +6482,7 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
     // longer merges every Ground net into one global GND), so each distinct
     // ground net already renders one ground symbol — no explosion here.
     let mut topos = build_topology(graph);
-    eprintln!(
+    crate::vlog!(
         "[equi-tree] layout_device_layer: {} nets, {} topos, {} boxes",
         graph.nets.len(),
         topos.len(),
@@ -6425,7 +6491,7 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
     place_by_topology(graph, &mut topos);
     // Log topology regions (assigned by P1 inside place_by_topology).
     for t in &topos {
-        eprintln!(
+        crate::vlog!(
             "[equi-tree]   topo: net='{}' anchor={} groups={} region={:?}",
             t.net_name,
             t.anchor,
@@ -6438,9 +6504,14 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
     let mut unplaced_count = 0;
     for b in &graph.boxes {
         if b.geom_locked {
-            eprintln!(
+            crate::vlog!(
                 "[equi-tree]   placed box: '{}' id={} x={:.0} y={:.0} w={:.0} h={:.0}",
-                b.name, b.id, b.x, b.y, b.w, b.h,
+                b.name,
+                b.id,
+                b.x,
+                b.y,
+                b.w,
+                b.h,
             );
             placed_count += 1;
         } else {
@@ -6449,7 +6520,7 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
     }
     // ★ Fallback: boxes not in any topology get a default position (stacked right)
     if unplaced_count > 0 {
-        eprintln!(
+        crate::vlog!(
             "[equi-tree]   {} unplaced boxes — assigning fallback positions",
             unplaced_count,
         );
@@ -6581,16 +6652,20 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
                     }
                 }
                 fallback_x += 160.0;
-                eprintln!(
+                crate::vlog!(
                     "[equi-tree]   fallback box: '{}' id={} x={:.0} y={:.0}",
-                    b.name, b.id, b.x, b.y,
+                    b.name,
+                    b.id,
+                    b.x,
+                    b.y,
                 );
             }
         }
     }
-    eprintln!(
+    crate::vlog!(
         "[equi-tree] layout_device_layer done: {} placed, {} fallback",
-        placed_count, unplaced_count,
+        placed_count,
+        unplaced_count,
     );
 }
 
@@ -6660,7 +6735,7 @@ fn fallback_box_dims(b: &crate::vector::graph::McVecBox) -> (usize, f64) {
 /// Does NOT modify the graph.
 pub fn build_all_trees(graph: &McVecGraph) -> Vec<EquiTree> {
     let mut topos = build_topology(graph);
-    eprintln!(
+    crate::vlog!(
         "[equi-tree] build_all_trees: {} nets, {} topos",
         graph.nets.len(),
         topos.len(),
@@ -7436,6 +7511,73 @@ mod tests {
             EntrySide::Top,
             "power pin should face the trunk (hang down), slots={:?}",
             cap.slots
+        );
+    }
+
+    /// ★ Two-pin-signal rule: a net with EXACTLY TWO device pins (multi-pin
+    /// components, e.g. `lpa.5` ↔ `spk.2`) is a point-to-point signal — a
+    /// two-pin passive on it hangs VERTICALLY (Bridge/Drop), never horizontal
+    /// Series, even when the run logic would put both its nets on one row.
+    #[test]
+    fn two_device_pin_net_blocks_series() {
+        let mut g = McVecGraph::new(600, "twopin".into());
+        g.layer_style = LayerStyle::Device;
+        // Two multi-pin devices (the signal start/end) + a two-pin passive all
+        // on one net → 2 device pins.
+        g.boxes.push(mk_ic(1, 3, &[11, 12, 13]));
+        g.boxes.push(mk_ic(2, 3, &[21, 22, 23]));
+        g.boxes.push(mk_two_pin(3, "R_FILTER", &[31, 32]));
+        g.nets.push(mk_net(
+            301,
+            "SIG",
+            NetKind::Signal,
+            &[(1, 11), (2, 21), (3, 31)],
+        ));
+
+        let topos = build_topology(&g);
+        let sig = topos.iter().find(|t| t.net_name == "SIG").expect("SIG");
+        assert_eq!(
+            sig.device_pin_groups, 2,
+            "SIG must have exactly 2 device pins (boxes 1 and 2)"
+        );
+        let r = g.boxes.iter().find(|b| b.id == 3).expect("R_FILTER box");
+
+        // Manufacture a SAME-RUN partner: pre-rule `tap_role` would return
+        // Series (horizontal); the rule must override it to vertical.
+        let same_run_partner = Some(PartnerInfo {
+            topo_idx: 0,
+            row: Some(sig.lane.axis),
+            kind: NetKind::Signal,
+            is_terminal_only: false,
+            run_root: sig.run_root,
+            ground_column: false,
+            device_pin_groups: 0,
+        });
+        let role = tap_role(r, sig, same_run_partner, layer_anchor_id(&topos));
+        assert!(
+            !matches!(role, TapRole::Series { .. }),
+            "two-pin passive on a 2-device-pin net must NOT be Series: {role:?}"
+        );
+        assert!(
+            matches!(role, TapRole::Bridge { .. } | TapRole::Drop { .. }),
+            "two-pin passive on a 2-device-pin net must hang vertical: {role:?}"
+        );
+
+        // The partner side propagates too: a two-pin part whose PARTNER net has
+        // 2 device pins is vertical no matter which net places it first.
+        let no_device_partner = Some(PartnerInfo {
+            topo_idx: 0,
+            row: Some(sig.lane.axis),
+            kind: NetKind::Signal,
+            is_terminal_only: false,
+            run_root: sig.run_root,
+            ground_column: false,
+            device_pin_groups: 2,
+        });
+        let role2 = tap_role(r, sig, no_device_partner, layer_anchor_id(&topos));
+        assert!(
+            !matches!(role2, TapRole::Series { .. }),
+            "two-pin passive whose partner has 2 device pins must NOT be Series: {role2:?}"
         );
     }
 }

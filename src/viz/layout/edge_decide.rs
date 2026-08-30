@@ -61,7 +61,7 @@ pub struct EdgeDecideReport {
 
 impl EdgeDecideReport {
     pub fn log(&self, layer: &str) {
-        eprintln!(
+        crate::vlog!(
             "[edge] {}: {} boxes / {} edges / {} untraceable / {} unrendered / {} bend_over_budget / {} escalation",
             layer,
             self.box_count,
@@ -104,7 +104,7 @@ fn strip_power_label(name: &str) -> String {
 /// 4. **R-M**: Group nets by (from_box, to_box, trunk) and merge them.
 ///    trunk is None for now (P9-A2 not yet implemented).
 pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
-    eprintln!(
+    crate::vlog!(
         "[DEBUG edge_decide] decide_edges: graph has {} nets, {} boxes",
         graph.nets.len(),
         graph.boxes.len()
@@ -445,15 +445,16 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
     };
 
     if bend_over_budget > 0 {
-        eprintln!(
+        crate::vlog!(
             "[trace] {}: G18 bend_over_budget: {} edges exceed budget",
-            layer, bend_over_budget
+            layer,
+            bend_over_budget
         );
     }
 
     // ── ★ P9-A2.5 renderdiff trace output ──
 
-    eprintln!(
+    crate::vlog!(
         "[trace] {}: R-M edge merge: {} -> {} edges",
         layer,
         before_merge,
@@ -465,19 +466,25 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
         if let Some(ref lc) = edge.trunk {
             let trunk_name = lc.name.as_deref().unwrap_or("");
             if let Some(ref pos) = edge.source_span {
-                eprintln!(
+                crate::vlog!(
                     "[trace] {}: edge '{}' <- {}:{}  (trunk={})",
-                    layer, trunk_name, pos.uri, pos.offset, trunk_name
+                    layer,
+                    trunk_name,
+                    pos.uri,
+                    pos.offset,
+                    trunk_name
                 );
             } else {
-                eprintln!(
+                crate::vlog!(
                     "[trace] {}: edge '{}'  (trunk={})",
-                    layer, trunk_name, trunk_name
+                    layer,
+                    trunk_name,
+                    trunk_name
                 );
             }
         }
         if edge.lane_count > 1 {
-            eprintln!(
+            crate::vlog!(
                 "[trace] {}: merged edge {} -> {} kind={:?} label=\"{}\" lane_count={} trunk={:?}",
                 layer,
                 edge.from_box,
@@ -502,16 +509,21 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
     } else {
         0.0
     };
-    eprintln!(
+    crate::vlog!(
         "[trace] {}: source_span coverage: {}/{} nets ({:.0}%)",
-        layer, nets_with_span, total_nets, pct
+        layer,
+        nets_with_span,
+        total_nets,
+        pct
     );
 
     // 3. Count nets with trunk
     let nets_with_pg = graph.nets.iter().filter(|n| n.trunk.is_some()).count();
-    eprintln!(
+    crate::vlog!(
         "[trace] {}: trunk coverage: {}/{} nets",
-        layer, nets_with_pg, total_nets
+        layer,
+        nets_with_pg,
+        total_nets
     );
 
     (merged, report)

@@ -151,15 +151,16 @@ fn sub_layers_s1_s2_decoration_counts() {
     // from the projection graph (golden-coupled like the pre-F2 counts).
     let expect: &[(&str, usize, usize, usize, usize)] = &[
         // layer, decorations_gnd, decorations_pwr, gnd_edges, pwr_edges
-        // Rule g splits each sub-layer's Ground rail per consumer box, so no
-        // ground net spans ≥2 boxes post-layout (gnd_edges = 0); power stays a
-        // cross-box bus (pwr_edges reflects the drawn power rails).
-        ("MCU513", 0, 0, 0, 2),
-        ("MIC", 0, 0, 0, 1),
-        ("LDO", 0, 0, 0, 2),
-        ("DCDC", 0, 0, 0, 2),
-        ("SPK", 0, 0, 0, 1),
-        ("USB", 0, 0, 0, 0),
+        // Sub-layers render rail symbols geometrically (Device pipeline), not via
+        // rail_decorations (decorations_* = 0). Ground nets are preserved verbatim
+        // from the netlist — a ground net that spans ≥2 boxes draws a real
+        // cross-box trunk (gnd_edges counts those); power stays a cross-box bus.
+        ("MCU513", 0, 0, 0, 0),
+        ("MIC", 0, 0, 1, 0),
+        ("LDO", 0, 0, 0, 0),
+        ("DCDC", 0, 0, 1, 2),
+        ("SPK", 0, 0, 1, 1),
+        ("USB", 0, 0, 1, 0),
     ];
     for (layer, gnd, pwr, gnd_edges, pwr_edges) in expect {
         let r = get(layer);
