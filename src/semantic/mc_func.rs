@@ -12,8 +12,12 @@ use crate::semantic::module::Mc2Module;
 use crate::McIds;
 use crate::McInstances;
 use crate::{
-    ast::ast_node::AstNode, ast::c_macros::*, ast::error::message::*,
+    ast::ast_node::AstNode,
+    ast::c_macros::*,
+    ast::error::message::*,
+    semantic::basic::form::{classify, reference_parts, Form, RefVerdict},
     semantic::basic::mc_param::McParamDeclares,
+    semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind},
 };
 
 // ============================================================================
@@ -173,6 +177,57 @@ pub trait HasFindInst {
     /// references from shorting two rails together through a shared ghost net).
     /// Default no-op.
     fn register_gate_candidate(&mut self, _base: &str, _form: &str, _pos: u32, _len: u32) {}
+
+    /// Phase 2 entry — the single reference-resolution entry (§1.2②, plan step 3):
+    /// classify the reference form, derive base/member, and run the Phase 1
+    /// miss decision once for every gate site (mc_phrase.rs A/B/C/D). What it
+    /// converges is the *miss action* — suppress the phantom ghost-bus, register
+    /// the gate candidate, record the UnresolvedRef(Error) ledger row, and tell
+    /// the caller to drop the statement. Found-base handling (E1802 member
+    /// validation, `add_bus_member`, LSP registration, member fall-through) and
+    /// the `as_component_member` branch stay at each site.
+    ///
+    /// Default impl is scope-agnostic; it inherits the scope discriminator via
+    /// the [`is_declared_instance_name`] override (FuncBodyContext / McModule
+    /// add caller names and func-local declares).
+    ///
+    /// Site string is intentionally bare (`"gate undeclared base (E3182)"`, no
+    /// `<path>:<line>` prefix): `normalize_site` passes it through unchanged, so
+    /// goldens stay stable across code-line drift.
+    fn resolve_reference(&mut self, ids: &McIds, pos: u32, len: u32) -> RefVerdict {
+        let form = classify(ids);
+        // Bare / List are the legitimate net cases (§1.3 ②/③) — the four gate
+        // sites never hand them here (they classify to structured forms before
+        // reaching the miss decision), so this is a defensive guard.
+        if matches!(form, Form::Bare | Form::List) {
+            return RefVerdict::Wire;
+        }
+        let (base, member) = reference_parts(ids, form);
+        if self.find_inst(&base).is_some() {
+            return RefVerdict::Resolved;
+        }
+        if self.is_declared_instance_name(&base) {
+            // B-family pass: base is a declared instance name in scope — keep
+            // the ghost-bus, defer to §3 materialization (observable gate
+            // behavior unchanged; only the dispatch moves here).
+            return RefVerdict::Deferred;
+        }
+        // True miss: suppress the phantom, register the candidate, record the
+        // error row, and drop the statement at the call site.
+        self.register_gate_candidate(&base, &ids.to_string(), pos, len);
+        ledger::record(
+            LedgerEntry::new(
+                LedgerKind::UnresolvedRef,
+                ids.to_string(),
+                "gate undeclared base (E3182)",
+            )
+            .with_action(LedgerAction::Error)
+            .with_form_class(form)
+            .with_uri(self.uri().to_string())
+            .with_span(pos, len),
+        );
+        RefVerdict::UnresolvedRef { base, member }
+    }
 
     /// Default implementation returns `false` (not a port).
     fn is_declared_port(&self, _name: &str) -> bool {

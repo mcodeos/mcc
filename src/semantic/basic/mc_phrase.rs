@@ -3,6 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use super::super::{
+    basic::form::RefVerdict,
     basic::mc_bus::McBus,
     basic::mc_closure::McClosure,
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
@@ -288,6 +289,9 @@ impl McPhrase {
                                 }
                                 // eprintln!("[PHRASE_DEBUG] curly: validate_inst_reference -> None");
                                 if let Some((name, members)) = ids.as_bus() {
+                                    // The bus name colliding with an existing instance is a
+                                    // site-specific loud error — kept ahead of the converged
+                                    // miss decision.
                                     if context.find_inst(&name).is_some() {
                                         dlog_error(
                                             crate::errcodes::BUS_NAME_ALREADY_INSTANCE,
@@ -301,49 +305,53 @@ impl McPhrase {
                                             ),
                                         );
                                         return None;
-                                    } else if context.is_declared_instance_name(&name) {
-                                        // ★ Ledger (resolve-gate §1.2③/§1.3): an undeclared
-                                        // base in a curly member list (`NOPE{AAA, BBB}`)
-                                        // silently becomes a ghost bus when the base is a
-                                        // declared instance name in scope (pass — same
-                                        // §1.3 structured-miss rule as the two-segment dot
-                                        // ghost-bus sites). Record one Fallback row.
-                                        ledger::record(
-                                            LedgerEntry::new(
-                                                LedgerKind::Fallback,
-                                                ids.to_string(),
-                                                "mc_phrase.rs:304 add_bus curly ghost-bus",
-                                            )
-                                            .with_uri(context.uri().to_string())
-                                            .with_span(node.get_pos(), node.get_len()),
-                                        );
-                                        let name_clone = name.clone();
-                                        let members_clone = members.clone();
-                                        context.upgrade_label_to_bus(&name);
-                                        return context.add_bus(name_clone, members_clone);
-                                    } else {
-                                        // true miss (resolve-gate §1.3): base declared
-                                        // nowhere — suppress the curly ghost-bus, register a
-                                        // gate candidate, drop the phrase; the
-                                        // component-finish recheck errors E3182 if it stays
-                                        // unresolved.
-                                        context.register_gate_candidate(
-                                            &name,
-                                            &ids.to_string(),
-                                            node.get_pos(),
-                                            node.get_len(),
-                                        );
-                                        ledger::record(
-                                            LedgerEntry::new(
-                                                LedgerKind::UnresolvedRef,
-                                                ids.to_string(),
-                                                "mc_phrase.rs:304 gate undeclared base (E3182)",
-                                            )
-                                            .with_action(LedgerAction::Error)
-                                            .with_uri(context.uri().to_string())
-                                            .with_span(node.get_pos(), node.get_len()),
-                                        );
-                                        return None;
+                                    }
+                                    // ★ Ledger (resolve-gate §1.2③/§1.3, converged at
+                                    // §1.2②): the miss decision lives in
+                                    // `HasFindInst::resolve_reference` — Deferred (base is a
+                                    // declared instance name in scope → keep the ghost-bus,
+                                    // §3 deferral) records the Fallback row and upgrades;
+                                    // UnresolvedRef (true miss → phantom suppressed, gate
+                                    // candidate registered, error row recorded) drops the
+                                    // phrase; the component-finish recheck errors E3182 if
+                                    // it stays unresolved.
+                                    match context.resolve_reference(
+                                        &ids,
+                                        node.get_pos(),
+                                        node.get_len(),
+                                    ) {
+                                        RefVerdict::Deferred => {
+                                            // ★ Ledger (resolve-gate §1.2③/§1.3): an
+                                            // undeclared base in a curly member list
+                                            // (`NOPE{AAA, BBB}`) silently becomes a ghost bus
+                                            // when the base is a declared instance name in
+                                            // scope (pass — same §1.3 structured-miss rule as
+                                            // the two-segment dot ghost-bus sites). Record one
+                                            // Fallback row.
+                                            ledger::record(
+                                                LedgerEntry::new(
+                                                    LedgerKind::Fallback,
+                                                    ids.to_string(),
+                                                    "mc_phrase.rs:304 add_bus curly ghost-bus",
+                                                )
+                                                .with_uri(context.uri().to_string())
+                                                .with_span(node.get_pos(), node.get_len()),
+                                            );
+                                            let name_clone = name.clone();
+                                            let members_clone = members.clone();
+                                            context.upgrade_label_to_bus(&name);
+                                            return context.add_bus(name_clone, members_clone);
+                                        }
+                                        RefVerdict::UnresolvedRef { .. } => return None,
+                                        RefVerdict::Resolved
+                                        | RefVerdict::Wire
+                                        | RefVerdict::ResolvedMany(_) => {
+                                            // Unreachable here: the find_inst pre-check above
+                                            // already returned None for every instance hit, so
+                                            // resolve_reference cannot come back Resolved, and
+                                            // a curly last segment never classifies Bare/List.
+                                            return None;
+                                        }
                                     }
                                 } else if let Some((component, interface, members)) =
                                     ids.as_component_member()
@@ -456,7 +464,10 @@ impl McPhrase {
                                         // When NAME[k] form (e.g. GPIO[2]) is used as an indexed
                                         // alias and the expanded name is not a known instance, the
                                         // statement will produce no nets/constraints.
-                                        if ids.segments.len() >= 2 {
+                                        // Inside `is_square_bracket()` the last segment is always
+                                        // Square, so `!is_square_only()` ≡ a prefix precedes the
+                                        // square (`NAME[k]`) — checked off the AST, not the text.
+                                        if !ids.is_square_only() {
                                             if let Some(expanded_name) = expanded.first() {
                                                 if context.find_inst(expanded_name).is_none()
                                                     && context.find_inst(&ids.to_string()).is_none()
@@ -506,115 +517,117 @@ impl McPhrase {
                                 // Two-segment dot access (`MIC.P`).
                                 let base = &chain[0];
                                 let rest = chain[1..].join(".");
-                                // ★ Ledger (resolve-gate §1.2③/§1.3 entry gate): a
-                                // two-segment dot access that cannot resolve falls back
-                                // silently ONLY when the base is a declared instance
-                                // name in scope (pass — B-family deferral to §3: ghost
-                                // bus when base is not found, member fall-through when
-                                // add_bus_member misses). A true miss (base declared
-                                // nowhere) suppresses the phantom ghost-bus, registers a
-                                // gate candidate, records UnresolvedRef and drops the
-                                // phrase; the component-finish recheck errors E3182 if it
-                                // stays unresolved. Record exactly one ledger row per
+                                // ★ Ledger (resolve-gate §1.2③/§1.3 entry gate, converged
+                                // at §1.2②): the miss decision lives in
+                                // `HasFindInst::resolve_reference` — Deferred (base is a
+                                // declared instance name in scope → keep the ghost-bus,
+                                // §3 deferral) keeps `add_bus`; UnresolvedRef (true miss →
+                                // phantom suppressed, gate candidate registered, error row
+                                // recorded) drops the phrase and the finish recheck errors
+                                // E3182; Resolved is the loud E1802 / member-access path,
+                                // unchanged. Record exactly one Fallback row per ghost-bus
                                 // phrase — never on the E1802 error path (that is a loud
                                 // error, not a silent fallback).
                                 let fallback_site: Option<&'static str>;
-                                if context.find_inst(base).is_none() {
-                                    if context.is_declared_instance_name(base) {
+                                match context.resolve_reference(
+                                    &ids,
+                                    subnode.get_pos(),
+                                    subnode.get_len(),
+                                ) {
+                                    RefVerdict::Deferred => {
+                                        // §1.3 pass: base is a declared instance name in
+                                        // scope — keep the ghost-bus, defer to §3.
                                         context.add_bus(base.to_string(), vec![rest.clone()]);
                                         fallback_site = Some("mc_phrase.rs:453 add_bus ghost-bus");
-                                    } else {
-                                        context.register_gate_candidate(
-                                            base,
-                                            &chain.join("."),
-                                            subnode.get_pos(),
-                                            subnode.get_len(),
-                                        );
-                                        ledger::record(
-                                            LedgerEntry::new(
-                                                LedgerKind::UnresolvedRef,
-                                                chain.join("."),
-                                                "mc_phrase.rs:492 gate undeclared base (E3182)",
-                                            )
-                                            .with_action(LedgerAction::Error)
-                                            .with_uri(context.uri().to_string())
-                                            .with_span(subnode.get_pos(), subnode.get_len()),
-                                        );
-                                        return None;
                                     }
-                                } else {
-                                    // E1802: Check if base is a Component and rest is a valid pin
-                                    if let Some(McInstance::Component(c)) = context.find_inst(base)
-                                    {
-                                        if c.find_pin(&rest).is_none() {
-                                            let available: Vec<&str> = c
-                                                .base
-                                                .pins
-                                                .names_to_id
-                                                .keys()
-                                                .map(|s| s.as_str())
-                                                .collect();
-                                            dlog_error(
-                                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
-                                                &subnode,
-                                                &crate::errcodes::format_msg(
+                                    RefVerdict::UnresolvedRef { .. } => return None,
+                                    RefVerdict::Resolved => {
+                                        // E1802: Check if base is a Component and rest is a valid pin
+                                        if let Some(McInstance::Component(c)) =
+                                            context.find_inst(base)
+                                        {
+                                            if c.find_pin(&rest).is_none() {
+                                                let available: Vec<&str> = c
+                                                    .base
+                                                    .pins
+                                                    .names_to_id
+                                                    .keys()
+                                                    .map(|s| s.as_str())
+                                                    .collect();
+                                                dlog_error(
                                                     crate::errcodes::COMPONENT_PIN_NOT_FOUND,
-                                                    &[
-                                                        &rest as &dyn std::fmt::Display,
-                                                        base as &dyn std::fmt::Display,
-                                                        &available.join(", ")
-                                                            as &dyn std::fmt::Display,
-                                                    ],
-                                                ),
-                                            );
-                                            // ★ Ledger (resolve-gate §1.2③): a structured
-                                            // miss that errors loudly — member not found on a
-                                            // resolved component instance — records an
-                                            // UnresolvedRef row (action=error+drop, E3179).
-                                            // Observation only: the loud error/drop stands.
-                                            ledger::record(
-                                                LedgerEntry::new(
-                                                    LedgerKind::UnresolvedRef,
-                                                    chain.join("."),
-                                                    "mc_phrase.rs:527 component pin not found",
-                                                )
-                                                .with_action(LedgerAction::Error)
-                                                .with_uri(context.uri().to_string())
-                                                .with_span(subnode.get_pos(), subnode.get_len()),
-                                            );
-                                            return None;
+                                                    &subnode,
+                                                    &crate::errcodes::format_msg(
+                                                        crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                        &[
+                                                            &rest as &dyn std::fmt::Display,
+                                                            base as &dyn std::fmt::Display,
+                                                            &available.join(", ")
+                                                                as &dyn std::fmt::Display,
+                                                        ],
+                                                    ),
+                                                );
+                                                // ★ Ledger (resolve-gate §1.2③): a structured
+                                                // miss that errors loudly — member not found on a
+                                                // resolved component instance — records an
+                                                // UnresolvedRef row (action=error+drop, E3179).
+                                                // Observation only: the loud error/drop stands.
+                                                ledger::record(
+                                                    LedgerEntry::new(
+                                                        LedgerKind::UnresolvedRef,
+                                                        chain.join("."),
+                                                        "mc_phrase.rs:527 component pin not found",
+                                                    )
+                                                    .with_action(LedgerAction::Error)
+                                                    .with_uri(context.uri().to_string())
+                                                    .with_span(
+                                                        subnode.get_pos(),
+                                                        subnode.get_len(),
+                                                    ),
+                                                );
+                                                return None;
+                                            }
                                         }
+                                        // ★ LSP: Register instance reference for dot-separated path
+                                        let span = (subnode.get_pos() as usize)
+                                            ..((subnode.get_pos() + subnode.get_len()) as usize);
+                                        if let Some(decl_id) =
+                                            crate::query::refs::mcb_lookup_instance_decl(
+                                                context.uri(),
+                                                base,
+                                                scope.as_deref(),
+                                            )
+                                        {
+                                            mcb_register_instance_ref(
+                                                context.uri(),
+                                                span,
+                                                decl_id,
+                                                scope.as_deref(),
+                                            );
+                                        }
+                                        context.upgrade_label_to_bus(base);
+                                        if let Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef {
+                                                base: McInstance::Bus(bus),
+                                                ..
+                                            },
+                                        ))) = context.add_bus_member(base, rest.clone())
+                                        {
+                                            return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                                McInstanceRef::new(McInstance::Bus(bus)),
+                                            )));
+                                        }
+                                        fallback_site =
+                                            Some("mc_phrase.rs:512 member fall-through");
                                     }
-                                    // ★ LSP: Register instance reference for dot-separated path
-                                    let span = (subnode.get_pos() as usize)
-                                        ..((subnode.get_pos() + subnode.get_len()) as usize);
-                                    if let Some(decl_id) =
-                                        crate::query::refs::mcb_lookup_instance_decl(
-                                            context.uri(),
-                                            base,
-                                            scope.as_deref(),
-                                        )
-                                    {
-                                        mcb_register_instance_ref(
-                                            context.uri(),
-                                            span,
-                                            decl_id,
-                                            scope.as_deref(),
-                                        );
+                                    RefVerdict::Wire | RefVerdict::ResolvedMany(_) => {
+                                        // Unreachable here: inside the `dot_chain_parts`
+                                        // branch every 2-segment chain classifies Dotted, so
+                                        // resolve_reference returns only Resolved / Deferred /
+                                        // UnresolvedRef. Defensive continuation mirrors the
+                                        // pre-gate member-ref construction (no ledger row).
+                                        fallback_site = None;
                                     }
-                                    context.upgrade_label_to_bus(base);
-                                    if let Some(McPhrase::Endpoint(McEndpoint::Single(
-                                        McInstanceRef {
-                                            base: McInstance::Bus(bus),
-                                            ..
-                                        },
-                                    ))) = context.add_bus_member(base, rest.clone())
-                                    {
-                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                            McInstanceRef::new(McInstance::Bus(bus)),
-                                        )));
-                                    }
-                                    fallback_site = Some("mc_phrase.rs:512 member fall-through");
                                 }
                                 if let Some(site) = fallback_site {
                                     ledger::record(
@@ -697,107 +710,105 @@ impl McPhrase {
                     } else {
                         let id = &data[0];
                         if let Some((base, member)) = id.split_once('.') {
-                            // ★ Ledger (resolve-gate §1.2③): silent two-segment
-                            // miss → one Fallback row per phrase (same contract as the
-                            // McOpd::Id dot chain above).
+                            // ★ Ledger (resolve-gate §1.2③, converged at §1.2②): the miss
+                            // decision lives in `HasFindInst::resolve_reference`. The
+                            // tokenizer yields one dotted MCAST_IDA token here, so
+                            // `McIds::from(id)` would keep the dot inside one Id (never a
+                            // DotIda) — build an AST-faithful 2-segment dot chain first.
+                            let ref_ids = McIds::from_dot_pair(base, member);
                             let fallback_site: Option<&'static str>;
-                            let base_inst_opt = context.find_inst(base);
-                            if base_inst_opt.is_none() {
-                                if context.is_declared_instance_name(base) {
+                            match context.resolve_reference(
+                                &ref_ids,
+                                node.get_pos(),
+                                node.get_len(),
+                            ) {
+                                RefVerdict::Deferred => {
                                     // pass: base is a declared instance name in scope —
                                     // keep the ghost-bus (B-family deferral to §3).
                                     context.add_bus(base.to_string(), vec![member.to_string()]);
                                     fallback_site = Some("mc_phrase.rs:598 add_bus ghost-bus");
-                                } else {
-                                    // true miss (resolve-gate §1.3): suppress the phantom,
-                                    // register a gate candidate, drop the phrase; the
-                                    // component-finish recheck errors E3182 if unresolved.
-                                    context.register_gate_candidate(
-                                        base,
-                                        id,
-                                        node.get_pos(),
-                                        node.get_len(),
-                                    );
-                                    ledger::record(
-                                        LedgerEntry::new(
-                                            LedgerKind::UnresolvedRef,
-                                            id.to_string(),
-                                            "mc_phrase.rs:683 gate undeclared base (E3182)",
-                                        )
-                                        .with_action(LedgerAction::Error)
-                                        .with_uri(context.uri().to_string())
-                                        .with_span(node.get_pos(), node.get_len()),
-                                    );
-                                    return None;
                                 }
-                            } else {
-                                // Base instance found - check if it's a Component
-                                if let Some(McInstance::Component(c)) = base_inst_opt {
-                                    // E1802: Check if the member is a valid pin in the component
-                                    if c.find_pin(member).is_none() {
-                                        let available: Vec<&str> = c
-                                            .base
-                                            .pins
-                                            .names_to_id
-                                            .keys()
-                                            .map(|s| s.as_str())
-                                            .collect();
-                                        dlog_error(
-                                            crate::errcodes::COMPONENT_PIN_NOT_FOUND,
-                                            node,
-                                            &crate::errcodes::format_msg(
+                                RefVerdict::UnresolvedRef { .. } => return None,
+                                RefVerdict::Resolved => {
+                                    // Base instance found - check if it's a Component
+                                    if let Some(McInstance::Component(c)) = context.find_inst(base)
+                                    {
+                                        // E1802: Check if the member is a valid pin in the component
+                                        if c.find_pin(member).is_none() {
+                                            let available: Vec<&str> = c
+                                                .base
+                                                .pins
+                                                .names_to_id
+                                                .keys()
+                                                .map(|s| s.as_str())
+                                                .collect();
+                                            dlog_error(
                                                 crate::errcodes::COMPONENT_PIN_NOT_FOUND,
-                                                &[
-                                                    &member as &dyn std::fmt::Display,
-                                                    &base as &dyn std::fmt::Display,
-                                                    &available.join(", ") as &dyn std::fmt::Display,
-                                                ],
-                                            ),
-                                        );
-                                        // ★ Ledger (resolve-gate §1.2③): structured
-                                        // member miss on a resolved component → UnresolvedRef
-                                        // (action=error+drop, E3179). Observation only.
-                                        ledger::record(
-                                            LedgerEntry::new(
-                                                LedgerKind::UnresolvedRef,
-                                                format!("{base}.{member}"),
-                                                "mc_phrase.rs:683 component pin not found",
-                                            )
-                                            .with_action(LedgerAction::Error)
-                                            .with_uri(context.uri().to_string())
-                                            .with_span(node.get_pos(), node.get_len()),
-                                        );
-                                        return None;
+                                                node,
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                    &[
+                                                        &member as &dyn std::fmt::Display,
+                                                        &base as &dyn std::fmt::Display,
+                                                        &available.join(", ")
+                                                            as &dyn std::fmt::Display,
+                                                    ],
+                                                ),
+                                            );
+                                            // ★ Ledger (resolve-gate §1.2③): structured
+                                            // member miss on a resolved component → UnresolvedRef
+                                            // (action=error+drop, E3179). Observation only.
+                                            ledger::record(
+                                                LedgerEntry::new(
+                                                    LedgerKind::UnresolvedRef,
+                                                    format!("{base}.{member}"),
+                                                    "mc_phrase.rs:683 component pin not found",
+                                                )
+                                                .with_action(LedgerAction::Error)
+                                                .with_uri(context.uri().to_string())
+                                                .with_span(node.get_pos(), node.get_len()),
+                                            );
+                                            return None;
+                                        }
                                     }
+                                    // ★ LSP: Register instance reference for dot-separated path
+                                    let span = (node.get_pos() as usize)
+                                        ..((node.get_pos() + node.get_len()) as usize);
+                                    if let Some(decl_id) =
+                                        crate::query::refs::mcb_lookup_instance_decl(
+                                            context.uri(),
+                                            base,
+                                            scope.as_deref(),
+                                        )
+                                    {
+                                        mcb_register_instance_ref(
+                                            context.uri(),
+                                            span,
+                                            decl_id,
+                                            scope.as_deref(),
+                                        );
+                                    }
+                                    context.upgrade_label_to_bus(base);
+                                    if let Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        McInstanceRef {
+                                            base: McInstance::Bus(bus),
+                                            ..
+                                        },
+                                    ))) = context.add_bus_member(base, member.to_string())
+                                    {
+                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(McInstance::Bus(bus)),
+                                        )));
+                                    }
+                                    fallback_site = Some("mc_phrase.rs:654 member fall-through");
                                 }
-                                // ★ LSP: Register instance reference for dot-separated path
-                                let span = (node.get_pos() as usize)
-                                    ..((node.get_pos() + node.get_len()) as usize);
-                                if let Some(decl_id) = crate::query::refs::mcb_lookup_instance_decl(
-                                    context.uri(),
-                                    base,
-                                    scope.as_deref(),
-                                ) {
-                                    mcb_register_instance_ref(
-                                        context.uri(),
-                                        span,
-                                        decl_id,
-                                        scope.as_deref(),
-                                    );
+                                RefVerdict::Wire | RefVerdict::ResolvedMany(_) => {
+                                    // Unreachable here: from_dot_pair builds a 2-segment dot
+                                    // chain, so classify → Dotted and resolve_reference returns
+                                    // only Resolved / Deferred / UnresolvedRef. Defensive
+                                    // continuation mirrors the pre-gate member-ref construction.
+                                    fallback_site = None;
                                 }
-                                context.upgrade_label_to_bus(base);
-                                if let Some(McPhrase::Endpoint(McEndpoint::Single(
-                                    McInstanceRef {
-                                        base: McInstance::Bus(bus),
-                                        ..
-                                    },
-                                ))) = context.add_bus_member(base, member.to_string())
-                                {
-                                    return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                        McInstanceRef::new(McInstance::Bus(bus)),
-                                    )));
-                                }
-                                fallback_site = Some("mc_phrase.rs:654 member fall-through");
                             }
                             if let Some(site) = fallback_site {
                                 ledger::record(
@@ -876,13 +887,21 @@ impl McPhrase {
                                 } else {
                                     let id = &data[idx];
                                     if let Some((base, member)) = id.split_once('.') {
-                                        // ★ Ledger (resolve-gate §1.2③/§1.3): silent
-                                        // two-segment miss → one row per phrase; true miss
-                                        // (base declared nowhere) drops the phrase instead
-                                        // of a phantom bus (E3182 at recheck).
+                                        // ★ Ledger (resolve-gate §1.2③/§1.3, converged at
+                                        // §1.2②): the miss decision lives in
+                                        // `HasFindInst::resolve_reference` — one row per
+                                        // phrase; true miss (base declared nowhere) drops the
+                                        // phrase instead of a phantom bus (E3182 at recheck).
+                                        // Build an AST-faithful 2-segment dot chain (the
+                                        // tokenizer yields one dotted MCAST_IDA token).
+                                        let ref_ids = McIds::from_dot_pair(base, member);
                                         let fallback_site: Option<&'static str>;
-                                        if context.find_inst(base).is_none() {
-                                            if context.is_declared_instance_name(base) {
+                                        match context.resolve_reference(
+                                            &ref_ids,
+                                            node.get_pos(),
+                                            node.get_len(),
+                                        ) {
+                                            RefVerdict::Deferred => {
                                                 // pass: declared name in scope — ghost-bus.
                                                 context.add_bus(
                                                     base.to_string(),
@@ -890,45 +909,36 @@ impl McPhrase {
                                                 );
                                                 fallback_site =
                                                     Some("mc_phrase.rs:737 add_bus ghost-bus");
-                                            } else {
-                                                // true miss: suppress phantom, register gate
-                                                // candidate, drop the phrase.
-                                                context.register_gate_candidate(
-                                                    base,
-                                                    id,
-                                                    node.get_pos(),
-                                                    node.get_len(),
-                                                );
-                                                ledger::record(
-                                                    LedgerEntry::new(
-                                                        LedgerKind::UnresolvedRef,
-                                                        id.to_string(),
-                                                        "mc_phrase.rs:858 gate undeclared base (E3182)",
-                                                    )
-                                                    .with_action(LedgerAction::Error)
-                                                    .with_uri(context.uri().to_string())
-                                                    .with_span(node.get_pos(), node.get_len()),
-                                                );
-                                                return None;
                                             }
-                                        } else {
-                                            context.upgrade_label_to_bus(base);
-                                            if let Some(McPhrase::Endpoint(McEndpoint::Single(
-                                                McInstanceRef {
-                                                    base: McInstance::Bus(bus),
-                                                    ..
-                                                },
-                                            ))) =
-                                                context.add_bus_member(base, member.to_string())
-                                            {
-                                                return Some(McPhrase::Endpoint(
-                                                    McEndpoint::Single(McInstanceRef::new(
-                                                        McInstance::Bus(bus),
-                                                    )),
-                                                ));
+                                            RefVerdict::UnresolvedRef { .. } => return None,
+                                            RefVerdict::Resolved => {
+                                                context.upgrade_label_to_bus(base);
+                                                if let Some(McPhrase::Endpoint(
+                                                    McEndpoint::Single(McInstanceRef {
+                                                        base: McInstance::Bus(bus),
+                                                        ..
+                                                    }),
+                                                )) =
+                                                    context.add_bus_member(base, member.to_string())
+                                                {
+                                                    return Some(McPhrase::Endpoint(
+                                                        McEndpoint::Single(McInstanceRef::new(
+                                                            McInstance::Bus(bus),
+                                                        )),
+                                                    ));
+                                                }
+                                                fallback_site =
+                                                    Some("mc_phrase.rs:760 member fall-through");
                                             }
-                                            fallback_site =
-                                                Some("mc_phrase.rs:760 member fall-through");
+                                            RefVerdict::Wire | RefVerdict::ResolvedMany(_) => {
+                                                // Unreachable here: from_dot_pair builds a
+                                                // 2-segment dot chain, so classify → Dotted
+                                                // and resolve_reference returns only Resolved /
+                                                // Deferred / UnresolvedRef. Defensive
+                                                // continuation mirrors the pre-gate
+                                                // member-ref construction.
+                                                fallback_site = None;
+                                            }
                                         }
                                         if let Some(site) = fallback_site {
                                             ledger::record(
