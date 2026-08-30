@@ -1473,7 +1473,12 @@ impl McInstances {
             //     diagnostics / duplicate LSP symbols).
             let expanded_names = inst_ids.expand();
             let inst_str = inst_ids.to_string();
-            let has_square_range = inst_str.contains('[') && !inst_str.contains('{');
+            // AST-driven (§0): `inst_str` has a `[` exactly when some segment is a
+            // square (outer Square or embedded Ida square), and a `{` exactly when
+            // some outer segment is a Curly — so the old string predicate
+            // `contains('[') && !contains('{')` is exactly `has_square() &&
+            // !has_curly()`, read off the segment tree instead of display output.
+            let has_square_range = inst_ids.has_square() && !inst_ids.has_curly();
             let is_interface = matches!(cmie, Some(McCMIE::Interface(_)));
             let should_expand = !is_interface
                 && !inst_ids.is_square_only()
