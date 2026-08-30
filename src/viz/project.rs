@@ -37,16 +37,15 @@
 //! (the negative lesson of v4 §6 "lower layer patches upper layer").
 //!
 //! ## Auditable (discipline 9)
-//! Every merge/dedup/removal/split is recorded as (layer, net, endpoint, rule a|b|c|g), aggregated
+//! Every merge/dedup/removal is recorded as (layer, net, endpoint, rule a|b|c), aggregated
 //! into `baseline/render_projection.md`, plus one vlog summary line per layer.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 use crate::instant::insttab::{InstKind, InstTable, MemberRole};
-use crate::semantic::common::IOType;
 use crate::vector::graph::naming;
 use crate::vector::graph::netdef::IoDirection;
-use crate::vector::model::{BoundaryInfo, McVec, McVecBlock, McVecNet, RailClass, RailSpec};
+use crate::vector::model::{BoundaryInfo, McVec, McVecBlock, McVecNet};
 
 /// One projection action record (rule a=merge / b=endpoint dedup / c=pseudo endpoint removal)
 #[derive(Debug, Clone)]
@@ -70,7 +69,7 @@ impl ProjectionLog {
     pub fn write_md(&self) {
         let mut md = String::new();
         md.push_str("# Render Projection (P7-2)\n\n");
-        md.push_str("Audit log of the pass2 → viz projection layer. Rules: a=scalar ∪ member-net merge, b=same-port endpoint dedup (declaration wins), c=rail label pseudo endpoint removal, g=ground rail per-consumer split.\n\n");
+        md.push_str("Audit log of the pass2 → viz projection layer. Rules: a=scalar ∪ member-net merge, b=same-port endpoint dedup (declaration wins), c=rail label pseudo endpoint removal.\n\n");
         md.push_str("| Layer | Nets(before) | Nets(after) |\n|---|---|---|\n");
         for (layer, before, after) in &self.per_layer {
             md.push_str(&format!("| {layer} | {before} | {after} |\n"));
@@ -93,7 +92,7 @@ impl ProjectionLog {
 /// Project the entire block tree (recursing into every layer).
 pub fn project_block_tree(block: &McVecBlock, table: &InstTable) -> (McVecBlock, ProjectionLog) {
     let mut log = ProjectionLog::default();
-    let projected = project_block_inner(block, table, &mut log, true);
+    let projected = project_block_inner(block, table, &mut log);
     log.write_md();
     (projected, log)
 }
@@ -102,16 +101,15 @@ fn project_block_inner(
     block: &McVecBlock,
     table: &InstTable,
     log: &mut ProjectionLog,
-    is_root: bool,
 ) -> McVecBlock {
     let mut out = McVecBlock::new(block.bid, block.name.clone());
     out.insts = block.insts.clone();
-    out.nets = project_nets(block, table, &block.name, log, is_root);
+    out.nets = project_nets(block, table, &block.name, log);
     out.port_trunks = block.port_trunks.clone();
     out.blocks = block
         .blocks
         .iter()
-        .map(|b| project_block_inner(b, table, log, false))
+        .map(|b| project_block_inner(b, table, log))
         .collect();
     out
 }
@@ -188,7 +186,6 @@ fn project_nets(
     table: &InstTable,
     layer: &str,
     log: &mut ProjectionLog,
-    is_root: bool,
 ) -> Vec<McVecNet> {
     let bid = block.bid;
     let nets = &block.nets;
@@ -231,21 +228,26 @@ fn project_nets(
     // identity); only (2) / (3) may merge them, through a real wiring tie.
     let is_ground_net = |ni: usize| naming::is_ground(&nets[ni].name);
 
-    // (1) same-base union: bare ground-label base (no '.', is_ground) groups.
+    // (1) same-name union: bare ground-label nets with the SAME exact name
+    // (no '.', is_ground) merge. The merge key is the FULL net name — the
+    // pass2 ground split gives every local ground a distinct identity
+    // (`GND@42`, `GND@64`, ...), so `GND@N` nets must NOT be collapsed into
+    // one net via a stripped base. Only truly identical names (e.g. duplicate
+    // bare `GND` labels) union.
     {
-        let mut first_by_base: HashMap<String, usize> = HashMap::new();
+        let mut first_by_base: HashMap<&str, usize> = HashMap::new();
         for (ni, net) in nets.iter().enumerate() {
             if !is_ground_net(ni) {
                 continue;
             }
-            let base = net.name.split('@').next().unwrap_or(&net.name);
+            let base = net.name.as_str();
             if base.contains('.') {
                 continue; // rail member ground (vin.GND) — strict identity, no name merge
             }
             match first_by_base.get(base) {
                 Some(&other) => dsu.union(other, ni),
                 None => {
-                    first_by_base.insert(base.to_string(), ni);
+                    first_by_base.insert(base, ni);
                 }
             }
         }
@@ -563,19 +565,11 @@ fn project_nets(
         out.push(net);
     }
 
-    // ── Rule (g): explode driverless Ground rails per consumer box (sub-layers only) ──
-    // Sub-layer GND is declared as one shared module port, so pass2 collapses every
-    // consumer into a single GND net → equipotential_tree would drag all taps to one
-    // cross-layer trunk + one ground glyph. Splitting into per-box same-name "GND" nets
-    // here lets the Device pipeline render a nearby ground symbol per consumer (moddcdc
-    // golden shape), keeping electrical identity (same name = still connected).
-    explode_driverless_ground_rails(&mut out, block, table, layer, log, is_root);
-
     // Backfill after
     if let Some(entry) = log.per_layer.last_mut() {
         entry.2 = out.len();
     }
-    let (merges, dedups, pseudos, gsplits) = (
+    let (merges, dedups, pseudos) = (
         log.records
             .iter()
             .filter(|r| r.layer == layer && r.rule == "a")
@@ -588,113 +582,13 @@ fn project_nets(
             .iter()
             .filter(|r| r.layer == layer && r.rule == "c")
             .count(),
-        log.records
-            .iter()
-            .filter(|r| r.layer == layer && r.rule == "g")
-            .count(),
     );
     crate::vlog!(
-        "[project] layer '{layer}': nets {} -> {} (a: merged {merges} groups, b: deduped {dedups}, c: pseudo endpoints {pseudos}, g: ground split {gsplits})",
+        "[project] layer '{layer}': nets {} -> {} (a: merged {merges} groups, b: deduped {dedups}, c: pseudo endpoints {pseudos})",
         nets.len(),
         out.len()
     );
     out
-}
-
-/// ★ P7-GND: explode a driverless Ground rail into one same-name net per consumer box.
-///
-/// Sub-layers (Device pipeline) declare GND as a single shared module port, so pass2
-/// collapses every consumer pin into one GND net. `equipotential_tree`'s contract is
-/// "one ground net → one trunk → one ground glyph", so that single net drags every
-/// consumer's tap to one cross-layer trunk with a lone ground symbol — violating the
-/// nearby / minimal crossing / single-pin independence drawing principles. Splitting the rail per consumer box
-/// here yields the moddcdc golden shape (per-consumer `terminal_only` short-stub glyphs).
-///
-/// - Gate: `!is_root` (top layer `main` keeps its single merged ground + one glyph).
-/// - Consumers resolved via `table.get_entry(pid).parent_id` (endpoint pin → owning box).
-/// - ≥2 boxes → split; ≤1 box → untouched (idempotent; re-projection is stable).
-/// - Electrical identity is preserved: every split net keeps the same name ("GND").
-/// - Power rails are NOT split: the bus/rail convention already renders each consumer's
-///   tap straight off the shared symbol (merging nearby taps to one symbol is principle 1 for power).
-fn explode_driverless_ground_rails(
-    out: &mut Vec<McVecNet>,
-    block: &McVecBlock,
-    table: &InstTable,
-    layer: &str,
-    log: &mut ProjectionLog,
-    is_root: bool,
-) {
-    if is_root {
-        return;
-    }
-    let bid = block.bid;
-    let mut next_nid = out.iter().map(|n| n.nid).max().unwrap_or(0) + 1;
-    let mut rebuilt: Vec<McVecNet> = Vec::with_capacity(out.len());
-    for net in out.drain(..) {
-        let is_ground = matches!(
-            &net.rail,
-            Some(RailSpec {
-                class: RailClass::Ground,
-                ..
-            })
-        ) || naming::is_ground(&net.name);
-        if !is_ground {
-            rebuilt.push(net);
-            continue;
-        }
-        // Group real endpoints by their owning consumer box.
-        let mut by_box: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
-        for mv in &net.nets {
-            for &pid in mv.ids() {
-                let box_id = table
-                    .get_entry(pid as u32)
-                    .and_then(|e| e.parent_id)
-                    .unwrap_or(pid as u32) as i64;
-                if box_id == bid {
-                    // The layer module's own declaration — already dropped by rule (c).
-                    continue;
-                }
-                by_box.entry(box_id).or_default().push(pid);
-            }
-        }
-        if by_box.len() < 2 {
-            rebuilt.push(net);
-            continue;
-        }
-        // Split into per-box same-name nets; the first keeps the original nid + boundary.
-        let boxes: Vec<(i64, Vec<i64>)> = by_box.into_iter().collect();
-        for (idx, (box_id, pins)) in boxes.into_iter().enumerate() {
-            let nid = if idx == 0 {
-                net.nid
-            } else {
-                let n = next_nid;
-                next_nid += 1;
-                n
-            };
-            let mut split = McVecNet::new(nid, net.name.clone(), vec![McVec::new(pins)]);
-            split.rail = net.rail.clone();
-            split.shape = net.shape.clone();
-            split.source_span = net.source_span.clone();
-            split.trunk = net.trunk.clone();
-            split.trunk_ref = net.trunk_ref;
-            if idx == 0 {
-                split.boundary = net.boundary.clone();
-            }
-            let box_name = table
-                .get_entry(box_id as u32)
-                .map(|e| last_segment(&e.path))
-                .unwrap_or_else(|| box_id.to_string());
-            log.records.push(ProjectionRecord {
-                layer: layer.to_string(),
-                rule: "g",
-                net: net.name.clone(),
-                endpoint: box_name,
-                note: "ground rail split per consumer box".to_string(),
-            });
-            rebuilt.push(split);
-        }
-    }
-    *out = rebuilt;
 }
 
 /// Display name of a merged group —— **read from port declarations**, not member net names
@@ -799,6 +693,9 @@ fn last_two_segments(path: &str) -> String {
 // ============================================================================
 // ★ P7-3: power net spec resolution (criteria all from port declarations, zero name matching)
 // ============================================================================
+
+use crate::semantic::common::IOType;
+use crate::vector::model::{RailClass, RailSpec};
 
 /// Resolve the power net spec from a group's pseudo endpoint roles + real endpoint
 /// declarations; returns `None` for ordinary signal groups.

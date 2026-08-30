@@ -334,7 +334,7 @@ fn build_mc_vec_graph_inner(
     // ── Phase 1: block.insts -> boxes (duck typing recognition) ──
     let mut box_ids_set: std::collections::HashSet<u32> = std::collections::HashSet::new();
 
-    eprintln!(
+    crate::velog!(
         "[graph] build_mc_vec_graph_inner: bid={}, block.insts has {} entries: {:?}",
         block.bid,
         block.insts.len(),
@@ -562,7 +562,7 @@ fn build_mc_vec_graph_inner(
                     }
                     // ★ M4-1B: backfill fitted components not in block.insts
                     if let Some(b) = make_box_from_id(table, child.id) {
-                        eprintln!(
+                        crate::velog!(
                             "[graph] Phase 1.3 backfill: '{}' (id={}, kind={:?}) depth={}",
                             extract_last_segment(&child.path),
                             child.id,
@@ -579,7 +579,7 @@ fn build_mc_vec_graph_inner(
                     // Module not in block.insts: create a box but do NOT recurse into children.
                     // The sub-module's children are handled by its own graph construction.
                     if let Some(b) = make_box_from_id(table, child.id) {
-                        eprintln!(
+                        crate::velog!(
                             "[graph] Phase 1.3 backfill: '{}' (id={}, kind=Module) depth={}",
                             extract_last_segment(&child.path),
                             child.id,

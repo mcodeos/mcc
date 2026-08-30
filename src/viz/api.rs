@@ -95,7 +95,7 @@ pub fn render_with_metrics(
     mut graph: McVecGraph,
     opts: RenderOpts,
 ) -> (VizDocument, crate::viz::metrics::MetricsAccumulator) {
-    eprintln!(
+    crate::vlog!(
         "[DEBUG api] render_with_metrics: graph.is_root={} name={} boxes={} nets={}",
         graph.is_root,
         graph.name,

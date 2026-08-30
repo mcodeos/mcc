@@ -7,9 +7,9 @@
 //! The `equi_audit` fixtures build `McVecGraph` by hand, which bypasses the
 //! projection → coalesce chain. This test closes that hole: it compiles the hbl
 //! project, projects it to a real `McVecGraph`, runs `coalesce_equipotential_nets`
-//! and asserts the ground-net count is conserved (distinct per-consumer grounds
-//! must never fold into one — A16's coalesce-side guarantee), then renders the
-//! whole tree and asserts the SVG contains no NaN/Infinity.
+//! and asserts the ground-net count is conserved (the ground nets the netlist
+//! declares must never fold into one — A16's coalesce-side guarantee), then
+//! renders the whole tree and asserts the SVG contains no NaN/Infinity.
 
 use std::path::PathBuf;
 
@@ -63,7 +63,7 @@ fn e2e_hbl_coalesce_preserves_ground_nets() {
     assert_eq!(
         gnd_before, gnd_after,
         "coalesce merged {gnd_before} -> {gnd_after} ground nets (removed {removed}); \
-         distinct per-consumer grounds must survive"
+         the ground nets the netlist declares must survive"
     );
 }
 
@@ -183,11 +183,11 @@ fn e2e_diag_graph_nets() {
     walk(&graph, 0);
 }
 
-// ─── ★ P7-GND · render-level acceptance ────────────────────────────────────
-// Projection splits each sub-layer's driverless Ground rail per consumer box;
-// equipotential_tree then draws one ground glyph (3-bar symbol in #2980B9) per
-// consumer on a short straight stub, instead of dragging every tap to one
-// cross-board trunk + lone glyph. Assert that on the REAL hbl render.
+// ─── ★ Strict netlist respect · render-level acceptance ───────────────────
+// The projection layer preserves the pass2 netlist's ground nets verbatim
+// (one netlist ground net → one projected net), and equipotential_tree draws
+// one ground glyph (3-bar symbol in #2980B9) per ground net — one trunk + one
+// symbol, whatever the number of consumers. Assert that on the REAL hbl render.
 
 /// Ground-colored (0x2980B9) axis-aligned segments, as (x1, y1, x2, y2).
 fn ground_color_lines(svg: &str) -> Vec<(f64, f64, f64, f64)> {
@@ -287,15 +287,7 @@ fn count_ground_glyphs(svg: &str) -> usize {
     n_h + n_v
 }
 
-/// Longest ground-colored segment in the layer (cross-board trunks show up here).
-fn max_ground_segment_len(svg: &str) -> f64 {
-    ground_color_lines(svg)
-        .iter()
-        .map(|(x1, y1, x2, y2)| ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt())
-        .fold(0.0, f64::max)
-}
-
-/// Per-layer ground-net count from the built graph (one per consumer after rule g).
+/// Per-layer ground-net count from the built graph (one per netlist ground net).
 fn ground_nets_by_bid(g: &McVecGraph, out: &mut std::collections::HashMap<i64, usize>) {
     let n = g.nets.iter().filter(|n| n.kind == NetKind::Ground).count();
     if n > 0 {
@@ -306,12 +298,14 @@ fn ground_nets_by_bid(g: &McVecGraph, out: &mut std::collections::HashMap<i64, u
     }
 }
 
-/// ★ P7-GND: every sub-layer renders one ground glyph per consumer on a short
-/// straight stub — no cross-board trunk. (Two known pre-existing box collisions
-/// in the layout place a resistor+cap pair at one spot in DCDC/MIC, so their
-/// glyphs overlap; the assertion tolerates exactly one such collision.)
+/// ★ Strict netlist respect: the Device pipeline renders exactly ONE ground
+/// glyph per ground net the netlist declares (one trunk + one symbol), with no
+/// per-consumer splitting. So a layer's ground-glyph count must equal its
+/// ground-net count. (Two known pre-existing box collisions in the layout place
+/// a resistor+cap pair at one spot in DCDC/MIC, so their glyphs overlap; the
+/// assertion tolerates exactly one such collision.)
 #[test]
-fn e2e_hbl_per_consumer_ground_glyphs() {
+fn e2e_hbl_ground_glyph_count_matches_netlist() {
     let graph = build_hbl_graph();
     let mut gnd_nets = std::collections::HashMap::new();
     ground_nets_by_bid(&graph, &mut gnd_nets);
@@ -320,31 +314,18 @@ fn e2e_hbl_per_consumer_ground_glyphs() {
     for (bid, net_count) in &gnd_nets {
         let layer = doc.layers.get(bid).expect("layer rendered");
         if layer.name == "main" {
-            continue; // root keeps one merged ground + one glyph (not split)
+            continue; // root keeps one merged ground + one glyph
         }
         let glyphs = count_ground_glyphs(&layer.svg);
-        let maxlen = max_ground_segment_len(&layer.svg);
-        assert!(
-            glyphs >= 2,
-            "layer '{}': expected ≥2 per-consumer ground glyphs (rule g), got {glyphs} (svg {}B)",
-            layer.name,
-            layer.svg.len()
-        );
         assert!(
             glyphs >= net_count.saturating_sub(1),
             "layer '{}': ground glyphs {glyphs} ≮ ground nets {net_count} (allow one collision)",
             layer.name
         );
         assert!(
-            // After rule g every ground net is single-box, so the only long
-            // ground segment a layer may legitimately draw is an anchor box's
-            // OWN multi-pin trunk (e.g. usbsock's 5 GND pins, 260px — the moddcdc
-            // golden "same-box pins merge into one symbol"). That is bounded by
-            // the widest box in hbl (~390px). The OLD cross-board trunk — one GND
-            // net dragging 7 consumer boxes to a single glyph — measured ~800px.
-            maxlen < 400.0,
-            "layer '{}': ground segment length {maxlen:.0}px implies a cross-board trunk \
-             (rule g should split it; single-box trunks stay < 400px)",
+            glyphs <= net_count + 1,
+            "layer '{}': ground glyphs {glyphs} exceed netlist ground nets {net_count} — \
+             a ground net must render exactly one glyph (no per-consumer split)",
             layer.name
         );
     }
