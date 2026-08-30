@@ -912,6 +912,168 @@ impl McModuleInst {
     }
 
     // ========================================================================
+    // 3.5 §3.3/§3.4 — materialize func-local sub-instances in pass2
+    // ========================================================================
+    //
+    // A component func body may declare sub-instances in two shapes:
+    //
+    //   - Standalone declarations (`cap[1:2]::CAP(1)`, `RES R[1:2](5.1kΩ)`)
+    //     — parsed into `func.insts` by parse_declare and never materialized
+    //     in pass2 (§3.4 gap). Without materialization the array members
+    //     (`cap1`/`cap2`/`R1`/`R2`) exist only as parse-time symbols, so a
+    //     later `cap[1:2].Cap(...)` receiver (iterated) or a `VCC - R1 - …`
+    //     reference cannot resolve to a real instance → pass-through /
+    //     E3179 literal re-creation (§2.6 Table A rows 2/3).
+    //
+    //   - Deferred named constructions (`XTAL2 y(...)` — the class-first
+    //     named form) — parsed with `y` as an `Endpoint(Single(Component))`.
+    //     The name must survive pass2 as `U1.y` (not `@XTAL2{n}` anonymous)
+    //     so trailing methods dispatch onto the named instance and sibling
+    //     funcs can reference `y.XTAL.X1`.
+    //
+    // Both shapes materialize through the same `materialize_component` core
+    // into the outer (module) scope under `{inst_name}.{name}`, matching the
+    // prefix mechanism's output so per-member dispatch (`U1.cap1.Cap(...)`)
+    // resolves via the full dotted name.
+
+    /// §3.3/§3.4 shared core: create a component instance for a func-local
+    /// declaration in the current (outer module) scope.
+    ///
+    /// Mirrors `instantiate_component_construction`'s creation — `with_params`
+    /// (binds params, inits pins, sets nc), `InstOrigin::FuncCall` with the
+    /// **class** name as `fn_name` (P8-1 `func_to_owner` misses it → the flat
+    /// path is `main.U1.y`, parent the module), `add_component` (tags the
+    /// current expansion id).
+    pub(super) fn materialize_component(
+        &mut self,
+        full: &str,
+        comp: &crate::semantic::component::Mc2Component,
+    ) -> Result<(), InstError> {
+        let mut inst = McComponentInst::with_params(full, comp.base.clone(), &comp.params)?;
+        inst.origin = InstOrigin::FuncCall {
+            fn_name: comp.base.name.to_string(),
+            line: self.current_offset(),
+            expansion_id: None,
+        };
+        self.add_component(inst);
+        Ok(())
+    }
+
+    /// §3.4: materialize standalone func-body declarations (`func.insts`).
+    ///
+    /// For every `(name, McInstance::Component(c))`, materialize
+    /// `{inst_name}.{name}`. `func.insts` entries already carry the per-member
+    /// array expansion (`cap[1:2]` → `cap1`/`cap2`) from parse_declare, so a
+    /// single pass covers both single and array declarations.
+    ///
+    /// Dedup: skip names already present in `self.components` — a repeated
+    /// method invocation, or the same sub-instance also appearing as a
+    /// deferred construction, must not double-create (shared
+    /// `materialized_this_call` guard; Part 4 alloc_named numbering).
+    pub(super) fn materialize_declared_subinstances(
+        &mut self,
+        func_def: &McFunction,
+        inst_name: &str,
+    ) -> Result<(), InstError> {
+        for (name, inst) in func_def.insts.iter() {
+            if let McInstance::Component(comp) = inst {
+                // Empty inst_name → module-level declaration (e.g. a module
+                // func's `res[1:2]::RES(0)`): the instance lives directly in
+                // this module's components, no dotted prefix.
+                let full = if inst_name.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{inst_name}.{name}")
+                };
+                if self.components.iter().any(|c| c.name == full) {
+                    continue;
+                }
+                self.materialize_component(&full, comp)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// §3.3: materialize deferred named constructions inside a body stmt.
+    ///
+    /// Recursively walk the phrase tree (Series / Parallel / Multiple /
+    /// Group / Transposed / Closure / Member / `FuncCall.caller`). For each
+    /// `Endpoint(Single(Component(c)))` with a non-empty name:
+    ///
+    /// 1. materialize `{inst_name}.{cname}` (deduped against `self.components`);
+    /// 2. **rewrite the endpoint in place** to `Bus("{inst_name}.{cname}")` —
+    ///    the generic prefix mechanism then sees a name already carrying the
+    ///    `U1.` prefix (kept as-is, fcallinst.rs prefix rules) instead of
+    ///    hard-prefixing again or losing the name, and method dispatch /
+    ///    `resolve_array_caller_to_existing` treat it as a plain instance
+    ///    name (no `[`, so no array mis-detection — §3.3 ⑪ immunity).
+    ///
+    /// Called after `substitute_stmt`, before `prefix_instance_stmt_with_skip`.
+    pub(super) fn materialize_deferred_subinstances(
+        &mut self,
+        phrase: &mut McPhrase,
+        inst_name: &str,
+    ) -> Result<(), InstError> {
+        match phrase {
+            McPhrase::Series(items, _) | McPhrase::Parallel(items) | McPhrase::Multiple(items) => {
+                for item in items.iter_mut() {
+                    self.materialize_deferred_subinstances(item, inst_name)?;
+                }
+            }
+            McPhrase::Group(g) => {
+                for item in g.opds.iter_mut() {
+                    self.materialize_deferred_subinstances(item, inst_name)?;
+                }
+            }
+            McPhrase::Transposed(inner) => {
+                self.materialize_deferred_subinstances(inner.as_mut(), inst_name)?;
+            }
+            McPhrase::Closure(c) => {
+                for item in c.body.iter_mut() {
+                    self.materialize_deferred_subinstances(item, inst_name)?;
+                }
+            }
+            McPhrase::Member(inner, _) => {
+                self.materialize_deferred_subinstances(inner.as_mut(), inst_name)?;
+            }
+            McPhrase::FuncCall(fc) => {
+                if let Some(caller) = fc.caller.as_deref_mut() {
+                    self.materialize_deferred_subinstances(caller, inst_name)?;
+                }
+            }
+            McPhrase::Endpoint(ep) => {
+                if let McEndpoint::Single(iref) = ep {
+                    if let McInstance::Component(comp) = &iref.base {
+                        let cname = comp.name.to_string();
+                        if cname.is_empty() {
+                            return Ok(());
+                        }
+                        // A bare `this` in a method body resolves to
+                        // Component(receiver) (subst.rs bare-this arm) — the
+                        // receiver itself is already materialized, never a
+                        // deferred construction. Same for any name that already
+                        // exists as an instance (a declared/constructed
+                        // receiver). Skip without rewriting, so the Component
+                        // reference keeps resolving to its default face.
+                        if self.components.iter().any(|c| c.name == cname) {
+                            return Ok(());
+                        }
+                        let full = format!("{inst_name}.{cname}");
+                        if self.components.iter().any(|c| c.name == full) {
+                            return Ok(());
+                        }
+                        self.materialize_component(&full, comp)?;
+                        // Rewrite in place: Component → Bus(full).
+                        iref.base = McInstance::Bus(McBus::new(&full));
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    // ========================================================================
     // 4. Instance method call  e.g. uC.power([VDD_3V3, GND]) / flash.init()
     // ========================================================================
 
@@ -1635,6 +1797,12 @@ impl McModuleInst {
             let _ = self.ensure_bus(&prefixed_iface, member_names);
         }
 
+        // ── §3.4: materialize standalone declarations (func.insts) BEFORE
+        //    expanding any body stmt, so array-receiver calls and by-name
+        //    references in the body resolve to real instances. Runs even when
+        //    the func has no stmts (declaration-only funcs still create the
+        //    instances for sibling-func references). ──
+        self.materialize_declared_subinstances(func_def, inst_name)?;
         if func_def.stmts.is_empty() {
             mcc_dbg!(
                 "inst::fcall",
@@ -1667,13 +1835,17 @@ impl McModuleInst {
                 let expansion_ctx = this
                     .find_component(inst_name)
                     .map(|comp| ExpansionContext::new(comp));
-                let substituted = if bindings.is_empty() {
+                let mut substituted = if bindings.is_empty() {
                     stmt.clone()
                 } else {
                     Self::substitute_stmt(stmt, bindings, expansion_ctx.as_ref())
                 };
                 // Drop expansion_ctx before mutable self borrows below
                 drop(expansion_ctx);
+                // ── §3.3: materialize deferred named constructions in this
+                //    stmt (Component endpoints → real `{inst}.{name}` instances,
+                //    rewritten to Bus) BEFORE the prefix mechanism sees them. ──
+                this.materialize_deferred_subinstances(&mut substituted, inst_name)?;
                 let prefixed = Self::prefix_instance_stmt_with_skip(&substituted, inst_name, &skip);
                 // ── P2-7-XTAL: convert Labels that are known buses to Bus representations ──
                 // When prefix_instance_stmt_with_skip creates prefixed Labels like
@@ -1723,12 +1895,14 @@ impl McModuleInst {
                         let expansion_ctx = this
                             .find_component(inst_name)
                             .map(|comp| ExpansionContext::new(comp));
-                        let substituted = if bindings.is_empty() {
+                        let mut substituted = if bindings.is_empty() {
                             stmt.clone()
                         } else {
                             Self::substitute_stmt(stmt, bindings, expansion_ctx.as_ref())
                         };
                         drop(expansion_ctx);
+                        // ── §3.3: materialize deferred constructions in cond-block stmts too ──
+                        this.materialize_deferred_subinstances(&mut substituted, inst_name)?;
                         let prefixed =
                             Self::prefix_instance_stmt_with_skip(&substituted, inst_name, &skip);
                         let expanded = this.expand_bus_labels(&prefixed);

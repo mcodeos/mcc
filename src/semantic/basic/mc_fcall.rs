@@ -714,18 +714,67 @@ impl McFuncCall {
                                             }
                                             cur = n.get_next();
                                         }
-                                        caller = Some(Box::new(McPhrase::FuncCall(McFuncCall {
-                                            id: 0,
-                                            caller: None,
-                                            func_name: class_ids,
-                                            params,
-                                            left: vec![],
-                                            right: vec![],
-                                            dot_member: None,
-                                            resolved_return_shape: None,
-                                            pre_closure: false,
-                                            named_ctor: false,
-                                        })));
+                                        // ── §3.3: keep the DECLARE's instance
+                                        // name(s) so a construct + trailing method
+                                        // (`x[1:2]::RES(0).Pullup(...)`) materializes
+                                        // per-member instances instead of collapsing
+                                        // to one anonymous `_R1`/`_C1` (⑫, §5 item
+                                        // 15/17). Read the MCAST_INSTANCE id node
+                                        // (`x[1:2]`), expand to x1/x2, and build one
+                                        // named-ctor FuncCall per member — mirror of
+                                        // the standalone MCAST_DECLARE handler in
+                                        // mc_phrase.rs. Empty name → anonymous
+                                        // construction (existing behavior). ──
+                                        let mut inst_names: Vec<String> = Vec::new();
+                                        for c in sub.iter() {
+                                            if c.get_type() == MCAST_INSTANCE {
+                                                let inst_id_node =
+                                                    c.get_sub_node().unwrap_or_else(|| c.clone());
+                                                let ids_node =
+                                                    if inst_id_node.get_type() == MCAST_OPD {
+                                                        inst_id_node
+                                                            .get_sub_node()
+                                                            .unwrap_or_else(|| inst_id_node.clone())
+                                                    } else {
+                                                        inst_id_node
+                                                    };
+                                                if let Some(ids) = McIds::new(&ids_node) {
+                                                    inst_names.extend(ids.expand());
+                                                }
+                                            }
+                                        }
+                                        let mk_named = |name: &str| -> McPhrase {
+                                            let caller_ref = if name.is_empty() {
+                                                None
+                                            } else {
+                                                Some(Box::new(McPhrase::Endpoint(
+                                                    McEndpoint::Single(McInstanceRef::new(
+                                                        McInstance::Label(name.to_string()),
+                                                    )),
+                                                )))
+                                            };
+                                            McPhrase::FuncCall(McFuncCall {
+                                                id: 0,
+                                                caller: caller_ref,
+                                                func_name: class_ids.clone(),
+                                                params: params.clone(),
+                                                left: vec![],
+                                                right: vec![],
+                                                dot_member: None,
+                                                resolved_return_shape: None,
+                                                pre_closure: false,
+                                                named_ctor: true,
+                                            })
+                                        };
+                                        caller = if inst_names.is_empty() {
+                                            Some(Box::new(mk_named("")))
+                                        } else if inst_names.len() == 1 {
+                                            Some(Box::new(mk_named(&inst_names[0])))
+                                        } else {
+                                            Some(Box::new(McPhrase::Multiple(
+                                                inst_names.iter().map(|n| mk_named(n)).collect(),
+                                            )))
+                                        };
                                     }
                                 }
                             }
@@ -1593,6 +1642,40 @@ impl McFuncCall {
         }
         if let Some(comp_def) = ctor_comp {
             check_ctor_bind(&ctor_class_name, &comp_def, &params, node);
+        }
+
+        // ── §3.3: per-member distribution of a trailing method on an array
+        // construction (⑫). `x[1:2]::RES(0).Pullup(...)` has
+        // caller = Multiple([x1::RES, x2::RES] named-ctor FuncCalls); dispatch
+        // the method on each member — never collapse to a single anonymous
+        // `_R1`/`_C1` (spec §3.3: first expand to construct and materialize
+        // name1..nameN, then dispatch M per member). Each member keeps the full
+        // arg list (§5 item 17: res1, res2 each get one net - RES - vcc). ──
+        if let Some(McPhrase::Multiple(items)) = caller.as_deref() {
+            if !items.is_empty()
+                && items
+                    .iter()
+                    .all(|it| matches!(it, McPhrase::FuncCall(fc) if fc.named_ctor))
+            {
+                let fanned: Vec<McPhrase> = items
+                    .iter()
+                    .map(|item| {
+                        McPhrase::FuncCall(McFuncCall {
+                            id: 0,
+                            caller: Some(Box::new(item.clone())),
+                            func_name: func_name.clone(),
+                            params: params.clone(),
+                            left: left.clone(),
+                            right: right.clone(),
+                            dot_member: None,
+                            resolved_return_shape: None,
+                            pre_closure: false,
+                            named_ctor: false,
+                        })
+                    })
+                    .collect();
+                return Some(McPhrase::Multiple(fanned));
+            }
         }
 
         Some(McPhrase::FuncCall(McFuncCall {

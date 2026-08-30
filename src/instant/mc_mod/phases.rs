@@ -1368,24 +1368,53 @@ impl McModuleInst {
         );
         let conn_start = self.connections.len(); // ← P4 backstop start point
         let outer_auto_inst = self.auto_inst_map.clone();
+        // ── §3.4: materialize the ctor func's standalone declarations (func.insts) ──
+        if let Err(e) = self.materialize_declared_subinstances(&func, inst_name) {
+            self.record_warning(
+                crate::errcodes::INST_CTOR_BODY_STMT_FAILED,
+                crate::errcodes::format_msg(
+                    crate::errcodes::INST_CTOR_BODY_STMT_FAILED,
+                    &[&last, &e.to_string()],
+                ),
+            );
+        }
         for (_li, stmt) in func.stmts.iter().enumerate() {
             self.auto_inst_map = outer_auto_inst.clone();
             // Attribute anonymous instances/connections of this body stmt
             // to its exact source stmt in the func's own file. RAII
             // (§7.11(2)): restore happens on every exit.
-            self.with_func_stmt(&func, Some(_li), |this| {
-                let substituted = Self::substitute_stmt(stmt, &bindings, None);
-                let prefixed = Self::prefix_instance_stmt_with_skip(&substituted, inst_name, &skip);
-                if let Err(e) = this.process_stmt(&prefixed) {
-                    this.record_warning(
-                        crate::errcodes::INST_CTOR_BODY_STMT_FAILED,
-                        crate::errcodes::format_msg(
+            let _ = self.with_func_stmt(
+                &func,
+                Some(_li),
+                |this| -> Result<(), crate::instant::mc_net::InstError> {
+                    let mut substituted = Self::substitute_stmt(stmt, &bindings, None);
+                    // ── §3.3: materialize deferred constructions in ctor body stmts ──
+                    if let Err(e) =
+                        this.materialize_deferred_subinstances(&mut substituted, inst_name)
+                    {
+                        this.record_warning(
                             crate::errcodes::INST_CTOR_BODY_STMT_FAILED,
-                            &[&last, &e],
-                        ),
-                    );
-                }
-            });
+                            crate::errcodes::format_msg(
+                                crate::errcodes::INST_CTOR_BODY_STMT_FAILED,
+                                &[&last, &e.to_string()],
+                            ),
+                        );
+                        return Ok(());
+                    }
+                    let prefixed =
+                        Self::prefix_instance_stmt_with_skip(&substituted, inst_name, &skip);
+                    if let Err(e) = this.process_stmt(&prefixed) {
+                        this.record_warning(
+                            crate::errcodes::INST_CTOR_BODY_STMT_FAILED,
+                            crate::errcodes::format_msg(
+                                crate::errcodes::INST_CTOR_BODY_STMT_FAILED,
+                                &[&last, &e],
+                            ),
+                        );
+                    }
+                    Ok(())
+                },
+            );
         }
         self.expansion.end(eidx);
         // ── P4 backstop: strip host-synthesized interface endpoints leaked during body processing ──

@@ -1250,6 +1250,25 @@ impl McModuleInst {
     ///
     /// ── Iter-12.3: all generated paths processed through canonicalize_path ──
     /// Eliminate duplicate suffixes (e.g., `VCC_1V2.VCC_1V2` → `VCC_1V2`)
+    /// §3.3: resolve a dotted instance path to the deepest known component
+    /// owner. `U1.cap1.1` → `U1.cap1` (a materialized array member), so its
+    /// pin lanes validate against the member's own pins instead of the
+    /// host's (owner=`U1` → E3179). Falls back to the first dot segment when
+    /// no dotted prefix names a known component.
+    pub(super) fn deepest_component_owner<'a>(&self, path: &'a str) -> &'a str {
+        let mut best: Option<&str> = None;
+        for (i, _) in path.match_indices('.') {
+            let candidate = &path[..i];
+            if self.find_component(candidate).is_some() {
+                best = Some(candidate);
+            }
+        }
+        match best {
+            Some(o) => o,
+            None => path.split_once('.').map(|(f, _)| f).unwrap_or(path),
+        }
+    }
+
     pub(super) fn node_to_netpoint(&mut self, element: &McBus) -> NetPoint {
         use crate::instant::mc_net::canonicalize_path;
 
@@ -1268,6 +1287,22 @@ impl McModuleInst {
 
         // 2. check if it's a path access (e.g., R1.1, sub1.clk, power.VCC)
         if let Some((first_part, rest)) = element.name.split_once('.') {
+            // ── §3.3: materialized-member (dotted component name) resolution ──
+            // `U1.cap1.1` is owned by the materialized array member `U1.cap1`,
+            // not by `U1` (first dot segment). Walk the dotted name from the
+            // longest prefix that is a known component so pin lanes resolve
+            // against the member's own pins (owner=`U1.cap1`) instead of the
+            // host's — otherwise `cap1.1` is not a pin of U1 and
+            // validate_expanded_net_points emits E3179.
+            let mut owner_part = first_part;
+            let mut rest_part = rest;
+            for (i, _) in element.name.match_indices('.') {
+                let candidate = &element.name[..i];
+                if self.find_component(candidate).is_some() {
+                    owner_part = candidate;
+                    rest_part = &element.name[i + 1..];
+                }
+            }
             // 2.1 component pin access
             //
             // ── ★ FIX-C: real component + phantom pin suffix merging ────────────────────────
@@ -1295,11 +1330,12 @@ impl McModuleInst {
             //     will hit, this fix won't misidentify.
             //   - if pin doesn't exist, isolate into `@_phantom_<inst>_<n>` unique name, same isolation
             //     mechanism as old P2-filter, prevent downstream union merge.
-            if let Some(comp) = self.find_component(first_part) {
-                if (rest == "in" || rest == "out") && !comp.def.pins.names_to_id.contains_key(rest)
+            if let Some(comp) = self.find_component(owner_part) {
+                if (rest_part == "in" || rest_part == "out")
+                    && !comp.def.pins.names_to_id.contains_key(rest_part)
                 {
-                    let (isolated, _) = self.auto_name(super::AutoNameKind::Phantom, first_part);
-                    let pin = if rest == "in" { "1" } else { "2" };
+                    let (isolated, _) = self.auto_name(super::AutoNameKind::Phantom, owner_part);
+                    let pin = if rest_part == "in" { "1" } else { "2" };
                     let path = format!("{isolated}.{pin}");
                     return NetPoint::with_owner(&path, &isolated, IOType::None);
                 }
@@ -1320,7 +1356,7 @@ impl McModuleInst {
                     comp.def
                         .pins
                         .names_to_id
-                        .get(rest)
+                        .get(rest_part)
                         .and_then(|port| match port {
                             crate::semantic::component::mc_pins::McPinPort::Single(id) => {
                                 Some(id.clone())
@@ -1328,17 +1364,17 @@ impl McModuleInst {
                             _ => None,
                         });
                 let resolved_pid: Option<String> =
-                    single_hit.or_else(|| resolve_bare_member_pid(&comp.def.pins, rest));
+                    single_hit.or_else(|| resolve_bare_member_pid(&comp.def.pins, rest_part));
                 let resolved = resolved_pid
-                    .map(|id| format!("{first_part}.{id}"))
+                    .map(|id| format!("{owner_part}.{id}"))
                     .unwrap_or_else(|| canonicalize_path(&element.name));
                 // ── P2-4: preserve bus member name when resolving e.g. ldo.VIN.GND → ldo.2 ──
-                let member_name = if rest.contains('.') {
-                    rest.rsplit('.').next().map(|s| s.to_string())
+                let member_name = if rest_part.contains('.') {
+                    rest_part.rsplit('.').next().map(|s| s.to_string())
                 } else {
                     None
                 };
-                let mut np = NetPoint::with_owner(&resolved, first_part, IOType::None);
+                let mut np = NetPoint::with_owner(&resolved, owner_part, IOType::None);
                 if let Some(mn) = member_name {
                     np = np.with_member_name(&mn);
                 }

@@ -534,6 +534,21 @@ impl McModuleInst {
                 None,
                 Self::func_def_site(&func),
             );
+            // ── §3.3/§3.5: materialize the module func's standalone
+            //    declarations (func.insts) BEFORE its body stmts, mirroring
+            //    run_component_method (fcallinst.rs). Otherwise a module func
+            //    `res[1:2]::RES(0)` + `res[1:2].Pullup([net,vcc])` dispatches
+            //    the method call before res1/res2 exist → literal `res[1:2]`
+            //    phantom + E3179 (§2.6 Table A). Empty prefix = module-level
+            //    instances live directly in `self.components`. ──
+            if let Err(e) = self.materialize_declared_subinstances(&func, "") {
+                mcc_dbg!(
+                    "inst::mod",
+                    "[P2-4-AUTO] module '{}' func '{}' declared-subinstance materialization FAILED: {e}",
+                    self.name,
+                    func.name
+                );
+            }
             for (li, stmt) in func.stmts.iter().enumerate() {
                 mcc_dbg!(
                     "inst::mod",
