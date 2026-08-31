@@ -33,6 +33,30 @@ fn build_main(src: &str, uri: &str) -> mcc::McModuleInst {
     mcc::mcc_build(&McIds::from("main"), &u).expect("build")
 }
 
+/// Build `main` and flatten to the InstTable (§11.1 projection view).
+fn build_flat(src: &str) -> mcc::InstTable {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri: McURI = "/mcc/vinst-flat.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let entry = mcc::McSpaceName {
+        ident: McIds::from("main"),
+        uri: mcc::uri_intern(&uri),
+    };
+    let (_, table) = mcc::mcb_pass2_flat(&entry, 1).expect("pass2_flat failed");
+    table
+}
+
+/// Entry `vector_info` for a flat path, if any.
+fn vector_info_of(table: &mcc::InstTable, path: &str) -> Option<mcc::VectorMemberInfo> {
+    table
+        .iter()
+        .find(|(_, e)| e.path == path)
+        .and_then(|(_, e)| e.vector_info.clone())
+}
+
 fn find_vector<'a>(inst: &'a mcc::McModuleInst, base: &str) -> &'a mcc::McVectorInst {
     inst.vectors
         .iter()
@@ -165,4 +189,81 @@ fn submodule_vector_declare_materializes_group() {
     let v = find_vector(sm, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"]);
     assert_eq!(v.member_ids, vec!["c1", "c2"]);
+}
+
+/// ── §11.1 flatten projection: vector members carry `vector_info` ──────────
+/// flatten projects `c[1:2]` to per-member flat entries `main.c1` / `main.c2`
+/// (invariant B — no literal `c[1:2]` path), each carrying the vector-group
+/// projection `{ vector_base: "c", member, index }`. A scalar sibling has
+/// `vector_info: None`.
+#[test]
+fn flatten_projects_vector_members_with_vector_info() {
+    let src = format!(
+        "{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n    CAP solo(1)\n}}\n"
+    );
+    let table = build_flat(&src);
+
+    let c1 = vector_info_of(&table, "main.c1").expect("main.c1 has vector_info");
+    assert_eq!(c1.vector_base, "c");
+    assert_eq!(c1.member, "c1");
+    assert_eq!(c1.index, 0);
+
+    let c2 = vector_info_of(&table, "main.c2").expect("main.c2 has vector_info");
+    assert_eq!(c2.vector_base, "c");
+    assert_eq!(c2.member, "c2");
+    assert_eq!(c2.index, 1);
+
+    // Scalar sibling: no vector projection.
+    assert!(
+        vector_info_of(&table, "main.solo").is_none(),
+        "scalar component carries no vector_info"
+    );
+
+    // Invariant B: no literal `c[1:2]` path anywhere in the flat table.
+    for (_, e) in table.iter() {
+        assert!(
+            !e.path.contains("[1:2]"),
+            "invariant B violated: literal vector path '{}'",
+            e.path
+        );
+    }
+}
+
+/// ── §11.1 reverse index: `vector_member_paths(base)` returns member paths ──
+/// The base → member entry paths reverse query resolves `c` to the two flat
+/// member paths in member order, so an LSP-style `c[1:2]` lookup can map the
+/// vector group onto its flat entries without a new path format.
+#[test]
+fn vector_member_paths_reverse_queries_member_entries() {
+    let src = format!(
+        "{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\n"
+    );
+    let table = build_flat(&src);
+    assert_eq!(
+        table.vector_member_paths("c"),
+        vec!["main.c1", "main.c2"],
+        "reverse query returns member paths in member order"
+    );
+    assert!(
+        table.vector_member_paths("nope").is_empty(),
+        "unknown base yields no paths"
+    );
+}
+
+/// ── §11.1 sub-module vector: projection attaches to the member entries ────
+/// `SM.c[1:2]` in a sub-module flattens to `main.s1.c1` / `main.s1.c2`, both
+/// carrying the group projection (module-scope isolation of vector bases).
+#[test]
+fn flatten_projects_submodule_vector_members() {
+    let src = format!(
+        "{CAP_COMP}module SM {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\nmodule main {{\n    io VDD\n    io GND\n    SM s1()\n}}\n"
+    );
+    let table = build_flat(&src);
+    let c1 = vector_info_of(&table, "main.s1.c1").expect("main.s1.c1 has vector_info");
+    assert_eq!((c1.vector_base.as_str(), c1.member.as_str()), ("c", "c1"));
+    assert_eq!(c1.index, 0);
+    let c2 = vector_info_of(&table, "main.s1.c2").expect("main.s1.c2 has vector_info");
+    assert_eq!((c2.vector_base.as_str(), c2.member.as_str()), ("c", "c2"));
+    assert_eq!(c2.index, 1);
+    assert_eq!(table.vector_member_paths("c"), vec!["main.s1.c1", "main.s1.c2"]);
 }
