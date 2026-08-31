@@ -118,6 +118,38 @@ impl MemberInfo {
     }
 }
 
+// ============================================================================
+// VectorMemberInfo — vector group projection (design §11.1)
+// ============================================================================
+
+/// Vector member projection (design §11.1): which declared vector group
+/// (`c[1:2]`) a flattened component entry belongs to, and its position within
+/// the ordered member set.
+///
+/// Projection-only — the flat path stays `main.c1` (invariant B); consumers
+/// (LSP, export, GAP1) use this field to reverse-query the vector structure.
+/// Distinct from [`MemberInfo`] (interface member role/voltage), which carries
+/// unrelated semantics and is consumed by interface / power-pin checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VectorMemberInfo {
+    /// Vector base name — `"c"` for `c[1:2]` (declaration scope).
+    pub vector_base: String,
+    /// Member name within the group, e.g. `"c2"` (member_set product).
+    pub member: String,
+    /// Zero-based index in the ordered member set (c1 → 0, c2 → 1).
+    pub index: usize,
+}
+
+impl VectorMemberInfo {
+    pub fn new(vector_base: String, member: String, index: usize) -> Self {
+        Self {
+            vector_base,
+            member,
+            index,
+        }
+    }
+}
+
 /// Infer MemberRole from IOType and leaf name.
 ///
 /// Returns `(role, inferred)` where `inferred == true` means the role was
@@ -270,6 +302,12 @@ pub struct InstEntry {
     pub def_uri: String,
     /// ★ Member role and voltage (for interface members / power pins)
     pub member_info: Option<MemberInfo>,
+    /// ★ §11.1: vector member projection — the declared vector group this
+    /// flattened component entry belongs to (None for scalar / non-vector).
+    /// Populated during `flatten_module` from the modeling-layer `vectors`
+    /// groups; consumers reverse-query the vector structure via
+    /// [`InstTable::vector_member_paths`].
+    pub vector_info: Option<VectorMemberInfo>,
     /// ★ M0-B-D: not-fitted marker (from McComponentInst.nc)
     pub not_fitted: bool,
     /// ★ M0-B-E: instance origin (declaration vs funcall)
@@ -461,6 +499,7 @@ impl InstTable {
             fallback_pos: None,
             def_uri,
             member_info: None,
+            vector_info: None,
             not_fitted: false,
             origin: InstOrigin::Declared,
             synthetic: false,
@@ -476,6 +515,35 @@ impl InstTable {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.member_info = Some(member_info);
         }
+    }
+
+    /// §11.1: attach the vector-group projection to a flattened component
+    /// entry. Called from `flatten_module` when the entry is a member of a
+    /// declared vector group.
+    pub fn set_vector_info(&mut self, id: u32, vector_info: VectorMemberInfo) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.vector_info = Some(vector_info);
+        }
+    }
+
+    /// §11.1: reverse-query — all flattened paths whose entries belong to the
+    /// declared vector group `base`, in member order. The forward projection
+    /// (vector_info) is built at flatten time; the reverse index is a
+    /// low-frequency O(n) scan here (vector member counts are small, and
+    /// consumers such as LSP query `c[1:2]` only on demand).
+    pub fn vector_member_paths(&self, base: &str) -> Vec<String> {
+        let mut items: Vec<(usize, &str)> = self
+            .entries
+            .values()
+            .filter_map(|e| {
+                e.vector_info
+                    .as_ref()
+                    .filter(|vi| vi.vector_base == base)
+                    .map(|vi| (vi.index, e.path.as_str()))
+            })
+            .collect();
+        items.sort_by_key(|(idx, _)| *idx);
+        items.into_iter().map(|(_, p)| p.to_string()).collect()
     }
 
     /// Mark every entry whose path is exactly `prefix` or starts with
@@ -758,6 +826,26 @@ impl InstTable {
             }
         }
 
+        // ★ §11.1: build the vector-member projection map (member name →
+        // group info) from the modeling-layer `vectors` groups before the
+        // component loop. `member_ids` are the physical instance coordinates
+        // within this module (`c1`, `c2`, …), which equal the flat `comp.name`.
+        // The map is looked up once per component — vector groups are sparse,
+        // so a HashMap build is cheaper than scanning `inst.vectors` per comp.
+        let mut vector_member_map: HashMap<String, VectorMemberInfo> = HashMap::new();
+        for v in &inst.vectors {
+            for (idx, mid) in v.member_ids.iter().enumerate() {
+                let member = v
+                    .member_names
+                    .get(idx)
+                    .cloned()
+                    .unwrap_or_else(|| mid.clone());
+                vector_member_map
+                    .entry(mid.clone())
+                    .or_insert_with(|| VectorMemberInfo::new(v.base.clone(), member, idx));
+            }
+        }
+
         // 3. Register components + pins (two-pass: non-func-created first,
         //    then func-created with corrected parent_id)
         for comp in &inst.components {
@@ -802,6 +890,10 @@ impl InstTable {
             // ★ M0-B-E: pass through origin
             if let Some(entry) = self.entries.get_mut(&comp_id) {
                 entry.origin = comp.origin.clone();
+            }
+            // ★ §11.1: attach the vector-group projection for vector members
+            if let Some(info) = vector_member_map.get(&comp.name) {
+                self.set_vector_info(comp_id, info.clone());
             }
 
             // ★ M11.3: record bridge passive full paths

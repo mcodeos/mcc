@@ -87,7 +87,7 @@ pub use builder::{
 };
 
 // ── Instant / Net ──
-pub use instant::insttab::{InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry};
+pub use instant::insttab::{InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry, VectorMemberInfo};
 pub use instant::mc_bus::McBusInst;
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::{McModuleInst, McVectorInst};
