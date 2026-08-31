@@ -117,10 +117,7 @@ impl<'a> DefinitionSpace<'a> {
     /// The loaded source file's pass1 record (AST, tokens, symbols, ref-def
     /// map), if the file is loaded. `None` when the file is not in the
     /// definition space.
-    pub fn source_file(
-        &self,
-        uri: &McURI,
-    ) -> Option<dashmap::mapref::one::Ref<'_, McURI, McCode>> {
+    pub fn source_file(&self, uri: &McURI) -> Option<dashmap::mapref::one::Ref<'_, McURI, McCode>> {
         self.ws.mcodes.get(uri)
     }
 
@@ -222,6 +219,85 @@ impl<'a> DefinitionSpace<'a> {
         chain_dedup(&self.ws.defines, &global::mcc_defines)
     }
 
+    // ── Workspace-only definition view ──
+    //
+    // Several consumers read the workspace tables deliberately WITHOUT the
+    // system-lib fallback: project-level checks (name collisions, component
+    // stubs), the P4 "collect from project" lookup layer, and the P1 local
+    // file scope all operate on project definitions only. The unified get_*
+    // / all_* views above mix the system-lib tables in, which would change
+    // their behavior; these workspace-only reads keep the exact semantics.
+
+    /// Look up a component by its `McSpaceName` in the workspace table only.
+    pub fn get_workspace_component(&self, sn: &McSpaceName) -> Option<Arc<McComponent>> {
+        self.ws.components.get(sn).map(|e| e.value().clone())
+    }
+
+    /// Look up a module by its `McSpaceName` in the workspace table only.
+    pub fn get_workspace_module(&self, sn: &McSpaceName) -> Option<Arc<McModule>> {
+        self.ws.modules.get(sn).map(|e| e.value().clone())
+    }
+
+    /// Look up an interface by its `McSpaceName` in the workspace table only.
+    pub fn get_workspace_interface(&self, sn: &McSpaceName) -> Option<Arc<McInterface>> {
+        self.ws.interfaces.get(sn).map(|e| e.value().clone())
+    }
+
+    /// Look up an enum by its `McSpaceName` in the workspace table only.
+    pub fn get_workspace_enum(&self, sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
+        self.ws.enums.get(sn).map(|e| e.value().clone())
+    }
+
+    /// Look up a define by its `McSpaceName` in the workspace table only.
+    pub fn get_workspace_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
+        self.ws.defines.get(sn).map(|e| e.value().clone())
+    }
+
+    /// Enumerate every workspace component definition (project files only).
+    pub fn workspace_components(&self) -> Vec<(McSpaceName, Arc<McComponent>)> {
+        self.ws
+            .components
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect()
+    }
+
+    /// Enumerate every workspace module definition (project files only).
+    pub fn workspace_modules(&self) -> Vec<(McSpaceName, Arc<McModule>)> {
+        self.ws
+            .modules
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect()
+    }
+
+    /// Enumerate every workspace interface definition (project files only).
+    pub fn workspace_interfaces(&self) -> Vec<(McSpaceName, Arc<McInterface>)> {
+        self.ws
+            .interfaces
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect()
+    }
+
+    /// Enumerate every workspace enum definition (project files only).
+    pub fn workspace_enums(&self) -> Vec<(McSpaceName, Arc<McEnumDef>)> {
+        self.ws
+            .enums
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect()
+    }
+
+    /// Enumerate every workspace define definition (project files only).
+    pub fn workspace_defines(&self) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
+        self.ws
+            .defines
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect()
+    }
+
     // ── System-library-only view (P5 visibility) ──
     //
     // The unified `get_*` / `all_*` views mix the workspace in. P5 — "mcode
@@ -305,10 +381,58 @@ pub fn definition_space() -> DefinitionSpace<'static> {
 mod tests {
     use super::*;
     use crate::db::cmie::tables::WorkspaceManager;
+    use crate::semantic::basic::mc_paramd::McParamDeclares;
+    use crate::semantic::common::IOType;
+    use crate::semantic::component::mc_attr::McAttributes;
+    use crate::semantic::component::mc_layout::McLayout;
+    use crate::semantic::component::mc_pins::McPin;
+    use crate::semantic::component::mc_pins::McPins;
+    use crate::semantic::component::McComponent;
+    use crate::semantic::mc_func::McFunctions;
+    use crate::semantic::mc_inst::McInstances;
     use crate::McIds;
+    use std::sync::Arc;
 
     fn uri(s: &str) -> McURI {
         McURI::from(s)
+    }
+
+    /// Minimal component value for precedence tests: `pin_count` pins tell two
+    /// same-identity defs apart.
+    fn gold_component(name: &str, component_uri: &str, pin_count: usize) -> Arc<McComponent> {
+        let mut pins = McPins::new();
+        for i in 0..pin_count {
+            pins.pins.insert(
+                (i + 1).to_string(),
+                McPin {
+                    iotype: IOType::In,
+                    id: (i + 1).to_string(),
+                    names: vec![format!("P{}", i + 1)],
+                    values: Arc::new(vec![]),
+                    active_low: false,
+                    is_nc: false,
+                },
+            );
+        }
+        Arc::new(McComponent {
+            name: McIds::from(name),
+            params: McParamDeclares::new(),
+            pins,
+            attrs: McAttributes::new(),
+            funcs: McFunctions::new(),
+            insts: McInstances::new(),
+            layout: McLayout {
+                left: vec![],
+                right: vec![],
+                top: vec![],
+                bottom: vec![],
+            },
+            uri: component_uri.into(),
+            cond_pins: vec![],
+            cond_attrs: vec![],
+            span: 0..0,
+            anon_counter: 0,
+        })
     }
 
     /// The end-to-end wiring (loader records the manifest into the global
@@ -358,8 +482,7 @@ mod tests {
     #[test]
     fn source_content_and_reverse_deps_read_through_the_view() {
         let wm = WorkspaceManager::new();
-        wm.mcodes
-            .insert(uri("/mcc/a.mc"), McCode::new_empty());
+        wm.mcodes.insert(uri("/mcc/a.mc"), McCode::new_empty());
         wm.reverse_deps
             .insert(uri("/mcc/b.mc"), vec![uri("/mcc/a.mc")]);
 
@@ -423,6 +546,67 @@ mod tests {
             ],
             "duplicate identity 'a' resolves to the workspace value (1, not 99); \
              global-only 'c' is appended"
+        );
+    }
+
+    /// P0.1 golden sample (defspace-refactor-implementation.md Phase 0): the
+    /// unified `get_*` lookup reads the WORKSPACE table first, falling back to
+    /// the system-lib (global) tables only on a miss — the precedence the
+    /// Phase 3 single-table merge must preserve. The workspace is an isolated
+    /// [`WorkspaceManager`]; the global side is a temporary entry written
+    /// through the single write entry (defregistry.rs) on a dedicated key,
+    /// removed on drop (the process-global tables are shared with the parallel
+    /// mc_code/buildcmd tests, so no residue may remain).
+    #[test]
+    fn unified_get_component_is_workspace_first_then_global() {
+        struct GlobalCleanup(McSpaceName);
+        impl Drop for GlobalCleanup {
+            fn drop(&mut self) {
+                crate::db::defregistry::remove_by_uri(self.0.uri.as_uri().as_ref());
+            }
+        }
+
+        let ident = McIds::from("GOLD_PRIO");
+        let sn = McSpaceName::new(&ident, uri("/mcc/prio.mc"));
+        let _cleanup = GlobalCleanup(sn.clone());
+
+        // Same identity in BOTH tables: the workspace (project) def must win.
+        let wm = WorkspaceManager::new();
+        wm.components
+            .insert(sn.clone(), gold_component("GOLD_PRIO", "/mcc/prio.mc", 2));
+        assert_eq!(
+            crate::db::defregistry::insert(
+                &sn,
+                crate::db::defregistry::LoadDomain::SystemLib("mcode".to_string()),
+                crate::db::defregistry::DefValue::Component(gold_component(
+                    "GOLD_PRIO",
+                    "/mcc/prio.mc",
+                    1
+                )),
+            ),
+            crate::db::defregistry::InsertOutcome::Inserted,
+            "global-side write goes through the single write entry"
+        );
+
+        let ds = DefinitionSpace::of(&wm);
+        let hit = ds.get_component(&sn).expect("identity resolves");
+        assert_eq!(
+            hit.pins.pins.len(),
+            2,
+            "workspace (project) def wins over the global (system-lib) def"
+        );
+
+        // The precedence is per-table, not per-kind: other kinds stay a miss.
+        assert!(ds.get_module(&sn).is_none());
+        assert!(ds.get_interface(&sn).is_none());
+        assert!(ds.get_enum(&sn).is_none());
+        assert!(ds.get_define(&sn).is_none());
+
+        // Dropping the global entry leaves the workspace lookup intact.
+        drop(_cleanup);
+        assert!(
+            ds.get_component(&sn).is_some(),
+            "workspace entry remains after the global entry is removed"
         );
     }
 }

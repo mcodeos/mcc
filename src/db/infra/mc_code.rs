@@ -39,6 +39,7 @@ use crate::ast::ast_semantic::{
 use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
 use crate::db::cmie::tables as workspace;
+use crate::db::defregistry::{DefValue, InsertOutcome, LoadDomain};
 use crate::db::diagnostic::diagnostic::{
     diagnostic_log_at, dlog_error, dlog_error_at, dlog_warning_at, DiagnosticLevel,
 };
@@ -1394,6 +1395,14 @@ impl McCode {
     /// Phase 1a: only register component/interface/enum definitions to the global table
     /// This step does not parse module body, ensuring cross-file type definitions are ready first
     pub fn parse_pass1_types(&mut self) {
+        // Single write entry: the mcbase branch collapsed into a LoadDomain
+        // tag — mcode (system lib) defs route to the process-global tables,
+        // project defs to the workspace tables (defregistry.rs).
+        let domain = if self.mcbase {
+            LoadDomain::SystemLib("mcode".to_string())
+        } else {
+            LoadDomain::Project
+        };
         for node in self.ast.iter() {
             match node.get_type() {
                 MCAST_INTERFACE => {
@@ -1405,35 +1414,17 @@ impl McCode {
                             ident: ifs.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
                         };
-                        if self.mcbase {
-                            global::mcc_interfaces
-                                .entry(space_name)
-                                .and_modify(|_| {
-                                    dlog_error(
-                                        crate::errcodes::DUP_INTERFACE,
-                                        &node,
-                                        &crate::errcodes::format_msg(
-                                            crate::errcodes::DUP_INTERFACE,
-                                            &[],
-                                        ),
-                                    );
-                                })
-                                .or_insert(Arc::new(ifs));
-                        } else {
-                            workspace::WORKSPACE
-                                .interfaces
-                                .entry(space_name)
-                                .and_modify(|_| {
-                                    dlog_error(
-                                        crate::errcodes::DUP_INTERFACE,
-                                        &node,
-                                        &crate::errcodes::format_msg(
-                                            crate::errcodes::DUP_INTERFACE,
-                                            &[],
-                                        ),
-                                    );
-                                })
-                                .or_insert(Arc::new(ifs));
+                        if crate::db::defregistry::insert(
+                            &space_name,
+                            domain.clone(),
+                            DefValue::Interface(Arc::new(ifs)),
+                        ) == InsertOutcome::Duplicate
+                        {
+                            dlog_error(
+                                crate::errcodes::DUP_INTERFACE,
+                                &node,
+                                &crate::errcodes::format_msg(crate::errcodes::DUP_INTERFACE, &[]),
+                            );
                         }
                         // ★ Fix: register interface in class_name_to_id so
                         // lapper_global_classes can create ClassDef intervals.
@@ -1509,38 +1500,18 @@ impl McCode {
                             ident: comp.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
                         };
+                        if crate::db::defregistry::insert(
+                            &space_name,
+                            domain.clone(),
+                            DefValue::Component(Arc::new(comp)),
+                        ) == InsertOutcome::Duplicate
                         {
-                            if self.mcbase {
-                                global::mcc_components
-                                    .entry(space_name)
-                                    .and_modify(|_| {
-                                        dlog_error(
-                                            crate::errcodes::DUP_COMPONENT,
-                                            &node,
-                                            &crate::errcodes::format_msg(
-                                                crate::errcodes::DUP_COMPONENT,
-                                                &[],
-                                            ),
-                                        );
-                                    })
-                                    .or_insert(Arc::new(comp));
-                            } else {
-                                workspace::WORKSPACE
-                                    .components
-                                    .entry(space_name)
-                                    .and_modify(|_| {
-                                        dlog_error(
-                                            crate::errcodes::DUP_COMPONENT,
-                                            &node,
-                                            &crate::errcodes::format_msg(
-                                                crate::errcodes::DUP_COMPONENT,
-                                                &[],
-                                            ),
-                                        );
-                                    })
-                                    .or_insert(Arc::new(comp));
-                            }
-                        } // borrow is dropped at end of block
+                            dlog_error(
+                                crate::errcodes::DUP_COMPONENT,
+                                &node,
+                                &crate::errcodes::format_msg(crate::errcodes::DUP_COMPONENT, &[]),
+                            );
+                        }
 
                         // ★ Fix: also register to global_table.class_id_to_span,
                         // letting create_lapper() find the component's span.
@@ -1577,35 +1548,17 @@ impl McCode {
                             ident: enum_def.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
                         };
-                        if self.mcbase {
-                            global::mcc_enums
-                                .entry(space_name)
-                                .and_modify(|_| {
-                                    dlog_error(
-                                        crate::errcodes::DUP_ENUM,
-                                        &node,
-                                        &crate::errcodes::format_msg(
-                                            crate::errcodes::DUP_ENUM,
-                                            &[],
-                                        ),
-                                    );
-                                })
-                                .or_insert(Arc::new(enum_def));
-                        } else {
-                            workspace::WORKSPACE
-                                .enums
-                                .entry(space_name)
-                                .and_modify(|_| {
-                                    dlog_error(
-                                        crate::errcodes::DUP_ENUM,
-                                        &node,
-                                        &crate::errcodes::format_msg(
-                                            crate::errcodes::DUP_ENUM,
-                                            &[],
-                                        ),
-                                    );
-                                })
-                                .or_insert(Arc::new(enum_def));
+                        if crate::db::defregistry::insert(
+                            &space_name,
+                            domain.clone(),
+                            DefValue::Enum(Arc::new(enum_def)),
+                        ) == InsertOutcome::Duplicate
+                        {
+                            dlog_error(
+                                crate::errcodes::DUP_ENUM,
+                                &node,
+                                &crate::errcodes::format_msg(crate::errcodes::DUP_ENUM, &[]),
+                            );
                         }
                     }
                 }
@@ -1617,35 +1570,17 @@ impl McCode {
                             ident: def.name.clone(),
                             uri: crate::semantic::common::uri_intern(&self.uri),
                         };
-                        if self.mcbase {
-                            global::mcc_defines
-                                .entry(space_name)
-                                .and_modify(|_| {
-                                    dlog_error(
-                                        crate::errcodes::DUP_DEFINE,
-                                        &node,
-                                        &crate::errcodes::format_msg(
-                                            crate::errcodes::DUP_DEFINE,
-                                            &[],
-                                        ),
-                                    );
-                                })
-                                .or_insert(Arc::new(def));
-                        } else {
-                            workspace::WORKSPACE
-                                .defines
-                                .entry(space_name)
-                                .and_modify(|_| {
-                                    dlog_error(
-                                        crate::errcodes::DUP_DEFINE,
-                                        &node,
-                                        &crate::errcodes::format_msg(
-                                            crate::errcodes::DUP_DEFINE,
-                                            &[],
-                                        ),
-                                    );
-                                })
-                                .or_insert(Arc::new(def));
+                        if crate::db::defregistry::insert(
+                            &space_name,
+                            domain.clone(),
+                            DefValue::Define(Arc::new(def)),
+                        ) == InsertOutcome::Duplicate
+                        {
+                            dlog_error(
+                                crate::errcodes::DUP_DEFINE,
+                                &node,
+                                &crate::errcodes::format_msg(crate::errcodes::DUP_DEFINE, &[]),
+                            );
                         }
                     }
                 }
@@ -1882,6 +1817,15 @@ impl McCode {
         self.modules_parsed = true;
         self.use_table_dirty = false;
 
+        // Single write entry: module defs land in the workspace module table
+        // regardless of domain (defregistry.rs); the tag keeps the load-domain
+        // semantics explicit for the Phase 3 single-table merge.
+        let domain = if self.mcbase {
+            LoadDomain::SystemLib("mcode".to_string())
+        } else {
+            LoadDomain::Project
+        };
+
         // ★ Module parsing resolves instance classes through the P4 use chain
         //   (`db/resolve/visibility.rs::use_chain_reaches`), which starts from
         //   this file's own `uselist`. Callers remove the file from `mcodes`
@@ -1931,7 +1875,11 @@ impl McCode {
                         // re-parse is a re-derive, not a duplicate. The key
                         // (ident, uri) can only collide with this file's own
                         // prior registration.
-                        workspace::WORKSPACE.modules.insert(key, Arc::new(module));
+                        crate::db::defregistry::insert(
+                            &key,
+                            domain.clone(),
+                            DefValue::Module(Arc::new(module)),
+                        );
                     }
                 }
             }
@@ -3095,30 +3043,30 @@ impl McCode {
             };
 
         // Modules
-        for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
-            if entry.key().uri == uri.as_str() {
-                collect(&entry.value().params, &mut param_defs);
+        for (sn, module) in crate::definition_space().workspace_modules() {
+            if sn.uri == uri.as_str() {
+                collect(&module.params, &mut param_defs);
             }
         }
         // Components
-        for entry in crate::db::cmie::tables::WORKSPACE.components.iter() {
-            if entry.key().uri == uri.as_str() {
-                collect(&entry.value().params, &mut param_defs);
-                for func in entry.value().funcs.iter() {
+        for (sn, comp) in crate::definition_space().workspace_components() {
+            if sn.uri == uri.as_str() {
+                collect(&comp.params, &mut param_defs);
+                for func in comp.funcs.iter() {
                     collect(&func.params, &mut param_defs);
                 }
             }
         }
         // Interfaces
-        for entry in crate::db::cmie::tables::WORKSPACE.interfaces.iter() {
-            if entry.key().uri == uri.as_str() {
-                collect(&entry.value().params, &mut param_defs);
+        for (sn, iface) in crate::definition_space().workspace_interfaces() {
+            if sn.uri == uri.as_str() {
+                collect(&iface.params, &mut param_defs);
             }
         }
         // Func params (nested inside modules)
-        for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
-            if entry.key().uri == uri.as_str() {
-                for func in entry.value().funcs.iter() {
+        for (sn, module) in crate::definition_space().workspace_modules() {
+            if sn.uri == uri.as_str() {
+                for func in module.funcs.iter() {
                     collect(&func.params, &mut param_defs);
                 }
             }
@@ -3583,13 +3531,12 @@ impl McCode {
     ) {
         // ── InstDef: declare_instance declarations as InstDef ──
         // Modules: `comp.sub uC` inside `mod.sub { ... }`.
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            if entry.key().uri != uri.as_str() {
+        let modules = crate::definition_space().workspace_modules();
+        for (sn, m) in modules.iter() {
+            if sn.uri != uri.as_str() {
                 continue;
             }
-            let m = entry.value();
-            let mod_ident = entry.key().ident.to_string();
+            let mod_ident = sn.ident.to_string();
             for (inst_name, (_iotype, inst)) in m.insts.insts() {
                 // ★ Declareb inference: the def kind follows the declared
                 // class. Component/module instances (`C4::CAP()`) are InstDef;
@@ -3632,13 +3579,12 @@ impl McCode {
         }
         // Components: sub-instances declared inside a component body
         // (e.g. `U_MCU` in a `component` block) never got an InstDef because
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            if entry.key().uri != uri.as_str() {
+        let comps = crate::definition_space().workspace_components();
+        for (sn, comp) in comps.iter() {
+            if sn.uri != uri.as_str() {
                 continue;
             }
-            let comp = entry.value();
-            let comp_ident = entry.key().ident.to_string();
+            let comp_ident = sn.ident.to_string();
             for (inst_name, (_iotype, inst)) in comp.insts.insts() {
                 // ★ Declareb inference: the def kind follows the declared
                 // class. Component/module instances (`C4::CAP()`) are InstDef;
@@ -3735,9 +3681,8 @@ impl McCode {
         // add_global_class in parse_pass1_types).  This function only
         // handles interface-internal symbols: params, attrs, net refs.
 
-        let interfaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-        for entry in interfaces.iter() {
-            let iface = entry.value();
+        let interfaces = crate::definition_space().workspace_interfaces();
+        for (_sn, iface) in interfaces.iter() {
             if Self::uris_same_file(iface.uri.as_str(), uri_str) {
                 let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
                     std::collections::HashMap::new();
@@ -3895,26 +3840,25 @@ impl McCode {
     }
 
     fn lapper_module_ports(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let m = entry.value();
-            if entry.key().uri != uri.as_str() {
+        let modules = crate::definition_space().workspace_modules();
+        for (sn, m) in modules.iter() {
+            if sn.uri != uri.as_str() {
                 continue;
             }
 
             tracing::debug!(
                 target: "mcc::lsp",
                 "[LAPPER_DEBUG] Processing module params: {}",
-                entry.key().ident
+                sn.ident
             );
             let param_def_count = m.params.iter_defs_with_span().count();
             tracing::debug!(
                 target: "mcc::lsp",
                 "[LAPPER_DEBUG] module={}, param_def_count={}",
-                entry.key().ident,
+                sn.ident,
                 param_def_count
             );
-            let mod_ident = entry.key().ident.to_string();
+            let mod_ident = sn.ident.to_string();
             for (name, span) in m.params.iter_defs_with_span() {
                 // ★ Rule 6: untyped params → UnknownDef, typed → ParamDef.
                 // Square-vec members (e.g. VDD_3V3 inside `[VDD_3V3,GND]::DC(3.3V)`)
@@ -3942,7 +3886,7 @@ impl McCode {
                     "[AUDIT-ParamDef] name={name} span={span:?} decl_id={d:?} kind={def_kind:?}");
             }
 
-            let mod_ident2 = entry.key().ident.to_string();
+            let mod_ident2 = sn.ident.to_string();
             for (name, _iotype, span) in m.insts.iter_ports_with_span() {
                 let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
@@ -4203,7 +4147,7 @@ impl McCode {
                     ));
                 }
             }
-            let mod_ident_label = entry.key().ident.to_string();
+            let mod_ident_label = sn.ident.to_string();
             for (name, _label_kind, span) in m.insts.iter_labels_with_span() {
                 // ★ Declareb inference: hint names are instances (`C4::CAP()`),
                 // registered as InstDef by the port_spans loop — never label defs.
@@ -4314,13 +4258,12 @@ impl McCode {
         sem: &mut McSemSymbols,
         symbol_lapper: &mut DedupLapper,
     ) {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let m = entry.value();
-            if entry.key().uri != uri.as_str() {
+        let modules = crate::definition_space().workspace_modules();
+        for (sn, m) in modules.iter() {
+            if sn.uri != uri.as_str() {
                 continue;
             }
-            let mod_ident = entry.key().ident.to_string();
+            let mod_ident = sn.ident.to_string();
             for func in m.funcs.iter() {
                 let fscope = func.name.to_string();
                 for (span, port_name, scope) in func.params.iter_net_refs() {
@@ -4884,14 +4827,14 @@ impl McCode {
             std::collections::HashMap::new();
         {
             let uri_str = uri.as_str();
-            for entry in workspace::WORKSPACE.components.iter() {
-                let key_uri = entry.key().uri.as_uri();
+            for (sn, comp) in crate::definition_space().workspace_components() {
+                let key_uri = sn.uri.as_uri();
                 if Self::uris_same_file(key_uri.as_ref(), uri_str) {
-                    let names = Self::extract_pin_name_spans(entry.value())
+                    let names = Self::extract_pin_name_spans(&comp)
                         .into_iter()
                         .map(|(n, _)| n)
                         .collect();
-                    comp_pins.insert(entry.key().ident.to_string(), names);
+                    comp_pins.insert(sn.ident.to_string(), names);
                 }
             }
             for entry in global::mcc_components.iter() {
@@ -5034,16 +4977,16 @@ impl McCode {
         // Multiple reachable definitions of the same name are ambiguous and
         // must be reported (§5.4.6 D2), not silently resolved to the first.
         let mut reachable: Vec<(McURI, crate::ast::ast_semantic::Span)> = Vec::new();
-        for entry in workspace::WORKSPACE.enums.iter() {
-            if entry.key().uri == uri.as_str() {
+        for (sn, def) in crate::definition_space().workspace_enums() {
+            if sn.uri == uri.as_str() {
                 continue;
             }
-            if entry.key().ident.to_string() == base_name
-                && crate::db::resolve::use_chain_reaches(uri, entry.key().uri.as_uri().as_ref())
+            if sn.ident.to_string() == base_name
+                && crate::db::resolve::use_chain_reaches(uri, sn.uri.as_uri().as_ref())
             {
                 reachable.push((
-                    entry.key().uri.to_string(),
-                    (entry.value().span[0] as usize)..(entry.value().span[1] as usize),
+                    sn.uri.to_string(),
+                    (def.span[0] as usize)..(def.span[1] as usize),
                 ));
             }
         }
@@ -5460,18 +5403,16 @@ impl McCode {
         let mut container_names: Vec<String> = Vec::new();
         {
             let uri_str = uri.as_str();
-            let modules = &workspace::WORKSPACE.modules;
-            for entry in modules.iter() {
-                let key_uri = entry.key().uri.as_uri();
+            for (sn, _) in crate::definition_space().workspace_modules() {
+                let key_uri = sn.uri.as_uri();
                 if Self::uris_same_file(key_uri.as_ref(), uri_str) {
-                    container_names.push(entry.key().ident.to_string());
+                    container_names.push(sn.ident.to_string());
                 }
             }
-            let comps = &workspace::WORKSPACE.components;
-            for entry in comps.iter() {
-                let key_uri = entry.key().uri.as_uri();
+            for (sn, _) in crate::definition_space().workspace_components() {
+                let key_uri = sn.uri.as_uri();
                 if Self::uris_same_file(key_uri.as_ref(), uri_str) {
-                    container_names.push(entry.key().ident.to_string());
+                    container_names.push(sn.ident.to_string());
                 }
             }
             for entry in global::mcc_modules.iter() {
@@ -5959,23 +5900,20 @@ impl McCode {
     /// modules (or library modules). `mod.sub mcu(...)` → "mod.sub".
     fn find_instance_class_name(inst_name: &str, uri: &McURI) -> Option<String> {
         let uri_str = uri.as_str();
-        for table in [&workspace::WORKSPACE.modules, &global::mcc_modules] {
-            for entry in table.iter() {
-                let key_uri = entry.key().uri.as_uri();
-                if !Self::uris_same_file(key_uri.as_ref(), uri_str) {
-                    continue;
-                }
-                let m = entry.value();
-                if let Some(inst) = m.insts.get(inst_name) {
-                    match inst {
-                        crate::McInstance::Module(m2) => {
-                            return Some(m2.base.name.to_string());
-                        }
-                        crate::McInstance::Component(c2) => {
-                            return Some(c2.base.name.to_string());
-                        }
-                        _ => {}
+        for (sn, m) in crate::definition_space().all_modules() {
+            let key_uri = sn.uri.as_uri();
+            if !Self::uris_same_file(key_uri.as_ref(), uri_str) {
+                continue;
+            }
+            if let Some(inst) = m.insts.get(inst_name) {
+                match inst {
+                    crate::McInstance::Module(m2) => {
+                        return Some(m2.base.name.to_string());
                     }
+                    crate::McInstance::Component(c2) => {
+                        return Some(c2.base.name.to_string());
+                    }
+                    _ => {}
                 }
             }
         }
