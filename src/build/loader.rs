@@ -2,8 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::db::cmie::defspace::SourceDomain;
 use crate::db::cmie::tables as workspace;
+use crate::db::defspace::SourceDomain;
 use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
 use crate::{McSpaceName, McURI};
@@ -280,7 +280,9 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     } else {
         SourceDomain::Project
     };
-    workspace::WORKSPACE.sources.insert(canonical_uri.clone(), domain);
+    workspace::WORKSPACE
+        .sources
+        .insert(canonical_uri.clone(), domain);
 
     // 6. Mark as loaded (before recursion to prevent circular dependencies)
     loaded.insert(canonical_uri.clone());

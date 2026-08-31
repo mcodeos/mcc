@@ -17,8 +17,8 @@
 //!
 //! `mcb_init_system_lib()` preserved, internally changed to call `mcb_load_lib("mcode", mcode_dir)`.
 
-use crate::db::cmie::defspace::LibBoundary;
 use crate::db::cmie::tables as workspace;
+use crate::db::defspace::LibBoundary;
 use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
 use crate::{McIds, McSpaceName};

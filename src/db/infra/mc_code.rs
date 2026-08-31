@@ -417,9 +417,9 @@ impl McCode {
                     // The synthetic interface wrapper (module VIRT_<T> { }) is
                     // generated with an empty body — its normal, intended shape.
                     // Suppress the parser's empty-body warning (2115) during a
-                    // synthetic-view reload (see build/virtual_inst.rs).
+                    // synthetic-view reload (see build/vinst.rs).
                     if *code == errcodes::PARSER_EMPTY_BODY
-                        && crate::build::virtual_inst::is_loading_synthetic_view()
+                        && crate::build::vinst::is_loading_synthetic_view()
                     {
                         continue;
                     }
@@ -564,9 +564,9 @@ impl McCode {
                     // The synthetic interface wrapper (module VIRT_<T> { }) is
                     // generated with an empty body — its normal, intended shape.
                     // Suppress the parser's empty-body warning (2115) during a
-                    // synthetic-view reload (see build/virtual_inst.rs).
+                    // synthetic-view reload (see build/vinst.rs).
                     if *code == errcodes::PARSER_EMPTY_BODY
-                        && crate::build::virtual_inst::is_loading_synthetic_view()
+                        && crate::build::vinst::is_loading_synthetic_view()
                     {
                         continue;
                     }
@@ -843,9 +843,9 @@ impl McCode {
                     // The synthetic interface wrapper (module VIRT_<T> { }) is
                     // generated with an empty body — its normal, intended shape.
                     // Suppress the parser's empty-body warning (2115) during a
-                    // synthetic-view reload (see build/virtual_inst.rs).
+                    // synthetic-view reload (see build/vinst.rs).
                     if *code == errcodes::PARSER_EMPTY_BODY
-                        && crate::build::virtual_inst::is_loading_synthetic_view()
+                        && crate::build::vinst::is_loading_synthetic_view()
                     {
                         continue;
                     }
@@ -4457,23 +4457,10 @@ impl McCode {
         sem: &mut McSemSymbols,
         symbol_lapper: &mut DedupLapper,
     ) {
-        let all_comps: Vec<(String, Arc<McComponent>, String)> = workspace::WORKSPACE
-            .components
-            .iter()
-            .map(|e| {
-                (
-                    e.key().ident.to_string(),
-                    e.value().clone(),
-                    e.key().uri.to_string(),
-                )
-            })
-            .chain(global::mcc_components.iter().map(|e| {
-                (
-                    e.key().ident.to_string(),
-                    e.value().clone(),
-                    e.key().uri.to_string(),
-                )
-            }))
+        let all_comps: Vec<(String, Arc<McComponent>, String)> = crate::definition_space()
+            .all_components()
+            .into_iter()
+            .map(|(sn, comp)| (sn.ident.to_string(), comp, sn.uri.to_string()))
             .filter(|(_, _, comp_uri)| comp_uri == uri.as_str())
             .collect();
         for (comp_ident, comp, _comp_uri) in &all_comps {
@@ -4602,23 +4589,10 @@ impl McCode {
     }
 
     fn lapper_component_defs(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
-        let all_comps: Vec<(String, Arc<McComponent>, String)> = workspace::WORKSPACE
-            .components
-            .iter()
-            .map(|e| {
-                (
-                    e.key().ident.to_string(),
-                    e.value().clone(),
-                    e.key().uri.to_string(),
-                )
-            })
-            .chain(global::mcc_components.iter().map(|e| {
-                (
-                    e.key().ident.to_string(),
-                    e.value().clone(),
-                    e.key().uri.to_string(),
-                )
-            }))
+        let all_comps: Vec<(String, Arc<McComponent>, String)> = crate::definition_space()
+            .all_components()
+            .into_iter()
+            .map(|(sn, comp)| (sn.ident.to_string(), comp, sn.uri.to_string()))
             .filter(|(_, _, comp_uri)| comp_uri == uri.as_str())
             .collect();
         for (comp_ident, comp, _comp_uri) in &all_comps {

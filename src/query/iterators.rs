@@ -60,8 +60,10 @@ pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> {
 }
 
 // === pub fn mcb_interface_count() -> usize { ===
+/// Number of distinct interface definitions across workspace and system lib
+/// (deduplicated by identity — a def in both tables counts once).
 pub fn mcb_interface_count() -> usize {
-    workspace::WORKSPACE.interfaces.len() + global::mcc_interfaces.len()
+    crate::definition_space().all_interfaces().len()
 }
 
 // === pub fn mcb_iter_modules() -> Vec<(String, String)> { ===
@@ -94,11 +96,10 @@ pub fn mcb_iter_modules_with_span() -> Vec<(String, String, [usize; 2])> {
 // === pub fn mcb_iter_components() -> Vec<(String, String)> { ===
 /// Iterate all registered component definitions (including project and system lib).
 pub fn mcb_iter_components() -> Vec<(String, String)> {
-    let mut items: Vec<(String, String)> = workspace::WORKSPACE
-        .components
-        .iter()
-        .chain(global::mcc_components.iter())
-        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.to_string()))
+    let mut items: Vec<(String, String)> = crate::definition_space()
+        .all_components()
+        .into_iter()
+        .map(|(sn, _)| (sn.ident.to_string(), sn.uri.to_string()))
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
@@ -107,15 +108,14 @@ pub fn mcb_iter_components() -> Vec<(String, String)> {
 // === pub fn mcb_iter_components_with_span() -> Vec<(String, String, [usize; 2])> { ===
 /// Like `mcb_iter_components` but includes source span for LSP goto-def.
 pub fn mcb_iter_components_with_span() -> Vec<(String, String, [usize; 2])> {
-    let mut items: Vec<_> = workspace::WORKSPACE
-        .components
-        .iter()
-        .chain(global::mcc_components.iter())
-        .map(|entry| {
-            let span = &entry.value().span;
+    let mut items: Vec<_> = crate::definition_space()
+        .all_components()
+        .into_iter()
+        .map(|(sn, comp)| {
+            let span = &comp.span;
             (
-                entry.key().ident.to_string(),
-                entry.key().uri.to_string(),
+                sn.ident.to_string(),
+                sn.uri.to_string(),
                 [span.start, span.end],
             )
         })
@@ -156,18 +156,11 @@ pub fn mcb_iter_interfaces_with_span() -> Vec<(String, String, [usize; 2])> {
 // === pub fn mcb_iter_enums() -> Vec<(String, String)> { ===
 /// Iterate all registered enum definitions (both workspace and system library).
 pub fn mcb_iter_enums() -> Vec<(String, String)> {
-    let mut items: Vec<(String, String)> = Vec::new();
-
-    // Workspace enums (project files)
-    for entry in workspace::WORKSPACE.enums.iter() {
-        items.push((entry.key().ident.to_string(), entry.key().uri.to_string()));
-    }
-
-    // System library enums (e.g. enum PKG in mcode/package.mc)
-    for entry in global::mcc_enums.iter() {
-        items.push((entry.key().ident.to_string(), entry.key().uri.to_string()));
-    }
-
+    let mut items: Vec<(String, String)> = crate::definition_space()
+        .all_enums()
+        .into_iter()
+        .map(|(sn, _)| (sn.ident.to_string(), sn.uri.to_string()))
+        .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
 }

@@ -82,8 +82,8 @@ struct WorkspaceSnapshot {
     defines: DashMap<McSpaceName, Arc<McDefineDef>>,
     diagnostics: DiagnosticManager,
     // §12.1 DefinitionSpace manifest (loaded source domains + lib boundary).
-    sources: DashMap<McURI, super::defspace::SourceDomain>,
-    libs: DashMap<String, super::defspace::LibBoundary>,
+    sources: DashMap<McURI, crate::db::defspace::SourceDomain>,
+    libs: DashMap<String, crate::db::defspace::LibBoundary>,
 }
 
 // ============================================================================
@@ -116,13 +116,13 @@ pub struct WorkspaceManager {
     // Maintained by the loader chain (loader.rs / libmgr.rs); read through the
     // `DefinitionSpace` view — "what is loaded, into which domain, where the
     // boundary is" (design §12.1).
-    pub(crate) sources: DashMap<McURI, super::defspace::SourceDomain>,
-    pub(crate) libs: DashMap<String, super::defspace::LibBoundary>,
+    pub(crate) sources: DashMap<McURI, crate::db::defspace::SourceDomain>,
+    pub(crate) libs: DashMap<String, crate::db::defspace::LibBoundary>,
 }
 
 impl WorkspaceManager {
     /// Build a fresh, empty workspace. Tests use this to construct an isolated
-    /// [`DefinitionSpace`](super::defspace::DefinitionSpace) without touching
+    /// [`DefinitionSpace`](crate::db::defspace::DefinitionSpace) without touching
     /// the process-global `WORKSPACE`.
     pub(crate) fn new() -> Self {
         Self {

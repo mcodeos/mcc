@@ -46,7 +46,7 @@ impl ValidationCheck for ExtraCheck {
                 // wrapped unit's own member names (e.g. an interface's data
                 // pin). The shadow is inherent to the fabrication, not user
                 // code, so skip them (mirrors the MODULE_STUB carve-out).
-                if crate::build::virtual_inst::is_synthetic_module(&entry.key().ident.to_string()) {
+                if crate::build::vinst::is_synthetic_module(&entry.key().ident.to_string()) {
                     continue;
                 }
                 let m = entry.value();
