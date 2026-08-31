@@ -87,6 +87,7 @@ pub use builder::{
 };
 
 // ── Instant / Net ──
+pub use instant::dianlu::DianLu;
 pub use instant::insttab::{InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry, VectorMemberInfo};
 pub use instant::mc_bus::McBusInst;
 pub use instant::mc_comp::McComponentInst;
@@ -301,6 +302,24 @@ pub fn mcc_build_flat(
     // `mcc build` must surface the same net-check issues as `mcc check --nets`.
     let canonical_uri = builder::mcb_canonicalize_uri(uri);
     mcb_pass2_flat(&McSpaceName::new(ident, canonical_uri), start_id)
+}
+
+/// mcc interface: build the physical model as the core circuit object
+/// (design §12.2, code name `DianLu`).
+///
+/// One instantiation = one `DianLu`: the instance tree (with the vector
+/// grouping nodes) plus a lazily derived flat projection. `flatten()` on the
+/// returned object projects the flat `InstTable` (invariant B) and runs the
+/// flat electrical net checks — without re-instantiating. Callers that need
+/// both the tree and the table use this single entry instead of calling
+/// `mcc_build` + `mcc_build_flat` (which each instantiated).
+pub fn mcc_build_dianlu(
+    ident: &McIds,
+    uri: &McURI,
+    start_id: u32,
+) -> Result<DianLu, Box<dyn Error>> {
+    let canonical_uri = builder::mcb_canonicalize_uri(uri);
+    builder::mcb_instantiate(&McSpaceName::new(ident, canonical_uri), start_id)
 }
 
 pub fn mcc_diagnose(uri: &McURI) -> Vec<Diagnostic> {

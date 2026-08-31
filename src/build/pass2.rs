@@ -5,6 +5,8 @@
 use crate::build::pass1::canonicalize_project_uri;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::init::uri_equivalent;
+use crate::instant::dianlu::DianLu;
+use crate::instant::insttab::InstTable;
 use crate::instant::mc_mod::McModuleInst;
 use crate::ParserResult;
 use crate::{McSpaceName, McURI};
@@ -43,12 +45,27 @@ pub fn mcb_query<'a>(uri: &McURI) -> Option<ParserResult> {
     None
 }
 
-// === pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E ===
-/// Pass2: Instantiation entry point
+// === mcb_pass2 (tree-only) ===
+/// Pass2: Instantiation entry point (tree only — no flat projection).
 ///
-/// Find target module definition from global module table, create McModuleInst and execute instantiation.
-/// Supports exact match and URI suffix match (solves canonical path vs relative path inconsistency).
+/// Find target module definition from global module table, create McModuleInst
+/// and execute instantiation. Supports exact match and URI suffix match
+/// (solves canonical path vs relative path inconsistency).
 pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn Error>> {
+    Ok(mcb_instantiate(entry, 0)?.into_tree())
+}
+
+// === mcb_instantiate (one instantiation = one DianLu, §12.2) ===
+/// Pass2 instantiation — the single construction of the core circuit object.
+///
+/// One instantiation = one [`DianLu`]: the module lookup + `instantiate` body
+/// lives here, and both entry points ([`mcb_pass2`] / [`mcb_pass2_flat`]) are
+/// thin wrappers over it. Previously `mcb_pass2_flat` re-ran the whole
+/// instantiation just to flatten — the structural cause of double-instantiation
+/// (and of the GAP2 double-report that diagnostic dedup then papered over).
+/// `start_id` seeds the flat projection (tree-only callers pass 0 — the table
+/// is never built).
+pub(crate) fn mcb_instantiate(entry: &McSpaceName, start_id: u32) -> Result<DianLu, Box<dyn Error>> {
     // FIX: Extract module def from prj_modules and DROP the MutexGuard
     // BEFORE calling inst.instantiate(). instantiate() internally calls
     // mcb_get_cmie() -> prj_modules.borrow() which would deadlock if the
@@ -126,18 +143,19 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
     inst.instantiate()
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
-    Ok(inst)
+    Ok(DianLu::new(inst, start_id))
 }
 
 // === pub fn mcb_pass2_flat( ===
 /// Pass2 + Flatten: Instantiate and generate flattened instance table (Step 7)
 ///
-/// First execute mcb_pass2 to build McModuleInst tree,
-/// then flatten it into InstTable one-dimensional table.
+/// One instantiation via [`mcb_instantiate`], then a single one-way projection
+/// into the flat `InstTable` (plus the flat electrical net checks) inside
+/// [`DianLu::flatten`]. Never re-instantiates.
 pub fn mcb_pass2_flat(
     entry: &McSpaceName,
     start_id: u32,
-) -> Result<(MccProjectTree, crate::instant::insttab::InstTable), Box<dyn Error>> {
+) -> Result<(MccProjectTree, InstTable), Box<dyn Error>> {
     mcb_pass2_flat_with(entry, start_id, None)
 }
 
@@ -152,31 +170,10 @@ pub(crate) fn mcb_pass2_flat_with(
     entry: &McSpaceName,
     start_id: u32,
     synthetic_prefix: Option<&str>,
-) -> Result<(MccProjectTree, crate::instant::insttab::InstTable), Box<dyn Error>> {
-    let inst = mcb_pass2(entry)?;
-    let mut table = crate::instant::insttab::InstTable::from_module_inst(&inst, start_id);
-    if let Some(prefix) = synthetic_prefix {
-        table.mark_synthetic_by_path_prefix(prefix);
-    }
-    // ★ Electrical checks after pass2
-    let net_results = crate::semantic::validation::nets::run_net_checks(&table);
-    let saved_uri = crate::current_uri::try_get();
-    for r in &net_results {
-        // Switch to the file this diagnostic belongs to
-        if !r.uri.is_empty() {
-            crate::current_uri::set(&crate::McURI::from(r.uri.as_str()));
-        }
-        let level = match r.severity {
-            "error" => crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-            "info" => crate::db::diagnostic::diagnostic::DiagnosticLevel::Info,
-            _ => crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
-        };
-        crate::db::diagnostic::diagnostic::diagnostic_log(r.code, level, r.pos, 0, &r.message, &[]);
-    }
-    // Restore previous current_uri
-    match saved_uri {
-        Some(ref uri) => crate::current_uri::set(uri),
-        None => crate::current_uri::reset(),
-    }
-    Ok((inst, table))
+) -> Result<(MccProjectTree, InstTable), Box<dyn Error>> {
+    let mut dl = mcb_instantiate(entry, start_id)?;
+    // Project once (this also runs the flat electrical net checks), then take
+    // both parts out of the object — no second instantiation, no clone.
+    dl.flatten_with_prefix(synthetic_prefix);
+    Ok(dl.into_parts())
 }
