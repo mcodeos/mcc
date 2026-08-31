@@ -552,7 +552,12 @@ impl McPhrase {
                                                         node,
                                                         &crate::errcodes::format_msg(
                                                             crate::errcodes::NET_DROPPED_STATEMENT,
-                                                            &[&ids.to_string(), &expanded_name],
+                                                            &[
+                                                                &ids.to_string(),
+                                                                &format!(
+                                                                    "expands to '{expanded_name}' which is not a known instance"
+                                                                ),
+                                                            ],
                                                         ),
                                                     );
                                                 }
@@ -1817,7 +1822,12 @@ impl McPhrase {
                                     node,
                                     &crate::errcodes::format_msg(
                                         crate::errcodes::NET_DROPPED_STATEMENT,
-                                        &[&ids.to_string(), &expanded_name],
+                                        &[
+                                            &ids.to_string(),
+                                            &format!(
+                                                "expands to '{expanded_name}' which is not a known instance"
+                                            ),
+                                        ],
                                     ),
                                 );
                             }

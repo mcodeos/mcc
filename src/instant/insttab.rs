@@ -1191,7 +1191,7 @@ impl InstTable {
         for (net_name, net_points) in net_entries {
             let mut point_ids: Vec<u32> = Vec::new();
 
-            for np in net_points {
+            for np in &net_points {
                 let mut ids = self.resolve_netpoint_path(&np.path, module_path);
                 // ── P2-2: register boundary connection pins on the fly ──
                 // When a boundary connection creates a pin like mcu.10, it's not
@@ -1254,6 +1254,52 @@ impl InstTable {
                         points: point_ids,
                     },
                 );
+            } else if point_ids.is_empty() && !net_points.is_empty() {
+                // ── §11.4 GAP2: net statement materialized 0 physical pins ─────
+                // Every NetPoint of this module-level net failed to resolve to a
+                // registered physical entry (component pin / port). The whole
+                // statement produced no connection at all — its endpoints are
+                // unresolved structured ghosts (bases declared nowhere) or paths
+                // no entity registered. This is the global half of E4057
+                // (NET_DROPPED_STATEMENT): the local NAME[k] alias site in
+                // mc_phrase.rs catches the indexed-alias shape at pass1; here the
+                // materialization fact — 0 pins from a live net — is checked on
+                // the flattened table, once per dropped net, at the first
+                // point's wiring site. A net that kept ≥1 physical point is a
+                // stub, not 0-pin, and stays quiet here (the ghost reference is
+                // E3137's pass1 domain; the orphaned pin is the 41xx unconnected
+                // checks' domain) — the domains do not double-report.
+                let src_pos = net_points.iter().find_map(|np| np.src_pos.clone());
+                let paths: Vec<String> = net_points.iter().map(|np| np.path.clone()).collect();
+                let msg = crate::errcodes::format_msg(
+                    crate::errcodes::NET_DROPPED_STATEMENT,
+                    &[
+                        &net_name.clone(),
+                        &format!(
+                            "materialized no physical pins (endpoints [{}] all failed to resolve)",
+                            paths.join(", ")
+                        ),
+                    ],
+                );
+                match &src_pos {
+                    Some(sp) => crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                        crate::errcodes::NET_DROPPED_STATEMENT,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        sp.uri.clone(),
+                        sp.offset,
+                        0,
+                        &msg,
+                        &[],
+                    ),
+                    None => crate::db::diagnostic::diagnostic::diagnostic_log(
+                        crate::errcodes::NET_DROPPED_STATEMENT,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        0,
+                        0,
+                        &msg,
+                        &[],
+                    ),
+                }
             }
         }
     }

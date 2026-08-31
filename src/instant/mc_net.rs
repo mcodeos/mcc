@@ -975,6 +975,51 @@ impl NetTable {
             .collect();
 
         if kept.is_empty() {
+            // ── §11.4 GAP2: net statement materialized 0 physical pins ──────
+            // Every point of this connection was an NC marker or a quarantined
+            // literal phantom (`@_phantom_<N>` — a path carrying `{`, `[`, `,`
+            // that NetPoint::new isolated, e.g. an undeclared `res[1:2]`). The
+            // statement therefore produced no physical pin and no net at all —
+            // the module-level half of NET_DROPPED_STATEMENT (E4057), checked
+            // here at the union-find entry where the drop actually happens (a
+            // phantom-only connection is invisible to the flat table, so
+            // `flatten_nets` cannot see it). Reported once per connection at
+            // its wiring site. A connection that kept ≥1 physical point is a
+            // stub (1-pin), not 0-pin, and stays quiet here — its ghost
+            // reference is E3137's pass1 domain and the orphaned pin is the
+            // 41xx unconnected checks' domain; the domains do not double-report.
+            let conn_src = conn.source_span.clone();
+            let src_pos = conn.points.iter().find_map(|p| p.src_pos.clone()).or(conn_src);
+            let paths: Vec<String> = conn.points.iter().map(|p| p.path.clone()).collect();
+            let msg = crate::errcodes::format_msg(
+                crate::errcodes::NET_DROPPED_STATEMENT,
+                &[
+                    &conn.net_name.clone().unwrap_or_default(),
+                    &format!(
+                        "materialized no physical pins (endpoints [{}] all NC or literal-phantom)",
+                        paths.join(", ")
+                    ),
+                ],
+            );
+            match &src_pos {
+                Some(sp) => crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                    crate::errcodes::NET_DROPPED_STATEMENT,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    sp.uri.clone(),
+                    sp.offset,
+                    0,
+                    &msg,
+                    &[],
+                ),
+                None => crate::db::diagnostic::diagnostic::diagnostic_log(
+                    crate::errcodes::NET_DROPPED_STATEMENT,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    0,
+                    0,
+                    &msg,
+                    &[],
+                ),
+            }
             return;
         }
 

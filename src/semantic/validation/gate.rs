@@ -29,6 +29,25 @@
 //!     forgotten declaration → E3137 (SINGLE_USE_INLINE_NET, Warning); if it is
 //!     referenced twice or more it is a shared net and left alone (the net
 //!     layer decides — e.g. R03 catches a net that joins a supply and a ground).
+//!
+//! ## §11.4: E3137 is a naming-layer UX heuristic, not the materialized-net scan
+//!
+//! mcode-architecture-circuit-model.md §5 offered two futures for E3137 —
+//! "re-define as a materialized-net scan (GAP2 global 0-pin)" or "explicitly
+//! demote to a naming-layer UX heuristic". This check takes the second: E3137
+//! MUST fire on the plain `mcc_build` (pass1 diagnostic) path — it is the only
+//! report a single-use typo gets without a net build, and the suppression /
+//! ledger tests (`tests/ignore_warnings.rs`, `tests/failure_ledger.rs`,
+//! `four_gate_forms_each_warn_single_use`) depend on it there. Materialization
+//! is pass2; a pass2-only E3137 would silently drop the single-use warning for
+//! anyone who runs `mcc build` but not `mcc check --nets`. The materialized-net
+//! fact it approximates is instead covered by GAP2 (E4057, `flatten_nets` in
+//! insttab.rs): a net statement whose endpoints resolve to **0** physical pins
+//! reports NET_DROPPED_STATEMENT there. The domains are disjoint — a 0-pin net
+//! is E4057; a stub net with ≥1 kept point whose ghost is referenced once is
+//! E3137 — so no net is double-reported. E3136 remains the bare-Wire boundary
+//! (`floating.rs`): E3136 = naked undeclared name resolved as a Wire, E3137 =
+//! structured ghost (bus/interface member miss) referenced uniquely.
 
 use super::floating::{count_refs, RefCounts};
 use super::ledger;
