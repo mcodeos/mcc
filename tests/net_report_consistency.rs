@@ -39,6 +39,7 @@ fn text_and_json_report_the_union_find_merged_net() {
     let json_output = Command::new(env!("CARGO_BIN_EXE_mcc"))
         .current_dir(workdir)
         .args([
+            "--local",
             "parse",
             path.to_str().expect("fixture path"),
             "--pass1",
@@ -62,6 +63,7 @@ fn text_and_json_report_the_union_find_merged_net() {
     let text_output = Command::new(env!("CARGO_BIN_EXE_mcc"))
         .current_dir(workdir)
         .args([
+            "--local",
             "parse",
             path.to_str().expect("fixture path"),
             "--pass1",

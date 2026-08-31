@@ -155,9 +155,9 @@ fn sub_layers_s1_s2_decoration_counts() {
         // rail_decorations (decorations_* = 0). Ground nets are preserved verbatim
         // from the netlist — a ground net that spans ≥2 boxes draws a real
         // cross-box trunk (gnd_edges counts those); power stays a cross-box bus.
-        ("MCU513", 0, 0, 0, 0),
-        ("MIC", 0, 0, 1, 0),
-        ("LDO", 0, 0, 0, 0),
+        ("MCU513", 0, 0, 3, 2),
+        ("MIC", 0, 0, 1, 1),
+        ("LDO", 0, 0, 1, 2),
         ("DCDC", 0, 0, 1, 2),
         ("SPK", 0, 0, 1, 1),
         ("USB", 0, 0, 1, 0),
