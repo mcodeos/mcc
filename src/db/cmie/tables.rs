@@ -84,6 +84,11 @@ struct WorkspaceSnapshot {
     // §12.1 DefinitionSpace manifest (loaded source domains + lib boundary).
     sources: DashMap<McURI, crate::db::defspace::SourceDomain>,
     libs: DashMap<String, crate::db::defspace::LibBoundary>,
+    // Phase 5: per-world library state — the loaded lib source cache
+    // (mcc_blibs) and the registry's system-library def segment both follow
+    // the world they were loaded into.
+    blibs: DashMap<String, McCode>,
+    system_defs: Vec<crate::db::defregistry::SystemDefSnapshot>,
 }
 
 // ============================================================================
@@ -118,6 +123,11 @@ pub struct WorkspaceManager {
     // boundary is" (design §12.1).
     pub(crate) sources: DashMap<McURI, crate::db::defspace::SourceDomain>,
     pub(crate) libs: DashMap<String, crate::db::defspace::LibBoundary>,
+
+    // Phase 5: per-world system-library source cache (moved from the
+    // process-global `libmgr::mcc_blibs`). Each world owns the libraries it
+    // loaded, so a switch can never leak a stale lib into another world.
+    pub(crate) blibs: DashMap<String, crate::db::infra::mc_code::McCode>,
 }
 
 impl WorkspaceManager {
@@ -139,6 +149,7 @@ impl WorkspaceManager {
             reverse_deps: DashMap::new(),
             sources: DashMap::new(),
             libs: DashMap::new(),
+            blibs: DashMap::new(),
         }
     }
 
@@ -166,7 +177,8 @@ impl WorkspaceManager {
     }
 
     /// Look up a component by its class name (ident string).
-    /// Checks workspace project tables first, then falls back to global system tables.
+    /// Checks workspace project tables first, then falls back to the per-world
+    /// system-library registry segment (Phase 5).
     /// Returns `None` if no component with that class name is registered.
     pub fn component_by_class(&self, class_name: &str) -> Option<Arc<McComponent>> {
         for entry in self.components.iter() {
@@ -174,10 +186,10 @@ impl WorkspaceManager {
                 return Some(entry.value().clone());
             }
         }
-        // Fallback: check global system component table
-        for entry in crate::db::infra::global::mcc_components.iter() {
-            if entry.key().ident.to_string() == class_name {
-                return Some(entry.value().clone());
+        // Fallback: per-world system-library components (registry segment).
+        for (sn, c) in crate::db::defregistry::system_components() {
+            if sn.ident.to_string() == class_name {
+                return Some(c);
             }
         }
         None
@@ -199,6 +211,15 @@ impl WorkspaceManager {
     // Clear current active workspace
     // ================================================================
 
+    /// Is this the process-global active workspace? The definition registry is
+    /// process-global state tied to the single active workspace, so the
+    /// lifecycle sync (tombstone project defs / restore a snapshot) runs only
+    /// for the real [`WORKSPACE`] — tests that construct isolated
+    /// [`WorkspaceManager`]s must not touch it.
+    fn is_process_global(&self) -> bool {
+        std::ptr::eq(self, &*WORKSPACE)
+    }
+
     pub fn clear_active(&self) {
         self.mcodes.clear();
         self.modules.clear();
@@ -211,6 +232,15 @@ impl WorkspaceManager {
         self.diagnostics.lock().unwrap().clear();
         self.sources.clear();
         self.libs.clear();
+        self.blibs.clear();
+        // The definition registry drops every identity — project and loaded
+        // system libs alike — as tombstones (Phase 5 makes the libs
+        // per-world): a later re-load revives them under the same DefId, and
+        // the "deleted vs never existed" distinction survives (design §9
+        // Phase B).
+        if self.is_process_global() {
+            crate::db::defregistry::mark_all_tombstones();
+        }
     }
 
     // ================================================================
@@ -287,6 +317,14 @@ impl WorkspaceManager {
         let defines = clone_and_clear(&self.defines);
         let sources = clone_and_clear(&self.sources);
         let libs = clone_and_clear(&self.libs);
+        let blibs = clone_and_clear(&self.blibs);
+        // Phase 5: the registry's system-library segment follows the world.
+        // Captured before the registry is tombstoned by `clear_active`.
+        let system_defs = if self.is_process_global() {
+            crate::db::defregistry::snapshot_system()
+        } else {
+            Vec::new()
+        };
         let diagnostics = self.diagnostics.lock().unwrap().take();
 
         let snap = WorkspaceSnapshot {
@@ -300,6 +338,8 @@ impl WorkspaceManager {
             diagnostics,
             sources,
             libs,
+            blibs,
+            system_defs,
         };
 
         debug!(target: "mcc::workspace", id = %id, "snapshot saved");
@@ -319,8 +359,26 @@ impl WorkspaceManager {
         fill_dashmap(&self.defines, snap.defines);
         fill_dashmap(&self.sources, snap.sources);
         fill_dashmap(&self.libs, snap.libs);
+        fill_dashmap(&self.blibs, snap.blibs);
 
         *self.diagnostics.lock().unwrap() = snap.diagnostics;
+
+        // Re-register the restored definitions in the registry (project
+        // domain, no physical write — the tables above are already filled).
+        // Tombstoned identities revive under their original DefId; a system
+        // def shadowed by this workspace is taken over (workspace-first).
+        if self.is_process_global() {
+            crate::db::defregistry::restore_workspace(
+                &self.components,
+                &self.modules,
+                &self.interfaces,
+                &self.enums,
+                &self.defines,
+            );
+            // Phase 5: restore the world's system-library segment alongside
+            // its project defs.
+            crate::db::defregistry::restore_system(snap.system_defs);
+        }
     }
 }
 

@@ -295,3 +295,136 @@ fn p05_reverse_deps_tracks_who_uses_me() {
         "reverse deps survive a re-parse of the used file"
     );
 }
+
+/// Phase 5: per-world library loading (defspace-refactor-implementation.md
+/// Phase 5, P0.4 assertion extended to two worlds).
+///
+/// The system-library segment lives in the active world's registry and
+/// follows world create / switch. A library loaded in world A must be
+/// invisible in world B, and switching back to A must restore its defs —
+/// A-world lib changes never pollute B (the stale-server root cause).
+#[test]
+fn p06_dual_world_lib_isolation() {
+    let _lock = lock();
+    reset_workspace();
+
+    // World "default": load an mcode-like library with GOLD_LED.
+    let root_a = temp_lib_root("p06-a", "mcode", "GOLD_LED", &["A"]);
+    mcc::mcc_set_system_root(&root_a);
+    assert!(mcc::mcb_load_lib("mcode", &root_a.join("mcode")));
+    let ds = mcc::definition_space();
+    assert!(
+        ds.system_components()
+            .iter()
+            .any(|(k, _)| k.ident.to_string() == "GOLD_LED"),
+        "world A sees its own loaded lib"
+    );
+
+    // Create + switch to world B (fresh): A's lib is gone from the registry.
+    let root_b =
+        std::env::temp_dir().join(format!("mcc-defspace-golden-p06b-{}", std::process::id()));
+    std::fs::create_dir_all(&root_b).unwrap();
+    assert!(mcc::workspace_create(
+        "worldB",
+        mcc::WorkspaceKind::Project,
+        &root_b,
+    ));
+    let ds = mcc::definition_space();
+    assert!(
+        !ds.system_components()
+            .iter()
+            .any(|(k, _)| k.ident.to_string() == "GOLD_LED"),
+        "world B does not see world A's library (per-world isolation)"
+    );
+
+    // World B loads its own library with GOLD_BTN.
+    let root_b2 = temp_lib_root("p06-b", "mcode", "GOLD_BTN", &["A"]);
+    mcc::mcc_set_system_root(&root_b2);
+    assert!(mcc::mcb_load_lib("mcode", &root_b2.join("mcode")));
+    let ds = mcc::definition_space();
+    assert!(
+        ds.system_components()
+            .iter()
+            .any(|(k, _)| k.ident.to_string() == "GOLD_BTN"),
+        "world B sees its own loaded lib"
+    );
+
+    // Switch back to world A: A's lib is restored, B's lib is gone.
+    assert!(mcc::workspace_switch("default"));
+    let ds = mcc::definition_space();
+    assert!(
+        ds.system_components()
+            .iter()
+            .any(|(k, _)| k.ident.to_string() == "GOLD_LED"),
+        "world A's lib restored on switch back"
+    );
+    assert!(
+        !ds.system_components()
+            .iter()
+            .any(|(k, _)| k.ident.to_string() == "GOLD_BTN"),
+        "world B's lib does not leak into world A"
+    );
+}
+
+/// build.full regression (Phase 5): a world reset (`mcc_clear_workspace`)
+/// tombstones the whole per-world registry, so a fresh world must
+/// re-establish the mcode auto-load or its classes (e.g. `enum PKG` from
+/// package.mc) go unresolved. `handle_build_full` now does this through
+/// `load_libs_rpc`, which auto-includes mcode like the CLI's `collect_libs`.
+/// Locked through the real E3157 resolution path (lapper enum refs).
+#[test]
+fn p07_world_reset_reloads_mcode() {
+    let _lock = lock();
+    reset_workspace();
+
+    // Self-contained mcode library: entry file aggregates an enum file
+    // (mirrors the real mcode lib where mcode.mc pub-uses package.mc).
+    let dir = std::env::temp_dir().join(format!("mcc-defspace-golden-p07-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mcode_dir = dir.join("mcode");
+    std::fs::create_dir_all(&mcode_dir).unwrap();
+    std::fs::write(mcode_dir.join("mcode.mc"), "pub use ./package.mc\n").unwrap();
+    std::fs::write(
+        mcode_dir.join("package.mc"),
+        "enum PKG\n{\n    DIP8,\n    SOIC8\n}\n",
+    )
+    .unwrap();
+    let root = dir.canonicalize().unwrap_or(dir);
+    mcc::mcc_set_system_root(&root);
+    assert!(mcc::mcb_load_lib("mcode", &root.join("mcode")));
+
+    // A project file referencing the mcode enum from an attribute value
+    // (the same shape as mclibs/clock/mcp7940m.mc's `package = PKG.DIP8`).
+    let p_uri = "/virtual/p07_pkg.mc".to_string();
+    let src = "component X\n{\n    package = PKG.DIP8\n}\n";
+
+    // With mcode loaded the enum class resolves (no E3157).
+    mcc::mcc_load_from_string(&p_uri, src);
+    assert!(
+        !mcc::mcc_diagnose_all()
+            .iter()
+            .any(|d| d.code == mcc::errcodes::INST_CLASS_UNRESOLVED),
+        "PKG resolves while mcode is loaded"
+    );
+
+    // A world reset (build.full) tombstones the whole registry — mcode is gone.
+    mcc::mcc_clear_workspace();
+    mcc::mcc_load_from_string(&p_uri, src);
+    assert!(
+        mcc::mcc_diagnose_all()
+            .iter()
+            .any(|d| d.code == mcc::errcodes::INST_CLASS_UNRESOLVED),
+        "without reloading mcode a world reset leaves enum PKG unresolved (the stale-server defect)"
+    );
+
+    // load_libs_rpc now re-establishes mcode after the reset (auto-load
+    // contract, mirrors CLI collect_libs) — the class resolves again.
+    mcc::mcb_load_lib_by_name("mcode");
+    mcc::mcc_load_from_string(&p_uri, src);
+    assert!(
+        !mcc::mcc_diagnose_all()
+            .iter()
+            .any(|d| d.code == mcc::errcodes::INST_CLASS_UNRESOLVED),
+        "reloading mcode after the reset restores PKG resolution"
+    );
+}

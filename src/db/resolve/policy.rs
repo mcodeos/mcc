@@ -5,16 +5,15 @@
 //! §5.4.3 resolution policy: class name → CMIE definition.
 //!
 //!   ① RefDefMap name_index[(F, name)] — P3 (own file) + P4 (use chain), use-aware
-//!   ② global::mcc_* name-only lookup — P5 (mcode system library)
+//!   ② registry system segment name-only lookup — P5 (per-world system lib)
 //!
 //! There is deliberately NO workspace-wide name-only scan: a definition in a
 //! workspace file is visible from F only when F defines it (P3) or `use`s it
-//! (P4). Everything else falls through to the mcode system library (P5).
+//! (P4). Everything else falls through to the per-world system library (P5).
 
 use super::use_chain_reaches;
 use crate::ast::ast_semantic::McSemSymbols;
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::global;
 use crate::db::infra::init::interface_lookup;
 use crate::semantic::common::{uri_intern, UriId};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
@@ -45,10 +44,11 @@ pub(crate) fn find_in_table_scoped(
             .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Component(e.value().clone()))
             .or_else(|| {
-                global::mcc_components
-                    .iter()
-                    .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
-                    .map(|e| McCMIE::Component(e.value().clone()))
+                // P5: per-world system-library components (Phase 5).
+                crate::db::defregistry::system_components()
+                    .into_iter()
+                    .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
+                    .map(|(_, c)| McCMIE::Component(c))
             }),
         1 => workspace::WORKSPACE
             .modules
@@ -56,10 +56,10 @@ pub(crate) fn find_in_table_scoped(
             .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Module(e.value().clone()))
             .or_else(|| {
-                global::mcc_modules
-                    .iter()
-                    .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
-                    .map(|e| McCMIE::Module(e.value().clone()))
+                crate::db::defregistry::system_modules()
+                    .into_iter()
+                    .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
+                    .map(|(_, m)| McCMIE::Module(m))
             }),
         2 => workspace::WORKSPACE
             .interfaces
@@ -67,10 +67,10 @@ pub(crate) fn find_in_table_scoped(
             .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Interface(e.value().clone()))
             .or_else(|| {
-                global::mcc_interfaces
-                    .iter()
-                    .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
-                    .map(|e| McCMIE::Interface(e.value().clone()))
+                crate::db::defregistry::system_interfaces()
+                    .into_iter()
+                    .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
+                    .map(|(_, i)| McCMIE::Interface(i))
             }),
         3 => workspace::WORKSPACE
             .enums
@@ -78,10 +78,10 @@ pub(crate) fn find_in_table_scoped(
             .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Enum(e.value().clone()))
             .or_else(|| {
-                global::mcc_enums
-                    .iter()
-                    .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
-                    .map(|e| McCMIE::Enum(e.value().clone()))
+                crate::db::defregistry::system_enums()
+                    .into_iter()
+                    .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
+                    .map(|(_, e)| McCMIE::Enum(e))
             }),
         _ => None,
     }
@@ -316,27 +316,27 @@ impl Resolver {
         find_scoped_by_name(name, |u| use_chain_reaches(&canonical, u.as_uri().as_ref()))
     }
 
-    /// P5 lookup — global (mcode system library) tables by name only.
+    /// P5 lookup — the per-world system library (mcode etc.) by name only.
     pub fn resolve_system(name: &McIds) -> Option<McCMIE> {
         let name_str = name.to_string();
-        for entry in global::mcc_components.iter() {
-            if entry.key().ident.to_string() == name_str {
-                return Some(McCMIE::Component(entry.value().clone()));
+        for (sn, c) in crate::db::defregistry::system_components() {
+            if sn.ident.to_string() == name_str {
+                return Some(McCMIE::Component(c));
             }
         }
-        for entry in global::mcc_modules.iter() {
-            if entry.key().ident.to_string() == name_str {
-                return Some(McCMIE::Module(entry.value().clone()));
+        for (sn, m) in crate::db::defregistry::system_modules() {
+            if sn.ident.to_string() == name_str {
+                return Some(McCMIE::Module(m));
             }
         }
-        for entry in global::mcc_interfaces.iter() {
-            if entry.key().ident.to_string() == name_str {
-                return Some(McCMIE::Interface(entry.value().clone()));
+        for (sn, i) in crate::db::defregistry::system_interfaces() {
+            if sn.ident.to_string() == name_str {
+                return Some(McCMIE::Interface(i));
             }
         }
-        for entry in global::mcc_enums.iter() {
-            if entry.key().ident.to_string() == name_str {
-                return Some(McCMIE::Enum(entry.value().clone()));
+        for (sn, e) in crate::db::defregistry::system_enums() {
+            if sn.ident.to_string() == name_str {
+                return Some(McCMIE::Enum(e));
             }
         }
         None
@@ -374,10 +374,10 @@ impl Resolver {
             return Some(i);
         }
 
-        // P5: mcode system library interfaces (name-only, interfaces table only).
-        for entry in global::mcc_interfaces.iter() {
-            if entry.key().ident.to_string() == name_str {
-                return Some(McCMIE::Interface(entry.value().clone()));
+        // P5: per-world system-library interfaces (name-only, interfaces table only).
+        for (sn, i) in crate::db::defregistry::system_interfaces() {
+            if sn.ident.to_string() == name_str {
+                return Some(McCMIE::Interface(i));
             }
         }
         None

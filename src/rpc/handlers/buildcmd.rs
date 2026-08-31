@@ -11,8 +11,9 @@ pub fn handle_build_full(params: Option<Value>) -> RpcResult {
     // `build.full` is a fresh pipeline (local `mcc build` runs in a fresh
     // process): reset the active workspace so the previous request's project
     // tables and diagnostics (both append-only across the server's lifetime)
-    // don't leak into this build's definitions or phase snapshots. System-lib
-    // tables (`global::mcc_*`) survive, matching how libs are re-loaded below.
+    // don't leak into this build's definitions or phase snapshots. The per-world
+    // registry and workspace reset together (`mcc_clear_workspace`), matching
+    // how libs are re-loaded below.
     crate::mcc_clear_workspace();
     load_libs_rpc(&p.libs);
 

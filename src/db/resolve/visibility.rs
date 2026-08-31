@@ -8,7 +8,6 @@
 //! system library).
 
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::global;
 use crate::{McSpaceName, McURI};
 use std::collections::HashSet;
 
@@ -76,9 +75,8 @@ pub fn is_visible(from_uri: &McURI, def: &McSpaceName) -> bool {
         }
     }
 
-    // P5: mcode system library.
-    global::mcc_components.contains_key(def)
-        || global::mcc_modules.contains_key(def)
-        || global::mcc_interfaces.contains_key(def)
-        || global::mcc_enums.contains_key(def)
+    // P5: system library (mcode or another loaded lib). Phase 5 reads the
+    // registry's per-world system segment — a system def is visible exactly
+    // when the current world loaded its library.
+    crate::db::defregistry::system_contains(def)
 }

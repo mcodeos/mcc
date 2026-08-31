@@ -63,9 +63,9 @@ pub fn uri_equivalent(key_uri: &str, uri: &str, canonical_uri: &str) -> bool {
 }
 
 // === pub fn interface_lookup(space: &McSpaceName) -> Option<Arc<McInterface>> { ===
-/// Look up an interface across the workspace and global (system library)
-/// tables (consistency-convergence.md §2.2). This is the single access point;
-/// it replaces the scattered
+/// Look up an interface across the current world's workspace and per-world
+/// system library views (consistency-convergence.md §2.2). This is the single
+/// access point; it replaces the scattered
 /// `WORKSPACE.interfaces.get(..).or_else(|| global::mcc_interfaces.get(..))`
 /// chains that each hand-merged the two tables — which is now the
 /// [`DefinitionSpace`](crate::DefinitionSpace) unified view (design §12.4 rule 1).
@@ -74,8 +74,8 @@ pub fn interface_lookup(space: &McSpaceName) -> Option<Arc<McInterface>> {
 }
 
 // === pub fn iter_interfaces() -> Vec<(McSpaceName, Arc<McInterface>)> { ===
-/// Iterate all interfaces from the workspace and global (system library)
-/// tables, deduplicated by identity (consistency-convergence.md §2.2).
+/// Iterate all interfaces from the current world's workspace and per-world
+/// system library views, deduplicated by identity (consistency-convergence.md §2.2).
 /// Replaces the hand-written `WORKSPACE.interfaces.iter().chain(global::mcc_interfaces.iter())`
 /// merges — now the [`DefinitionSpace`](crate::DefinitionSpace) enumeration.
 pub fn iter_interfaces() -> Vec<(McSpaceName, Arc<McInterface>)> {

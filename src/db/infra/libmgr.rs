@@ -8,7 +8,7 @@
 //!
 //! ## Core API
 //!
-//! - [`mcb_load_lib`]: load a system library into `mcc_blibs`
+//! - [`mcb_load_lib`]: load a system library into the workspace lib cache
 //! - [`mcb_unload_lib`]: unload from memory (no disk deletion)
 //! - [`mcb_loaded_libs`]: list currently loaded system libraries
 //! - [`mcb_lib_info`]: query definitions contained in a library
@@ -19,21 +19,18 @@
 
 use crate::db::cmie::tables as workspace;
 use crate::db::defspace::LibBoundary;
-use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
-use crate::{McIds, McSpaceName};
-use dashmap::DashMap;
+use crate::McIds;
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::LazyLock;
 use tracing::{debug, info, warn};
 
 // ── System library source cache ──
-#[allow(non_upper_case_globals)]
-pub(crate) static mcc_blibs: LazyLock<DashMap<String, McCode>> = LazyLock::new(DashMap::new);
+// Phase 5: moved per-world into `workspace::WORKSPACE.blibs` (the
+// `mcc_blibs` process-global static is gone) — each world owns the libraries
+// it loaded, so a world switch can never leak stale lib state.
 
-/// System library basic info (snapshot from mcc_blibs).
+/// System library basic info (snapshot from the workspace lib cache).
 #[derive(Debug, Clone)]
 pub struct LibInfo {
     pub name: String,
@@ -197,8 +194,8 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     }
 
     // If already loaded, check if it has any definitions (i.e. was properly loaded)
-    if mcc_blibs.contains_key(name) {
-        if let Some(blib) = mcc_blibs.get(name) {
+    if workspace::WORKSPACE.blibs.contains_key(name) {
+        if let Some(blib) = workspace::WORKSPACE.blibs.get(name) {
             if !blib.spacenames.is_empty() {
                 info!(target: "mcc::lib", name = name, "load: already loaded, skip");
                 return true;
@@ -209,7 +206,9 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     }
 
     // Pre-insert empty blib entry (to avoid circular lookup issues)
-    mcc_blibs.insert(name.to_string(), McCode::new_empty());
+    workspace::WORKSPACE
+        .blibs
+        .insert(name.to_string(), McCode::new_empty());
 
     // Save/restore the loading side effects so nested `mcb_load_lib` calls
     // (diamond deps, use lazy loading) do not clobber the outer load's state.
@@ -230,30 +229,20 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
         "recursive load complete"
     );
 
-    // Collect all definitions belonging to this library from workspace tables, register to blib's spacenames
+    // Collect all definitions belonging to this library from the single
+    // definition registry (any domain), register to blib's spacenames.
     let root_str = root.to_string_lossy().to_string();
     let mut lib_entry = McCode::new_empty();
-
     tracing::trace!(target: "mcc::lib", name = name, root_str = %root_str, "collecting spacenames with prefix");
-
-    // Collect all definitions belonging to this library from workspace tables, register to blib's spacenames
-    collect_spacenames_by_prefix(&workspace::WORKSPACE.components, &root_str, &mut lib_entry);
-    collect_spacenames_by_prefix(&workspace::WORKSPACE.modules, &root_str, &mut lib_entry);
-    collect_spacenames_by_prefix(&workspace::WORKSPACE.interfaces, &root_str, &mut lib_entry);
-    collect_spacenames_by_prefix(&workspace::WORKSPACE.enums, &root_str, &mut lib_entry);
-    collect_spacenames_by_prefix(&workspace::WORKSPACE.defines, &root_str, &mut lib_entry);
-
-    // Collect all definitions belonging to this library from system tables, register to blib's spacenames
-    collect_spacenames_by_prefix_global(&global::mcc_components, &root_str, &mut lib_entry);
-    collect_spacenames_by_prefix_global(&global::mcc_modules, &root_str, &mut lib_entry);
-    collect_spacenames_by_prefix_global(&global::mcc_interfaces, &root_str, &mut lib_entry);
-    collect_spacenames_by_prefix_global(&global::mcc_enums, &root_str, &mut lib_entry);
-    collect_spacenames_by_prefix_global(&global::mcc_defines, &root_str, &mut lib_entry);
+    for sn in crate::db::defregistry::spacenames_by_uri_prefix(&root_str) {
+        lib_entry.spacenames.insert(sn.ident.clone(), sn);
+    }
 
     let symbol_count = lib_entry.spacenames.len();
 
-    // §15: For non-mcode libraries, remove symbols from global/workspace tables.
-    // mcode is the only exception that gets global auto-visibility.
+    // §15: For non-mcode libraries, tombstone their registry entries and drop
+    // them from the workspace tables (within this world only).
+    // mcode is the only exception that gets auto-visibility.
     // Third-party libs should only be visible via explicit `use $::name`.
     if name != "mcode" {
         let uris: HashSet<String> = lib_entry
@@ -266,7 +255,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
             target: "mcc::lib",
             name = name,
             uris_removed = uris.len(),
-            "removed from global tables (use-only visibility)"
+            "tombstoned in this world (use-only visibility)"
         );
     }
 
@@ -286,7 +275,9 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     );
 
     // Replace blib with new one
-    mcc_blibs.insert(name.to_string(), lib_entry);
+    workspace::WORKSPACE
+        .blibs
+        .insert(name.to_string(), lib_entry);
 
     info!(
         target: "mcc::lib",
@@ -301,11 +292,11 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
 
 /// Unload system library from memory. Do not delete disk files.
 ///
-/// 1. Remove entry from `mcc_blibs`
-/// 2. Remove definitions from `mcc_*` system tables with uri containing library path
+/// 1. Remove entry from the per-world lib cache (`WORKSPACE.blibs`)
+/// 2. Tombstone definitions from the per-world registry with uri containing library path
 /// 3. Remove definitions from workspace tables with uri containing library path
 pub fn mcb_unload_lib(name: &str) -> bool {
-    let blib = match mcc_blibs.remove(name) {
+    let blib = match workspace::WORKSPACE.blibs.remove(name) {
         Some((_, blib)) => blib,
         None => return false,
     };
@@ -344,13 +335,11 @@ pub enum ClearScope {
 pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
     match scope {
         ClearScope::Full => {
-            mcc_blibs.clear();
-            global::mcc_components.clear();
-            global::mcc_modules.clear();
-            global::mcc_interfaces.clear();
-            global::mcc_enums.clear();
-            global::mcc_defines.clear();
+            workspace::WORKSPACE.blibs.clear();
             workspace::WORKSPACE.clear_active();
+            // The definition registry is process-global state; a full reset
+            // starts its identity journal over with a clean slate.
+            crate::db::defregistry::clear_all();
         }
         ClearScope::Lib => {
             let uris = uris.expect("ClearScope::Lib requires the library uri set");
@@ -361,7 +350,11 @@ pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
 
 /// List all loaded system libraries in memory.
 pub fn mcb_loaded_libs() -> Vec<String> {
-    mcc_blibs.iter().map(|e| e.key().clone()).collect()
+    workspace::WORKSPACE
+        .blibs
+        .iter()
+        .map(|e| e.key().clone())
+        .collect()
 }
 
 fn format_mc_ids(ids: &McIds) -> String {
@@ -370,7 +363,7 @@ fn format_mc_ids(ids: &McIds) -> String {
 
 /// Get system library information by name.
 pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
-    let blib = mcc_blibs.get(name)?;
+    let blib = workspace::WORKSPACE.blibs.get(name)?;
     let sn = &blib.spacenames;
 
     let mut module_count = 0usize;
@@ -384,26 +377,24 @@ pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
     let mut enums_list = Vec::new();
 
     for (_, space_name) in sn.iter() {
-        if workspace::WORKSPACE.modules.contains_key(space_name)
-            || global::mcc_modules.contains_key(space_name)
-        {
-            module_count += 1;
-            modules_list.push(format_mc_ids(&space_name.ident));
-        } else if workspace::WORKSPACE.components.contains_key(space_name)
-            || global::mcc_components.contains_key(space_name)
-        {
-            component_count += 1;
-            components_list.push(format_mc_ids(&space_name.ident));
-        } else if workspace::WORKSPACE.interfaces.contains_key(space_name)
-            || global::mcc_interfaces.contains_key(space_name)
-        {
-            interface_count += 1;
-            interfaces_list.push(format_mc_ids(&space_name.ident));
-        } else if workspace::WORKSPACE.enums.contains_key(space_name)
-            || global::mcc_enums.contains_key(space_name)
-        {
-            enum_count += 1;
-            enums_list.push(format_mc_ids(&space_name.ident));
+        match crate::db::defregistry::kind_of(space_name) {
+            Some(crate::db::defregistry::DefKind::Module) => {
+                module_count += 1;
+                modules_list.push(format_mc_ids(&space_name.ident));
+            }
+            Some(crate::db::defregistry::DefKind::Component) => {
+                component_count += 1;
+                components_list.push(format_mc_ids(&space_name.ident));
+            }
+            Some(crate::db::defregistry::DefKind::Interface) => {
+                interface_count += 1;
+                interfaces_list.push(format_mc_ids(&space_name.ident));
+            }
+            Some(crate::db::defregistry::DefKind::Enum) => {
+                enum_count += 1;
+                enums_list.push(format_mc_ids(&space_name.ident));
+            }
+            _ => {} // Define / no live entry: not counted in the lib info.
         }
     }
 
@@ -502,35 +493,6 @@ pub fn mcb_load_lib_by_name(lib_name: &str) {
 // ============================================================================
 // Internal helper functions
 // ============================================================================
-
-fn collect_spacenames_by_prefix<T>(
-    table: &DashMap<McSpaceName, Arc<T>>,
-    prefix: &str,
-    lib_entry: &mut McCode,
-) {
-    for entry in table.iter() {
-        if entry.key().uri.contains(prefix) {
-            lib_entry
-                .spacenames
-                .insert(entry.key().ident.clone(), entry.key().clone());
-        }
-    }
-}
-
-fn collect_spacenames_by_prefix_global<T>(
-    table: &DashMap<McSpaceName, Arc<T>>,
-    prefix: &str,
-    lib_entry: &mut McCode,
-) {
-    for entry in table.iter() {
-        let uri = &entry.key().uri;
-        if uri.contains(prefix) {
-            lib_entry
-                .spacenames
-                .insert(entry.key().ident.clone(), entry.key().clone());
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

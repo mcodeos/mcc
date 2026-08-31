@@ -13,7 +13,8 @@
 //! policy is enforced identically everywhere:
 //!
 //!   ① `RefDefMap.name_index[(F, name)]` — P3 (own file) + P4 (use chain)
-//!   ② `global::mcc_*` name-only lookup — P5 (mcode system library)
+//!   ② per-world system-lib registry lookup — P5 (mcode system library,
+//!      visible inside the world that loaded it)
 //!
 //! A workspace-wide name-only scan is forbidden (§5.4.3): loading a file into
 //! the workspace makes its symbols importable by other files via `use`, but
