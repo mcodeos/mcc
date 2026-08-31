@@ -14,6 +14,7 @@
 use super::use_chain_reaches;
 use crate::ast::ast_semantic::McSemSymbols;
 use crate::db::cmie::tables as workspace;
+use crate::db::defregistry::{DefKind, DefValue};
 use crate::db::infra::init::interface_lookup;
 use crate::semantic::common::{uri_intern, UriId};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
@@ -43,48 +44,56 @@ pub(crate) fn find_in_table_scoped(
             .iter()
             .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Component(e.value().clone()))
-            .or_else(|| {
-                // P5: per-world system-library components (Phase 5).
-                crate::db::defregistry::system_components()
-                    .into_iter()
-                    .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
-                    .map(|(_, c)| McCMIE::Component(c))
-            }),
+            .or_else(|| find_in_system_scoped(DefKind::Component, name_str, &uri_ok)),
         1 => workspace::WORKSPACE
             .modules
             .iter()
             .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Module(e.value().clone()))
-            .or_else(|| {
-                crate::db::defregistry::system_modules()
-                    .into_iter()
-                    .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
-                    .map(|(_, m)| McCMIE::Module(m))
-            }),
+            .or_else(|| find_in_system_scoped(DefKind::Module, name_str, &uri_ok)),
         2 => workspace::WORKSPACE
             .interfaces
             .iter()
             .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Interface(e.value().clone()))
-            .or_else(|| {
-                crate::db::defregistry::system_interfaces()
-                    .into_iter()
-                    .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
-                    .map(|(_, i)| McCMIE::Interface(i))
-            }),
+            .or_else(|| find_in_system_scoped(DefKind::Interface, name_str, &uri_ok)),
         3 => workspace::WORKSPACE
             .enums
             .iter()
             .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Enum(e.value().clone()))
-            .or_else(|| {
-                crate::db::defregistry::system_enums()
-                    .into_iter()
-                    .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
-                    .map(|(_, e)| McCMIE::Enum(e))
-            }),
+            .or_else(|| find_in_system_scoped(DefKind::Enum, name_str, &uri_ok)),
         _ => None,
     }
+}
+
+/// P5 system-library fallback of [`find_in_table_scoped`]: O(1) name-index
+/// candidates of one kind, then the same `eq` + `uri_ok` gate on each. The
+/// registry's live value is fetched by id, so no full-segment scan runs on
+/// every class reference.
+fn find_in_system_scoped(
+    kind: DefKind,
+    name_str: &str,
+    uri_ok: &impl Fn(&UriId) -> bool,
+) -> Option<McCMIE> {
+    let query_ids = McIds::from(name_str);
+    let eq = |ident: &McIds| crate::semantic::basic::equivalent::are_equivalent(ident, &query_ids);
+    crate::db::defregistry::system_name_hits(name_str)
+        .into_iter()
+        .filter(|h| h.kind == kind)
+        .find_map(|h| {
+            let (sn, def) = crate::db::defregistry::live_entry_by_id(h.id)?;
+            if !(eq(&sn.ident) && uri_ok(&sn.uri)) {
+                return None;
+            }
+            match (kind, def) {
+                (DefKind::Component, DefValue::Component(c)) => Some(McCMIE::Component(c)),
+                (DefKind::Module, DefValue::Module(m)) => Some(McCMIE::Module(m)),
+                (DefKind::Interface, DefValue::Interface(i)) => Some(McCMIE::Interface(i)),
+                (DefKind::Enum, DefValue::Enum(e)) => Some(McCMIE::Enum(e)),
+                _ => None,
+            }
+        })
 }
 
 /// Kind-blind [`find_in_table_scoped`] across all four kinds, in priority
@@ -317,26 +326,24 @@ impl Resolver {
     }
 
     /// P5 lookup — the per-world system library (mcode etc.) by name only.
+    /// O(1) name-index hits in kind-priority order (component → module →
+    /// interface → enum), mirroring the pre-index per-kind scan order.
     pub fn resolve_system(name: &McIds) -> Option<McCMIE> {
         let name_str = name.to_string();
-        for (sn, c) in crate::db::defregistry::system_components() {
-            if sn.ident.to_string() == name_str {
-                return Some(McCMIE::Component(c));
-            }
-        }
-        for (sn, m) in crate::db::defregistry::system_modules() {
-            if sn.ident.to_string() == name_str {
-                return Some(McCMIE::Module(m));
-            }
-        }
-        for (sn, i) in crate::db::defregistry::system_interfaces() {
-            if sn.ident.to_string() == name_str {
-                return Some(McCMIE::Interface(i));
-            }
-        }
-        for (sn, e) in crate::db::defregistry::system_enums() {
-            if sn.ident.to_string() == name_str {
-                return Some(McCMIE::Enum(e));
+        for hit in crate::db::defregistry::system_name_hits(&name_str) {
+            let Some((_, def)) = crate::db::defregistry::live_entry_by_id(hit.id) else {
+                continue;
+            };
+            match (hit.kind, def) {
+                (DefKind::Component, DefValue::Component(c)) => {
+                    return Some(McCMIE::Component(c));
+                }
+                (DefKind::Module, DefValue::Module(m)) => return Some(McCMIE::Module(m)),
+                (DefKind::Interface, DefValue::Interface(i)) => {
+                    return Some(McCMIE::Interface(i));
+                }
+                (DefKind::Enum, DefValue::Enum(e)) => return Some(McCMIE::Enum(e)),
+                _ => continue,
             }
         }
         None

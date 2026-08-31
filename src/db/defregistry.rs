@@ -154,6 +154,77 @@ static KEY_TO_ID: LazyLock<DashMap<McSpaceName, Vec<DefId>>> = LazyLock::new(Das
 /// (D11: identity in the registry, data fresh in the arena).
 static ARENA: LazyLock<DashMap<DefId, DefEntry>> = LazyLock::new(DashMap::new);
 
+/// One live system-library identity registered under a display-form name in
+/// the system name index (the P5 name-only lookup surface).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemNameHit {
+    pub kind: DefKind,
+    pub id: DefId,
+}
+
+/// Display-form name → live system-library identities. Kept exactly in sync
+/// with the registry's live system segment by the mutation points (domain
+/// transitions in [`register`], tombstones, world reset); gives the P5
+/// name-only lookups (`resolve_system`, `find_in_table_scoped`, the enum
+/// helpers, `component_by_class`) O(1) instead of a full registry scan on
+/// every class reference. Function-template entries are host members, not
+/// class names, so they stay out of the index.
+static SYSTEM_NAME_INDEX: LazyLock<DashMap<String, Vec<SystemNameHit>>> =
+    LazyLock::new(DashMap::new);
+
+/// P5 name-only priority: component → module → interface → enum → define
+/// (mirrors the `resolve_system` / `kind_of` ordering). Func entries are
+/// host members and never enter the index, but the match stays exhaustive.
+fn kind_priority(kind: DefKind) -> u8 {
+    match kind {
+        DefKind::Component => 0,
+        DefKind::Module => 1,
+        DefKind::Interface => 2,
+        DefKind::Enum => 3,
+        DefKind::Define => 4,
+        DefKind::Func => 5,
+    }
+}
+
+fn system_index_add(name: &str, kind: DefKind, id: DefId) {
+    SYSTEM_NAME_INDEX
+        .entry(name.to_string())
+        .or_default()
+        .push(SystemNameHit { kind, id });
+}
+
+fn system_index_remove(name: &str, kind: DefKind, id: DefId) {
+    let mut drop_key = false;
+    if let Some(mut hits) = SYSTEM_NAME_INDEX.get_mut(name) {
+        hits.retain(|h| !(h.kind == kind && h.id == id));
+        drop_key = hits.is_empty();
+    }
+    if drop_key {
+        SYSTEM_NAME_INDEX.remove(name);
+    }
+}
+
+/// Re-sync the system name index after a registry entry's live domain
+/// changes. `was_live_system` is the entry's live-system state BEFORE the
+/// mutation; `now_domain` is its domain AFTER.
+fn sync_system_index(
+    name: &str,
+    kind: DefKind,
+    id: DefId,
+    was_live_system: bool,
+    now_domain: &LoadDomain,
+) {
+    if kind == DefKind::Func {
+        return;
+    }
+    let now_system = matches!(now_domain, LoadDomain::SystemLib(_));
+    if !was_live_system && now_system {
+        system_index_add(name, kind, id);
+    } else if was_live_system && !now_system {
+        system_index_remove(name, kind, id);
+    }
+}
+
 /// Insert one definition. CMIE kinds treat an occupied live key as a
 /// duplicate (the previous value stays); the module kind **overwrites** —
 /// module parsing runs as a re-derive across parse rounds and replaces this
@@ -199,27 +270,40 @@ fn register(sn: &McSpaceName, kind: DefKind, domain: &LoadDomain, def: &DefValue
         if entry.kind != kind {
             continue;
         }
+        // Capture the live-system state before the mutation so the system
+        // name index can follow the domain transition below.
+        let was_live_system =
+            entry.data.is_some() && matches!(entry.domain, LoadDomain::SystemLib(_));
         if kind == DefKind::Module {
-            // Module re-derive always replaces this file's prior entry.
             entry.data = Some(def.clone());
             entry.domain = domain.clone();
+            sync_system_index(
+                &sn.ident.to_string(),
+                kind,
+                id,
+                was_live_system,
+                &entry.domain,
+            );
             return InsertOutcome::Inserted;
         }
         match &entry.data {
             None => {
-                // Tombstone revival: reuse the identity (D11).
                 entry.data = Some(def.clone());
                 entry.domain = domain.clone();
+                sync_system_index(
+                    &sn.ident.to_string(),
+                    kind,
+                    id,
+                    was_live_system,
+                    &entry.domain,
+                );
                 return InsertOutcome::Inserted;
             }
             Some(_) => {
-                if matches!(entry.domain, LoadDomain::SystemLib(_))
-                    && matches!(domain, LoadDomain::Project)
-                {
-                    // Workspace-first precedence: the project def shadows the
-                    // same-key system-lib def.
+                if was_live_system && matches!(domain, LoadDomain::Project) {
                     entry.data = Some(def.clone());
                     entry.domain = LoadDomain::Project;
+                    sync_system_index(&sn.ident.to_string(), kind, id, true, &entry.domain);
                     return InsertOutcome::Inserted;
                 }
                 return InsertOutcome::Duplicate;
@@ -238,6 +322,9 @@ fn register(sn: &McSpaceName, kind: DefKind, domain: &LoadDomain, def: &DefValue
             data: Some(def.clone()),
         },
     );
+    if matches!(domain, LoadDomain::SystemLib(_)) && kind != DefKind::Func {
+        system_index_add(&sn.ident.to_string(), kind, id);
+    }
     InsertOutcome::Inserted
 }
 
@@ -382,7 +469,12 @@ fn tombstone_key(key: &McSpaceName) {
     if let Some(ids) = KEY_TO_ID.get(key) {
         for id in ids.iter() {
             if let Some(mut e) = ARENA.get_mut(id) {
+                let was_live_system =
+                    e.data.is_some() && matches!(e.domain, LoadDomain::SystemLib(_));
                 e.data = None;
+                if was_live_system {
+                    system_index_remove(&key.ident.to_string(), e.kind, *id);
+                }
             }
         }
     }
@@ -394,6 +486,7 @@ fn tombstone_key(key: &McSpaceName) {
 pub fn clear_all() {
     KEY_TO_ID.clear();
     ARENA.clear();
+    SYSTEM_NAME_INDEX.clear();
     NEXT_DEF_ID.store(0, Ordering::Relaxed);
 }
 
@@ -406,13 +499,7 @@ pub fn clear_all() {
 pub fn mark_all_tombstones() {
     let keys: Vec<McSpaceName> = KEY_TO_ID.iter().map(|e| e.key().clone()).collect();
     for key in keys {
-        if let Some(ids) = KEY_TO_ID.get(&key) {
-            for id in ids.iter() {
-                if let Some(mut e) = ARENA.get_mut(id) {
-                    e.data = None;
-                }
-            }
-        }
+        tombstone_key(&key);
     }
 }
 
@@ -835,6 +922,47 @@ pub fn system_enums() -> Vec<(McSpaceName, Arc<McEnumDef>)> {
     peel_enums(enumerate(DefKind::Enum, DomainFilter::System))
 }
 
+/// Every live system-library identity whose display-form name is `name`, in
+/// kind-priority order (component → module → interface → enum → define).
+///
+/// O(1) via the system name index for the common display-form match; a miss
+/// falls back to a segment-structure-equivalent scan (e.g. curly vs dotted
+/// idents) so the pre-index semantics are preserved exactly.
+pub fn system_name_hits(name: &str) -> Vec<SystemNameHit> {
+    if let Some(hits) = SYSTEM_NAME_INDEX.get(name) {
+        let mut hits = hits.value().clone();
+        hits.sort_by_key(|h| kind_priority(h.kind));
+        return hits;
+    }
+    // Rare: no display-form entry — segment-form equivalent idents (curly vs
+    // dot) still match under `are_equivalent`, mirroring the consumers.
+    let query = crate::McIds::from(name);
+    let mut hits: Vec<SystemNameHit> = ARENA
+        .iter()
+        .filter(|e| {
+            e.data.is_some()
+                && e.kind != DefKind::Func
+                && matches!(e.domain, LoadDomain::SystemLib(_))
+                && crate::semantic::basic::equivalent::are_equivalent(&e.sn.ident, &query)
+        })
+        .map(|e| SystemNameHit {
+            kind: e.kind,
+            id: *e.key(),
+        })
+        .collect();
+    hits.sort_by_key(|h| kind_priority(h.kind));
+    hits
+}
+
+/// The identity + live value of one [`DefId`] — direct arena access for the
+/// system name index hits (the caller has already resolved the key).
+pub fn live_entry_by_id(id: DefId) -> Option<(McSpaceName, DefValue)> {
+    ARENA.get(&id).and_then(|e| {
+        let def = e.data.clone()?;
+        Some((e.sn.clone(), def))
+    })
+}
+
 /// Does the system library (not the workspace) define this identity, as any
 /// class kind (component / module / interface / enum)?
 pub fn system_contains(sn: &McSpaceName) -> bool {
@@ -922,5 +1050,92 @@ fn remove_by_uris_from<T>(table: &DashMap<McSpaceName, Arc<T>>, uris: &HashSet<S
         .collect();
     for key in to_remove {
         table.remove(&key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::semantic::common::uri_intern;
+    use crate::semantic::mc_enum::{McEnumDef, McEnumValue};
+    use std::sync::Arc;
+
+    /// A minimal system enum under a caller-chosen name + uri. The system
+    /// name index tests only track index-vs-registry consistency, so the def
+    /// payload itself is irrelevant.
+    fn sys_enum(name: &str, uri: &str) -> (McSpaceName, DefValue) {
+        let sn = McSpaceName {
+            ident: crate::McIds::from(name),
+            uri: uri_intern(uri),
+        };
+        let def = DefValue::Enum(Arc::new(McEnumDef {
+            name: sn.ident.clone(),
+            span: [0, 3],
+            values: vec![McEnumValue {
+                name: crate::McIds::from("A"),
+                span: [0, 3],
+            }],
+            uri: uri.to_string(),
+        }));
+        (sn, def)
+    }
+
+    /// The system name index must stay exactly in sync with the registry's
+    /// live system segment across the mutation points: fresh insert, tombstone
+    /// (lib unload sweep), tombstone revival (re-load), and the workspace-first
+    /// project shadow. Uses a unique name/uri so parallel lib tests are never
+    /// disturbed.
+    #[test]
+    fn system_name_index_tracks_live_system_entries() {
+        const NAME: &str = "SYS_INDEX_GOLD";
+        const URI: &str = "/sys/index.mc";
+        let (sn, def) = sys_enum(NAME, URI);
+        let system = LoadDomain::SystemLib("mcode".into());
+
+        // 1. Fresh system insert: the index sees it.
+        assert_eq!(
+            insert(&sn, system.clone(), def.clone()),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            system_name_hits(NAME).len(),
+            1,
+            "fresh system def is indexed"
+        );
+        assert!(system_contains(&sn), "registry agrees with the index");
+
+        // 2. Tombstone (lib unload sweep): the index drops it with the entry.
+        remove_by_uri(URI);
+        assert!(
+            system_name_hits(NAME).is_empty(),
+            "tombstoned system def leaves the index"
+        );
+        assert!(!system_contains(&sn));
+
+        // 3. Revive under the same key (re-load): the index follows.
+        assert_eq!(
+            insert(&sn, system.clone(), def.clone()),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            system_name_hits(NAME).len(),
+            1,
+            "revived system def re-indexed"
+        );
+
+        // 4. A project def shadows the system def (workspace-first): the
+        // identity leaves the system segment and the index with it.
+        assert_eq!(
+            insert(&sn, LoadDomain::Project, def.clone()),
+            InsertOutcome::Inserted
+        );
+        assert!(
+            system_name_hits(NAME).is_empty(),
+            "project shadowing evicts the system hit"
+        );
+        assert!(!system_contains(&sn), "the identity is a project def now");
+
+        // Leave no residue for parallel tests.
+        remove_by_uri(URI);
     }
 }
