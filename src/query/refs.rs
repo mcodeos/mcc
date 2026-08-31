@@ -4,8 +4,6 @@
 
 use crate::ast::ast_semantic::{DeclareId, Span};
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::global;
-use crate::db::infra::init::interface_lookup;
 use crate::refdef::types::CmieKind;
 use crate::semantic::common::McSpaceName;
 use crate::McIds;
@@ -159,12 +157,12 @@ fn cross_file_class_visible(uri: &McURI, target_uri: &str, name_str: &str) -> bo
     if crate::db::resolve::use_chain_reaches(uri, target_uri) {
         return true; // P4: reachable through the use chain
     }
-    // P5: mcode system library.
+    // P5: mcode system library. System-lib-only by construction — a definition
+    // in a *different project file* must reach the referrer through the use
+    // chain (P4) instead, so the unified DefinitionSpace views would wrongly
+    // admit those (see the system-view doc in defspace.rs).
     let space = McSpaceName::new(&McIds::from(name_str), McURI::from(target_uri));
-    global::mcc_components.contains_key(&space)
-        || global::mcc_modules.contains_key(&space)
-        || global::mcc_interfaces.contains_key(&space)
-        || global::mcc_enums.contains_key(&space)
+    crate::definition_space().system_contains(&space)
 }
 
 pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Span) {
@@ -338,26 +336,30 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
             }
         }
 
-        // 2.5b: system library tables (global::mcc_*) — classes from loaded
-        // libraries are always visible (P5), so no gate is applied.
+        // 2.5b: system library tables — classes from loaded libraries are
+        // always visible (P5), so no gate is applied. Read through the
+        // DefinitionSpace system-only view (defspace.rs): the unified `all_*`
+        // enumerations mix in workspace definitions, which a cross-file
+        // referrer may not `use`, so they must not back this scan.
         if result.is_none() {
+            let ds = crate::definition_space();
             let mut sys_candidates: Vec<(String, std::ops::Range<usize>, CmieKind)> = Vec::new();
-            for entry in global::mcc_components.iter() {
-                if entry.key().ident.to_string() == name_str {
+            for (sn, def) in ds.system_components() {
+                if sn.ident.to_string() == name_str {
                     sys_candidates.push((
-                        entry.key().uri.to_string(),
-                        entry.value().span.clone(),
+                        sn.uri.to_string(),
+                        def.span.clone(),
                         CmieKind::Component,
                     ));
                     break;
                 }
             }
             if sys_candidates.is_empty() {
-                for entry in global::mcc_modules.iter() {
-                    if entry.key().ident.to_string() == name_str {
+                for (sn, def) in ds.system_modules() {
+                    if sn.ident.to_string() == name_str {
                         sys_candidates.push((
-                            entry.key().uri.to_string(),
-                            entry.value().span.clone(),
+                            sn.uri.to_string(),
+                            def.span.clone(),
                             CmieKind::Module,
                         ));
                         break;
@@ -365,11 +367,11 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
                 }
             }
             if sys_candidates.is_empty() {
-                for entry in global::mcc_interfaces.iter() {
-                    if entry.key().ident.to_string() == name_str {
+                for (sn, def) in ds.system_interfaces() {
+                    if sn.ident.to_string() == name_str {
                         sys_candidates.push((
-                            entry.key().uri.to_string(),
-                            entry.value().span.clone(),
+                            sn.uri.to_string(),
+                            def.span.clone(),
                             CmieKind::Interface,
                         ));
                         break;
@@ -377,11 +379,11 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
                 }
             }
             if sys_candidates.is_empty() {
-                for entry in global::mcc_enums.iter() {
-                    if entry.key().ident.to_string() == name_str {
-                        let s = entry.value().span;
+                for (sn, def) in ds.system_enums() {
+                    if sn.ident.to_string() == name_str {
+                        let s = def.span;
                         sys_candidates.push((
-                            entry.key().uri.to_string(),
+                            sn.uri.to_string(),
                             s[0] as usize..s[1] as usize,
                             CmieKind::Enum,
                         ));
@@ -521,19 +523,19 @@ pub(crate) fn cmie_kind_for(def_uri: &str, name: &str) -> u8 {
         ident: McIds::from(name),
         uri: crate::semantic::common::uri_intern(def_uri),
     };
-    if workspace::WORKSPACE.components.contains_key(&space)
-        || global::mcc_components.contains_key(&space)
-    {
+    // Unified workspace-then-system-lib lookups (design §12.4 rule 1): a class
+    // is its identity regardless of which table system holds it.
+    let ds = crate::definition_space();
+    if ds.get_component(&space).is_some() {
         return CmieKind::Component as u8;
     }
-    if workspace::WORKSPACE.modules.contains_key(&space) || global::mcc_modules.contains_key(&space)
-    {
+    if ds.get_module(&space).is_some() {
         return CmieKind::Module as u8;
     }
-    if interface_lookup(&space).is_some() {
+    if ds.get_interface(&space).is_some() {
         return CmieKind::Interface as u8;
     }
-    if workspace::WORKSPACE.enums.contains_key(&space) || global::mcc_enums.contains_key(&space) {
+    if ds.get_enum(&space).is_some() {
         return CmieKind::Enum as u8;
     }
     CmieKind::UNKNOWN

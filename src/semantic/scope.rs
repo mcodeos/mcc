@@ -142,20 +142,25 @@ impl<'a> ParamsScope<'a> {
 /// dcdc{Vin, GND}` fails the §5 row-count check. `McBus` keeps the real
 /// member width on both sides of the operator.
 ///
-/// Note: `McIds::from(&str)` wraps the whole text as a single `Ida` segment,
-/// so the curly form is split textually here (the def key is the canonical
-/// `to_string()` rendering, e.g. `USB_VBUS_1{VDD_3V, GND}`).
+/// The member split routes through the pipeline's string front-end
+/// (`equivalent::member_set_from_str`, §4.2 shared), so `,` and `|` separators
+/// (`Q1{S|D}`, `{SPI,MIC|DAC_OUT,SPK_MUTE}`) share one member-set expansion.
+/// The def key is the canonical `to_string()` rendering (e.g.
+/// `USB_VBUS_1{VDD_3V3, GND}`), which `McIds::from(&str)` wraps as a single
+/// `Ida` segment; the front-end recovers the ordered member paths from it.
 fn param_name_to_inst(name: &str) -> McInstance {
-    if let (Some(open), Some(close)) = (name.find('{'), name.rfind('}')) {
-        if close > open + 1 {
-            let base = &name[..open];
-            let members: Vec<String> = name[open + 1..close]
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
+    let expanded = crate::semantic::basic::equivalent::member_set_from_str(name);
+    if let (Some(members), Some(open)) = (&expanded, name.find('{')) {
+        // Structured curly form: `base{A,B|C}` expands to `[base.A, base.B, ...]`.
+        let base = name[..open].to_string();
+        if !base.is_empty() && !members.is_empty() {
+            let prefix = format!("{base}.");
+            let stripped: Vec<String> = members
+                .iter()
+                .map(|m| m.strip_prefix(&prefix).unwrap_or(m).to_string())
                 .collect();
-            if !base.is_empty() && !members.is_empty() {
-                return McInstance::Bus(McBus::new_with_members(base, members));
+            if stripped.iter().all(|m| !m.is_empty()) {
+                return McInstance::Bus(McBus::new_with_members(&base, stripped));
             }
         }
     }
@@ -1104,5 +1109,48 @@ mod tests {
         assert!(container_scope(&ContainerRef::Enum(def))
             .resolve("B")
             .is_none());
+    }
+
+    /// param_name_to_inst routes through the shared member-set front-end
+    /// (§4.2 shared): `,` and `|` separators expand to the bus member list, a
+    /// single-member curly group keeps its Bus form, and non-curly names stay
+    /// labels (no behavior change for bare/dotted params).
+    #[test]
+    fn param_name_to_inst_curly_members() {
+        fn bus_members(inst: &McInstance) -> Option<(&str, &[String])> {
+            match inst {
+                McInstance::Bus(b) => Some((&b.name, &b.member[..])),
+                _ => None,
+            }
+        }
+
+        fn expect_bus(inst: &McInstance, name: &str, members: &[&str]) {
+            let (got_name, got_members) = bus_members(inst).expect("expected Bus");
+            assert_eq!(got_name, name);
+            let want: Vec<String> = members.iter().map(|s| s.to_string()).collect();
+            assert_eq!(got_members, want.as_slice());
+        }
+
+        // Comma-separated group (pre-existing form).
+        expect_bus(
+            &param_name_to_inst("dc{VDD_3V3, GND}"),
+            "dc",
+            &["VDD_3V3", "GND"],
+        );
+        // Pipe-separated group — the new `|` support.
+        expect_bus(&param_name_to_inst("Q1{S|D}"), "Q1", &["S", "D"]);
+        // Mixed `,` + `|` separators.
+        expect_bus(
+            &param_name_to_inst("X{SPI,MIC|DAC_OUT}"),
+            "X",
+            &["SPI", "MIC", "DAC_OUT"],
+        );
+        // Single-member curly group keeps its Bus width (port stays 1*1 but
+        // the name is structured, matching the pre-existing behavior).
+        expect_bus(&param_name_to_inst("dc{VDD}"), "dc", &["VDD"]);
+        // Non-curly names resolve to plain labels.
+        assert!(matches!(param_name_to_inst("GND"), McInstance::Label(_)));
+        // Empty braces are not a member set — falls back to the label.
+        assert!(matches!(param_name_to_inst("dc{}"), McInstance::Label(_)));
     }
 }

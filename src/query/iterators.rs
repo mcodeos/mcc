@@ -3,7 +3,6 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::global;
 use crate::db::infra::init::iter_interfaces;
 use crate::db::infra::init::mcb_canonicalize_uri;
 use crate::db::infra::init::uri_equivalent;
@@ -169,32 +168,20 @@ pub fn mcb_iter_enums() -> Vec<(String, String)> {
 /// Same as `mcb_iter_enums`, but also returns the class span
 /// `[start, end)` of the `enum PKG { ... }` head — needed by LSP
 /// gotodef to know where to land when jumping to the class itself.
-/// Includes both workspace and system library enums.
+/// Includes both workspace and system library enums (deduped, §12.4 rule 1).
 pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [usize; 2])> {
-    let mut items: Vec<(String, String, [usize; 2])> = Vec::new();
-
-    // Workspace enums (project files)
-    let enums_guard = &workspace::WORKSPACE.enums;
-    for entry in enums_guard.iter() {
-        let s = entry.value().span;
-        items.push((
-            entry.key().ident.to_string(),
-            entry.key().uri.to_string(),
-            [s[0] as usize, s[1] as usize],
-        ));
-    }
-
-    // System library enums (e.g. enum PKG in mcode/package.mc)
-    let sys_enums_guard = &global::mcc_enums;
-    for entry in sys_enums_guard.iter() {
-        let s = entry.value().span;
-        items.push((
-            entry.key().ident.to_string(),
-            entry.key().uri.to_string(),
-            [s[0] as usize, s[1] as usize],
-        ));
-    }
-
+    let mut items: Vec<(String, String, [usize; 2])> = crate::definition_space()
+        .all_enums()
+        .into_iter()
+        .map(|(sn, def)| {
+            let s = def.span;
+            (
+                sn.ident.to_string(),
+                sn.uri.to_string(),
+                [s[0] as usize, s[1] as usize],
+            )
+        })
+        .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
 }
@@ -205,27 +192,11 @@ pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [usize; 2])> {
 pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
     let mut items: Vec<(String, String, String, [u32; 2])> = Vec::new();
 
-    // Iterate workspace enums (project files)
-    let enums_guard = &workspace::WORKSPACE.enums;
-    for entry in enums_guard.iter() {
-        let class = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
-        let enum_def = entry.value();
-        for v in enum_def.values.iter() {
-            let value_name = v.name.to_string();
-            items.push((class.clone(), value_name, uri.clone(), v.span));
-        }
-    }
-
-    // Iterate system library enums (e.g. enum PKG in mcode/package.mc)
-    let sys_enums_guard = &global::mcc_enums;
-    for entry in sys_enums_guard.iter() {
-        let class = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
-        let enum_def = entry.value();
-        for v in enum_def.values.iter() {
-            let value_name = v.name.to_string();
-            items.push((class.clone(), value_name, uri.clone(), v.span));
+    for (sn, def) in crate::definition_space().all_enums() {
+        let class = sn.ident.to_string();
+        let uri = sn.uri.to_string();
+        for v in def.values.iter() {
+            items.push((class.clone(), v.name.to_string(), uri.clone(), v.span));
         }
     }
 
