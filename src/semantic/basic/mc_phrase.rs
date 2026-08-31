@@ -236,6 +236,43 @@ impl McPhrase {
                                                     Some(McPhrase::label(member.clone()))
                                                 });
                                         }
+                                    } else if members.len() >= 2 {
+                                        // ── Contract E (§11.3): multi-member vector
+                                        // receiver — the array name resolves through the
+                                        // vector arm to its ordered member set,
+                                        // producing a lane-structured
+                                        // `McEndpoint::List` of per-member endpoints
+                                        // (never a literal `c[1:2]` label; invariant
+                                        // B). Members that are declared instances
+                                        // become Component endpoints; func-local
+                                        // declares (invisible to in-body `find_inst`,
+                                        // §11.3 pin 3) stay as labels, unified with the
+                                        // instances in pass2.
+                                        match context.resolve_reference(
+                                            &ids,
+                                            node.get_pos(),
+                                            node.get_len(),
+                                        ) {
+                                            RefVerdict::ResolvedMany(resolved) => {
+                                                let lanes: Vec<McEndpoint> = resolved
+                                                    .iter()
+                                                    .map(|m| match context.find_inst(m) {
+                                                        Some(inst) => McEndpoint::Single(
+                                                            McInstanceRef::new(inst),
+                                                        ),
+                                                        None => McEndpoint::Single(
+                                                            McInstanceRef::new(
+                                                                McInstance::Label(m.clone()),
+                                                            ),
+                                                        ),
+                                                    })
+                                                    .collect();
+                                                return Some(McPhrase::Endpoint(
+                                                    McEndpoint::List(lanes),
+                                                ));
+                                            }
+                                            _ => {}
+                                        }
                                     }
                                 }
                             }

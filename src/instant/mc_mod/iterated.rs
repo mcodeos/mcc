@@ -107,9 +107,29 @@ impl McModuleInst {
             }
         }
 
+        // ── Iter-11.4: lane-structured List receiver (§11.3 ③) ─────────────
+        // Phase 1.3 pass1 vector resolution turns `c[1:2]` into
+        // `Endpoint(List([Single(c1), Single(c2), ...]))` — one lane per ordered
+        // member. Iterate the lanes directly; no `McIds::from(name).expand()`
+        // string re-parse (the producer already carried the member set).
+        let lanes_owned: Vec<McPhrase>;
+        if let McPhrase::Endpoint(McEndpoint::List(eps)) = caller_phrase {
+            lanes_owned = eps
+                .iter()
+                .map(|ep| McPhrase::Endpoint(ep.clone()))
+                .collect();
+            if lanes_owned.is_empty() {
+                return Ok(Some(FuncCallInst::PassThrough));
+            }
+        } else {
+            lanes_owned = Vec::new();
+        }
+
         // caller must be McPhrase::Series whose first element is Parallel — or be synthesized above
         let items_owned: Vec<McPhrase>;
-        let items: &Vec<McPhrase> = if let Some(ref v) = synthesized_parallel {
+        let items: &Vec<McPhrase> = if !lanes_owned.is_empty() {
+            &lanes_owned
+        } else if let Some(ref v) = synthesized_parallel {
             items_owned = v.clone();
             &items_owned
         } else {
@@ -333,12 +353,18 @@ impl McModuleInst {
             McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
                 McInstance::Label(s) => Some(s.clone()),
                 McInstance::Bus(b) if b.member.is_empty() => Some(b.name.clone()),
+                // §11.3: a resolved member endpoint (find_inst hit at pass1
+                // for module-scope declares) is the same instance — dispatch
+                // the method onto its materialized name.
+                McInstance::Component(c) => Some(c.name.to_string()),
+                McInstance::Module(m) => Some(m.name.to_string()),
                 _ => None,
             },
             McPhrase::Endpoint(McEndpoint::List(refs)) => refs.first().and_then(|ep| match ep {
                 McEndpoint::Single(iref) => match &iref.base {
                     McInstance::Label(s) => Some(s.clone()),
                     McInstance::Bus(b) if b.member.is_empty() => Some(b.name.clone()),
+                    McInstance::Component(c) => Some(c.name.to_string()),
                     _ => None,
                 },
                 _ => None,
