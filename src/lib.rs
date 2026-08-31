@@ -60,6 +60,8 @@ pub use crate::semantic::{
     module::{Mc2Module, McModule},
 };
 pub use db::diagnostic::errcodes;
+// ── Definition space (§12.1) ──
+pub use db::cmie::defspace::{definition_space, DefinitionSpace, LibBoundary, SourceDomain};
 pub mod export;
 pub mod refdef;
 pub use ast::ast_semantic::{

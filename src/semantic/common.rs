@@ -114,7 +114,9 @@ pub struct McSpaceName {
 }
 
 impl McSpaceName {
-    pub(crate) fn new(ident: &McIds, uri: McURI) -> Self {
+    /// Build a definition-space identity from its two coordinates: the
+    /// definition name and the URI of the file declaring it.
+    pub fn new(ident: &McIds, uri: McURI) -> Self {
         Self {
             ident: ident.clone(),
             uri: uri_intern(&uri),
