@@ -3356,33 +3356,33 @@ impl McModuleInst {
     /// Recognize the "array-form caller pointing to a set of already-declared
     /// instances" form.
     ///
-    /// For example, the caller of `cap[4:5]::CAP(1uF)` might be
-    /// `Bus("cap[4:5]")` or `Label("cap[4:5]")`. We try:
-    ///   1. Extract the caller's name string
-    ///   2. Use `McIds::from(&name).expand()` to expand into a named list
-    ///      (e.g. ["cap4","cap5"])
-    ///   3. If all expanded names exist in self.components, consider it a hit
+    /// Two structural arms, no bracket-string re-parse (AST-driven guideline):
+    ///   1. `Endpoint(List([...]))` — pass1's vector arm (§11.3 ③) resolves a
+    ///      declared array to one lane per ordered member; extract the member
+    ///      instance names structurally.
+    ///   2. `Endpoint(Single(Component(res1)))` — pass1 resolving a bracket to
+    ///      a single member (contract E scalar); matched against the declared
+    ///      vector group's physical member id list.
     ///
     /// Returns `Some(vec!["cap4", "cap5"])` on hit, otherwise None.
     ///
-    /// ── Iter-3.D ───────────────────────────────────────────────────────
-    /// Added fallback: if parser resolves `res[1:2]` to `Component(res1)`
-    /// (taking the first existing instance of the array), we can also detect
-    /// it: check if the caller name ends with a digit suffix, if so probe
-    /// adjacent sibling instances like res2/res3 to assemble the array.
+    /// The old arms are gone: the bare-bracket `McIds::from(&name).expand()`
+    /// synthesis (fires for `Bus("cap[4:5]")` / `Label("cap[4:5]")` callers)
+    /// and the digit-suffix sibling-probing fallback (Iter-3.D). Declared
+    /// arrays reach here as `Endpoint::List` (arm 1); an undeclared array base
+    /// falls to the scalar-miss decision like any other undeclared name, never
+    /// re-assembled from name patterns.
     pub(super) fn resolve_array_caller_to_existing(
         &self,
         phrase: &McPhrase,
     ) -> Option<Vec<String>> {
-        use crate::semantic::basic::mc_ids::McIds;
-
         // ── §11.3 lane-structured List (Phase 1.3) ──────────────────────────
         // `cap[4:5]` in a connection operand resolves at pass1 to
         // `Endpoint(List([Single(Component cap4), Single(Component cap5)]))`
         // (module scope → find_inst hits → Component). Extract the member
         // instance names **structurally** from the lanes — no bracket-string
-        // re-parse (AST-driven guideline). Guarded by the same all_exist check
-        // as the bracket form below, so phantom/auto-named lanes never re-link.
+        // re-parse (AST-driven guideline). Guarded by the all_exist check, so
+        // phantom/auto-named lanes never re-link.
         if let McPhrase::Endpoint(McEndpoint::List(eps)) = phrase {
             let mut names = Vec::new();
             for ep in eps {
@@ -3405,34 +3405,6 @@ impl McModuleInst {
                 return Some(names);
             }
             return None;
-        }
-
-        // First try to extract name from Label/Bus
-        let name_with_bracket = match phrase {
-            McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
-                McInstance::Label(s) => Some(s.clone()),
-                McInstance::Bus(b) if b.member.is_empty() => Some(b.name.clone()),
-                _ => None,
-            },
-            _ => None,
-        };
-
-        if let Some(name) = name_with_bracket {
-            if name.contains('[') {
-                let ids = McIds::from(name.as_str());
-                let expanded = ids.expand();
-                // Accept a single expanded name too (e.g. `cap[4]` -> ["cap4"]),
-                // guarded by the all_exist check below. The `> 1` gate rejected
-                // single-index references, leaving them quarantined as phantom.
-                if !expanded.is_empty() {
-                    let all_exist = expanded
-                        .iter()
-                        .all(|n| self.components.iter().any(|c| &c.name == n));
-                    if all_exist {
-                        return Some(expanded);
-                    }
-                }
-            }
         }
 
         // ── §11.3/1.6: direct vector-node lookup (was Iter-3.D sibling-probing) ──

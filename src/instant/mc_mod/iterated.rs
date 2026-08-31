@@ -12,7 +12,7 @@ use super::McModuleInst;
 use crate::instant::mc_net::InstError;
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_bus::McBus;
-use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_endpoint::McEndpoint;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::mc_inst::McInstance;
@@ -52,61 +52,6 @@ impl McModuleInst {
             }
         };
 
-        // ── Iter-1.3 ─────────────────────────────────────────────────────
-        // Originally only recognized the `Series[Parallel[...]]` form — that
-        // is the two-level structure the parser has already expanded for
-        // `cx[1:2].Cap(...)`. For the case in `cap[4:5]::CAP(1uF)` where the
-        // caller is a **bare array name**, the parser does not perform this
-        // expansion, and the caller is just
-        // `Endpoint::Single(Bus("cap[4:5]"))` / `Endpoint::Single(Label("cap[4:5]"))`.
-        //
-        // A new recognition path is added here: when the caller is a single
-        // Endpoint and the name contains `[N:M]` or `[a,b]`, use
-        // McIds::expand() to expand it into a list, then fabricate a
-        // Parallel structure and feed it into the existing iteration loop.
-        //
-        // Cost of building the virtual Parallel: each expanded item is an
-        // Endpoint(Label(name)); the name is preserved so that process_stmt
-        // inside the iterated.rs loop can walk into
-        // resolve_array_caller_to_existing to reuse existing instances.
-        let mut synthesized_parallel: Option<Vec<McPhrase>> = None;
-        if let McPhrase::Endpoint(McEndpoint::Single(iref)) = caller_phrase {
-            let bare_name = match &iref.base {
-                McInstance::Label(s) => Some(s.clone()),
-                McInstance::Bus(b) if b.member.is_empty() => Some(b.name.clone()),
-                _ => None,
-            };
-            // ── Iter-6.S5.2-diag ──
-            let _base_kind = match &iref.base {
-                McInstance::Label(s) => format!("Label('{s}')"),
-                McInstance::Bus(b) => format!("Bus(name='{}', mem={:?})", b.name, b.member),
-                McInstance::Component(c) => format!("Component('{}')", c.name),
-                McInstance::Module(m) => format!("Module('{}')", m.name),
-                McInstance::List(l) => format!("List(name='{}', mem={:?})", l.name, l.member),
-                McInstance::Interface(i) => format!("Interface('{}')", i.name),
-                _ => "Other".to_string(),
-            };
-            if let Some(name) = bare_name {
-                if name.contains('[') {
-                    let ids = McIds::from(name.as_str());
-                    let expanded = ids.expand();
-                    // ── Iter-6.S5.2-diag ──
-                    if expanded.len() > 1 {
-                        synthesized_parallel = Some(
-                            expanded
-                                .into_iter()
-                                .map(|n| {
-                                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                                        McInstance::Label(n),
-                                    )))
-                                })
-                                .collect(),
-                        );
-                    }
-                }
-            }
-        }
-
         // ── Iter-11.4: lane-structured List receiver (§11.3 ③) ─────────────
         // Phase 1.3 pass1 vector resolution turns `c[1:2]` into
         // `Endpoint(List([Single(c1), Single(c2), ...]))` — one lane per ordered
@@ -125,13 +70,15 @@ impl McModuleInst {
             lanes_owned = Vec::new();
         }
 
-        // caller must be McPhrase::Series whose first element is Parallel — or be synthesized above
-        let items_owned: Vec<McPhrase>;
+        // Caller must be McPhrase::Series whose first element is Parallel —
+        // or a lane-structured List receiver (taken above). The bare-bracket
+        // `McIds::from(name).expand()` synthesis (Iter-1.3) is gone: pass1's
+        // vector arm (§11.3 ③) resolves declared arrays to
+        // `Endpoint::List`, so no single-Endpoint caller reaches here with a
+        // bracket name; an undeclared array base falls to the scalar-miss
+        // decision (E3136/Wire twin) like any other undeclared name.
         let items: &Vec<McPhrase> = if !lanes_owned.is_empty() {
             &lanes_owned
-        } else if let Some(ref v) = synthesized_parallel {
-            items_owned = v.clone();
-            &items_owned
         } else {
             let phrases = match caller_phrase {
                 McPhrase::Series(phrases, _) => phrases,
