@@ -594,6 +594,15 @@ impl McModuleInst {
                 _ => {}
             }
         }
+
+        // ── §11.2: build module-level vector grouping nodes ─────────────
+        // `self.def.insts` carries the `base -> ordered member names` map
+        // recorded at parse_declare; the flat member instances were just
+        // materialized into `self.components`. Promote each multi-member group
+        // to an `McVectorInst` (module-level: empty prefix). Arc clone keeps
+        // the `&McInstances` borrow off `self` so `&mut self` is available.
+        let def = self.def.clone();
+        self.materialize_vector_groups(&def.insts, "");
     }
 
     // ========================================================================

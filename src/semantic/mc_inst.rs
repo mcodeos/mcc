@@ -350,6 +350,12 @@ impl McInstances {
         self.vectors.get(base).map(Vec::as_slice)
     }
 
+    /// §11.2: iterate all declared vector groups (base name → ordered member
+    /// names) for pass2 `McVectorInst` materialization. Written order preserved.
+    pub fn vector_groups(&self) -> impl Iterator<Item = (&String, &Vec<String>)> {
+        self.vectors.iter()
+    }
+
     /// Record a label's kind. Idempotent: Explicit takes precedence over Inline.
     pub fn set_label_kind(&mut self, name: &str, kind: LabelKind) {
         match self.label_kinds.get(name) {
