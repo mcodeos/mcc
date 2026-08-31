@@ -4439,12 +4439,6 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                     return elems;
                 }
             }
-            // ── Array-instance bracket reference: expand to the declared
-            // instance count (cap[4:5] → cap4, cap5) so opcheck sees the real
-            // width instead of a 1*1 label.
-            if let Some(elems) = array_inst_elems(label, context) {
-                return elems;
-            }
             // §8.9.6.3 shape by use: a scalar-declared module port (e.g.
             // `io UART0`) is not shape-locked at the declaration site — its
             // width is inferred from the connection context and Pass2 expands
@@ -4501,11 +4495,6 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                 if let Some(elems) = module_port_elems(context, base, member) {
                     return elems;
                 }
-            }
-            // ── Array-instance bracket reference (arrives as a Bus with the
-            // bracket in the name): expand to the declared instance count.
-            if let Some(elems) = array_inst_elems(&bus.name, context) {
-                return elems;
             }
             Vec::from(bus.clone())
         }
@@ -4758,25 +4747,6 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
         // identity — these carry no multi-member expansion.
         McPhrase::Endpoint(McEndpoint::Single(ref iref)) => vec![iref.to_bus()],
     }
-}
-
-/// Array-instance bracket reference (`cap[4:5]` / `cap[4]`): the bracket is a
-/// shorthand for N already-declared instances (cap4, cap5, ...). Present the
-/// full instance count as the element list so the strict §5 opcheck does not
-/// reject the array form as a single 1*1 point — Pass2's re-link path
-/// (stmt.rs `resolve_array_caller_to_existing`) connects each instance.
-/// Returns `None` when the name is not an array form or any expanded name is
-/// not a declared instance (a phantom array reference stays a 1*1 point and
-/// is caught downstream by D6 / the re-link drop).
-fn array_inst_elems(label: &str, context: &dyn HasFindInst) -> Option<Vec<McBus>> {
-    if !label.contains('[') || !label.contains(']') {
-        return None;
-    }
-    let expanded = crate::semantic::basic::mc_ids::McIds::from(label).expand();
-    if expanded.is_empty() || !expanded.iter().all(|n| context.find_inst(n).is_some()) {
-        return None;
-    }
-    Some(expanded.into_iter().map(|n| McBus::new(&n)).collect())
 }
 
 impl OpdShape {
