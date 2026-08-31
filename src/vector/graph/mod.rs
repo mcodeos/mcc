@@ -42,7 +42,7 @@
 
 // ── Type definition layer ──
 pub mod boxdef;
-pub(crate) mod custom_symbol;
+pub(crate) mod psymbol;
 pub mod graphdef;
 pub mod json;
 pub mod kinds;

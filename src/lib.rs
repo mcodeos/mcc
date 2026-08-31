@@ -210,13 +210,13 @@ fn resolve_system_root_once() {
 pub fn mcc_set_project_root(path: &Path) {
     debug!(target: "mcc::sysinit", project_root = ?path);
     builder::mcb_set_project_root(path);
-    let report = vector::graph::custom_symbol::load_project_symbols(path);
-    vector::graph::custom_symbol::log_report(path, &report);
+    let report = vector::graph::psymbol::load_project_symbols(path);
+    vector::graph::psymbol::log_report(path, &report);
 }
 
 /// mcc interface
 pub fn mcc_init() {
-    vector::graph::custom_symbol::clear_project_symbols();
+    vector::graph::psymbol::clear_project_symbols();
     // Resolve the system root once at startup so every later reference reads
     // the same resolved path (MCC_SYSTEM_ROOT env or ~/.mcode default).
     resolve_system_root_once();
@@ -226,7 +226,7 @@ pub fn mcc_init() {
 
 /// mcc interface (don't load system library, optional at server startup)
 pub fn mcc_init_no_lib() {
-    vector::graph::custom_symbol::clear_project_symbols();
+    vector::graph::psymbol::clear_project_symbols();
     // Resolve the system root once at startup (same as `mcc_init`).
     resolve_system_root_once();
     builder::mcb_init();
