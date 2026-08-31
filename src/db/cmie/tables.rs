@@ -186,10 +186,16 @@ impl WorkspaceManager {
                 return Some(entry.value().clone());
             }
         }
-        // Fallback: per-world system-library components (registry segment).
-        for (sn, c) in crate::db::defregistry::system_components() {
-            if sn.ident.to_string() == class_name {
-                return Some(c);
+        // Fallback: per-world system-library components (registry segment) —
+        // O(1) name-index candidates, then the component kind.
+        for hit in crate::db::defregistry::system_name_hits(class_name) {
+            if hit.kind != crate::db::defregistry::DefKind::Component {
+                continue;
+            }
+            if let Some((_, def)) = crate::db::defregistry::live_entry_by_id(hit.id) {
+                if let crate::db::defregistry::DefValue::Component(c) = def {
+                    return Some(c);
+                }
             }
         }
         None

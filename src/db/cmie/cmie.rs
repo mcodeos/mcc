@@ -92,10 +92,16 @@ pub(crate) fn find_scoped_enum_for_component(
         }
     }
     // Fallback: per-world system-library enums (Phase 5 — name-only match,
-    // any loaded system lib).
-    for (sn, def) in crate::definition_space().system_enums() {
-        if sn.ident.to_string() == family_name {
-            return Some(def);
+    // any loaded system lib). O(1) name-index candidates, then pick the
+    // enum kind.
+    for hit in crate::db::defregistry::system_name_hits(&family_name) {
+        if hit.kind != crate::db::defregistry::DefKind::Enum {
+            continue;
+        }
+        if let Some((_, def)) = crate::db::defregistry::live_entry_by_id(hit.id) {
+            if let crate::db::defregistry::DefValue::Enum(e) = def {
+                return Some(e);
+            }
         }
     }
 
@@ -131,13 +137,10 @@ pub(crate) fn is_enum_class_name(class_name: &str) -> bool {
             return true;
         }
     }
-    // Search per-world system-library enums (Phase 5)
-    for (sn, _) in crate::definition_space().system_enums() {
-        if sn.ident.to_string() == class_name {
-            return true;
-        }
-    }
-    false
+    // Search per-world system-library enums (Phase 5) — O(1) name index.
+    crate::db::defregistry::system_name_hits(class_name)
+        .iter()
+        .any(|h| h.kind == crate::db::defregistry::DefKind::Enum)
 }
 
 /// Check whether `value_name` is a valid member of the given enum class.
@@ -148,10 +151,15 @@ pub(crate) fn is_enum_member(class_name: &str, value_name: &str) -> bool {
             return def.values.iter().any(|v| v.name.to_string() == value_name);
         }
     }
-    // Search per-world system-library enums (Phase 5)
-    for (sn, def) in crate::definition_space().system_enums() {
-        if sn.ident.to_string() == class_name {
-            return def.values.iter().any(|v| v.name.to_string() == value_name);
+    // Search per-world system-library enums (Phase 5) — O(1) name index.
+    for hit in crate::db::defregistry::system_name_hits(class_name) {
+        if hit.kind != crate::db::defregistry::DefKind::Enum {
+            continue;
+        }
+        if let Some((_, def)) = crate::db::defregistry::live_entry_by_id(hit.id) {
+            if let crate::db::defregistry::DefValue::Enum(e) = def {
+                return e.values.iter().any(|v| v.name.to_string() == value_name);
+            }
         }
     }
     false
