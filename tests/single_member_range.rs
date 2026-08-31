@@ -93,14 +93,14 @@ fn single_member_range_res4_is_scalar() {
     );
 
     // res4 pins land on the real NET/VCC nets (scalar broadcast, one member).
-    let n1 = nets.iter().find(|n| n.contains("main.NET")).expect("NET net");
-    assert!(
-        n1.contains("main.res4.1"),
-        "res4 pin 1 on NET; got {n1}"
-    );
-    let n2 = nets.iter().find(|n| n.contains("main.VCC")).expect("VCC net");
-    assert!(
-        n2.contains("main.res4.2"),
-        "res4 pin 2 on VCC; got {n2}"
-    );
+    let n1 = nets
+        .iter()
+        .find(|n| n.contains("main.NET"))
+        .expect("NET net");
+    assert!(n1.contains("main.res4.1"), "res4 pin 1 on NET; got {n1}");
+    let n2 = nets
+        .iter()
+        .find(|n| n.contains("main.VCC"))
+        .expect("VCC net");
+    assert!(n2.contains("main.res4.2"), "res4 pin 2 on VCC; got {n2}");
 }

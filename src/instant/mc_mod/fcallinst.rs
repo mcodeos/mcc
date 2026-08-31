@@ -1015,11 +1015,7 @@ impl McModuleInst {
     ///
     /// Contract E: single-member ranges never reach `vectors` (the pass1
     /// registration guard is `>= 2`), so there is nothing scalar to skip.
-    pub(super) fn materialize_vector_groups(
-        &mut self,
-        insts: &McInstances,
-        inst_name: &str,
-    ) {
+    pub(super) fn materialize_vector_groups(&mut self, insts: &McInstances, inst_name: &str) {
         for (base, members) in insts.vector_groups() {
             let member_ids: Vec<String> = members
                 .iter()
@@ -1031,8 +1027,9 @@ impl McModuleInst {
                     }
                 })
                 .collect();
-            let all_materialized =
-                member_ids.iter().all(|full| self.components.iter().any(|c| &c.name == full));
+            let all_materialized = member_ids
+                .iter()
+                .all(|full| self.components.iter().any(|c| &c.name == full));
             if !all_materialized {
                 continue;
             }

@@ -83,7 +83,10 @@ fn structural_structural_different_class_reports_gap3_once() {
         None,
         String::new(),
     );
-    assert_eq!(first, second, "second registration is absorbed by the first");
+    assert_eq!(
+        first, second,
+        "second registration is absorbed by the first"
+    );
     assert_eq!(
         table.get_entry(first).map(|e| e.class_name.as_str()),
         Some("A"),
@@ -159,7 +162,11 @@ fn same_class_reregistration_is_silent() {
     );
     assert_eq!(first, second);
     let codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
-    assert_eq!(count(&codes, 4062), 0, "same declaration re-registered; got {codes:?}");
+    assert_eq!(
+        count(&codes, 4062),
+        0,
+        "same declaration re-registered; got {codes:?}"
+    );
 }
 
 /// Net side (Label/Bus/Port) claimed by a structural entity is the in-place
@@ -195,7 +202,11 @@ fn net_side_to_structural_seizure_is_not_gap3() {
         "structural priority (2 > 1) upgrades the entry"
     );
     let codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
-    assert_eq!(count(&codes, 4062), 0, "GAP3 gate requires both sides structural; got {codes:?}");
+    assert_eq!(
+        count(&codes, 4062),
+        0,
+        "GAP3 gate requires both sides structural; got {codes:?}"
+    );
 }
 
 /// Structural entity claimed by a net-side registration keeps the structural
@@ -230,7 +241,11 @@ fn structural_keeps_entry_against_net_side_claim() {
         "old structural entry is kept"
     );
     let codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
-    assert_eq!(count(&codes, 4062), 0, "net-side claim is discarded; got {codes:?}");
+    assert_eq!(
+        count(&codes, 4062),
+        0,
+        "net-side claim is discarded; got {codes:?}"
+    );
 }
 
 // ── Domain split: GAP3 stays quiet where the neighbors own the fact ─────────
@@ -266,7 +281,11 @@ fn different_class_same_inst_name_is_e5151_not_gap3() {
     let src = "component CAP {\n    pins = [\n        1 = 1\n    ]\n}\ncomponent R {\n    pins = [\n        1 = 1\n    ]\n}\nmodule main {\n    R r1\n    CAP r1\n    r1.1 -> VDD\n}";
     let codes = build_codes(src);
     assert_eq!(count(&codes, 5151), 1, "E5151 fires; got {codes:?}");
-    assert_eq!(count(&codes, 4062), 0, "flatten sees one registration; got {codes:?}");
+    assert_eq!(
+        count(&codes, 4062),
+        0,
+        "flatten sees one registration; got {codes:?}"
+    );
 }
 
 /// `[A, A] -> [GND, GND]`: two points in one connection resolve to the same
@@ -317,7 +336,11 @@ fn zero_pin_net_is_4057_not_gap3() {
     reset_workspace();
     let src = "module main {\n    func main() {\n        res[1:2] -> led[3:4]\n    }\n}";
     let codes = build_codes(src);
-    assert_eq!(count(&codes, 4057), 1, "GAP2 reports the 0-pin drop; got {codes:?}");
+    assert_eq!(
+        count(&codes, 4057),
+        1,
+        "GAP2 reports the 0-pin drop; got {codes:?}"
+    );
     assert_eq!(
         count(&codes, 4062),
         0,

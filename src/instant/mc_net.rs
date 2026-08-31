@@ -989,7 +989,11 @@ impl NetTable {
             // reference is E3137's pass1 domain and the orphaned pin is the
             // 41xx unconnected checks' domain; the domains do not double-report.
             let conn_src = conn.source_span.clone();
-            let src_pos = conn.points.iter().find_map(|p| p.src_pos.clone()).or(conn_src);
+            let src_pos = conn
+                .points
+                .iter()
+                .find_map(|p| p.src_pos.clone())
+                .or(conn_src);
             let paths: Vec<String> = conn.points.iter().map(|p| p.path.clone()).collect();
             let msg = crate::errcodes::format_msg(
                 crate::errcodes::NET_DROPPED_STATEMENT,
