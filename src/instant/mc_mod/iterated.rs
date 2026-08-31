@@ -13,6 +13,7 @@ use crate::instant::mc_net::InstError;
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::McEndpoint;
+use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::mc_inst::McInstance;
@@ -107,6 +108,16 @@ impl McModuleInst {
         if count == 0 {
             return Ok(Some(FuncCallInst::PassThrough));
         }
+
+        // ── §11.4 GAP1: member-set alignment, before the broadcast ──────
+        // Compare the iterated receiver's member count against each
+        // multi-member slice lane in the arg list (`cap[1:2].Cap([XTAL.X[1:2], gnd])`:
+        // {cap1,cap2} vs {XTAL.X1,XTAL.X2} — one-to-one correspondence needs
+        // equal widths). Fires once per mismatched slice; scalar lanes
+        // broadcast (§5 item 17) and the arg-list-vs-formals lane-count
+        // mismatch stays with the existing E4180 downstream. The zip itself
+        // clamps to the receiver width so GAP1 is the single report.
+        self.emit_gap1_member_set_mismatch(params, count);
 
         // ── Expansion provenance: Iterated (covers the per-item loop,
         //    §4.1-A4 / B8). Per-item constructions / func calls begin their
@@ -270,22 +281,145 @@ impl McModuleInst {
 
     /// Resolve index-related values in parameters
     ///
-    /// Every parameter value is **broadcast unchanged** to every iterated
-    /// member. The member loop supplies the receiver identity via
-    /// `item_left_elems` (each item's own pins) — it never splits a `Set`
-    /// arg list or a `Vector` (`X<1:2>`) across members. §5 item 17:
-    /// `res[1:2].Pullup([net,vcc])` → res1, res2 each get one `net - RES - vcc`.
+    /// Every scalar parameter value is **broadcast unchanged** to every
+    /// iterated member (§5 item 17: `res[1:2].Pullup([net,vcc])` → res1, res2
+    /// each get one `net - RES - vcc`). A **multi-member slice lane** in an
+    /// arg list (`cap[1:2].Cap([XTAL.X[1:2], gnd])`) zips positionally
+    /// against the receiver's members — at index i the slice collapses to its
+    /// i-th member (c1↔XTAL.X1, c2↔XTAL.X2). The member set comes from
+    /// `McIds::expand` (pipeline-③ producer); a slice shorter than the
+    /// receiver clamps to its last member — the width mismatch is reported by
+    /// GAP1 ([`Self::emit_gap1_member_set_mismatch`]) at the call level, so
+    /// the downstream E4180 (arg-list lane count vs formals) stays quiet.
     ///
     /// # Parameters
     /// - `params` — the original parameter list
-    /// - `index` — current iteration index (retained for signature stability)
-    /// - `total` — total iteration count (used for bounds checking)
+    /// - `index` — current iteration index
+    /// - `total` — total iteration count (receiver member count)
     fn resolve_indexed_params(
         params: &[McParamValue],
-        _index: usize,
-        _total: usize,
+        index: usize,
+        total: usize,
     ) -> Vec<McParamValue> {
-        params.iter().cloned().collect()
+        params
+            .iter()
+            .map(|p| Self::zip_param_lane(p, index, total))
+            .collect()
+    }
+
+    /// §11.4 GAP1: expand a vector-slice lane to its `index`-th member.
+    ///
+    /// Recurses into `Set` arg lists (the `[..]` square-vector form); a
+    /// multi-member `Opd(Id)` / `Ids` lane whose slice width is ≥ 2 becomes
+    /// its `index`-th expanded member. Clamps to the last member when the
+    /// slice is narrower than the receiver (GAP1 already reported the width
+    /// mismatch). Scalar lanes pass through unchanged (broadcast).
+    fn zip_param_lane(param: &McParamValue, index: usize, total: usize) -> McParamValue {
+        match param {
+            McParamValue::Set(values) => McParamValue::Set(
+                values
+                    .iter()
+                    .map(|v| Self::zip_param_lane(v, index, total))
+                    .collect(),
+            ),
+            McParamValue::Opd(McOpd::Id(ids)) => {
+                Self::zip_slice_member(ids, index, total)
+                    .map(|m| McParamValue::Opd(McOpd::Id(McIds::from(m.as_str()))))
+                    .unwrap_or_else(|| param.clone())
+            }
+            McParamValue::Ids(ids) => Self::zip_slice_member(ids, index, total)
+                .map(|m| McParamValue::Ids(McIds::from(m.as_str())))
+                .unwrap_or_else(|| param.clone()),
+            _ => param.clone(),
+        }
+    }
+
+    /// Member of a slice at `index`, or `None` when the id is not a
+    /// multi-member vector slice (scalar → broadcast unchanged).
+    fn zip_slice_member(ids: &McIds, index: usize, total: usize) -> Option<String> {
+        if total < 2 {
+            return None;
+        }
+        let members = ids.expand();
+        if members.len() < 2 {
+            return None;
+        }
+        Some(members[index.min(members.len() - 1)].clone())
+    }
+
+    /// §11.4 GAP1: report receiver-vs-slice member-set mismatches.
+    ///
+    /// `cap[1:2].Cap([XTAL.X[1:3], gnd])` — receiver {cap1,cap2} (2) against
+    /// the slice {XTAL.X1,XTAL.X2,XTAL.X3} (3): one-to-one correspondence
+    /// needs equal widths. Fires once per distinct mismatched slice; scalar
+    /// lanes (broadcast) and aligned slices stay quiet. Span from the current
+    /// statement when available.
+    fn emit_gap1_member_set_mismatch(&self, params: &[McParamValue], receiver_count: usize) {
+        if receiver_count < 2 {
+            return;
+        }
+        let mut slices: Vec<String> = Vec::new();
+        for lane in params {
+            Self::gap1_collect_slices(lane, receiver_count, &mut slices);
+        }
+        if slices.is_empty() {
+            return;
+        }
+        let site = self.current_call_site();
+        for display in &slices {
+            let msg = crate::errcodes::format_msg(
+                crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
+                &[
+                    &receiver_count.to_string(),
+                    display as &dyn std::fmt::Display,
+                ],
+            );
+            match &site {
+                Some(spos) => crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                    crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    spos.uri.clone(),
+                    spos.offset,
+                    0,
+                    &msg,
+                    &[],
+                ),
+                None => crate::db::diagnostic::diagnostic::diagnostic_log(
+                    crate::errcodes::VECTOR_ZIP_WIDTH_MISMATCH,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                    0,
+                    0,
+                    &msg,
+                    &[],
+                ),
+            }
+        }
+    }
+
+    /// Collect the display forms of every multi-member slice lane whose width
+    /// differs from the receiver count (deduplicated).
+    fn gap1_collect_slices(
+        param: &McParamValue,
+        receiver_count: usize,
+        out: &mut Vec<String>,
+    ) {
+        match param {
+            McParamValue::Set(values) => {
+                for v in values {
+                    Self::gap1_collect_slices(v, receiver_count, out);
+                }
+            }
+            McParamValue::Opd(McOpd::Id(ids)) | McParamValue::Ids(ids) => {
+                let members = ids.expand();
+                if members.len() >= 2 && members.len() != receiver_count {
+                    let display = ids.to_string();
+                    if !out.contains(&display) {
+                        out.push(display);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     /// §3.3: extract the materialized instance name from an iterated item.
