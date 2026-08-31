@@ -5,7 +5,6 @@
 use crate::ast::ast_semantic::Span;
 use crate::db::cmie::cmie::mcb_get_cmie_with_uri;
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::global;
 use crate::semantic::module::McModule;
 use crate::semantic::scope::container_scope;
 use crate::{McCMIE, McIds, McSpaceName, McURI};
@@ -473,16 +472,18 @@ pub(crate) fn collect_from_project(
 // === fn collect_from_system_lib( ===
 /// Collect classes from the mcode system library (P5, §5.5 / §8.1.1).
 ///
-/// Enumerates the four `global::mcc_*` tables. A class already delivered by an
+/// Enumerates the four system-library tables (through the DefinitionSpace
+/// system-only view). A class already delivered by an
 /// inner layer (P3/P4) is not repeated — inner layers shadow outer ones (§6.1).
 pub(crate) fn collect_from_system_lib(
     _filter: &crate::ScopeFilter,
     results: &mut Vec<crate::LookupResult>,
     limiter: &mut LayerLimiter,
 ) {
-    for entry in global::mcc_components.iter() {
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    let ds = crate::definition_space();
+    for (sn, def) in ds.system_components() {
+        let name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         let kind = crate::LookupSymbolKind::Component;
         if !results
             .iter()
@@ -493,7 +494,7 @@ pub(crate) fn collect_from_system_lib(
                 limiter,
                 crate::LookupResult {
                     uri,
-                    span: entry.value().span.start..entry.value().span.end,
+                    span: def.span.start..def.span.end,
                     kind,
                     container: None,
                     scope: String::new(),
@@ -503,9 +504,9 @@ pub(crate) fn collect_from_system_lib(
             );
         }
     }
-    for entry in global::mcc_modules.iter() {
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    for (sn, def) in ds.system_modules() {
+        let name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         let kind = crate::LookupSymbolKind::Module;
         if !results
             .iter()
@@ -516,7 +517,7 @@ pub(crate) fn collect_from_system_lib(
                 limiter,
                 crate::LookupResult {
                     uri,
-                    span: entry.value().span.start..entry.value().span.end,
+                    span: def.span.start..def.span.end,
                     kind,
                     container: None,
                     scope: String::new(),
@@ -526,9 +527,9 @@ pub(crate) fn collect_from_system_lib(
             );
         }
     }
-    for entry in global::mcc_interfaces.iter() {
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    for (sn, def) in ds.system_interfaces() {
+        let name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         let kind = crate::LookupSymbolKind::Interface;
         if !results
             .iter()
@@ -539,7 +540,7 @@ pub(crate) fn collect_from_system_lib(
                 limiter,
                 crate::LookupResult {
                     uri,
-                    span: entry.value().span.start..entry.value().span.end,
+                    span: def.span.start..def.span.end,
                     kind,
                     container: None,
                     scope: String::new(),
@@ -549,9 +550,9 @@ pub(crate) fn collect_from_system_lib(
             );
         }
     }
-    for entry in global::mcc_enums.iter() {
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    for (sn, def) in ds.system_enums() {
+        let name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         let kind = crate::LookupSymbolKind::Enum;
         if !results
             .iter()
@@ -562,7 +563,7 @@ pub(crate) fn collect_from_system_lib(
                 limiter,
                 crate::LookupResult {
                     uri,
-                    span: entry.value().span[0] as usize..entry.value().span[1] as usize,
+                    span: def.span[0] as usize..def.span[1] as usize,
                     kind,
                     container: None,
                     scope: String::new(),
@@ -624,7 +625,7 @@ pub enum ContainerRef {
 ///
 /// Search order:
 ///   1. `workspace.*` CMIE tables (project definitions)
-///   2. `global::mcc_*` CMIE tables (system library definitions)
+///   2. system-library CMIE tables (DefinitionSpace system-only view)
 ///
 /// `kind_hint` narrows which DashMaps to search. Pass [`CmieKind::Any`] to
 /// search all four container types.
@@ -672,36 +673,34 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
         }
     }
 
-    // ── Layer 2: global (mcode system library) tables ──
+    // ── Layer 2: system-library tables (P5), through the DefinitionSpace
+    // system-only view (defspace.rs) ──
+    let ds = crate::definition_space();
     if matches!(kind_hint, CmieKind::Component | CmieKind::Any) {
-        for entry in global::mcc_components.iter() {
-            let key = entry.key();
-            if key.uri == uri_str && key.ident.to_string() == cn {
-                return Some(ContainerRef::Component(entry.value().clone()));
+        for (sn, def) in ds.system_components() {
+            if sn.uri == uri_str && sn.ident.to_string() == cn {
+                return Some(ContainerRef::Component(def));
             }
         }
     }
     if matches!(kind_hint, CmieKind::Module | CmieKind::Any) {
-        for entry in global::mcc_modules.iter() {
-            let key = entry.key();
-            if key.uri == uri_str && key.ident.to_string() == cn {
-                return Some(ContainerRef::Module(entry.value().clone()));
+        for (sn, def) in ds.system_modules() {
+            if sn.uri == uri_str && sn.ident.to_string() == cn {
+                return Some(ContainerRef::Module(def));
             }
         }
     }
     if matches!(kind_hint, CmieKind::Interface | CmieKind::Any) {
-        for entry in global::mcc_interfaces.iter() {
-            let key = entry.key();
-            if key.uri == uri_str && key.ident.to_string() == cn {
-                return Some(ContainerRef::Interface(entry.value().clone()));
+        for (sn, def) in ds.system_interfaces() {
+            if sn.uri == uri_str && sn.ident.to_string() == cn {
+                return Some(ContainerRef::Interface(def));
             }
         }
     }
     if matches!(kind_hint, CmieKind::Enum | CmieKind::Any) {
-        for entry in global::mcc_enums.iter() {
-            let key = entry.key();
-            if key.uri == uri_str && key.ident.to_string() == cn {
-                return Some(ContainerRef::Enum(entry.value().clone()));
+        for (sn, def) in ds.system_enums() {
+            if sn.uri == uri_str && sn.ident.to_string() == cn {
+                return Some(ContainerRef::Enum(def));
             }
         }
     }
@@ -807,65 +806,41 @@ pub fn lookup_sub_def(
         }
     };
 
+    // Merged workspace + system-lib search through the DefinitionSpace view
+    // (workspace first, deduped by identity — same order the two loops below
+    // the original code walked).
+    let ds = crate::definition_space();
     if matches!(cmie_kind, CmieKind::Component | CmieKind::Any) {
-        for entry in workspace::WORKSPACE.components.iter() {
-            if entry.key().uri == uri_str {
-                if let Some(span) = try_container(&ContainerRef::Component(entry.value().clone())) {
-                    return Some(span);
-                }
-            }
-        }
-        for entry in global::mcc_components.iter() {
-            if entry.key().uri == uri_str {
-                if let Some(span) = try_container(&ContainerRef::Component(entry.value().clone())) {
+        for (sn, def) in ds.all_components() {
+            if sn.uri == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Component(def)) {
                     return Some(span);
                 }
             }
         }
     }
     if matches!(cmie_kind, CmieKind::Module | CmieKind::Any) {
-        for entry in workspace::WORKSPACE.modules.iter() {
-            if entry.key().uri == uri_str {
-                if let Some(span) = try_container(&ContainerRef::Module(entry.value().clone())) {
-                    return Some(span);
-                }
-            }
-        }
-        for entry in global::mcc_modules.iter() {
-            if entry.key().uri == uri_str {
-                if let Some(span) = try_container(&ContainerRef::Module(entry.value().clone())) {
+        for (sn, def) in ds.all_modules() {
+            if sn.uri == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Module(def)) {
                     return Some(span);
                 }
             }
         }
     }
     if matches!(cmie_kind, CmieKind::Interface | CmieKind::Any) {
-        for entry in workspace::WORKSPACE.interfaces.iter() {
-            if entry.key().uri == uri_str {
-                if let Some(span) = try_container(&ContainerRef::Interface(entry.value().clone())) {
-                    return Some(span);
-                }
-            }
-        }
-        for entry in global::mcc_interfaces.iter() {
-            if entry.key().uri == uri_str {
-                if let Some(span) = try_container(&ContainerRef::Interface(entry.value().clone())) {
+        for (sn, def) in ds.all_interfaces() {
+            if sn.uri == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Interface(def)) {
                     return Some(span);
                 }
             }
         }
     }
     if matches!(cmie_kind, CmieKind::Enum | CmieKind::Any) {
-        for entry in workspace::WORKSPACE.enums.iter() {
-            if entry.key().uri == uri_str {
-                if let Some(span) = try_container(&ContainerRef::Enum(entry.value().clone())) {
-                    return Some(span);
-                }
-            }
-        }
-        for entry in global::mcc_enums.iter() {
-            if entry.key().uri == uri_str {
-                if let Some(span) = try_container(&ContainerRef::Enum(entry.value().clone())) {
+        for (sn, def) in ds.all_enums() {
+            if sn.uri == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Enum(def)) {
                     return Some(span);
                 }
             }
@@ -925,10 +900,11 @@ pub(crate) fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE>
 /// forbidden). Kept only for diagnostic dumps (`mcc show` / debug traces).
 pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMIE> {
     let name_str = class_name.to_string();
+    let ds = crate::definition_space();
 
     // Check components (exact match)
-    for entry in global::mcc_components.iter() {
-        let ident_str = entry.key().ident.to_string();
+    for (sn, def) in ds.system_components() {
+        let ident_str = sn.ident.to_string();
         if name_str == "DIO.ESD" {
             mcc_dbg!(
                 "lsp::query",
@@ -936,31 +912,31 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
             );
         }
         if ident_str == name_str {
-            return Some(McCMIE::Component(entry.value().clone()));
+            return Some(McCMIE::Component(def));
         }
     }
 
     // Check modules (exact match)
-    for entry in global::mcc_modules.iter() {
-        let ident_str = entry.key().ident.to_string();
+    for (sn, def) in ds.system_modules() {
+        let ident_str = sn.ident.to_string();
         if ident_str == name_str {
-            return Some(McCMIE::Module(entry.value().clone()));
+            return Some(McCMIE::Module(def));
         }
     }
 
     // Check interfaces
-    for entry in global::mcc_interfaces.iter() {
-        let ident_str = entry.key().ident.to_string();
+    for (sn, def) in ds.system_interfaces() {
+        let ident_str = sn.ident.to_string();
         if ident_str == name_str {
-            return Some(McCMIE::Interface(entry.value().clone()));
+            return Some(McCMIE::Interface(def));
         }
     }
 
     // Check enums
-    for entry in global::mcc_enums.iter() {
-        let ident_str = entry.key().ident.to_string();
+    for (sn, def) in ds.system_enums() {
+        let ident_str = sn.ident.to_string();
         if ident_str == name_str {
-            return Some(McCMIE::Enum(entry.value().clone()));
+            return Some(McCMIE::Enum(def));
         }
     }
 

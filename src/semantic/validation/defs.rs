@@ -130,57 +130,27 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
     //   while user-project definitions live in WORKSPACE.*. Both must be
     //   included, otherwise the validation would emit false "not loaded"
     //   warnings for every system lib name referenced from user code.
+    //
+    // §12.4 rule 1: one merged read through the DefinitionSpace view
+    // (workspace then system lib, deduped by identity). Defines are
+    // workspace-only there (the global defines table is empty), so all_defines()
+    // covers them with the same entries.
+    let ds = crate::definition_space();
     let mut known: HashSet<String> = HashSet::new();
-    {
-        // Components: workspace + global
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for e in comps.iter() {
-            known.insert(e.key().ident.to_string());
-        }
-        let global_comps = &crate::db::infra::global::mcc_components;
-        for e in global_comps.iter() {
-            known.insert(e.key().ident.to_string());
-        }
+    for (sn, _) in ds.all_components() {
+        known.insert(sn.ident.to_string());
     }
-    {
-        // Modules: workspace + global
-        let mods = &crate::db::cmie::tables::WORKSPACE.modules;
-        for e in mods.iter() {
-            known.insert(e.key().ident.to_string());
-        }
-        let global_mods = &crate::db::infra::global::mcc_modules;
-        for e in global_mods.iter() {
-            known.insert(e.key().ident.to_string());
-        }
+    for (sn, _) in ds.all_modules() {
+        known.insert(sn.ident.to_string());
     }
-    {
-        // Interfaces: workspace + global
-        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-        for e in ifaces.iter() {
-            known.insert(e.key().ident.to_string());
-        }
-        let global_ifaces = &crate::db::infra::global::mcc_interfaces;
-        for e in global_ifaces.iter() {
-            known.insert(e.key().ident.to_string());
-        }
+    for (sn, _) in ds.all_interfaces() {
+        known.insert(sn.ident.to_string());
     }
-    {
-        // Enums: workspace + global
-        let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-        for e in enums.iter() {
-            known.insert(e.key().ident.to_string());
-        }
-        let global_enums = &crate::db::infra::global::mcc_enums;
-        for e in global_enums.iter() {
-            known.insert(e.key().ident.to_string());
-        }
+    for (sn, _) in ds.all_enums() {
+        known.insert(sn.ident.to_string());
     }
-    {
-        // Defines: workspace only (defines are not stored in global tables)
-        let defs = &crate::db::cmie::tables::WORKSPACE.defines;
-        for e in defs.iter() {
-            known.insert(e.key().ident.to_string());
-        }
+    for (sn, _) in ds.all_defines() {
+        known.insert(sn.ident.to_string());
     }
 
     // Check component pin interface bindings
