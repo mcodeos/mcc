@@ -169,7 +169,7 @@ pub(crate) fn component_pin_layout(class_name: &str) -> Option<PinLayout> {
 /// ★ Project SVG interface: query the validated project-local symbol registry by class name.
 /// Missing, invalid, or undeclared symbols return `None` and keep the system renderer fallback.
 fn resolve_custom_symbol(class_name: &str) -> Option<CustomSymbol> {
-    super::custom_symbol::resolve_project_symbol(class_name)
+    super::psymbol::resolve_project_symbol(class_name)
 }
 
 /// Build a box from InstTable by id (shared by Phase 1 / Phase 1.5, avoids classification logic drift)
