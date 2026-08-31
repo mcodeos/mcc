@@ -1001,24 +1001,44 @@ impl NetTable {
                     ),
                 ],
             );
+            // The drop is a single source-level fact; `mcc_build` and
+            // `mcc_build_flat` both run this instantiation (pass2_flat delegates
+            // to pass2), so dedup on (uri, offset) before logging or a consumer
+            // that runs both sees the phantom-only connection reported twice.
             match &src_pos {
-                Some(sp) => crate::db::diagnostic::diagnostic::diagnostic_log_at(
-                    crate::errcodes::NET_DROPPED_STATEMENT,
-                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                    sp.uri.clone(),
-                    sp.offset,
-                    0,
-                    &msg,
-                    &[],
-                ),
-                None => crate::db::diagnostic::diagnostic::diagnostic_log(
-                    crate::errcodes::NET_DROPPED_STATEMENT,
-                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                    0,
-                    0,
-                    &msg,
-                    &[],
-                ),
+                Some(sp) => {
+                    if !crate::db::diagnostic::diagnostic::has_code_at(
+                        crate::errcodes::NET_DROPPED_STATEMENT,
+                        &sp.uri,
+                        sp.offset,
+                    ) {
+                        crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                            crate::errcodes::NET_DROPPED_STATEMENT,
+                            crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                            sp.uri.clone(),
+                            sp.offset,
+                            0,
+                            &msg,
+                            &[],
+                        );
+                    }
+                }
+                None => {
+                    if !crate::db::diagnostic::diagnostic::has_code_at(
+                        crate::errcodes::NET_DROPPED_STATEMENT,
+                        &crate::current_uri::get(),
+                        0,
+                    ) {
+                        crate::db::diagnostic::diagnostic::diagnostic_log(
+                            crate::errcodes::NET_DROPPED_STATEMENT,
+                            crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                            0,
+                            0,
+                            &msg,
+                            &[],
+                        );
+                    }
+                }
             }
             return;
         }

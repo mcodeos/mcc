@@ -48,6 +48,40 @@
 //! E3137 — so no net is double-reported. E3136 remains the bare-Wire boundary
 //! (`floating.rs`): E3136 = naked undeclared name resolved as a Wire, E3137 =
 //! structured ghost (bus/interface member miss) referenced uniquely.
+//!
+//! ## §11.4 (GAP3): physical-position preemption — the domain audit
+//!
+//! mcode-architecture-circuit-model.md §9.3.3 rates GAP3 lowest-priority /
+//! deferrable (design "can defer", heavily overlapping 4051). The Phase 2.3 audit confirms
+//! that empirically: the flat-layer "two different declarations materialize to
+//! the same physical pin id" fact has **no well-formed-MCode trigger**, because
+//! every collision is absorbed by the pass1 declaration layer before flatten:
+//!   * same-scope instance names → E5151 (`check_duplicate_instances`,
+//!     validation/ports.rs), dense for same-name / vector-member / port-vs-
+//!     component collisions;
+//!   * `insts` name-keyed dedup → only ONE of two same-named instances survives
+//!     into `McModuleInst.components`, so flatten never sees the second
+//!     registration;
+//!   * flat paths are scope-unique (`module.instance.pinname`) — two different
+//!     scopes cannot produce the same path.
+//! The check is implemented as E4062 PIN_OCCUPIED_BY_DECLARATION at the flat
+//! registration site (`InstTable::register`, insttab.rs): it fires only when
+//! BOTH the existing and the new registration are structural
+//! (Module/Component/Pin) AND their declaration classes differ. That gate is
+//! mathematically disjoint from the neighbors, so no double-report:
+//!   * E5151 (pass1) = same-scope instance NAMES; GAP3 = same flat pin PATH.
+//!   * 4051 NET_MERGED_SHORT (build side, visit.rs) = ≥2 point paths inside ONE
+//!     connection resolve to the same id — a net-layer merge fact; GAP3 = pin
+//!     DECLARATION occupancy, never a connection.
+//!   * 4053 SORT_HAZARD (pass1, instref.rs) = bus pin-group member→pin mapping
+//!     non-monotonic; GAP3 = a pin id claimed by two declarations.
+//! Probe finding (2026-08-31): the only genuinely-silent flat-layer uniqueness
+//! hole in valid syntax is the pin **function-name** namespace — `pins =
+//! [1 = DUP, 2 = DUP]` (duplicate function name) or a function name equal to
+//! another pin's number both resolve silently. That is a pass1 pin-declaration
+//! uniqueness gap (name slot, not pin id), orthogonal to GAP3's defined domain;
+//! it is left to a future declaration-layer check, consistent with GAP3's
+//! "can defer" verdict.
 
 use super::floating::{count_refs, RefCounts};
 use super::ledger;

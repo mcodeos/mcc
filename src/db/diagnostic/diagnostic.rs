@@ -227,6 +227,23 @@ impl DiagnosticManager {
             .unwrap_or_default()
     }
 
+    /// Has a diagnostic with `code` already been logged at exactly this
+    /// `(uri, pos)`? Keeps a single source-level fact idempotent when the same
+    /// fact is re-derived by repeated runs — e.g. `mcc_build` and
+    /// `mcc_build_flat` both execute pass2 instantiation (the latter delegates
+    /// to the former, pass2.rs), so a phantom-only connection's GAP2 E4057
+    /// would otherwise fire once per instantiation run.
+    pub fn has_code_at(&self, code: u32, uri: &McURI, pos: u32) -> bool {
+        self.file_to_diagnostics
+            .get(uri)
+            .map(|indices| {
+                indices
+                    .iter()
+                    .any(|&i| self.diagnostics[i].code == code && self.diagnostics[i].loc.pos == pos)
+            })
+            .unwrap_or(false)
+    }
+
     pub fn clear(&mut self) {
         self.diagnostics.clear();
         self.file_to_diagnostics.clear();
@@ -326,6 +343,17 @@ pub fn diagnostic_log_at(
         .lock()
         .unwrap()
         .add_diagnostic(new_diagnostic);
+}
+
+/// Has a diagnostic with `code` already been logged at exactly this
+/// `(uri, pos)`? See [`DiagnosticManager::has_code_at`] — used before logging
+/// a fact that repeated instantiation runs would otherwise duplicate.
+pub fn has_code_at(code: u32, uri: &McURI, pos: u32) -> bool {
+    workspace::WORKSPACE
+        .diagnostics
+        .lock()
+        .unwrap()
+        .has_code_at(code, uri, pos)
 }
 
 pub fn dlog_trace(code: u32, msg: &str) {

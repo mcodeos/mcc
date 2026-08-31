@@ -730,6 +730,12 @@ pub const NET_DUPLICATE_REF: u32 = 4060;
 /// Same logical net referenced more than once in a connection, pairing to different peer nets — possible short.
 pub const NET_SHORT_REF: u32 = 4061;
 
+/// GAP3 (§9.3.3 / vector-pipeline §2.3): two different declarations materialize
+/// to the same physical pin id — a structural entity (component pin / module /
+/// component) claims a flat path already occupied by a different structural
+/// declaration. The second registration is silently merged into the first.
+pub const PIN_OCCUPIED_BY_DECLARATION: u32 = 4062;
+
 /// Layout attribute is missing a required subnode.
 pub const LAYOUT_MISSING_SUBNODE: u32 = 4081;
 
@@ -1458,6 +1464,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NET_DROPPED_STATEMENT, "A connection statement materialized no physical pins; no nets or constraints were produced.", "DROPPED_STATEMENT: {0} {1}. The statement may produce no nets or constraints."),
     entry!(NET_DUPLICATE_REF, "Same logical net referenced more than once in a connection, always pairing to the same peer net — redundant.", "DUPLICATE_REF: logical net '{0}' is referenced more than once and always pairs to the same net '{1}'. The result is identical to '{0} -> {1}'; simplify the redundant reference."),
     entry!(NET_SHORT_REF, "Same logical net referenced more than once in a connection, pairing to different peer nets — possible short.", "SHORT_REF: logical net '{0}' is referenced more than once and pairs to different nets [{1}]. Those nets are shorted together through the same-name group's pads; review the connection."),
+    entry!(PIN_OCCUPIED_BY_DECLARATION, "Two different declarations materialized to the same physical pin id; the later registration is merged into the first.", "OCCUPIED_PIN: physical pin '{0}' (declaration class '{1}') is also claimed by a second, different declaration (class '{2}'). Two different-named declarations materialized to the same physical pin id; the later registration is absorbed by the first."),
     entry!(LAYOUT_MISSING_SUBNODE, "Layout attribute is missing a required subnode.", "Layout attribute is missing a required subnode."),
     entry!(LAYOUT_TYPE_MISMATCH, "Layout attribute node type mismatch.", "Layout attribute node type mismatch."),
     entry!(LAYOUT_SET_MISSING_SUBNODE, "Layout set is missing a required subnode.", "Layout set is missing a required subnode."),

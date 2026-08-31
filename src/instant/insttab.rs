@@ -410,8 +410,12 @@ impl InstTable {
     ///     class_name / io_type; the ID remains unchanged, and the established
     ///     path_index and parent references remain valid).
     ///   * Otherwise keep the old entry and discard this registration.
-    ///   Both cases print a diagnostic line, making it easier to locate kind
-    ///   seizure issues like "Component registered as Port" (see bug ①).
+    ///
+    /// When BOTH the existing and the new registration are structural
+    /// (Module/Component/Pin) with different declaration classes, the collision
+    /// is reported as GAP3 (E4062 PIN_OCCUPIED_BY_DECLARATION) — two different
+    /// declarations materialized to the same physical pin id (see the check
+    /// body below for the domain split vs E5151 / 4051 / 4053).
     pub fn register(
         &mut self,
         path: String,
@@ -427,6 +431,47 @@ impl InstTable {
             let existing_kind = self.entries.get(&existing_id).map(|e| e.kind.clone());
 
             if let Some(existing_kind) = existing_kind {
+                // ── GAP3 (E4062 PIN_OCCUPIED_BY_DECLARATION) ─────────────────
+                // "Two different declarations materialize to the same physical
+                // pin id" (design §9.3.3 / vector-pipeline §2.3). Fires only when
+                // BOTH registrations are structural entities (Module/Component/
+                // Pin) AND their declaration classes differ — a flat-layer
+                // physical-position preemption the declaration layer cannot see.
+                // Every valid-syntax trigger is absorbed by the pass1
+                // declaration layer (E5151 same-scope instance names, `insts`
+                // name-keyed dedup), so this is dormant-by-construction for
+                // well-formed MCode — it converts the silent merge into an
+                // error should a collision ever reach flatten. The domain split:
+                // GAP3 = pin DECLARATION occupancy (here), E5151 = same-scope
+                // instance names (pass1), 4051 = per-connection net merge
+                // (build side, visit.rs), 4053 = bus pin-group monotonicity
+                // (pass1, instref.rs) — mutually exclusive, no double-report.
+                let existing_class = self
+                    .entries
+                    .get(&existing_id)
+                    .map(|e| e.class_name.clone())
+                    .unwrap_or_default();
+                if kind.registration_priority() == 2
+                    && existing_kind.registration_priority() == 2
+                    && !existing_class.is_empty()
+                    && existing_class != class_name
+                {
+                    crate::db::diagnostic::diagnostic::diagnostic_log(
+                        crate::errcodes::PIN_OCCUPIED_BY_DECLARATION,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        src_pos.as_ref().map(|s| s.offset).unwrap_or(0),
+                        1,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PIN_OCCUPIED_BY_DECLARATION,
+                            &[
+                                &path as &dyn std::fmt::Display,
+                                &existing_class as &dyn std::fmt::Display,
+                                &class_name as &dyn std::fmt::Display,
+                            ],
+                        ),
+                        &[],
+                    );
+                }
                 if existing_kind != kind {
                     let new_pri = kind.registration_priority();
                     let old_pri = existing_kind.registration_priority();
