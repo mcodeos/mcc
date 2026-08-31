@@ -4,9 +4,8 @@
 
 use crate::db::cmie::tables as workspace;
 use crate::db::defspace::SourceDomain;
-use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
-use crate::{McSpaceName, McURI};
+use crate::McURI;
 use dashmap;
 use std::collections::HashSet;
 use std::io::{IsTerminal, Write};
@@ -425,103 +424,8 @@ pub fn mcb_remove(uri: &McURI) {
 }
 
 // === fn remove_defines(uri: &McURI) { ===
+/// Remove every definition this file registered, from both physical tables —
+/// delegated to the single write entry (defregistry.rs).
 pub(crate) fn remove_defines(uri: &McURI) {
-    // Note: DashMap's iter() is read-only iteration, won't block write operations, suitable for collecting keys to delete first
-
-    // workspace tables
-    let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
-        .components
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        workspace::WORKSPACE.components.remove(&space_name);
-    }
-
-    let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
-        .modules
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        workspace::WORKSPACE.modules.remove(&space_name);
-    }
-
-    let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
-        .interfaces
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        workspace::WORKSPACE.interfaces.remove(&space_name);
-    }
-
-    let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
-        .enums
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        workspace::WORKSPACE.enums.remove(&space_name);
-    }
-
-    let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
-        .defines
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        workspace::WORKSPACE.defines.remove(&space_name);
-    }
-
-    // global tables (system lib registrations)
-    let to_remove: Vec<McSpaceName> = global::mcc_components
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        global::mcc_components.remove(&space_name);
-    }
-
-    let to_remove: Vec<McSpaceName> = global::mcc_modules
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        global::mcc_modules.remove(&space_name);
-    }
-
-    let to_remove: Vec<McSpaceName> = global::mcc_interfaces
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        global::mcc_interfaces.remove(&space_name);
-    }
-
-    let to_remove: Vec<McSpaceName> = global::mcc_enums
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        global::mcc_enums.remove(&space_name);
-    }
-
-    let to_remove: Vec<McSpaceName> = global::mcc_defines
-        .iter()
-        .filter(|entry| entry.key().uri == *uri)
-        .map(|entry| entry.key().clone())
-        .collect();
-    for space_name in to_remove {
-        global::mcc_defines.remove(&space_name);
-    }
+    crate::db::defregistry::remove_by_uri(uri.as_str());
 }

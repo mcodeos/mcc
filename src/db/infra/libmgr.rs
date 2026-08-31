@@ -261,15 +261,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
             .values()
             .map(|sn| sn.uri.to_string())
             .collect();
-        remove_by_uris(&global::mcc_components, &uris);
-        remove_by_uris(&global::mcc_interfaces, &uris);
-        remove_by_uris(&global::mcc_enums, &uris);
-        remove_by_uris(&global::mcc_defines, &uris);
-        remove_by_uris(&workspace::WORKSPACE.modules, &uris);
-        remove_by_uris(&workspace::WORKSPACE.components, &uris);
-        remove_by_uris(&workspace::WORKSPACE.interfaces, &uris);
-        remove_by_uris(&workspace::WORKSPACE.enums, &uris);
-        remove_by_uris(&workspace::WORKSPACE.defines, &uris);
+        crate::db::defregistry::remove_by_uris(&uris);
         info!(
             target: "mcc::lib",
             name = name,
@@ -362,16 +354,7 @@ pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
         }
         ClearScope::Lib => {
             let uris = uris.expect("ClearScope::Lib requires the library uri set");
-            remove_by_uris(&global::mcc_components, uris);
-            remove_by_uris(&global::mcc_modules, uris);
-            remove_by_uris(&global::mcc_interfaces, uris);
-            remove_by_uris(&global::mcc_enums, uris);
-            remove_by_uris(&global::mcc_defines, uris);
-            remove_by_uris(&workspace::WORKSPACE.components, uris);
-            remove_by_uris(&workspace::WORKSPACE.modules, uris);
-            remove_by_uris(&workspace::WORKSPACE.interfaces, uris);
-            remove_by_uris(&workspace::WORKSPACE.enums, uris);
-            remove_by_uris(&workspace::WORKSPACE.defines, uris);
+            crate::db::defregistry::remove_by_uris(uris);
         }
     }
 }
@@ -546,17 +529,6 @@ fn collect_spacenames_by_prefix_global<T>(
                 .spacenames
                 .insert(entry.key().ident.clone(), entry.key().clone());
         }
-    }
-}
-
-fn remove_by_uris<T>(table: &DashMap<McSpaceName, Arc<T>>, uris: &HashSet<String>) {
-    let to_remove: Vec<McSpaceName> = table
-        .iter()
-        .filter(|e| uris.contains(e.key().uri.as_uri().as_ref()))
-        .map(|e| e.key().clone())
-        .collect();
-    for key in to_remove {
-        table.remove(&key);
     }
 }
 
