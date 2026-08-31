@@ -901,29 +901,18 @@ pub(crate) fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE>
     //     space_name.uri,
     //     canonical_space_name.uri
     // );
-    if let Some(comp) = workspace::WORKSPACE.components.get(&canonical_space_name) {
-        return Some(McCMIE::Component(comp.clone()));
+    let ds = crate::definition_space();
+    if let Some(comp) = ds.get_component(&canonical_space_name) {
+        return Some(McCMIE::Component(comp));
     }
-    if let Some(comp) = global::mcc_components.get(&canonical_space_name) {
-        return Some(McCMIE::Component(comp.clone()));
+    if let Some(module) = ds.get_module(&canonical_space_name) {
+        return Some(McCMIE::Module(module));
     }
-    if let Some(module) = workspace::WORKSPACE.modules.get(&canonical_space_name) {
-        return Some(McCMIE::Module(module.clone()));
+    if let Some(ifs) = ds.get_interface(&canonical_space_name) {
+        return Some(McCMIE::Interface(ifs));
     }
-    if let Some(module) = global::mcc_modules.get(&canonical_space_name) {
-        return Some(McCMIE::Module(module.clone()));
-    }
-    if let Some(ifs) = workspace::WORKSPACE.interfaces.get(&canonical_space_name) {
-        return Some(McCMIE::Interface(ifs.clone()));
-    }
-    if let Some(ifs) = global::mcc_interfaces.get(&canonical_space_name) {
-        return Some(McCMIE::Interface(ifs.clone()));
-    }
-    if let Some(enum_def) = global::mcc_enums.get(&canonical_space_name) {
-        return Some(McCMIE::Enum(enum_def.clone()));
-    }
-    if let Some(enum_def) = workspace::WORKSPACE.enums.get(&canonical_space_name) {
-        return Some(McCMIE::Enum(enum_def.clone()));
+    if let Some(enum_def) = ds.get_enum(&canonical_space_name) {
+        return Some(McCMIE::Enum(enum_def));
     }
     None
 }

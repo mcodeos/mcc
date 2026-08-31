@@ -765,24 +765,16 @@ pub fn first_hop(
 // ============================================================================
 
 /// Map a CMIE kind byte to a concrete `McCMIE` via the space name.
+/// All single-identity lookups route through the
+/// [`DefinitionSpace`](crate::DefinitionSpace) unified view (workspace first,
+/// then the system-lib tables; design §12.4 rule 1).
 fn cmie_by_kind(kind: u8, space_name: &McSpaceName) -> Option<McCMIE> {
+    let ds = crate::definition_space();
     match kind {
-        0 => workspace::WORKSPACE
-            .components
-            .get(space_name)
-            .or_else(|| global::mcc_components.get(space_name))
-            .map(|c| McCMIE::Component(c.clone())),
-        1 => workspace::WORKSPACE
-            .modules
-            .get(space_name)
-            .or_else(|| global::mcc_modules.get(space_name))
-            .map(|m| McCMIE::Module(m.clone())),
+        0 => ds.get_component(space_name).map(McCMIE::Component),
+        1 => ds.get_module(space_name).map(McCMIE::Module),
         2 => interface_lookup(space_name).map(McCMIE::Interface),
-        3 => workspace::WORKSPACE
-            .enums
-            .get(space_name)
-            .or_else(|| global::mcc_enums.get(space_name))
-            .map(|e| McCMIE::Enum(e.clone())),
+        3 => ds.get_enum(space_name).map(McCMIE::Enum),
         _ => None,
     }
 }

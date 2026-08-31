@@ -2356,12 +2356,7 @@ impl McCode {
             ident,
             uri: crate::semantic::common::uri_intern(&def_uri),
         };
-        if let Some(e) = crate::db::cmie::tables::WORKSPACE.enums.get(&space) {
-            if let Some(v) = e.values.get(idx) {
-                return v.name.to_string();
-            }
-        }
-        if let Some(e) = crate::db::infra::global::mcc_enums.get(&space) {
+        if let Some(e) = crate::definition_space().get_enum(&space) {
             if let Some(v) = e.values.get(idx) {
                 return v.name.to_string();
             }
@@ -3563,7 +3558,7 @@ impl McCode {
                                 ident: n,
                                 uri: crate::semantic::common::uri_intern(&class_uri),
                             };
-                            let e = crate::db::cmie::tables::WORKSPACE.enums.get(&space)?;
+                            let e = crate::definition_space().get_enum(&space)?;
                             e.values.get(idx).map(|v| v.name.to_string())
                         })();
                         if let Some(vn) = value_name {
@@ -5212,12 +5207,9 @@ impl McCode {
                 // enum in an unrelated file (§5.4.5).
                 let find_value = |def_uri: &McURI| {
                     let space = McSpaceName::new(&McIds::from(base_name.as_str()), def_uri.clone());
-                    let enum_def = workspace::WORKSPACE
-                        .enums
-                        .get(&space)
-                        .or_else(|| crate::db::infra::global::mcc_enums.get(&space));
+                    let enum_def = crate::definition_space().get_enum(&space);
                     if let Some(entry) = enum_def {
-                        for (i, v) in entry.value().values.iter().enumerate() {
+                        for (i, v) in entry.values.iter().enumerate() {
                             if v.name.to_string() == member_name {
                                 return Some((i as u32, v.span));
                             }
