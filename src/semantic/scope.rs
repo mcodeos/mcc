@@ -29,7 +29,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::global;
 use crate::db::infra::init::interface_lookup;
 use crate::query::lookup::ContainerRef;
 use crate::semantic::basic::mc_bus::McBus;
@@ -700,24 +699,29 @@ impl SystemLibScope {
 
 impl ResolveScope<ContainerRef> for SystemLibScope {
     fn resolve(&self, name: &str) -> Option<ContainerRef> {
-        for entry in global::mcc_components.iter() {
-            if entry.key().ident.to_string() == name {
-                return Some(ContainerRef::Component(entry.value().clone()));
+        // P5 read: the system-library tables alone, through the DefinitionSpace
+        // system-only view (defspace.rs). A definition in a *different project
+        // file* must reach here via the use chain (P4), not answer P5 — the
+        // merged view would wrongly admit those.
+        let ds = crate::definition_space();
+        for (sn, def) in ds.system_components() {
+            if sn.ident.to_string() == name {
+                return Some(ContainerRef::Component(def));
             }
         }
-        for entry in global::mcc_modules.iter() {
-            if entry.key().ident.to_string() == name {
-                return Some(ContainerRef::Module(entry.value().clone()));
+        for (sn, def) in ds.system_modules() {
+            if sn.ident.to_string() == name {
+                return Some(ContainerRef::Module(def));
             }
         }
-        for entry in global::mcc_interfaces.iter() {
-            if entry.key().ident.to_string() == name {
-                return Some(ContainerRef::Interface(entry.value().clone()));
+        for (sn, def) in ds.system_interfaces() {
+            if sn.ident.to_string() == name {
+                return Some(ContainerRef::Interface(def));
             }
         }
-        for entry in global::mcc_enums.iter() {
-            if entry.key().ident.to_string() == name {
-                return Some(ContainerRef::Enum(entry.value().clone()));
+        for (sn, def) in ds.system_enums() {
+            if sn.ident.to_string() == name {
+                return Some(ContainerRef::Enum(def));
             }
         }
         None
