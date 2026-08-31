@@ -19,64 +19,68 @@ use crate::db::infra::init::interface_lookup;
 use crate::semantic::common::{uri_intern, UriId};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use tracing::trace;
-/// URI-scoped string-level match in one kind's tables (workspace, then global).
+/// URI-scoped member-set match in one kind's tables (workspace, then global).
 ///
 /// The exact-key lookups can miss when `name` was rebuilt from a string:
 /// `McIds::from(&str)` wraps the whole text in a single `Ida` segment, while
 /// a dotted AST name such as `DCDC.LP3220AB5F` produces
 /// `[Ida("DCDC"), DotIda("LP3220AB5F")]`. `McIds` equality is
 /// segment-structure-sensitive (`normalized_eq_hash`), but both forms display
-/// identically, so matching the display form under an explicit `uri_ok` gate
-/// recovers the same definition. Every candidate is URI-scoped — this is
-/// never a workspace-wide name-only scan (§5.4.5).
+/// identically, so `are_equivalent` (§8.7 — member-set comparison) recovers
+/// the same definition under an explicit `uri_ok` gate; equal member sets
+/// denote the same physical member, so a miss can never turn into a wrong
+/// hit. Every candidate is URI-scoped — this is never a workspace-wide
+/// name-only scan (§5.4.5).
 pub(crate) fn find_in_table_scoped(
     cmie_kind: u8,
     name_str: &str,
     uri_ok: impl Fn(&UriId) -> bool,
 ) -> Option<McCMIE> {
+    let query_ids = McIds::from(name_str);
+    let eq = |ident: &McIds| crate::semantic::basic::equivalent::are_equivalent(ident, &query_ids);
     match cmie_kind {
         0 => workspace::WORKSPACE
             .components
             .iter()
-            .find(|e| e.key().ident.to_string() == name_str && uri_ok(&e.key().uri))
+            .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Component(e.value().clone()))
             .or_else(|| {
                 global::mcc_components
                     .iter()
-                    .find(|e| e.key().ident.to_string() == name_str && uri_ok(&e.key().uri))
+                    .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
                     .map(|e| McCMIE::Component(e.value().clone()))
             }),
         1 => workspace::WORKSPACE
             .modules
             .iter()
-            .find(|e| e.key().ident.to_string() == name_str && uri_ok(&e.key().uri))
+            .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Module(e.value().clone()))
             .or_else(|| {
                 global::mcc_modules
                     .iter()
-                    .find(|e| e.key().ident.to_string() == name_str && uri_ok(&e.key().uri))
+                    .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
                     .map(|e| McCMIE::Module(e.value().clone()))
             }),
         2 => workspace::WORKSPACE
             .interfaces
             .iter()
-            .find(|e| e.key().ident.to_string() == name_str && uri_ok(&e.key().uri))
+            .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Interface(e.value().clone()))
             .or_else(|| {
                 global::mcc_interfaces
                     .iter()
-                    .find(|e| e.key().ident.to_string() == name_str && uri_ok(&e.key().uri))
+                    .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
                     .map(|e| McCMIE::Interface(e.value().clone()))
             }),
         3 => workspace::WORKSPACE
             .enums
             .iter()
-            .find(|e| e.key().ident.to_string() == name_str && uri_ok(&e.key().uri))
+            .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
             .map(|e| McCMIE::Enum(e.value().clone()))
             .or_else(|| {
                 global::mcc_enums
                     .iter()
-                    .find(|e| e.key().ident.to_string() == name_str && uri_ok(&e.key().uri))
+                    .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
                     .map(|e| McCMIE::Enum(e.value().clone()))
             }),
         _ => None,

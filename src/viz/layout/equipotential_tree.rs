@@ -4232,7 +4232,6 @@ pub(crate) fn tap_role(
     layer_anchor: i64,
 ) -> TapRole {
     let my_row = me.lane.axis;
-    let is_diode = member.name.contains("dio") || member.name.contains("DIO");
     // ★ Two-pin-signal rule: this net (or the member's partner net) has EXACTLY
     // TWO device pins (multi-pin component pins, e.g. `lpa.5` ↔ `spk.2`) ⇒ it is
     // a point-to-point signal: the two pins are the horizontal start/end and

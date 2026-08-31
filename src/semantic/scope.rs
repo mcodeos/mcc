@@ -86,15 +86,33 @@ impl<'a, T> ScopeChain<'a, T> {
         Self { scopes }
     }
 
-    /// First-hit-wins resolution over the ordered units.
+    /// First-hit-wins resolution over the ordered units, with the read-side
+    /// canonical fallback (§2.1/§4.1): when the ordered units all miss, a
+    /// spelling that denotes exactly one bare member (`res[4]` → `res4`) is
+    /// retried under that canonical member name — the storage keys are the
+    /// expanded member names, so the retry is the same coordinate.
     pub fn resolve(&self, name: &str) -> Option<T> {
-        self.scopes.iter().find_map(|s| s.resolve(name))
+        if let Some(hit) = self.scopes.iter().find_map(|s| s.resolve(name)) {
+            return Some(hit);
+        }
+        // Conservative bound: `canonical_single` returns None for anything
+        // but a single bare identifier (dotted/bracketed/curly members), so a
+        // miss never turns into a wrong hit.
+        let canon = crate::semantic::basic::equivalent::canonical_single(
+            &crate::semantic::basic::mc_ids::McIds::from(name),
+        );
+        match canon {
+            Some(c) if c != name => self.scopes.iter().find_map(|s| s.resolve(&c)),
+            _ => None,
+        }
     }
 }
 
 impl<T> ResolveScope<T> for ScopeChain<'_, T> {
     fn resolve(&self, name: &str) -> Option<T> {
-        self.scopes.iter().find_map(|s| s.resolve(name))
+        // Delegate to the inherent method so the canonical fallback applies
+        // uniformly when the chain is itself a unit of a larger chain.
+        ScopeChain::resolve(self, name)
     }
 }
 
@@ -823,6 +841,26 @@ mod tests {
             Box::new(ProbeScope("P5-system", Some("CAP"))),
         ]);
         assert_eq!(chain.resolve("CAP"), Some("P3-file"));
+    }
+
+    /// §2.1/§4.1 read-side canonical fallback: a spelling that denotes a single
+    /// bare member (`res[4]` → `res4`) is retried under the canonical member
+    /// name when the ordered units all miss — the storage keys are the
+    /// expanded member names. Conservative bound: dotted/curly members do not
+    /// canonicalize, so a genuine miss stays a miss rather than guessing.
+    #[test]
+    fn chain_canonical_single_fallback_resolves_member_spelling() {
+        let chain = ScopeChain::new(vec![Box::new(ProbeScope("P1", Some("res4")))]);
+        // Structured spelling of the same member resolves through the fallback.
+        assert_eq!(chain.resolve("res[4]"), Some("P1"));
+        // The bare member name hits directly (no fallback); a different member
+        // misses on both the direct and the canonical forms.
+        assert_eq!(chain.resolve("res4"), Some("P1"));
+        assert_eq!(chain.resolve("res[5]"), None);
+        // Dotted / curly forms never canonicalize — `A{m}` is not `A.m`.
+        let dotted = ScopeChain::new(vec![Box::new(ProbeScope("P1", Some("A.m")))]);
+        assert_eq!(dotted.resolve("A.m"), Some("P1"));
+        assert_eq!(dotted.resolve("A{m}"), None);
     }
 
     /// P1 func-params scope: containment match, span is always `None`.
