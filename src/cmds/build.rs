@@ -856,10 +856,13 @@ mod phase0_golden {
         let (entry_uri, top_name) =
             manifest::build_from_manifest(root, top, entry).expect("build_from_manifest");
         let ident = McIds::from(top_name.as_str());
-        let inst = mcc::mcc_build(&ident, &entry_uri).expect("mcc_build");
-        let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000).expect("mcc_build_flat");
-        let vec_block = mcc::build_mc_vec(&inst, &table.1);
-        mcc::build_mc_vec_graph(&vec_block, &table.1)
+        // One instantiation → one DianLu (§12.2); the flat projection and net
+        // checks run once inside `flatten`, never a second instantiation.
+        let mut dl = mcc::mcc_build_dianlu(&ident, &entry_uri, 1000).expect("mcc_build_dianlu");
+        dl.flatten();
+        let (inst, table) = dl.into_parts();
+        let vec_block = mcc::build_mc_vec(&inst, &table);
+        mcc::build_mc_vec_graph(&vec_block, &table)
     }
 
     /// Fingerprint = VizDocument::to_json() (structure + per-layer SVG).
@@ -968,10 +971,10 @@ mod d_detectors {
         mcc::vector::builder::resolve::reset_np_warn_count();
         mcc::mcc_load_from_string(&uri, content);
         let ident = McIds::from("top");
-        let build_result = mcc::mcc_build(&ident, &uri);
+        let build_result = mcc::mcc_build_dianlu(&ident, &uri, 1000);
         let build_err = build_result.as_ref().err().map(|e| e.to_string());
-        if build_result.is_ok() {
-            let _ = mcc::mcc_build_flat(&ident, &uri, 1000);
+        if let Ok(mut dl) = build_result {
+            let _ = dl.flatten();
         }
         let diags = mcc::mcc_diagnose_all();
         (diags, build_err)
@@ -997,10 +1000,11 @@ mod d_detectors {
         mcc::vector::builder::resolve::reset_np_warn_count();
         mcc::mcc_load_from_string(&uri, content);
         let ident = McIds::from("top");
-        let inst = mcc::mcc_build(&ident, &uri).expect("mcc_build");
-        let table = mcc::mcc_build_flat(&ident, &uri, 1000).expect("mcc_build_flat");
-        let vec_block = mcc::build_mc_vec(&inst, &table.1);
-        let _graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
+        let mut dl = mcc::mcc_build_dianlu(&ident, &uri, 1000).expect("mcc_build_dianlu");
+        dl.flatten();
+        let (inst, table) = dl.into_parts();
+        let vec_block = mcc::build_mc_vec(&inst, &table);
+        let _graph = mcc::build_mc_vec_graph(&vec_block, &table);
         mcc::mcc_diagnose_all()
     }
 
@@ -1259,8 +1263,7 @@ module top {
         mcc::vector::builder::resolve::reset_np_warn_count();
         mcc::mcc_load_from_string(&uri, fixture);
         let ident = McIds::from("top");
-        let tree = mcc::mcc_build(&ident, &uri).expect("mcc_build");
-        let _ = mcc::mcc_build_flat(&ident, &uri, 1000);
+        let (tree, _table) = mcc::mcc_build_flat(&ident, &uri, 1000).expect("mcc_build_flat");
         let diags = mcc::mcc_diagnose_all();
         assert!(
             !has_code(&diags, mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
