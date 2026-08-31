@@ -15,9 +15,7 @@ use serde_json::{json, Value};
 /// Fast path: search RefDefMap name_index across all loaded files (§7.4).
 /// Returns (def_uri_str, def_kind_name) if found, None otherwise.
 fn find_def_in_refdefmap(name: &str) -> Option<(String, String)> {
-    let workspace = &crate::db::cmie::tables::WORKSPACE;
-    for entry in workspace.mcodes.iter() {
-        let mcfile = entry.value();
+    for mcfile in crate::definition_space().source_files() {
         if let Ok(sym) = mcfile.symbols.lock() {
             if let Some(ref map) = sym.ref_def_map {
                 if let Some(def_entry) = map.get_by_name(&mcfile.uri, name) {
@@ -78,7 +76,8 @@ pub fn find_def_by_name_in_file(name: &str, from_uri: &str) -> Option<(McCMIE, S
     // (Resolver) re-locks the same file's symbols, and std Mutex is not
     // reentrant — holding it across the call would self-deadlock.
     let def_uri = {
-        let mcfile = crate::db::cmie::tables::WORKSPACE.mcodes.get(&from_uri_obj);
+        let ds = crate::definition_space();
+        let mcfile = ds.source_file(&from_uri_obj);
         let mut def_uri = String::new();
         if let Some(mcfile) = mcfile {
             if let Ok(sym) = mcfile.symbols.lock() {
@@ -157,7 +156,8 @@ pub fn resolve_at_pos(uri: &str, offset: usize) -> Option<Value> {
     use crate::refdef::query::resolve_at;
 
     let mc_uri = McURI::from(uri);
-    let mcfile = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri)?;
+    let ds = crate::definition_space();
+    let mcfile = ds.source_file(&mc_uri)?;
     let sym = mcfile.symbols.lock().ok()?;
     let map = sym.ref_def_map.as_ref()?;
     let hit = resolve_at(map, &sym.symbol_lapper, offset)?;

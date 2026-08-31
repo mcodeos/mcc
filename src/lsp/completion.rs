@@ -14,7 +14,6 @@ use crate::ast::c_macros::{
     MCAST_COMPONENT, MCAST_ENUM, MCAST_FUNCTION, MCAST_INTERFACE, MCAST_MODULE, MCAST_NAME,
 };
 use crate::db::cmie::cmie::mcb_get_cmie_with_uri;
-use crate::db::cmie::tables::WORKSPACE;
 use crate::query::lookup::{find_container, CmieKind, ContainerRef};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_enum::McEnumDef;
@@ -85,7 +84,8 @@ struct ScopeHit {
 /// name alive past its closing brace.
 fn scope_hit_at_pos(uri: &str, position: usize) -> Option<ScopeHit> {
     let mc_uri = McURI::from(uri);
-    let mcfile = WORKSPACE.mcodes.get(&mc_uri)?;
+    let ds = crate::definition_space();
+    let mcfile = ds.source_file(&mc_uri)?;
     let ast = mcfile.ast.clone();
 
     // Collect all AST nodes via BFS. The stack pop condition (`node_start >=
