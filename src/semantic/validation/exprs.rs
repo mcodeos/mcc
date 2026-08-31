@@ -46,15 +46,14 @@ impl ValidationCheck for ExprsCheck {
 /// parses to an endpoint label `Label("this")`, collected by walking the
 /// phrase AST rather than by re-scanning the statement's display text.
 fn check_this_outside_instance(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, module) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
         // Only check top-level net stmts (not func body stmts)
-        for phrase in &m.stmts {
+        for phrase in &module.stmts {
             let mut names = HashSet::new();
             collect_referenced_names(phrase, &mut names);
             if names.contains("this") {
@@ -63,7 +62,7 @@ fn check_this_outside_instance(acc: &mut CheckAccumulator) {
                     check_name: "exprs",
                     severity: CheckSeverity::Error,
                     uri: Some(uri.clone()),
-                    span: Some(m.span.start..m.span.end),
+                    span: Some(module.span.start..module.span.end),
                     message: format!(
                         "'this' used in top-level net line: '{}'. \
                          'this' is only valid inside instance/function contexts.",
@@ -82,14 +81,13 @@ fn check_this_outside_instance(acc: &mut CheckAccumulator) {
 /// `_` parses to `McPhrase::Lead`, so an all-`Lead` series (e.g. `_ -> _`)
 /// is detected structurally without splitting the statement's display text.
 fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, module) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
-        for phrase in &m.stmts {
+        for phrase in &module.stmts {
             if let McPhrase::Series(items, _) = phrase {
                 if !items.is_empty() && items.iter().all(|p| matches!(p, McPhrase::Lead)) {
                     let text = format!("{}", phrase);
@@ -97,7 +95,7 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
                         check_name: "exprs",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: Some(m.span.start..m.span.end),
+                        span: Some(module.span.start..module.span.end),
                         message: format!(
                             "Net '{}' connects only to '_' (placeholder). \
                              This connection has no effect.",
@@ -116,20 +114,19 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
 /// Checks integer and float literal expressions for overflow.
 fn check_constant_overflow(acc: &mut CheckAccumulator) {
     // Check component attribute values for overflowing literal expressions
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         let comp_span = comp.span.start..comp.span.end;
         for attr in comp.attrs.iter() {
             for val in &attr.values {
                 check_val_for_overflow(
                     val,
                     &uri,
-                    entry.key().ident.to_string(),
+                    sn.ident.to_string(),
                     &attr.id.to_string(),
                     comp_span.clone(),
                     acc,
@@ -215,20 +212,19 @@ fn check_expr_overflow(
 
 /// V3: Reversed curly brace range (e.g., `{5:2}` instead of `{2:5}`).
 fn check_reversed_range(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         let comp_span = comp.span.start..comp.span.end;
         for attr in comp.attrs.iter() {
             for val in &attr.values {
                 check_val_for_reversed_range(
                     val,
                     &uri,
-                    entry.key().ident.to_string(),
+                    sn.ident.to_string(),
                     comp_span.clone(),
                     acc,
                 );
@@ -311,15 +307,14 @@ fn check_expr_range(
 /// C5: IDX key collision — two inst names share the same base key before `[`
 /// with different slice specifications.
 fn check_idx_key_collision(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, module) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
         let mut base_keys: HashMap<String, Vec<String>> = HashMap::new();
-        for name in m.insts.iter_instance_names() {
+        for name in module.insts.iter_instance_names() {
             if let Some(bracket_pos) = name.find('[') {
                 // Skip anonymous-bus / label-list instances.
                 // `[VDD_3V3,GND]` is a label list whose members are
@@ -337,7 +332,7 @@ fn check_idx_key_collision(acc: &mut CheckAccumulator) {
                     check_name: "exprs",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: Some(m.span.start..m.span.end),
+                    span: Some(module.span.start..module.span.end),
                     message: format!(
                         "IDX key '{}' has multiple slice specs: {}. \
                          These share the same base key which may cause ambiguity.",

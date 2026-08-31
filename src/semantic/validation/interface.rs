@@ -40,13 +40,12 @@ impl ValidationCheck for InterfaceCheck {
 /// every pin defined in the interface must be mapped to at least one physical pin.
 /// Missing bindings mean the interface contract is not fulfilled.
 fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // For each interface binding in this component
         for (bind_name, port) in &comp.pins.names_to_id {
@@ -136,13 +135,12 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
 /// When a component's param selects an interface role (e.g. `role=DCE`),
 /// verify that the role actually exists in the interface definition.
 fn check_iface_role_exists(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // Check component params that reference interface roles
         for d in comp.params.iter() {
@@ -153,16 +151,16 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
                 ref role_val,
             } = d.param_type.kind
             {
-                // Look up the interface in the workspace
-                let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
+                // Look up the interface in the workspace (project definitions only)
+                let ifaces = crate::definition_space().workspace_interfaces();
                 let mut found_role = false;
                 let mut found_iface = false;
 
-                for ie in ifaces.iter() {
-                    if ie.key().ident.to_string() == *class_name {
+                for (isn, iface) in ifaces.iter() {
+                    if isn.ident.to_string() == *class_name {
                         found_iface = true;
                         // Check if role exists
-                        for role in &ie.value().roles {
+                        for role in &iface.roles {
                             if role.name.to_string() == *role_val {
                                 found_role = true;
                                 break;
@@ -189,9 +187,9 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
                                 class_name,
                                 ifaces
                                     .iter()
-                                    .find(|e| e.key().ident.to_string() == *class_name)
-                                    .map(|e| {
-                                        e.value()
+                                    .find(|(isn, _)| isn.ident.to_string() == *class_name)
+                                    .map(|(_, iface)| {
+                                        iface
                                             .roles
                                             .iter()
                                             .map(|r| r.name.to_string())
@@ -236,11 +234,10 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
     // Collect deprecated CMIE names
     let deprecated_comps: HashSet<String> = {
         let mut s = HashSet::new();
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for e in comps.iter() {
-            let c = e.value();
+        let comps = crate::definition_space().workspace_components();
+        for (sn, c) in comps.iter() {
             if has_deprecated_attr(&c.attrs) {
-                s.insert(e.key().ident.to_string());
+                s.insert(sn.ident.to_string());
             }
         }
         s
@@ -248,11 +245,10 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
 
     let deprecated_ifaces: HashSet<String> = {
         let mut s = HashSet::new();
-        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-        for e in ifaces.iter() {
-            let i = e.value();
+        let ifaces = crate::definition_space().workspace_interfaces();
+        for (sn, i) in ifaces.iter() {
             if has_deprecated_attr(&i.attrs) {
-                s.insert(e.key().ident.to_string());
+                s.insert(sn.ident.to_string());
             }
         }
         s
@@ -260,13 +256,12 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
 
     // Check component interface bindings for deprecated interfaces
     {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            let uri = entry.key().uri.to_string();
+        let comps = crate::definition_space().workspace_components();
+        for (sn, comp) in comps.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let comp = entry.value();
 
             for (_bind_name, port) in &comp.pins.names_to_id {
                 if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
@@ -314,13 +309,12 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
 
     // Check module instances for deprecated components
     {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let uri = entry.key().uri.to_string();
+        let modules = crate::definition_space().workspace_modules();
+        for (sn, m) in modules.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let m = entry.value();
 
             for (_inst_name, (_iotype, instance)) in m.insts.iter_with_iotype() {
                 let class_name = match instance {
@@ -338,8 +332,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
                         span: Some(m.span.start..m.span.end),
                         message: format!(
                             "Module '{}' uses '{}' which is deprecated.",
-                            entry.key().ident,
-                            class_name
+                            sn.ident, class_name
                         ),
                         code: crate::errcodes::IFACE_DEPRECATED_CMIE,
                     });

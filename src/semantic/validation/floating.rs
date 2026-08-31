@@ -54,12 +54,12 @@ impl ValidationCheck for FloatingLabelCheck {
 /// extends to modules; module funcs register candidates through the shared
 /// func-body context, module top-level body through `McModule.floating_candidates`).
 fn check_floating_labels(acc: &mut CheckAccumulator) {
-    for entry in crate::db::cmie::tables::WORKSPACE.components.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         check_owner_floating_labels(
             acc,
             "Component",
@@ -71,12 +71,12 @@ fn check_floating_labels(acc: &mut CheckAccumulator) {
             |name| comp.find_inst(name),
         );
     }
-    for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let mods = crate::definition_space().workspace_modules();
+    for (sn, module) in mods.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let module = entry.value();
         check_owner_floating_labels(
             acc,
             "Module",

@@ -2,7 +2,6 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::db::resolve::{cmie_uri, Resolver};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
@@ -86,11 +85,11 @@ pub(crate) fn find_scoped_enum_for_component(
     // Fallback: cross-file enums. §5.4 — a workspace enum is visible only
     // when its defining file is reachable through `uri`'s use chain, never
     // by bare name (a name-only scan could hit an unrelated same-named enum).
-    for entry in workspace::WORKSPACE.enums.iter() {
-        if entry.key().ident.to_string() == family_name
-            && crate::db::resolve::use_chain_reaches(uri, entry.key().uri.as_uri().as_ref())
+    for (sn, def) in crate::definition_space().workspace_enums() {
+        if sn.ident.to_string() == family_name
+            && crate::db::resolve::use_chain_reaches(uri, sn.uri.as_uri().as_ref())
         {
-            return Some(entry.value().clone());
+            return Some(def);
         }
     }
     for entry in global::mcc_enums.iter() {
@@ -126,8 +125,8 @@ pub(crate) fn lookup_scoped_enum_value(
 /// Check whether a class name refers to a known enum (in workspace or global tables).
 pub(crate) fn is_enum_class_name(class_name: &str) -> bool {
     // Search workspace enums
-    for entry in workspace::WORKSPACE.enums.iter() {
-        if entry.key().ident.to_string() == class_name {
+    for (sn, _) in crate::definition_space().workspace_enums() {
+        if sn.ident.to_string() == class_name {
             return true;
         }
     }
@@ -143,13 +142,9 @@ pub(crate) fn is_enum_class_name(class_name: &str) -> bool {
 /// Check whether `value_name` is a valid member of the given enum class.
 pub(crate) fn is_enum_member(class_name: &str, value_name: &str) -> bool {
     // Search workspace enums
-    for entry in workspace::WORKSPACE.enums.iter() {
-        if entry.key().ident.to_string() == class_name {
-            return entry
-                .value()
-                .values
-                .iter()
-                .any(|v| v.name.to_string() == value_name);
+    for (sn, def) in crate::definition_space().workspace_enums() {
+        if sn.ident.to_string() == class_name {
+            return def.values.iter().any(|v| v.name.to_string() == value_name);
         }
     }
     // Search global enums
@@ -180,13 +175,9 @@ pub(crate) fn resolve_bare_enum_value(
     let mut candidates: Vec<String> = Vec::new();
 
     // Search workspace enums
-    for entry in workspace::WORKSPACE.enums.iter() {
-        let class_name = entry.key().ident.to_string();
-        let has_value = entry
-            .value()
-            .values
-            .iter()
-            .any(|v| v.name.to_string() == value_name);
+    for (sn, def) in crate::definition_space().workspace_enums() {
+        let class_name = sn.ident.to_string();
+        let has_value = def.values.iter().any(|v| v.name.to_string() == value_name);
         if has_value {
             // Prefer exact match — return immediately
             if let Some(pref) = prefer_class {

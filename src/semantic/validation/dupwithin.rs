@@ -23,20 +23,18 @@ impl ValidationCheck for DupWithinCheck {
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         // Check components
         {
-            let comps = &crate::db::cmie::tables::WORKSPACE.components;
-            for entry in comps.iter() {
-                let uri = entry.key().uri.to_string();
-                let comp = entry.value();
+            let comps = crate::definition_space().workspace_components();
+            for (sn, comp) in comps.iter() {
+                let uri = sn.uri.to_string();
                 check_pin_name_duplicates(uri, comp.name.to_string(), comp, acc);
             }
         }
         // Check enums
         {
-            let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-            for entry in enums.iter() {
-                let uri = entry.key().uri.to_string();
-                let e = entry.value();
-                check_enum_value_duplicates(uri, e.name.to_string(), e, acc);
+            let enums = crate::definition_space().workspace_enums();
+            for (sn, def) in enums.iter() {
+                let uri = sn.uri.to_string();
+                check_enum_value_duplicates(uri, def.name.to_string(), def, acc);
             }
         }
     }

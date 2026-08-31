@@ -42,31 +42,27 @@ impl ValidationCheck for DefsCheck {
 /// the comp↔iface pair is intentionally NOT reported. Only interface↔enum and
 /// component↔module collisions are.
 fn check_name_collision(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
+    // Workspace-only: cross-kind collisions are a project-level check; the
+    // system lib shares names by design (P5) and must not be pulled in here.
+    let comps = crate::definition_space().workspace_components();
+    let ifaces = crate::definition_space().workspace_interfaces();
+    let enums = crate::definition_space().workspace_enums();
+    let modules = crate::definition_space().workspace_modules();
 
     // Collect names by CMIE kind
-    let comp_names: HashSet<String> = comps.iter().map(|e| e.key().ident.to_string()).collect();
-    let iface_names: HashSet<String> = ifaces.iter().map(|e| e.key().ident.to_string()).collect();
-    let enum_names: HashSet<String> = enums.iter().map(|e| e.key().ident.to_string()).collect();
-    let mod_names: HashSet<String> = modules.iter().map(|e| e.key().ident.to_string()).collect();
+    let comp_names: HashSet<String> = comps.iter().map(|(sn, _)| sn.ident.to_string()).collect();
+    let iface_names: HashSet<String> = ifaces.iter().map(|(sn, _)| sn.ident.to_string()).collect();
+    let enum_names: HashSet<String> = enums.iter().map(|(sn, _)| sn.ident.to_string()).collect();
+    let mod_names: HashSet<String> = modules.iter().map(|(sn, _)| sn.ident.to_string()).collect();
 
     // Interface ↔ Enum collisions
     for name in iface_names.intersection(&enum_names) {
         let iface_spans: Vec<_> = ifaces
             .iter()
-            .filter(|e| {
-                e.key().ident.to_string() == *name
-                    && !super::is_test_file(e.key().uri.as_uri().as_ref())
+            .filter(|(sn, _)| {
+                sn.ident.to_string() == *name && !super::is_test_file(sn.uri.as_uri().as_ref())
             })
-            .map(|e| {
-                (
-                    e.key().uri.clone(),
-                    e.value().span.start..e.value().span.end,
-                )
-            })
+            .map(|(sn, iface)| (sn.uri.clone(), iface.span.start..iface.span.end))
             .collect();
         for (uri, span) in &iface_spans {
             acc.push(CheckResult {
@@ -88,16 +84,10 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
     for name in comp_names.intersection(&mod_names) {
         let comp_spans: Vec<_> = comps
             .iter()
-            .filter(|e| {
-                e.key().ident.to_string() == *name
-                    && !super::is_test_file(e.key().uri.as_uri().as_ref())
+            .filter(|(sn, _)| {
+                sn.ident.to_string() == *name && !super::is_test_file(sn.uri.as_uri().as_ref())
             })
-            .map(|e| {
-                (
-                    e.key().uri.clone(),
-                    e.value().span.start..e.value().span.end,
-                )
-            })
+            .map(|(sn, comp)| (sn.uri.clone(), comp.span.start..comp.span.end))
             .collect();
         for (uri, span) in &comp_spans {
             acc.push(CheckResult {
@@ -153,15 +143,16 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
         known.insert(sn.ident.to_string());
     }
 
-    // Check component pin interface bindings
+    // Check component pin interface bindings (workspace-only: the known set
+    // above already merged system-lib identities, so checking each project
+    // component here does not need the unified view)
     {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            let uri = entry.key().uri.to_string();
+        let comps = crate::definition_space().workspace_components();
+        for (sn, comp) in comps.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let comp = entry.value();
             for (_pin_name, port) in &comp.pins.names_to_id {
                 if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
                     // ★ Use base_name() (the actual interface class name, e.g. "GPIO"),
@@ -183,8 +174,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                             span: Some(span),
                             message: format!(
                                 "Component '{}' binds to interface '{}' which is not loaded.",
-                                entry.key().ident,
-                                iface_name
+                                sn.ident, iface_name
                             ),
                             code: crate::errcodes::DEF_REF_NOT_LOADED,
                         });
@@ -196,13 +186,12 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
 
     // Check component param declare class expressions
     {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            let uri = entry.key().uri.to_string();
+        let comps = crate::definition_space().workspace_components();
+        for (sn, comp) in comps.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let comp = entry.value();
             for d in comp.params.iter() {
                 if let Some(class_name) = d.get_class_name() {
                     if !known.contains(&class_name) && !class_name.is_empty() {
@@ -213,8 +202,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                             span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}' param references class '{}' which is not loaded.",
-                                entry.key().ident,
-                                class_name
+                                sn.ident, class_name
                             ),
                             code: crate::errcodes::DEF_REF_NOT_LOADED,
                         });
@@ -226,13 +214,12 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
 
     // Check module instances reference valid classes
     {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let uri = entry.key().uri.to_string();
+        let modules = crate::definition_space().workspace_modules();
+        for (sn, m) in modules.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let m = entry.value();
             for (_inst_name, (_iotype, instance)) in m.insts.iter_with_iotype() {
                 let class_name: Option<String> = match instance {
                     crate::McInstance::Component(c2) => Some(c2.base.name.to_string()),
@@ -249,8 +236,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                             span: Some(m.span.start..m.span.end),
                             message: format!(
                                 "Module '{}' references class '{}' which is not loaded.",
-                                entry.key().ident,
-                                cn
+                                sn.ident, cn
                             ),
                             code: crate::errcodes::DEF_REF_NOT_LOADED,
                         });
@@ -265,15 +251,14 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
 fn check_int_suffix(acc: &mut CheckAccumulator) {
     // M2: .int suffix on component names
     {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            let uri = entry.key().uri.to_string();
+        let comps = crate::definition_space().workspace_components();
+        for (sn, c) in comps.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let name = entry.key().ident.to_string();
+            let name = sn.ident.to_string();
             if name.ends_with(".int") {
-                let c = entry.value();
                 acc.push(CheckResult {
                     check_name: "defs",
                     severity: CheckSeverity::Warning,
@@ -292,19 +277,19 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
 
     // M5: .int suffix on enum or interface names
     {
-        let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-        for entry in enums.iter() {
-            let uri = entry.key().uri.to_string();
+        let enums = crate::definition_space().workspace_enums();
+        for (sn, def) in enums.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let name = entry.key().ident.to_string();
+            let name = sn.ident.to_string();
             if name.ends_with(".int") {
                 acc.push(CheckResult {
                     check_name: "defs",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.to_string()),
-                    span: Some(entry.value().span[0] as usize..entry.value().span[1] as usize),
+                    span: Some(def.span[0] as usize..def.span[1] as usize),
                     message: format!(
                         "Enum '{}' has '.int' suffix, which is unconventional for enums.",
                         name
@@ -316,15 +301,14 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
     }
 
     {
-        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-        for entry in ifaces.iter() {
-            let uri = entry.key().uri.to_string();
+        let ifaces = crate::definition_space().workspace_interfaces();
+        for (sn, iface) in ifaces.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let name = entry.key().ident.to_string();
+            let name = sn.ident.to_string();
             if name.ends_with(".int") {
-                let iface = entry.value();
                 acc.push(CheckResult {
                     check_name: "defs",
                     severity: CheckSeverity::Info,

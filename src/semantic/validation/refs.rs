@@ -31,14 +31,13 @@ impl ValidationCheck for RefIntegrityCheck {
 /// (no stmts, no instances). The function signature exists but no implementation
 /// is provided — likely incomplete or stub code.
 fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
-        let comp_name = entry.key().ident.to_string();
+        let comp_name = sn.ident.to_string();
         for func in comp.funcs.iter() {
             if !func.params.is_empty() && func.stmts.is_empty() && func.insts.is_empty() {
                 let param_names = func.params.names().join(", ");
@@ -63,14 +62,13 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
 /// Smart Param inference may resolve bare identifiers to Label/Idx/etc.;
 /// only warn when the kind remains Unknown after inference.
 fn check_bare_params(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let comp_name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let comp_name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         for declare in comp.params.iter() {
             if declare.param_type.kind == McParamTypeKind::Unknown
                 && declare.get_primary_name().is_some()
@@ -100,14 +98,13 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
 
 /// I1: references in spec/attr blocks to undeclared variables.
 fn check_spec_refs(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let comp_name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let comp_name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         let param_names: std::collections::HashSet<String> = comp
             .params
             .iter()

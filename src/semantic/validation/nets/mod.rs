@@ -361,11 +361,11 @@ fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64
     if comp_entry.class_name.is_empty() {
         return None;
     }
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    let def_entry = comps
+    let comps = crate::definition_space().workspace_components();
+    let def = comps
         .iter()
-        .find(|e| e.key().ident.to_string() == comp_entry.class_name)?;
-    let def = def_entry.value();
+        .find(|(sn, _)| sn.ident.to_string() == comp_entry.class_name)
+        .map(|(_, c)| c)?;
 
     let pin_id = entry.path.rsplit('.').next().unwrap_or("");
     let pin = def.pins.pins.get(pin_id).or_else(|| {
@@ -762,7 +762,7 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
         .iter()
         .flat_map(|n| n.points.iter().cloned())
         .collect();
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
+    let comps = crate::definition_space().workspace_components();
     for (_, entry) in table.iter() {
         // Same synthetic-wraper carve-out as E4112: a virtually-instantiated
         // component is never wired, so "N of M pins connected" (E4116) is a
@@ -773,26 +773,21 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
         {
             continue;
         }
-        if let Some(def_entry) = comps
+        if let Some(def) = comps
             .iter()
-            .find(|e| e.key().ident.to_string() == entry.class_name)
+            .find(|(sn, _)| sn.ident.to_string() == entry.class_name)
+            .map(|(_, c)| c)
         {
             // Count non-NC pin names only — NC pins are intentionally
             // unconnected and never counted (OR semantics, §2.19).
-            let nc_names = def_entry
-                .value()
+            let nc_names = def
                 .pins
                 .pins
                 .values()
                 .filter(|p| p.is_nc)
                 .map(|p| p.names.len())
                 .sum::<usize>();
-            let def_pin_count = def_entry
-                .value()
-                .pins
-                .names_to_id
-                .len()
-                .saturating_sub(nc_names);
+            let def_pin_count = def.pins.names_to_id.len().saturating_sub(nc_names);
             if def_pin_count == 0 {
                 continue;
             }

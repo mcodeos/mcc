@@ -18,33 +18,39 @@ pub fn mcb_print() {
         });
 
     // Print project-level Interfaces
-    workspace::WORKSPACE
-        .interfaces
+    crate::definition_space()
+        .workspace_interfaces()
         .iter()
-        .for_each(|interface| {
-            println!("{}", interface.value().as_ref());
+        .for_each(|(_, interface)| {
+            println!("{}", interface.as_ref());
         });
 
-    workspace::WORKSPACE
-        .components
+    crate::definition_space()
+        .workspace_components()
         .iter()
-        .for_each(|component| {
-            println!("{}", component.value().as_ref());
+        .for_each(|(_, component)| {
+            println!("{}", component.as_ref());
         });
 
-    workspace::WORKSPACE.modules.iter().for_each(|module| {
-        println!("{}", module.value().as_ref());
-    });
+    crate::definition_space()
+        .workspace_modules()
+        .iter()
+        .for_each(|(_, module)| {
+            println!("{}", module.as_ref());
+        });
 
-    workspace::WORKSPACE.enums.iter().for_each(|enum_def| {
-        println!("{}", enum_def.value().as_ref());
-    });
+    crate::definition_space()
+        .workspace_enums()
+        .iter()
+        .for_each(|(_, enum_def)| {
+            println!("{}", enum_def.as_ref());
+        });
 }
 
 // === pub fn mcb_print_lines() { ===
 /// Print Lines information for all modules (used for drawing-side debugging)
 pub fn mcb_print_lines() {
-    let modules = &workspace::WORKSPACE.modules;
+    let modules = crate::definition_space().workspace_modules();
 
     if modules.is_empty() {
         println!("⚠️  prj_modules is empty, no module definitions found");
@@ -57,10 +63,7 @@ pub fn mcb_print_lines() {
         modules.len()
     );
 
-    for entry in modules.iter() {
-        let space_name = entry.key();
-        let module_def = entry.value();
-
+    for (space_name, module_def) in modules.iter() {
         println!("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         println!("┃ Module: {}", module_def.name);
         println!("┃ URI: {}", space_name.uri);
@@ -338,7 +341,7 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
     }
 
     // Full prj_modules state
-    let modules = &workspace::WORKSPACE.modules;
+    let modules = crate::definition_space().workspace_modules();
     mcc_dbg!(
         "lsp::query",
         "╠══════════════════════════════════════════════════════╣"
@@ -348,9 +351,7 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
         "║ prj_modules status: {} modules",
         modules.len()
     );
-    for entry in modules.iter() {
-        let key = entry.key();
-        let val = entry.value();
+    for (key, val) in modules.iter() {
         mcc_dbg!(
             "lsp::query",
             "║   {} (uri={}) → stmts={}, symbols={}",

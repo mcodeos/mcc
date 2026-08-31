@@ -39,15 +39,14 @@ impl ValidationCheck for EnumsCheck {
 
 /// Within a single enum definition, all value names must be unique.
 fn check_duplicate_enum_values(acc: &mut CheckAccumulator) {
-    let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-    for entry in enums.iter() {
-        let uri = entry.key().uri.to_string();
+    let enums = crate::definition_space().workspace_enums();
+    for (sn, def) in enums.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let edef = entry.value();
         let mut seen: HashSet<String> = HashSet::new();
-        for val in &edef.values {
+        for val in &def.values {
             let name = val.name.to_string();
             if !seen.insert(name.clone()) {
                 acc.push(CheckResult {
@@ -57,7 +56,7 @@ fn check_duplicate_enum_values(acc: &mut CheckAccumulator) {
                     span: Some(val.span[0] as usize..val.span[1] as usize),
                     message: format!(
                         "Enum '{}' has duplicate value '{}'. Enum values must be unique.",
-                        edef.name, name
+                        def.name, name
                     ),
                     code: crate::errcodes::ENUM_DUPLICATE_VALUE,
                 });
@@ -102,14 +101,13 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
     .cloned()
     .collect();
 
-    let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-    for entry in enums.iter() {
-        let uri = entry.key().uri.to_string();
+    let enums = crate::definition_space().workspace_enums();
+    for (sn, def) in enums.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let edef = entry.value();
-        for val in &edef.values {
+        for val in &def.values {
             let name = val.name.to_string();
             let span = val.span[0] as usize..val.span[1] as usize;
 
@@ -122,7 +120,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
                     span: Some(span.clone()),
                     message: format!(
                         "Enum '{}' member '{}' contains a dot. Enum values must be simple identifiers.",
-                        edef.name, name
+                        def.name, name
                     ),
                     code: crate::errcodes::ENUM_MEMBER_DOT,
                 });
@@ -137,7 +135,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
                     span: Some(span.clone()),
                     message: format!(
                         "Enum '{}' member '{}' starts with a digit. Enum values must be identifiers.",
-                        edef.name, name
+                        def.name, name
                     ),
                     code: crate::errcodes::ENUM_MEMBER_LEADING_DIGIT,
                 });
@@ -152,7 +150,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
                     span: Some(span),
                     message: format!(
                         "Enum '{}' member '{}' is a reserved keyword. Consider a different name.",
-                        edef.name, name
+                        def.name, name
                     ),
                     code: crate::errcodes::ENUM_MEMBER_RESERVED,
                 });
@@ -168,13 +166,12 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
 /// Detect attributes where the value is the same as the key name,
 /// e.g. `manufacturer = manufacturer` which is likely a copy-paste mistake.
 fn check_self_ref_attr(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         for attr in comp.attrs.iter() {
             let key_str = attr.id.to_string();
@@ -205,13 +202,12 @@ fn check_self_ref_attr(acc: &mut CheckAccumulator) {
     }
 
     // Also check interfaces
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    for entry in ifaces.iter() {
-        let uri = entry.key().uri.to_string();
+    let ifaces = crate::definition_space().workspace_interfaces();
+    for (sn, iface) in ifaces.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let iface = entry.value();
 
         for attr in iface.attrs.iter() {
             let key_str = attr.id.to_string();
@@ -248,13 +244,12 @@ fn check_self_ref_attr(acc: &mut CheckAccumulator) {
 /// e.g. `manufacturer = "TI"` followed by `manufacturer = "ST"` silently
 /// overwrites — the second value wins, which may not be intended.
 fn check_duplicate_attr_keys(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         let mut seen: HashSet<String> = HashSet::new();
         for attr in comp.attrs.iter() {
             let key_str = attr.id.to_string();
@@ -278,13 +273,12 @@ fn check_duplicate_attr_keys(acc: &mut CheckAccumulator) {
         }
     }
 
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    for entry in ifaces.iter() {
-        let uri = entry.key().uri.to_string();
+    let ifaces = crate::definition_space().workspace_interfaces();
+    for (sn, iface) in ifaces.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let iface = entry.value();
         let mut seen: HashSet<String> = HashSet::new();
         for attr in iface.attrs.iter() {
             let key_str = attr.id.to_string();
