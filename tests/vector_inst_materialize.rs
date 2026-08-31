@@ -115,6 +115,38 @@ fn single_member_range_stays_scalar() {
     assert!(!inst.components.iter().any(|c| c.name == "c1"), "no c1 for c[2]");
 }
 
+/// ── §11.3/1.6: single-index member reference stays scalar ────────────────
+/// `res[1:2]::RES(0)` declared, then `res[2] -> GND`: the single-index
+/// reference is a scalar member (contract E), NOT a re-link of the whole
+/// vector group. Phase 1.6 removed the sibling-probing heuristic (which
+/// scanned base+digit siblings) in favor of direct vector-node lookup; this
+/// locks that a scalar member reference connects only itself.
+#[test]
+fn single_index_member_reference_stays_scalar() {
+    let res_comp = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
+    let src = format!(
+        "{res_comp}module main {{\n    io VDD\n    io GND\n    res[1:2]::RES(0)\n    res[2] -> GND\n}}\n"
+    );
+    let inst = build_main(&src, "/mcc/vinst-single-index.mc");
+    let v = find_vector(&inst, "res");
+    assert_eq!(v.member_names, vec!["res1", "res2"]);
+    // The `res[2]` operand connects only res2's pin — no broadcast to res1.
+    let gnd_net = inst
+        .nets
+        .iter()
+        .find(|(n, _)| n.starts_with("GND"))
+        .unwrap_or_else(|| panic!("no GND net; nets={:?}", inst.nets));
+    let paths: Vec<&String> = gnd_net.1.iter().map(|p| &p.path).collect();
+    assert!(
+        paths.iter().any(|p| p.contains("res2.2")),
+        "res2 pin 2 on GND net; got {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p.contains("res1.")),
+        "res1 must NOT be broadcast onto the GND net; got {paths:?}"
+    );
+}
+
 /// ── Sub-module vector declare: group lives on the sub-module instance ─────
 /// `SM` declared in main with `CAP c[1:2](1)` in SM's body → `main.sub_modules`
 /// holds an SM instance whose own `vectors` has the group (module-scope

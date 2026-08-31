@@ -3435,79 +3435,25 @@ impl McModuleInst {
             }
         }
 
-        // Iter-3.D added: Component(res1) form — parser only took the first
-        // after expansion
+        // ── §11.3/1.6: direct vector-node lookup (was Iter-3.D sibling-probing) ──
+        // The old heuristic probed base+digit siblings (`res1` → res2, res3 ...)
+        // to reassemble an array after pass1 only expanded the first member —
+        // a digit-suffix name scan with an artificial 16-sibling bound and an
+        // `@` auto-named exclusion for its false positives.
+        //
+        // The declared member set is now a first-class modeling-layer coordinate
+        // (`self.vectors`, §11.2): a `Component(res1)` caller (pass1 resolving
+        // a bracket to a single member) is matched against the physical member
+        // id list of every vector group. Auto-named components (`@CAP1`) are
+        // never in a declared group, so the lookup simply misses — the old `@`
+        // exclusion is structurally unnecessary. Contract E single-member
+        // scalars are not in `vectors`, so they never re-link as arrays.
         if let McPhrase::Endpoint(McEndpoint::Single(iref)) = phrase {
             if let McInstance::Component(c) = &iref.base {
                 let cname = c.name.to_string();
-
-                // ── Iter-6.S5.3 ────────────────────────────────────────
-                // Exclude `@` prefix auto-named components (`@CAP1`, `@CAP2`, ...).
-                //
-                // Background: when pass1 parses inline component constructions
-                // without user-explicit naming like `CAP(v).Cap(x)` / `RES(v).Pullup(x)` /
-                // `LDO.SGM... ldo`, it auto-allocates names by `@<CLASS><N>`
-                // counter. These names have **no array relationship** —— they are
-                // **independent, completely unrelated components**, just happening
-                // to share the auto-increment counter.
-                //
-                // The Iter-3.D heuristic's target case is: user writes
-                // `res[1:2]::RES(0Ω)`, parser only expands to `res1`, we use
-                // sibling probing to splice `res2` back. That case's user name
-                // **will absolutely not start with `@`** (`@` is the pass1
-                // auto-naming reserved prefix).
-                //
-                // Without this exclusion it leads to **fatal silent-return bug**:
-                //   - Any two inline-created `@CAP1` / `@CAP2` in the same
-                //     module will be treated by the heuristic as an array
-                //     `[@CAP1, @CAP2]`
-                //   - When `.Cap(...)` such method is called with caller of
-                //     `Cap` class (i.e. `@CAP1`), Iter-1.3 early-exits treating
-                //     caller as array, **skips method dispatch (Iter-2.2)**,
-                //     never binds pins 1/2, the component is isolated.
-                //   - Verified foot-guns (power.mc:102 + ldo:65):
-                //       `CAP(10uF).Cap(dcdc{Vin, GND})`  → @CAP1 isolated
-                //       `vin -> ldo.VIN => CAP(10uF).Cap(_)`  → ldo.VIN is
-                //          also wrongly connected to both @CAP1.1 and @CAP2.1
-                //          (because @@ARRAY encoding makes
-                //          resolve_funccall_left_points return two points),
-                //          then through @CAP2 internal wiring to vout, finally
-                //          vin~vout short
-                //
-                // Fix: when Component name starts with `@`, directly return None,
-                // letting subsequent method dispatch handle normally.
-                if cname.starts_with('@') {
-                    return None;
-                }
-
-                // Check if name ends with one or more digits
-                let digit_start = cname
-                    .char_indices()
-                    .rev()
-                    .take_while(|(_, ch)| ch.is_ascii_digit())
-                    .last()
-                    .map(|(i, _)| i);
-                if let Some(idx) = digit_start {
-                    let (base, num_str) = cname.split_at(idx);
-                    if !base.is_empty() && !num_str.is_empty() {
-                        if let Ok(start_num) = num_str.parse::<usize>() {
-                            // Check if base+(start_num+1), base+(start_num+2), etc. are all in components
-                            let mut collected = vec![cname.clone()];
-                            let mut k = start_num + 1;
-                            // Set upper bound 16 to prevent unbounded scan, actual array length usually small
-                            while k < start_num + 16 {
-                                let sibling = format!("{base}{k}");
-                                if self.components.iter().any(|c| c.name == sibling) {
-                                    collected.push(sibling);
-                                    k += 1;
-                                } else {
-                                    break;
-                                }
-                            }
-                            if collected.len() > 1 {
-                                return Some(collected);
-                            }
-                        }
+                for v in &self.vectors {
+                    if v.member_ids.iter().any(|id| id == &cname) {
+                        return Some(v.member_ids.clone());
                     }
                 }
             }
