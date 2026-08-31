@@ -81,6 +81,9 @@ struct WorkspaceSnapshot {
     enums: DashMap<McSpaceName, Arc<McEnumDef>>,
     defines: DashMap<McSpaceName, Arc<McDefineDef>>,
     diagnostics: DiagnosticManager,
+    // §12.1 DefinitionSpace manifest (loaded source domains + lib boundary).
+    sources: DashMap<McURI, super::defspace::SourceDomain>,
+    libs: DashMap<String, super::defspace::LibBoundary>,
 }
 
 // ============================================================================
@@ -107,10 +110,21 @@ pub struct WorkspaceManager {
     /// When file B's CMIE defs change, iterate `reverse_deps[B]` to find
     /// affected files whose Use table needs rebuilding.
     pub(crate) reverse_deps: DashMap<McURI, Vec<McURI>>,
+
+    // §12.1 DefinitionSpace manifest: which sources are loaded and into which
+    // domain (project vs system lib), plus the loaded library boundary.
+    // Maintained by the loader chain (loader.rs / libmgr.rs); read through the
+    // `DefinitionSpace` view — "what is loaded, into which domain, where the
+    // boundary is" (design §12.1).
+    pub(crate) sources: DashMap<McURI, super::defspace::SourceDomain>,
+    pub(crate) libs: DashMap<String, super::defspace::LibBoundary>,
 }
 
 impl WorkspaceManager {
-    fn new() -> Self {
+    /// Build a fresh, empty workspace. Tests use this to construct an isolated
+    /// [`DefinitionSpace`](super::defspace::DefinitionSpace) without touching
+    /// the process-global `WORKSPACE`.
+    pub(crate) fn new() -> Self {
         Self {
             mcodes: DashMap::new(),
             modules: DashMap::new(),
@@ -123,6 +137,8 @@ impl WorkspaceManager {
             saved: Mutex::new(HashMap::new()),
             lsp: crate::db::symbol::workspace::LspTables::new(),
             reverse_deps: DashMap::new(),
+            sources: DashMap::new(),
+            libs: DashMap::new(),
         }
     }
 
@@ -193,6 +209,8 @@ impl WorkspaceManager {
         self.reverse_deps.clear();
         self.lsp.class_table.lock().unwrap().clear();
         self.diagnostics.lock().unwrap().clear();
+        self.sources.clear();
+        self.libs.clear();
     }
 
     // ================================================================
@@ -267,6 +285,8 @@ impl WorkspaceManager {
         let interfaces = clone_and_clear(&self.interfaces);
         let enums = clone_and_clear(&self.enums);
         let defines = clone_and_clear(&self.defines);
+        let sources = clone_and_clear(&self.sources);
+        let libs = clone_and_clear(&self.libs);
         let diagnostics = self.diagnostics.lock().unwrap().take();
 
         let snap = WorkspaceSnapshot {
@@ -278,6 +298,8 @@ impl WorkspaceManager {
             enums,
             defines,
             diagnostics,
+            sources,
+            libs,
         };
 
         debug!(target: "mcc::workspace", id = %id, "snapshot saved");
@@ -295,6 +317,8 @@ impl WorkspaceManager {
         fill_dashmap(&self.interfaces, snap.interfaces);
         fill_dashmap(&self.enums, snap.enums);
         fill_dashmap(&self.defines, snap.defines);
+        fill_dashmap(&self.sources, snap.sources);
+        fill_dashmap(&self.libs, snap.libs);
 
         *self.diagnostics.lock().unwrap() = snap.diagnostics;
     }

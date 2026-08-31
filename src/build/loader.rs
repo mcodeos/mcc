@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::db::cmie::defspace::SourceDomain;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
@@ -47,6 +48,10 @@ pub fn mcb_add(uri: &McURI) {
                 vacant_entry.insert(mcfile);
             }
         }
+        // §12.1 DefinitionSpace manifest: a single project file load.
+        workspace::WORKSPACE
+            .sources
+            .insert(canonical_uri.clone(), SourceDomain::Project);
     }
 }
 
@@ -92,7 +97,11 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
         } else {
             binding.insert(canonical_uri.clone(), mcfile);
         }
-        tracing::info!(target: "mcc::lsp", "mcb_add_from_string: added to workspace, keys count={}, all_keys={:?}", 
+        // §12.1 DefinitionSpace manifest: an in-memory project source load.
+        workspace::WORKSPACE
+            .sources
+            .insert(canonical_uri.clone(), SourceDomain::Project);
+        tracing::info!(target: "mcc::lsp", "mcb_add_from_string: added to workspace, keys count={}, all_keys={:?}",
             binding.len(), binding.iter().map(|e| e.key().clone()).collect::<Vec<_>>());
     } else {
         tracing::warn!(target: "mcc::lsp", "mcb_add_from_string: McCode::new_from_string returned None");
@@ -257,6 +266,22 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
         .mcodes
         .insert(canonical_uri.clone(), mcfile.clone());
 
+    // §12.1 DefinitionSpace manifest: record which domain this source was
+    // loaded into — project, or a system library (named by the loader's
+    // current-lib context, set by `mcb_load_lib`).
+    let domain = if is_system_lib {
+        SourceDomain::SystemLib(
+            CURRENT_LIB_NAME
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| "mcode".to_string()),
+        )
+    } else {
+        SourceDomain::Project
+    };
+    workspace::WORKSPACE.sources.insert(canonical_uri.clone(), domain);
+
     // 6. Mark as loaded (before recursion to prevent circular dependencies)
     loaded.insert(canonical_uri.clone());
 
@@ -379,6 +404,12 @@ pub fn mcb_remove(uri: &McURI) {
     binding.remove(uri);
     if canonical_uri != *uri {
         binding.remove(&canonical_uri);
+    }
+
+    // §12.1 DefinitionSpace manifest: drop the source entry.
+    workspace::WORKSPACE.sources.remove(uri);
+    if canonical_uri != *uri {
+        workspace::WORKSPACE.sources.remove(&canonical_uri);
     }
 
     let extra_keys: Vec<String> = binding

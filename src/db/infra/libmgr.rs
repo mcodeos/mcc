@@ -17,6 +17,7 @@
 //!
 //! `mcb_init_system_lib()` preserved, internally changed to call `mcb_load_lib("mcode", mcode_dir)`.
 
+use crate::db::cmie::defspace::LibBoundary;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
@@ -277,6 +278,21 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
         );
     }
 
+    // §12.1 DefinitionSpace manifest: record the loaded library boundary
+    // (name + on-disk root + the uris it brought in).
+    workspace::WORKSPACE.libs.insert(
+        name.to_string(),
+        LibBoundary {
+            name: name.to_string(),
+            root: root.to_path_buf(),
+            uris: lib_entry
+                .spacenames
+                .values()
+                .map(|sn| sn.uri.to_string())
+                .collect(),
+        },
+    );
+
     // Replace blib with new one
     mcc_blibs.insert(name.to_string(), lib_entry);
 
@@ -301,6 +317,9 @@ pub fn mcb_unload_lib(name: &str) -> bool {
         Some((_, blib)) => blib,
         None => return false,
     };
+
+    // §12.1 DefinitionSpace manifest: drop the library boundary.
+    workspace::WORKSPACE.libs.remove(name);
 
     // Collect all uri prefixes in this library
     let uris: HashSet<String> = blib
