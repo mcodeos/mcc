@@ -15,7 +15,7 @@
 //! decide vector-ness. `canonical_single` is the read-side fallback that only
 //! accepts exactly one bare identifier.
 
-use super::mc_ids::McIds;
+use super::mc_ids::{expand_numeric_slice, McIds};
 
 /// Expand the segment tree of `ids` to its ordered member set.
 ///
@@ -91,11 +91,33 @@ fn split_curly_groups(expanded: Vec<String>) -> Vec<String> {
                     let prefix = &name[..open];
                     let body = &name[open + 1..close];
                     let suffix = &name[close + 1..];
-                    let members: Vec<&str> = body
-                        .split([',', '|'])
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .collect();
+                    let mut members: Vec<String> = Vec::new();
+                    for token in body.split([',', '|']) {
+                        let token = token.trim();
+                        if token.is_empty() {
+                            continue;
+                        }
+                        // R12: a numeric-slice token `1:3` inside a curly group
+                        // expands to its interval (declaration direction
+                        // authoritative), mirroring the AST Curly+Slice branch
+                        // in mc_ids.rs — the string front-end must yield the
+                        // same member set the segment tree does (double front-end
+                        // §2.1). `IO0{0:7}` -> `IO0.0..IO0.7`; non-slice tokens
+                        // (names, `|` pipes) fall through to literal members.
+                        if let Some((from, to)) = token.split_once(':') {
+                            if let (Ok(f), Ok(t)) =
+                                (from.trim().parse::<i64>(), to.trim().parse::<i64>())
+                            {
+                                members.extend(
+                                    expand_numeric_slice(f, t)
+                                        .into_iter()
+                                        .map(|i| i.to_string()),
+                                );
+                                continue;
+                            }
+                        }
+                        members.push(token.to_string());
+                    }
                     for m in &members {
                         out.push(format!("{prefix}.{m}{suffix}"));
                     }
@@ -173,6 +195,43 @@ mod tests {
         assert_eq!(
             member_set_from_str("usbsock.USB.D\\+"),
             Some(vec!["usbsock.USB.D+".into()])
+        );
+    }
+
+    #[test]
+    fn member_set_from_str_curly_slice_expands_range() {
+        // R12: `IO0{0:7}` (real corpus: pca9555.mc) expands to the 8 members,
+        // matching the AST Curly+Slice branch — not a literal "0:7" member.
+        assert_eq!(
+            member_set_from_str("IO0{0:7}"),
+            Some(vec![
+                "IO0.0".into(),
+                "IO0.1".into(),
+                "IO0.2".into(),
+                "IO0.3".into(),
+                "IO0.4".into(),
+                "IO0.5".into(),
+                "IO0.6".into(),
+                "IO0.7".into(),
+            ])
+        );
+    }
+
+    #[test]
+    fn member_set_from_str_curly_slice_descending() {
+        // Declaration direction is authoritative: `4:1` yields [4,3,2,1].
+        assert_eq!(
+            member_set_from_str("X{4:1}"),
+            Some(vec!["X.4".into(), "X.3".into(), "X.2".into(), "X.1".into(),])
+        );
+    }
+
+    #[test]
+    fn member_set_from_str_curly_slice_mixed_with_enum() {
+        // Slices and enumerated members mix in one group, in writing order.
+        assert_eq!(
+            member_set_from_str("P{1,3:5}"),
+            Some(vec!["P.1".into(), "P.3".into(), "P.4".into(), "P.5".into(),])
         );
     }
 

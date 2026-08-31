@@ -410,6 +410,11 @@ impl McModuleInst {
     /// - `this`       → `caller_inst_name`
     /// - `this.xxx`   → `caller_inst_name.xxx`
     /// - `this{a, b}` → `caller_inst_name{a, b}` (curly member access, e.g. `this{1}`)
+    ///
+    /// The curly split routes through the shared string front-end
+    /// (`equivalent::member_set_from_str`, §3.1 late binding): `|` pipes and
+    /// `,` separators expand uniformly, and numeric slices (`this{1:3}` → R12)
+    /// expand to their interval instead of a literal `"1:3"` member.
     fn this_ref_to_bus(s: &str, ctx: &ExpansionContext) -> McBus {
         let this_name = ctx.instance.name.as_str();
         if s == "this" {
@@ -418,14 +423,18 @@ impl McModuleInst {
         if let Some(rest) = s.strip_prefix("this.") {
             return McBus::new(&format!("{this_name}.{rest}"));
         }
-        if let Some(rest) = s.strip_prefix("this{") {
-            if let Some(inner) = rest.strip_suffix('}') {
-                let members: Vec<String> = inner
-                    .split(',')
-                    .map(|m| m.trim().to_string())
-                    .filter(|m| !m.is_empty())
+        if s.strip_prefix("this{")
+            .and_then(|r| r.strip_suffix('}'))
+            .is_some()
+        {
+            if let Some(expanded) = crate::semantic::basic::equivalent::member_set_from_str(s) {
+                let members: Vec<String> = expanded
+                    .into_iter()
+                    .filter_map(|m| m.strip_prefix("this.").map(str::to_string))
                     .collect();
-                return McBus::new_with_members(this_name, members);
+                if !members.is_empty() {
+                    return McBus::new_with_members(this_name, members);
+                }
             }
         }
         McBus::new(s)
