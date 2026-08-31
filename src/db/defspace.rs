@@ -186,6 +186,57 @@ impl<'a> DefinitionSpace<'a> {
     pub fn all_defines(&self) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
         chain_dedup(&self.ws.defines, &global::mcc_defines)
     }
+
+    // ── System-library-only view (P5 visibility) ──
+    //
+    // The unified `get_*` / `all_*` views mix the workspace in. P5 — "mcode
+    // system library is always visible" (refs.rs §5.4 gate) — is the *opposite*
+    // read: a cross-file reference to a definition in a *different project file*
+    // must be justified by the use chain, not by mere table existence (the
+    // net1.basic.mc → c3.defs.mc regression). Callers with that semantic read
+    // the system tables alone, through this view.
+
+    /// Does the loaded system library (not the workspace) define this identity,
+    /// as any class kind?
+    pub fn system_contains(&self, sn: &McSpaceName) -> bool {
+        global::mcc_components.contains_key(sn)
+            || global::mcc_modules.contains_key(sn)
+            || global::mcc_interfaces.contains_key(sn)
+            || global::mcc_enums.contains_key(sn)
+    }
+
+    /// Enumerate every *system-library* component definition (P5).
+    pub fn system_components(&self) -> Vec<(McSpaceName, Arc<McComponent>)> {
+        system_dump(&global::mcc_components)
+    }
+
+    /// Enumerate every *system-library* module definition (P5).
+    pub fn system_modules(&self) -> Vec<(McSpaceName, Arc<McModule>)> {
+        system_dump(&global::mcc_modules)
+    }
+
+    /// Enumerate every *system-library* interface definition (P5).
+    pub fn system_interfaces(&self) -> Vec<(McSpaceName, Arc<McInterface>)> {
+        system_dump(&global::mcc_interfaces)
+    }
+
+    /// Enumerate every *system-library* enum definition (P5).
+    pub fn system_enums(&self) -> Vec<(McSpaceName, Arc<McEnumDef>)> {
+        system_dump(&global::mcc_enums)
+    }
+}
+
+/// System-lib-only enumeration: every entry of one global table, in arbitrary
+/// (DashMap) order. No dedup — the global tables are a single system.
+fn system_dump<K, V>(global: &DashMap<K, V>) -> Vec<(K, V)>
+where
+    K: Eq + Hash + Clone,
+    V: Clone,
+{
+    global
+        .iter()
+        .map(|e| (e.key().clone(), e.value().clone()))
+        .collect()
 }
 
 /// Workspace-then-system-lib enumeration, deduplicated by exact table identity

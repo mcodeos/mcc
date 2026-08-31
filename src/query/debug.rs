@@ -3,16 +3,19 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::global;
 use crate::query::lookup::{find_by_name_in_project_tables, find_in_project_tables};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 
 // === pub fn mcb_print() { ===
 pub fn mcb_print() {
-    // Print system-level Interfaces (mcode directory)
-    global::mcc_interfaces.iter().for_each(|interface| {
-        println!("{}", interface.value().as_ref());
-    });
+    // Print system-level Interfaces (mcode directory) — system-lib-only read
+    // through the DefinitionSpace view (defspace.rs).
+    crate::definition_space()
+        .system_interfaces()
+        .iter()
+        .for_each(|(_, def)| {
+            println!("{}", def.as_ref());
+        });
 
     // Print project-level Interfaces
     workspace::WORKSPACE

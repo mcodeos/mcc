@@ -110,6 +110,14 @@ fn base_of(seg: &str) -> &str {
 /// Members carried by a grouped segment, e.g. `"MIC{P,N}"` → (`"MIC"`, [`"P"`, `"N"`]).
 /// `"GPIO[1:2]"` expands the slice → [`"1"`, `"2"`]. Returns `None` when the
 /// segment has no `{}` / `[]` group or the group is empty.
+///
+/// The member split routes through the pipeline's string front-end
+/// (`equivalent::member_set_from_str`, §4.2 shared) so `,` and `|` separators
+/// (`Q1{S|D}`, `{SPI,MIC|DAC_OUT,SPK_MUTE}`) share one member-set expansion,
+/// and the base prefix is stripped from the expanded member paths
+/// (`MIC.P`/`MIC.N`) to recover the bare member names the chain walk resolves
+/// against. The `[k:m]` slice expansion stays numeric — `McIda` square parsing
+/// yields the same digits the list-member hops consume.
 fn group_members(seg: &str) -> Option<(String, Vec<String>)> {
     let base = base_of(seg);
     if base.is_empty() || base.len() == seg.len() {
@@ -125,24 +133,22 @@ fn group_members(seg: &str) -> Option<(String, Vec<String>)> {
     if content.is_empty() {
         return None;
     }
-    let mut members = Vec::new();
-    for part in content.split(',') {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-        if let Some((a, b)) = part.split_once(':') {
-            if let (Ok(from), Ok(to)) = (a.trim().parse::<i64>(), b.trim().parse::<i64>()) {
-                if from <= to {
-                    for i in from..=to {
-                        members.push(i.to_string());
-                    }
-                    continue;
-                }
+    let expanded = crate::semantic::basic::equivalent::member_set_from_str(seg)?;
+    // Curly groups expand to `base.member` (split_curly_groups joins on `.`),
+    // square groups to `base<member>` (McIda concatenates, no dot) — strip
+    // whichever separator the group kind produced.
+    let members: Vec<String> = expanded
+        .iter()
+        .map(|m| {
+            if inner.starts_with('{') {
+                m.strip_prefix(&format!("{base}.")).unwrap_or(m)
+            } else {
+                m.strip_prefix(base).unwrap_or(m)
             }
-        }
-        members.push(part.to_string());
-    }
+        })
+        .map(str::to_string)
+        .filter(|m| !m.is_empty())
+        .collect();
     if members.is_empty() {
         None
     } else {
@@ -1162,6 +1168,45 @@ mod tests {
         assert_eq!(split_segments("GPIO[1:2]"), vec!["GPIO[1:2]".to_string()]);
         assert_eq!(split_segments("V3V3"), vec!["V3V3".to_string()]);
         assert_eq!(split_segments(""), Vec::<String>::new());
+    }
+
+    /// group_members routes through the shared member-set front-end (§4.2 shared):
+    /// `,` and `|` separators expand to the bare member list, and `[k:m]`
+    /// slices stay numeric. Comma / curly / range forms keep their shapes.
+    #[test]
+    fn group_members_shared_member_split() {
+        fn gm(seg: &str) -> Option<(String, Vec<String>)> {
+            group_members(seg)
+        }
+        // Curly comma group.
+        assert_eq!(
+            gm("MIC{P,N}"),
+            Some(("MIC".into(), vec!["P".into(), "N".into()]))
+        );
+        // Curly pipe group — the new `|` support.
+        assert_eq!(
+            gm("Q1{S|D}"),
+            Some(("Q1".into(), vec!["S".into(), "D".into()]))
+        );
+        // Mixed `,` + `|` separators.
+        assert_eq!(
+            gm("X{SPI,MIC|DAC_OUT}"),
+            Some((
+                "X".into(),
+                vec!["SPI".into(), "MIC".into(), "DAC_OUT".into()]
+            ))
+        );
+        // Square slice stays numeric.
+        assert_eq!(
+            gm("GPIO[1:2]"),
+            Some(("GPIO".into(), vec!["1".into(), "2".into()]))
+        );
+        // Single-index square.
+        assert_eq!(gm("GPIO[1]"), Some(("GPIO".into(), vec!["1".into()])));
+        // No group / empty group → None.
+        assert_eq!(gm("V3V3"), None);
+        assert_eq!(gm("X{}"), None);
+        assert_eq!(gm("X[]"), None);
     }
 
     #[test]
