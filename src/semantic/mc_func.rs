@@ -83,6 +83,16 @@ pub trait HasFindInst {
     fn find_inst(&self, id: &str) -> Option<McInstance>;
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance>;
 
+    /// Read the ordered member set of a declared vector group
+    /// (`c[1:2]` → `["c1","c2"]`), §11.2/§11.3 ③. The scope chain is the same
+    /// as `find_inst` (pin 3): FuncBodyContext delegates to its parent,
+    /// McFunction/McModule read their own `McInstances.vectors`. Returns
+    /// `None` for a non-vector base or a scalar single-member base (contract E).
+    fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
+        let _ = base;
+        None
+    }
+
     /// Primary name lookup method: search by priority chain and return both the
     /// semantic instance and its source span (for LSP goto-definition).
     ///
@@ -201,6 +211,31 @@ pub trait HasFindInst {
         // reaching the miss decision), so this is a defensive guard.
         if matches!(form, Form::Bare | Form::List) {
             return RefVerdict::Wire;
+        }
+        // ★ Vector arm (§11.3 ③): prefix+square references (`c[1:2]`, `res[4]`)
+        // resolve against the declared vector groups / member set, so they no
+        // longer fall to the literal `add_label` fall-through. Combinatorial:
+        // the outer vector comes from `vectors[base]` (same scope chain as
+        // `find_inst`, pin 3), and each member is a scalar entry.
+        if matches!(form, Form::Array | Form::Indexed) {
+            if let Some(expanded) = crate::semantic::basic::equivalent::member_set(ids) {
+                if expanded.len() >= 2 {
+                    let base = ids.base_name();
+                    // (a) Declared vector group, or an array alias whose members
+                    // are all individually declared instances → multi-member.
+                    if self.get_vector_members(&base).is_some()
+                        || expanded.iter().all(|m| self.find_inst(m).is_some())
+                    {
+                        return RefVerdict::ResolvedMany(expanded);
+                    }
+                } else if self.find_inst(&expanded[0]).is_some() {
+                    // (b) Contract E: single-member range (`res[4]`) whose member
+                    // is a declared scalar → scalar reference, not a vector.
+                    return RefVerdict::Resolved;
+                }
+            }
+            // True miss (array base declared nowhere) — fall through to the
+            // existing scalar-miss decision (E3136/Wire twin, no sibling-probing).
         }
         let (base, member) = reference_parts(ids, form);
         if self.find_inst(&base).is_some() {
@@ -325,6 +360,12 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
         crate::semantic::scope::instance_chain(self.param_names, &*self.parent)
             .resolve(id)
             .map(|r| (r.inst, r.span))
+    }
+
+    fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
+        // Same scope chain as `find_inst`: the parent (module/function) holds
+        // the vector groups; func-local declares live in the parent's `insts`.
+        self.parent.get_vector_members(base)
     }
 
     fn add_label_at(
@@ -1040,6 +1081,12 @@ impl HasFindInst for McFunction {
 
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut McInstance> {
         self.insts.get_mut(id)
+    }
+
+    fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
+        self.insts
+            .get_vector_members(base)
+            .map(|members| members.to_vec())
     }
 
     fn add_label_at(
