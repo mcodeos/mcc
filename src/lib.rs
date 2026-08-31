@@ -90,7 +90,7 @@ pub use builder::{
 pub use instant::insttab::{InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry};
 pub use instant::mc_bus::McBusInst;
 pub use instant::mc_comp::McComponentInst;
-pub use instant::mc_mod::McModuleInst;
+pub use instant::mc_mod::{McModuleInst, McVectorInst};
 pub use instant::mc_net::NetPoint;
 pub use instant::provenance::{
     ExpansionKind, ExpansionLog, ExpansionRecord, ProductGroup, ProductGroups, StatementNode,

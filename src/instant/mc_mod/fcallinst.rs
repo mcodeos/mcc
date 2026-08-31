@@ -15,6 +15,7 @@ use super::funccall::FuncCallInst;
 use super::matching::{check_vector_width, WidthCheck};
 use super::FailedRecord;
 use super::McModuleInst;
+use super::McVectorInst;
 use crate::instant::insttab::InstOrigin;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{InstError, NetPoint};
@@ -30,7 +31,7 @@ use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_func::{McFuncReturn, McFunction};
-use crate::semantic::mc_inst::McInstance;
+use crate::semantic::mc_inst::{McInstance, McInstances};
 use crate::semantic::module::McModule;
 use crate::vector::model::trunk::TrunkKind;
 use crate::McIds;
@@ -991,7 +992,57 @@ impl McModuleInst {
                 self.materialize_component(&full, comp)?;
             }
         }
+        // ── §11.2: build vector grouping nodes ──────────────────────────
+        // `func.insts` carries the `base -> ordered member names` map
+        // (recorded at parse_declare). With the flat member instances now in
+        // `self.components`, promote each multi-member group to a
+        // `McVectorInst` grouping node.
+        self.materialize_vector_groups(&func_def.insts, inst_name);
         Ok(())
+    }
+
+    /// §11.2: build `McVectorInst` grouping nodes for a declarations' member
+    /// set.
+    ///
+    /// Reads the vector groups (`base → ordered member names`) recorded at
+    /// parse_declare, resolves each member's physical instance (full name =
+    /// `{inst_name}.{member}`, bare `{member}` for module-level), and pushes a
+    /// grouping node onto `self.vectors` — only when every member actually
+    /// materialized into `self.components`. A member may already exist via
+    /// dedup (still materialized), or its materialization may have failed
+    /// (skip the whole node rather than point at a phantom). Members stay in
+    /// `components`; the node is the grouping overlay (§0.2.5 virtual frame).
+    ///
+    /// Contract E: single-member ranges never reach `vectors` (the pass1
+    /// registration guard is `>= 2`), so there is nothing scalar to skip.
+    pub(super) fn materialize_vector_groups(
+        &mut self,
+        insts: &McInstances,
+        inst_name: &str,
+    ) {
+        for (base, members) in insts.vector_groups() {
+            let member_ids: Vec<String> = members
+                .iter()
+                .map(|m| {
+                    if inst_name.is_empty() {
+                        m.clone()
+                    } else {
+                        format!("{inst_name}.{m}")
+                    }
+                })
+                .collect();
+            let all_materialized =
+                member_ids.iter().all(|full| self.components.iter().any(|c| &c.name == full));
+            if !all_materialized {
+                continue;
+            }
+            self.vectors.push(McVectorInst {
+                base: base.clone(),
+                member_names: members.clone(),
+                member_ids,
+                shape: None,
+            });
+        }
     }
 
     /// §3.3: materialize deferred named constructions inside a body stmt.

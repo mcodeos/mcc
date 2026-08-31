@@ -175,6 +175,44 @@ pub struct McModuleInst {
     /// when this sub-module was created by an expansion. None for the top-level
     /// module / module-level creations.
     pub expansion_id: Option<usize>,
+
+    /// ★ §11.2: vector grouping nodes (declared vector instances).
+    ///
+    /// Grouping overlay over `components` — the physical member instances still
+    /// live in `components` (existing consumption paths unchanged); each
+    /// `McVectorInst` is the modeling-layer coordinate for an ordered member
+    /// set (`c[1:2]` → base `"c"`, members `["c1","c2"]`). This is the
+    /// instance-space counterpart of `McInstances.vectors` (pass1): the
+    /// declaration no longer erases vector information.
+    pub vectors: Vec<McVectorInst>,
+}
+
+/// §11.2: a declared vector instance — modeling-layer grouping node.
+///
+/// Physical member instances are ordinary `McComponentInst` in `components`;
+/// this node groups them under the vector base name so lane broadcast /
+/// member-set alignment (Phase 2 GAP1) and flatten projection (Phase 1.7
+/// `vector_info`) can operate on the ordered member set. Contract E: only
+/// multi-member ranges (`expanded.len() >= 2`) produce a node; single-member
+/// ranges are scalars and stay out of `vectors`.
+#[derive(Debug, Clone)]
+pub struct McVectorInst {
+    /// Vector base name — `"c"` for `c[1:2]` (declaration scope, no dotted prefix).
+    pub base: String,
+    /// Ordered member names from the declaration's member set — `["c1","c2"]`,
+    /// member_set product (strict written order, never sorted). Nested
+    /// combinations expand cartesian, row-major (§11.2 ordering contract).
+    pub member_names: Vec<String>,
+    /// Physical member instance coordinates — full instance names resolving
+    /// against `self.components` (empty prefix → module-level `"c1"`; nested
+    /// under a func invocation → `"U1.c1"`). Instance-tree nodes carry no ID
+    /// today (§11.1: name + Rust reference); a per-build node ID is a Phase 3+
+    /// option.
+    pub member_ids: Vec<String>,
+    /// Optional true 2D+ vector shape (rows × cols) for genuinely 2D declared
+    /// vectors (`M[1:2][3:4]` = 8 same-type sub-instances). Real corpus has 0
+    /// occurrences (§7.1) — spec-completeness item, always `None` today.
+    pub shape: Option<Vec<usize>>,
 }
 
 /// Structured record of a failed component instantiation.
@@ -310,6 +348,7 @@ impl McModuleInst {
             func_scope: Vec::new(),
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
+            vectors: Vec::new(),
         }
     }
 
@@ -352,6 +391,7 @@ impl McModuleInst {
             func_scope: Vec::new(),
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
+            vectors: Vec::new(),
         })
     }
 
