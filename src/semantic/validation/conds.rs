@@ -44,13 +44,12 @@ impl ValidationCheck for CondsCheck {
 /// An `if` block whose body contains no pins and no attributes is likely
 /// an oversight — the condition selects nothing.
 fn check_empty_cond_body(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // ── Conditional pins ──
         for (idx, cp) in comp.cond_pins.iter().enumerate() {
@@ -133,13 +132,12 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
 /// A conditional with `if` branches but no `else` may leave pins/attrs
 /// undefined for some parameter value combinations.
 fn check_missing_else(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         for (idx, cp) in comp.cond_pins.iter().enumerate() {
             if !cp.if_blocks.is_empty() && cp.else_pins.is_none() {
@@ -190,13 +188,12 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
 /// have been selected, so the duplicate can never match. Comparison is exact
 /// structural equality of the parsed condition (no implication checking).
 fn check_duplicate_conditions(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         for (idx, ca) in comp.cond_attrs.iter().enumerate() {
             for (bidx, (cond, _)) in ca.if_blocks.iter().enumerate() {
@@ -349,13 +346,12 @@ fn pin_definition_span(
 }
 
 fn check_pin_io_context(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // Iterate all pins (keyed by pin ID) to check IO types
         for (pin_id, pin) in &comp.pins.pins {
@@ -406,13 +402,12 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
 /// When multiple pin IDs share the same name (via `McPinPort::Multi`),
 /// check whether their IO types are in conflict.
 fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // For each named port, check if it maps to multiple pin IDs with conflicting IO types
         for (pin_name, port) in &comp.pins.names_to_id {
@@ -498,13 +493,12 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
 /// A component parameter sharing a name with a pin is confusing —
 /// the same identifier means two different things in different contexts.
 fn check_param_pin_name_collision(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // Build set of pin names
         let pin_names: std::collections::HashSet<String> =
@@ -537,13 +531,13 @@ fn check_param_pin_name_collision(acc: &mut CheckAccumulator) {
 
 /// A module with no content at all is almost certainly a stub or mistake.
 fn check_empty_module(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, m) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let name = entry.key().ident.to_string();
+        let name = sn.ident.to_string();
         // `module VIRT_<T>` wrappers fabricated by virtual instantiation are
         // allowed to be empty — an interface wrapper carries no instance (its
         // pins render as boundary ports, or are absent entirely when dynamic),
@@ -552,7 +546,6 @@ fn check_empty_module(acc: &mut CheckAccumulator) {
         if crate::build::vinst::is_synthetic_module(&name) {
             continue;
         }
-        let m = entry.value();
         let has_params = !m.params.is_empty();
         let has_insts = !m.insts.is_empty();
         let has_stmts = !m.stmts.is_empty();

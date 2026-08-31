@@ -11,34 +11,34 @@ use crate::McURI;
 // === pub fn mcb_module_count() -> usize { ===
 /// Get the number of all modules (for debugging)
 pub fn mcb_module_count() -> usize {
-    workspace::WORKSPACE.modules.len()
+    crate::definition_space().workspace_modules().len()
 }
 
 // === pub fn mcb_get_first_module_name() -> Option<String> { ===
 /// Get the name of the first module (for auto-detecting the top-level module)
 pub fn mcb_get_first_module_name() -> Option<String> {
-    workspace::WORKSPACE
-        .modules
+    crate::definition_space()
+        .workspace_modules()
         .iter()
         .next()
-        .map(|entry| entry.key().ident.to_string())
+        .map(|(sn, _)| sn.ident.to_string())
 }
 
 // === pub fn mcb_get_module_name_by_uri(uri: &McURI) -> Option<String> { ===
 /// Get module name by matching URI suffix
 pub fn mcb_get_module_name_by_uri(uri: &McURI) -> Option<String> {
     let canonical = mcb_canonicalize_uri(uri);
-    workspace::WORKSPACE
-        .modules
+    crate::definition_space()
+        .workspace_modules()
         .iter()
-        .find(|entry| uri_equivalent(&entry.key().uri.as_uri(), uri.as_str(), &canonical))
-        .map(|entry| entry.key().ident.to_string())
+        .find(|(sn, _)| uri_equivalent(&sn.uri.as_uri(), uri.as_str(), &canonical))
+        .map(|(sn, _)| sn.ident.to_string())
 }
 
 // === pub fn mcb_component_count() -> usize { ===
 /// Get the number of loaded components
 pub fn mcb_component_count() -> usize {
-    workspace::WORKSPACE.components.len()
+    crate::definition_space().workspace_components().len()
 }
 
 // === pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> { ===
@@ -212,10 +212,9 @@ pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
 
     let mut ports: Vec<(String, String, String, String)> = Vec::new();
 
-    for entry in workspace::WORKSPACE.modules.iter() {
-        let module_name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
-        let module = entry.value();
+    for (sn, module) in crate::definition_space().workspace_modules() {
+        let module_name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
 
         for (name, iotype) in module.insts.iter_ports() {
             let io_name = match iotype {

@@ -210,11 +210,10 @@ pub(crate) fn collect_from_file(
         .kind
         .map_or(true, |k| k == crate::ContainerKind::Module)
     {
-        for entry in workspace::WORKSPACE.modules.iter() {
-            if entry.key().uri != uri_str {
+        for (sn, m) in crate::definition_space().workspace_modules() {
+            if sn.uri != uri_str {
                 continue;
             }
-            let m = entry.value();
             add_result(
                 results,
                 limiter,
@@ -232,7 +231,7 @@ pub(crate) fn collect_from_file(
                 },
             );
             // Collect module ports and labels
-            collect_module_symbols(m, scope_path, filter, results, limiter);
+            collect_module_symbols(&m, scope_path, filter, results, limiter);
         }
     }
 
@@ -241,11 +240,10 @@ pub(crate) fn collect_from_file(
         .kind
         .map_or(true, |k| k == crate::ContainerKind::Component)
     {
-        for entry in workspace::WORKSPACE.components.iter() {
-            if entry.key().uri != uri_str {
+        for (sn, c) in crate::definition_space().workspace_components() {
+            if sn.uri != uri_str {
                 continue;
             }
-            let c = entry.value();
             add_result(
                 results,
                 limiter,
@@ -263,7 +261,7 @@ pub(crate) fn collect_from_file(
                 },
             );
             // Collect component params, pins, funcs
-            collect_component_symbols(c, scope_path, filter, results, limiter);
+            collect_component_symbols(&c, scope_path, filter, results, limiter);
         }
     }
 }
@@ -386,9 +384,9 @@ pub(crate) fn collect_from_project(
 ) {
     // Component classes. Dedup by (name, kind) so a same-name enum (e.g.
     // `enum CAP` beside `component CAP`) is NOT swallowed by a name-only check.
-    for entry in workspace::WORKSPACE.components.iter() {
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    for (sn, comp) in crate::definition_space().workspace_components() {
+        let name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         let kind = crate::LookupSymbolKind::Component;
         if !results
             .iter()
@@ -399,7 +397,7 @@ pub(crate) fn collect_from_project(
                 limiter,
                 crate::LookupResult {
                     uri,
-                    span: entry.value().span.start..entry.value().span.end,
+                    span: comp.span.start..comp.span.end,
                     kind,
                     container: None,
                     scope: String::new(),
@@ -410,9 +408,9 @@ pub(crate) fn collect_from_project(
         }
     }
     // Module classes
-    for entry in workspace::WORKSPACE.modules.iter() {
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    for (sn, module) in crate::definition_space().workspace_modules() {
+        let name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         let kind = crate::LookupSymbolKind::Module;
         if !results
             .iter()
@@ -423,7 +421,7 @@ pub(crate) fn collect_from_project(
                 limiter,
                 crate::LookupResult {
                     uri,
-                    span: entry.value().span.start..entry.value().span.end,
+                    span: module.span.start..module.span.end,
                     kind,
                     container: None,
                     scope: String::new(),
@@ -434,14 +432,14 @@ pub(crate) fn collect_from_project(
         }
     }
     // Interfaces
-    for entry in workspace::WORKSPACE.interfaces.iter() {
-        let name = entry.key().ident.to_string();
+    for (sn, iface) in crate::definition_space().workspace_interfaces() {
+        let name = sn.ident.to_string();
         add_result(
             results,
             limiter,
             crate::LookupResult {
-                uri: entry.key().uri.to_string(),
-                span: entry.value().span.start..entry.value().span.end,
+                uri: sn.uri.to_string(),
+                span: iface.span.start..iface.span.end,
                 kind: crate::LookupSymbolKind::Interface,
                 container: None,
                 scope: String::new(),
@@ -451,14 +449,14 @@ pub(crate) fn collect_from_project(
         );
     }
     // Enums
-    for entry in workspace::WORKSPACE.enums.iter() {
-        let name = entry.key().ident.to_string();
+    for (sn, def) in crate::definition_space().workspace_enums() {
+        let name = sn.ident.to_string();
         add_result(
             results,
             limiter,
             crate::LookupResult {
-                uri: entry.key().uri.to_string(),
-                span: entry.value().span[0] as usize..entry.value().span[1] as usize,
+                uri: sn.uri.to_string(),
+                span: def.span[0] as usize..def.span[1] as usize,
                 kind: crate::LookupSymbolKind::Enum,
                 container: None,
                 scope: String::new(),
@@ -641,34 +639,30 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
 
     // ── Layer 1: workspace tables ──
     if matches!(kind_hint, CmieKind::Component | CmieKind::Any) {
-        for entry in workspace::WORKSPACE.components.iter() {
-            let key = entry.key();
-            if key.uri == uri_str && key.ident.to_string() == cn {
-                return Some(ContainerRef::Component(entry.value().clone()));
+        for (sn, comp) in crate::definition_space().workspace_components() {
+            if sn.uri == uri_str && sn.ident.to_string() == cn {
+                return Some(ContainerRef::Component(comp));
             }
         }
     }
     if matches!(kind_hint, CmieKind::Module | CmieKind::Any) {
-        for entry in workspace::WORKSPACE.modules.iter() {
-            let key = entry.key();
-            if key.uri == uri_str && key.ident.to_string() == cn {
-                return Some(ContainerRef::Module(entry.value().clone()));
+        for (sn, module) in crate::definition_space().workspace_modules() {
+            if sn.uri == uri_str && sn.ident.to_string() == cn {
+                return Some(ContainerRef::Module(module));
             }
         }
     }
     if matches!(kind_hint, CmieKind::Interface | CmieKind::Any) {
-        for entry in workspace::WORKSPACE.interfaces.iter() {
-            let key = entry.key();
-            if key.uri == uri_str && key.ident.to_string() == cn {
-                return Some(ContainerRef::Interface(entry.value().clone()));
+        for (sn, iface) in crate::definition_space().workspace_interfaces() {
+            if sn.uri == uri_str && sn.ident.to_string() == cn {
+                return Some(ContainerRef::Interface(iface));
             }
         }
     }
     if matches!(kind_hint, CmieKind::Enum | CmieKind::Any) {
-        for entry in workspace::WORKSPACE.enums.iter() {
-            let key = entry.key();
-            if key.uri == uri_str && key.ident.to_string() == cn {
-                return Some(ContainerRef::Enum(entry.value().clone()));
+        for (sn, def) in crate::definition_space().workspace_enums() {
+            if sn.uri == uri_str && sn.ident.to_string() == cn {
+                return Some(ContainerRef::Enum(def));
             }
         }
     }
@@ -998,15 +992,15 @@ pub fn mcb_get_module_with_diagnostics(
     diags.push(format!("❌ fallback also did not find module '{name_str}'"));
 
     // 3. List all known modules for reference
-    let modules = &workspace::WORKSPACE.modules;
+    let modules = crate::definition_space().workspace_modules();
     diags.push(format!("Registered modules ({}):", modules.len()));
-    for entry in modules.iter() {
+    for (sn, module) in modules.iter() {
         diags.push(format!(
             "  - {} @ {} (stmts={}, symbols={})",
-            entry.key().ident,
-            entry.key().uri,
-            entry.value().stmts.len(),
-            entry.value().insts.iter().count()
+            sn.ident,
+            sn.uri,
+            module.stmts.len(),
+            module.insts.iter().count()
         ));
     }
     (None, diags)

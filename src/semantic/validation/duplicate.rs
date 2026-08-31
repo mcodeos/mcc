@@ -39,13 +39,14 @@ impl ValidationCheck for DuplicateCmieCheck {
         let mut name_entries: HashMap<String, Vec<(String, CmieKind)>> = HashMap::new();
         let mut uri_spans: HashMap<String, std::ops::Range<usize>> = HashMap::new();
 
-        // Check components
+        // Check components (workspace-only: cross-URI duplicates are a
+        // project-level check, the system lib is not part of it)
         {
-            let comps = &crate::db::cmie::tables::WORKSPACE.components;
-            for entry in comps.iter() {
-                let name = entry.key().ident.to_string();
-                let uri = entry.key().uri.to_string();
-                let span = entry.value().span.clone();
+            let comps = crate::definition_space().workspace_components();
+            for (sn, comp) in comps.iter() {
+                let name = sn.ident.to_string();
+                let uri = sn.uri.to_string();
+                let span = comp.span.clone();
                 uri_spans.entry(uri.clone()).or_insert(span.start..span.end);
                 name_entries
                     .entry(name)
@@ -55,11 +56,11 @@ impl ValidationCheck for DuplicateCmieCheck {
         }
         // Check interfaces
         {
-            let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-            for entry in ifaces.iter() {
-                let name = entry.key().ident.to_string();
-                let uri = entry.key().uri.to_string();
-                let span = entry.value().span.clone();
+            let ifaces = crate::definition_space().workspace_interfaces();
+            for (sn, iface) in ifaces.iter() {
+                let name = sn.ident.to_string();
+                let uri = sn.uri.to_string();
+                let span = iface.span.clone();
                 uri_spans.entry(uri.clone()).or_insert(span.start..span.end);
                 name_entries
                     .entry(name)
@@ -69,11 +70,11 @@ impl ValidationCheck for DuplicateCmieCheck {
         }
         // Check enums
         {
-            let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-            for entry in enums.iter() {
-                let name = entry.key().ident.to_string();
-                let uri = entry.key().uri.to_string();
-                let span = entry.value().span;
+            let enums = crate::definition_space().workspace_enums();
+            for (sn, def) in enums.iter() {
+                let name = sn.ident.to_string();
+                let uri = sn.uri.to_string();
+                let span = def.span;
                 uri_spans
                     .entry(uri.clone())
                     .or_insert(span[0] as usize..span[1] as usize);
@@ -85,11 +86,11 @@ impl ValidationCheck for DuplicateCmieCheck {
         }
         // Check modules
         {
-            let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-            for entry in modules.iter() {
-                let name = entry.key().ident.to_string();
-                let uri = entry.key().uri.to_string();
-                let span = entry.value().span.clone();
+            let modules = crate::definition_space().workspace_modules();
+            for (sn, module) in modules.iter() {
+                let name = sn.ident.to_string();
+                let uri = sn.uri.to_string();
+                let span = module.span.clone();
                 uri_spans.entry(uri.clone()).or_insert(span.start..span.end);
                 name_entries
                     .entry(name)

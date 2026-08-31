@@ -23,13 +23,13 @@ impl ValidationCheck for StyleCheck {
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         let mut lib_names: HashSet<String> = HashSet::new();
         {
-            let comps = &crate::db::cmie::tables::WORKSPACE.components;
-            for e in comps.iter() {
-                lib_names.insert(e.key().ident.to_string());
+            let comps = crate::definition_space().workspace_components();
+            for (sn, _) in comps.iter() {
+                lib_names.insert(sn.ident.to_string());
             }
-            let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-            for e in ifaces.iter() {
-                lib_names.insert(e.key().ident.to_string());
+            let ifaces = crate::definition_space().workspace_interfaces();
+            for (sn, _) in ifaces.iter() {
+                lib_names.insert(sn.ident.to_string());
             }
         }
 
@@ -49,11 +49,10 @@ impl ValidationCheck for StyleCheck {
 }
 
 fn check_lowercase_components(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let comp = entry.value();
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) || uri.contains("/lab/") {
             continue;
         }

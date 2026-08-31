@@ -634,28 +634,24 @@ impl<'a> FileScope<'a> {
 impl ResolveScope<ContainerRef> for FileScope<'_> {
     fn resolve(&self, name: &str) -> Option<ContainerRef> {
         let uri = self.uri.as_str();
-        for entry in workspace::WORKSPACE.components.iter() {
-            let key = entry.key();
-            if key.uri == uri && key.ident.to_string() == name {
-                return Some(ContainerRef::Component(entry.value().clone()));
+        for (sn, comp) in crate::definition_space().workspace_components() {
+            if sn.uri == uri && sn.ident.to_string() == name {
+                return Some(ContainerRef::Component(comp));
             }
         }
-        for entry in workspace::WORKSPACE.modules.iter() {
-            let key = entry.key();
-            if key.uri == uri && key.ident.to_string() == name {
-                return Some(ContainerRef::Module(entry.value().clone()));
+        for (sn, module) in crate::definition_space().workspace_modules() {
+            if sn.uri == uri && sn.ident.to_string() == name {
+                return Some(ContainerRef::Module(module));
             }
         }
-        for entry in workspace::WORKSPACE.interfaces.iter() {
-            let key = entry.key();
-            if key.uri == uri && key.ident.to_string() == name {
-                return Some(ContainerRef::Interface(entry.value().clone()));
+        for (sn, iface) in crate::definition_space().workspace_interfaces() {
+            if sn.uri == uri && sn.ident.to_string() == name {
+                return Some(ContainerRef::Interface(iface));
             }
         }
-        for entry in workspace::WORKSPACE.enums.iter() {
-            let key = entry.key();
-            if key.uri == uri && key.ident.to_string() == name {
-                return Some(ContainerRef::Enum(entry.value().clone()));
+        for (sn, def) in crate::definition_space().workspace_enums() {
+            if sn.uri == uri && sn.ident.to_string() == name {
+                return Some(ContainerRef::Enum(def));
             }
         }
         None

@@ -19,26 +19,26 @@ impl ValidationCheck for ExtraCheck {
         // Collect library names for J3 shadow detection
         let lib_names: HashSet<String> = {
             let mut s = HashSet::new();
-            let comps = &crate::db::cmie::tables::WORKSPACE.components;
-            for e in comps.iter() {
-                s.insert(e.key().ident.to_string());
+            let comps = crate::definition_space().workspace_components();
+            for (sn, _) in comps.iter() {
+                s.insert(sn.ident.to_string());
             }
-            let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-            for e in ifaces.iter() {
-                s.insert(e.key().ident.to_string());
+            let ifaces = crate::definition_space().workspace_interfaces();
+            for (sn, _) in ifaces.iter() {
+                s.insert(sn.ident.to_string());
             }
-            let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-            for e in enums.iter() {
-                s.insert(e.key().ident.to_string());
+            let enums = crate::definition_space().workspace_enums();
+            for (sn, _) in enums.iter() {
+                s.insert(sn.ident.to_string());
             }
             s
         };
 
         // J3: user port/instance names that shadow library CMIE names
         {
-            let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-            for entry in modules.iter() {
-                let uri = entry.key().uri.to_string();
+            let modules = crate::definition_space().workspace_modules();
+            for (sn, m) in modules.iter() {
+                let uri = sn.uri.to_string();
                 if super::is_test_file(&uri) {
                     continue;
                 }
@@ -46,10 +46,9 @@ impl ValidationCheck for ExtraCheck {
                 // wrapped unit's own member names (e.g. an interface's data
                 // pin). The shadow is inherent to the fabrication, not user
                 // code, so skip them (mirrors the MODULE_STUB carve-out).
-                if crate::build::vinst::is_synthetic_module(&entry.key().ident.to_string()) {
+                if crate::build::vinst::is_synthetic_module(&sn.ident.to_string()) {
                     continue;
                 }
-                let m = entry.value();
                 let mod_span_j3 = Some(m.span.start..m.span.end);
                 for port_name in m.insts.iter_instance_names() {
                     if lib_names.contains(port_name) {
@@ -68,14 +67,13 @@ impl ValidationCheck for ExtraCheck {
 
         // U1: enums with only one value
         {
-            let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-            for entry in enums.iter() {
-                let e = entry.value();
+            let enums = crate::definition_space().workspace_enums();
+            for (sn, e) in enums.iter() {
                 if e.values.len() == 1 {
                     acc.push(CheckResult {
                         check_name: "extra",
                         severity: CheckSeverity::Info,
-                        uri: Some(entry.key().uri.to_string()),
+                        uri: Some(sn.uri.to_string()),
                         span: Some(e.span[0] as usize..e.span[1] as usize),
                         message: format!("Enum '{}' has only one value.", e.name),
                         code: crate::errcodes::ENUM_SINGLE_VALUE,
@@ -115,14 +113,13 @@ impl ValidationCheck for ExtraCheck {
 /// R4: functions with empty bodies (module + component funcs).
 fn check_empty_functions(acc: &mut CheckAccumulator) {
     // Module funcs
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, m) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
-        for func in entry.value().funcs.iter() {
+        for func in m.funcs.iter() {
             if func.stmts.is_empty() && func.insts.is_empty() {
                 let func_span = func.span.clone().unwrap_or(m.span.start..m.span.end);
                 acc.push(CheckResult {
@@ -137,14 +134,13 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
         }
     }
     // Component funcs
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
-        for func in entry.value().funcs.iter() {
+        for func in comp.funcs.iter() {
             if func.stmts.is_empty() && func.insts.is_empty() {
                 let func_span = func.span.clone().unwrap_or(comp.span.start..comp.span.end);
                 acc.push(CheckResult {
@@ -154,8 +150,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
                     span: Some(func_span),
                     message: format!(
                         "Function '{}' in component '{}' has an empty body.",
-                        func.name,
-                        entry.key().ident
+                        func.name, sn.ident
                     ),
                     code: crate::errcodes::FUNC_EMPTY_BODY,
                 });
@@ -166,13 +161,12 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
 
 /// I4: interface pin count mismatch (physical pins vs interface definition).
 fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         for (pin_name, port) in &comp.pins.names_to_id {
             if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
                 let iface_name = iface.name.to_string();
@@ -239,14 +233,13 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
 /// M1: components with no params, no pins, no attrs, no funcs.
 /// M3: components without pins.
 fn check_component_structure(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
-        let name = entry.key().ident.to_string();
+        let name = sn.ident.to_string();
         let has_params = !comp.params.is_empty();
         let has_pins = comp.has_pin_defs();
         let has_attrs = comp.attrs.len() > 0;
@@ -281,20 +274,19 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
 
 /// M4: interfaces without pins.
 fn check_interface_structure(acc: &mut CheckAccumulator) {
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    for entry in ifaces.iter() {
-        let uri = entry.key().uri.to_string();
+    let ifaces = crate::definition_space().workspace_interfaces();
+    for (sn, iface) in ifaces.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let iface = entry.value();
         if iface.pins.names_to_id.is_empty() && iface.roles.is_empty() {
             acc.push(CheckResult {
                 check_name: "extra",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri),
                 span: Some(iface.span.start..iface.span.end),
-                message: format!("Interface '{}' has no pins or roles.", entry.key().ident),
+                message: format!("Interface '{}' has no pins or roles.", sn.ident),
                 code: crate::errcodes::INTERFACE_EMPTY,
             });
         }
@@ -304,10 +296,9 @@ fn check_interface_structure(acc: &mut CheckAccumulator) {
 /// N5 + R8: default value type mismatch for typed parameters.
 fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
     use crate::semantic::basic::mc_param_type::McParamTypeKind;
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let comp = entry.value();
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         for d in comp.params.iter() {
             if let Some(def) = d.param_type.default_value() {
                 let pname = d.get_primary_name().unwrap_or_default();
@@ -375,13 +366,12 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
 
 /// U4/U5: defines with non-attribute clauses or empty body.
 fn check_empty_defines(acc: &mut CheckAccumulator) {
-    let defines = &crate::db::cmie::tables::WORKSPACE.defines;
-    for entry in defines.iter() {
-        let uri = entry.key().uri.to_string();
+    let defines = crate::definition_space().workspace_defines();
+    for (sn, def) in defines.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let def = entry.value();
         let def_span = Some(def.span.start..def.span.end);
         // U5: empty define (no attrs and empty body)
         if def.attrs.is_empty() {
@@ -417,13 +407,12 @@ fn check_empty_defines(acc: &mut CheckAccumulator) {
 
 /// D2: unresolved instance class name.
 fn check_instance_class_found(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, m) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
         for (name, (_, inst)) in m.insts.insts() {
             if let crate::McInstance::Unresolved { class_name } = inst {
                 // Anchor on the instance declaration itself (the name span
@@ -452,13 +441,12 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
 /// D3: bus member collision — two instances/buses with same base name,
 /// conflicting or duplicate member names.
 fn check_bus_member_collision(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, m) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
         let mod_span_bus = Some(m.span.start..m.span.end);
         let mut bus_members: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
@@ -494,11 +482,10 @@ fn check_bus_member_collision(acc: &mut CheckAccumulator) {
 
 /// F2: naming convention — UPPER_SNAKE for components/interfaces/enums.
 fn check_naming_convention(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let comp = entry.value();
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) || uri.contains("/lab/") {
             continue;
         }
@@ -534,13 +521,12 @@ fn check_reserved_names(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>
     .iter()
     .cloned()
     .collect();
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         for d in comp.params.iter() {
             if let Some(name) = d.get_primary_name() {
                 if reserved.contains(name.as_str()) {
@@ -560,13 +546,12 @@ fn check_reserved_names(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>
 
 /// R5: function name conflicts with a port/instance name in the same module.
 fn check_func_name_conflict(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, m) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
         let inst_names: HashSet<String> = m.insts.iter_instance_names().cloned().collect();
         let param_names: HashSet<String> = m
             .params
@@ -598,13 +583,12 @@ fn check_func_name_conflict(acc: &mut CheckAccumulator) {
 /// as potentially out of range (most integer params expect non-negative).
 fn check_default_value_range(acc: &mut CheckAccumulator) {
     use crate::semantic::basic::mc_param_type::McParamTypeKind;
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         for d in comp.params.iter() {
             if let Some(def) = d.param_type.default_value() {
                 let pname = d.get_primary_name().unwrap_or_default();
@@ -618,7 +602,7 @@ fn check_default_value_range(acc: &mut CheckAccumulator) {
                                 span: Some(comp.span.start..comp.span.end),
                                 message: format!(
                                     "Param '{}' in '{}' has negative default '{}'. Most integer params expect non-negative values.",
-                                    pname, entry.key().ident, def
+                                    pname, sn.ident, def
                                 ),
                                 code: crate::errcodes::PARAM_NEGATIVE_DEFAULT,
                             });
@@ -634,9 +618,7 @@ fn check_default_value_range(acc: &mut CheckAccumulator) {
                                     span: Some(comp.span.start..comp.span.end),
                                     message: format!(
                                         "Param '{}' in '{}' has invalid float default '{}'.",
-                                        pname,
-                                        entry.key().ident,
-                                        def
+                                        pname, sn.ident, def
                                     ),
                                     code: crate::errcodes::PARAM_FLOAT_DEFAULT_INVALID,
                                 });
@@ -655,13 +637,12 @@ fn check_default_value_range(acc: &mut CheckAccumulator) {
 /// A `spec` attribute with duplicate sub-keys (e.g., `spec = [voltage = 5V, voltage = 12V]`)
 /// will silently keep only the last value, which may not be intended.
 fn check_duplicate_spec_keys(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         for attr in comp.attrs.iter() {
             let key = attr.id.to_string();

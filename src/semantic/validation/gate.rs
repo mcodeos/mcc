@@ -110,13 +110,12 @@ impl ValidationCheck for GateCheck {
 
 /// Run the finish recheck over every component and module in the workspace.
 fn check_gate_candidates(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         // Func-level candidates (a component body has no net stmts, so no
         // component-level candidates exist).
         let candidates: Vec<GateCandidate> = comp
@@ -140,13 +139,12 @@ fn check_gate_candidates(acc: &mut CheckAccumulator) {
         );
     }
 
-    let mods = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in mods.iter() {
-        let uri = entry.key().uri.to_string();
+    let mods = crate::definition_space().workspace_modules();
+    for (sn, module) in mods.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let module = entry.value();
         // Module-level candidates plus any func-level candidates inside the
         // module's own funcs.
         let mut candidates: Vec<GateCandidate> = module.gate_candidates.clone();

@@ -45,13 +45,12 @@ impl ValidationCheck for InstsCheck {
 /// For each module, check that Component/Module/Interface instance constructor
 /// args match the definition's parameter arity.
 fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, m) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
 
         // Walk each instance in the module's symbol table
         for (inst_name, (_iotype, instance)) in m.insts.iter_with_iotype() {
@@ -259,13 +258,12 @@ fn instance_span(m: &crate::McModule, inst_name: &str) -> Option<std::ops::Range
 
 /// Interface roles that have no pins, no attrs, and no body content.
 fn check_role_empty_body(acc: &mut CheckAccumulator) {
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    for entry in ifaces.iter() {
-        let uri = entry.key().uri.to_string();
+    let ifaces = crate::definition_space().workspace_interfaces();
+    for (sn, iface) in ifaces.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let iface = entry.value();
         for role in &iface.roles {
             let has_pins = !role.pins.names_to_id.is_empty();
             let has_attrs = !role.attrs.is_empty();
@@ -299,13 +297,12 @@ fn check_role_empty_body(acc: &mut CheckAccumulator) {
 /// Role name should not collide with a port name or parameter name
 /// in the same interface.
 fn check_role_name_conflict(acc: &mut CheckAccumulator) {
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    for entry in ifaces.iter() {
-        let uri = entry.key().uri.to_string();
+    let ifaces = crate::definition_space().workspace_interfaces();
+    for (sn, iface) in ifaces.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let iface = entry.value();
 
         // Collect all pin/port names in the interface
         let pin_names: HashSet<String> = iface.pins.names_to_id.keys().cloned().collect();
@@ -358,13 +355,12 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
 fn check_func_param_iotype(acc: &mut CheckAccumulator) {
     // Check component functions
     {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            let uri = entry.key().uri.to_string();
+        let comps = crate::definition_space().workspace_components();
+        for (sn, comp) in comps.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let comp = entry.value();
             for func in comp.funcs.iter() {
                 for d in func.params.iter() {
                     if d.param_type.direction.is_some() {
@@ -377,7 +373,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
                                 message: format!(
                                     "Function '{}' in component '{}': param '{}' has IO direction ({:?}), \
                                      which is only valid for ports.",
-                                    func.name, entry.key().ident, pname,
+                                    func.name, sn.ident, pname,
                                     d.param_type.direction.unwrap().as_str()
                                 ),
                                 code: crate::errcodes::ATTR_NESTING_TOO_DEEP,
@@ -391,13 +387,12 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
 
     // Check module functions
     {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let uri = entry.key().uri.to_string();
+        let modules = crate::definition_space().workspace_modules();
+        for (sn, m) in modules.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let m = entry.value();
             for func in m.funcs.iter() {
                 for d in func.params.iter() {
                     if d.param_type.direction.is_some() {
@@ -410,7 +405,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
                                 message: format!(
                                     "Function '{}' in module '{}': param '{}' has IO direction ({:?}), \
                                      which is only valid for ports.",
-                                    func.name, entry.key().ident, pname,
+                                    func.name, sn.ident, pname,
                                     d.param_type.direction.unwrap().as_str()
                                 ),
                                 code: crate::errcodes::ATTR_NESTING_TOO_DEEP,
@@ -434,13 +429,12 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
 
     // Check components
     {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            let uri = entry.key().uri.to_string();
+        let comps = crate::definition_space().workspace_components();
+        for (sn, comp) in comps.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let comp = entry.value();
             for d in comp.params.iter() {
                 if matches!(d.param_type.kind, McParamTypeKind::Role) {
                     if let Some(pname) = d.get_primary_name() {
@@ -452,8 +446,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                             message: format!(
                                 "Component '{}' uses 'role' keyword for param '{}'. \
                                  'role' is only valid in interface definitions.",
-                                entry.key().ident,
-                                pname
+                                sn.ident, pname
                             ),
                             code: crate::errcodes::ATTR_PIN_GROUP_UNDEFINED,
                         });
@@ -465,13 +458,12 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
 
     // Check modules
     {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let uri = entry.key().uri.to_string();
+        let modules = crate::definition_space().workspace_modules();
+        for (sn, m) in modules.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let m = entry.value();
             for d in m.params.iter() {
                 if matches!(d.param_type.kind, McParamTypeKind::Role) {
                     if let Some(pname) = d.get_primary_name() {
@@ -483,8 +475,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                             message: format!(
                                 "Module '{}' uses 'role' keyword for param '{}'. \
                                  'role' is only valid in interface definitions.",
-                                entry.key().ident,
-                                pname
+                                sn.ident, pname
                             ),
                             code: crate::errcodes::ATTR_PIN_GROUP_UNDEFINED,
                         });
@@ -502,13 +493,12 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
 /// Default values should be simple constants, not expressions with operators
 /// or variable references.
 fn check_non_constant_default(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
         for d in comp.params.iter() {
             let pname = d.get_primary_name().unwrap_or_default();
             // Skip enum-class params — their defaults are enum value references
@@ -552,9 +542,7 @@ fn check_non_constant_default(acc: &mut CheckAccumulator) {
                         message: format!(
                             "Param '{}' in component '{}' has a non-constant default value '{}'. \
                              Use a simple literal or unit-value.",
-                            pname,
-                            entry.key().ident,
-                            def_val
+                            pname, sn.ident, def_val
                         ),
                         code: crate::errcodes::PINS_PLUS_AND_PINS_CONFLICT,
                     });

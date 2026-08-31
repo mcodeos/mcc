@@ -291,38 +291,26 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
         // gated by §5.4 visibility (P3/P4/P5) — a workspace file's symbols are
         // importable only via `use`, never by bare name.
         let mut ws_candidates: Vec<(String, std::ops::Range<usize>, CmieKind)> = Vec::new();
-        for entry in workspace::WORKSPACE.components.iter() {
-            if entry.key().ident.to_string() == name_str {
-                ws_candidates.push((
-                    entry.key().uri.to_string(),
-                    entry.value().span.clone(),
-                    CmieKind::Component,
-                ));
+        for (sn, comp) in crate::definition_space().workspace_components() {
+            if sn.ident.to_string() == name_str {
+                ws_candidates.push((sn.uri.to_string(), comp.span.clone(), CmieKind::Component));
             }
         }
-        for entry in workspace::WORKSPACE.modules.iter() {
-            if entry.key().ident.to_string() == name_str {
-                ws_candidates.push((
-                    entry.key().uri.to_string(),
-                    entry.value().span.clone(),
-                    CmieKind::Module,
-                ));
+        for (sn, module) in crate::definition_space().workspace_modules() {
+            if sn.ident.to_string() == name_str {
+                ws_candidates.push((sn.uri.to_string(), module.span.clone(), CmieKind::Module));
             }
         }
-        for entry in workspace::WORKSPACE.interfaces.iter() {
-            if entry.key().ident.to_string() == name_str {
-                ws_candidates.push((
-                    entry.key().uri.to_string(),
-                    entry.value().span.clone(),
-                    CmieKind::Interface,
-                ));
+        for (sn, iface) in crate::definition_space().workspace_interfaces() {
+            if sn.ident.to_string() == name_str {
+                ws_candidates.push((sn.uri.to_string(), iface.span.clone(), CmieKind::Interface));
             }
         }
-        for entry in workspace::WORKSPACE.enums.iter() {
-            if entry.key().ident.to_string() == name_str {
-                let s = entry.value().span;
+        for (sn, def) in crate::definition_space().workspace_enums() {
+            if sn.ident.to_string() == name_str {
+                let s = def.span;
                 ws_candidates.push((
-                    entry.key().uri.to_string(),
+                    sn.uri.to_string(),
                     s[0] as usize..s[1] as usize,
                     CmieKind::Enum,
                 ));

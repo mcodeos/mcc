@@ -21,13 +21,12 @@ impl ValidationCheck for PortInstanceCheck {
     }
 
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            let mod_name = entry.key().ident.to_string();
-            let m = entry.value();
-            check_duplicate_ports(&mod_name, m, acc); // C2
-            check_duplicate_instances(&mod_name, m, acc); // D1
-            check_param_inst_overlap(&mod_name, m, acc); // value-param + instance overlap
+        let modules = crate::definition_space().workspace_modules();
+        for (sn, module) in modules.iter() {
+            let mod_name = sn.ident.to_string();
+            check_duplicate_ports(&mod_name, module, acc); // C2
+            check_duplicate_instances(&mod_name, module, acc); // D1
+            check_param_inst_overlap(&mod_name, module, acc); // value-param + instance overlap
         }
     }
 }

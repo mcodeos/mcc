@@ -28,13 +28,12 @@ impl ValidationCheck for AttrsCheck {
     }
 
     fn run_post_parse(&self, acc: &mut CheckAccumulator) {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for entry in comps.iter() {
-            let uri = entry.key().uri.to_string();
+        let comps = crate::definition_space().workspace_components();
+        for (sn, comp) in comps.iter() {
+            let uri = sn.uri.to_string();
             if super::is_test_file(&uri) {
                 continue;
             }
-            let comp = entry.value();
             check_reserved_attr_name(comp, &uri, acc); // N1
             check_unresolvable_dotted_name(comp, &uri, acc); // N2
             check_nesting_depth(comp, &uri, acc); // N4

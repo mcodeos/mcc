@@ -80,12 +80,12 @@ pub(crate) fn mcb_instantiate(
     let target_module_def;
 
     {
-        let binding = &workspace::WORKSPACE.modules;
+        let modules = crate::definition_space().workspace_modules();
 
         // 1. Exact match
-        let exact = binding
-            .get(entry)
-            .map(|r| (entry.uri.to_string(), r.value().clone()));
+        let exact = crate::definition_space()
+            .get_workspace_module(entry)
+            .map(|def| (entry.uri.to_string(), def));
 
         if let Some((uri, def)) = exact {
             matched_uri = uri;
@@ -94,21 +94,21 @@ pub(crate) fn mcb_instantiate(
             // 2. Suffix match fallback ("main.mc" vs "/abs/path/to/main.mc")
             let entry_uri = entry.uri.as_uri();
             let canonical_entry = canonicalize_project_uri(&McURI::from(entry_uri.as_ref()));
-            let suffix = binding
+            let suffix = modules
                 .iter()
-                .find(|e| {
-                    e.key().ident == entry.ident
-                        && uri_equivalent(&e.key().uri.as_uri(), &entry_uri, &canonical_entry)
+                .find(|(sn, _)| {
+                    sn.ident == entry.ident
+                        && uri_equivalent(&sn.uri.as_uri(), &entry_uri, &canonical_entry)
                 })
-                .map(|e| (e.key().uri.to_string(), e.value().clone()));
+                .map(|(sn, def)| (sn.uri.to_string(), (*def).clone()));
 
             if let Some((uri, def)) = suffix {
                 matched_uri = uri;
                 target_module_def = def;
             } else {
-                let available: Vec<String> = binding
+                let available: Vec<String> = modules
                     .iter()
-                    .map(|e| format!("{}@{}", e.key().ident, e.key().uri))
+                    .map(|(sn, _)| format!("{}@{}", sn.ident, sn.uri))
                     .collect();
                 return Err(format!(
                     "Target module not found: {} (uri={})\n  Available modules: [{}]",

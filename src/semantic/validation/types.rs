@@ -42,15 +42,14 @@ impl ValidationCheck for TypesCheck {
 ///   - If param is `::INT`, arg should be a number, not a string
 ///   - If param is `::STRING`, arg should be quoted, not a bare number
 fn check_param_type_mismatch(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
+    let modules = crate::definition_space().workspace_modules();
+    let comps = crate::definition_space().workspace_components();
 
     // Build: component name → Vec<(param_index, param_name, unit_type)>
     let comp_param_types: std::collections::HashMap<String, Vec<(usize, String, String)>> = {
         let mut m = std::collections::HashMap::new();
-        for entry in comps.iter() {
-            let name = entry.key().ident.to_string();
-            let comp = entry.value();
+        for (sn, comp) in comps.iter() {
+            let name = sn.ident.to_string();
             let types: Vec<(usize, String, String)> = comp
                 .params
                 .iter()
@@ -68,14 +67,13 @@ fn check_param_type_mismatch(acc: &mut CheckAccumulator) {
         m
     };
 
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    for (sn, module) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
 
-        for (_inst_name, (_iotype, instance)) in m.insts.iter_with_iotype() {
+        for (_inst_name, (_iotype, instance)) in module.insts.iter_with_iotype() {
             let (class_name, args): (String, &[crate::McParamValue]) = match instance {
                 crate::McInstance::Component(c2) => {
                     (c2.base.name.to_string(), c2.params.as_slice())
@@ -101,11 +99,11 @@ fn check_param_type_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "types",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: Some(m.span.start..m.span.end),
+                                span: Some(module.span.start..module.span.end),
                                 message: format!(
                                     "Module '{}': instance of '{}' passes '{}' for param #{} \
                                      (expected {}). {}",
-                                    entry.key().ident,
+                                    sn.ident,
                                     class_name,
                                     arg_clean,
                                     orig_idx + 1,

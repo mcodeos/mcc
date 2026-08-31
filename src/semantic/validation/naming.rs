@@ -30,13 +30,13 @@ impl ValidationCheck for NamingCheck {
         // Collect library CMIE names for shadow detection context
         let lib_names: HashSet<String> = {
             let mut s = HashSet::new();
-            let comps = &crate::db::cmie::tables::WORKSPACE.components;
-            for entry in comps.iter() {
-                s.insert(entry.key().ident.to_string());
+            let comps = crate::definition_space().workspace_components();
+            for (sn, _) in comps.iter() {
+                s.insert(sn.ident.to_string());
             }
-            let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-            for entry in ifaces.iter() {
-                s.insert(entry.key().ident.to_string());
+            let ifaces = crate::definition_space().workspace_interfaces();
+            for (sn, _) in ifaces.iter() {
+                s.insert(sn.ident.to_string());
             }
             s
         };
@@ -53,11 +53,10 @@ impl ValidationCheck for NamingCheck {
 // ============================================================================
 
 fn check_lowercase_components(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let comp = entry.value();
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let name = sn.ident.to_string();
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) || uri.contains("/lab/") {
             continue;
         }
@@ -89,13 +88,12 @@ fn check_lowercase_components(acc: &mut CheckAccumulator) {
 /// Mixing UPPER_SNAKE (e.g., `CHIP_SELECT`) with lower_snake (e.g., `chip_select`)
 /// or PascalCase (e.g., `ChipSelect`) is confusing.
 fn check_mixed_pin_naming(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         let pin_names: Vec<&str> = comp
             .pins
@@ -177,9 +175,9 @@ fn check_mixed_pin_naming(acc: &mut CheckAccumulator) {
 /// but `RES r` is too short) make schematics harder to read. Flag instance
 /// names that are single characters and not obviously a numbered reference.
 fn check_short_instance_names(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, m) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
@@ -187,10 +185,9 @@ fn check_short_instance_names(acc: &mut CheckAccumulator) {
         // unit's own member names (e.g. an interface's single-character P/N
         // differential pins). Those are not user-chosen names, so skip them
         // (mirrors the MODULE_STUB carve-out).
-        if crate::build::vinst::is_synthetic_module(&entry.key().ident.to_string()) {
+        if crate::build::vinst::is_synthetic_module(&sn.ident.to_string()) {
             continue;
         }
-        let m = entry.value();
 
         for (name, (_, inst)) in m.insts.insts() {
             // Skip special names
@@ -223,8 +220,7 @@ fn check_short_instance_names(acc: &mut CheckAccumulator) {
                     message: format!(
                         "Module '{}': instance '{}' is a single character. \
                          Use descriptive names like 'r1', 'led1', 'usb_socket'.",
-                        entry.key().ident,
-                        name
+                        sn.ident, name
                     ),
                     code: crate::errcodes::NAME_INSTANCE_SINGLE_CHAR,
                 });
@@ -240,9 +236,9 @@ fn check_short_instance_names(acc: &mut CheckAccumulator) {
 /// User-defined module port/instance names that happen to match a known
 /// library component, interface, or enum name create ambiguity.
 fn check_lib_name_shadow(acc: &mut CheckAccumulator, lib_names: &HashSet<String>) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, m) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
@@ -250,10 +246,9 @@ fn check_lib_name_shadow(acc: &mut CheckAccumulator, lib_names: &HashSet<String>
         // wrapped unit's own member names (e.g. an interface's data pin). The
         // shadow is inherent to the fabrication, not user code, so skip them
         // (mirrors the MODULE_STUB carve-out).
-        if crate::build::vinst::is_synthetic_module(&entry.key().ident.to_string()) {
+        if crate::build::vinst::is_synthetic_module(&sn.ident.to_string()) {
             continue;
         }
-        let m = entry.value();
 
         for port_name in m.insts.iter_instance_names() {
             if lib_names.contains(port_name) {
@@ -265,8 +260,7 @@ fn check_lib_name_shadow(acc: &mut CheckAccumulator, lib_names: &HashSet<String>
                     message: format!(
                         "Module '{}': port/instance '{}' shadows a library CMIE name. \
                          This may cause confusion when resolving type references.",
-                        entry.key().ident,
-                        port_name
+                        sn.ident, port_name
                     ),
                     code: crate::errcodes::NAME_PORT_INST_SHADOWS_CMIE,
                 });
@@ -285,8 +279,7 @@ fn check_lib_name_shadow(acc: &mut CheckAccumulator, lib_names: &HashSet<String>
                         message: format!(
                             "Module '{}': param '{}' shares a name with a library CMIE. \
                              Consider a different name to avoid ambiguity.",
-                            entry.key().ident,
-                            pname
+                            sn.ident, pname
                         ),
                         code: crate::errcodes::NAME_PARAM_SHADOWS_CMIE,
                     });

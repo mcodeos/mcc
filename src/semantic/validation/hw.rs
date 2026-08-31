@@ -68,13 +68,12 @@ const VOLTAGE_ATTR_KEYS: &[&str] = &[
 ];
 
 fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // Unified power-pin collection: a pin is a supply pin when it is
         // power-*typed* (`ps`/Power) or power-*named* (VCC/VREF/GND/…). Both
@@ -218,13 +217,12 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
 /// may indicate accidentally skipped pins or copy-paste errors. This is common
 /// for NC (not-connected) pins but worth flagging for review.
 fn check_pin_id_gaps(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // Collect all numeric pin IDs
         let mut pin_ids: Vec<u32> = Vec::new();
@@ -294,13 +292,12 @@ fn check_pin_id_gaps(acc: &mut CheckAccumulator) {
 /// deserve a second look. Extremely high pin counts may indicate a data error;
 /// zero-pin components should probably be abstract or use an interface instead.
 fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         let pin_count = comp.pins.pins.len();
 
@@ -355,13 +352,12 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
 /// corresponding peer role defined in the same interface. A dangling peer
 /// reference indicates an incomplete interface definition.
 fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    for entry in ifaces.iter() {
-        let uri = entry.key().uri.to_string();
+    let ifaces = crate::definition_space().workspace_interfaces();
+    for (sn, iface) in ifaces.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let iface = entry.value();
 
         // Collect all role names in this interface
         let role_names: HashSet<String> = iface.roles.iter().map(|r| r.name.to_string()).collect();
@@ -444,13 +440,12 @@ fn peer_role_names(values: &[crate::McAttrVal]) -> Vec<String> {
 /// output, and power pins. A single-type component may indicate incomplete
 /// pin definitions or a misclassified component.
 fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         let pin_count = comp.pins.pins.len();
         if pin_count < 3 {
@@ -525,13 +520,12 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
 /// component pin, it creates ambiguity in net expressions. The function
 /// parameter may unintentionally shadow the pin reference.
 fn check_func_param_pin_shadow(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // Collect all pin names
         let pin_names: HashSet<String> = comp.pins.names_to_id.keys().cloned().collect();

@@ -33,10 +33,10 @@ impl ValidationCheck for ImportsCheck {
         // Build URI → module span map for source locations
         let uri_spans: std::collections::HashMap<String, std::ops::Range<usize>> = {
             let mut m = std::collections::HashMap::new();
-            let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-            for e in modules.iter() {
-                let mod_span = e.value().span.clone();
-                m.insert(e.key().uri.to_string(), mod_span.start..mod_span.end);
+            let modules = crate::definition_space().workspace_modules();
+            for (sn, module) in modules.iter() {
+                let mod_span = module.span.clone();
+                m.insert(sn.uri.to_string(), mod_span.start..mod_span.end);
             }
             m
         };
@@ -182,21 +182,21 @@ impl ValidationCheck for ImportsCheck {
 /// Build the set of all known CMIE names across components, interfaces, enums, and modules.
 fn build_cmie_name_set() -> HashSet<String> {
     let mut names = HashSet::new();
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for e in comps.iter() {
-        names.insert(e.key().ident.to_string());
+    let comps = crate::definition_space().workspace_components();
+    for (sn, _) in comps.iter() {
+        names.insert(sn.ident.to_string());
     }
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    for e in ifaces.iter() {
-        names.insert(e.key().ident.to_string());
+    let ifaces = crate::definition_space().workspace_interfaces();
+    for (sn, _) in ifaces.iter() {
+        names.insert(sn.ident.to_string());
     }
-    let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-    for e in enums.iter() {
-        names.insert(e.key().ident.to_string());
+    let enums = crate::definition_space().workspace_enums();
+    for (sn, _) in enums.iter() {
+        names.insert(sn.ident.to_string());
     }
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for e in modules.iter() {
-        names.insert(e.key().ident.to_string());
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, _) in modules.iter() {
+        names.insert(sn.ident.to_string());
     }
     names
 }

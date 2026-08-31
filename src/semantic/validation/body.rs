@@ -57,22 +57,22 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
 
     // Collect all unique URIs from all workspace tables
     {
-        let comps = &crate::db::cmie::tables::WORKSPACE.components;
-        for e in comps.iter() {
-            seen.insert(e.key().uri.to_string());
+        let comps = crate::definition_space().workspace_components();
+        for (sn, _) in comps.iter() {
+            seen.insert(sn.uri.to_string());
         }
-        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-        for e in ifaces.iter() {
-            seen.insert(e.key().uri.to_string());
+        let ifaces = crate::definition_space().workspace_interfaces();
+        for (sn, _) in ifaces.iter() {
+            seen.insert(sn.uri.to_string());
         }
-        let enums = &crate::db::cmie::tables::WORKSPACE.enums;
-        for e in enums.iter() {
-            seen.insert(e.key().uri.to_string());
+        let enums = crate::definition_space().workspace_enums();
+        for (sn, _) in enums.iter() {
+            seen.insert(sn.uri.to_string());
         }
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for e in modules.iter() {
-            let uri = e.key().uri.to_string();
-            let span = e.value().span.clone();
+        let modules = crate::definition_space().workspace_modules();
+        for (sn, module) in modules.iter() {
+            let uri = sn.uri.to_string();
+            let span = module.span.clone();
             uri_spans.insert(uri.clone(), span.start..span.end);
             seen.insert(uri);
         }
@@ -143,15 +143,14 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
 /// re-scanning the declaration's display text. A bare `this` used as a net
 /// endpoint parses to `McInstance::Label("this")` and is NOT a declaration.
 fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, module) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
-        let span = m.span.start..m.span.end;
-        let declared_this = m.insts.iter_with_iotype().any(|(name, (_io, inst))| {
+        let span = module.span.start..module.span.end;
+        let declared_this = module.insts.iter_with_iotype().any(|(name, (_io, inst))| {
             name == "this" && !matches!(inst, crate::McInstance::Label(_))
         });
         if declared_this {
@@ -164,7 +163,7 @@ fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
                     "Module '{}': 'this :: TYPE' is invalid — 'this' refers to the \
                      current instance and cannot be used as a new instance name \
                      on the LHS of '::'.",
-                    entry.key().ident
+                    sn.ident
                 ),
                 code: crate::errcodes::INST_THIS_TYPE,
             });
@@ -185,13 +184,12 @@ fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
 /// a boolean; worth a review for clarity. Detected structurally on
 /// `McCondition`, not by scanning its `Debug` text.
 fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
+    let comps = crate::definition_space().workspace_components();
+    for (sn, comp) in comps.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let comp = entry.value();
 
         // Inspect conditional pin conditions
         for (idx, cp) in comp.cond_pins.iter().enumerate() {
@@ -269,25 +267,24 @@ fn push_single_binary_diag(
 /// This is the module-level complement to P4 (unconnected output port in
 /// pass2) — it catches unused formal parameters at the definition level.
 fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
+    let modules = crate::definition_space().workspace_modules();
+    for (sn, module) in modules.iter() {
+        let uri = sn.uri.to_string();
         if super::is_test_file(&uri) {
             continue;
         }
-        let m = entry.value();
 
         // Synthetic `module VIRT_<T>` wrappers fabricated for standalone
         // component/interface views are never user module code: their `io`
         // ports exist only to render boundary pins, so "declared but never
         // connected" is expected. Skip them (mirrors the MODULE_STUB carve-out
         // in conds.rs).
-        if crate::build::vinst::is_synthetic_module(&entry.key().ident.to_string()) {
+        if crate::build::vinst::is_synthetic_module(&sn.ident.to_string()) {
             continue;
         }
 
         // Collect all port/instance names declared in `insts`
-        let declared: HashSet<String> = m.insts.iter_instance_names().cloned().collect();
+        let declared: HashSet<String> = module.insts.iter_instance_names().cloned().collect();
 
         if declared.is_empty() {
             continue;
@@ -298,10 +295,10 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
         // because text-based splitting corrupts names when parentheses, brackets, or
         // function-call commas are present (e.g. `GND)` instead of `GND`).
         let mut referenced: HashSet<String> = HashSet::new();
-        for phrase in &m.stmts {
+        for phrase in &module.stmts {
             collect_referenced_names(phrase, &mut referenced);
         }
-        for func in m.funcs.iter() {
+        for func in module.funcs.iter() {
             for phrase in &func.stmts {
                 collect_referenced_names(phrase, &mut referenced);
             }
@@ -315,7 +312,7 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
             // bus brackets
             {
                 // Check if it's a module formal parameter port
-                let is_param = m.params.is_defined(port_name);
+                let is_param = module.params.is_defined(port_name);
                 if !is_param {
                     continue; // Skip instances — they might have internal connections
                 }
@@ -324,12 +321,11 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
                     check_name: "body",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: Some(m.span.start..m.span.end),
+                    span: Some(module.span.start..module.span.end),
                     message: format!(
                         "Module '{}': port '{}' is declared but never connected in any net. \
                          Consider removing it or wiring it up.",
-                        entry.key().ident,
-                        port_name
+                        sn.ident, port_name
                     ),
                     code: crate::errcodes::MODULE_PORT_UNUSED,
                 });
