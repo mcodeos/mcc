@@ -2,25 +2,38 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Definition-layer write side (design defspace §9 Phase A / §4).
+//! Definition-layer write side + identity registry (design defspace §9 Phase B / §5 D11).
 //!
 //! [`insert`] / [`remove_by_uri`] / [`remove_by_uris`] are the single write
-//! entry for the definition tables. Phase 2 keeps the physical two-table
-//! layout where it is (workspace + process-global) — only this module knows
-//! both, and callers no longer branch on `mcbase` themselves. The
-//! [`LoadDomain`] tag is the finalized domain semantics
-//! (`Project | SystemLib(name)`) that Phase 3's single table and Phase 5's
-//! per-world loading build on.
+//! entry for the definition tables, and the registry below is the single
+//! definition identity table: a persistent integer [`DefId`] per canonical
+//! key `(uri, ident)` (the [`McSpaceName`]), append-only with tombstones.
+//! Phase 3 keeps the physical workspace tables as a compatibility
+//! materialization for the remaining direct readers (system-lib visibility
+//! gates, the lib ledger, the workspace lifecycle) — the definition-space
+//! read views (`defspace.rs`) now read this registry instead.
 //!
-//! Routing is faithful to the pre-refactor behavior:
+//! D11 semantics (design §5 / §9 Phase B):
+//! - Identity is stable across loads: re-parsing a file reuses the same
+//!   [`DefId`] for the same `(uri, ident)` key.
+//! - Removal is a tombstone: the key stays registered, the data drops
+//!   (`data: None`), so "deleted" is distinguishable from "never existed"
+//!   for the later checkpoint/diff work (Phase 9).
+//! - [`LoadDomain`] tags where each def lives (`Project | SystemLib(name)`);
+//!   the whole registry is per-world state (Phase 5) — system-lib defs live
+//!   in the active world's registry and follow world create / switch / unload.
+//!
+//! Routing to the physical workspace tables (a compatibility materialization
+//! for the direct workspace-table readers) is faithful to the pre-refactor
+//! behavior:
 //! - Module defs always land in the workspace module table — module parsing
-//!   runs over `WORKSPACE.mcodes` regardless of the source domain, and nothing
-//!   ever inserts into the process-global module table.
+//!   runs over `WORKSPACE.mcodes` regardless of the source domain.
 //! - Component / Interface / Enum / Define defs land in the workspace table
-//!   for `Project` and in the process-global table for `SystemLib(_)`.
+//!   for `Project`. System-library defs are **not** mirrored into the
+//!   process-global `global::mcc_*` tables anymore (Phase 5) — the registry
+//!   is their only storage, so cross-world library state can never go stale.
 
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::global;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
@@ -30,7 +43,13 @@ use crate::McSpaceName;
 use dashmap::DashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, LazyLock};
+
+/// Compact persistent identity of one definition (design §5 D11). Process-local
+/// while the single active workspace is the only world; per-world in the
+/// target design (Phase 5).
+pub type DefId = u32;
 
 /// Which world a definition belongs to (design §4).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,13 +60,60 @@ pub enum LoadDomain {
     SystemLib(String),
 }
 
-/// Tagged definition value: one [`insert`] writes any of the five tables.
+/// The six definition kinds, one per AST top-level class template
+/// (design §13.2) plus the function-template addressing entries
+/// (design §12.1 / §13.6 delta 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum DefKind {
+    Component,
+    Module,
+    Interface,
+    Enum,
+    Define,
+    Func,
+}
+
+/// A function template's addressing entry (design §12.1 / §13.6 delta 1).
+///
+/// The `McFunction` itself stays embedded in the host def's `funcs` table —
+/// the AST parse form is unchanged — and this entry gives it a stable
+/// [`DefId`] plus a host link so dispatch, goto-def and diff can address it.
+/// Registered automatically by [`insert`] for every method / module func of a
+/// component / module def, keyed by the qualified name `"HOST.NAME"` in the
+/// host's file.
+#[derive(Clone)]
+pub struct FuncDef {
+    /// [`DefId`] of the host component / module def.
+    pub host: DefId,
+    /// The function name within the host. Read by the func-addressing tests
+    /// today; Phase 7's DefMemberId ledger and Phase 9's checkpoint/diff
+    /// consume it alongside `host`.
+    #[allow(dead_code)]
+    pub name: String,
+}
+
+/// Tagged definition value: one [`insert`] writes any of the six kinds.
+#[derive(Clone)]
 pub enum DefValue {
     Component(Arc<McComponent>),
     Module(Arc<McModule>),
     Interface(Arc<McInterface>),
     Enum(Arc<McEnumDef>),
     Define(Arc<McDefineDef>),
+    Func(FuncDef),
+}
+
+impl DefValue {
+    fn kind(&self) -> DefKind {
+        match self {
+            DefValue::Component(_) => DefKind::Component,
+            DefValue::Module(_) => DefKind::Module,
+            DefValue::Interface(_) => DefKind::Interface,
+            DefValue::Enum(_) => DefKind::Enum,
+            DefValue::Define(_) => DefKind::Define,
+            DefValue::Func(_) => DefKind::Func,
+        }
+    }
 }
 
 /// Outcome of an [`insert`]: the caller turns a duplicate into the matching
@@ -58,92 +124,771 @@ pub enum InsertOutcome {
     Duplicate,
 }
 
-/// Insert one definition. CMIE kinds (component/interface/enum/define) treat
-/// an occupied key as a duplicate (the previous value stays); the module kind
-/// **overwrites** — module parsing runs as a re-derive across parse rounds and
-/// replaces this file's prior entry instead of firing a spurious DUP_MODULE
-/// (the file-local duplicate check lives in `parse_pass1_modules`).
+/// One registry entry: the identity (stable [`DefId`] + canonical key) plus
+/// the live data or a tombstone. `data: None` marks a removed definition —
+/// the key stays registered (append-only identity, D11).
+pub struct DefEntry {
+    /// The persistent identity of this entry (D11). Not read by the current
+    /// view layer — the arena is keyed by this id, so the field mirrors the
+    /// key — but the Phase 9 checkpoint/diff work reads it to tell identities
+    /// apart across loads.
+    #[allow(dead_code)]
+    pub id: DefId,
+    pub kind: DefKind,
+    pub sn: McSpaceName,
+    pub domain: LoadDomain,
+    pub data: Option<DefValue>,
+}
+
+static NEXT_DEF_ID: AtomicU32 = AtomicU32::new(0);
+
+/// Canonical key → its [`DefId`]s. Append-only: keys are never removed, so an
+/// identity survives load/unload cycles ("deleted vs never existed" is
+/// decidable). A key maps to a small vector because one `(uri, ident)` may
+/// legally hold several kinds — a same-named component and interface in one
+/// file coexist exactly as the per-kind physical tables allowed.
+static KEY_TO_ID: LazyLock<DashMap<McSpaceName, Vec<DefId>>> = LazyLock::new(DashMap::new);
+
+/// [`DefId`] → entry data. The arena holds the current data per identity;
+/// data is re-materialized on re-parse while the identity stays stable
+/// (D11: identity in the registry, data fresh in the arena).
+static ARENA: LazyLock<DashMap<DefId, DefEntry>> = LazyLock::new(DashMap::new);
+
+/// Insert one definition. CMIE kinds treat an occupied live key as a
+/// duplicate (the previous value stays); the module kind **overwrites** —
+/// module parsing runs as a re-derive across parse rounds and replaces this
+/// file's prior entry instead of firing a spurious DUP_MODULE (the file-local
+/// duplicate check lives in `parse_pass1_modules`). A tombstoned key is
+/// revived with the new data under the same [`DefId`] (D11).
+///
+/// The physical workspace/global tables are written in parallel as a
+/// compatibility materialization: the remaining direct readers of the global
+/// system tables (visibility gates, lib ledger) still read them, and the
+/// workspace lifecycle (snapshot / switch / clear) still owns them.
 pub fn insert(sn: &McSpaceName, domain: LoadDomain, def: DefValue) -> InsertOutcome {
+    let kind = def.kind();
+    let outcome = register(sn, kind, &domain, &def);
+    if outcome == InsertOutcome::Inserted {
+        // Function templates derive from the host's `funcs` table: register
+        // the addressing entries (design §12.1) for a fresh host. Kept in
+        // sync by `register_host_funcs` — stale entries are tombstoned first.
+        if kind == DefKind::Component || kind == DefKind::Module {
+            if let Some(host_id) = def_id(sn, kind) {
+                register_host_funcs(sn, host_id, &def, &domain);
+            }
+        }
+    }
+    write_physical(sn, &domain, def);
+    outcome
+}
+
+/// Register the identity + data in the registry (Phase 3 identity layer).
+///
+/// Precedence rules for an occupied live `(key, kind)`:
+/// - A project def **overrides** a same-key system-lib def. The mcode lib
+///   loads first, then a project file re-declares the identity; the workspace
+///   def must shadow the system def (workspace-first, P0.1). The reverse
+///   (system lib displacing a project def) is a duplicate, and so is any
+///   same-domain re-insert (the caller turns it into the DUP diagnostic).
+/// - A module re-derive always replaces this file's prior entry.
+/// - A tombstone is revived with the new data under the same [`DefId`] (D11).
+fn register(sn: &McSpaceName, kind: DefKind, domain: &LoadDomain, def: &DefValue) -> InsertOutcome {
+    let mut ids = KEY_TO_ID.entry(sn.clone()).or_default();
+    for &id in ids.iter() {
+        let mut entry = ARENA.get_mut(&id).expect("arena holds every registered id");
+        if entry.kind != kind {
+            continue;
+        }
+        if kind == DefKind::Module {
+            // Module re-derive always replaces this file's prior entry.
+            entry.data = Some(def.clone());
+            entry.domain = domain.clone();
+            return InsertOutcome::Inserted;
+        }
+        match &entry.data {
+            None => {
+                // Tombstone revival: reuse the identity (D11).
+                entry.data = Some(def.clone());
+                entry.domain = domain.clone();
+                return InsertOutcome::Inserted;
+            }
+            Some(_) => {
+                if matches!(entry.domain, LoadDomain::SystemLib(_))
+                    && matches!(domain, LoadDomain::Project)
+                {
+                    // Workspace-first precedence: the project def shadows the
+                    // same-key system-lib def.
+                    entry.data = Some(def.clone());
+                    entry.domain = LoadDomain::Project;
+                    return InsertOutcome::Inserted;
+                }
+                return InsertOutcome::Duplicate;
+            }
+        }
+    }
+    let id = NEXT_DEF_ID.fetch_add(1, Ordering::Relaxed);
+    ids.push(id);
+    ARENA.insert(
+        id,
+        DefEntry {
+            id,
+            kind,
+            sn: sn.clone(),
+            domain: domain.clone(),
+            data: Some(def.clone()),
+        },
+    );
+    InsertOutcome::Inserted
+}
+
+/// Compatibility write into the physical workspace tables. Phase 5 keeps the
+/// system-library defs registry-only (see the module doc), so only project
+/// defs land here — plus modules from any domain, because module parsing runs
+/// over `WORKSPACE.mcodes` regardless of source domain (the module table is a
+/// per-world table, so this is still world-local). A lib's "use-only" sweep
+/// in `mcb_load_lib` tombstones its registry entries instead. Duplicates keep
+/// the existing value (occupied entry); modules always overwrite (re-derive).
+fn write_physical(sn: &McSpaceName, domain: &LoadDomain, def: DefValue) {
     match def {
-        DefValue::Component(def) => insert_routed(
-            &workspace::WORKSPACE.components,
-            &global::mcc_components,
-            sn,
-            &domain,
-            def,
-        ),
         DefValue::Module(def) => {
             workspace::WORKSPACE.modules.insert(sn.clone(), def);
-            InsertOutcome::Inserted
         }
-        DefValue::Interface(def) => insert_routed(
-            &workspace::WORKSPACE.interfaces,
-            &global::mcc_interfaces,
-            sn,
-            &domain,
-            def,
-        ),
-        DefValue::Enum(def) => insert_routed(
-            &workspace::WORKSPACE.enums,
-            &global::mcc_enums,
-            sn,
-            &domain,
-            def,
-        ),
-        DefValue::Define(def) => insert_routed(
-            &workspace::WORKSPACE.defines,
-            &global::mcc_defines,
-            sn,
-            &domain,
-            def,
-        ),
+        // System-library non-module defs are registry-only (Phase 5).
+        non_module if matches!(domain, LoadDomain::SystemLib(_)) => {
+            let _ = non_module;
+        }
+        DefValue::Component(def) => {
+            insert_one(&workspace::WORKSPACE.components, sn.clone(), def);
+        }
+        DefValue::Interface(def) => {
+            insert_one(&workspace::WORKSPACE.interfaces, sn.clone(), def);
+        }
+        DefValue::Enum(def) => {
+            insert_one(&workspace::WORKSPACE.enums, sn.clone(), def);
+        }
+        DefValue::Define(def) => {
+            insert_one(&workspace::WORKSPACE.defines, sn.clone(), def);
+        }
+        // Func entries are registry-only addressing metadata (design §12.1):
+        // the host def holds the actual McFunction, so there is no physical
+        // table to mirror.
+        DefValue::Func(_) => {}
     }
 }
 
-/// Remove every definition of any kind whose defining file matches `uri`,
-/// from both physical tables (mirrors the old `remove_defines` sweep).
+/// Tombstone this host's previously-registered function entries, then
+/// register the current ones from the host's `funcs` table — keeps the
+/// addressing entries exactly in sync with the host across re-derive rounds
+/// (modules) and reloads (components, whose uri-level tombstone already
+/// cleared the funcs). Removed funcs stay tombstoned; survivors revive under
+/// the same [`DefId`] (D11).
+fn register_host_funcs(sn: &McSpaceName, host_id: DefId, host: &DefValue, domain: &LoadDomain) {
+    let stale: Vec<DefId> = ARENA
+        .iter()
+        .filter_map(|e| match &e.data {
+            Some(DefValue::Func(f)) if f.host == host_id => Some(*e.key()),
+            _ => None,
+        })
+        .collect();
+    for id in stale {
+        if let Some(mut e) = ARENA.get_mut(&id) {
+            e.data = None;
+        }
+    }
+    let host_name = sn.ident.to_string();
+    match host {
+        DefValue::Component(comp) => {
+            for f in comp.funcs.iter() {
+                register_func_entry(sn, &host_name, &f.name.to_string(), host_id, domain);
+            }
+        }
+        DefValue::Module(module) => {
+            for f in module.funcs.iter() {
+                register_func_entry(sn, &host_name, &f.name.to_string(), host_id, domain);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn register_func_entry(
+    sn: &McSpaceName,
+    host_name: &str,
+    func_name: &str,
+    host_id: DefId,
+    domain: &LoadDomain,
+) {
+    let fsn = McSpaceName {
+        ident: crate::McIds::from(format!("{host_name}.{func_name}")),
+        uri: sn.uri.clone(),
+    };
+    register(
+        &fsn,
+        DefKind::Func,
+        domain,
+        &DefValue::Func(FuncDef {
+            host: host_id,
+            name: func_name.to_string(),
+        }),
+    );
+}
+
+/// Remove every definition of any kind whose defining file matches `uri`.
+/// The registry keeps each identity as a tombstone (deleted ≠ never existed);
+/// the physical tables drop the entries.
 pub fn remove_by_uri(uri: &str) {
+    tombstone_by_uri(uri);
     remove_by_uri_from(&workspace::WORKSPACE.components, uri);
     remove_by_uri_from(&workspace::WORKSPACE.modules, uri);
     remove_by_uri_from(&workspace::WORKSPACE.interfaces, uri);
     remove_by_uri_from(&workspace::WORKSPACE.enums, uri);
     remove_by_uri_from(&workspace::WORKSPACE.defines, uri);
-    remove_by_uri_from(&global::mcc_components, uri);
-    remove_by_uri_from(&global::mcc_modules, uri);
-    remove_by_uri_from(&global::mcc_interfaces, uri);
-    remove_by_uri_from(&global::mcc_enums, uri);
-    remove_by_uri_from(&global::mcc_defines, uri);
 }
 
-/// Remove every definition whose defining file is one of `uris`, from both
-/// physical tables (third-party-lib unload sweep).
+/// Remove every definition whose defining file is one of `uris`
+/// (third-party-lib unload sweep).
 pub fn remove_by_uris(uris: &HashSet<String>) {
+    tombstone_by_uris(uris);
     remove_by_uris_from(&workspace::WORKSPACE.components, uris);
     remove_by_uris_from(&workspace::WORKSPACE.modules, uris);
     remove_by_uris_from(&workspace::WORKSPACE.interfaces, uris);
     remove_by_uris_from(&workspace::WORKSPACE.enums, uris);
     remove_by_uris_from(&workspace::WORKSPACE.defines, uris);
-    remove_by_uris_from(&global::mcc_components, uris);
-    remove_by_uris_from(&global::mcc_modules, uris);
-    remove_by_uris_from(&global::mcc_interfaces, uris);
-    remove_by_uris_from(&global::mcc_enums, uris);
-    remove_by_uris_from(&global::mcc_defines, uris);
 }
 
-/// Route a non-module kind by domain: project → workspace table, system lib →
-/// process-global table.
-fn insert_routed<T>(
-    ws: &DashMap<McSpaceName, Arc<T>>,
-    global_table: &DashMap<McSpaceName, Arc<T>>,
-    sn: &McSpaceName,
-    domain: &LoadDomain,
-    def: Arc<T>,
-) -> InsertOutcome {
-    match domain {
-        LoadDomain::Project => insert_one(ws, sn.clone(), def),
-        LoadDomain::SystemLib(_) => insert_one(global_table, sn.clone(), def),
+fn tombstone_by_uri(uri: &str) {
+    let keys: Vec<McSpaceName> = KEY_TO_ID
+        .iter()
+        .filter(|e| e.key().uri == uri)
+        .map(|e| e.key().clone())
+        .collect();
+    for key in keys {
+        tombstone_key(&key);
     }
 }
+
+fn tombstone_by_uris(uris: &HashSet<String>) {
+    let keys: Vec<McSpaceName> = KEY_TO_ID
+        .iter()
+        .filter(|e| uris.contains(e.key().uri.as_uri().as_ref()))
+        .map(|e| e.key().clone())
+        .collect();
+    for key in keys {
+        tombstone_key(&key);
+    }
+}
+
+fn tombstone_key(key: &McSpaceName) {
+    if let Some(ids) = KEY_TO_ID.get(key) {
+        for id in ids.iter() {
+            if let Some(mut e) = ARENA.get_mut(id) {
+                e.data = None;
+            }
+        }
+    }
+}
+
+/// Full process reset: drop every registered identity and its data. Used by
+/// the full state clear (`clear_state(ClearScope::Full)`); the append-only
+/// identity journal starts over with a clean slate.
+pub fn clear_all() {
+    KEY_TO_ID.clear();
+    ARENA.clear();
+    NEXT_DEF_ID.store(0, Ordering::Relaxed);
+}
+
+/// Tombstone every live definition — project and system-library alike — the
+/// active world is being cleared or switched away. Phase 5 makes the system
+/// libraries per-world: a world owns its own loaded libs, so switching away
+/// drops them with the world (a later `mcb_load_lib` re-registers them under
+/// the world, and a snapshot restore revives them via [`restore_system`]).
+/// Called from `WorkspaceManager::clear_active`.
+pub fn mark_all_tombstones() {
+    let keys: Vec<McSpaceName> = KEY_TO_ID.iter().map(|e| e.key().clone()).collect();
+    for key in keys {
+        if let Some(ids) = KEY_TO_ID.get(&key) {
+            for id in ids.iter() {
+                if let Some(mut e) = ARENA.get_mut(id) {
+                    e.data = None;
+                }
+            }
+        }
+    }
+}
+
+/// One system-library definition captured by [`snapshot_system`] for a world
+/// switch. The value is the live [`DefValue`] (func entries are excluded — a
+/// snapshot restore re-derives them from their host via [`register_host_funcs`]).
+#[derive(Clone)]
+pub struct SystemDefSnapshot {
+    pub sn: McSpaceName,
+    pub kind: DefKind,
+    pub domain: LoadDomain,
+    pub def: DefValue,
+}
+
+/// Capture every live system-library definition (any named lib) — the
+/// per-world library state that must follow a world switch. Called from
+/// `WorkspaceManager::snapshot_active`.
+pub fn snapshot_system() -> Vec<SystemDefSnapshot> {
+    ARENA
+        .iter()
+        .filter(|e| {
+            e.data.is_some()
+                && e.kind != DefKind::Func
+                && matches!(e.domain, LoadDomain::SystemLib(_))
+        })
+        .map(|e| SystemDefSnapshot {
+            sn: e.sn.clone(),
+            kind: e.kind,
+            domain: e.domain.clone(),
+            def: e.data.clone().unwrap(),
+        })
+        .collect()
+}
+
+/// Re-register a captured system-library segment (world restore). Host defs
+/// revive under their original [`DefId`] (D11 tombstone revival) and their
+/// func entries are re-derived, mirroring [`restore_workspace`]. Called from
+/// `WorkspaceManager::restore_snapshot`.
+pub(crate) fn restore_system(entries: Vec<SystemDefSnapshot>) {
+    for e in entries {
+        match &e.def {
+            DefValue::Component(_) | DefValue::Module(_) => {
+                register(&e.sn, e.kind, &e.domain, &e.def);
+                if let Some(host_id) = def_id(&e.sn, e.kind) {
+                    register_host_funcs(&e.sn, host_id, &e.def, &e.domain);
+                }
+            }
+            _ => {
+                register(&e.sn, e.kind, &e.domain, &e.def);
+            }
+        }
+    }
+}
+
+/// Re-register a restored workspace snapshot's five definition tables as
+/// project-domain entries, without touching the physical tables (they are
+/// refilled directly by `restore_snapshot`). Called from
+/// `WorkspaceManager::restore_snapshot` when switching back to a saved
+/// workspace: tombstoned identities revive under their original [`DefId`]
+/// (D11) and a live system-lib entry is shadowed (workspace-first). The
+/// snapshot is authoritative — any conflicting live project entry (not
+/// possible in the single-active-workspace flow) keeps its place.
+pub(crate) fn restore_workspace(
+    components: &DashMap<McSpaceName, Arc<McComponent>>,
+    modules: &DashMap<McSpaceName, Arc<McModule>>,
+    interfaces: &DashMap<McSpaceName, Arc<McInterface>>,
+    enums: &DashMap<McSpaceName, Arc<McEnumDef>>,
+    defines: &DashMap<McSpaceName, Arc<McDefineDef>>,
+) {
+    for e in components.iter() {
+        register(
+            e.key(),
+            DefKind::Component,
+            &LoadDomain::Project,
+            &DefValue::Component(e.value().clone()),
+        );
+        if let Some(host_id) = def_id(e.key(), DefKind::Component) {
+            register_host_funcs(
+                e.key(),
+                host_id,
+                &DefValue::Component(e.value().clone()),
+                &LoadDomain::Project,
+            );
+        }
+    }
+    for e in modules.iter() {
+        register(
+            e.key(),
+            DefKind::Module,
+            &LoadDomain::Project,
+            &DefValue::Module(e.value().clone()),
+        );
+        if let Some(host_id) = def_id(e.key(), DefKind::Module) {
+            register_host_funcs(
+                e.key(),
+                host_id,
+                &DefValue::Module(e.value().clone()),
+                &LoadDomain::Project,
+            );
+        }
+    }
+    for e in interfaces.iter() {
+        register(
+            e.key(),
+            DefKind::Interface,
+            &LoadDomain::Project,
+            &DefValue::Interface(e.value().clone()),
+        );
+    }
+    for e in enums.iter() {
+        register(
+            e.key(),
+            DefKind::Enum,
+            &LoadDomain::Project,
+            &DefValue::Enum(e.value().clone()),
+        );
+    }
+    for e in defines.iter() {
+        register(
+            e.key(),
+            DefKind::Define,
+            &LoadDomain::Project,
+            &DefValue::Define(e.value().clone()),
+        );
+    }
+}
+
+// ============================================================================
+// Read API — the single-table definition view (design §9 Phase B step 4)
+// ============================================================================
+
+/// Domain filter for whole-table enumeration.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DomainFilter {
+    /// Every domain (unified view).
+    Any,
+    /// Project (workspace) definitions only.
+    Project,
+    /// System-library definitions only (any named lib).
+    System,
+}
+
+fn filter_matches(domain: &LoadDomain, filter: DomainFilter) -> bool {
+    match filter {
+        DomainFilter::Any => true,
+        DomainFilter::Project => matches!(domain, LoadDomain::Project),
+        DomainFilter::System => matches!(domain, LoadDomain::SystemLib(_)),
+    }
+}
+
+/// The live value of one `(key, kind)` identity, any domain.
+fn live_entry(sn: &McSpaceName, kind: DefKind) -> Option<DefValue> {
+    live_entry_in(sn, kind, DomainFilter::Any)
+}
+
+/// The live value of one `(key, kind)` identity restricted to a domain.
+fn live_entry_in(sn: &McSpaceName, kind: DefKind, filter: DomainFilter) -> Option<DefValue> {
+    let ids = KEY_TO_ID.get(sn)?;
+    for id in ids.iter() {
+        if let Some(e) = ARENA.get(id) {
+            if e.kind == kind && filter_matches(&e.domain, filter) {
+                return e.data.clone();
+            }
+        }
+    }
+    None
+}
+
+/// Enumerate every live definition of `kind` under `filter`.
+fn enumerate(kind: DefKind, filter: DomainFilter) -> Vec<(McSpaceName, DefValue)> {
+    ARENA
+        .iter()
+        .filter(|e| e.kind == kind && e.data.is_some() && filter_matches(&e.domain, filter))
+        .map(|e| (e.sn.clone(), e.data.clone().unwrap()))
+        .collect()
+}
+
+fn peel_components(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McComponent>)> {
+    items
+        .into_iter()
+        .filter_map(|(sn, d)| match d {
+            DefValue::Component(c) => Some((sn, c)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn peel_modules(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McModule>)> {
+    items
+        .into_iter()
+        .filter_map(|(sn, d)| match d {
+            DefValue::Module(m) => Some((sn, m)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn peel_interfaces(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McInterface>)> {
+    items
+        .into_iter()
+        .filter_map(|(sn, d)| match d {
+            DefValue::Interface(i) => Some((sn, i)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn peel_enums(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McEnumDef>)> {
+    items
+        .into_iter()
+        .filter_map(|(sn, d)| match d {
+            DefValue::Enum(e) => Some((sn, e)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn peel_defines(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
+    items
+        .into_iter()
+        .filter_map(|(sn, d)| match d {
+            DefValue::Define(d) => Some((sn, d)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Look up a component by its `McSpaceName` (any domain).
+pub fn get_component(sn: &McSpaceName) -> Option<Arc<McComponent>> {
+    match live_entry(sn, DefKind::Component)? {
+        DefValue::Component(c) => Some(c),
+        _ => None,
+    }
+}
+
+/// Look up a module by its `McSpaceName` (any domain).
+pub fn get_module(sn: &McSpaceName) -> Option<Arc<McModule>> {
+    match live_entry(sn, DefKind::Module)? {
+        DefValue::Module(m) => Some(m),
+        _ => None,
+    }
+}
+
+/// Look up an interface by its `McSpaceName` (any domain).
+pub fn get_interface(sn: &McSpaceName) -> Option<Arc<McInterface>> {
+    match live_entry(sn, DefKind::Interface)? {
+        DefValue::Interface(i) => Some(i),
+        _ => None,
+    }
+}
+
+/// Look up an enum by its `McSpaceName` (any domain).
+pub fn get_enum(sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
+    match live_entry(sn, DefKind::Enum)? {
+        DefValue::Enum(e) => Some(e),
+        _ => None,
+    }
+}
+
+/// Look up a define by its `McSpaceName` (any domain).
+pub fn get_define(sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
+    match live_entry(sn, DefKind::Define)? {
+        DefValue::Define(d) => Some(d),
+        _ => None,
+    }
+}
+
+/// The [`DefId`] of a live `(key, kind)` identity, any domain. Needed by
+/// callers that address a def by id (host links of function templates).
+pub fn def_id(sn: &McSpaceName, kind: DefKind) -> Option<DefId> {
+    let ids = KEY_TO_ID.get(sn)?;
+    for id in ids.iter() {
+        if let Some(e) = ARENA.get(id) {
+            if e.kind == kind && e.data.is_some() {
+                return Some(*id);
+            }
+        }
+    }
+    None
+}
+
+/// Look up a function-template addressing entry by its qualified key
+/// `(uri, "HOST.NAME")` (design §12.1). The func-addressing surface of
+/// Phase 4: exercised by the `func_entries_mirror_host_funcs_across_reload`
+/// test today; Phase 7/9 diff work reads it.
+#[allow(dead_code)]
+pub fn get_func(sn: &McSpaceName) -> Option<FuncDef> {
+    match live_entry(sn, DefKind::Func)? {
+        DefValue::Func(f) => Some(f),
+        _ => None,
+    }
+}
+
+/// Every live function-template entry of a host def (design §12.1 addressing)
+/// — mirrors the host's own `funcs` table, so callers can assert consistency
+/// between the two. Same consumers as [`get_func`].
+#[allow(dead_code)]
+pub fn funcs_of_host(sn: &McSpaceName, host_kind: DefKind) -> Vec<(McSpaceName, FuncDef)> {
+    let Some(host_id) = def_id(sn, host_kind) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for e in ARENA.iter() {
+        if let Some(DefValue::Func(f)) = &e.data {
+            if f.host == host_id {
+                out.push((e.sn.clone(), f.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// Look up a component by its `McSpaceName` in the project (workspace) domain.
+pub fn get_workspace_component(sn: &McSpaceName) -> Option<Arc<McComponent>> {
+    match live_entry_in(sn, DefKind::Component, DomainFilter::Project)? {
+        DefValue::Component(c) => Some(c),
+        _ => None,
+    }
+}
+
+/// Look up a module by its `McSpaceName` in the project (workspace) domain.
+pub fn get_workspace_module(sn: &McSpaceName) -> Option<Arc<McModule>> {
+    match live_entry_in(sn, DefKind::Module, DomainFilter::Project)? {
+        DefValue::Module(m) => Some(m),
+        _ => None,
+    }
+}
+
+/// Look up an interface by its `McSpaceName` in the project (workspace) domain.
+pub fn get_workspace_interface(sn: &McSpaceName) -> Option<Arc<McInterface>> {
+    match live_entry_in(sn, DefKind::Interface, DomainFilter::Project)? {
+        DefValue::Interface(i) => Some(i),
+        _ => None,
+    }
+}
+
+/// Look up an enum by its `McSpaceName` in the project (workspace) domain.
+pub fn get_workspace_enum(sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
+    match live_entry_in(sn, DefKind::Enum, DomainFilter::Project)? {
+        DefValue::Enum(e) => Some(e),
+        _ => None,
+    }
+}
+
+/// Look up a define by its `McSpaceName` in the project (workspace) domain.
+pub fn get_workspace_define(sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
+    match live_entry_in(sn, DefKind::Define, DomainFilter::Project)? {
+        DefValue::Define(d) => Some(d),
+        _ => None,
+    }
+}
+
+/// Enumerate every live component definition (any domain).
+pub fn all_components() -> Vec<(McSpaceName, Arc<McComponent>)> {
+    peel_components(enumerate(DefKind::Component, DomainFilter::Any))
+}
+
+/// Enumerate every live module definition (any domain).
+pub fn all_modules() -> Vec<(McSpaceName, Arc<McModule>)> {
+    peel_modules(enumerate(DefKind::Module, DomainFilter::Any))
+}
+
+/// Enumerate every live interface definition (any domain).
+pub fn all_interfaces() -> Vec<(McSpaceName, Arc<McInterface>)> {
+    peel_interfaces(enumerate(DefKind::Interface, DomainFilter::Any))
+}
+
+/// Enumerate every live enum definition (any domain).
+pub fn all_enums() -> Vec<(McSpaceName, Arc<McEnumDef>)> {
+    peel_enums(enumerate(DefKind::Enum, DomainFilter::Any))
+}
+
+/// Enumerate every live define definition (any domain).
+pub fn all_defines() -> Vec<(McSpaceName, Arc<McDefineDef>)> {
+    peel_defines(enumerate(DefKind::Define, DomainFilter::Any))
+}
+
+/// Enumerate every project (workspace) component definition.
+pub fn workspace_components() -> Vec<(McSpaceName, Arc<McComponent>)> {
+    peel_components(enumerate(DefKind::Component, DomainFilter::Project))
+}
+
+/// Enumerate every project (workspace) module definition.
+pub fn workspace_modules() -> Vec<(McSpaceName, Arc<McModule>)> {
+    peel_modules(enumerate(DefKind::Module, DomainFilter::Project))
+}
+
+/// Enumerate every project (workspace) interface definition.
+pub fn workspace_interfaces() -> Vec<(McSpaceName, Arc<McInterface>)> {
+    peel_interfaces(enumerate(DefKind::Interface, DomainFilter::Project))
+}
+
+/// Enumerate every project (workspace) enum definition.
+pub fn workspace_enums() -> Vec<(McSpaceName, Arc<McEnumDef>)> {
+    peel_enums(enumerate(DefKind::Enum, DomainFilter::Project))
+}
+
+/// Enumerate every project (workspace) define definition.
+pub fn workspace_defines() -> Vec<(McSpaceName, Arc<McDefineDef>)> {
+    peel_defines(enumerate(DefKind::Define, DomainFilter::Project))
+}
+
+/// Enumerate every system-library component definition (P5 visibility).
+pub fn system_components() -> Vec<(McSpaceName, Arc<McComponent>)> {
+    peel_components(enumerate(DefKind::Component, DomainFilter::System))
+}
+
+/// Enumerate every system-library module definition (P5 visibility).
+pub fn system_modules() -> Vec<(McSpaceName, Arc<McModule>)> {
+    peel_modules(enumerate(DefKind::Module, DomainFilter::System))
+}
+
+/// Enumerate every system-library interface definition (P5 visibility).
+pub fn system_interfaces() -> Vec<(McSpaceName, Arc<McInterface>)> {
+    peel_interfaces(enumerate(DefKind::Interface, DomainFilter::System))
+}
+
+/// Enumerate every system-library enum definition (P5 visibility).
+pub fn system_enums() -> Vec<(McSpaceName, Arc<McEnumDef>)> {
+    peel_enums(enumerate(DefKind::Enum, DomainFilter::System))
+}
+
+/// Does the system library (not the workspace) define this identity, as any
+/// class kind (component / module / interface / enum)?
+pub fn system_contains(sn: &McSpaceName) -> bool {
+    let Some(ids) = KEY_TO_ID.get(sn) else {
+        return false;
+    };
+    for id in ids.iter() {
+        if let Some(e) = ARENA.get(id) {
+            if e.data.is_some()
+                && matches!(e.domain, LoadDomain::SystemLib(_))
+                && matches!(
+                    e.kind,
+                    DefKind::Component | DefKind::Module | DefKind::Interface | DefKind::Enum
+                )
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// The kind of a live definition under `sn`, if any — any domain, module
+/// priority (mirrors the old lib-ledger `contains_key` chain).
+pub fn kind_of(sn: &McSpaceName) -> Option<DefKind> {
+    for kind in [
+        DefKind::Module,
+        DefKind::Component,
+        DefKind::Interface,
+        DefKind::Enum,
+        DefKind::Define,
+    ] {
+        if live_entry(sn, kind).is_some() {
+            return Some(kind);
+        }
+    }
+    None
+}
+
+/// Every live definition whose file uri contains `prefix` — the lib-ledger
+/// symbol collection in `mcb_load_lib` (replaces the ten physical-table
+/// prefix scans). Function-template entries are host members, not top-level
+/// definitions, so they stay out of the ledger.
+pub fn spacenames_by_uri_prefix(prefix: &str) -> Vec<McSpaceName> {
+    ARENA
+        .iter()
+        .filter(|e| e.data.is_some() && e.kind != DefKind::Func && e.sn.uri.contains(prefix))
+        .map(|e| e.sn.clone())
+        .collect()
+}
+
+// ============================================================================
+// Physical-table helpers (compatibility materialization)
+// ============================================================================
 
 fn insert_one<K, V>(table: &DashMap<K, V>, key: K, value: V) -> InsertOutcome
 where

@@ -1132,11 +1132,24 @@ pub(crate) fn load_libs_rpc(libs: &[String]) {
     // Non-project mode: when the caller supplies no explicit library list,
     // fall back to the global mcc.yaml [libs].load configuration so custom
     // path libraries are still loaded (mcext-folder-parse-design.md §5.2).
-    let libs: Vec<String> = if libs.is_empty() {
+    let mut libs: Vec<String> = if libs.is_empty() {
         crate::cli::config::get_libs_load_list(None).to_vec()
     } else {
         libs.to_vec()
     };
+    // mcode auto-loads by default in every mode unless disabled (mirrors the
+    // CLI's `collect_libs`, manifest.rs). This matters after a `build.full`
+    // reset: Phase 5 makes system libs per-world, so `clear_active`
+    // tombstones the whole registry — a fresh world must re-establish mcode
+    // or its classes (e.g. `enum PKG` in package.mc) go unresolved. The
+    // config check uses the global config only, consistent with the
+    // `get_libs_load_list(None)` fallback above (the process project root is
+    // not reliably synced to the active workspace in non-project mode).
+    if crate::cli::config::should_load_mcode(None)
+        && !libs.iter().any(|l| l.to_lowercase() == "mcode")
+    {
+        libs.push("mcode".to_string());
+    }
     if libs.is_empty() {
         return;
     }

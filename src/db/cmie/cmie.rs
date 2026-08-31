@@ -2,7 +2,6 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::db::infra::global;
 use crate::db::resolve::{cmie_uri, Resolver};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use std::cell::RefCell;
@@ -92,9 +91,11 @@ pub(crate) fn find_scoped_enum_for_component(
             return Some(def);
         }
     }
-    for entry in global::mcc_enums.iter() {
-        if entry.key().ident.to_string() == family_name {
-            return Some(entry.value().clone());
+    // Fallback: per-world system-library enums (Phase 5 — name-only match,
+    // any loaded system lib).
+    for (sn, def) in crate::definition_space().system_enums() {
+        if sn.ident.to_string() == family_name {
+            return Some(def);
         }
     }
 
@@ -130,9 +131,9 @@ pub(crate) fn is_enum_class_name(class_name: &str) -> bool {
             return true;
         }
     }
-    // Search global enums
-    for entry in global::mcc_enums.iter() {
-        if entry.key().ident.to_string() == class_name {
+    // Search per-world system-library enums (Phase 5)
+    for (sn, _) in crate::definition_space().system_enums() {
+        if sn.ident.to_string() == class_name {
             return true;
         }
     }
@@ -147,14 +148,10 @@ pub(crate) fn is_enum_member(class_name: &str, value_name: &str) -> bool {
             return def.values.iter().any(|v| v.name.to_string() == value_name);
         }
     }
-    // Search global enums
-    for entry in global::mcc_enums.iter() {
-        if entry.key().ident.to_string() == class_name {
-            return entry
-                .value()
-                .values
-                .iter()
-                .any(|v| v.name.to_string() == value_name);
+    // Search per-world system-library enums (Phase 5)
+    for (sn, def) in crate::definition_space().system_enums() {
+        if sn.ident.to_string() == class_name {
+            return def.values.iter().any(|v| v.name.to_string() == value_name);
         }
     }
     false
@@ -188,14 +185,10 @@ pub(crate) fn resolve_bare_enum_value(
             candidates.push(class_name);
         }
     }
-    // Search global enums
-    for entry in global::mcc_enums.iter() {
-        let class_name = entry.key().ident.to_string();
-        let has_value = entry
-            .value()
-            .values
-            .iter()
-            .any(|v| v.name.to_string() == value_name);
+    // Search per-world system-library enums (Phase 5)
+    for (sn, def) in crate::definition_space().system_enums() {
+        let class_name = sn.ident.to_string();
+        let has_value = def.values.iter().any(|v| v.name.to_string() == value_name);
         if has_value {
             if let Some(pref) = prefer_class {
                 if class_name == pref {

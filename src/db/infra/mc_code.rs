@@ -44,7 +44,6 @@ use crate::db::diagnostic::diagnostic::{
     diagnostic_log_at, dlog_error, dlog_error_at, dlog_warning_at, DiagnosticLevel,
 };
 use crate::db::diagnostic::errcodes;
-use crate::db::infra::global;
 use crate::db::infra::mc_use::{McUse, McUsePrefix};
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
@@ -1391,13 +1390,16 @@ impl McCode {
         decl_type == MCAST_ENUM
     }
 
-    /// Parse current file, add all definitions to project tables (parse_cmie_to_project)
-    /// Phase 1a: only register component/interface/enum definitions to the global table
+    /// Parse current file, add all definitions to the per-world tables
+    /// Phase 1a: only register component/interface/enum definitions
     /// This step does not parse module body, ensuring cross-file type definitions are ready first
     pub fn parse_pass1_types(&mut self) {
         // Single write entry: the mcbase branch collapsed into a LoadDomain
-        // tag — mcode (system lib) defs route to the process-global tables,
-        // project defs to the workspace tables (defregistry.rs).
+        // tag. System-lib defs get SystemLib (per-world registry, Phase 5);
+        // project defs get Project. The tag name is a placeholder — only the
+        // SystemLib-ness matters (all tags are treated identically, and
+        // non-mcode libs are tombstoned for use-only visibility right after
+        // load), so no lib name is threaded through here.
         let domain = if self.mcbase {
             LoadDomain::SystemLib("mcode".to_string())
         } else {
@@ -1819,7 +1821,7 @@ impl McCode {
 
         // Single write entry: module defs land in the workspace module table
         // regardless of domain (defregistry.rs); the tag keeps the load-domain
-        // semantics explicit for the Phase 3 single-table merge.
+        // semantics explicit. The name is a placeholder (see parse_pass1_types).
         let domain = if self.mcbase {
             LoadDomain::SystemLib("mcode".to_string())
         } else {
@@ -2238,7 +2240,7 @@ impl McCode {
             }
         }
         if result.is_none() {
-            for b in crate::db::infra::libmgr::mcc_blibs.iter() {
+            for b in workspace::WORKSPACE.blibs.iter() {
                 if b.uri == def_uri {
                     if let Ok(sem) = b.symbols.try_lock() {
                         if let Ok(g) = sem.global_table.try_lock() {
@@ -2474,7 +2476,7 @@ impl McCode {
                     }
                 }
             }
-            for entry in crate::db::infra::libmgr::mcc_blibs.iter() {
+            for entry in workspace::WORKSPACE.blibs.iter() {
                 if let Ok(ws_sym) = entry.value().symbols.lock() {
                     if let Ok(ws_gt) = ws_sym.global_table.lock() {
                         collect_ev(&ws_gt);
@@ -2544,7 +2546,7 @@ impl McCode {
                     }
                 }
             }
-            for entry in crate::db::infra::libmgr::mcc_blibs.iter() {
+            for entry in workspace::WORKSPACE.blibs.iter() {
                 if let Ok(ws_sym) = entry.value().symbols.lock() {
                     if let Ok(ws_gt) = ws_sym.global_table.lock() {
                         collect_ec(&ws_gt);
@@ -2618,10 +2620,9 @@ impl McCode {
                 map.name_index
                     .insert((self.uri.to_string(), name.to_string()), entry);
             };
-            for entry in crate::db::infra::global::mcc_components.iter() {
-                let c = entry.value();
-                let name = entry.key().ident.to_string();
-                let uri = entry.key().uri.to_string();
+            for (sn, c) in crate::db::defregistry::system_components() {
+                let name = sn.ident.to_string();
+                let uri = sn.uri.to_string();
                 add_p5(
                     &name,
                     &uri,
@@ -2631,10 +2632,9 @@ impl McCode {
                     CmieKind::Component as u8,
                 );
             }
-            for entry in crate::db::infra::global::mcc_modules.iter() {
-                let m = entry.value();
-                let name = entry.key().ident.to_string();
-                let uri = entry.key().uri.to_string();
+            for (sn, m) in crate::db::defregistry::system_modules() {
+                let name = sn.ident.to_string();
+                let uri = sn.uri.to_string();
                 add_p5(
                     &name,
                     &uri,
@@ -2644,10 +2644,9 @@ impl McCode {
                     CmieKind::Module as u8,
                 );
             }
-            for entry in crate::db::infra::global::mcc_interfaces.iter() {
-                let i = entry.value();
-                let name = entry.key().ident.to_string();
-                let uri = entry.key().uri.to_string();
+            for (sn, i) in crate::db::defregistry::system_interfaces() {
+                let name = sn.ident.to_string();
+                let uri = sn.uri.to_string();
                 add_p5(
                     &name,
                     &uri,
@@ -2657,10 +2656,9 @@ impl McCode {
                     CmieKind::Interface as u8,
                 );
             }
-            for entry in crate::db::infra::global::mcc_enums.iter() {
-                let e = entry.value();
-                let name = entry.key().ident.to_string();
-                let uri = entry.key().uri.to_string();
+            for (sn, e) in crate::db::defregistry::system_enums() {
+                let name = sn.ident.to_string();
+                let uri = sn.uri.to_string();
                 add_p5(
                     &name,
                     &uri,
@@ -3757,9 +3755,10 @@ impl McCode {
                 }
             }
         }
-        let global_interfaces = &crate::db::infra::global::mcc_interfaces;
-        for entry in global_interfaces.iter() {
-            let iface = entry.value();
+        // Per-world system-library interfaces in this file (Phase 5): their
+        // param/attr/ref symbols are lappered like workspace interfaces.
+        let system_interfaces = crate::definition_space().system_interfaces();
+        for (_sn, iface) in system_interfaces.iter() {
             if Self::uris_same_file(iface.uri.as_str(), uri_str) {
                 let iface_name_g = iface.name.to_string();
                 let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
@@ -4837,14 +4836,14 @@ impl McCode {
                     comp_pins.insert(sn.ident.to_string(), names);
                 }
             }
-            for entry in global::mcc_components.iter() {
-                let key_uri = entry.key().uri.as_uri();
+            for (sn, comp) in crate::definition_space().system_components() {
+                let key_uri = sn.uri.as_uri();
                 if Self::uris_same_file(key_uri.as_ref(), uri_str) {
-                    let names = Self::extract_pin_name_spans(entry.value())
+                    let names = Self::extract_pin_name_spans(&comp)
                         .into_iter()
                         .map(|(n, _)| n)
                         .collect();
-                    comp_pins.insert(entry.key().ident.to_string(), names);
+                    comp_pins.insert(sn.ident.to_string(), names);
                 }
             }
         }
@@ -5011,14 +5010,14 @@ impl McCode {
         // P5: system libraries. Name-unique by construction (§5.4.6 "P5
         // uniqueness guarantee"): same-file duplicates error at load
         // (DUP_ENUM), cross-file duplicates are a library-side build rule.
-        for entry in crate::db::infra::global::mcc_enums.iter() {
-            if entry.key().uri == uri.as_str() {
+        for (sn, e) in crate::db::defregistry::system_enums() {
+            if sn.uri == uri.as_str() {
                 continue;
             }
-            if entry.key().ident.to_string() == base_name {
+            if sn.ident.to_string() == base_name {
                 return Some((
-                    entry.key().uri.to_string(),
-                    (entry.value().span[0] as usize)..(entry.value().span[1] as usize),
+                    sn.uri.to_string(),
+                    (e.span[0] as usize)..(e.span[1] as usize),
                 ));
             }
         }
@@ -5415,16 +5414,16 @@ impl McCode {
                     container_names.push(sn.ident.to_string());
                 }
             }
-            for entry in global::mcc_modules.iter() {
-                let key_uri = entry.key().uri.as_uri();
+            for (sn, _) in crate::definition_space().system_modules() {
+                let key_uri = sn.uri.as_uri();
                 if Self::uris_same_file(key_uri.as_ref(), uri_str) {
-                    container_names.push(entry.key().ident.to_string());
+                    container_names.push(sn.ident.to_string());
                 }
             }
-            for entry in global::mcc_components.iter() {
-                let key_uri = entry.key().uri.as_uri();
+            for (sn, _) in crate::definition_space().system_components() {
+                let key_uri = sn.uri.as_uri();
                 if Self::uris_same_file(key_uri.as_ref(), uri_str) {
-                    container_names.push(entry.key().ident.to_string());
+                    container_names.push(sn.ident.to_string());
                 }
             }
             tracing::info!(target: "mcc::lsp",
@@ -6020,6 +6019,121 @@ mod tests {
     /// The lock is shared crate-wide (`MCC_TEST_PARSE_LOCK`) so tests in other
     /// modules (e.g. `rpc::handlers::buildcmd::tests`) serialize with these.
     use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
+
+    /// Phase 4 (defspace §12.1 / §13.6 delta 1): component methods and module
+    /// funcs register as function-template addressing entries — a stable
+    /// [`DefId`] plus a host link — while the `McFunction` stays embedded in
+    /// the host's `funcs` table (dispatch keeps using `host.funcs.find`).
+    /// The entries mirror the host's funcs across reloads (tombstone +
+    /// revive, D11) and key by the qualified name `"HOST.NAME"`.
+    #[test]
+    fn func_entries_mirror_host_funcs_across_reload() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let uri: crate::McURI = "/mcc/funcdefs.mc".to_string();
+        let v1 = r#"
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([net1, net2]) {
+        net1 - this - net2
+        return [net1, net2]
+    }
+    func Extra([A, B]) {
+        A - this - B
+    }
+}
+
+module main
+{
+    io VDD
+    CAP U1
+}
+"#;
+        crate::mcc_load_from_string(&uri, v1);
+
+        let uri_id = crate::semantic::common::uri_intern(&uri);
+        let cap_sn = McSpaceName {
+            ident: McIds::from("CAP"),
+            uri: uri_id,
+        };
+        let host_id =
+            crate::db::defregistry::def_id(&cap_sn, crate::db::defregistry::DefKind::Component)
+                .expect("host component has a DefId");
+
+        // 1. Entries mirror the host's funcs: qualified keys, host links.
+        let funcs = crate::db::defregistry::funcs_of_host(
+            &cap_sn,
+            crate::db::defregistry::DefKind::Component,
+        );
+        let mut names: Vec<String> = funcs.iter().map(|(_, f)| f.name.clone()).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec!["Cap".to_string(), "Extra".to_string()],
+            "func entries mirror the host's funcs table"
+        );
+        for (fsn, f) in &funcs {
+            assert_eq!(f.host, host_id, "every entry links to the host DefId");
+            assert_eq!(
+                fsn.ident.to_string(),
+                format!("CAP.{}", f.name),
+                "entries key by the qualified name HOST.NAME"
+            );
+        }
+        let cap_cap_sn = McSpaceName {
+            ident: McIds::from("CAP.Cap"),
+            uri: uri_id,
+        };
+        let cap_entry = crate::db::defregistry::get_func(&cap_cap_sn)
+            .expect("qualified func key resolves by name");
+
+        // 2. Reload with one method removed: the stale entry is tombstoned
+        //    and the survivor revives under its original DefId.
+        let v2 = r#"
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([net1, net2]) {
+        net1 - this - net2
+        return [net1, net2]
+    }
+}
+
+module main
+{
+    io VDD
+    CAP U1
+}
+"#;
+        crate::mcc_load_from_string(&uri, v2);
+
+        let funcs2 = crate::db::defregistry::funcs_of_host(
+            &cap_sn,
+            crate::db::defregistry::DefKind::Component,
+        );
+        assert_eq!(
+            funcs2
+                .iter()
+                .map(|(_, f)| f.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Cap"],
+            "the removed func's entry is tombstoned; the survivor stays live"
+        );
+        let cap_entry2 =
+            crate::db::defregistry::get_func(&cap_cap_sn).expect("surviving func entry revives");
+        assert_eq!(
+            cap_entry.host, cap_entry2.host,
+            "the surviving func keeps its host DefId across the reload (D11)"
+        );
+    }
 
     /// Regression: declareb instances inside net expressions must be registered
     /// as LSP declarations (`res[1:2]::RES(0Ω)` → res1/res2, `C4::CAP()` → C4).

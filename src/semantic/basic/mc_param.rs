@@ -1444,10 +1444,12 @@ mod tests {
 
     // ── p4: enum / interface class heuristic claiming ─────────────────────
 
-    /// Register a small `CAP { X7R, C0G }` enum in the global table so
-    /// enum-class claiming sees it (mirrors library loading).
+    /// Register a small `CAP { X7R, C0G }` enum in the registry's system
+    /// segment so enum-class claiming sees it (mirrors library loading;
+    /// Phase 5 keeps system defs in the per-world registry, not the global
+    /// tables).
     fn register_test_enum() {
-        use crate::db::infra::global::mcc_enums;
+        use crate::db::defregistry::{insert, DefValue, LoadDomain};
         use crate::semantic::common::uri_intern;
         use crate::semantic::mc_enum::{McEnumDef, McEnumValue};
         use std::sync::Arc;
@@ -1467,12 +1469,13 @@ mod tests {
             ],
             uri: String::from("test.mc"),
         };
-        mcc_enums.insert(
-            McSpaceName {
+        insert(
+            &McSpaceName {
                 ident: McIds::from("CAP"),
                 uri: uri_intern("test.mc"),
             },
-            Arc::new(def),
+            LoadDomain::SystemLib("test".to_string()),
+            DefValue::Enum(Arc::new(def)),
         );
     }
 

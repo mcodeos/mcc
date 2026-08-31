@@ -2,16 +2,15 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::{
-    semantic::{
-        component::McComponent, mc_define::McDefineDef, mc_enum::McEnumDef, mc_ifs::McInterface,
-        module::McModule,
-    },
-    McSpaceName,
-};
-use dashmap::DashMap;
+//! Process-global process roots.
+//!
+//! Phase 5: the five system-library definition tables (`mcc_components`,
+//! `mcc_modules`, `mcc_interfaces`, `mcc_enums`, `mcc_defines`) are gone —
+//! system-lib definitions live per-world in the definition registry and the
+//! workspace tables. Only the system/project root paths remain global.
+
 use std::sync::LazyLock;
-use std::{path::PathBuf, sync::Arc, sync::Mutex};
+use std::{path::PathBuf, sync::Mutex};
 
 #[allow(non_upper_case_globals)]
 pub(crate) static mcc_system_root: LazyLock<Mutex<PathBuf>> =
@@ -19,16 +18,3 @@ pub(crate) static mcc_system_root: LazyLock<Mutex<PathBuf>> =
 #[allow(non_upper_case_globals)]
 pub(crate) static mcc_project_root: LazyLock<Mutex<PathBuf>> =
     LazyLock::new(|| Mutex::new(PathBuf::new()));
-#[allow(non_upper_case_globals)]
-pub static mcc_components: LazyLock<DashMap<McSpaceName, Arc<McComponent>>> =
-    LazyLock::new(DashMap::new);
-#[allow(non_upper_case_globals)]
-pub static mcc_modules: LazyLock<DashMap<McSpaceName, Arc<McModule>>> = LazyLock::new(DashMap::new);
-#[allow(non_upper_case_globals)]
-pub static mcc_interfaces: LazyLock<DashMap<McSpaceName, Arc<McInterface>>> =
-    LazyLock::new(DashMap::new);
-#[allow(non_upper_case_globals)]
-pub static mcc_enums: LazyLock<DashMap<McSpaceName, Arc<McEnumDef>>> = LazyLock::new(DashMap::new);
-#[allow(non_upper_case_globals)]
-pub static mcc_defines: LazyLock<DashMap<McSpaceName, Arc<McDefineDef>>> =
-    LazyLock::new(DashMap::new);

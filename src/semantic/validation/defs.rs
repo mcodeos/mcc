@@ -116,10 +116,11 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
     // Build the known set of all CMIE names.
     //
     // ★ System library definitions (mcode etc., loaded with is_system_lib=true)
-    //   are stored in the GLOBAL tables (mcc_components / mcc_interfaces / etc.),
-    //   while user-project definitions live in WORKSPACE.*. Both must be
-    //   included, otherwise the validation would emit false "not loaded"
-    //   warnings for every system lib name referenced from user code.
+    //   live per-world in the definition registry (Phase 5) and are surfaced
+    //   through the workspace tables, while user-project definitions live in
+    //   WORKSPACE.*. Both must be included, otherwise the validation would
+    //   emit false "not loaded" warnings for every system lib name referenced
+    //   from user code.
     //
     // §12.4 rule 1: one merged read through the DefinitionSpace view
     // (workspace then system lib, deduped by identity). Defines are
