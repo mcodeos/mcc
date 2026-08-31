@@ -820,6 +820,12 @@ impl HasFindInst for McModule {
         self.insts.get_mut(id)
     }
 
+    fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {
+        self.insts
+            .get_vector_members(base)
+            .map(|members| members.to_vec())
+    }
+
     fn find_inst_with_span(
         &self,
         id: &str,

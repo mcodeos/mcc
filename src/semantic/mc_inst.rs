@@ -296,6 +296,13 @@ impl McInstance {
 #[derive(Debug, Clone)]
 pub struct McInstances {
     insts: BTreeMap<String, (IOType, McInstance)>,
+    /// ★ §11.2 vector groups: vector base name -> ordered member names
+    /// (`"c" -> ["c1","c2"]`), recorded at parse_declare expansion time so the
+    /// declaration no longer erases vector information. Members still land in
+    /// `insts` as ordinary entries; this is the grouping overlay. Scoped per
+    /// `McInstances` (module vs function scope keep vector bases isolated).
+    /// Contract E: a single-member range is NOT registered (it is a scalar).
+    vectors: BTreeMap<String, Vec<String>>,
     /// Port spans for LSP goto-definition (name -> span ranges, multiple for DOT patterns)
     port_spans: HashMap<String, Vec<Range<usize>>>,
     /// LSP: spans in module body that reference port definitions (span, port_name)
@@ -326,6 +333,7 @@ impl McInstances {
     pub(crate) fn new() -> Self {
         Self {
             insts: BTreeMap::new(),
+            vectors: BTreeMap::new(),
             port_spans: HashMap::new(),
             net_ref_spans: Vec::new(),
             chain_ref_spans: Vec::new(),
@@ -334,6 +342,12 @@ impl McInstances {
             bus_defs: BTreeMap::new(),
             declareb_defs: HashMap::new(),
         }
+    }
+
+    /// Read the ordered member set of a declared vector group, if any.
+    /// Returns `None` for a non-vector (or scalar single-member) base name.
+    pub fn get_vector_members(&self, base: &str) -> Option<&[String]> {
+        self.vectors.get(base).map(Vec::as_slice)
     }
 
     /// Record a label's kind. Idempotent: Explicit takes precedence over Inline.
@@ -1480,17 +1494,28 @@ impl McInstances {
             // !has_curly()`, read off the segment tree instead of display output.
             let has_square_range = inst_ids.has_square() && !inst_ids.has_curly();
             let is_interface = matches!(cmie, Some(McCMIE::Interface(_)));
-            let should_expand = !is_interface
+            // A named base with a square range (`c[1:2]`, `res[4]`) — excludes
+            // square-only lists (`[VDD,GND]::DC()`), curlies and interface binds.
+            let is_named_square_range = !is_interface
                 && !inst_ids.is_square_only()
                 && !inst_ids.base_name().is_empty()
-                && has_square_range
-                && expanded_names.len() >= 2;
+                && has_square_range;
+            // Vector guard (contract E, §11.3): only ≥2 expanded members is a
+            // vector group; a single-member range (`res[4]`) is a scalar member
+            // (`res4`), materialized by the expanded name instead of a literal
+            // `res[4]` instance (invariant B: no literal bracket path).
+            let should_expand = is_named_square_range && expanded_names.len() >= 2;
             let names_to_create: Vec<String> = if should_expand {
+                expanded_names
+            } else if is_named_square_range && expanded_names.len() == 1 {
                 expanded_names
             } else {
                 vec![inst_str.clone()]
             };
             let base_name = inst_ids.base_name();
+            if should_expand {
+                self.vectors.insert(base_name.to_string(), names_to_create.clone());
+            }
 
             // ── P1: collect this instance's construction args ──
             let ctor_args = collect_ctor_params(inst_node, &inst_id_node);

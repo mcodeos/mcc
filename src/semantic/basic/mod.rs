@@ -5,6 +5,7 @@
 pub(crate) mod form;
 pub(crate) mod mc_bus;
 pub(crate) mod mc_closure;
+pub(crate) mod equivalent;
 pub(crate) mod mc_conds;
 pub(crate) mod mc_endpoint;
 pub(crate) mod mc_expr;

@@ -200,6 +200,45 @@ impl McPhrase {
                     match opdc {
                         McOpd::Id(ids) => {
                             let ids_str = ids.to_string();
+                            // ── Contract E (§11.3): single-member square range whose
+                            // expanded member IS a declared instance is a scalar member
+                            // reference (`res[4]` → `res4`), resolved as the instance,
+                            // never a literal `res[4]` label (invariant B). The square
+                            // may be embedded in a single Ida (string-wrapped
+                            // `McIds::from` form, §4.3) where `is_square_bracket()` is
+                            // false — handled by spelling, gated on a real expansion
+                            // differing from the literal.
+                            // `!starts_with('[')` excludes pure list forms
+                            // (`[res4]`, `[VDD, GND]`) which have their own
+                            // square-bracket branch below.
+                            if ids_str.contains(['[', ']']) && !ids_str.starts_with('[') {
+                                if let Some(members) = crate::semantic::basic::equivalent::
+                                    member_set_from_str(&ids_str)
+                                {
+                                    if members.len() == 1 && members[0] != ids_str {
+                                        let member = &members[0];
+                                        if let Some(inst) = context.find_inst(member) {
+                                            return Some(inst.into());
+                                        }
+                                        // Func-local fallback: a single-member vector
+                                        // declared in this func body (`res[4]::RES(0)`
+                                        // → `res4`) is invisible to in-body
+                                        // `find_inst` (func.insts is not on the body
+                                        // scope chain), but `is_declared_instance_name`
+                                        // sees it via the noted declares. Resolve as the
+                                        // expanded-member label — the same path scalar
+                                        // func-local receivers take; pass2 unifies the
+                                        // label with the instance.
+                                        if context.is_declared_instance_name(member) {
+                                            return context
+                                                .add_label(member.clone())
+                                                .or_else(|| {
+                                                    Some(McPhrase::label(member.clone()))
+                                                });
+                                        }
+                                    }
+                                }
+                            }
                             // eprintln!(
                             //     "[PHRASE_DEBUG] OPD Id: ids={:?}, is_curly={}",
                             //     ids_str, is_curly
@@ -479,6 +518,17 @@ impl McPhrase {
                                                             &[&ids.to_string(), &expanded_name],
                                                         ),
                                                     );
+                                                }
+                                                // ★ Contract E (§11.3): a single-member
+                                                // range (`res[4]`) whose expanded member
+                                                // IS a declared instance is a scalar
+                                                // member (`res4`) — resolved as the
+                                                // instance, never a literal `res[4]`
+                                                // label (invariant B).
+                                                if let Some(inst) =
+                                                    context.find_inst(expanded_name)
+                                                {
+                                                    return Some(inst.into());
                                                 }
                                             }
                                         }
@@ -820,6 +870,18 @@ impl McPhrase {
                                 McInstance::Bus(member_ref),
                             ))))
                         } else {
+                            // ★ Contract E (§11.3): a single-member range
+                            // (`res[4]`) whose expanded member IS a declared
+                            // instance is a scalar member (`res4`) — resolved as
+                            // the instance, never a literal `res[4]` label.
+                            if let Some(expanded) = crate::semantic::basic::equivalent::member_set_from_str(id)
+                            {
+                                if expanded.len() == 1 {
+                                    if let Some(inst) = context.find_inst(&expanded[0]) {
+                                        return Some(inst.into());
+                                    }
+                                }
+                            }
                             warn_prefix_id_as_wire(node, id);
                             context.add_label(id.clone())
                         }
