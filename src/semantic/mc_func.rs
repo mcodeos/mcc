@@ -221,10 +221,14 @@ pub trait HasFindInst {
             if let Some(expanded) = crate::semantic::basic::equivalent::member_set(ids) {
                 if expanded.len() >= 2 {
                     let base = ids.base_name();
-                    // (a) Declared vector group, or an array alias whose members
-                    // are all individually declared instances → multi-member.
+                    // (a) Declared vector group, an array alias whose members are
+                    // all individually declared instances, or a func-local vector
+                    // (members visible via `is_declared_instance_name` — func.insts
+                    // is not on the body scope chain, §11.3 pin 3) →
+                    // multi-member.
                     if self.get_vector_members(&base).is_some()
                         || expanded.iter().all(|m| self.find_inst(m).is_some())
+                        || expanded.iter().all(|m| self.is_declared_instance_name(m))
                     {
                         return RefVerdict::ResolvedMany(expanded);
                     }

@@ -1338,6 +1338,19 @@ impl McModuleInst {
                 result
             }
             McPhrase::Endpoint(ref ep) => {
+                // ── §11.3 lane-structured List: N independent member lanes ──────
+                // `cap[4:5]` resolves at pass1 to
+                // `Endpoint(List([Single(cap4), Single(cap5), ...]))`. Do NOT
+                // collapse through get_left/get_right — those take only the
+                // first/last lane and turn the parallel lane group into a serial
+                // `cap4 → cap5` Node (the flatten-before-broadcast pitfall). Pass
+                // the List through so the
+                // array-form re-link (resolve_array_caller_to_existing) and the
+                // get_left/get_right_points List handlers consume the lanes
+                // structurally.
+                if matches!(ep, McEndpoint::List(_)) {
+                    return vec![McPhrase::Endpoint(ep.clone())];
+                }
                 mcc_dbg!("inst::mod",
                     "[P2-5-BUS-CATCHALL] module='{}' phrase_to_members Endpoint catch-all: ep={ep:?}",
                     self.name
@@ -3362,6 +3375,37 @@ impl McModuleInst {
         phrase: &McPhrase,
     ) -> Option<Vec<String>> {
         use crate::semantic::basic::mc_ids::McIds;
+
+        // ── §11.3 lane-structured List (Phase 1.3) ──────────────────────────
+        // `cap[4:5]` in a connection operand resolves at pass1 to
+        // `Endpoint(List([Single(Component cap4), Single(Component cap5)]))`
+        // (module scope → find_inst hits → Component). Extract the member
+        // instance names **structurally** from the lanes — no bracket-string
+        // re-parse (AST-driven guideline). Guarded by the same all_exist check
+        // as the bracket form below, so phantom/auto-named lanes never re-link.
+        if let McPhrase::Endpoint(McEndpoint::List(eps)) = phrase {
+            let mut names = Vec::new();
+            for ep in eps {
+                match ep {
+                    McEndpoint::Single(iref) => match &iref.base {
+                        McInstance::Component(c) => names.push(c.name.to_string()),
+                        McInstance::Module(m) => names.push(m.name.to_string()),
+                        McInstance::Label(s) => names.push(s.clone()),
+                        McInstance::Bus(b) if b.member.is_empty() => names.push(b.name.clone()),
+                        _ => return None,
+                    },
+                    _ => return None,
+                }
+            }
+            if names.len() > 1
+                && names
+                    .iter()
+                    .all(|n| self.components.iter().any(|c| &c.name == n))
+            {
+                return Some(names);
+            }
+            return None;
+        }
 
         // First try to extract name from Label/Bus
         let name_with_bracket = match phrase {
