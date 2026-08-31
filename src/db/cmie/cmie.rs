@@ -77,12 +77,10 @@ pub(crate) fn find_scoped_enum_for_component(
         uri: crate::semantic::common::uri_intern(uri),
     };
 
-    // Search workspace enums first, then global
-    if let Some(entry) = workspace::WORKSPACE.enums.get(&space_name) {
-        return Some(entry.value().clone());
-    }
-    if let Some(entry) = global::mcc_enums.get(&space_name) {
-        return Some(entry.value().clone());
+    // Search workspace enums first, then global (unified definition-space view;
+    // design §12.4 rule 1).
+    if let Some(entry) = crate::definition_space().get_enum(&space_name) {
+        return Some(entry);
     }
 
     // Fallback: cross-file enums. §5.4 — a workspace enum is visible only

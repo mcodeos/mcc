@@ -109,26 +109,22 @@ fn lookup_cmie_by_kind(cmie_kind: u8, space_name: &McSpaceName) -> Option<McCMIE
         return crate::query::lookup::find_in_project_tables(space_name)
             .or_else(|| find_scoped_by_name(&space_name.ident, |u| *u == space_name.uri));
     }
+    let ds = crate::definition_space();
     match cmie_kind {
-        0 => workspace::WORKSPACE
-            .components
-            .get(space_name)
-            .or_else(|| global::mcc_components.get(space_name))
-            .map(|c| McCMIE::Component(c.clone()))
+        0 => ds
+            .get_component(space_name)
+            .map(McCMIE::Component)
             .or_else(|| find_in_table_scoped(0, &name_str, |u| *u == space_name.uri)),
-        1 => workspace::WORKSPACE
-            .modules
-            .get(space_name)
-            .or_else(|| global::mcc_modules.get(space_name))
-            .map(|m| McCMIE::Module(m.clone()))
+        1 => ds
+            .get_module(space_name)
+            .map(McCMIE::Module)
             .or_else(|| find_in_table_scoped(1, &name_str, |u| *u == space_name.uri)),
         2 => interface_lookup(space_name)
             .map(|i| McCMIE::Interface(i))
             .or_else(|| find_in_table_scoped(2, &name_str, |u| *u == space_name.uri)),
-        3 => global::mcc_enums
-            .get(space_name)
-            .or_else(|| workspace::WORKSPACE.enums.get(space_name))
-            .map(|e| McCMIE::Enum(e.clone()))
+        3 => ds
+            .get_enum(space_name)
+            .map(McCMIE::Enum)
             .or_else(|| find_in_table_scoped(3, &name_str, |u| *u == space_name.uri)),
         _ => None,
     }
@@ -363,8 +359,8 @@ impl Resolver {
         // lookup first, then the string-level same-file fallback for dotted
         // names whose McIds segment form differs from the AST-built key.
         let space = McSpaceName::new(name, from_uri.clone());
-        if let Some(i) = workspace::WORKSPACE.interfaces.get(&space) {
-            return Some(McCMIE::Interface(i.clone()));
+        if let Some(i) = crate::definition_space().get_interface(&space) {
+            return Some(McCMIE::Interface(i));
         }
         let canonical_id = uri_intern(&canonical);
         if let Some(i) = find_in_table_scoped(2, &name_str, |u| *u == canonical_id) {
