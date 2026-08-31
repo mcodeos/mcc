@@ -237,9 +237,9 @@ impl DiagnosticManager {
         self.file_to_diagnostics
             .get(uri)
             .map(|indices| {
-                indices
-                    .iter()
-                    .any(|&i| self.diagnostics[i].code == code && self.diagnostics[i].loc.pos == pos)
+                indices.iter().any(|&i| {
+                    self.diagnostics[i].code == code && self.diagnostics[i].loc.pos == pos
+                })
             })
             .unwrap_or(false)
     }

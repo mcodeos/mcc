@@ -65,7 +65,10 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
 /// (and of the GAP2 double-report that diagnostic dedup then papered over).
 /// `start_id` seeds the flat projection (tree-only callers pass 0 — the table
 /// is never built).
-pub(crate) fn mcb_instantiate(entry: &McSpaceName, start_id: u32) -> Result<DianLu, Box<dyn Error>> {
+pub(crate) fn mcb_instantiate(
+    entry: &McSpaceName,
+    start_id: u32,
+) -> Result<DianLu, Box<dyn Error>> {
     // FIX: Extract module def from prj_modules and DROP the MutexGuard
     // BEFORE calling inst.instantiate(). instantiate() internally calls
     // mcb_get_cmie() -> prj_modules.borrow() which would deadlock if the

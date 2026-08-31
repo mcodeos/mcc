@@ -86,8 +86,16 @@ fn zero_pin_net_reports_gap2_once() {
 fn single_use_ghost_stub_is_e3137_not_gap2() {
     let src = "module main {\n    io VDD\n    func main() {\n        uC.ADC.P -> VDD\n    }\n}";
     let codes = build_flat_codes(src);
-    assert_eq!(count(&codes, 3137), 1, "single-use ghost warns E3137; got {codes:?}");
-    assert_eq!(count(&codes, 4057), 0, "stub net kept ≥1 pin, no GAP2; got {codes:?}");
+    assert_eq!(
+        count(&codes, 3137),
+        1,
+        "single-use ghost warns E3137; got {codes:?}"
+    );
+    assert_eq!(
+        count(&codes, 4057),
+        0,
+        "stub net kept ≥1 pin, no GAP2; got {codes:?}"
+    );
 }
 
 /// ── Domain split: ghost → real pin is a stub, not 0-pin ───────────────────
@@ -98,8 +106,16 @@ fn single_use_ghost_stub_is_e3137_not_gap2() {
 fn ghost_to_real_pin_is_stub_not_gap2() {
     let src = "component R {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\nmodule main {\n    io VDD\n    io GND\n    R r1\n    uC.ADC.P -> r1.1\n}";
     let codes = build_flat_codes(src);
-    assert_eq!(count(&codes, 3137), 1, "single-use ghost warns E3137; got {codes:?}");
-    assert_eq!(count(&codes, 4057), 0, "1-pin net is not 0-pin, no GAP2; got {codes:?}");
+    assert_eq!(
+        count(&codes, 3137),
+        1,
+        "single-use ghost warns E3137; got {codes:?}"
+    );
+    assert_eq!(
+        count(&codes, 4057),
+        0,
+        "1-pin net is not 0-pin, no GAP2; got {codes:?}"
+    );
 }
 
 /// ── Domain split: two resolvable ghost labels are a net, not 0-pin ────────
@@ -110,8 +126,16 @@ fn ghost_to_real_pin_is_stub_not_gap2() {
 fn two_resolvable_ghost_labels_are_not_gap2() {
     let src = "module main {\n    func main() {\n        FOO.BAR -> BAZ.QUX\n    }\n}";
     let codes = build_flat_codes(src);
-    assert_eq!(count(&codes, 3137), 2, "two single-use ghosts warn E3137; got {codes:?}");
-    assert_eq!(count(&codes, 4057), 0, "ghost labels resolved into a net, no GAP2; got {codes:?}");
+    assert_eq!(
+        count(&codes, 3137),
+        2,
+        "two single-use ghosts warn E3137; got {codes:?}"
+    );
+    assert_eq!(
+        count(&codes, 4057),
+        0,
+        "ghost labels resolved into a net, no GAP2; got {codes:?}"
+    );
 }
 
 /// ── Real nets never trigger GAP2 ──────────────────────────────────────────
@@ -119,7 +143,11 @@ fn two_resolvable_ghost_labels_are_not_gap2() {
 fn real_net_is_quiet() {
     let src = "component CAP(cap::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([n1, n2]) {\n        n1 - this - n2\n    }\n}\nmodule main {\n    io VDD\n    io GND\n    CAP c(1)\n    c.Cap([VDD, GND])\n}";
     let codes = build_flat_codes(src);
-    assert_eq!(count(&codes, 4057), 0, "real net materializes pins; got {codes:?}");
+    assert_eq!(
+        count(&codes, 4057),
+        0,
+        "real net materializes pins; got {codes:?}"
+    );
 }
 
 /// ── GAP2 (module half): a phantom-only connection reports E4057 ───────────

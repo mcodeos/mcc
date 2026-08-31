@@ -45,7 +45,8 @@ fn build_dianlu(src: &str) -> mcc::DianLu {
 fn single_instantiation_gap2_fires_once_after_two_flattens() {
     let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     reset_workspace();
-    let mut dl = build_dianlu("module main {\n    func main() {\n        res[1:2] -> led[3:4]\n    }\n}");
+    let mut dl =
+        build_dianlu("module main {\n    func main() {\n        res[1:2] -> led[3:4]\n    }\n}");
 
     let t1 = dl.flatten() as *const _;
     let t2 = dl.flatten() as *const _;
@@ -72,10 +73,13 @@ fn into_parts_returns_tree_and_flat_projection() {
     dl.flatten();
     let (tree, table) = dl.into_parts();
 
-    assert!(table.len() >= 2, "flat projection has instance entries; len={}", table.len());
+    assert!(
+        table.len() >= 2,
+        "flat projection has instance entries; len={}",
+        table.len()
+    );
     assert_eq!(
-        tree.name,
-        "main",
+        tree.name, "main",
         "the tree is the instantiated entry module"
     );
 }

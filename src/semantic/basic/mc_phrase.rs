@@ -212,8 +212,10 @@ impl McPhrase {
                             // (`[res4]`, `[VDD, GND]`) which have their own
                             // square-bracket branch below.
                             if ids_str.contains(['[', ']']) && !ids_str.starts_with('[') {
-                                if let Some(members) = crate::semantic::basic::equivalent::
-                                    member_set_from_str(&ids_str)
+                                if let Some(members) =
+                                    crate::semantic::basic::equivalent::member_set_from_str(
+                                        &ids_str,
+                                    )
                                 {
                                     if members.len() == 1 && members[0] != ids_str {
                                         let member = &members[0];
@@ -232,9 +234,7 @@ impl McPhrase {
                                         if context.is_declared_instance_name(member) {
                                             return context
                                                 .add_label(member.clone())
-                                                .or_else(|| {
-                                                    Some(McPhrase::label(member.clone()))
-                                                });
+                                                .or_else(|| Some(McPhrase::label(member.clone())));
                                         }
                                     } else if members.len() >= 2 {
                                         // ── Contract E (§11.3): multi-member vector
@@ -260,16 +260,16 @@ impl McPhrase {
                                                         Some(inst) => McEndpoint::Single(
                                                             McInstanceRef::new(inst),
                                                         ),
-                                                        None => McEndpoint::Single(
-                                                            McInstanceRef::new(
+                                                        None => {
+                                                            McEndpoint::Single(McInstanceRef::new(
                                                                 McInstance::Label(m.clone()),
-                                                            ),
-                                                        ),
+                                                            ))
+                                                        }
                                                     })
                                                     .collect();
-                                                return Some(McPhrase::Endpoint(
-                                                    McEndpoint::List(lanes),
-                                                ));
+                                                return Some(McPhrase::Endpoint(McEndpoint::List(
+                                                    lanes,
+                                                )));
                                             }
                                             _ => {}
                                         }
@@ -567,8 +567,7 @@ impl McPhrase {
                                                 // member (`res4`) — resolved as the
                                                 // instance, never a literal `res[4]`
                                                 // label (invariant B).
-                                                if let Some(inst) =
-                                                    context.find_inst(expanded_name)
+                                                if let Some(inst) = context.find_inst(expanded_name)
                                                 {
                                                     return Some(inst.into());
                                                 }
@@ -916,7 +915,8 @@ impl McPhrase {
                             // (`res[4]`) whose expanded member IS a declared
                             // instance is a scalar member (`res4`) — resolved as
                             // the instance, never a literal `res[4]` label.
-                            if let Some(expanded) = crate::semantic::basic::equivalent::member_set_from_str(id)
+                            if let Some(expanded) =
+                                crate::semantic::basic::equivalent::member_set_from_str(id)
                             {
                                 if expanded.len() == 1 {
                                     if let Some(inst) = context.find_inst(&expanded[0]) {

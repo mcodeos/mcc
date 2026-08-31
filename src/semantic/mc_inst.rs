@@ -1520,7 +1520,8 @@ impl McInstances {
             };
             let base_name = inst_ids.base_name();
             if should_expand {
-                self.vectors.insert(base_name.to_string(), names_to_create.clone());
+                self.vectors
+                    .insert(base_name.to_string(), names_to_create.clone());
             }
 
             // ── P1: collect this instance's construction args ──

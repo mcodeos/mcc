@@ -71,7 +71,11 @@ fn aligned_vector_slice_arg_zips_and_is_quiet() {
     );
     let codes = codes(&src, "/mcc/gap1-aligned.mc");
     let codes = codes_without_benign(&codes);
-    assert_eq!(codes, Vec::<u32>::new(), "aligned slice is quiet; got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<u32>::new(),
+        "aligned slice is quiet; got {codes:?}"
+    );
 
     let inst = build_main(&src, "/mcc/gap1-aligned.mc");
     // Zip: the res3 net carries c1.1, the res4 net carries c2.1 — no
@@ -87,14 +91,29 @@ fn aligned_vector_slice_arg_zips_and_is_quiet() {
         out
     };
     let res3 = net_paths("res3");
-    assert!(res3.iter().any(|p| p == "c1.1"), "c1.1 on net res3; got {res3:?}");
-    assert!(!res3.iter().any(|p| p == "c2.1"), "c2.1 NOT on net res3; got {res3:?}");
+    assert!(
+        res3.iter().any(|p| p == "c1.1"),
+        "c1.1 on net res3; got {res3:?}"
+    );
+    assert!(
+        !res3.iter().any(|p| p == "c2.1"),
+        "c2.1 NOT on net res3; got {res3:?}"
+    );
     let res4 = net_paths("res4");
-    assert!(res4.iter().any(|p| p == "c2.1"), "c2.1 on net res4; got {res4:?}");
-    assert!(!res4.iter().any(|p| p == "c1.1"), "c1.1 NOT on net res4; got {res4:?}");
+    assert!(
+        res4.iter().any(|p| p == "c2.1"),
+        "c2.1 on net res4; got {res4:?}"
+    );
+    assert!(
+        !res4.iter().any(|p| p == "c1.1"),
+        "c1.1 NOT on net res4; got {res4:?}"
+    );
     // The scalar lane gnd broadcasts to both caps' pin 2.
     let gnd = net_paths("gnd@7");
-    assert!(gnd.iter().any(|p| p == "c1.2") && gnd.iter().any(|p| p == "c2.2"), "gnd net holds both caps' pin 2; got {gnd:?}");
+    assert!(
+        gnd.iter().any(|p| p == "c1.2") && gnd.iter().any(|p| p == "c2.2"),
+        "gnd net holds both caps' pin 2; got {gnd:?}"
+    );
 }
 
 /// ── §11.4 mismatch: receiver 2 vs slice 3 reports GAP1 once ──────────────
@@ -131,7 +150,11 @@ fn narrower_slice_reports_gap1() {
     let count = codes.iter().filter(|c| **c == 4181).count();
     assert_eq!(count, 1, "GAP1 fires for narrower slice; got {codes:?}");
     let rest: Vec<u32> = codes.iter().copied().filter(|c| *c != 4181).collect();
-    assert_eq!(rest, Vec::<u32>::new(), "no E4180/E4007 noise; got {codes:?}");
+    assert_eq!(
+        rest,
+        Vec::<u32>::new(),
+        "no E4180/E4007 noise; got {codes:?}"
+    );
 }
 
 /// ── §11.4: scalar lanes broadcast, no GAP1 ───────────────────────────────
@@ -144,7 +167,11 @@ fn scalar_lanes_broadcast_no_gap1() {
     );
     let codes = codes(&src, "/mcc/gap1-scalar.mc");
     let codes = codes_without_benign(&codes);
-    assert_eq!(codes, Vec::<u32>::new(), "scalar broadcast stays quiet; got {codes:?}");
+    assert_eq!(
+        codes,
+        Vec::<u32>::new(),
+        "scalar broadcast stays quiet; got {codes:?}"
+    );
 
     // Both caps' pin 1 on the VDD net (broadcast, not zip).
     let inst = build_main(&src, "/mcc/gap1-scalar.mc");
@@ -154,8 +181,14 @@ fn scalar_lanes_broadcast_no_gap1() {
         .find(|(n, _)| n.starts_with("VDD"))
         .unwrap_or_else(|| panic!("no VDD net; nets={:?}", inst.nets));
     let paths: Vec<&String> = vdd_net.1.iter().map(|p| &p.path).collect();
-    assert!(paths.iter().any(|p| p.contains("c1.1")), "c1.1 on VDD; got {paths:?}");
-    assert!(paths.iter().any(|p| p.contains("c2.1")), "c2.1 on VDD; got {paths:?}");
+    assert!(
+        paths.iter().any(|p| p.contains("c1.1")),
+        "c1.1 on VDD; got {paths:?}"
+    );
+    assert!(
+        paths.iter().any(|p| p.contains("c2.1")),
+        "c2.1 on VDD; got {paths:?}"
+    );
 }
 
 /// ── §11.3 ③ (b): the slice member set is structural, not re-parsed ──────

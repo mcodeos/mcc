@@ -322,11 +322,9 @@ impl McModuleInst {
                     .map(|v| Self::zip_param_lane(v, index, total))
                     .collect(),
             ),
-            McParamValue::Opd(McOpd::Id(ids)) => {
-                Self::zip_slice_member(ids, index, total)
-                    .map(|m| McParamValue::Opd(McOpd::Id(McIds::from(m.as_str()))))
-                    .unwrap_or_else(|| param.clone())
-            }
+            McParamValue::Opd(McOpd::Id(ids)) => Self::zip_slice_member(ids, index, total)
+                .map(|m| McParamValue::Opd(McOpd::Id(McIds::from(m.as_str()))))
+                .unwrap_or_else(|| param.clone()),
             McParamValue::Ids(ids) => Self::zip_slice_member(ids, index, total)
                 .map(|m| McParamValue::Ids(McIds::from(m.as_str())))
                 .unwrap_or_else(|| param.clone()),
@@ -398,11 +396,7 @@ impl McModuleInst {
 
     /// Collect the display forms of every multi-member slice lane whose width
     /// differs from the receiver count (deduplicated).
-    fn gap1_collect_slices(
-        param: &McParamValue,
-        receiver_count: usize,
-        out: &mut Vec<String>,
-    ) {
+    fn gap1_collect_slices(param: &McParamValue, receiver_count: usize, out: &mut Vec<String>) {
         match param {
             McParamValue::Set(values) => {
                 for v in values {

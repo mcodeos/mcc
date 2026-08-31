@@ -62,7 +62,9 @@ impl DianLu {
     /// called — the projection is derived exactly once, by [`Self::flatten`],
     /// so callers must project before taking the parts.
     pub fn into_parts(self) -> (McModuleInst, InstTable) {
-        let table = self.table.expect("DianLu::into_parts: flatten() must run first");
+        let table = self
+            .table
+            .expect("DianLu::into_parts: flatten() must run first");
         (self.tree, table)
     }
 

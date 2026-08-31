@@ -61,7 +61,12 @@ fn find_vector<'a>(inst: &'a mcc::McModuleInst, base: &str) -> &'a mcc::McVector
     inst.vectors
         .iter()
         .find(|v| v.base == base)
-        .unwrap_or_else(|| panic!("no McVectorInst for base '{base}'; vectors={:?}", inst.vectors))
+        .unwrap_or_else(|| {
+            panic!(
+                "no McVectorInst for base '{base}'; vectors={:?}",
+                inst.vectors
+            )
+        })
 }
 
 /// ── Module-body vector declare: grouping node + flat member instances ─────
@@ -70,9 +75,7 @@ fn find_vector<'a>(inst: &'a mcc::McModuleInst, base: &str) -> &'a mcc::McVector
 /// holds c1, c2 (member-set written order).
 #[test]
 fn module_body_vector_declare_materializes_group() {
-    let src = format!(
-        "{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\n"
-    );
+    let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\n");
     let inst = build_main(&src, "/mcc/vinst-module-body.mc");
     let v = find_vector(&inst, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"], "ordered member set");
@@ -84,7 +87,12 @@ fn module_body_vector_declare_materializes_group() {
             "member '{m}' materialized as component"
         );
     }
-    assert_eq!(inst.vectors.len(), 1, "exactly one vector group; got {:?}", inst.vectors);
+    assert_eq!(
+        inst.vectors.len(),
+        1,
+        "exactly one vector group; got {:?}",
+        inst.vectors
+    );
 }
 
 /// ── Func-local vector declare (module func auto-invoke): same group ───────
@@ -109,9 +117,7 @@ fn func_local_vector_declare_materializes_group() {
 /// ── Name-first declare form (`c[1:2]::CAP(1)`) also registers the group ───
 #[test]
 fn name_first_vector_declare_materializes_group() {
-    let src = format!(
-        "{CAP_COMP}module main {{\n    io VDD\n    io GND\n    c[1:2]::CAP(1)\n}}\n"
-    );
+    let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    c[1:2]::CAP(1)\n}}\n");
     let inst = build_main(&src, "/mcc/vinst-name-first.mc");
     let v = find_vector(&inst, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"]);
@@ -123,9 +129,7 @@ fn name_first_vector_declare_materializes_group() {
 /// `>= 2` guard at pass1 registration means no `vectors` entry at all.
 #[test]
 fn single_member_range_stays_scalar() {
-    let src = format!(
-        "{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[2](1)\n}}\n"
-    );
+    let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[2](1)\n}}\n");
     let inst = build_main(&src, "/mcc/vinst-single.mc");
     assert!(
         inst.vectors.iter().all(|v| v.base != "c"),
@@ -136,7 +140,10 @@ fn single_member_range_stays_scalar() {
         inst.components.iter().any(|c| c.name == "c2"),
         "member c2 materialized as scalar component"
     );
-    assert!(!inst.components.iter().any(|c| c.name == "c1"), "no c1 for c[2]");
+    assert!(
+        !inst.components.iter().any(|c| c.name == "c1"),
+        "no c1 for c[2]"
+    );
 }
 
 /// ── §11.3/1.6: single-index member reference stays scalar ────────────────
@@ -235,9 +242,7 @@ fn flatten_projects_vector_members_with_vector_info() {
 /// vector group onto its flat entries without a new path format.
 #[test]
 fn vector_member_paths_reverse_queries_member_entries() {
-    let src = format!(
-        "{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\n"
-    );
+    let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\n");
     let table = build_flat(&src);
     assert_eq!(
         table.vector_member_paths("c"),
@@ -265,5 +270,8 @@ fn flatten_projects_submodule_vector_members() {
     let c2 = vector_info_of(&table, "main.s1.c2").expect("main.s1.c2 has vector_info");
     assert_eq!((c2.vector_base.as_str(), c2.member.as_str()), ("c", "c2"));
     assert_eq!(c2.index, 1);
-    assert_eq!(table.vector_member_paths("c"), vec!["main.s1.c1", "main.s1.c2"]);
+    assert_eq!(
+        table.vector_member_paths("c"),
+        vec!["main.s1.c1", "main.s1.c2"]
+    );
 }

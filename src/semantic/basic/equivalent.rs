@@ -115,12 +115,18 @@ mod tests {
 
     #[test]
     fn member_set_single_index_vector() {
-        assert_eq!(member_set(&McIds::from("c[1:2]")), Some(vec!["c1".into(), "c2".into()]));
+        assert_eq!(
+            member_set(&McIds::from("c[1:2]")),
+            Some(vec!["c1".into(), "c2".into()])
+        );
     }
 
     #[test]
     fn member_set_single_member_is_set_of_one() {
-        assert_eq!(member_set(&McIds::from("res[4]")), Some(vec!["res4".into()]));
+        assert_eq!(
+            member_set(&McIds::from("res[4]")),
+            Some(vec!["res4".into()])
+        );
     }
 
     #[test]
@@ -137,12 +143,7 @@ mod tests {
         // Nested combination: outer index first (row-major, §11.2).
         assert_eq!(
             member_set(&McIds::from("S[1:2][L,R]")),
-            Some(vec![
-                "S1L".into(),
-                "S1R".into(),
-                "S2L".into(),
-                "S2R".into()
-            ])
+            Some(vec!["S1L".into(), "S1R".into(), "S2L".into(), "S2R".into()])
         );
     }
 
