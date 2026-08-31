@@ -39,6 +39,7 @@ fn valid_power_net_has_no_false_instance_diagnostics() {
     let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
         .current_dir(workdir)
         .args([
+            "--local",
             "parse",
             path.to_str().expect("fixture path"),
             "--pass1",
@@ -81,7 +82,8 @@ module main
 "#;
     let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
         .args([
-            "parse", "--code", source, "--pass1", "--pass2", "--top", "main", "-f", "json",
+            "--local", "parse", "--code", source, "--pass1", "--pass2", "--top", "main", "-f",
+            "json",
         ])
         .output()
         .expect("run unresolved-instance parse");

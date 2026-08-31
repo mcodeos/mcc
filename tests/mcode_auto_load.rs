@@ -16,6 +16,7 @@ use std::process::Command;
 fn parse_project(dir: &PathBuf) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
         .args([
+            "--local",
             "parse",
             dir.to_str().expect("dir path"),
             "--pass1",
