@@ -512,8 +512,8 @@ pub fn debug_get_def(class_name: &McIds, uri: &McURI) {
 /// Dump all symbols for a file as JSON (matches the sem RPC response shape).
 /// Returns None if the file is not in the workspace.
 pub fn dump_symbols_json(uri: &McURI) -> Option<serde_json::Value> {
-    let binding = &crate::db::cmie::tables::WORKSPACE.mcodes;
-    let mcfile = binding.get(uri)?;
+    let ds = crate::definition_space();
+    let mcfile = ds.source_file(uri)?;
     let sym = mcfile.symbols.lock().ok()?;
     let json_data = crate::ast::ast_semantic::symbol_table_to_json(&sym, uri);
     Some(serde_json::json!({
@@ -527,8 +527,8 @@ pub fn dump_symbols_json(uri: &McURI) -> Option<serde_json::Value> {
 /// Dump all symbols (lapper, declares, refs, ref_def_map) for a file in F12_DIAG text format.
 /// Returns None if the file is not in the workspace.
 pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
-    let binding = &crate::db::cmie::tables::WORKSPACE.mcodes;
-    let mcfile = binding.get(uri)?;
+    let ds = crate::definition_space();
+    let mcfile = ds.source_file(uri)?;
     let sym = mcfile.symbols.lock().ok()?;
 
     let content = std::fs::read_to_string(std::path::Path::new(uri.as_str())).unwrap_or_default();

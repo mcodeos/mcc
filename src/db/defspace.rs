@@ -21,6 +21,7 @@
 
 use super::cmie::tables::WorkspaceManager;
 use crate::db::infra::global;
+use crate::db::infra::mc_code::McCode;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
@@ -103,6 +104,40 @@ impl<'a> DefinitionSpace<'a> {
     /// The boundary of one loaded system library, if any.
     pub fn lib(&self, name: &str) -> Option<LibBoundary> {
         self.ws.libs.get(name).map(|e| e.value().clone())
+    }
+
+    // ── Loading context: loaded source content (pass1 semantic tables) ──
+    //
+    // The `mcodes` table holds each loaded file's pass1 record — AST, tokens,
+    // symbols, ref-def map (the `McCode`). It is part of the loading context
+    // ("which files are loaded, with what content"), so LSP hover / goto-def /
+    // completion / semantic-token reads reach file content through this view,
+    // not the table directly (design §12.4 rule 1).
+
+    /// The loaded source file's pass1 record (AST, tokens, symbols, ref-def
+    /// map), if the file is loaded. `None` when the file is not in the
+    /// definition space.
+    pub fn source_file(
+        &self,
+        uri: &McURI,
+    ) -> Option<dashmap::mapref::one::Ref<'_, McURI, McCode>> {
+        self.ws.mcodes.get(uri)
+    }
+
+    /// Every loaded source file's pass1 record, in arbitrary (DashMap) order.
+    pub fn source_files(
+        &self,
+    ) -> impl Iterator<Item = dashmap::mapref::multiple::RefMulti<'_, McURI, McCode>> + '_ {
+        self.ws.mcodes.iter()
+    }
+
+    // ── Loading context: file dependency (reverse deps) ──
+
+    /// Files that `use` this one — "who uses me" (§7.6). When file B's CMIE
+    /// defs change, iterate `reverse_deps[B]` to find the affected files whose
+    /// Use table needs rebuilding.
+    pub fn reverse_deps(&self, uri: &McURI) -> Option<Vec<McURI>> {
+        self.ws.reverse_deps.get(uri).map(|e| e.value().clone())
     }
 
     // ── Unified definition view (workspace, then system lib) ──
@@ -314,6 +349,32 @@ mod tests {
         assert_eq!(boundary.uris, vec![uri("/mcc/lib.mc")]);
         assert!(ds.lib("nope").is_none());
         assert_eq!(ds.libs().count(), 1);
+    }
+
+    /// The loading context also exposes each loaded file's pass1 record and
+    /// the reverse-dependency index — LSP hover / goto-def / completion /
+    /// semantic-token reads reach file content through the definition space,
+    /// not the `mcodes` / `reverse_deps` tables directly.
+    #[test]
+    fn source_content_and_reverse_deps_read_through_the_view() {
+        let wm = WorkspaceManager::new();
+        wm.mcodes
+            .insert(uri("/mcc/a.mc"), McCode::new_empty());
+        wm.reverse_deps
+            .insert(uri("/mcc/b.mc"), vec![uri("/mcc/a.mc")]);
+
+        let ds = DefinitionSpace::of(&wm);
+        assert!(
+            ds.source_file(&uri("/mcc/a.mc")).is_some(),
+            "a loaded file's pass1 record is reachable"
+        );
+        assert!(ds.source_file(&uri("/mcc/nope.mc")).is_none());
+        assert_eq!(ds.source_files().count(), 1);
+        assert_eq!(
+            ds.reverse_deps(&uri("/mcc/b.mc")),
+            Some(vec![uri("/mcc/a.mc")])
+        );
+        assert!(ds.reverse_deps(&uri("/mcc/a.mc")).is_none());
     }
 
     /// The unified definition view is empty over an empty workspace + empty

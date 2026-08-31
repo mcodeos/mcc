@@ -58,9 +58,9 @@ pub fn classify_token_by_symbol(
 }
 
 pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
-    let binding = &crate::db::cmie::tables::WORKSPACE.mcodes;
+    let ds = crate::definition_space();
     for mc_uri in candidates {
-        if let Some(mcfile) = binding.get(mc_uri) {
+        if let Some(mcfile) = ds.source_file(mc_uri) {
             // Get raw tokens and symbol lapper for semantic re-classification
             let raw_tokens: Vec<(i16, i32, i32)> = mcfile
                 .tokens
@@ -132,10 +132,8 @@ pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
                 .unwrap_or_else(|_| serde_json::json!({}));
 
             // ★ §7.6: Affected files via reverse_deps — files that `use` this one
-            let affected: Vec<String> = crate::db::cmie::tables::WORKSPACE
-                .reverse_deps
-                .get(mc_uri)
-                .map(|deps| deps.value().clone())
+            let affected: Vec<String> = crate::definition_space()
+                .reverse_deps(mc_uri)
                 .unwrap_or_default();
 
             return Some(json!({

@@ -61,7 +61,8 @@ fn resolve_at(uri: &str, offset: usize) -> Option<Value> {
     use crate::refdef::query::resolve_at as resolve_at_shared;
 
     let mc_uri = crate::McURI::from(uri);
-    let mcfile = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri)?;
+    let ds = crate::definition_space();
+    let mcfile = ds.source_file(&mc_uri)?;
     let sym = mcfile.symbols.lock().ok()?;
     let map = sym.ref_def_map.as_ref()?;
     let hit = resolve_at_shared(map, &sym.symbol_lapper, offset)?;
