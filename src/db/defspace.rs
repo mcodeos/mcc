@@ -19,7 +19,7 @@
 //! instantiated then projected. Relationship is one-way:
 //! `DefinitionSpace → (instantiation rules) → DianLu`.
 
-use super::tables::WorkspaceManager;
+use super::cmie::tables::WorkspaceManager;
 use crate::db::infra::global;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_define::McDefineDef;
@@ -27,6 +27,9 @@ use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
 use crate::{McSpaceName, McURI};
+use dashmap::DashMap;
+use std::collections::HashSet;
+use std::hash::Hash;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -153,12 +156,63 @@ impl<'a> DefinitionSpace<'a> {
             .map(|e| e.value().clone())
             .or_else(|| global::mcc_defines.get(sn).map(|e| e.value().clone()))
     }
+
+    // ── Unified definition view: whole-table enumeration ──
+
+    /// Enumerate every component definition: workspace entries first, then
+    /// system-lib entries whose identity is not already present. A file loaded
+    /// both as a project file and as a system lib appears once, workspace-first
+    /// (same shadowing rule as the single-identity lookups).
+    pub fn all_components(&self) -> Vec<(McSpaceName, Arc<McComponent>)> {
+        chain_dedup(&self.ws.components, &global::mcc_components)
+    }
+
+    /// Enumerate every module definition (workspace-then-system-lib, deduped).
+    pub fn all_modules(&self) -> Vec<(McSpaceName, Arc<McModule>)> {
+        chain_dedup(&self.ws.modules, &global::mcc_modules)
+    }
+
+    /// Enumerate every interface definition (workspace-then-system-lib, deduped).
+    pub fn all_interfaces(&self) -> Vec<(McSpaceName, Arc<McInterface>)> {
+        chain_dedup(&self.ws.interfaces, &global::mcc_interfaces)
+    }
+
+    /// Enumerate every enum definition (workspace-then-system-lib, deduped).
+    pub fn all_enums(&self) -> Vec<(McSpaceName, Arc<McEnumDef>)> {
+        chain_dedup(&self.ws.enums, &global::mcc_enums)
+    }
+
+    /// Enumerate every define definition (workspace-then-system-lib, deduped).
+    pub fn all_defines(&self) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
+        chain_dedup(&self.ws.defines, &global::mcc_defines)
+    }
+}
+
+/// Workspace-then-system-lib enumeration, deduplicated by exact table identity
+/// (the same key semantics the tables themselves use — an identity loaded into
+/// both tables is the same definition and must be enumerated once).
+fn chain_dedup<K, V>(ws: &DashMap<K, V>, global: &DashMap<K, V>) -> Vec<(K, V)>
+where
+    K: Eq + Hash + Clone,
+    V: Clone,
+{
+    let mut out: Vec<(K, V)> = ws
+        .iter()
+        .map(|e| (e.key().clone(), e.value().clone()))
+        .collect();
+    let mut seen: HashSet<K> = out.iter().map(|(k, _)| k.clone()).collect();
+    for e in global.iter() {
+        if seen.insert(e.key().clone()) {
+            out.push((e.key().clone(), e.value().clone()));
+        }
+    }
+    out
 }
 
 /// The active definition space — the current workspace seen as a definition
 /// space (design §12.2: one active per workspace, more can coexist saved).
 pub fn definition_space() -> DefinitionSpace<'static> {
-    DefinitionSpace::of(&super::tables::WORKSPACE)
+    DefinitionSpace::of(&super::cmie::tables::WORKSPACE)
 }
 
 #[cfg(test)]
@@ -179,7 +233,8 @@ mod tests {
     #[test]
     fn manifest_accessors_read_a_definition_space() {
         let wm = WorkspaceManager::new();
-        wm.sources.insert(uri("/mcc/proj.mc"), SourceDomain::Project);
+        wm.sources
+            .insert(uri("/mcc/proj.mc"), SourceDomain::Project);
         wm.sources
             .insert(uri("/mcc/lib.mc"), SourceDomain::SystemLib("acme".into()));
         wm.libs.insert(
@@ -226,5 +281,36 @@ mod tests {
         assert!(ds.get_interface(&sn).is_none());
         assert!(ds.get_enum(&sn).is_none());
         assert!(ds.get_define(&sn).is_none());
+    }
+
+    /// Whole-table enumeration is workspace-first and deduplicated by identity:
+    /// a key present in both tables (the same file loaded as project and as
+    /// system lib) appears once, keeping the workspace entry. Exercised on
+    /// plain local `DashMap`s — the real `all_*` wrappers feed the process-global
+    /// system tables, which these tests must not touch.
+    #[test]
+    fn chain_dedup_enumerates_workspace_first_and_skips_duplicate_identity() {
+        let ws: DashMap<String, i32> = DashMap::new();
+        let global: DashMap<String, i32> = DashMap::new();
+        ws.insert("a".into(), 1);
+        ws.insert("b".into(), 2);
+        global.insert("a".into(), 99); // duplicate identity -> skipped (workspace wins)
+        global.insert("c".into(), 3);
+
+        let out = chain_dedup(&ws, &global);
+        // DashMap iteration order is hash-based, not insertion order — sort by
+        // key for the set-level assertion.
+        let mut pairs: Vec<_> = out.into_iter().collect();
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![
+                ("a".to_string(), 1),
+                ("b".to_string(), 2),
+                ("c".to_string(), 3),
+            ],
+            "duplicate identity 'a' resolves to the workspace value (1, not 99); \
+             global-only 'c' is appended"
+        );
     }
 }

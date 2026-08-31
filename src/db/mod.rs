@@ -4,6 +4,7 @@
 
 pub(crate) mod cmie;
 pub(crate) mod context;
+pub(crate) mod defspace;
 pub(crate) mod diagnostic;
 pub(crate) mod infra;
 pub mod resolve;

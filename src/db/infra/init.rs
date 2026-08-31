@@ -3,7 +3,6 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::build::pass1::canonicalize_project_uri;
-use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::semantic::mc_ifs::McInterface;
 use crate::{McSpaceName, McURI};
@@ -76,15 +75,11 @@ pub fn interface_lookup(space: &McSpaceName) -> Option<Arc<McInterface>> {
 
 // === pub fn iter_interfaces() -> Vec<(McSpaceName, Arc<McInterface>)> { ===
 /// Iterate all interfaces from the workspace and global (system library)
-/// tables (consistency-convergence.md §2.2). Replaces the hand-written
-/// `WORKSPACE.interfaces.iter().chain(global::mcc_interfaces.iter())` merges.
+/// tables, deduplicated by identity (consistency-convergence.md §2.2).
+/// Replaces the hand-written `WORKSPACE.interfaces.iter().chain(global::mcc_interfaces.iter())`
+/// merges — now the [`DefinitionSpace`](crate::DefinitionSpace) enumeration.
 pub fn iter_interfaces() -> Vec<(McSpaceName, Arc<McInterface>)> {
-    workspace::WORKSPACE
-        .interfaces
-        .iter()
-        .chain(global::mcc_interfaces.iter())
-        .map(|entry| (entry.key().clone(), entry.value().clone()))
-        .collect()
+    crate::definition_space().all_interfaces()
 }
 
 // === pub fn mcb_init() { ===

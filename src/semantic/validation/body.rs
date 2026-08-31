@@ -282,7 +282,7 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
         // ports exist only to render boundary pins, so "declared but never
         // connected" is expected. Skip them (mirrors the MODULE_STUB carve-out
         // in conds.rs).
-        if crate::build::virtual_inst::is_synthetic_module(&entry.key().ident.to_string()) {
+        if crate::build::vinst::is_synthetic_module(&entry.key().ident.to_string()) {
             continue;
         }
 

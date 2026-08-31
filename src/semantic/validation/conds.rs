@@ -549,7 +549,7 @@ fn check_empty_module(acc: &mut CheckAccumulator) {
         // pins render as boundary ports, or are absent entirely when dynamic),
         // and it is never user code. Skip them so building an interface-only
         // library file does not report the fabricated module as a stub.
-        if crate::build::virtual_inst::is_synthetic_module(&name) {
+        if crate::build::vinst::is_synthetic_module(&name) {
             continue;
         }
         let m = entry.value();

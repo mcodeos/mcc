@@ -17,7 +17,7 @@ use tracing::debug;
 
 // crate-wide debug macro (20 targets + error/warn/info)
 #[macro_use]
-mod debug_flags;
+mod dbgflags;
 
 //2. crate wise
 pub(crate) mod ast;
@@ -61,7 +61,7 @@ pub use crate::semantic::{
 };
 pub use db::diagnostic::errcodes;
 // ── Definition space (§12.1) ──
-pub use db::cmie::defspace::{definition_space, DefinitionSpace, LibBoundary, SourceDomain};
+pub use db::defspace::{definition_space, DefinitionSpace, LibBoundary, SourceDomain};
 pub mod export;
 pub mod refdef;
 pub use ast::ast_semantic::{
@@ -90,7 +90,9 @@ pub use builder::{
 
 // ── Instant / Net ──
 pub use instant::dianlu::DianLu;
-pub use instant::insttab::{InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry, VectorMemberInfo};
+pub use instant::insttab::{
+    InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry, VectorMemberInfo,
+};
 pub use instant::mc_bus::McBusInst;
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::{McModuleInst, McVectorInst};
@@ -422,18 +424,18 @@ pub fn mcc_get_modules_in_file(uri: &McURI) -> Vec<String> {
 
 /// Components declared in `uri`, in registration order.
 pub fn mcc_get_components_in_file(uri: &McURI) -> Vec<String> {
-    crate::build::virtual_inst::components_in_file(uri)
+    crate::build::vinst::components_in_file(uri)
 }
 
 /// Interfaces declared in `uri`, in registration order.
 pub fn mcc_get_interfaces_in_file(uri: &McURI) -> Vec<String> {
-    crate::build::virtual_inst::interfaces_in_file(uri)
+    crate::build::vinst::interfaces_in_file(uri)
 }
 
 /// Resolve the build/viz targets for a file opened outside a project
 /// (mcd docs-mc 16-export-viz §6): modules → components → interfaces.
 pub fn mcc_virtual_resolve_targets(uri: &McURI, top: Option<&str>) -> Result<Vec<String>, String> {
-    crate::build::virtual_inst::resolve_targets(uri, top)
+    crate::build::vinst::resolve_targets(uri, top)
 }
 
 /// Build `target` to a module instance tree, wrapping components/interfaces in
@@ -442,7 +444,7 @@ pub fn mcc_virtual_build(
     target: &str,
     uri: &McURI,
 ) -> Result<crate::build::pass2::MccProjectTree, Box<dyn Error>> {
-    crate::build::virtual_inst::virtual_build(target, uri)
+    crate::build::vinst::virtual_build(target, uri)
 }
 
 /// Append a synthetic wrapper module for every virtual target at once and
@@ -457,7 +459,7 @@ pub fn mcc_virtual_install_synthetic_views(
     targets: &[String],
     uri: &McURI,
 ) -> Result<usize, Box<dyn Error>> {
-    crate::build::virtual_inst::install_synthetic_views(targets, uri)
+    crate::build::vinst::install_synthetic_views(targets, uri)
 }
 
 /// Like [`mcc_virtual_build`] but also flattens to the instance table.
@@ -472,7 +474,7 @@ pub fn mcc_virtual_build_flat(
     ),
     Box<dyn Error>,
 > {
-    crate::build::virtual_inst::virtual_build_flat(target, uri, start_id)
+    crate::build::vinst::virtual_build_flat(target, uri, start_id)
 }
 
 /// Re-apply synthetic markers to a freshly-flattened instance table.
@@ -483,7 +485,7 @@ pub fn mcc_virtual_build_flat(
 /// this, the unwired interface/component view's ports are re-flagged as
 /// floating by the net checks.
 pub fn mcc_virtual_mark_synthetic_flat_entries(table: &mut crate::instant::insttab::InstTable) {
-    crate::build::virtual_inst::mark_synthetic_flat_entries(table);
+    crate::build::vinst::mark_synthetic_flat_entries(table);
 }
 
 /// Prepare a virtually-instantiated component/interface graph for rendering:
@@ -493,14 +495,14 @@ pub fn mcc_virtual_prepare_graph(
     graph: crate::vector::graph::McVecGraph,
     target: &str,
 ) -> crate::vector::graph::McVecGraph {
-    crate::build::virtual_inst::prepare_virtual_graph(graph, target)
+    crate::build::vinst::prepare_virtual_graph(graph, target)
 }
 
 /// True when `name` is a synthetic `VIRT_<T>` wrapper module fabricated for
 /// virtual instantiation of a standalone component/interface file. The bin
 /// crate's output layer uses this to exclude wrappers from instance counts.
 pub fn mcc_is_synthetic_module(name: &str) -> bool {
-    crate::build::virtual_inst::is_synthetic_module(name)
+    crate::build::vinst::is_synthetic_module(name)
 }
 
 pub fn debug_get_def(class_name: &McIds, uri: &McURI) {
