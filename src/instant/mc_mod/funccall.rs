@@ -17,7 +17,7 @@
 //! The actual component / module / user_func / instance_method instantiation
 //! is in `funccall_inst.rs`, and iterated call expansion is in `iterated.rs`.
 
-use super::expand::{resolve_inst_chain, InstEntry};
+use super::expand::InstEntry;
 use super::{InstantiationBuilder, McModuleInst};
 use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
@@ -484,9 +484,12 @@ impl InstantiationBuilder {
             }
         }
 
-        // Resolve the full scope chain via InstFindInst. `entry` is owned, so
-        // the `&self` borrow ends here and `&mut self` calls below are legal.
-        let Some(entry) = resolve_inst_chain(&scope_segments, &**self) else {
+        // Resolve the full scope chain via the overlay-aware resolver. Phase
+        // E: labels/buses no longer live on the frozen tree; the builder
+        // resolves them from its scratch (top) / the store fragments
+        // (sub-module descent). `entry` is owned, so the `&self` borrow ends
+        // here and `&mut self` calls below are legal.
+        let Some(entry) = self.resolve_chain(&scope_segments) else {
             // Scope chain doesn't resolve to a declared instance — the caller
             // is probably a typo or an undeclared instance name.
             crate::db::diagnostic::diagnostic::dlog_trace(

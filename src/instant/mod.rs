@@ -13,6 +13,7 @@ pub(crate) mod mc_mod;
 pub mod mc_net;
 pub(crate) mod net_store;
 pub mod netcheck;
+pub(crate) mod overlays;
 pub(crate) mod provenance;
 
 /// Reset the R05 UNRESOLVED_UNIT counter (call before each build run).

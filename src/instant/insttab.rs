@@ -15,7 +15,9 @@
 //! ```
 
 use super::arena::{arena_sub_modules, NodeArena};
+use super::mc_bus::McBusInst;
 use super::mc_mod::McModuleInst;
+use super::mc_net::NetPoint;
 use crate::instant::net_store::NetTableStore;
 use crate::semantic::common::IOType;
 use std::cell::RefCell;
@@ -1178,10 +1180,21 @@ impl InstTable {
         //    Bus member paths use `/` separator: main.power/VCC
         // [P0-DET] iterate buses in sorted name order: `register` allocates ids by
         // call order, so HashMap iteration order would leak into entry/pin ids.
-        let mut bus_names: Vec<&String> = inst.get_buses().keys().collect();
+        //
+        // Phase E: labels/buses come from the module's frozen overlay fragment
+        // in the store (keyed by `my_path`) — `McModuleInst` no longer carries
+        // them. The fragment is cloned out first so the store borrow ends
+        // before the `&mut self` `register` calls below.
+        let (labels, buses) = {
+            let store = self.net_table.borrow();
+            let labels: HashMap<String, NetPoint> = store.labels_of(&my_path).clone();
+            let buses: HashMap<String, McBusInst> = store.buses_of(&my_path).clone();
+            (labels, buses)
+        };
+        let mut bus_names: Vec<&String> = buses.keys().collect();
         bus_names.sort();
         for bus_name in bus_names {
-            let bus_inst = &inst.get_buses()[bus_name];
+            let bus_inst = &buses[bus_name];
             let bus_path = format!("{my_path}.{bus_name}");
 
             // ── Bug ② defense ───────────────────────────────────────────
@@ -1236,10 +1249,10 @@ impl InstTable {
 
         // 5. Register standalone labels (avoid duplication with ports/buses)
         // [P0-DET] sorted name order: `register` allocates ids by call order.
-        let mut label_names: Vec<&String> = inst.get_labels().keys().collect();
+        let mut label_names: Vec<&String> = labels.keys().collect();
         label_names.sort();
         for label_name in label_names {
-            let net_point = &inst.get_labels()[label_name];
+            let net_point = &labels[label_name];
             let label_path = format!("{my_path}.{label_name}");
             if self.get_id_by_path(&label_path).is_none() {
                 self.register(

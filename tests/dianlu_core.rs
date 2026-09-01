@@ -142,7 +142,11 @@ fn identity_registry_rebuilt_from_frozen_tree_matches() {
     }
     // Rebuilding a DianLu from the frozen tree must reproduce the same ids.
     // (identity-only view; the Phase D net-table store starts empty here.)
-    let dl2 = mcc::DianLu::new(tree, 1000, Rc::new(RefCell::new(mcc::NetTableStore::new())));
+    let dl2 = mcc::DianLu::new(
+        tree,
+        1000,
+        Rc::new(RefCell::new(mcc::NetTableStore::new())),
+    );
     assert_eq!(
         dl2.identity().node_id_of("main"),
         Some(root_id),
@@ -213,7 +217,11 @@ module main {
         !ldo_products.is_empty(),
         "re-entered sub-module body produced components; conns={ldo_conns:?}"
     );
-    let tree2 = mcc::DianLu::new(tree, 1000, Rc::new(RefCell::new(mcc::NetTableStore::new())));
+    let tree2 = mcc::DianLu::new(
+        tree,
+        1000,
+        Rc::new(RefCell::new(mcc::NetTableStore::new())),
+    );
     let reg = tree2.identity();
     for (path, id) in &ldo_products {
         assert_eq!(
@@ -817,4 +825,127 @@ module main {
         }
         other => panic!("expected Slice -> One lane, got {other:?}"),
     }
+}
+
+// ============================================================================
+// Phase E — overlay layer (§3/§4, design §5 D5)
+// ============================================================================
+
+/// Phase E: the circuit-level overlay derives `labels` and the lookup indexes
+/// from the frozen tree + net layer. A chain `GND -> c1.2 -> c2.2` unions
+/// into one net named `GND`: exactly one label entry, and `point_index["GND"]`
+/// carries every physical point of that net in one lookup — the D5 one-hit
+/// contract for a scalar net.
+#[test]
+fn overlay_labels_and_indexes_lock_named_nets() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    io GND
+    CAP c1
+    CAP c2
+    GND -> c1.2 -> c2.2
+}";
+    let dl = build_dianlu(src);
+    let ov = dl.overlays();
+
+    // The chain unions into one net named "GND": exactly one label entry,
+    // whose net carries the port and both component pins.
+    assert_eq!(ov.labels.len(), 1, "one derived net named GND");
+    let (net_id, name) = &ov.labels[0];
+    assert_eq!(name, "GND");
+    let gnd_net = dl
+        .nets()
+        .iter()
+        .find(|n| n.id == *net_id)
+        .expect("the labelled net lives in the net layer");
+    assert_eq!(gnd_net.points.len(), 3, "port + both component pins");
+
+    let tree = dl.tree();
+    let c1 = tree.components.iter().find(|c| c.name == "c1").unwrap();
+    let c2 = tree.components.iter().find(|c| c.name == "c2").unwrap();
+    let p_c1_2 = mcc::PointId {
+        node: c1.node_id.unwrap(),
+        pin: c1.def.pins.ledger.id_of("2").unwrap(),
+    };
+    let p_c2_2 = mcc::PointId {
+        node: c2.node_id.unwrap(),
+        pin: c2.def.pins.ledger.id_of("2").unwrap(),
+    };
+    let gnd_ord = tree.ports.iter().position(|p| p.name == "GND").unwrap();
+    let p_gnd = mcc::PointId {
+        node: tree.node_id.unwrap(),
+        pin: mcc::DefMemberId(gnd_ord as u32),
+    };
+    assert_eq!(
+        ov.point_index.get("GND"),
+        Some(&vec![p_gnd, p_c1_2, p_c2_2]),
+        "point_index hits every member point of the GND net in one lookup"
+    );
+    assert_eq!(
+        ov.name_index.get("c1"),
+        Some(&vec![c1.node_id.unwrap()]),
+        "component hit by bare member-set symbol"
+    );
+    assert_eq!(
+        ov.name_index.get("main.c1"),
+        Some(&vec![c1.node_id.unwrap()]),
+        "component also hit by canonical path"
+    );
+    assert_eq!(
+        ov.name_index.get("main"),
+        Some(&vec![tree.node_id.unwrap()]),
+        "the entry module node is indexed under its canonical name"
+    );
+}
+
+/// Phase E (D5): the vector base names the ordered member set — `c[1:2]` hits
+/// every member node in ONE `name_index` lookup, no per-member scan and no
+/// flat-table reverse lookup.
+#[test]
+fn overlay_name_index_vector_base_hits_all_members() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    io VDD
+    io GND
+    CAP c[1:2](1)
+    c[1:2].Cap([VDD, GND])
+}";
+    let dl = build_dianlu(src);
+    let tree = dl.tree();
+    let c1 = tree.components.iter().find(|c| c.name == "c1").unwrap();
+    let c2 = tree.components.iter().find(|c| c.name == "c2").unwrap();
+
+    let ov = dl.overlays();
+    assert_eq!(
+        ov.name_index.get("c"),
+        Some(&vec![c1.node_id.unwrap(), c2.node_id.unwrap()]),
+        "the vector base resolves to the full member node set in one lookup"
+    );
+    // The grouping node itself stays reachable as a first-class arena node
+    // (Phase C) under its canonical path.
+    let vec_node = tree.vectors[0].node_id.unwrap();
+    assert_eq!(
+        ov.name_index.get("main.c"),
+        Some(&vec![vec_node]),
+        "the vector grouping node under its canonical path"
+    );
 }

@@ -44,11 +44,13 @@ use std::rc::Rc;
 
 use super::{AutoNameKind, CurrentUriGuard, McModuleInst};
 use crate::instant::identity::{CircuitKey, IdentityRegistry};
+use crate::instant::mc_bus::McBusInst;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{
     is_ground_name, ConnectionInst, InstDiagnostic, InstError, NetPoint, NetTable,
 };
 use crate::instant::net_store::NetTableStore;
+use crate::instant::overlays::ModuleOverlay;
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_param::McParamBindings;
 use crate::semantic::common::{IOType, McCMIE, SourcePos};
@@ -68,7 +70,7 @@ use crate::{current_uri, McIds};
 pub(crate) struct InstantiationBuilder {
     /// The frozen module model being constructed (D4). Construction methods
     /// write through this field via [`DerefMut`]; [`Self::finish`] returns it.
-    tree: McModuleInst,
+    pub(super) tree: McModuleInst,
 
     /// Next connection ID.
     ///
@@ -126,7 +128,7 @@ pub(crate) struct InstantiationBuilder {
     /// Phase C1: canonical path of the module currently being built
     /// (`main`, `main.ldo`, ...). Products intern under
     /// `{current_path}.{name}` so ids are circuit-global.
-    current_path: String,
+    pub(super) current_path: String,
 
     /// Phase D: this module's own net table (label -> points) under
     /// construction. Frozen into [`Self::net_store`] at the end of
@@ -141,6 +143,16 @@ pub(crate) struct InstantiationBuilder {
     /// build can hand the projection and the string-net consumers the tables
     /// without the tree carrying them.
     pub(super) net_store: Rc<RefCell<NetTableStore>>,
+
+    /// Phase E: this module's label registry (label name → net point) under
+    /// construction. Frozen into the shared store as part of this module's
+    /// overlay fragment at the end of `build_net_table` —
+    /// `McModuleInst` never carries labels (overlay layer only, design §3/§4).
+    pub(super) labels: HashMap<String, NetPoint>,
+
+    /// Phase E: this module's bus table (bus name → bus instance) under
+    /// construction — same carrier rule as [`Self::labels`].
+    pub(super) buses: HashMap<String, McBusInst>,
 }
 
 impl Deref for InstantiationBuilder {
@@ -224,6 +236,19 @@ impl InstantiationBuilder {
             .map_or(0, |max| max + 1);
         let next_phrase_id = tree.auto_inst_map.keys().max().map_or(0, |max| max + 1);
         let auto_inst_counter = resume_auto_inst_counter(&tree);
+        // Phase E re-entry restore: when the tree being lifted was already
+        // built (a frozen sub-module re-entered by `run_submodule_method` /
+        // the conds block), its label registry and bus table live in the
+        // store's overlay fragment (keyed by the canonical path) — restore
+        // them into the scratch so the re-entered body sees the initial
+        // construction's labels/buses. A fresh tree has no fragment → empty.
+        let (labels, buses) = {
+            let store = net_store.borrow();
+            match store.fragment(&current_path) {
+                Some(f) => (f.labels.clone(), f.buses.clone()),
+                None => (HashMap::new(), HashMap::new()),
+            }
+        };
         Self {
             tree,
             conn_id_counter,
@@ -239,6 +264,8 @@ impl InstantiationBuilder {
             current_path,
             net_table: Vec::new(),
             net_store,
+            labels,
+            buses,
         }
     }
 
@@ -264,6 +291,19 @@ impl InstantiationBuilder {
     /// no store extraction (the parent keeps a clone).
     pub(crate) fn net_store(&self) -> Rc<RefCell<NetTableStore>> {
         self.net_store.clone()
+    }
+
+    /// Phase E: freeze this module's overlay fragment (label registry + bus
+    /// table) into the shared store, keyed by the canonical path. Called at
+    /// the end of `build_net_table` (initial construction) and after every
+    /// re-entry body (`run_submodule_method` / conds block) so the store's
+    /// fragment always reflects the module's final construction state —
+    /// `McModuleInst` never carries labels/buses (overlay layer only).
+    pub(super) fn freeze_fragment(&mut self) {
+        let overlay = ModuleOverlay::new(self.labels.clone(), self.buses.clone());
+        self.net_store
+            .borrow_mut()
+            .insert_fragment(self.current_path.clone(), overlay);
     }
 
     // ========================================================================
@@ -905,6 +945,9 @@ impl InstantiationBuilder {
         self.net_store
             .borrow_mut()
             .insert(self.current_path.clone(), self.net_table.clone());
+        // ── Phase E: freeze the overlay fragment (labels + buses) ──
+        // Same carrier, same key. `McModuleInst` no longer carries either.
+        self.freeze_fragment();
     }
 
     // ========================================================================

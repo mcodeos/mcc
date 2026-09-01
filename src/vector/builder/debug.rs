@@ -79,8 +79,9 @@ pub fn dump_input(inst: &McModuleInst) {
     mcc_dbg!("vec", "{} sub_modules  = {}", p, inst.sub_modules.len());
     mcc_dbg!("vec", "{} ports        = {}", p, inst.ports.len());
     mcc_dbg!("vec", "{} connections  = {}", p, inst.connections.len());
-    mcc_dbg!("vec", "{} buses (labels) = {}", p, inst.get_buses().len());
-    mcc_dbg!("vec", "{} labels       = {}", p, inst.get_labels().len());
+    // Phase E: labels/buses no longer live on the tree — they are read from
+    // the frozen store fragments by the projection consumers, so the input
+    // snapshot stops printing their counts here.
     mcc_dbg!("vec", "{p} ── END ──────────────────────────────────");
 }
 

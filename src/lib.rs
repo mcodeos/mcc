@@ -103,6 +103,7 @@ pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::{McModuleInst, McVectorInst};
 pub use instant::mc_net::NetPoint;
 pub use instant::net_store::NetTableStore;
+pub use instant::overlays::{ModuleOverlay, Overlays};
 pub use instant::provenance::{
     ExpansionKind, ExpansionLog, ExpansionRecord, ProductGroup, ProductGroups, StatementNode,
 };

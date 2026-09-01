@@ -1528,6 +1528,7 @@ impl InstantiationBuilder {
             }
             // Freeze the body products back into the sub-module tree and hand
             // the registry back to the parent builder.
+            b.freeze_fragment();
             let (frozen, reg) = b.into_parts();
             self.sub_modules[idx] = frozen;
             self.restore_identity(reg);
@@ -1579,6 +1580,7 @@ impl InstantiationBuilder {
                     });
                 }
             }
+            b.freeze_fragment();
             let (frozen, reg) = b.into_parts();
             self.sub_modules[idx] = frozen;
             self.restore_identity(reg);
