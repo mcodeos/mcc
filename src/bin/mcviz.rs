@@ -22,11 +22,11 @@ use std::env;
 use std::path::Path;
 use std::process;
 
-use mcc::vector::builder::{build_mc_vec, np_warn_count, reset_np_warn_count};
+use mcc::vector::builder::{build_mc_vec_with_arena, np_warn_count, reset_np_warn_count};
 use mcc::vector::graph::build_mc_vec_graph;
 use mcc::{
-    mcc_build_flat, mcc_dbg, mcc_init, mcc_load_project, mcc_set_project_root, mcc_set_system_root,
-    McIds,
+    mcc_build_flat_with_arena, mcc_dbg, mcc_init, mcc_load_project, mcc_set_project_root,
+    mcc_set_system_root, McIds,
 };
 
 // ─── New P2 pipeline ─────────────────────────────────────────────
@@ -134,8 +134,8 @@ fn main() {
     mcc_load_project(&entry_uri);
 
     let ident = McIds::from(module_name.as_str());
-    let (inst, table) = match mcc_build_flat(&ident, &entry_uri, 1000) {
-        Ok((inst, table)) => (inst, table),
+    let (inst, table, arena) = match mcc_build_flat_with_arena(&ident, &entry_uri, 1000) {
+        Ok(triple) => triple,
         Err(e) => {
             eprintln!("Error: mcc_build_flat failed: {}", e);
             process::exit(1);
@@ -144,7 +144,7 @@ fn main() {
 
     // ── McVecBlock + McVecGraph ──
     reset_np_warn_count();
-    let vec_block = build_mc_vec(&inst, &table);
+    let vec_block = build_mc_vec_with_arena(&inst, &table, &arena);
     let graph = build_mc_vec_graph(&vec_block, &table);
 
     // ── Output: three modes ──

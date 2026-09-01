@@ -29,6 +29,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::instant::arena::{arena_sub_modules, NodeArena};
 use crate::instant::insttab::{InstKind, InstOrigin, InstTable};
 use crate::instant::mc_mod::McModuleInst;
 use crate::vector::graph::extract_last_segment;
@@ -67,6 +68,10 @@ fn pair_with_conn_meta(mut p: ConnPair, conn: &crate::instant::mc_net::Connectio
 pub struct McVecBuilder<'a> {
     /// Flattened instance table (provides globally unique ID + path lookup)
     inst_table: &'a InstTable,
+    /// Phase C companion arena: when present, sub-module order is sourced
+    /// from the arena `children` edges instead of the tree's `sub_modules`
+    /// Vec (two-track migration — `arena_sub_modules` guards 1:1 alignment).
+    arena: Option<&'a NodeArena>,
     /// Net ID counter (unique across all levels)
     net_id_counter: i64,
     /// ★ NEW P02: Accumulated diagnostics
@@ -82,6 +87,7 @@ impl<'a> McVecBuilder<'a> {
     pub fn new(inst_table: &'a InstTable) -> Self {
         Self {
             inst_table,
+            arena: None,
             net_id_counter: 0,
             report: BuilderReport::new(),
             mode: BuildMode::Tolerant,
@@ -92,6 +98,12 @@ impl<'a> McVecBuilder<'a> {
     /// ★ NEW P02: Switch error tolerance mode
     pub fn with_mode(mut self, mode: BuildMode) -> Self {
         self.mode = mode;
+        self
+    }
+
+    /// Phase C: drive sub-module traversal from the arena `children` edges.
+    pub fn with_arena(mut self, arena: &'a NodeArena) -> Self {
+        self.arena = Some(arena);
         self
     }
 
@@ -307,7 +319,12 @@ impl<'a> McVecBuilder<'a> {
                 inst.sub_modules.len()
             );
         }
-        for sub in &inst.sub_modules {
+        let arena = self.arena;
+        let subs: Vec<&McModuleInst> = match arena {
+            Some(arena) => arena_sub_modules(arena, inst).collect(),
+            None => inst.sub_modules.iter().collect(),
+        };
+        for sub in subs {
             let sub_path = format!("{}.{}", my_path, sub.name);
             match self.inst_table.get_id_by_path(&sub_path) {
                 Some(sub_id) => {
@@ -1471,6 +1488,20 @@ fn trunk_end_from_id(table: &InstTable, id: i64, base: &str) -> TrunkEnd {
 /// For structured diagnostics, use [`build_mc_vec_with_report`] or hold `McVecBuilder` directly.
 pub fn build_mc_vec(root: &McModuleInst, inst_table: &InstTable) -> McVecBlock {
     let mut builder = McVecBuilder::new(inst_table);
+    builder.build(root)
+}
+
+/// Phase C: same as [`build_mc_vec`], but sub-module order is sourced from the
+/// arena `children` edges (design §4) instead of the tree's `sub_modules` Vec.
+/// Callers that hold a `NodeArena` (e.g. from `mcc_build_flat_with_arena`)
+/// use this entry; the walk stays byte-identical thanks to the 1:1 alignment
+/// guard inside [`arena_sub_modules`].
+pub fn build_mc_vec_with_arena(
+    root: &McModuleInst,
+    inst_table: &InstTable,
+    arena: &NodeArena,
+) -> McVecBlock {
+    let mut builder = McVecBuilder::new(inst_table).with_arena(arena);
     builder.build(root)
 }
 

@@ -294,3 +294,55 @@ module main {
         "arena-driven flatten and tree-recursive flatten are line-for-line identical"
     );
 }
+
+/// Phase C two-track consistency (viz walk): `build_mc_vec` (tree-recursive)
+/// and `build_mc_vec_with_arena` (sub-module order sourced from the arena
+/// `children` edges) produce the identical `McVecBlock` tree for the same
+/// frozen tree. Debug formatting is compared — same-process builds share the
+/// HashMap seed, so any structural drift between the two walks surfaces as a
+/// mismatch; the 1:1 alignment guard inside `arena_sub_modules` additionally
+/// panics on any arena/tree divergence.
+#[test]
+fn mcviz_arena_walk_matches_tree_recursive_walk() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module REG(in VIN) {
+    func Add(net) {
+        CAP(1).Cap([net, VIN])
+    }
+}
+module main {
+    io VDD
+    io GND
+    REG ldo(VDD)
+    ldo.Add(GND)
+}";
+    let uri = "/mcc/dianlu.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let ident = McIds::from("main");
+    let (tree, table, arena) =
+        mcc::mcc_build_flat_with_arena(&ident, &uri, 1000).expect("mcc_build_flat_with_arena");
+
+    let vec_tree = mcc::build_mc_vec(&tree, &table);
+    let vec_arena = mcc::build_mc_vec_with_arena(&tree, &table, &arena);
+    assert_eq!(
+        format!("{vec_tree:?}"),
+        format!("{vec_arena:?}"),
+        "arena-driven and tree-recursive McVecBlock walks are identical"
+    );
+    assert!(
+        vec_tree.total_blocks() >= 2,
+        "the sub-module circuit produces a nested block tree (got {})",
+        vec_tree.total_blocks()
+    );
+}

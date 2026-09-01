@@ -18,7 +18,7 @@
 use crate::output::compact;
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowScope, ShowTarget};
-use mcc::{McIds, McURI};
+use mcc::{arena_sub_modules, McIds, McURI, NodeArena};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -758,17 +758,21 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         .unwrap_or_else(|| mcc::McURI::from(top.clone()));
 
     // Guardrail: a Pass2 panic must not abort the process.
-    let inst = crate::cmds::common::build_pass2(&top, &uri).unwrap_or_else(|e| {
-        error!(target: "mcc::show", "{e}");
-        std::process::exit(1);
-    });
+    let (inst, arena) =
+        crate::cmds::common::build_pass2_with_arena(&top, &uri).unwrap_or_else(|e| {
+            error!(target: "mcc::show", "{e}");
+            std::process::exit(1);
+        });
 
     // Global module-nesting overview first (shared with `mcc verify`): every
     // module in source order with its declared / declareb / funcall-generated
     // instances, so the whole instance structure is visible before the
     // per-module sections.
-    let hierarchy =
-        mcc::hierarchy::build_hierarchy(&mcc::hierarchy::collect_module_nodes(&inst, &top));
+    let hierarchy = mcc::hierarchy::build_hierarchy(&mcc::hierarchy::collect_module_nodes(
+        &inst,
+        &top,
+        Some(&arena),
+    ));
 
     // Text mode: hand-rendered sections (aligned with the user-facing
     // circuit view; the generic key: value fallback would bury the tree).
@@ -779,7 +783,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         mcc::hierarchy::render_hierarchy_text(&mut htext, &hierarchy);
         lines.push(htext.trim_end().to_string());
         lines.push(String::new());
-        render_dianlu_section(&inst, &top, &mut lines);
+        render_dianlu_section(&inst, &top, Some(&arena), &mut lines);
         let rendered = lines.join("\n");
         if let Some(path) = &mcc::cli::globals().output {
             std::fs::write(path, rendered)?;
@@ -793,14 +797,19 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         "type": "dianlu",
         "top": top,
         "hierarchy": hierarchy,
-        "sections": dianlu_sections(&inst, &top),
+        "sections": dianlu_sections(&inst, &top, Some(&arena)),
     });
     output(&data, args.span)
 }
 
 /// Render one module section (text): instances then connections, recursing
 /// into sub-modules as their own sections below.
-fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<String>) {
+fn render_dianlu_section(
+    inst: &mcc::McModuleInst,
+    path: &str,
+    arena: Option<&NodeArena>,
+    lines: &mut Vec<String>,
+) {
     lines.push(format!("===== Section: {path} (module) ====="));
     lines.push("Instances:".to_string());
 
@@ -812,7 +821,11 @@ fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<S
             comp_pin_labels(comp).join(", ")
         ));
     }
-    for sub in &inst.sub_modules {
+    let subs: Vec<&mcc::McModuleInst> = match arena {
+        Some(a) => arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in &subs {
         lines.push(format!("  [M] {}: {}", sub.name, sub.def.name));
     }
 
@@ -870,20 +883,24 @@ fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<S
         .collect();
     lines.extend(crate::cmds::common::render_layered_conns(&views, "  "));
 
-    for sub in &inst.sub_modules {
+    for sub in subs {
         lines.push(String::new());
-        render_dianlu_section(sub, &format!("{path}.{}", sub.name), lines);
+        render_dianlu_section(sub, &format!("{path}.{}", sub.name), arena, lines);
     }
 }
 
 /// Build the structured (JSON/YAML) representation: one section object per
 /// module, in the same order as the text renderer.
-fn dianlu_sections(inst: &mcc::McModuleInst, path: &str) -> Vec<Value> {
+fn dianlu_sections(inst: &mcc::McModuleInst, path: &str, arena: Option<&NodeArena>) -> Vec<Value> {
+    let subs: Vec<&mcc::McModuleInst> = match arena {
+        Some(a) => arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
     let mut section = json!({
         "module": path,
         "uri": inst.def_uri.to_string(),
         "components": inst.components.iter().map(comp_json).collect::<Vec<_>>(),
-        "sub_modules": inst.sub_modules.iter().map(|s| json!({
+        "sub_modules": subs.iter().map(|s| json!({
             "name": s.name,
             "class": s.def.name.to_string(),
         })).collect::<Vec<_>>(),
@@ -949,8 +966,8 @@ fn dianlu_sections(inst: &mcc::McModuleInst, path: &str) -> Vec<Value> {
     section["connections"] = json!(conns);
 
     let mut sections = vec![section];
-    for sub in &inst.sub_modules {
-        sections.extend(dianlu_sections(sub, &format!("{path}.{}", sub.name)));
+    for sub in subs {
+        sections.extend(dianlu_sections(sub, &format!("{path}.{}", sub.name), arena));
     }
     sections
 }

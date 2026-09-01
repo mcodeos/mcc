@@ -30,7 +30,7 @@ use crate::McSpaceName;
 
 /// The four node kinds of the circuit arena (design §4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NodeKind {
+pub enum NodeKind {
     /// A module instance (the circuit root is also a `Module`).
     Module,
     /// A component / device instance.
@@ -277,13 +277,13 @@ fn component_def_id(comp: &McComponentInst) -> Option<DefId> {
 /// arena edges): the Module-kind `children` ids of the module's node drive
 /// the traversal, and the sub-module data is fetched from the aligned tree
 /// node. The two orders coincide (both are the module's build order); a
-/// `debug_assert` guards the 1:1 alignment on every call. Consumers switch
-/// from `for sub in &inst.sub_modules` to this iterator when they hold an
-/// arena (Phase C two-track migration).
-pub(crate) fn arena_sub_modules<'a>(
+/// `debug_assert` guards the 1:1 alignment on every call. Consumers that hold
+/// a `NodeArena` switch their `for sub in &inst.sub_modules` recursion to
+/// this iterator (Phase C two-track migration).
+pub fn arena_sub_modules<'a>(
     arena: &'a NodeArena,
     inst: &'a McModuleInst,
-) -> impl Iterator<Item = &'a McModuleInst> {
+) -> impl Iterator<Item = &'a McModuleInst> + 'a {
     let module_id = inst
         .node_id
         .expect("Phase C1 invariant: a frozen module carries a node_id");

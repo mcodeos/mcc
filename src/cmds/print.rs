@@ -21,7 +21,10 @@
 //! union-find result used for electrical network reporting.
 
 use mcc::cli::PinSortMode;
-use mcc::{IOType, McEndpoint, McInstance, McInstanceRef, McPhrase, MccProjectTree};
+use mcc::{
+    arena_sub_modules, IOType, McEndpoint, McInstance, McInstanceRef, McPhrase, MccProjectTree,
+    NodeArena,
+};
 
 // ============================================================================
 // Print Line members (McPhrase detailed structure) — same as old version
@@ -158,7 +161,12 @@ pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
 // Print Pass2 instantiation tree (FIXED)
 // ============================================================================
 
-pub fn print_module_inst(inst: &MccProjectTree, depth: usize, sort_mode: PinSortMode) {
+pub fn print_module_inst(
+    inst: &MccProjectTree,
+    depth: usize,
+    sort_mode: PinSortMode,
+    arena: Option<&NodeArena>,
+) {
     let indent = "  ".repeat(depth);
     println!(
         "{}>> Module: {} (type: {})",
@@ -327,8 +335,12 @@ pub fn print_module_inst(inst: &MccProjectTree, depth: usize, sort_mode: PinSort
     // ── Sub-modules ──
     if !inst.sub_modules.is_empty() {
         println!("{}   Sub-modules ({}):", indent, inst.sub_modules.len());
-        for sub in &inst.sub_modules {
-            print_module_inst(sub, depth + 2, PinSortMode::PinId);
+        let subs: Vec<&MccProjectTree> = match arena {
+            Some(a) => arena_sub_modules(a, inst).collect(),
+            None => inst.sub_modules.iter().collect(),
+        };
+        for sub in subs {
+            print_module_inst(sub, depth + 2, PinSortMode::PinId, arena);
         }
     }
 }
@@ -337,7 +349,7 @@ pub fn print_module_inst(inst: &MccProjectTree, depth: usize, sort_mode: PinSort
 // Print Connections — same as old version (this function worked fine originally)
 // ============================================================================
 
-pub fn print_connections(inst: &MccProjectTree, depth: usize) {
+pub fn print_connections(inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>) {
     let indent = "  ".repeat(depth);
     if inst.connections.is_empty() {
         println!("{}Module: {} (no connections)", indent, inst.name);
@@ -359,8 +371,12 @@ pub fn print_connections(inst: &MccProjectTree, depth: usize) {
             println!("{}  {} : {}", indent, net_name, conn_line);
         }
     }
-    for sub in &inst.sub_modules {
-        print_connections(sub, depth + 1);
+    let subs: Vec<&MccProjectTree> = match arena {
+        Some(a) => arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in subs {
+        print_connections(sub, depth + 1, arena);
     }
 }
 
@@ -368,7 +384,7 @@ pub fn print_connections(inst: &MccProjectTree, depth: usize) {
 // Print Nets — use the union-find merged Pass 2 net table
 // ============================================================================
 
-pub fn print_nets(inst: &MccProjectTree, depth: usize) {
+pub fn print_nets(inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>) {
     let indent = "  ".repeat(depth);
     let nets = inst.sorted_nets();
 
@@ -402,8 +418,12 @@ pub fn print_nets(inst: &MccProjectTree, depth: usize) {
         }
     }
 
-    for sub in &inst.sub_modules {
-        print_nets(sub, depth + 1);
+    let subs: Vec<&MccProjectTree> = match arena {
+        Some(a) => arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in subs {
+        print_nets(sub, depth + 1, arena);
     }
 }
 
@@ -412,7 +432,7 @@ pub fn print_nets(inst: &MccProjectTree, depth: usize) {
 // ============================================================================
 
 /// Total connections / total nets for entire instance tree (deduplicated by (module_path, net_name)).
-pub fn print_net_summary(inst: &MccProjectTree) {
+pub fn print_net_summary(inst: &MccProjectTree, arena: Option<&NodeArena>) {
     let mut total_conn = 0usize;
     let mut total_nets = 0usize;
     let mut total_modules = 0usize;
@@ -420,6 +440,7 @@ pub fn print_net_summary(inst: &MccProjectTree) {
 
     fn walk(
         inst: &MccProjectTree,
+        arena: Option<&NodeArena>,
         total_conn: &mut usize,
         total_nets: &mut usize,
         total_modules: &mut usize,
@@ -440,13 +461,25 @@ pub fn print_net_summary(inst: &MccProjectTree) {
 
         *total_nets += inst.nets.len();
 
-        for sub in &inst.sub_modules {
-            walk(sub, total_conn, total_nets, total_modules, suspicious_dup);
+        let subs: Vec<&MccProjectTree> = match arena {
+            Some(a) => arena_sub_modules(a, inst).collect(),
+            None => inst.sub_modules.iter().collect(),
+        };
+        for sub in subs {
+            walk(
+                sub,
+                arena,
+                total_conn,
+                total_nets,
+                total_modules,
+                suspicious_dup,
+            );
         }
     }
 
     walk(
         inst,
+        arena,
         &mut total_conn,
         &mut total_nets,
         &mut total_modules,

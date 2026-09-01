@@ -49,17 +49,20 @@ impl DefRefGraph {
     }
 
     /// Defs that `from` resolved to (out edges) — the goto-def answer.
+    #[allow(dead_code)] // D14 query API; unit-tested, wired by goto-def in a later phase
     pub fn referenced(&self, from: &McSpaceName) -> Vec<McSpaceName> {
         self.out.get(from).map(|v| v.clone()).unwrap_or_default()
     }
 
     /// Defs/ref-points that reference `to` (rev edges, dependents) — the
     /// who-uses / invalidation answer.
+    #[allow(dead_code)] // D14 query API; unit-tested, wired by who-uses in a later phase
     pub fn dependents(&self, to: &McSpaceName) -> Vec<McSpaceName> {
         self.rev.get(to).map(|v| v.clone()).unwrap_or_default()
     }
 
     /// Whether `to` has any recorded dependents.
+    #[allow(dead_code)] // D14 query API; unit-tested, wired by who-uses in a later phase
     pub fn has_dependents(&self, to: &McSpaceName) -> bool {
         self.rev.get(to).is_some_and(|v| !v.is_empty())
     }

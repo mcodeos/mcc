@@ -378,7 +378,11 @@ pub fn extract_instance_families(
 /// `{module, uri, instances}` shape `verify` emits for its per-module
 /// sections — so [`build_hierarchy`] treats `verify` and `show dianlu`
 /// alike.
-pub fn collect_module_nodes(inst: &McModuleInst, path: &str) -> Vec<Value> {
+pub fn collect_module_nodes(
+    inst: &McModuleInst,
+    path: &str,
+    arena: Option<&crate::instant::arena::NodeArena>,
+) -> Vec<Value> {
     let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
     let fam = extract_instance_families(inst, &content);
     let instances = json!({
@@ -393,8 +397,16 @@ pub fn collect_module_nodes(inst: &McModuleInst, path: &str) -> Vec<Value> {
         "uri": inst.def_uri.to_string(),
         "instances": instances,
     })];
-    for sub in &inst.sub_modules {
-        out.extend(collect_module_nodes(sub, &format!("{path}.{}", sub.name)));
+    let subs: Vec<&McModuleInst> = match arena {
+        Some(a) => crate::instant::arena::arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in subs {
+        out.extend(collect_module_nodes(
+            sub,
+            &format!("{path}.{}", sub.name),
+            arena,
+        ));
     }
     out
 }
