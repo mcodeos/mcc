@@ -77,6 +77,13 @@ pub struct McCode {
     pub(crate) uselist: Vec<McUse>,
     pub(crate) spacenames: BTreeMap<McIds, McSpaceName>,
     pub(crate) line_index: Option<LineIndex>,
+    /// Source text of this file. The C lexer/grammar only tokenizes
+    /// `[A-Za-z0-9_.]` as a URI path, so hyphenated file names such as
+    /// `use ./comp-cap.mc` are lexed as `comp` `-` `cap` `.` `mc` and the
+    /// parser drops everything after the first `-`. `collect_direct_uses`
+    /// recovers the path from this raw text instead of the mangled AST
+    /// segments. Empty for files whose content was never parsed.
+    pub(crate) content: String,
     pub(crate) pass1_complete: bool,
     pub(crate) modules_parsed: bool,
     /// ★ §7.6: Use table needs refresh because a `use`d file changed.
@@ -177,11 +184,45 @@ impl McCode {
             .iter()
             .filter(|x| x.is_type(MCAST_USE) || x.is_type(MCAST_USE_PUB))
             .for_each(|node| {
-                if let Some(mc_use) = McUse::new(&node, current_path) {
+                if let Some(mc_use) = McUse::new(&node, current_path, &self.content) {
                     uses.push(mc_use);
                 }
             });
         uses
+    }
+
+    /// Source spans (pos, len) of hyphenated file paths inside `use`
+    /// statements. The C lexer only treats `[A-Za-z0-9_.]` as URI characters,
+    /// so `use ./comp-cap.mc` is tokenized as `comp` `-` `cap` `.` `mc` and
+    /// the parser drops everything after the first `-`; the trailing tokens
+    /// dangle at top level and produce a spurious `PARSER_TOP_INVALID`
+    /// diagnostic. `McUse::new` recovers the true path from the raw source,
+    /// so any parser diagnostic anchored inside these spans is not a real
+    /// error and is suppressed.
+    fn hyphenated_use_spans(&self) -> Vec<(u32, u32)> {
+        if self.content.is_empty() {
+            return Vec::new();
+        }
+        self.ast
+            .iter()
+            .filter(|x| x.is_type(MCAST_USE) || x.is_type(MCAST_USE_PUB))
+            .filter_map(|node| {
+                let prefix_node = node.get_sub_node()?;
+                let prefix = prefix_node.to_string()?;
+                if prefix != "./" && prefix != "../" {
+                    return None;
+                }
+                let file_node = prefix_node.get_next()?;
+                let path_start = file_node.get_pos() as usize;
+                let path = self
+                    .content
+                    .get(path_start..)?
+                    .split(|c: char| c.is_ascii_whitespace())
+                    .next()?;
+                path.contains('-')
+                    .then_some((path_start as u32, path.len() as u32))
+            })
+            .collect()
     }
 
     /// Convert character position to line number and column number
@@ -222,6 +263,7 @@ impl McCode {
             spacenames: BTreeMap::new(),
             uselist: Vec::new(),
             line_index: None,
+            content: String::new(),
             pass1_complete: false,
             modules_parsed: false,
             use_table_dirty: false,
@@ -239,6 +281,7 @@ impl McCode {
             spacenames: BTreeMap::new(),
             uselist: Vec::new(),
             line_index: None,
+            content: String::new(),
             pass1_complete: false,
             modules_parsed: false,
             use_table_dirty: false,
@@ -258,6 +301,7 @@ impl McCode {
             spacenames: BTreeMap::new(),
             uselist: Vec::new(),
             line_index: Some(LineIndex::new(content)),
+            content: content.to_string(),
             pass1_complete: false,
             modules_parsed: false,
             use_table_dirty: false,
@@ -312,6 +356,9 @@ impl McCode {
             let fcontent_cstr = std::ffi::CStr::from_ptr(fcontent_ptr as *mut i8);
             if let Ok(fcontent) = fcontent_cstr.to_str() {
                 self.line_index = Some(LineIndex::new(fcontent));
+                // Keep the raw source for `collect_direct_uses` to recover
+                // hyphenated file paths that the C parser mangles.
+                self.content = fcontent.to_string();
             }
         }
 
@@ -409,6 +456,7 @@ impl McCode {
                 // Dedup: at overlapping positions, keep the highest code (most specific)
                 // Parser errors are below PARSER_WARNING_CODE_BASE; warnings are more specific.
                 raw.sort_by_key(|e| (e.2, e.3)); // sort by pos, then len
+                let hyphen_use_spans = self.hyphenated_use_spans();
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
                     if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
@@ -420,6 +468,18 @@ impl McCode {
                     // synthetic-view reload (see build/vinst.rs).
                     if *code == errcodes::PARSER_EMPTY_BODY
                         && crate::build::vinst::is_loading_synthetic_view()
+                    {
+                        continue;
+                    }
+                    // The C parser drops hyphenated use paths (e.g.
+                    // `use ./comp-cap.mc` is tokenized as `comp` `-` `...`),
+                    // so the trailing tokens produce a spurious top-level
+                    // error anchored inside the recovered path span (see
+                    // hyphenated_use_spans).
+                    if *code == errcodes::PARSER_TOP_INVALID
+                        && hyphen_use_spans
+                            .iter()
+                            .any(|(s, l)| *pos >= *s && *pos < s.saturating_add(*l))
                     {
                         continue;
                     }
@@ -458,8 +518,27 @@ impl McCode {
     }
 
     pub fn parse_ast_quiet(&mut self) {
+        self.parse_ast_quiet_inner(true, true);
+    }
+
+    /// Re-parse this file's AST without resetting its global diagnostics.
+    /// Used by [`Self::parse_nsp`] as a probe of a use target: enumerating the
+    /// target's cmie names and public uses needs the AST, but `parse_ast`
+    /// resets the target's global diagnostics and nothing re-derives the
+    /// target afterwards (it is clean-skipped by `mcb_parse_all_modules`), so
+    /// an already-loaded target's module diagnostics (e.g. E5642) would be
+    /// silently lost. When the target is not yet loaded (`emit_diags`), the
+    /// probe is effectively its first load and its parse-stage diagnostics
+    /// are emitted as usual.
+    pub(crate) fn parse_ast_probe(&mut self, emit_diags: bool) {
+        self.parse_ast_quiet_inner(false, emit_diags);
+    }
+
+    fn parse_ast_quiet_inner(&mut self, reset_diags: bool, emit_diags: bool) {
         current_uri::set(&self.uri);
-        crate::db::diagnostic::diagnostic::dlog_clear_file(&self.uri);
+        if reset_diags {
+            crate::db::diagnostic::diagnostic::dlog_clear_file(&self.uri);
+        }
 
         let binding = self.uri.clone();
         let fname = Path::new(&binding);
@@ -481,6 +560,9 @@ impl McCode {
             let fcontent_cstr = std::ffi::CStr::from_ptr(fcontent_ptr as *mut i8);
             if let Ok(fcontent) = fcontent_cstr.to_str() {
                 self.line_index = Some(LineIndex::new(fcontent));
+                // Keep the raw source for `collect_direct_uses` to recover
+                // hyphenated file paths that the C parser mangles.
+                self.content = fcontent.to_string();
             }
         }
 
@@ -512,7 +594,7 @@ impl McCode {
             }
 
             // Collect error tokens from parser and create diagnostics
-            {
+            if emit_diags {
                 let mut err_ptr = crate::ast::c_bindings::mcc_get_error_tokens();
                 while !err_ptr.is_null() {
                     let err = &*err_ptr;
@@ -539,7 +621,7 @@ impl McCode {
             }
 
             // Collect structured diagnostics from parser (mc_dlog_add)
-            {
+            if emit_diags {
                 let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
                 let mut dlog_ptr = crate::ast::c_bindings::mcc_get_dlog_entries();
                 while !dlog_ptr.is_null() {
@@ -556,6 +638,7 @@ impl McCode {
                 }
                 // Dedup: at overlapping positions, keep the highest code (most specific)
                 raw.sort_by_key(|e| (e.2, e.3));
+                let hyphen_use_spans = self.hyphenated_use_spans();
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
                     if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
@@ -567,6 +650,18 @@ impl McCode {
                     // synthetic-view reload (see build/vinst.rs).
                     if *code == errcodes::PARSER_EMPTY_BODY
                         && crate::build::vinst::is_loading_synthetic_view()
+                    {
+                        continue;
+                    }
+                    // The C parser drops hyphenated use paths (e.g.
+                    // `use ./comp-cap.mc` is tokenized as `comp` `-` `...`),
+                    // so the trailing tokens produce a spurious top-level
+                    // error anchored inside the recovered path span (see
+                    // hyphenated_use_spans).
+                    if *code == errcodes::PARSER_TOP_INVALID
+                        && hyphen_use_spans
+                            .iter()
+                            .any(|(s, l)| *pos >= *s && *pos < s.saturating_add(*l))
                     {
                         continue;
                     }
@@ -736,6 +831,7 @@ impl McCode {
 
         // Create line index from the content (mirrors parse_ast)
         self.line_index = Some(LineIndex::new(content));
+        self.content = content.to_string();
 
         let c_content = std::ffi::CString::new(content).expect("Failed to create CString");
         let fcontent_ptr = unsafe {
@@ -835,6 +931,7 @@ impl McCode {
                     dlog_ptr = entry.next;
                 }
                 raw.sort_by_key(|e| (e.2, e.3));
+                let hyphen_use_spans = self.hyphenated_use_spans();
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
                     if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
@@ -846,6 +943,18 @@ impl McCode {
                     // synthetic-view reload (see build/vinst.rs).
                     if *code == errcodes::PARSER_EMPTY_BODY
                         && crate::build::vinst::is_loading_synthetic_view()
+                    {
+                        continue;
+                    }
+                    // The C parser drops hyphenated use paths (e.g.
+                    // `use ./comp-cap.mc` is tokenized as `comp` `-` `...`),
+                    // so the trailing tokens produce a spurious top-level
+                    // error anchored inside the recovered path span (see
+                    // hyphenated_use_spans).
+                    if *code == errcodes::PARSER_TOP_INVALID
+                        && hyphen_use_spans
+                            .iter()
+                            .any(|(s, l)| *pos >= *s && *pos < s.saturating_add(*l))
                     {
                         continue;
                     }
@@ -966,11 +1075,14 @@ impl McCode {
                     continue;
                 }
             };
-            if self.mcbase {
-                mcfile.parse_ast_quiet();
-            } else {
-                mcfile.parse_ast();
-            }
+            // Probe parse of the use target: enumerate its cmie names and
+            // public uses. The probe is a throwaway AST read — for a target
+            // already loaded (`has_existing`) it must not reset the target's
+            // global diagnostics (its module diagnostics such as E5642 are
+            // authoritative and nothing re-derives the target afterwards);
+            // for a not-yet-loaded target the probe is effectively its first
+            // load, so its parse-stage diagnostics are emitted.
+            mcfile.parse_ast_probe(!has_existing);
 
             // (2). load idx from current file
             let mut cmie_list = mcfile.parse_cmie_names();

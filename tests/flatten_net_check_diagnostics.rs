@@ -112,7 +112,7 @@ fn unused_io_port_sequence_is_locked() {
         ),
         (
             4117,
-            0,
+            95,
             "/mcc/flat-diag.mc",
             "Bidirectional port 'main.GND' is not connected to any net.",
         ),
@@ -167,6 +167,193 @@ fn unwired_instance_sequence_is_locked() {
         ),
     ];
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
+}
+
+/// ── Lock: unconnected bidirectional port of a sub-module ──────────────────
+/// Mirrors the reported case (`main.MCU513.I2C0` in the hbl view): the
+/// sub-module's `io I2C0` port is never wired, so E4117 must anchor at the
+/// port's declaration in the sub-module body (`io I2C0`) — not at offset 0
+/// (file:1:1).
+#[test]
+fn submodule_unconnected_bidir_port_anchors_at_declaration() {
+    let src = "component R {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\nmodule SUB {\n    io I2C0\n}\nmodule main {\n    SUB sub1\n}";
+    let diags = build_flat_diags(src);
+    let expected = [
+        (
+            5642,
+            83,
+            "/mcc/flat-diag.mc",
+            "Port 'I2C0' in 'SUB' is declared but never used in any net connection.",
+        ),
+        (
+            4117,
+            83,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.sub1.I2C0' is not connected to any net.",
+        ),
+    ];
+    assert_lock(diags, &expected, "sub-module port anchor changed");
+}
+
+/// ── Lock: cross-file sub-module port anchor (the reported hbl case) ───────
+/// `module main` instantiates `SUB MCU513` from a def file; SUB's `io I2C0`
+/// port is never wired, so E4117 on `main.MCU513.I2C0` anchors at the port's
+/// declaration in the def file (`io I2C0`) — not at offset 0 / file:1:1.
+/// `use ./defs.mc` resolves against the real file system, so both files are
+/// written to a temp dir and loaded by canonical path (the same pattern the
+/// `circuit_deps_record_entry_and_class_resolutions` cross-file test uses).
+#[test]
+fn cross_file_submodule_port_anchors_at_def_declaration() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    let dir = std::env::temp_dir().join(format!("mcc-flat-cross-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("defs.mc"), "module SUB {\n    io I2C0\n}\n").unwrap();
+    std::fs::write(
+        dir.join("main.mc"),
+        "use ./defs.mc\nmodule main {\n    SUB MCU513\n}",
+    )
+    .unwrap();
+    let defs_uri = std::fs::canonicalize(dir.join("defs.mc"))
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let main_uri = std::fs::canonicalize(dir.join("main.mc"))
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+
+    mcc::mcc_load_from_string(
+        &defs_uri,
+        &std::fs::read_to_string(dir.join("defs.mc")).unwrap(),
+    );
+    mcc::mcc_load_from_string(
+        &main_uri,
+        &std::fs::read_to_string(dir.join("main.mc")).unwrap(),
+    );
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &main_uri, 1000).expect("flat build");
+    let diags: Vec<(u32, u32, String, String)> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| (d.code, d.loc.pos, d.loc.uri.to_string(), d.msg.clone()))
+        .collect();
+    let expected = [
+        (
+            5642,
+            20,
+            defs_uri.as_str(),
+            "Port 'I2C0' in 'SUB' is declared but never used in any net connection.",
+        ),
+        (
+            4117,
+            20,
+            defs_uri.as_str(),
+            "Bidirectional port 'main.MCU513.I2C0' is not connected to any net.",
+        ),
+    ];
+    assert_lock(diags, &expected, "cross-file port anchor changed");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ── Lock: bracket-form signature port anchors at its declaration ──────────
+/// `[VDD_3V3, GND]::DC(3.3V)` is a Multiple-form signature interface param:
+/// its whole-name span lives in `def.params.def_spans`, not `def.insts`
+/// (`filter_port_spans` drops the whole-bracket name). E4117 for the
+/// unconnected bracket port (and its members) must anchor at the declaration
+/// (`VDD_3V3` inside the bracket) instead of file:1:1. The empty US513 body
+/// also emits 2115; only the 4117 entries are asserted here.
+#[test]
+fn bracket_signature_port_anchors_at_declaration() {
+    let src = "module US513([VDD_3V3,GND]::DC(3.3V)) {\n}\nmodule main {\n    US513 UC\n}\n";
+    let diags = build_flat_diags(src);
+    let bidir: Vec<(u32, u32, String, String)> =
+        diags.into_iter().filter(|d| d.0 == 4117).collect();
+    let expected = [
+        (
+            4117,
+            14,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.UC.[VDD_3V3, GND]' is not connected to any net.",
+        ),
+        (
+            4117,
+            14,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.UC.VDD_3V3' is not connected to any net.",
+        ),
+        (
+            4117,
+            14,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.UC.GND' is not connected to any net.",
+        ),
+    ];
+    assert_lock(bidir, &expected, "bracket signature port anchor changed");
+}
+
+/// ── Lock: curly-bus port members anchor at the port declaration ───────────
+/// `io MIC{P,N}` materializes as the port `MIC` plus three member shapes:
+/// dotted (`MIC.P` / `MIC.N`), bus-slash (`MIC/P` / `MIC/N`) and bare
+/// (`N` / `P`). Every unconnected shape must anchor at the `io MIC{P,N}`
+/// declaration (pos 20) instead of file:1:1.
+#[test]
+fn curly_bus_port_members_anchor_at_declaration() {
+    let src = "module SUB {\n    io MIC{P,N}\n}\nmodule main {\n    SUB s1\n}\n";
+    let diags = build_flat_diags(src);
+    let expected = [
+        (
+            5642,
+            20,
+            "/mcc/flat-diag.mc",
+            "Port 'MIC' in 'SUB' is declared but never used in any net connection.",
+        ),
+        (
+            4117,
+            20,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.s1.MIC' is not connected to any net.",
+        ),
+        (
+            4117,
+            20,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.s1.MIC.P' is not connected to any net.",
+        ),
+        (
+            4117,
+            20,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.s1.MIC.N' is not connected to any net.",
+        ),
+        (
+            4117,
+            20,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.s1.MIC/P' is not connected to any net.",
+        ),
+        (
+            4117,
+            20,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.s1.MIC/N' is not connected to any net.",
+        ),
+        (
+            4117,
+            20,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.s1.N' is not connected to any net.",
+        ),
+        (
+            4117,
+            20,
+            "/mcc/flat-diag.mc",
+            "Bidirectional port 'main.s1.P' is not connected to any net.",
+        ),
+    ];
+    assert_lock(diags, &expected, "curly bus member anchor changed");
 }
 
 /// Assert the actual ordered diagnostic sequence equals the expected golden
