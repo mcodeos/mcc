@@ -41,7 +41,14 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     }
     let _guard = CmieGuard(guard_key);
 
-    Resolver::resolve_class(uri, class_name)
+    let resolved = Resolver::resolve_class(uri, class_name);
+    // Phase F (plan §9 F): record the circuit→def dependency edge at the
+    // class-resolution bridge — the only channel through which instantiation
+    // touches the definition space. No-op outside an instantiation window.
+    if let Some(cmie) = &resolved {
+        crate::instant::deps::record_cmie(cmie);
+    }
+    resolved
 }
 
 pub(crate) fn mcb_get_cmie_with_uri(class_name: &McIds, uri: &McURI) -> Option<(McCMIE, McURI)> {
