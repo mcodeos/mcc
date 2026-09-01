@@ -2220,6 +2220,9 @@ impl McPhrase {
                 // carve-out (opcheck is shared with Pass2).
                 let opd1_shape = OpdShape::of(&opd1, context);
                 let opd2_shape = OpdShape::of(&opd2, context);
+                if check_list_column_width_mixed([&opd1, &opd2], node, context) {
+                    return None;
+                }
                 if !is_connectable(
                     ConnOp::Parallel,
                     ConnDir::Undirected,
@@ -2376,11 +2379,16 @@ impl McPhrase {
                 // A transposed operand is first transposed to its full-width
                 // column, then the §5.2 check runs on the transposed result —
                 // no transpose carve-out.
+                let opd1_shape = OpdShape::of(&opd1, context);
+                let opd2_shape = OpdShape::of(&opd2, context);
+                if check_list_column_width_mixed([&opd1, &opd2], node, context) {
+                    return None;
+                }
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::Undirected,
-                    &OpdShape::of(&opd1, context),
-                    &OpdShape::of(&opd2, context),
+                    &opd1_shape,
+                    &opd2_shape,
                     crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
@@ -2435,11 +2443,16 @@ impl McPhrase {
                 // A transposed operand is first transposed to its full-width
                 // column, then the §5.2 check runs on the transposed result —
                 // no transpose carve-out.
+                let opd1_shape = OpdShape::of(&opd1, context);
+                let opd2_shape = OpdShape::of(&opd2, context);
+                if check_list_column_width_mixed([&opd1, &opd2], node, context) {
+                    return None;
+                }
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::LtoR,
-                    &OpdShape::of(&opd1, context),
-                    &OpdShape::of(&opd2, context),
+                    &opd1_shape,
+                    &opd2_shape,
                     crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
@@ -2508,11 +2521,16 @@ impl McPhrase {
                 // A transposed operand is first transposed to its full-width
                 // column, then the §5.2 check runs on the transposed result —
                 // no transpose carve-out.
+                let opd1_shape = OpdShape::of(&opd1, context);
+                let opd2_shape = OpdShape::of(&opd2, context);
+                if check_list_column_width_mixed([&opd1, &opd2], node, context) {
+                    return None;
+                }
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::RtoL,
-                    &OpdShape::of(&opd2, context),
-                    &OpdShape::of(&opd1, context),
+                    &opd2_shape,
+                    &opd1_shape,
                     crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
@@ -4800,6 +4818,126 @@ impl OpdShape {
             OpdShape::Node(left, right)
         }
     }
+}
+
+/// R4 column-width consistency gate (vec-arch.md §4.1.1), run by the operator
+/// handlers on both operands before the generic connectable check: every
+/// element of a `[...]` list must be single-column (point / column vector,
+/// left == right) or all double-column (two-pin row / node). A mix — a
+/// single-column element silently spanning both columns of the node
+/// (`[A, R101]` → `node{[A,R101.1] | [A,R101.2]}`) — is rejected with a
+/// specific E2907 message naming the offending single-column element.
+///
+/// The check classifies each list **element** by its own column width rather
+/// than the merged operand shape, because shape-by-use (§8.9.6.3) presents a
+/// declared scalar port as empty (unknown width): in `[A, R101]` a declared
+/// port `A` drops out of the merged `Node`, leaving only R101's row and hiding
+/// the mix (the current code then silently leaves R101.1 floating). Classifying
+/// the element before the drop catches both the label case (`A` → `Point`) and
+/// the declared-port case (`A` → empty, single-column by declaration).
+///
+/// The `_` placeholder lead is exempt — it inherits the sibling column width
+/// (R4 `_` placeholder carve-out), so `[_, R101]` stays a legal `R ⊕ R` node. A `Transposed`
+/// operand is not a list and is skipped (transpose is not yet audited); a
+/// nested list element counts as its own shape (column → single-column).
+/// Returns `true` when either operand is affected, so the caller bails out.
+fn check_list_column_width_mixed(
+    opds: [&McPhrase; 2],
+    node: &AstNode,
+    context: &mut dyn HasFindInst,
+) -> bool {
+    for opd in opds {
+        let mut single: Option<String> = None;
+        let mut double = false;
+        match opd {
+            McPhrase::Multiple(ops) => {
+                for o in ops {
+                    match column_kind(o, context) {
+                        ColumnKind::Single(n) => {
+                            single.get_or_insert(n);
+                        }
+                        ColumnKind::Double => double = true,
+                        ColumnKind::Lead | ColumnKind::Unclassified => {}
+                    }
+                }
+            }
+            McPhrase::Endpoint(McEndpoint::List(items)) => {
+                for it in items {
+                    let wrapped = McPhrase::Endpoint(it.clone());
+                    match column_kind(&wrapped, context) {
+                        ColumnKind::Single(n) => {
+                            single.get_or_insert(n);
+                        }
+                        ColumnKind::Double => double = true,
+                        ColumnKind::Lead | ColumnKind::Unclassified => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let (Some(name), true) = (single, double) {
+            dlog_error(
+                crate::errcodes::SHAPE_COLUMN_WIDTH_MIXED,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::SHAPE_COLUMN_WIDTH_MIXED, &[&name]),
+            );
+            return true;
+        }
+    }
+    false
+}
+
+/// Column width of one list element (R4 vec-arch.md §4.1.1): a point or a
+/// column vector is single-column (left == right); a two-pin row vector or a
+/// node is double-column. A declared scalar port presents an empty shape
+/// (shape-by-use §8.9.6.3) but is single-column by declaration. Everything
+/// else (unresolved / func-call) is unclassifiable and ignored, so we never
+/// guess at a shape we cannot see.
+fn column_kind(e: &McPhrase, context: &mut dyn HasFindInst) -> ColumnKind {
+    if matches!(e, McPhrase::Lead) {
+        return ColumnKind::Lead;
+    }
+    match OpdShape::of(e, context) {
+        OpdShape::Row(_, _) | OpdShape::Node(_, _) => ColumnKind::Double,
+        OpdShape::Point(b) => {
+            if b.name == "(lead)" {
+                ColumnKind::Lead
+            } else {
+                ColumnKind::Single(b.name)
+            }
+        }
+        OpdShape::Column(v) => {
+            if v.iter().any(|b| b.name == "(lead)") {
+                ColumnKind::Lead
+            } else {
+                ColumnKind::Single(v[0].name.clone())
+            }
+        }
+        OpdShape::Unknown => {
+            if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                base: McInstance::Label(name),
+                ..
+            })) = e
+            {
+                if context.is_declared_port(name) {
+                    return ColumnKind::Single(name.clone());
+                }
+            }
+            ColumnKind::Unclassified
+        }
+    }
+}
+
+/// One element's contribution to the R4 column-width consistency of a list.
+enum ColumnKind {
+    /// Single-column element: point or column vector (left == right).
+    Single(String),
+    /// Double-column element: two-pin row vector or node.
+    Double,
+    /// `_` placeholder lead — inherits the sibling column width.
+    Lead,
+    /// Shape not determinable (unresolved / func-call): never a mix.
+    Unclassified,
 }
 
 /// Pass1 operator evaluation entry point (eval.md §3/§4): the shared
