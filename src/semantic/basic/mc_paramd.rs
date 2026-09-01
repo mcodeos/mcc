@@ -400,6 +400,15 @@ impl McParamDeclares {
             .flat_map(|(name, spans)| spans.iter().map(move |span| (name.as_str(), span.clone())))
     }
 
+    /// Look up the first definition span by canonical name (any category).
+    /// `def_spans` is never filtered (unlike `port_spans`), so this also
+    /// resolves square-vec signature ports such as `[VDD_3V3, GND]::DC(3.3V)`:
+    /// `filter_port_spans` drops their whole-bracket name (Multiple form has no
+    /// primary name), while `def_spans` keeps it with the exact bracket span.
+    pub fn get_def_span(&self, name: &str) -> Option<Range<usize>> {
+        self.def_spans.get(name).and_then(|v| v.first().cloned())
+    }
+
     /// Record a reference to this parameter (for LSP goto-def from body references).
     pub(crate) fn record_net_ref(&mut self, span: Range<usize>, port_name: &str, scope: &str) {
         // ★ Accept all refs — not all params have def_spans entries (e.g. func params

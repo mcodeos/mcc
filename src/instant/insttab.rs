@@ -22,6 +22,7 @@ use crate::instant::net_store::NetTableStore;
 use crate::semantic::common::IOType;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::Range;
 use std::rc::Rc;
 
 // ============================================================================
@@ -803,6 +804,37 @@ impl InstTable {
     // flatten traversal (Step 5)
     // ====================================================================
 
+    /// Declaration-site fallback for unconnected ports (AGENTS.md: "the module
+    /// span for ports"). A port that is never wired (e.g. E4117 floating
+    /// bidirectional) has no net point to back-fill a wiring site into
+    /// `src_pos`, so net checks would anchor at offset 0 → file:1:1; anchor
+    /// them at the port's declaration span in the module body instead.
+    /// `src_pos` (a real wiring site) always wins.
+    fn backfill_port_decl_pos(&mut self, id: u32, def_uri: &str, span: Option<Range<usize>>) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            if entry.src_pos.is_none() && entry.fallback_pos.is_none() {
+                if let Some(span) = span {
+                    entry.fallback_pos = Some(crate::semantic::common::SourcePos::new(
+                        def_uri.to_string(),
+                        span.start as u32,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Port declaration span for a flattened port/bus name. Body instances
+    /// (`insts.port_spans`) first, then signature interface params
+    /// (`def.params.def_spans`) — the latter covers bracket-form params such
+    /// as `[VDD_3V3, GND]::DC(3.3V)`, whose whole-name span lives in
+    /// `def.params` and is dropped from `port_spans` by `filter_port_spans`.
+    fn port_decl_span_of(inst: &McModuleInst, name: &str) -> Option<Range<usize>> {
+        inst.def
+            .insts
+            .get_port_span(name)
+            .or_else(|| inst.def.params.get_def_span(name))
+    }
+
     /// Recursively flatten a module instance
     ///
     /// Traversal order: module itself → ports → components + pins →
@@ -833,7 +865,7 @@ impl InstTable {
         // 2. Register ports
         for port in &inst.ports {
             let port_path = format!("{}.{}", my_path, port.name);
-            self.register(
+            let port_id = self.register(
                 port_path,
                 InstKind::Port,
                 Some(my_id),
@@ -842,6 +874,13 @@ impl InstTable {
                 None,
                 inst.def_uri.to_string(),
             );
+            // Signature interface params (e.g. `[VDD_3V3, GND]::DC(3.3V)`)
+            // are declared in `def.params`, not `def.insts` — when the body
+            // instance lookup misses, fall back to the param declaration span
+            // so unconnected-port diagnostics anchor at the declaration
+            // instead of file:1:1.
+            let port_decl_span = Self::port_decl_span_of(inst, &port.name);
+            self.backfill_port_decl_pos(port_id, &inst.def_uri, port_decl_span.clone());
 
             // ── Phase-D support: register a bracketed path for ports with bus_members ──
             // Only create bracketed path for List ports (e.g., [A,B] or GPIO[1:2]),
@@ -851,7 +890,7 @@ impl InstTable {
             if port.is_bus_port() && port.name.contains('[') {
                 let bracket_name = format!("[{}]", port.bus_members.join(", "));
                 let bracket_path = format!("{my_path}.{bracket_name}");
-                self.register(
+                let bracket_id = self.register(
                     bracket_path,
                     InstKind::Port,
                     Some(my_id),
@@ -860,6 +899,7 @@ impl InstTable {
                     None,
                     inst.def_uri.to_string(),
                 );
+                self.backfill_port_decl_pos(bracket_id, &inst.def_uri, port_decl_span.clone());
             }
 
             // ── P2-4: register individual bus member ports ──
@@ -903,6 +943,7 @@ impl InstTable {
                     None,
                     inst.def_uri.to_string(),
                 );
+                self.backfill_port_decl_pos(member_id, &inst.def_uri, port_decl_span.clone());
 
                 // Set member_info role (Ground/Power) — consumed by the viz
                 // projection layer for rail classification, not for net merging.
@@ -1233,9 +1274,10 @@ impl InstTable {
             );
 
             // Expand bus members with the inherited IO type
+            let member_decl_span = Self::port_decl_span_of(inst, bus_name);
             for member in &bus_inst.members {
                 let member_path = format!("{bus_path}/{member}");
-                self.register(
+                let member_id = self.register(
                     member_path,
                     InstKind::Label,
                     Some(bus_id),
@@ -1244,18 +1286,34 @@ impl InstTable {
                     None,
                     inst.def_uri.to_string(),
                 );
+                // Unconnected bus members (E4117) have no wiring site; anchor
+                // them at the owning port/bus declaration span instead of
+                // file:1:1 (same fallback as the port loop above).
+                self.backfill_port_decl_pos(member_id, &inst.def_uri, member_decl_span.clone());
             }
         }
 
         // 5. Register standalone labels (avoid duplication with ports/buses)
         // [P0-DET] sorted name order: `register` allocates ids by call order.
+        // Port buses also inject bare member labels (e.g. `io MIC{P,N}` yields
+        // plain `P` / `N` labels) that carry no wiring site; map each member
+        // back to its owning port's declaration span so E4117 anchors there.
+        let mut member_to_port_span: HashMap<&str, Option<Range<usize>>> = HashMap::new();
+        for port in &inst.ports {
+            let span = Self::port_decl_span_of(inst, &port.name);
+            for member in &port.bus_members {
+                member_to_port_span
+                    .entry(member.as_str())
+                    .or_insert_with(|| span.clone());
+            }
+        }
         let mut label_names: Vec<&String> = labels.keys().collect();
         label_names.sort();
         for label_name in label_names {
             let net_point = &labels[label_name];
             let label_path = format!("{my_path}.{label_name}");
             if self.get_id_by_path(&label_path).is_none() {
-                self.register(
+                let label_id = self.register(
                     label_path,
                     InstKind::Label,
                     Some(my_id),
@@ -1263,6 +1321,14 @@ impl InstTable {
                     net_point.iotype.clone(),
                     net_point.src_pos.clone(),
                     inst.def_uri.to_string(),
+                );
+                self.backfill_port_decl_pos(
+                    label_id,
+                    &inst.def_uri,
+                    member_to_port_span
+                        .get(label_name.as_str())
+                        .cloned()
+                        .flatten(),
                 );
             }
         }
