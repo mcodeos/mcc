@@ -30,6 +30,7 @@ use super::overlays::Overlays;
 use crate::db::diagnostic::diagnostic::Diagnostic;
 use crate::instant::identity::{CircuitKey, IdentityRegistry};
 use crate::instant::net_store::NetTableStore;
+use crate::McSpaceName;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -77,13 +78,24 @@ pub struct DianLu {
     /// frozen tree and its net layer. Pure annotation overlay: never
     /// participates in identity.
     overlays: Overlays,
+    /// Phase F: circuit → def dependency edges (plan §9 F, design §12.6) —
+    /// every definition-space resolution this instantiation performed
+    /// (entry module + each class resolved at the `mcb_get_cmie` /
+    /// `resolve_system` bridge), frozen at construction. The def→circuits
+    /// reverse index (invalidation domain) is the CircuitWorld's (Phase G).
+    circuit_deps: Vec<McSpaceName>,
 }
 
 impl DianLu {
     /// Wrap an already-instantiated tree. The model is authoritative; the flat
     /// projection is derived lazily via [`Self::flatten`]. The per-build
     /// identity registry is rebuilt from the tree's companion node ids.
-    pub fn new(tree: McModuleInst, start_id: u32, net_store: Rc<RefCell<NetTableStore>>) -> Self {
+    pub fn new(
+        tree: McModuleInst,
+        start_id: u32,
+        net_store: Rc<RefCell<NetTableStore>>,
+        circuit_deps: Vec<McSpaceName>,
+    ) -> Self {
         let identity = build_identity_registry(&tree);
         let arena = build_node_arena(&tree);
         let lanes = collect_stmt_trunks(&tree, &arena);
@@ -100,6 +112,7 @@ impl DianLu {
             nets,
             net_table: net_store,
             overlays,
+            circuit_deps,
         }
     }
 
@@ -149,6 +162,15 @@ impl DianLu {
     /// annotation layer, derived per build; consumers never mutate it.
     pub fn overlays(&self) -> &Overlays {
         &self.overlays
+    }
+
+    /// The circuit → def dependency edges (Phase F): every definition-space
+    /// resolution this instantiation performed (entry module + each class
+    /// resolved at the `mcb_get_cmie` / `resolve_system` bridge), in
+    /// resolution order. Frozen at construction — the caller (CircuitWorld,
+    /// Phase G) builds the def→circuits reverse index from these.
+    pub fn deps(&self) -> &[McSpaceName] {
+        &self.circuit_deps
     }
 
     /// Consume the object, discarding any flat projection.

@@ -146,6 +146,7 @@ fn identity_registry_rebuilt_from_frozen_tree_matches() {
         tree,
         1000,
         Rc::new(RefCell::new(mcc::NetTableStore::new())),
+        Vec::new(),
     );
     assert_eq!(
         dl2.identity().node_id_of("main"),
@@ -221,6 +222,7 @@ module main {
         tree,
         1000,
         Rc::new(RefCell::new(mcc::NetTableStore::new())),
+        Vec::new(),
     );
     let reg = tree2.identity();
     for (path, id) in &ldo_products {
@@ -947,5 +949,108 @@ module main {
         ov.name_index.get("main.c"),
         Some(&vec![vec_node]),
         "the vector grouping node under its canonical path"
+    );
+}
+
+// ============================================================================
+// Phase F — circuit → def dependency edges (§12.6 / plan §9 F)
+// ============================================================================
+
+/// Phase F: one instantiation records every definition-space resolution it
+/// performs — the entry module plus each class it materializes. A component
+/// class declared in the same build (resolved through the use chain or the
+/// file's own tables) lands in `deps()` with its defining file, so the
+/// circuit→def edge set is complete by construction (the tree sweep) and the
+/// bridge (class resolutions at instantiation time) both feed it.
+#[test]
+fn circuit_deps_record_entry_and_class_resolutions() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+
+    // Cross-file use statements resolve against the real file system, so this
+    // test (unlike the in-memory ones above) writes both files to a temp dir
+    // and loads them by canonical path — the same pattern the refgraph
+    // cross-file test uses. (Single-segment use filenames only: the C use
+    // grammar does not tokenize hyphenated names like `comp-cap.mc`.)
+    let dir = std::env::temp_dir().join(format!("mcc-dianlu-f1-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("cap.mc"),
+        "component CAP\n{\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("dianlu.mc"),
+        "use ./cap.mc\n\nmodule main\n{\n    io V5V\n    CAP c1\n    c1.1 -> V5V\n}\n",
+    )
+    .unwrap();
+
+    let cap_uri = std::fs::canonicalize(dir.join("cap.mc"))
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let main_uri = std::fs::canonicalize(dir.join("dianlu.mc"))
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+
+    mcc::mcc_load_from_string(
+        &cap_uri,
+        &std::fs::read_to_string(dir.join("cap.mc")).unwrap(),
+    );
+    mcc::mcc_load_from_string(
+        &main_uri,
+        &std::fs::read_to_string(dir.join("dianlu.mc")).unwrap(),
+    );
+
+    let ident = mcc::McIds::from("main");
+    let dl = mcc::mcc_build_dianlu(&ident, &main_uri, 1000).expect("mcc_build_dianlu");
+
+    let deps = dl.deps();
+    assert!(
+        deps.iter()
+            .any(|d| d.ident.to_string() == "main" && d.uri == main_uri),
+        "the entry module def is a dependency: {deps:?}"
+    );
+    assert!(
+        deps.iter()
+            .any(|d| d.ident.to_string() == "CAP" && d.uri == cap_uri),
+        "the cross-file class resolution is a dependency: {deps:?}"
+    );
+}
+
+/// Phase F (same-file control): the class resolved from the entry file's own
+/// tables is recorded with that file's URI — the tree sweep does not depend
+/// on the use chain.
+#[test]
+fn circuit_deps_record_same_file_class() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let main_uri = "/mcc/dianlu.mc".to_string();
+    mcc::mcc_load_from_string(
+        &main_uri,
+        "\
+component RES {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+module main {
+    io V5V
+    RES r1
+    r1.1 -> V5V
+}",
+    );
+    let ident = mcc::McIds::from("main");
+    let dl = mcc::mcc_build_dianlu(&ident, &main_uri, 1000).expect("mcc_build_dianlu");
+
+    let deps = dl.deps();
+    assert!(
+        deps.iter()
+            .any(|d| d.ident.to_string() == "RES" && d.uri == "/mcc/dianlu.mc"),
+        "same-file class def is a dependency: {deps:?}"
     );
 }

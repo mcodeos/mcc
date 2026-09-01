@@ -358,23 +358,39 @@ impl Resolver {
     /// interface → enum), mirroring the pre-index per-kind scan order.
     pub fn resolve_system(name: &McIds) -> Option<McCMIE> {
         let name_str = name.to_string();
-        for hit in crate::db::defregistry::system_name_hits(&name_str) {
-            let Some((_, def)) = crate::db::defregistry::live_entry_by_id(hit.id) else {
+        let mut hit: Option<McCMIE> = None;
+        for h in crate::db::defregistry::system_name_hits(&name_str) {
+            let Some((_, def)) = crate::db::defregistry::live_entry_by_id(h.id) else {
                 continue;
             };
-            match (hit.kind, def) {
+            match (h.kind, def) {
                 (DefKind::Component, DefValue::Component(c)) => {
-                    return Some(McCMIE::Component(c));
+                    hit = Some(McCMIE::Component(c));
+                    break;
                 }
-                (DefKind::Module, DefValue::Module(m)) => return Some(McCMIE::Module(m)),
+                (DefKind::Module, DefValue::Module(m)) => {
+                    hit = Some(McCMIE::Module(m));
+                    break;
+                }
                 (DefKind::Interface, DefValue::Interface(i)) => {
-                    return Some(McCMIE::Interface(i));
+                    hit = Some(McCMIE::Interface(i));
+                    break;
                 }
-                (DefKind::Enum, DefValue::Enum(e)) => return Some(McCMIE::Enum(e)),
+                (DefKind::Enum, DefValue::Enum(e)) => {
+                    hit = Some(McCMIE::Enum(e));
+                    break;
+                }
                 _ => continue,
             }
         }
-        None
+        // Phase F (plan §9 F): record the circuit→def dependency edge here
+        // too — this is the P5 tail of `resolve_class` and the direct
+        // fallback of the enum-shadowing / re-entrancy paths that bypass the
+        // `mcb_get_cmie` record point. No-op outside an instantiation window.
+        if let Some(cmie) = &hit {
+            crate::instant::deps::record_cmie(cmie);
+        }
+        hit
     }
 
     /// Interface-only class resolution for interface-binding syntax

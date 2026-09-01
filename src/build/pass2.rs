@@ -125,6 +125,14 @@ pub(crate) fn mcb_instantiate(
 
     crate::current_uri::set(&matched_uri);
 
+    // Phase F (plan §9 F): open the circuit→def dependency window for this
+    // instantiation. The guard records every definition-space resolution the
+    // flow performs (entry module below + each class resolution at the
+    // `mcb_get_cmie` / `resolve_system` bridge), then hands the collected
+    // edge set to the DianLu.
+    let mut deps_guard = crate::instant::deps::DepCollectorGuard::install();
+    crate::instant::deps::record_def(&McSpaceName::new(&entry.ident, matched_uri.clone()));
+
     // ★ Line indices for instantiation: `create_connection` converts the
     // statement byte offset to a real line number via `lookup_line_col`, which
     // searches the thread-local line-index stack. That stack is only populated
@@ -151,7 +159,14 @@ pub(crate) fn mcb_instantiate(
         .instantiate_with_store()
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
-    Ok(DianLu::new(inst, start_id, net_store))
+    // Phase F: close the dependency window and freeze the circuit→def edge
+    // set into the DianLu. The tree sweep records the declared-instance defs
+    // (resolved by pass1, never seen by the resolution bridge), completing the
+    // edge set by construction.
+    crate::instant::deps::record_tree_defs(&inst);
+    let deps = deps_guard.finish();
+
+    Ok(DianLu::new(inst, start_id, net_store, deps))
 }
 
 // === pub fn mcb_pass2_flat( ===
