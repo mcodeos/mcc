@@ -153,7 +153,13 @@ pub fn build_payload(
         1 => bom::build_bom(tree, arena, top, format),
         2 => spice::build_spice(tree, table, arena, top),
         3 => kicad::build_kicad_netlist(tree, table, arena, top),
-        _ => netlist::build_netlist(tree, arena, top, format),
+        _ => {
+            // Phase D: the tree never stores NetPoint — the netlist export
+            // reads the frozen string net tables from the flat table's store.
+            let store = table.net_table();
+            let store_ref = store.borrow();
+            netlist::build_netlist(tree, arena, top, format, &store_ref)
+        }
     }
 }
 

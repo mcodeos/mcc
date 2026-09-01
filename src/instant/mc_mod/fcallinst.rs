@@ -464,7 +464,13 @@ impl InstantiationBuilder {
         //    ★ On failure, record a diagnostic but keep the instance
         //    Phase C1: intern into the circuit registry under the full path.
         let sub_path = self.child_path(&inst_name);
-        if let Err(e) = sub_inst.instantiate_in_scope(self.identity_mut(), &sub_path) {
+        // Phase D: hand the shared circuit-wide net-table store down so this
+        // inline module's frozen table lands in the same store the parent
+        // reads for ground-tie propagation. Clone the `Rc` before taking the
+        // mutable identity borrow to avoid a borrow conflict.
+        let net_store = self.net_store.clone();
+        let identity = self.identity_mut();
+        if let Err(e) = sub_inst.instantiate_in_scope(identity, &sub_path, net_store) {
             self.record_error(
                 932,
                 format!("Inline module '{inst_name}' ({type_name}) instantiation failed: {e}"),
@@ -1460,7 +1466,9 @@ impl InstantiationBuilder {
             // builder and take it back when the body freezes, so the
             // re-entered products intern onto the same ids.
             let identity = self.take_identity();
-            let mut b = InstantiationBuilder::with_identity(sub_tree, identity, sub_path);
+            let net_store = self.net_store.clone();
+            let mut b =
+                InstantiationBuilder::with_identity(sub_tree, identity, sub_path, net_store);
             // ── Expansion provenance: sub-module body expansion (§7.3) ──
             // Same call site as the parent record; id space is the sub-module's
             // own ExpansionLog. Products pushed via `b.add_*` during body
@@ -1553,7 +1561,9 @@ impl InstantiationBuilder {
                 McModuleInst::new(&sub_name, sub_def),
             );
             let identity = self.take_identity();
-            let mut b = InstantiationBuilder::with_identity(sub_tree, identity, sub_path);
+            let net_store = self.net_store.clone();
+            let mut b =
+                InstantiationBuilder::with_identity(sub_tree, identity, sub_path, net_store);
             for conds in &func_def.conds {
                 let matched_stmts = conds.evaluate(&params);
                 for stmt in matched_stmts {

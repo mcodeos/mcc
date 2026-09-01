@@ -254,7 +254,7 @@ fn execute_pass2(mc_uri: &McURI, top: Option<&str>) -> Result<(String, Value), J
     }));
 
     match built {
-        Ok(Ok((inst, arena))) => {
+        Ok(Ok((inst, arena, net_store))) => {
             info!(target: "crate::pass2", "----------------------------------------");
             info!(target: "crate::pass2", "[Pass 2] Instantiating top module: {}", top_name);
             info!(target: "crate::pass2", "----------------------------------------");
@@ -264,11 +264,11 @@ fn execute_pass2(mc_uri: &McURI, top: Option<&str>) -> Result<(String, Value), J
             info!(target: "crate::pass2", "|   components:  {}", inst.components.len());
             info!(target: "crate::pass2", "|   sub_modules: {}", inst.sub_modules.len());
             info!(target: "crate::pass2", "|   connections: {}", inst.connections.len());
-            for sub in inst.sub_modules.iter() {
+            for sub in crate::instant::arena::arena_sub_modules(&arena, &inst) {
                 info!(target: "crate::pass2", "|     - {} (class {})",
                     sub.name.to_string(), sub.def.name.to_string());
             }
-            let pass2 = collect_pass2(&top_name, &inst, Some(&arena));
+            let pass2 = collect_pass2(&top_name, &inst, Some(&arena), &net_store);
             Ok((top_name, pass2))
         }
         Ok(Err(e)) => Err(JsonRpcError::custom(
@@ -415,10 +415,10 @@ pub(crate) fn run_full_build_envelope(
     let top_name = targets.first().cloned().unwrap_or_else(|| "".to_string());
 
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_virtual_build(&top_name, &mc_uri)
+        crate::mcc_virtual_build_with_nets(&top_name, &mc_uri)
     }));
-    let inst = match built {
-        Ok(Ok(inst)) => inst,
+    let (inst, net_store) = match built {
+        Ok(Ok(pair)) => pair,
         Ok(Err(e)) => {
             return Err(JsonRpcError::custom(
                 32107,
@@ -433,7 +433,7 @@ pub(crate) fn run_full_build_envelope(
         }
     };
 
-    let mut pass2 = collect_pass2(&top_name, &inst, None);
+    let mut pass2 = collect_pass2(&top_name, &inst, None, &net_store);
     pass2["diagnostics"] = Value::Array(take_diags("pass2"));
 
     // ── Summary, mirroring ResultBuilder::finish() ──
@@ -499,35 +499,37 @@ fn run_full_build_dir_envelope(
 
     // ── Pass 2: per-file default top build, aggregated ──
     let mut top_name = String::new();
-    let mut first_inst: Option<crate::MccProjectTree> = None;
+    let mut first_inst: Option<(crate::MccProjectTree, crate::NetTableStore)> = None;
     let mut failures: Vec<Value> = Vec::new();
-    let build_one =
-        |target: &str, file: &Path, failures: &mut Vec<Value>| -> Option<crate::MccProjectTree> {
-            let uri = file.to_string_lossy().to_string();
-            let mc_uri = McURI::from(uri.as_str());
-            let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::mcc_virtual_build(target, &mc_uri)
-            }));
-            match built {
-                Ok(Ok(inst)) => Some(inst),
-                Ok(Err(e)) => {
-                    failures.push(build_failure_diag(
-                        "pass2",
-                        &uri,
-                        &format!("build failed: {e}"),
-                    ));
-                    None
-                }
-                Err(_) => {
-                    failures.push(build_failure_diag(
-                        "pass2",
-                        &uri,
-                        "Pass2 build panicked (engine bug); skipped",
-                    ));
-                    None
-                }
+    let build_one = |target: &str,
+                     file: &Path,
+                     failures: &mut Vec<Value>|
+     -> Option<(crate::MccProjectTree, crate::NetTableStore)> {
+        let uri = file.to_string_lossy().to_string();
+        let mc_uri = McURI::from(uri.as_str());
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::mcc_virtual_build_with_nets(target, &mc_uri)
+        }));
+        match built {
+            Ok(Ok(pair)) => Some(pair),
+            Ok(Err(e)) => {
+                failures.push(build_failure_diag(
+                    "pass2",
+                    &uri,
+                    &format!("build failed: {e}"),
+                ));
+                None
             }
-        };
+            Err(_) => {
+                failures.push(build_failure_diag(
+                    "pass2",
+                    &uri,
+                    "Pass2 build panicked (engine bug); skipped",
+                ));
+                None
+            }
+        }
+    };
 
     if let Some(t) = top {
         // Explicit top: build it from the first file that declares it.
@@ -542,9 +544,9 @@ fn run_full_build_dir_envelope(
             if !declares {
                 continue;
             }
-            if let Some(inst) = build_one(t, f, &mut failures) {
+            if let Some(pair) = build_one(t, f, &mut failures) {
                 top_name = t.to_string();
-                first_inst = Some(inst);
+                first_inst = Some(pair);
             }
             break;
         }
@@ -561,9 +563,9 @@ fn run_full_build_dir_envelope(
             };
             // Build each file's default top; keep the first successful tree.
             if first_inst.is_none() {
-                if let Some(inst) = build_one(&tgt, f, &mut failures) {
+                if let Some(pair) = build_one(&tgt, f, &mut failures) {
                     top_name = tgt;
-                    first_inst = Some(inst);
+                    first_inst = Some(pair);
                 }
             } else {
                 // Only collect diagnostics for the remaining files.
@@ -575,8 +577,8 @@ fn run_full_build_dir_envelope(
     let mut pass2_diags = take_diags("pass2");
     pass2_diags.extend(failures);
     let pass2 = match &first_inst {
-        Some(inst) => {
-            let mut p2 = collect_pass2(&top_name, inst, None);
+        Some((inst, net_store)) => {
+            let mut p2 = collect_pass2(&top_name, inst, None, net_store);
             p2["diagnostics"] = Value::Array(pass2_diags);
             p2
         }
@@ -589,7 +591,13 @@ fn run_full_build_dir_envelope(
         }),
     };
 
-    let summary = build_envelope_summary(&pass0, &pass1, &pass2, first_inst.as_ref(), t0);
+    let summary = build_envelope_summary(
+        &pass0,
+        &pass1,
+        &pass2,
+        first_inst.as_ref().map(|(i, _)| i),
+        t0,
+    );
 
     Ok(json!({
         "command": command,
@@ -954,12 +962,13 @@ pub(crate) fn collect_pass2(
     top: &str,
     inst: &crate::MccProjectTree,
     arena: Option<&crate::NodeArena>,
+    net_store: &crate::NetTableStore,
 ) -> Value {
     json!({
         "top": top,
         "instances": instance_to_json(inst, arena),
-        "connections": extract_connections(inst, arena),
-        "nets":       extract_nets(inst, arena),
+        "connections": extract_connections(inst, arena, net_store),
+        "nets":       extract_nets(inst, arena, net_store),
         "diagnostics": []
     })
 }
@@ -967,9 +976,10 @@ pub(crate) fn collect_pass2(
 pub(crate) fn extract_connections(
     inst: &crate::MccProjectTree,
     arena: Option<&crate::NodeArena>,
+    net_store: &crate::NetTableStore,
 ) -> Vec<Value> {
     let mut out = Vec::new();
-    walk_connections(inst, "", arena, &mut out);
+    walk_connections(inst, "", arena, net_store, &mut out);
     out
 }
 
@@ -983,6 +993,7 @@ pub(crate) fn walk_connections(
     inst: &crate::MccProjectTree,
     scope: &str,
     arena: Option<&crate::NodeArena>,
+    net_store: &crate::NetTableStore,
     out: &mut Vec<Value>,
 ) {
     let my_scope = if scope.is_empty() {
@@ -991,9 +1002,13 @@ pub(crate) fn walk_connections(
         format!("{}.{}", scope, inst.name)
     };
     let mut point_to_net: HashMap<&str, &str> = HashMap::new();
-    for (net_name, points) in &inst.nets {
-        for p in points {
-            point_to_net.entry(p.path.as_str()).or_insert(net_name);
+    // Phase D: the module's frozen union-find net table comes from the store,
+    // keyed by its canonical scope path (the tree never carries `NetPoint`).
+    if let Some(table) = net_store.get(&my_scope) {
+        for (net_name, points) in table {
+            for p in points {
+                point_to_net.entry(p.path.as_str()).or_insert(net_name);
+            }
         }
     }
     for conn in &inst.connections {
@@ -1015,7 +1030,7 @@ pub(crate) fn walk_connections(
         None => inst.sub_modules.iter().collect(),
     };
     for sub in subs {
-        walk_connections(sub, &my_scope, arena, out);
+        walk_connections(sub, &my_scope, arena, net_store, out);
     }
 }
 
@@ -1080,9 +1095,10 @@ pub(crate) fn instance_to_json(
 pub(crate) fn extract_nets(
     inst: &crate::MccProjectTree,
     arena: Option<&crate::NodeArena>,
+    net_store: &crate::NetTableStore,
 ) -> Vec<Value> {
     let mut nets = Vec::new();
-    walk_nets(inst, "", arena, &mut nets);
+    walk_nets(inst, "", arena, net_store, &mut nets);
     nets
 }
 
@@ -1092,6 +1108,7 @@ pub(crate) fn walk_nets(
     inst: &crate::MccProjectTree,
     scope: &str,
     arena: Option<&crate::NodeArena>,
+    net_store: &crate::NetTableStore,
     out: &mut Vec<Value>,
 ) {
     let my_scope = if scope.is_empty() {
@@ -1099,7 +1116,7 @@ pub(crate) fn walk_nets(
     } else {
         format!("{}.{}", scope, inst.name)
     };
-    for (name, points) in inst.sorted_nets() {
+    for (name, points) in net_store.sorted(&my_scope) {
         let points: Vec<String> = points.iter().map(|point| point.path.clone()).collect();
         out.push(json!({ "module": my_scope, "name": name, "points": points }));
     }
@@ -1108,7 +1125,7 @@ pub(crate) fn walk_nets(
         None => inst.sub_modules.iter().collect(),
     };
     for sub in subs {
-        walk_nets(sub, &my_scope, arena, out);
+        walk_nets(sub, &my_scope, arena, net_store, out);
     }
 }
 
@@ -1237,17 +1254,24 @@ pub(crate) fn run_erc() -> RpcResult {
         .unwrap_or_else(|| crate::McURI::from(top.as_str()));
     let ident = crate::McIds::from(top.as_str());
 
-    let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_build(&ident, &uri)
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::mcc_build_with_nets(&ident, &uri)
     }))
     .map_err(|_| JsonRpcError::custom(32111, "semantic: build panicked"))?
     .map_err(|e| JsonRpcError::custom(32111, &format!("semantic: build failed: {e}")))?;
+    let (inst, net_store) = built;
+    // Phase D: the tree never carries `NetPoint` — the root module's frozen
+    // string net table comes from the store (same source the projection and
+    // the other string-net consumers read).
+    let root_nets = net_store
+        .get(&inst.name.to_string())
+        .map(|t| t.to_vec())
+        .unwrap_or_default();
 
     let mut diags: Vec<Value> = Vec::new();
 
     // ── Single-point nets ──
-    let single_point: Vec<&String> = inst
-        .nets
+    let single_point: Vec<&String> = root_nets
         .iter()
         .filter(|(name, points)| {
             !crate::instant::mc_net::is_anon_net_name(name)
@@ -1268,8 +1292,7 @@ pub(crate) fn run_erc() -> RpcResult {
     }
 
     // ── Unconnected ports ──
-    let all_net_paths: std::collections::HashSet<&str> = inst
-        .nets
+    let all_net_paths: std::collections::HashSet<&str> = root_nets
         .iter()
         .flat_map(|(_, pts)| pts.iter())
         .map(|p| p.path.as_str())
@@ -1291,7 +1314,7 @@ pub(crate) fn run_erc() -> RpcResult {
     let mut multi_drive = 0u32;
     let mut floating = 0u32;
 
-    for (name, points) in &inst.nets {
+    for (name, points) in &root_nets {
         if crate::instant::mc_net::is_anon_net_name(name) || name.as_str() == "NC" {
             continue;
         }
@@ -1343,7 +1366,7 @@ pub(crate) fn run_erc() -> RpcResult {
             "errors": diags.iter().filter(|d| d["severity"] == "error").count(),
             "warnings": diags.iter().filter(|d| d["severity"] == "warning").count(),
             "erc": {
-                "net_count": inst.nets.len(),
+                "net_count": root_nets.len(),
                 "connection_count": inst.connections.len(),
                 "component_count": inst.components.len(),
                 "port_count": inst.ports.len(),

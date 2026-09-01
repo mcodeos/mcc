@@ -758,8 +758,8 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         .unwrap_or_else(|| mcc::McURI::from(top.clone()));
 
     // Guardrail: a Pass2 panic must not abort the process.
-    let (inst, arena) =
-        crate::cmds::common::build_pass2_with_arena(&top, &uri).unwrap_or_else(|e| {
+    let (inst, arena, _net_store) = crate::cmds::common::build_pass2_with_arena(&top, &uri)
+        .unwrap_or_else(|e| {
             error!(target: "mcc::show", "{e}");
             std::process::exit(1);
         });

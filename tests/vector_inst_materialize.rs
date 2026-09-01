@@ -22,15 +22,16 @@ static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 const CAP_COMP: &str = "component CAP(cap::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
 
-/// Build `main` and return the module instance (alias of MccProjectTree).
-fn build_main(src: &str, uri: &str) -> mcc::McModuleInst {
+/// Build `main` and return the module instance plus the Phase D frozen string
+/// net-table store (the tree never carries `NetPoint`).
+fn build_main(src: &str, uri: &str) -> (mcc::McModuleInst, mcc::NetTableStore) {
     let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     mcc::mcc_init_no_lib();
     mcc::mcc_set_system_root(std::path::Path::new(""));
     mcc::mcc_clear_workspace();
     let u = McURI::from(uri);
     mcc::mcc_load_from_string(&u, src);
-    mcc::mcc_build(&McIds::from("main"), &u).expect("build")
+    mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build")
 }
 
 /// Build `main` and flatten to the InstTable (§11.1 projection view).
@@ -76,7 +77,7 @@ fn find_vector<'a>(inst: &'a mcc::McModuleInst, base: &str) -> &'a mcc::McVector
 #[test]
 fn module_body_vector_declare_materializes_group() {
     let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\n");
-    let inst = build_main(&src, "/mcc/vinst-module-body.mc");
+    let (inst, _) = build_main(&src, "/mcc/vinst-module-body.mc");
     let v = find_vector(&inst, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"], "ordered member set");
     assert_eq!(v.member_ids, vec!["c1", "c2"], "module-level physical ids");
@@ -105,7 +106,7 @@ fn func_local_vector_declare_materializes_group() {
     let src = format!(
         "{CAP_COMP}module main {{\n    io VDD\n    io GND\n    func M() {{\n        CAP c[1:2](1)\n        c[1:2].Cap([VDD, GND])\n    }}\n}}\n"
     );
-    let inst = build_main(&src, "/mcc/vinst-func-local.mc");
+    let (inst, _) = build_main(&src, "/mcc/vinst-func-local.mc");
     let v = find_vector(&inst, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"]);
     assert_eq!(v.member_ids, vec!["c1", "c2"]);
@@ -118,7 +119,7 @@ fn func_local_vector_declare_materializes_group() {
 #[test]
 fn name_first_vector_declare_materializes_group() {
     let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    c[1:2]::CAP(1)\n}}\n");
-    let inst = build_main(&src, "/mcc/vinst-name-first.mc");
+    let (inst, _) = build_main(&src, "/mcc/vinst-name-first.mc");
     let v = find_vector(&inst, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"]);
     assert_eq!(v.member_ids, vec!["c1", "c2"]);
@@ -130,7 +131,7 @@ fn name_first_vector_declare_materializes_group() {
 #[test]
 fn single_member_range_stays_scalar() {
     let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[2](1)\n}}\n");
-    let inst = build_main(&src, "/mcc/vinst-single.mc");
+    let (inst, _) = build_main(&src, "/mcc/vinst-single.mc");
     assert!(
         inst.vectors.iter().all(|v| v.base != "c"),
         "no vector group for single-member range; vectors={:?}",
@@ -158,16 +159,18 @@ fn single_index_member_reference_stays_scalar() {
     let src = format!(
         "{res_comp}module main {{\n    io VDD\n    io GND\n    res[1:2]::RES(0)\n    res[2] -> GND\n}}\n"
     );
-    let inst = build_main(&src, "/mcc/vinst-single-index.mc");
+    let (inst, net_store) = build_main(&src, "/mcc/vinst-single-index.mc");
     let v = find_vector(&inst, "res");
     assert_eq!(v.member_names, vec!["res1", "res2"]);
     // The `res[2]` operand connects only res2's pin — no broadcast to res1.
-    let gnd_net = inst
-        .nets
+    let gnd_net = net_store
+        .get(&inst.name.to_string())
+        .unwrap_or_default()
         .iter()
         .find(|(n, _)| n.starts_with("GND"))
-        .unwrap_or_else(|| panic!("no GND net; nets={:?}", inst.nets));
-    let paths: Vec<&String> = gnd_net.1.iter().map(|p| &p.path).collect();
+        .cloned()
+        .unwrap_or_else(|| panic!("no GND net"));
+    let paths: Vec<String> = gnd_net.1.iter().map(|p| p.path.clone()).collect();
     assert!(
         paths.iter().any(|p| p.contains("res2.2")),
         "res2 pin 2 on GND net; got {paths:?}"
@@ -187,7 +190,7 @@ fn submodule_vector_declare_materializes_group() {
     let src = format!(
         "{CAP_COMP}module SM {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\nmodule main {{\n    io VDD\n    io GND\n    SM s1()\n}}\n"
     );
-    let inst = build_main(&src, "/mcc/vinst-submodule.mc");
+    let (inst, _) = build_main(&src, "/mcc/vinst-submodule.mc");
     let sm = inst
         .sub_modules
         .iter()

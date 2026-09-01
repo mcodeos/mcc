@@ -86,7 +86,8 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
         .find(|(n, _)| *n == top)
         .map(|(_, u)| mcc::McURI::from(u.as_str()))
         .unwrap_or_else(|| mcc::McURI::from(top.clone()));
-    let (inst, arena) = common::build_pass2_with_arena(&top, &uri).map_err(anyhow::Error::msg)?;
+    let (inst, arena, _net_store) =
+        common::build_pass2_with_arena(&top, &uri).map_err(anyhow::Error::msg)?;
 
     let mut totals = VerifyTotals::default();
     let mut modules: Vec<Value> = Vec::new();
@@ -155,7 +156,7 @@ fn verify_module(
     out: &mut Vec<Value>,
 ) {
     let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
-    let (inst_report, inst_counts) = compare_instances(inst, &content);
+    let (inst_report, inst_counts) = compare_instances(inst, arena, &content);
     totals.source_insts += inst_counts.0;
     totals.expanded_insts += inst_counts.1;
     totals.missing += inst_counts.2;
@@ -191,6 +192,7 @@ fn verify_module(
 
 fn compare_instances(
     inst: &McModuleInst,
+    arena: Option<&NodeArena>,
     content: &Option<String>,
 ) -> (Value, (usize, usize, usize, usize, usize)) {
     // Declared / declareb / funcall-generated families are extracted by the
@@ -251,7 +253,11 @@ fn compare_instances(
             }
         }
     }
-    for sub in &inst.sub_modules {
+    let subs: Vec<&McModuleInst> = match arena {
+        Some(a) => arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in subs {
         expanded_declared.insert(sub.name.clone());
         expanded.push((
             sub.name.clone(),

@@ -16,8 +16,11 @@
 
 use super::arena::{arena_sub_modules, NodeArena};
 use super::mc_mod::McModuleInst;
+use crate::instant::net_store::NetTableStore;
 use crate::semantic::common::IOType;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::rc::Rc;
 
 // ============================================================================
 // InstKind - Instance entry type
@@ -372,6 +375,13 @@ pub struct InstTable {
 
     /// ★ M11.3: full paths of bridge passive components (Transposed 2-pin devices)
     bridge_passive_paths: HashSet<String>,
+
+    /// Phase D: the circuit-wide frozen string net-table store, keyed by
+    /// canonical module path. `flatten_nets` sources each module's table from
+    /// here (`McModuleInst` never carries `NetPoint`); consumers that need the
+    /// tree-level string nets (export netlist, viz ground override) read
+    /// through [`Self::net_table`].
+    net_table: Rc<RefCell<NetTableStore>>,
 }
 
 impl InstTable {
@@ -385,7 +395,15 @@ impl InstTable {
             nets: BTreeMap::new(),
             point_to_net: HashMap::new(),
             bridge_passive_paths: HashSet::new(),
+            net_table: Rc::new(RefCell::new(NetTableStore::new())),
         }
+    }
+
+    /// The circuit-wide frozen string net-table store (Phase D). Tree-level
+    /// string-net consumers that hold a flat table read per-module tables
+    /// here, keyed by canonical module path.
+    pub fn net_table(&self) -> Rc<RefCell<NetTableStore>> {
+        self.net_table.clone()
     }
 
     /// Recursively generate flattened instance table from McModuleInst tree.
@@ -394,8 +412,17 @@ impl InstTable {
     /// tree, e.g. the `mcc build` net-check path. See
     /// [`Self::from_module_inst_with_arena`] for the Phase C arena-driven
     /// variant used by the `DianLu` flatten projection.
-    pub fn from_module_inst(inst: &McModuleInst, start_id: u32) -> Self {
+    ///
+    /// `net_store` (Phase D) carries the circuit-wide frozen string net tables
+    /// produced during construction — the tree no longer stores `NetPoint`, so
+    /// the projection sources each module's table from here.
+    pub fn from_module_inst(
+        inst: &McModuleInst,
+        start_id: u32,
+        net_store: Rc<RefCell<NetTableStore>>,
+    ) -> Self {
         let mut table = InstTable::new(start_id);
+        table.net_table = net_store;
         table.flatten_module(inst, "", None, None);
         // NOTE: no global ground merge here (strict DC rail identity). Ground
         // nets stay exactly as wired: each DC rail keeps its own ground
@@ -415,8 +442,10 @@ impl InstTable {
         inst: &McModuleInst,
         start_id: u32,
         arena: &NodeArena,
+        net_store: Rc<RefCell<NetTableStore>>,
     ) -> Self {
         let mut table = InstTable::new(start_id);
+        table.net_table = net_store;
         table.flatten_module(inst, "", None, Some(arena));
         table
     }
@@ -1240,15 +1269,15 @@ impl InstTable {
             }
         }
 
-        // 7. Register network information (map McModuleInst.nets to InstEntry IDs)
+        // 7. Register network information (module's frozen string net table)
         self.flatten_nets(inst, &my_path);
     }
 
     /// Flatten the module instance's net table into NetEntry records
     ///
-    /// Traverse `McModuleInst.nets` (union-find merged nets),
-    /// add the module prefix to each `NetPoint.path` and map to the registered
-    /// `InstEntry.id`.
+    /// Traverse the module's frozen string net table (Phase D — sourced from
+    /// the circuit-wide store, never from the tree), add the module prefix to
+    /// each `NetPoint.path` and map to the registered `InstEntry.id`.
     ///
     /// ## Path resolution — three-level fallback + bracket expansion
     ///
@@ -1264,13 +1293,18 @@ impl InstTable {
     /// turn caused the layer to see fewer top-level edges (root cause 2).
     ///
     /// See `resolve_netpoint_path` comment for details.
-    fn flatten_nets(&mut self, inst: &McModuleInst, module_path: &str) {
+    fn flatten_nets(&mut self, _inst: &McModuleInst, module_path: &str) {
         // [P0-DET] sorted net-name order: `net_id_counter` is allocated by iteration
         // order, so HashMap order would leak into net ids (and downstream pin ids).
-        // `McModuleInst.nets` is a Vec (a module may hold multiple nets all named
+        // Each module's table is a Vec (a module may hold multiple nets all named
         // "GND"); it is pre-sorted deterministically by build_net_table, so just
         // iterate in order.
-        let net_entries = inst.nets.clone();
+        let net_entries = self
+            .net_table
+            .borrow()
+            .get(module_path)
+            .map(|t| t.to_vec())
+            .unwrap_or_default();
 
         for (net_name, net_points) in net_entries {
             let mut point_ids: Vec<u32> = Vec::new();

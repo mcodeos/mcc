@@ -37,8 +37,10 @@
 //! re-entered body never collides with the sub-module's own products (zero
 //! behavior change). A fresh tree resumes to 0.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 
 use super::{AutoNameKind, CurrentUriGuard, McModuleInst};
 use crate::instant::identity::{CircuitKey, IdentityRegistry};
@@ -46,6 +48,7 @@ use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{
     is_ground_name, ConnectionInst, InstDiagnostic, InstError, NetPoint, NetTable,
 };
+use crate::instant::net_store::NetTableStore;
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_param::McParamBindings;
 use crate::semantic::common::{IOType, McCMIE, SourcePos};
@@ -124,6 +127,20 @@ pub(crate) struct InstantiationBuilder {
     /// (`main`, `main.ldo`, ...). Products intern under
     /// `{current_path}.{name}` so ids are circuit-global.
     current_path: String,
+
+    /// Phase D: this module's own net table (label -> points) under
+    /// construction. Frozen into [`Self::net_store`] at the end of
+    /// `build_net_table` — `McModuleInst` never carries `NetPoint` (projection
+    /// layer only).
+    pub(super) net_table: Vec<(String, Vec<NetPoint>)>,
+
+    /// Phase D: the circuit-wide frozen net-table store, shared with every
+    /// sub-module builder via [`Rc`]. Each module freezes its own table here
+    /// (keyed by canonical path) so the parent's `build_net_table` can read a
+    /// sub-module's table for the ground-tie propagation, and so the finished
+    /// build can hand the projection and the string-net consumers the tables
+    /// without the tree carrying them.
+    pub(super) net_store: Rc<RefCell<NetTableStore>>,
 }
 
 impl Deref for InstantiationBuilder {
@@ -168,24 +185,37 @@ impl InstantiationBuilder {
             tree.node_id = Some(identity.intern(&current_path));
         }
         resume_tree(&mut identity, &current_path, &tree);
-        Self::assemble(tree, identity, current_path)
+        Self::assemble(
+            tree,
+            identity,
+            current_path,
+            Rc::new(RefCell::new(NetTableStore::new())),
+        )
     }
 
     /// Build a sub-module re-entered from its parent (Phase B re-entry): the
     /// registry carries the parent's circuit-global ids and the current path
     /// is the sub-module's full canonical path (`main.ldo`), so products
-    /// intern into the same circuit namespace.
+    /// intern into the same circuit namespace. The shared net-table store is
+    /// handed down so the sub-module's frozen table lands in the same
+    /// circuit-wide store the parent reads for ground-tie propagation.
     pub(crate) fn with_identity(
         tree: McModuleInst,
         identity: IdentityRegistry,
         current_path: String,
+        net_store: Rc<RefCell<NetTableStore>>,
     ) -> Self {
-        Self::assemble(tree, identity, current_path)
+        Self::assemble(tree, identity, current_path, net_store)
     }
 
     /// Shared constructor: resume the construction counters from the tree and
-    /// assemble the builder around `identity` / `current_path`.
-    fn assemble(tree: McModuleInst, identity: IdentityRegistry, current_path: String) -> Self {
+    /// assemble the builder around `identity` / `current_path` / `net_store`.
+    fn assemble(
+        tree: McModuleInst,
+        identity: IdentityRegistry,
+        current_path: String,
+        net_store: Rc<RefCell<NetTableStore>>,
+    ) -> Self {
         let conn_id_counter = tree
             .connections
             .iter()
@@ -207,6 +237,8 @@ impl InstantiationBuilder {
             func_scope: Vec::new(),
             identity,
             current_path,
+            net_table: Vec::new(),
+            net_store,
         }
     }
 
@@ -223,6 +255,15 @@ impl InstantiationBuilder {
     /// parent builder on re-entry.
     pub(crate) fn into_parts(self) -> (McModuleInst, IdentityRegistry) {
         (self.tree, self.identity)
+    }
+
+    /// Clone of the shared circuit-wide net-table store. The top-level entry
+    /// calls this before consuming the builder so the frozen tables survive
+    /// into the [`DianLu`](crate::instant::dianlu::DianLu) / the projection;
+    /// sub-module builders share the same `Rc`, so their `into_parts` needs
+    /// no store extraction (the parent keeps a clone).
+    pub(crate) fn net_store(&self) -> Rc<RefCell<NetTableStore>> {
+        self.net_store.clone()
     }
 
     // ========================================================================
@@ -801,9 +842,19 @@ impl InstantiationBuilder {
         // this layer (only the projection layer used to re-merge them).
         // Only points already registered in the parent table are tied
         // (tie_paths skips unknown paths), matching the projection behavior.
+        //
+        // Phase D: every sub-module froze its own table into the shared
+        // `net_store` (keyed by canonical path) when its `instantiate()`
+        // completed — read it from there; `McModuleInst` no longer carries
+        // net tables.
         for sub in &self.sub_modules {
             let prefix = format!("{}.", sub.name);
-            for (_, pts) in &sub.nets {
+            let sub_path = self.child_path(&sub.name);
+            let store_ref = self.net_store.borrow();
+            let Some(sub_table) = store_ref.get(&sub_path) else {
+                continue;
+            };
+            for (_, pts) in sub_table {
                 let mut grounds: Vec<&str> = Vec::new();
                 for p in pts {
                     // Boundary ground point = the sub-module's own port
@@ -824,14 +875,14 @@ impl InstantiationBuilder {
             }
         }
 
-        self.nets = table
+        self.net_table = table
             .into_nets()
             .into_iter()
             .map(|(name, pts)| (name, pts))
             .collect();
         // [P0-DET] deterministic net order (feeds net ids downstream): sort by
         // name, then by the joined point paths (stable for duplicate "GND").
-        self.nets.sort_by(|a, b| {
+        self.net_table.sort_by(|a, b| {
             a.0.cmp(&b.0).then_with(|| {
                 let ap: String = a.1.iter().map(|p| p.path.as_str()).collect();
                 let bp: String = b.1.iter().map(|p| p.path.as_str()).collect();
@@ -845,7 +896,15 @@ impl InstantiationBuilder {
         // ── A net must have at least 2 points ──
         // A single node is not a net; drop any 1-point residue (e.g. a lone
         // ground label whose pins were all pulled into local GND groups).
-        self.nets.retain(|(_, pts)| pts.len() >= 2);
+        self.net_table.retain(|(_, pts)| pts.len() >= 2);
+
+        // ── Phase D: freeze into the circuit-wide store ──
+        // The projection layer (`InstTable::flatten_nets`) and the string-net
+        // consumers read this module's table from the store, keyed by the
+        // canonical path (`self.current_path`) — never from the frozen model.
+        self.net_store
+            .borrow_mut()
+            .insert(self.current_path.clone(), self.net_table.clone());
     }
 
     // ========================================================================
@@ -887,7 +946,7 @@ impl InstantiationBuilder {
     /// split — only local component pins hanging on a ground hang off the local
     /// ground symbols.
     fn split_ground_nets(&mut self) {
-        if self.nets.len() < 2 || self.connections.is_empty() {
+        if self.net_table.len() < 2 || self.connections.is_empty() {
             return;
         }
 
@@ -915,7 +974,7 @@ impl InstantiationBuilder {
         // points are bare single-segment labels (`GND`, `AGND`, ...) get the
         // per-line local-ground re-partition.
         let ground_net_idx: Vec<usize> = self
-            .nets
+            .net_table
             .iter()
             .enumerate()
             .filter(|(_, (_, pts))| {
@@ -930,7 +989,7 @@ impl InstantiationBuilder {
 
         // Process in reverse so earlier indices stay valid while we remove/insert.
         for &idx in ground_net_idx.iter().rev() {
-            let (name, points) = self.nets.remove(idx);
+            let (name, points) = self.net_table.remove(idx);
             let point_set: HashSet<&str> = points.iter().map(|p| p.path.as_str()).collect();
 
             // Connections touching this net, with line + classification.
@@ -976,7 +1035,7 @@ impl InstantiationBuilder {
                 .collect();
 
             if touches.is_empty() {
-                self.nets.push((name, points));
+                self.net_table.push((name, points));
                 continue;
             }
 
@@ -1145,12 +1204,12 @@ impl InstantiationBuilder {
                 points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
                 groups_str
             );
-            self.nets.extend(out);
+            self.net_table.extend(out);
         }
 
         // [P0-DET] deterministic net order (feeds net ids downstream): sort by
         // name, then by the joined point paths (stable for duplicate "GND").
-        self.nets.sort_by(|a, b| {
+        self.net_table.sort_by(|a, b| {
             a.0.cmp(&b.0).then_with(|| {
                 let ap: String = a.1.iter().map(|p| p.path.as_str()).collect();
                 let bp: String = b.1.iter().map(|p| p.path.as_str()).collect();

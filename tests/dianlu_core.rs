@@ -12,7 +12,9 @@
 //! the projection is taken. These tests lock that contract.
 
 use mcc::McIds;
+use std::cell::RefCell;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
 static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -139,7 +141,8 @@ fn identity_registry_rebuilt_from_frozen_tree_matches() {
         );
     }
     // Rebuilding a DianLu from the frozen tree must reproduce the same ids.
-    let dl2 = mcc::DianLu::new(tree, 1000);
+    // (identity-only view; the Phase D net-table store starts empty here.)
+    let dl2 = mcc::DianLu::new(tree, 1000, Rc::new(RefCell::new(mcc::NetTableStore::new())));
     assert_eq!(
         dl2.identity().node_id_of("main"),
         Some(root_id),
@@ -210,7 +213,7 @@ module main {
         !ldo_products.is_empty(),
         "re-entered sub-module body produced components; conns={ldo_conns:?}"
     );
-    let tree2 = mcc::DianLu::new(tree, 1000);
+    let tree2 = mcc::DianLu::new(tree, 1000, Rc::new(RefCell::new(mcc::NetTableStore::new())));
     let reg = tree2.identity();
     for (path, id) in &ldo_products {
         assert_eq!(
@@ -286,7 +289,7 @@ module main {
     dl.flatten();
     let arena_table = dl.table().expect("flatten ran");
     let tree = dl.tree();
-    let tree_table = mcc::InstTable::from_module_inst(tree, 1000);
+    let tree_table = mcc::InstTable::from_module_inst(tree, 1000, dl.net_store());
 
     assert_eq!(
         flat_signature(arena_table),
@@ -345,4 +348,473 @@ module main {
         "the sub-module circuit produces a nested block tree (got {})",
         vec_tree.total_blocks()
     );
+}
+
+/// Phase D: the lane layer collects one structured `Trunk` per connection
+/// statement from the frozen tree (design §11.3 ③). Component-pin statements
+/// resolve their physical points to `(NodeId, DefMemberId)`; non-component
+/// endpoints (module ports / labels) skip their lane without dropping the
+/// statement trunk.
+#[test]
+fn lane_layer_one_trunk_per_connection_statement() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    io VDD
+    io GND
+    CAP c1
+    CAP c2
+    c1.1 -> c2.1
+    c1.2 -> GND
+}";
+    let dl = build_dianlu(src);
+
+    // Two connection statements → two statement trunks, each carrying its
+    // source span.
+    let trunks = dl.lanes().to_vec();
+    assert_eq!(trunks.len(), 2, "one trunk per connection statement");
+    assert!(
+        trunks.iter().all(|t| t.stmt_span.is_some()),
+        "every statement trunk carries its source span"
+    );
+
+    // `c1.1 -> c2.1`: both endpoints are component pins in the module scope,
+    // so the trunk has one directed lane between the two physical points.
+    assert_eq!(trunks[0].lanes.len(), 1, "component-to-component lane");
+    let lane = &trunks[0].lanes[0];
+    match (&lane.source, &lane.target) {
+        (mcc::PointGroup::One(a), mcc::PointGroup::One(b)) => {
+            let c1 = dl
+                .tree()
+                .components
+                .iter()
+                .find(|c| c.name == "c1")
+                .unwrap();
+            let c2 = dl
+                .tree()
+                .components
+                .iter()
+                .find(|c| c.name == "c2")
+                .unwrap();
+            assert_eq!(a.node, c1.node_id.unwrap(), "source node is c1");
+            assert_eq!(b.node, c2.node_id.unwrap(), "target node is c2");
+            assert_eq!(
+                c1.def.pins.ledger.id_of("1"),
+                Some(a.pin),
+                "source pin is c1's pin 1"
+            );
+        }
+        other => panic!("expected One/One lane, got {other:?}"),
+    }
+
+    // `c1.2 -> GND`: GND is a declared module port — the port-ordinal
+    // convention resolves it to `(main node, port ordinal)`, so the lane is
+    // now complete (component pin on one side, module port on the other).
+    assert_eq!(
+        trunks[1].lanes.len(),
+        1,
+        "port-ordinal resolution gives the port-boundary lane"
+    );
+    match (&trunks[1].lanes[0].source, &trunks[1].lanes[0].target) {
+        (mcc::PointGroup::One(a), mcc::PointGroup::One(b)) => {
+            let c1 = dl
+                .tree()
+                .components
+                .iter()
+                .find(|c| c.name == "c1")
+                .unwrap();
+            assert_eq!(a.node, c1.node_id.unwrap(), "source node is c1");
+            assert_eq!(b.node, dl.tree().node_id.unwrap(), "target node is main");
+            let gnd_ord = dl
+                .tree()
+                .ports
+                .iter()
+                .position(|p| p.name == "GND")
+                .unwrap();
+            assert_eq!(b.pin.0, gnd_ord as u32, "target is main's GND port ordinal");
+        }
+        other => panic!("expected One/One lane, got {other:?}"),
+    }
+}
+
+/// Phase D: the lane-layer walk follows the arena children edges, so
+/// statements of sub-modules are collected too — nesting does not lose
+/// statements, and the statement count equals the tree's total connection
+/// count.
+#[test]
+fn lane_layer_collects_submodule_statements() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module REG(in VIN) {
+    CAP c
+    c.1 -> VIN
+}
+module main {
+    io VDD
+    io GND
+    REG r(VDD)
+    r.c -> GND
+}";
+    let dl = build_dianlu(src);
+    let tree = dl.tree();
+
+    // Expected statements: `c.1 -> VIN` inside `r` (2 points, one statement)
+    // plus `r.c -> GND` inside `main` (one statement).
+    let total: usize = tree.connections.len()
+        + tree
+            .sub_modules
+            .iter()
+            .map(|s| s.connections.len())
+            .sum::<usize>();
+    assert_eq!(
+        dl.lanes().len(),
+        total,
+        "every statement of the tree has a trunk"
+    );
+    assert_eq!(total, 2, "fixture has exactly two connection statements");
+}
+
+/// Phase D: the net layer (design §11.3 ③) derives union-find equivalence
+/// classes from the lane layer — lanes sharing an endpoint collapse into one
+/// net, in first-seen point order.
+#[test]
+fn net_layer_unions_shared_endpoints() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    CAP c1
+    CAP c2
+    CAP c3
+    c1.1 -> c2.1
+    c2.1 -> c3.1
+}";
+    let dl = build_dianlu(src);
+
+    let nets = dl.nets();
+    assert_eq!(
+        nets.len(),
+        1,
+        "two lanes sharing c2.1 collapse into one net"
+    );
+    let net = &nets[0];
+    assert_eq!(net.label, None, "owner-only statement carries no label");
+    assert_eq!(
+        net.points.len(),
+        3,
+        "net members are c1.1, c2.1, c3.1 in written order; got {:?}",
+        net.points
+    );
+    let c1 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c1")
+        .unwrap();
+    let c2 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c2")
+        .unwrap();
+    let c3 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c3")
+        .unwrap();
+    let p1 = mcc::PointId {
+        node: c1.node_id.unwrap(),
+        pin: c1.def.pins.ledger.id_of("1").unwrap(),
+    };
+    let p2 = mcc::PointId {
+        node: c2.node_id.unwrap(),
+        pin: c2.def.pins.ledger.id_of("1").unwrap(),
+    };
+    let p3 = mcc::PointId {
+        node: c3.node_id.unwrap(),
+        pin: c3.def.pins.ledger.id_of("1").unwrap(),
+    };
+    assert_eq!(net.points, vec![p1, p2, p3], "first-seen written order");
+}
+
+/// Phase D: the derived net's label is the first statement label among its
+/// member lanes (`ConnectionInst::net_name`) — a chain statement that
+/// touches a module port at one end keeps its component-side lane and names
+/// the net with the port label.
+#[test]
+fn net_layer_labels_chain_statement() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    io GND
+    CAP c1
+    CAP c2
+    GND -> c1.2 -> c2.2
+}";
+    let dl = build_dianlu(src);
+
+    let nets = dl.nets();
+    assert_eq!(nets.len(), 1, "the chain produces one net");
+    let net = &nets[0];
+    assert_eq!(
+        net.label.as_deref(),
+        Some("GND"),
+        "statement label names the net"
+    );
+    assert_eq!(
+        net.points.len(),
+        3,
+        "the port-ordinal point joins the net: GND + c1.2 + c2.2"
+    );
+}
+
+/// Phase D: the lane layer groups one source statement into one trunk even
+/// when the engine explodes it into per-pair connections — a chain
+/// `GND -> c1.2 -> c2.2` splits into two `ConnectionInst`s but stays one
+/// statement trunk that keeps the resolvable middle lane and the per-point
+/// labels of the connections that introduced them.
+#[test]
+fn lane_layer_one_trunk_per_chain_statement() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    io GND
+    CAP c1
+    CAP c2
+    GND -> c1.2 -> c2.2
+}";
+    let dl = build_dianlu(src);
+    let trunks = dl.lanes();
+    assert_eq!(trunks.len(), 1, "one chain statement -> one trunk");
+    let t = &trunks[0];
+    assert_eq!(
+        t.lanes.len(),
+        2,
+        "the chain's per-pair lanes: GND->c1.2 and c1.2->c2.2"
+    );
+    assert_eq!(t.points.len(), 3, "port + both component pins resolve");
+
+    let c1 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c1")
+        .unwrap();
+    let c2 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c2")
+        .unwrap();
+    let p_c1_2 = mcc::PointId {
+        node: c1.node_id.unwrap(),
+        pin: c1.def.pins.ledger.id_of("2").unwrap(),
+    };
+    let p_c2_2 = mcc::PointId {
+        node: c2.node_id.unwrap(),
+        pin: c2.def.pins.ledger.id_of("2").unwrap(),
+    };
+    let gnd_ord = dl
+        .tree()
+        .ports
+        .iter()
+        .position(|p| p.name == "GND")
+        .unwrap();
+    let p_gnd = mcc::PointId {
+        node: dl.tree().node_id.unwrap(),
+        pin: mcc::DefMemberId(gnd_ord as u32),
+    };
+    assert_eq!(
+        t.points,
+        vec![
+            (p_gnd, Some("GND".to_string())),
+            (p_c1_2, Some("GND".to_string())),
+            (p_c2_2, None),
+        ],
+        "points in written order with the introducing connection's label"
+    );
+}
+
+/// Phase D: a vector broadcast statement (`c[1:2].Cap([VDD, GND])`) explodes
+/// into four connections but stays ONE statement trunk — the per-member,
+/// per-pin points survive the merge with their own connection labels
+/// (members' pin 1 on VDD, pin 2 on GND).
+#[test]
+fn lane_layer_one_trunk_per_broadcast_statement() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    io VDD
+    io GND
+    CAP c[1:2](1)
+    c[1:2].Cap([VDD, GND])
+}";
+    let dl = build_dianlu(src);
+    let trunks = dl.lanes();
+    assert_eq!(trunks.len(), 1, "one broadcast statement -> one trunk");
+    let t = &trunks[0];
+    assert_eq!(
+        t.points.len(),
+        6,
+        "both members x both pins + the VDD/GND port-ordinal points"
+    );
+
+    let c1 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c1")
+        .unwrap();
+    let c2 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c2")
+        .unwrap();
+    let pin1 = c1.def.pins.ledger.id_of("1").unwrap();
+    let pin2 = c1.def.pins.ledger.id_of("2").unwrap();
+    let vdd_ord = dl
+        .tree()
+        .ports
+        .iter()
+        .position(|p| p.name == "VDD")
+        .unwrap();
+    let gnd_ord = dl
+        .tree()
+        .ports
+        .iter()
+        .position(|p| p.name == "GND")
+        .unwrap();
+    let p_vdd = mcc::PointId {
+        node: dl.tree().node_id.unwrap(),
+        pin: mcc::DefMemberId(vdd_ord as u32),
+    };
+    let p_gnd = mcc::PointId {
+        node: dl.tree().node_id.unwrap(),
+        pin: mcc::DefMemberId(gnd_ord as u32),
+    };
+    let expect = vec![
+        (p_vdd, Some("VDD".to_string())),
+        (
+            mcc::PointId {
+                node: c1.node_id.unwrap(),
+                pin: pin1,
+            },
+            Some("VDD".to_string()),
+        ),
+        (
+            mcc::PointId {
+                node: c1.node_id.unwrap(),
+                pin: pin2,
+            },
+            Some("GND".to_string()),
+        ),
+        (p_gnd, Some("GND".to_string())),
+        (
+            mcc::PointId {
+                node: c2.node_id.unwrap(),
+                pin: pin1,
+            },
+            Some("VDD".to_string()),
+        ),
+        (
+            mcc::PointId {
+                node: c2.node_id.unwrap(),
+                pin: pin2,
+            },
+            Some("GND".to_string()),
+        ),
+    ];
+    assert_eq!(
+        t.points, expect,
+        "per-member written order with correct labels"
+    );
+    // Slice keep-bundle: the two member pins collapse into two bundle lanes —
+    // `VDD -> c[1:2].1` and `c[1:2].2 -> GND` — each keeping its members in
+    // the declared member-set order (design §4 / §11.3 ③).
+    assert_eq!(
+        t.lanes.len(),
+        2,
+        "one Slice lane per member pin, not one per exploded connection"
+    );
+    let vec_node = dl.tree().vectors[0].node_id.unwrap();
+    match (&t.lanes[0].source, &t.lanes[0].target) {
+        (mcc::PointGroup::One(src), mcc::PointGroup::Slice { base, members }) => {
+            assert_eq!(src.node, p_vdd.node, "source is the VDD port point");
+            assert_eq!(base.node, vec_node, "base is the vector grouping node");
+            assert_eq!(base.pin, pin1, "base pin is the members' shared pin 1");
+            let m1 = mcc::PointId {
+                node: c1.node_id.unwrap(),
+                pin: pin1,
+            };
+            let m2 = mcc::PointId {
+                node: c2.node_id.unwrap(),
+                pin: pin1,
+            };
+            assert_eq!(members, &vec![m1, m2], "members in declared order c1, c2");
+        }
+        other => panic!("expected One -> Slice lane, got {other:?}"),
+    }
+    match (&t.lanes[1].source, &t.lanes[1].target) {
+        (mcc::PointGroup::Slice { base, members }, mcc::PointGroup::One(tgt)) => {
+            assert_eq!(base.node, vec_node, "base is the vector grouping node");
+            assert_eq!(base.pin, pin2, "base pin is the members' shared pin 2");
+            assert_eq!(tgt.node, p_gnd.node, "target is the GND port point");
+            let m1 = mcc::PointId {
+                node: c1.node_id.unwrap(),
+                pin: pin2,
+            };
+            let m2 = mcc::PointId {
+                node: c2.node_id.unwrap(),
+                pin: pin2,
+            };
+            assert_eq!(members, &vec![m1, m2], "members in declared order c1, c2");
+        }
+        other => panic!("expected Slice -> One lane, got {other:?}"),
+    }
 }

@@ -51,7 +51,11 @@ pub fn build_kicad_netlist(
 
     // Nets
     let mut netmap: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    collect_nets(tree, arena, &mut netmap);
+    // Phase D: the tree never stores NetPoint — read the frozen per-module
+    // string net tables from the flat table's store.
+    let store_ref = table.net_table();
+    let store_ref = store_ref.borrow();
+    collect_nets(tree, arena, &store_ref, &mut netmap);
     out.push_str("  (nets\n");
     let mut net_code: u32 = 1;
     for (net_name, points) in &netmap {

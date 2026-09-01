@@ -54,13 +54,20 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         .map(|(_, u)| u.clone())
         .unwrap_or_else(|| top.clone());
 
-    let inst = crate::cmds::common::build_pass2(top.as_str(), &uri)
+    let (inst, net_store) = crate::cmds::common::build_pass2_with_nets(top.as_str(), &uri)
         .map_err(|e| anyhow::anyhow!("erc: {e}"))?;
 
     let mut diags: Vec<serde_json::Value> = Vec::new();
 
+    // Phase D: the tree never stores NetPoint — the per-module string net
+    // tables come from the frozen store, keyed by the root module's path.
+    let root_nets = net_store
+        .get(&inst.name.to_string())
+        .map(|t| t.to_vec())
+        .unwrap_or_default();
+
     // ── Single-point nets ──
-    for (name, points) in &inst.nets {
+    for (name, points) in &root_nets {
         if mcc::instant::mc_net::is_anon_net_name(name) || name == "NC" {
             continue;
         }
@@ -77,8 +84,7 @@ fn run_local(args: &ErcArgs) -> Result<()> {
     }
 
     // ── Unconnected ports ──
-    let all_paths: std::collections::HashSet<&str> = inst
-        .nets
+    let all_paths: std::collections::HashSet<&str> = root_nets
         .iter()
         .flat_map(|(_, pts)| pts.iter())
         .map(|p| p.path.as_str())
@@ -121,7 +127,7 @@ fn run_local(args: &ErcArgs) -> Result<()> {
             .map_or(false, mcc::instant::mc_net::looks_like_power_rail)
     };
 
-    for (name, points) in &inst.nets {
+    for (name, points) in &root_nets {
         if mcc::instant::mc_net::is_anon_net_name(name) || name.as_str() == "NC" {
             continue;
         }
@@ -172,7 +178,7 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         "command": "erc",
         "top": top,
         "summary": {
-            "net_count": inst.nets.len(),
+            "net_count": root_nets.len(),
             "connection_count": inst.connections.len(),
             "component_count": inst.components.len(),
             "port_count": inst.ports.len(),

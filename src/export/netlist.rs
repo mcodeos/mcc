@@ -1,7 +1,9 @@
 // Copyright (c) 2026 MCode
 //! Netlist export
 
-use crate::export::{for_each_module_with_arena, NodeArena};
+use crate::export::NodeArena;
+use crate::instant::arena::arena_sub_modules;
+use crate::instant::net_store::NetTableStore;
 use crate::McModuleInst;
 use crate::NetPoint;
 use serde_json::{json, Value};
@@ -12,9 +14,10 @@ pub fn build_netlist(
     arena: &NodeArena,
     top: &str,
     format: u8,
+    net_store: &NetTableStore,
 ) -> (String, Value, usize) {
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    collect_nets(tree, arena, &mut nets);
+    collect_nets(tree, arena, net_store, &mut nets);
     let nets: BTreeMap<String, Vec<String>> = nets
         .into_iter()
         .filter(|(n, _)| {
@@ -41,13 +44,22 @@ pub fn build_netlist(
     }
 }
 
+/// Collect the flat netlist from the tree-level string net tables (Phase D —
+/// sourced from the frozen `net_store`, never from the tree). Walks the
+/// module tree arena-first with the canonical module path (the same path the
+/// store keys on: `main`, `main.ldo`, ...) and merges every module's net
+/// points into one name-keyed map.
 pub fn collect_nets(
     inst: &McModuleInst,
     arena: &NodeArena,
+    net_store: &NetTableStore,
     out: &mut BTreeMap<String, Vec<String>>,
 ) {
-    for_each_module_with_arena(inst, arena, &mut |m| {
-        for (name, points) in &m.nets {
+    let mut walk = |_m: &McModuleInst, path: &str, out: &mut BTreeMap<String, Vec<String>>| {
+        let Some(table) = net_store.get(path) else {
+            return;
+        };
+        for (name, points) in table {
             for np in points {
                 let pt = pin_label(np);
                 let entry = out.entry(name.clone()).or_default();
@@ -56,7 +68,22 @@ pub fn collect_nets(
                 }
             }
         }
-    });
+    };
+    collect_nets_impl(inst, arena, &inst.name.clone(), &mut walk, out);
+}
+
+fn collect_nets_impl(
+    inst: &McModuleInst,
+    arena: &NodeArena,
+    path: &str,
+    f: &mut impl FnMut(&McModuleInst, &str, &mut BTreeMap<String, Vec<String>>),
+    out: &mut BTreeMap<String, Vec<String>>,
+) {
+    f(inst, path, out);
+    for sub in arena_sub_modules(arena, inst) {
+        let sub_path = format!("{path}.{}", sub.name);
+        collect_nets_impl(sub, arena, &sub_path, f, out);
+    }
 }
 
 fn pin_label(np: &NetPoint) -> String {
