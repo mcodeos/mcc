@@ -25,7 +25,7 @@
 use super::arena::{build_node_arena, NodeArena};
 use super::descriptions::DescriptionLayer;
 use super::insttab::InstTable;
-use super::lane::{collect_stmt_trunks, derive_nets, finalize_net_ids, Net, Trunk};
+use super::lane::{collect_stmt_trunks, derive_nets, finalize_net_ids, Net, NetId, PointId, Trunk};
 use super::mc_mod::McModuleInst;
 use super::overlays::Overlays;
 use crate::db::diagnostic::diagnostic::Diagnostic;
@@ -33,6 +33,7 @@ use crate::instant::identity::{anchored_child_key, CircuitKey, IdentityRegistry}
 use crate::instant::net_store::NetTableStore;
 use crate::McSpaceName;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 /// One instantiation of one entry module — the physical model plus its flat
@@ -67,6 +68,11 @@ pub struct DianLu {
     /// classes derived from `lanes`, rebuilt on construction. Derived index,
     /// never primary storage: the projection `NetTable` stays authoritative.
     nets: Vec<Net>,
+    /// §11.5.2 read-side API: point → owning net reverse index, built after
+    /// `finalize_net_ids` so ids are final. Derived index, never primary
+    /// storage — a point belongs to exactly one union-find net, so the map is
+    /// exact. Backs [`DianLu::point_net`] / [`DianLu::point_fanout`].
+    point_net: HashMap<PointId, NetId>,
     /// Phase D: the circuit-wide frozen string net-table store produced
     /// during construction (`McModuleInst` never carries `NetPoint` — the
     /// projection layer only). The flat projection and every tree-level string
@@ -139,6 +145,12 @@ impl DianLu {
         let lanes = collect_stmt_trunks(&tree, &arena);
         let mut nets = derive_nets(&lanes);
         finalize_net_ids(&mut nets, identity);
+        // §11.5.2 read API reverse index: built after `finalize_net_ids` so the
+        // ids are final (labeled nets interned, unlabeled assigned).
+        let point_net: HashMap<PointId, NetId> = nets
+            .iter()
+            .flat_map(|n| n.points.iter().map(move |p| (*p, n.id)))
+            .collect();
         let identity = identity.clone();
         let overlays = Overlays::derive(&tree, &nets);
         let descriptions = DescriptionLayer::derive(&tree, &lanes, &overlays, &net_store.borrow());
@@ -151,6 +163,7 @@ impl DianLu {
             arena,
             lanes,
             nets,
+            point_net,
             net_table: net_store,
             overlays,
             descriptions,
@@ -190,6 +203,11 @@ impl DianLu {
     /// `NetTable` remains the authoritative flat netlist.
     pub fn nets(&self) -> &[Net] {
         &self.nets
+    }
+
+    /// The §11.5.2 read-side point → net reverse index (built at assemble).
+    pub(crate) fn point_net_index(&self) -> &HashMap<PointId, NetId> {
+        &self.point_net
     }
 
     /// The circuit-wide frozen string net-table store (Phase D). Tree-level

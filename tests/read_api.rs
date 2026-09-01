@@ -1,0 +1,182 @@
+// Copyright (c) 2026 MCode
+//
+// Licensed under either of Apache License, Version 2.0 or MIT License at your option.
+
+//! §11.5.2 read-side structural query API (dianlu-tree-architecture-plan §11.5.2).
+//!
+//! A small query layer sitting on arena + lanes + nets so consumers (LSP /
+//! drawing / ERC) read through it uniformly instead of re-walking the
+//! recursive tree: `point.net()` / `net.points()` / `net.fanout(point)` /
+//! `lane.owner_trunk()` / module subtree walk. These tests lock the surface
+//! on real `DianLu` builds.
+
+use mcc::McIds;
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+
+static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+/// Reset the mcc_* workspace for one test. The caller must hold `TEST_LOCK`.
+fn reset_workspace() {
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(Path::new(""));
+    mcc::mcc_clear_workspace();
+}
+
+/// Build a `DianLu` for `src` and return it. The caller must hold `TEST_LOCK`.
+fn build_dianlu(src: &str) -> mcc::DianLu {
+    let uri = "/mcc/read-api.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let ident = McIds::from("main");
+    mcc::mcc_build_dianlu(&ident, &uri, 1000).expect("mcc_build_dianlu")
+}
+
+/// `point.net()` and `net.fanout(point)`: a broadcast
+/// `c[1:2].Cap([VDD, GND])` unions each member pin with its scalar endpoint.
+/// The VDD net holds VDD + c1.1 + c2.1; every one of those points resolves
+/// back to that net, and fanout is exactly the net's member set.
+#[test]
+fn read_api_point_net_and_fanout() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    io VDD
+    io GND
+    CAP c[1:2](1)
+    c[1:2].Cap([VDD, GND])
+}";
+    let dl = build_dianlu(src);
+    let tree = dl.tree();
+    let c1 = tree.components.iter().find(|c| c.name == "c1").unwrap();
+    let c2 = tree.components.iter().find(|c| c.name == "c2").unwrap();
+    let pin1 = c1.def.pins.ledger.id_of("1").unwrap();
+    let vdd_ord = tree.ports.iter().position(|p| p.name == "VDD").unwrap();
+    let p_vdd = mcc::PointId {
+        node: tree.node_id.unwrap(),
+        pin: mcc::DefMemberId(vdd_ord as u32),
+    };
+    let p_c1_1 = mcc::PointId {
+        node: c1.node_id.unwrap(),
+        pin: pin1,
+    };
+    let p_c2_1 = mcc::PointId {
+        node: c2.node_id.unwrap(),
+        pin: pin1,
+    };
+
+    let vdd_net = dl.point_net(p_vdd).expect("VDD point resolves to a net");
+    assert_eq!(vdd_net.points().len(), 3, "VDD + c1.1 + c2.1");
+    for p in [p_vdd, p_c1_1, p_c2_1] {
+        assert!(vdd_net.points().contains(&p), "net contains {p}");
+        // Every member of the net resolves back to the same net.
+        assert!(
+            dl.point_net(p).is_some_and(|n| n.id == vdd_net.id),
+            "{p} resolves to the VDD net"
+        );
+        // Fanout is exactly the net's member set.
+        let fanout = dl.point_fanout(p).expect("fanout of a net member");
+        assert_eq!(fanout, vdd_net.points(), "fanout of {p} equals net points");
+    }
+}
+
+/// `lane.owner_trunk()`: a broadcast statement's lanes all belong to the one
+/// statement trunk, resolve back to it by containment, and the `(trunk,
+/// ordinal)` LaneRef spelling (`lane`) returns the same lanes in order.
+#[test]
+fn read_api_lane_owner_trunk() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    io VDD
+    io GND
+    CAP c[1:2](1)
+    c[1:2].Cap([VDD, GND])
+}";
+    let dl = build_dianlu(src);
+    let trunks = dl.lanes();
+    assert_eq!(trunks.len(), 1, "one trunk for the one broadcast statement");
+    let trunk = &trunks[0];
+    assert!(!trunk.lanes.is_empty(), "the broadcast emits lanes");
+
+    for (ord, lane) in trunk.lanes.iter().enumerate() {
+        let owner = dl.lane_owner_trunk(lane).expect("lane has an owning trunk");
+        assert_eq!(
+            owner.id, trunk.id,
+            "lane {ord} belongs to the statement trunk"
+        );
+        let ref_lane = dl
+            .lane(trunk.id, ord)
+            .expect("(trunk, ordinal) LaneRef resolves");
+        assert_eq!(
+            ref_lane, lane,
+            "LaneRef {}:{ord} returns the lane",
+            trunk.id
+        );
+    }
+}
+
+/// Module subtree walk + arena edges: a two-level tree (`main` → `r1` → `s1`
+/// plus `main` → `c1`) — the walk from the root visits every node id, and
+/// `children`/`parent` expose the arena edges.
+#[test]
+fn read_api_module_subtree_and_edges() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component RES(res::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module SUB {
+    RES s1
+}
+module main {
+    SUB r1
+    RES c1
+}";
+    let dl = build_dianlu(src);
+    let tree = dl.tree();
+    let root = tree.node_id.unwrap();
+    let r1 = tree.sub_modules.iter().find(|s| s.name == "r1").unwrap();
+    let c1 = tree.components.iter().find(|c| c.name == "c1").unwrap();
+    let s1 = r1.components.iter().find(|c| c.name == "s1").unwrap();
+
+    let subtree = dl.module_subtree(root);
+    assert_eq!(subtree[0], root, "walk starts at the root");
+    for (label, id) in [
+        ("r1", r1.node_id.unwrap()),
+        ("c1", c1.node_id.unwrap()),
+        ("s1", s1.node_id.unwrap()),
+    ] {
+        assert!(subtree.contains(&id), "subtree contains {label}");
+    }
+
+    // Arena edges expose the parent/child structure.
+    assert!(dl.children(root).unwrap().contains(&r1.node_id.unwrap()));
+    assert!(dl.children(root).unwrap().contains(&c1.node_id.unwrap()));
+    assert_eq!(dl.parent(r1.node_id.unwrap()), Some(root));
+    assert_eq!(dl.parent(s1.node_id.unwrap()), r1.node_id);
+    assert_eq!(dl.parent(c1.node_id.unwrap()), Some(root));
+}

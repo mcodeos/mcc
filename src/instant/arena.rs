@@ -310,6 +310,44 @@ pub fn arena_sub_modules<'a>(
         .map(|(_, sub)| sub)
 }
 
+/// Arena-driven component iterator (design §4 — the tree is a view over
+/// arena edges): the Device-kind `children` ids of the module's node drive
+/// the traversal, and the component data is fetched from the aligned tree
+/// node. The two orders coincide (both are the module's build order); a
+/// `debug_assert` guards the 1:1 alignment on every call. The `TreeView`
+/// (instance_store.rs) delegates to this iterator while the Phase C
+/// dual-track removal is in flight.
+#[allow(dead_code)]
+pub fn arena_components<'a>(
+    arena: &'a NodeArena,
+    inst: &'a McModuleInst,
+) -> impl Iterator<Item = &'a McComponentInst> + 'a {
+    let module_id = inst
+        .node_id
+        .expect("Phase C1 invariant: a frozen module carries a node_id");
+    let module_children: Vec<NodeId> = arena
+        .children(module_id)
+        .unwrap_or(&[])
+        .iter()
+        .copied()
+        .filter(|cid| {
+            arena
+                .node(*cid)
+                .map(|n| n.kind == NodeKind::Device)
+                .unwrap_or(false)
+        })
+        .collect();
+    debug_assert_eq!(
+        module_children.len(),
+        inst.components.len(),
+        "Phase C invariant: arena Device children align 1:1 with the tree's components"
+    );
+    module_children
+        .into_iter()
+        .zip(inst.components.iter())
+        .map(|(_, comp)| comp)
+}
+
 /// Device node pins: the component class's pin ordinals in declaration order.
 /// `get_all_pins()` sorts by name, so the append-only member ledger (invariant
 /// C) is the declaration-order source.
