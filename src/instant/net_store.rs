@@ -2,8 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Frozen per-module string net tables (dianlu-tree refactor Phase D,
-//! verification item: `McModuleInst.nets` field disappears).
+//! Frozen per-module data of one instantiation (dianlu-tree refactor
+//! Phase D/E): string net tables (Phase D) and overlay fragments (Phase E).
 //!
 //! The `NetPoint` tables produced by construction-time `build_net_table`
 //! (union-find merged nets, ground re-partition) are the projection layer's
@@ -13,14 +13,25 @@
 //! canonical module path (`main`, `main.ldo`, ...), and the projection plus
 //! the flat consumers read them from the frozen store. Invariant B: the
 //! projection output is byte-identical to the pre-refactor form.
+//!
+//! Phase E adds the overlay fragments — each module's label registry and bus
+//! table ([`ModuleOverlay`](super::overlays::ModuleOverlay)) — to the same
+//! store, keyed by the same canonical path, so labels/buses leave
+//! `McModuleInst` and the projection consumers read them from here.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::LazyLock;
 
+use super::mc_bus::McBusInst;
 use super::mc_net::NetPoint;
+use super::overlays::ModuleOverlay;
 
-/// The frozen per-module net tables of one instantiation.
+static EMPTY_LABELS: LazyLock<HashMap<String, NetPoint>> = LazyLock::new(HashMap::new);
+static EMPTY_BUSES: LazyLock<HashMap<String, McBusInst>> = LazyLock::new(HashMap::new);
+
+/// The frozen per-module data of one instantiation.
 ///
 /// Key: canonical module path — identical to the path scheme of the flat
 /// projection (`flatten_module`'s `my_path`) and the arena-walk consumers.
@@ -29,6 +40,8 @@ use super::mc_net::NetPoint;
 #[derive(Debug, Default, Clone)]
 pub struct NetTableStore {
     tables: HashMap<String, Vec<(String, Vec<NetPoint>)>>,
+    /// Per-module overlay fragments (labels + buses, Phase E).
+    fragments: HashMap<String, ModuleOverlay>,
 }
 
 impl NetTableStore {
@@ -76,6 +89,38 @@ impl NetTableStore {
     /// Per-module iteration: (canonical path, net table).
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Vec<(String, Vec<NetPoint>)>)> {
         self.tables.iter()
+    }
+
+    // ------------------------------------------------------------------------
+    // Phase E: per-module overlay fragments (labels + buses)
+    // ------------------------------------------------------------------------
+
+    /// Insert (or replace) one module's overlay fragment (labels + buses).
+    pub fn insert_fragment(&mut self, path: impl Into<String>, overlay: ModuleOverlay) {
+        self.fragments.insert(path.into(), overlay);
+    }
+
+    /// The overlay fragment of the module at `path`, if that module was built.
+    pub fn fragment(&self, path: &str) -> Option<&ModuleOverlay> {
+        self.fragments.get(path)
+    }
+
+    /// The label registry of the module at `path` (empty when none / not
+    /// built). The caller must not hold the store borrow across a mutable
+    /// store operation.
+    pub fn labels_of(&self, path: &str) -> &HashMap<String, NetPoint> {
+        self.fragments
+            .get(path)
+            .map(|f| &f.labels)
+            .unwrap_or(&EMPTY_LABELS)
+    }
+
+    /// The bus table of the module at `path` (empty when none / not built).
+    pub fn buses_of(&self, path: &str) -> &HashMap<String, McBusInst> {
+        self.fragments
+            .get(path)
+            .map(|f| &f.buses)
+            .unwrap_or(&EMPTY_BUSES)
     }
 
     /// Move the store into the shared-cell form used during construction

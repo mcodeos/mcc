@@ -26,6 +26,7 @@ use super::arena::{build_node_arena, NodeArena};
 use super::insttab::InstTable;
 use super::lane::{collect_stmt_trunks, derive_nets, Net, Trunk};
 use super::mc_mod::McModuleInst;
+use super::overlays::Overlays;
 use crate::db::diagnostic::diagnostic::Diagnostic;
 use crate::instant::identity::{CircuitKey, IdentityRegistry};
 use crate::instant::net_store::NetTableStore;
@@ -70,6 +71,12 @@ pub struct DianLu {
     /// net consumer read their per-module tables from here, keyed by canonical
     /// module path (`main`, `main.ldo`, ...).
     net_table: Rc<RefCell<NetTableStore>>,
+    /// Phase E: circuit-level derived overlay (design §3/§4, plan §9 E) —
+    /// the label → net annotation (`labels`) and the `name_index` /
+    /// `point_index` lookup caches (design §5 D5), derived per build from the
+    /// frozen tree and its net layer. Pure annotation overlay: never
+    /// participates in identity.
+    overlays: Overlays,
 }
 
 impl DianLu {
@@ -81,6 +88,7 @@ impl DianLu {
         let arena = build_node_arena(&tree);
         let lanes = collect_stmt_trunks(&tree, &arena);
         let nets = derive_nets(&lanes);
+        let overlays = Overlays::derive(&tree, &nets);
         DianLu {
             tree,
             start_id,
@@ -91,6 +99,7 @@ impl DianLu {
             lanes,
             nets,
             net_table: net_store,
+            overlays,
         }
     }
 
@@ -133,6 +142,13 @@ impl DianLu {
     /// keyed by canonical module path.
     pub fn net_store(&self) -> Rc<RefCell<NetTableStore>> {
         self.net_table.clone()
+    }
+
+    /// The circuit-level derived overlay (Phase E): the label → net
+    /// annotation plus the `name_index` / `point_index` lookup caches. Pure
+    /// annotation layer, derived per build; consumers never mutate it.
+    pub fn overlays(&self) -> &Overlays {
+        &self.overlays
     }
 
     /// Consume the object, discarding any flat projection.

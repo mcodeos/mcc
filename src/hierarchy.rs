@@ -13,6 +13,7 @@
 //! emits for its sections), [`build_hierarchy`] nests those nodes by their
 //! dot path, and [`render_hierarchy_text`] draws the ASCII tree.
 
+use crate::instant::net_store::NetTableStore;
 use crate::{InstOrigin, McInstance, McModuleInst};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -137,6 +138,8 @@ fn is_bracket_port_member(inst: &McModuleInst, name: &str) -> bool {
 /// `L<n>` column.
 pub fn extract_instance_families(
     inst: &McModuleInst,
+    path: &str,
+    store: &NetTableStore,
     content: &Option<String>,
 ) -> InstanceFamilies {
     let mut source: Vec<(String, String, u32, Option<String>, String)> = Vec::new();
@@ -161,7 +164,8 @@ pub fn extract_instance_families(
             .unwrap_or(0)
     };
     let label_line = |name: &str| -> u32 {
-        inst.get_labels()
+        store
+            .labels_of(path)
             .get(name)
             .and_then(|p| p.src_pos.as_ref().map(|pos| pos.offset as usize))
             .map(|pos| content.as_ref().map(|c| line_of_byte(c, pos)).unwrap_or(0))
@@ -382,9 +386,10 @@ pub fn collect_module_nodes(
     inst: &McModuleInst,
     path: &str,
     arena: Option<&crate::instant::arena::NodeArena>,
+    store: &NetTableStore,
 ) -> Vec<Value> {
     let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
-    let fam = extract_instance_families(inst, &content);
+    let fam = extract_instance_families(inst, path, store, &content);
     let instances = json!({
         "source": fam.source.iter().map(|(n, k, l, cl, o)| json!({
             "name": n, "kind": k, "line": l, "class": cl, "origin": o,
@@ -406,6 +411,7 @@ pub fn collect_module_nodes(
             sub,
             &format!("{path}.{}", sub.name),
             arena,
+            store,
         ));
     }
     out

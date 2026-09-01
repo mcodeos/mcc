@@ -2,8 +2,9 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Pass2 namespace unification — [`InstFindInst`] trait, [`InstEntry`] enum,
-//! and [`ExpansionContext`] for func body expansion name resolution.
+//! Pass2 namespace unification — [`InstEntry`] enum, the instance-layer
+//! scope units and [`ExpansionContext`] for func body expansion name
+//! resolution.
 //!
 //! Phase 2.5 of the namespace refactoring plan.
 
@@ -13,6 +14,8 @@ use std::sync::Arc;
 use super::super::mc_bus::McBusInst;
 use super::super::mc_comp::McComponentInst;
 use super::super::mc_net::{NetPoint, PortInst};
+use super::super::net_store::NetTableStore;
+use super::builder::InstantiationBuilder;
 use super::McModuleInst;
 use crate::semantic::basic::mc_param::McParamBindings;
 use crate::semantic::scope::{ResolveScope, ScopeChain};
@@ -24,9 +27,9 @@ use crate::semantic::scope::{ResolveScope, ScopeChain};
 // they live here instead of `semantic::scope` — only the composition
 // mechanism (`ScopeChain` / `ResolveScope`) is shared across layers.
 //
-// Deviation note: mechanism B (InstFindInst) resolves into [`InstEntry`],
-// not [`NetPoint`] — [`InstEntry::Component`]/[`InstEntry::SubModule`] carry
-// the recursive terminals that `resolve_inst_chain` needs; `NetPoint` is
+// Deviation note: mechanism B resolves into [`InstEntry`], not [`NetPoint`]
+// — [`InstEntry::Component`]/[`InstEntry::SubModule`] carry the recursive
+// terminals that the overlay chain resolver needs; `NetPoint` is
 // terminal-only and would break arbitrary-depth DOT resolution.
 
 // Instance-layer scope units (T = NetPoint). `resolve_name` (their former
@@ -147,6 +150,11 @@ struct ComponentPinsScope<'a> {
     pins: &'a HashMap<String, NetPoint>,
 }
 
+/// Production resolution of component pins is inline in
+/// [`resolve_chain_overlay`] (a `Component` segment reads its pin table
+/// directly); this scope unit is kept as test-covered behavior for the
+/// single-level resolution chain.
+#[allow(dead_code)]
 impl<'a> ComponentPinsScope<'a> {
     fn new(pins: &'a HashMap<String, NetPoint>) -> Self {
         Self { pins }
@@ -269,8 +277,8 @@ impl ResolveScope<InstEntry> for ModuleBusesScope<'_> {
 /// instantiation phase.
 ///
 /// Uses [`Arc`] for compound types ([`McComponentInst`], [`McModuleInst`])
-/// so that [`resolve_inst_chain`] can recursively call
-/// [`InstFindInst::find_inst`] on sub-modules without lifetime constraints.
+/// so that [`resolve_chain_overlay`] can carry a sub-module across DOT-chain
+/// segments without lifetime constraints.
 ///
 /// `Port`/`Label`/`Bus` payloads are read only by the terminal-resolution
 /// tests (`resolve_*_terminal`); production code matches on the variant and
@@ -281,8 +289,8 @@ pub enum InstEntry {
     /// A component instance (e.g. `R1`, `U1`) — holds the actual instance
     /// for pin-level resolution.
     Component(Arc<McComponentInst>),
-    /// A sub-module instance — holds the actual instance so
-    /// [`InstFindInst::find_inst`] can recurse arbitrarily deep.
+    /// A sub-module instance — holds the actual instance so the overlay
+    /// chain resolver can descend arbitrarily deep.
     SubModule(Arc<McModuleInst>),
     /// A port connection point (terminal — no further DOT resolution)
     Port(NetPoint),
@@ -290,28 +298,6 @@ pub enum InstEntry {
     Label(NetPoint),
     /// A bus (collection of connection points; terminal)
     Bus(Vec<NetPoint>),
-}
-
-// ============================================================================
-// InstFindInst trait
-// ============================================================================
-
-/// Pass2 namespace lookup trait — parallel to [`crate::HasFindInst`] but
-/// operates on instantiated types instead of semantic definition types.
-///
-/// # Design
-///
-/// The priority chain mirrors Pass1 [`HasFindInst`]:
-///   - [`McModuleInst`]: ports → labels → components → sub_modules → buses
-///   - [`McComponentInst`]: pins only
-///
-/// [`InstEntry::SubModule`] holds an [`Arc<McModuleInst>`], enabling
-/// recursive DOT-chain resolution via [`resolve_inst_chain`] with no
-/// depth limit — unlike the previous ad-hoc 2-level scope drilling in
-/// `funccall.rs`.
-pub trait InstFindInst {
-    /// Look up a name in the instance namespace.
-    fn find_inst(&self, name: &str) -> Option<InstEntry>;
 }
 
 // ============================================================================
@@ -323,7 +309,8 @@ pub trait InstFindInst {
 /// Provides name resolution during component function body expansion.
 /// Only the expanded instance is consulted directly: func params are
 /// substituted via [`substitute_stmt`](crate::instant::mc_mod::subst), and
-/// parent-scope resolution goes through [`resolve_inst_chain`] instead.
+/// parent-scope resolution goes through the overlay-aware chain resolver
+/// ([`resolve_chain_overlay`]) instead.
 pub struct ExpansionContext<'a> {
     /// The component instance being expanded
     pub instance: &'a McComponentInst,
@@ -337,74 +324,70 @@ impl<'a> ExpansionContext<'a> {
 }
 
 // ============================================================================
-// impl InstFindInst for McComponentInst
+// Overlay-aware resolution (Phase E)
 // ============================================================================
 
-impl InstFindInst for McComponentInst {
-    fn find_inst(&self, name: &str) -> Option<InstEntry> {
-        // Component instances only have pin-level resolution.
-        ScopeChain::new(vec![Box::new(ComponentPinsScope::new(&self.pins))]).resolve(name)
-    }
+/// Resolve `name` inside `tree`'s module scope with the Phase E overlay:
+/// ports and components and sub-modules come from the tree; labels and buses
+/// come from `scratch` when provided (a builder under construction — its
+/// scratch is newer than any frozen fragment), otherwise from the store's
+/// frozen fragment for `path`.
+fn module_find_overlay(
+    tree: &McModuleInst,
+    path: &str,
+    scratch: Option<(&HashMap<String, NetPoint>, &HashMap<String, McBusInst>)>,
+    store: &NetTableStore,
+    name: &str,
+) -> Option<InstEntry> {
+    let (labels, buses): (&HashMap<String, NetPoint>, &HashMap<String, McBusInst>) = match scratch {
+        Some((l, b)) => (l, b),
+        None => (store.labels_of(path), store.buses_of(path)),
+    };
+    ScopeChain::new(vec![
+        Box::new(ModulePortsScope::new(&tree.ports)),
+        Box::new(ModuleLabelsScope::new(labels)),
+        Box::new(ModuleComponentsScope::new(&tree.components)),
+        Box::new(ModuleSubModulesScope::new(&tree.sub_modules)),
+        Box::new(ModuleBusesScope::new(buses, labels)),
+    ])
+    .resolve(name)
 }
 
-// ============================================================================
-// impl InstFindInst for McModuleInst
-// ============================================================================
-
-impl InstFindInst for McModuleInst {
-    fn find_inst(&self, name: &str) -> Option<InstEntry> {
-        // Instance-layer category chain (mechanism B) mirroring the Pass1
-        // `McModule` priority: ports → labels → components → sub_modules →
-        // buses.
-        ScopeChain::new(vec![
-            Box::new(ModulePortsScope::new(&self.ports)),
-            Box::new(ModuleLabelsScope::new(&self.labels)),
-            Box::new(ModuleComponentsScope::new(&self.components)),
-            Box::new(ModuleSubModulesScope::new(&self.sub_modules)),
-            Box::new(ModuleBusesScope::new(&self.buses, &self.labels)),
-        ])
-        .resolve(name)
-    }
-}
-
-// ============================================================================
-// resolve_inst_chain — DOT chain recursive resolution
-// ============================================================================
-
-/// Recursively resolve a DOT-separated name chain against a starting scope.
+/// Recursively resolve a DOT-separated name chain with the Phase E overlay.
 ///
-/// Each segment is resolved via [`InstFindInst::find_inst`]. When the result
-/// is a [`InstEntry::SubModule`], the next segment is resolved against that
-/// sub-module's own [`InstFindInst`] impl — and so on, to arbitrary depth.
-///
-/// # Arguments
-///
-/// * `chain` — DOT-separated name segments (e.g. `["mcu", "uC", "VDD"]`)
-/// * `scope` — Starting scope (typically a [`McModuleInst`])
-///
-/// # Returns
-///
-/// The final [`InstEntry`] after resolving all segments, or `None` if any
-/// segment fails to resolve.
-///
-/// # Examples
-///
-/// - `["uC", "VDD"]` on module → `InstEntry::Port(pin_netpoint)`
-/// - `["mcu", "uC"]` on module → `InstEntry::Component(uC_arc)`
-/// - `["mcu"]` on parent module → `InstEntry::SubModule(mcu_arc)`
-pub fn resolve_inst_chain(chain: &[String], scope: &dyn InstFindInst) -> Option<InstEntry> {
+/// The top module's overlay comes from `top_labels` / `top_buses` (the
+/// builder scratch — a module under construction carries its labels/buses
+/// there, not in the store); a sub-module descent reads the sub-module's
+/// overlay from its frozen fragment in `store` (keyed by the sub's canonical
+/// path `{top_path}.{name}`), mirroring the tree-carried chain recursion of
+/// the scope-chain composition.
+pub(crate) fn resolve_chain_overlay(
+    chain: &[String],
+    top: &McModuleInst,
+    top_path: &str,
+    top_labels: &HashMap<String, NetPoint>,
+    top_buses: &HashMap<String, McBusInst>,
+    store: &NetTableStore,
+) -> Option<InstEntry> {
     if chain.is_empty() {
         return None;
     }
 
-    // Resolve first segment
-    let mut current = scope.find_inst(&chain[0])?;
+    let mut current = module_find_overlay(
+        top,
+        top_path,
+        Some((top_labels, top_buses)),
+        store,
+        &chain[0],
+    )?;
 
-    // Recurse into remaining segments
     for seg in &chain[1..] {
         current = match &current {
-            // SubModule: recurse via its own InstFindInst impl
-            InstEntry::SubModule(sub) => sub.find_inst(seg)?,
+            // SubModule: recurse with the sub-module's own overlay fragment.
+            InstEntry::SubModule(sub) => {
+                let sub_path = format!("{top_path}.{}", sub.name);
+                module_find_overlay(sub, &sub_path, None, store, seg)?
+            }
             // Component: resolve via its pins
             InstEntry::Component(comp) => {
                 if let Some(pin) = comp.pins.get(seg) {
@@ -419,8 +402,24 @@ pub fn resolve_inst_chain(chain: &[String], scope: &dyn InstFindInst) -> Option<
             }
         };
     }
-
     Some(current)
+}
+
+impl InstantiationBuilder {
+    /// Phase E overlay-aware scope-chain resolution (Pass2 P0-3): the current
+    /// module's labels/buses come from the builder scratch; sub-module
+    /// descent reads the sub-module's overlay from the shared store.
+    pub(super) fn resolve_chain(&self, chain: &[String]) -> Option<InstEntry> {
+        let store = self.net_store.borrow();
+        resolve_chain_overlay(
+            chain,
+            &self.tree,
+            &self.current_path,
+            &self.labels,
+            &self.buses,
+            &store,
+        )
+    }
 }
 
 // ============================================================================
@@ -990,55 +989,83 @@ mod inst_scope_tests {
         assert!(scope.resolve("missing").is_none());
     }
 
-    // ── Composition — `InstFindInst` impls and DOT-chain recursion ──
+    // ── Composition — overlay-aware DOT-chain resolution ──
 
-    /// `McComponentInst::find_inst` resolves pins only.
+    /// An empty store + scratch for the overlay resolver (no frozen
+    /// fragments; labels/buses come from the passed scratch maps).
+    fn empty_overlay() -> (
+        NetTableStore,
+        HashMap<String, NetPoint>,
+        HashMap<String, McBusInst>,
+    ) {
+        (NetTableStore::new(), HashMap::new(), HashMap::new())
+    }
+
+    /// The overlay chain resolver descends `U1` → pin `VDD` through the
+    /// tree-carried component category.
     #[test]
-    fn component_find_inst_resolves_pin() {
-        let inst = comp_inst_with_pins("U1", &[("VDD", IOType::Power)]);
-        match inst.find_inst("VDD").expect("pin should resolve") {
+    fn overlay_chain_resolves_component_pin() {
+        let mut m = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));
+        m.components
+            .push(comp_inst_with_pins("U1", &[("VDD", IOType::Power)]));
+        let (store, labels, buses) = empty_overlay();
+        let chain = vec!["U1".to_string(), "VDD".to_string()];
+        match resolve_chain_overlay(&chain, &m, "main", &labels, &buses, &store)
+            .expect("chain should resolve")
+        {
             InstEntry::Port(p) => assert_eq!(p.path, "U1.VDD"),
             other => panic!("expected InstEntry::Port, got {other:?}"),
         }
-        assert!(inst.find_inst("GND").is_none());
+        let missing = vec!["U1".to_string(), "GND".to_string()];
+        assert!(resolve_chain_overlay(&missing, &m, "main", &labels, &buses, &store).is_none());
     }
 
-    /// `McModuleInst::find_inst` follows the ports → labels → components →
+    /// The overlay chain resolver follows the ports → labels → components →
     /// sub_modules → buses priority: a name present in both `ports` and
-    /// `components` resolves to the port.
+    /// `components` resolves to the port; the label category comes from the
+    /// scratch overlay.
     #[test]
-    fn module_find_inst_priority_ports_over_components() {
+    fn overlay_chain_priority_ports_over_components() {
         let mut m = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));
         m.ports.push(PortInst::new("SIG", IOType::InOut));
         m.components
             .push(comp_inst_with_pins("SIG", &[("1", IOType::None)]));
-        m.labels.insert("N_SIG".to_string(), np("N_SIG"));
-        match m.find_inst("SIG").expect("port should win") {
+        let (store, mut labels, buses) = empty_overlay();
+        labels.insert("N_SIG".to_string(), np("N_SIG"));
+        match resolve_chain_overlay(&["SIG".to_string()], &m, "main", &labels, &buses, &store)
+            .expect("port should win")
+        {
             InstEntry::Port(p) => assert_eq!(p.path, "SIG"),
             other => panic!("expected port to shadow component/label, got {other:?}"),
         }
-        // A label-only name still resolves through the labels category.
-        match m.find_inst("N_SIG").expect("label should resolve") {
+        // A label-only name still resolves through the overlay label category.
+        match resolve_chain_overlay(&["N_SIG".to_string()], &m, "main", &labels, &buses, &store)
+            .expect("label should resolve")
+        {
             InstEntry::Label(l) => assert_eq!(l.path, "N_SIG"),
             other => panic!("expected InstEntry::Label, got {other:?}"),
         }
     }
 
-    /// `resolve_inst_chain` recurses through a sub-module to a port at
-    /// arbitrary DOT depth.
+    /// The overlay chain resolver recurses through a sub-module to a port at
+    /// arbitrary DOT depth; the sub-module descent reads its overlay from the
+    /// store fragment.
     #[test]
-    fn resolve_inst_chain_reaches_submodule_port() {
+    fn overlay_chain_reaches_submodule_port() {
         let mut sub = McModuleInst::new("mcu513", Arc::new(McModule::test_stub("mcu")));
         sub.ports.push(PortInst::new("VDD", IOType::Power));
         let mut m = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));
         m.sub_modules.push(sub);
+        let (store, labels, buses) = empty_overlay();
         let chain = vec!["mcu513".to_string(), "VDD".to_string()];
-        match resolve_inst_chain(&chain, &m).expect("chain should resolve") {
+        match resolve_chain_overlay(&chain, &m, "main", &labels, &buses, &store)
+            .expect("chain should resolve")
+        {
             InstEntry::Port(p) => assert_eq!(p.path, "VDD"),
             other => panic!("expected InstEntry::Port, got {other:?}"),
         }
         // Terminal types do not support further DOT resolution.
         let bad_chain = vec!["mcu513".to_string(), "VDD".to_string(), "X".to_string()];
-        assert!(resolve_inst_chain(&bad_chain, &m).is_none());
+        assert!(resolve_chain_overlay(&bad_chain, &m, "main", &labels, &buses, &store).is_none());
     }
 }

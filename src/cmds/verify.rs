@@ -86,12 +86,20 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
         .find(|(n, _)| *n == top)
         .map(|(_, u)| mcc::McURI::from(u.as_str()))
         .unwrap_or_else(|| mcc::McURI::from(top.clone()));
-    let (inst, arena, _net_store) =
+    let (inst, arena, net_store) =
         common::build_pass2_with_arena(&top, &uri).map_err(anyhow::Error::msg)?;
+    let store_ref = &net_store;
 
     let mut totals = VerifyTotals::default();
     let mut modules: Vec<Value> = Vec::new();
-    verify_module(&inst, &top, Some(&arena), &mut totals, &mut modules);
+    verify_module(
+        &inst,
+        &top,
+        Some(&arena),
+        &store_ref,
+        &mut totals,
+        &mut modules,
+    );
     let hierarchy = hierarchy::build_hierarchy(&modules);
 
     let summary = json!({
@@ -152,11 +160,12 @@ fn verify_module(
     inst: &McModuleInst,
     path: &str,
     arena: Option<&NodeArena>,
+    store: &mcc::NetTableStore,
     totals: &mut VerifyTotals,
     out: &mut Vec<Value>,
 ) {
     let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
-    let (inst_report, inst_counts) = compare_instances(inst, arena, &content);
+    let (inst_report, inst_counts) = compare_instances(inst, path, arena, store, &content);
     totals.source_insts += inst_counts.0;
     totals.expanded_insts += inst_counts.1;
     totals.missing += inst_counts.2;
@@ -182,7 +191,14 @@ fn verify_module(
         None => inst.sub_modules.iter().collect(),
     };
     for sub in subs {
-        verify_module(sub, &format!("{path}.{}", sub.name), arena, totals, out);
+        verify_module(
+            sub,
+            &format!("{path}.{}", sub.name),
+            arena,
+            store,
+            totals,
+            out,
+        );
     }
 }
 
@@ -192,14 +208,16 @@ fn verify_module(
 
 fn compare_instances(
     inst: &McModuleInst,
+    path: &str,
     arena: Option<&NodeArena>,
+    store: &mcc::NetTableStore,
     content: &Option<String>,
 ) -> (Value, (usize, usize, usize, usize, usize)) {
     // Declared / declareb / funcall-generated families are extracted by the
     // shared hierarchy module; the comparison below adds the expanded side
     // (component / sub-module / label / bus instances Pass2 produced) and
     // computes missing / extra / generated.
-    let fam = hierarchy::extract_instance_families(inst, content);
+    let fam = hierarchy::extract_instance_families(inst, path, store, content);
     let source = fam.source;
     let declareb = fam.declareb;
     let source_names = fam.source_names;
@@ -266,12 +284,12 @@ fn compare_instances(
             0,
         ));
     }
-    for name in inst.get_labels().keys() {
+    for name in store.labels_of(path).keys() {
         if !name.contains('.') {
             expanded.push((name.clone(), "label".to_string(), "derived".to_string(), 0));
         }
     }
-    for bus in inst.get_buses().values() {
+    for bus in store.buses_of(path).values() {
         if !bus.name.contains('.') {
             expanded.push((
                 bus.name.clone(),
@@ -309,12 +327,12 @@ fn compare_instances(
     // modules must be strictly declared-expanded; interfaces, buses and labels
     // may also match derived names (bus projections, connection net labels).
     let mut expanded_any: HashSet<String> = expanded_declared.clone();
-    for name in inst.get_labels().keys() {
+    for name in store.labels_of(path).keys() {
         if !name.contains('.') {
             expanded_any.insert(name.clone());
         }
     }
-    for bus in inst.get_buses().values() {
+    for bus in store.buses_of(path).values() {
         if !bus.name.contains('.') {
             expanded_any.insert(bus.name.clone());
         }

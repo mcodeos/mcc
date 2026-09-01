@@ -35,7 +35,6 @@ mod subst;
 
 pub(crate) use builder::InstantiationBuilder;
 
-use super::mc_bus::McBusInst;
 use super::mc_comp::McComponentInst;
 use super::mc_net::{ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, PortInst};
 use crate::instant::identity::{IdentityRegistry, NodeId};
@@ -79,12 +78,6 @@ pub struct McModuleInst {
 
     /// Internal connections
     pub connections: Vec<ConnectionInst>,
-
-    /// Internal label registry (for implicit labels)
-    pub(super) labels: HashMap<String, NetPoint>,
-
-    /// Bus instance table (bus_name -> McBusInst)
-    pub(super) buses: HashMap<String, McBusInst>,
 
     /// Mapping from FuncCall member to auto-created component instance name.
     /// Key: stable u32 ID assigned via `assign_phrase_ids()` before processing.
@@ -249,8 +242,6 @@ impl McModuleInst {
             components: Vec::new(),
             sub_modules: Vec::new(),
             connections: Vec::new(),
-            labels: HashMap::new(),
-            buses: HashMap::new(),
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
@@ -283,8 +274,6 @@ impl McModuleInst {
             components: Vec::new(),
             sub_modules: Vec::new(),
             connections: Vec::new(),
-            labels: HashMap::new(),
-            buses: HashMap::new(),
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
@@ -378,20 +367,6 @@ impl McModuleInst {
             all.extend(sub.all_diagnostics());
         }
         all
-    }
-
-    // ========================================================================
-    // Public accessors — used by InstTable flatten (Step 0)
-    // ========================================================================
-
-    /// Get a read-only reference to all internal labels
-    pub fn get_labels(&self) -> &HashMap<String, NetPoint> {
-        &self.labels
-    }
-
-    /// Get a read-only reference to all bus instances
-    pub fn get_buses(&self) -> &HashMap<String, McBusInst> {
-        &self.buses
     }
 
     // ========================================================================
@@ -527,13 +502,6 @@ impl std::fmt::Display for McModuleInst {
                         writeln!(f, "    {line}")?;
                     }
                 }
-            }
-        }
-
-        if !self.buses.is_empty() {
-            writeln!(f, "  Buses:")?;
-            for (name, bus) in &self.buses {
-                writeln!(f, "    {}{{{}}}", name, bus.members.join(", "),)?;
             }
         }
 
