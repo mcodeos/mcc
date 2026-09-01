@@ -2041,28 +2041,13 @@ impl McPhrase {
                     McPhrase::Series(phrases, _) => McPhrase::Series(phrases, ConnDir::Undirected),
                     other => other,
                 };
-                // Structural rejection: Bus / Multiple / Label / nested Transposed cannot be transposed again
-                if matches!(
-                    &opd1,
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                        base: McInstance::Bus(_),
-                        ..
-                    })) | McPhrase::Multiple(_)
-                        | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                            base: McInstance::Label(_),
-                            ..
-                        }))
-                        | McPhrase::Transposed(_)
-                ) {
-                    dlog_error(
-                        crate::errcodes::CONN_CANNOT_TRANSPOSE,
-                        node,
-                        &crate::errcodes::format_msg(crate::errcodes::CONN_CANNOT_TRANSPOSE, &[]),
-                    );
-                    return None;
-                }
-                // Pass1 safety rule (eval.md §5.5): shapes whose strict math
-                // transpose has no connectable expression cannot be transposed.
+                // Pass1 safety rule (eval.md §5.5 / vec-arch.md §5.2): the strict
+                // math transpose must have a connectable expression. Structural
+                // forms (Bus / Multiple / Label / nested Transposed) are checked
+                // here too instead of being rejected outright: a 2-row column
+                // transposes to a row vector (`[A,B]'`), a Point or nested
+                // transpose stays itself, and a wider column or node side
+                // reports E2902.
                 if let Err(rows) = check_transpose_allowed(&opd1, context) {
                     dlog_error(
                         crate::errcodes::SHAPE_TRANSPOSE_LIMIT,
