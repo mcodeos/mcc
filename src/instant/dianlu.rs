@@ -22,6 +22,7 @@
 //! tree-only consumers read [`Self::tree`], flat consumers call
 //! [`Self::flatten`].
 
+use super::arena::{build_node_arena, NodeArena};
 use super::insttab::InstTable;
 use super::mc_mod::McModuleInst;
 use crate::db::diagnostic::diagnostic::Diagnostic;
@@ -45,6 +46,11 @@ pub struct DianLu {
     /// rebuilt from the frozen tree's companion node ids on construction.
     /// Consumers resolve `node_id` by path (or vice versa) through here.
     identity: IdentityRegistry,
+    /// Phase C: companion arena storage (`HashMap<NodeId, Node>` + root +
+    /// parent/children edges), rebuilt from the frozen tree on construction.
+    /// The tree stays authoritative (two-track migration); the arena is the
+    /// storage the flatten / export / viz walks migrate onto.
+    arena: NodeArena,
 }
 
 impl DianLu {
@@ -53,18 +59,31 @@ impl DianLu {
     /// identity registry is rebuilt from the tree's companion node ids.
     pub fn new(tree: McModuleInst, start_id: u32) -> Self {
         let identity = build_identity_registry(&tree);
+        let arena = build_node_arena(&tree);
         DianLu {
             tree,
             start_id,
             table: None,
             net_diags: Vec::new(),
             identity,
+            arena,
         }
     }
 
     /// The per-build identity registry (canonical path ↔ node id).
     pub fn identity(&self) -> &IdentityRegistry {
         &self.identity
+    }
+
+    /// The companion arena (design §4 / D6): `HashMap<NodeId, Node>` + root +
+    /// parent/children edges rebuilt from the frozen tree.
+    ///
+    /// `#[allow(dead_code)]`: the arena is the migration target for the
+    /// flatten / export / viz walks in later Phase C steps; the accessor lands
+    /// ahead of its first consumer (two-track migration).
+    #[allow(dead_code)]
+    pub(crate) fn arena(&self) -> &NodeArena {
+        &self.arena
     }
 
     /// The instance tree (modelling layer), not the flat projection.
@@ -107,7 +126,12 @@ impl DianLu {
     /// instances in a standalone component/interface view.
     pub fn flatten_with_prefix(&mut self, synthetic_prefix: Option<&str>) -> Vec<Diagnostic> {
         if self.table.is_none() {
-            let mut table = InstTable::from_module_inst(&self.tree, self.start_id);
+            // Phase C: the arena drives the flatten traversal (arena children
+            // edges source the sub-module order, design §4 — the tree is a
+            // view over arena edges); the projection output is identical to
+            // the tree-recursive form (`debug_assert` guards the isomorphism).
+            let mut table =
+                InstTable::from_module_inst_with_arena(&self.tree, self.start_id, &self.arena);
             if let Some(prefix) = synthetic_prefix {
                 table.mark_synthetic_by_path_prefix(prefix);
             }
@@ -134,10 +158,21 @@ fn build_identity_registry(tree: &McModuleInst) -> IdentityRegistry {
 }
 
 /// Recursive resume over one module's scope: the module node itself, its
-/// components (leaf nodes), and its sub-modules (recursive).
+/// ports, its vectors, its components (leaf nodes), and its sub-modules
+/// (recursive).
 fn resume_module(reg: &mut IdentityRegistry, path: &str, module: &McModuleInst) {
     if let Some(id) = module.node_id {
         reg.resume(path, id);
+    }
+    for port in &module.ports {
+        if let Some(id) = port.node_id {
+            reg.resume(&format!("{path}.{}", port.name), id);
+        }
+    }
+    for vec in &module.vectors {
+        if let Some(id) = vec.node_id {
+            reg.resume(&format!("{path}.{}", vec.base), id);
+        }
     }
     for comp in &module.components {
         if let Some(id) = comp.node_id {

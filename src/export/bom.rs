@@ -1,13 +1,18 @@
 // Copyright (c) 2026 MCode
 //! BOM (Bill of Materials) export
 
-use crate::export::for_each_module;
+use crate::export::{for_each_module_with_arena, NodeArena};
 use crate::McModuleInst;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub fn build_bom(tree: &McModuleInst, top: &str, format: u8) -> (String, Value, usize) {
-    let mut comps = collect_component_instances(tree);
+pub fn build_bom(
+    tree: &McModuleInst,
+    arena: &NodeArena,
+    top: &str,
+    format: u8,
+) -> (String, Value, usize) {
+    let mut comps = collect_component_instances(tree, arena);
     comps.sort();
     comps.dedup();
 
@@ -76,14 +81,18 @@ pub fn build_bom(tree: &McModuleInst, top: &str, format: u8) -> (String, Value, 
     }
 }
 
-fn collect_component_instances(inst: &McModuleInst) -> Vec<(String, String)> {
+fn collect_component_instances(inst: &McModuleInst, arena: &NodeArena) -> Vec<(String, String)> {
     let mut out: BTreeSet<(String, String)> = BTreeSet::new();
-    collect_components_in_inst(inst, &mut out);
+    collect_components_in_inst(inst, arena, &mut out);
     out.into_iter().collect()
 }
 
-fn collect_components_in_inst(inst: &McModuleInst, out: &mut BTreeSet<(String, String)>) {
-    for_each_module(inst, &mut |m| {
+fn collect_components_in_inst(
+    inst: &McModuleInst,
+    arena: &NodeArena,
+    out: &mut BTreeSet<(String, String)>,
+) {
+    for_each_module_with_arena(inst, arena, &mut |m| {
         for conn in &m.connections {
             for np in &conn.points {
                 if let Some((instance, _pin)) = np.path.rsplit_once('.') {

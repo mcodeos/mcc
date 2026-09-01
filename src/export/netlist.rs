@@ -1,15 +1,20 @@
 // Copyright (c) 2026 MCode
 //! Netlist export
 
-use crate::export::for_each_module;
+use crate::export::{for_each_module_with_arena, NodeArena};
 use crate::McModuleInst;
 use crate::NetPoint;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-pub fn build_netlist(tree: &McModuleInst, top: &str, format: u8) -> (String, Value, usize) {
+pub fn build_netlist(
+    tree: &McModuleInst,
+    arena: &NodeArena,
+    top: &str,
+    format: u8,
+) -> (String, Value, usize) {
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    collect_nets(tree, &mut nets);
+    collect_nets(tree, arena, &mut nets);
     let nets: BTreeMap<String, Vec<String>> = nets
         .into_iter()
         .filter(|(n, _)| {
@@ -36,8 +41,12 @@ pub fn build_netlist(tree: &McModuleInst, top: &str, format: u8) -> (String, Val
     }
 }
 
-pub fn collect_nets(inst: &McModuleInst, out: &mut BTreeMap<String, Vec<String>>) {
-    for_each_module(inst, &mut |m| {
+pub fn collect_nets(
+    inst: &McModuleInst,
+    arena: &NodeArena,
+    out: &mut BTreeMap<String, Vec<String>>,
+) {
+    for_each_module_with_arena(inst, arena, &mut |m| {
         for (name, points) in &m.nets {
             for np in points {
                 let pt = pin_label(np);

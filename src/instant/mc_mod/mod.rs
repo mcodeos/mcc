@@ -169,6 +169,12 @@ pub struct McVectorInst {
     /// vectors (`M[1:2][3:4]` = 8 same-type sub-instances). Real corpus has 0
     /// occurrences (§7.1) — spec-completeness item, always `None` today.
     pub shape: Option<Vec<usize>>,
+
+    /// Phase C1: per-build node identity of the grouping node (canonical path
+    /// `{module}.{base}` interned in the circuit's `IdentityRegistry`).
+    /// `None` until `materialize_vector_groups` pushes the node; the frozen
+    /// tree always carries it.
+    pub node_id: Option<NodeId>,
 }
 
 /// Structured record of a failed component instantiation.

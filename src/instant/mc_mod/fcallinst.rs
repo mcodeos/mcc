@@ -1043,11 +1043,16 @@ impl InstantiationBuilder {
             if !all_materialized {
                 continue;
             }
+            // Phase C1: intern the vector grouping node's canonical path
+            // (`{module}.{base}`) before it enters the module's vector list.
+            let vec_path = self.child_path(&base);
+            let vec_id = self.identity_mut().intern(&vec_path);
             self.vectors.push(McVectorInst {
                 base: base.clone(),
                 member_names: members.clone(),
                 member_ids,
                 shape: None,
+                node_id: Some(vec_id),
             });
         }
     }
