@@ -52,6 +52,20 @@ fn warn_prefix_id_as_wire(node: &AstNode, name: &str) {
     }
 }
 
+/// Split an array spelling carrying a trailing dot-member (`a[1:2].1`) into
+/// its array prefix (`a[1:2]`) and the shared member (`1`). The split is the
+/// dot that follows the closing bracket, so the member is whatever the
+/// `Member` access named after the array (single or dotted, e.g. `.SPI.SCLK`).
+fn split_array_member(s: &str) -> Option<(&str, &str)> {
+    let close = s.rfind([']', '}'])?;
+    let after = &s[close + 1..];
+    let member = after.strip_prefix('.')?;
+    if member.is_empty() || member.contains(['[', ']', '{', '}']) {
+        return None;
+    }
+    Some((&s[..close + 1], member))
+}
+
 // ============================================================================
 // McPhrase
 // ============================================================================
@@ -126,6 +140,117 @@ impl McPhrase {
             1 => flat.into_iter().next().unwrap(),
             _ => McPhrase::Parallel(flat),
         }
+    }
+
+    /// mcrule.md §10.6 — a `(,)` group is a STATEMENT LIST, never a shape.
+    /// Expand the phrase into the standalone connection statements the group
+    /// stands for:
+    ///   - `opd op (s1, .., sN)`              -> `opd op s1`, .., `opd op sN`
+    ///   - `(s1, .., sN) op opd`              -> `s1 op opd`, .., `sN op opd`
+    ///   - `opd1 op1 (s1, .., sN) op2 opd2`   -> `opd1 op1 s1 op2 opd2`, ..,
+    ///   - `(s1, .., sN)` (bare)              -> `s1`, .., `sN`
+    ///
+    /// Group-inner parentheses do NOT survive the replacement — the group only
+    /// separates statements, so `R101 - (R102 - R103, R104 - R105) + R106`
+    /// becomes the two statements `R101 - R102 - R103 + R106` and
+    /// `R101 - R104 - R105 + R106` (same-direction series flattening matches
+    /// the parser). Returns `None` when no multi-statement group is present,
+    /// i.e. the caller keeps the statement as-is.
+    pub fn expand_group_statements(&self) -> Option<Vec<McPhrase>> {
+        Self::expand_group(self.clone())
+    }
+
+    fn expand_group(phrase: McPhrase) -> Option<Vec<McPhrase>> {
+        match phrase {
+            // A multi-statement group is a statement list: each branch stands alone.
+            McPhrase::Group(g) if g.opds.len() > 1 => {
+                let mut out = Vec::new();
+                for s in g.opds {
+                    if let Some(sub) = Self::expand_group(s.clone()) {
+                        out.extend(sub);
+                    } else {
+                        out.push(s);
+                    }
+                }
+                Some(out)
+            }
+            McPhrase::Series(elems, dir) => {
+                // Expand every element; any multi-statement group yields one
+                // series per branch (cross product across multiple groups).
+                let mut any = false;
+                let mut groups: Vec<Vec<McPhrase>> = Vec::with_capacity(elems.len());
+                for e in elems {
+                    if let Some(sub) = Self::expand_group(e.clone()) {
+                        any = true;
+                        groups.push(sub);
+                    } else {
+                        groups.push(vec![e]);
+                    }
+                }
+                if !any {
+                    return None;
+                }
+                Some(
+                    Self::cartesian_product(groups)
+                        .into_iter()
+                        .map(|combo| McPhrase::Series(Self::flatten_series_dir(combo, dir), dir))
+                        .collect(),
+                )
+            }
+            McPhrase::Parallel(stmts) => {
+                let mut any = false;
+                let mut groups: Vec<Vec<McPhrase>> = Vec::with_capacity(stmts.len());
+                for s in stmts {
+                    if let Some(sub) = Self::expand_group(s.clone()) {
+                        any = true;
+                        groups.push(sub);
+                    } else {
+                        groups.push(vec![s]);
+                    }
+                }
+                if !any {
+                    return None;
+                }
+                Some(
+                    Self::cartesian_product(groups)
+                        .into_iter()
+                        .map(McPhrase::Parallel)
+                        .collect(),
+                )
+            }
+            _ => None,
+        }
+    }
+
+    /// Cartesean product of per-element expansion options.
+    fn cartesian_product(groups: Vec<Vec<McPhrase>>) -> Vec<Vec<McPhrase>> {
+        let mut acc: Vec<Vec<McPhrase>> = vec![vec![]];
+        for opts in groups {
+            let mut next: Vec<Vec<McPhrase>> = Vec::new();
+            for prefix in &acc {
+                for opt in &opts {
+                    let mut combo = prefix.clone();
+                    combo.push(opt.clone());
+                    next.push(combo);
+                }
+            }
+            acc = next;
+        }
+        acc
+    }
+
+    /// Flatten nested series of the SAME direction only — a differently
+    /// directed inner chain keeps its own direction (mirrors the `-`/`->`
+    /// parser branches, so `R101 -> (R102 - R103)` stays `R101 -> R102 - R103`).
+    fn flatten_series_dir(elems: Vec<McPhrase>, dir: ConnDir) -> Vec<McPhrase> {
+        let mut flat = Vec::new();
+        for p in elems {
+            match p {
+                McPhrase::Series(items, d) if d == dir => flat.extend(items),
+                other => flat.push(other),
+            }
+        }
+        flat
     }
 
     /// Convert to endpoint
@@ -272,6 +397,50 @@ impl McPhrase {
                                                 )));
                                             }
                                             _ => {}
+                                        }
+                                        // ── Vector member access (`c[1:2].1`) ──
+                                        // The full expansion is `["c1.1", "c2.1"]`, but
+                                        // `classify` sees `Mixed` (square + dot), so the
+                                        // `resolve_reference` vector arm above did not fire.
+                                        // Split the trailing dot-member off the array
+                                        // spelling, resolve the array prefix alone, and wrap
+                                        // the shared member back on as a
+                                        // `Member(Endpoint(List), member)` so Pass2 expands
+                                        // member-by-member (GAP1 alignment).
+                                        if let Some((array_str, member)) =
+                                            split_array_member(&ids_str)
+                                        {
+                                            let array_ids = McIds::from(array_str);
+                                            let verdict = context.resolve_reference(
+                                                &array_ids,
+                                                node.get_pos(),
+                                                node.get_len(),
+                                            );
+                                            if let RefVerdict::ResolvedMany(resolved) = verdict {
+                                                let lanes: Vec<McEndpoint> = resolved
+                                                    .iter()
+                                                    .map(|m| match context.find_inst(m) {
+                                                        Some(inst) => McEndpoint::Single(
+                                                            McInstanceRef::new(inst),
+                                                        ),
+                                                        None => {
+                                                            McEndpoint::Single(McInstanceRef::new(
+                                                                McInstance::Label(m.clone()),
+                                                            ))
+                                                        }
+                                                    })
+                                                    .collect();
+                                                let member_ep =
+                                                    McEndpoint::Single(McInstanceRef::new(
+                                                        McInstance::Label(member.to_string()),
+                                                    ));
+                                                return Some(McPhrase::Member(
+                                                    Box::new(McPhrase::Endpoint(McEndpoint::List(
+                                                        lanes,
+                                                    ))),
+                                                    member_ep,
+                                                ));
+                                            }
                                         }
                                     }
                                 }
@@ -4553,6 +4722,33 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                 }) => Some(l.clone()),
                 _ => None,
             };
+            // ── Vector slice member access `c[1:2].1`: the shared member
+            // applies to every array member, producing a same-width column on
+            // both sides (`[c1.1, c2.1]` == left == right). Without this the
+            // shape would be `Node([c1.1, c2.1], ["1"])` and a pair of slices
+            // (`c[1:2].1 -> d[1:2].1`) would opcheck as 2-vs-1 and drop the
+            // whole statement at parse time.
+            if let (Some(m), McPhrase::Endpoint(McEndpoint::List(items))) =
+                (member.as_deref(), inner.as_ref())
+            {
+                let buses: Vec<McBus> = items
+                    .iter()
+                    .filter_map(|it| {
+                        let name = match it {
+                            McEndpoint::Single(iref) => match &iref.base {
+                                McInstance::Component(c) => Some(c.name.to_string()),
+                                McInstance::Label(s) => Some(s.clone()),
+                                _ => None,
+                            },
+                            _ => None,
+                        }?;
+                        Some(McBus::new(&format!("{name}.{m}")))
+                    })
+                    .collect();
+                if !buses.is_empty() {
+                    return buses;
+                }
+            }
             if let (Some(member), Some(base)) = (member, base_instance_name(inner)) {
                 if let Some(elems) = component_port_elems(context, &base, &member) {
                     return elems;

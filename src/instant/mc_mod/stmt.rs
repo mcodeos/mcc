@@ -32,6 +32,18 @@ enum LaneItem<'a> {
 impl InstantiationBuilder {
     /// Process connection stmt - accepts McPhrase
     pub(super) fn process_stmt(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
+        // ── §10.6: a `(,)` group is a STATEMENT LIST, not a shape — expand it
+        // into the standalone statements it stands for before anything else
+        // (`R101 - (s1, s2) + R106` ≡ `R101 - s1 + R106` / `R101 - s2 + R106`,
+        // group-inner parentheses do not survive). Expanded branches carry no
+        // group anymore, so the recursion terminates.
+        if let Some(expanded) = phrase.expand_group_statements() {
+            for stmt in expanded {
+                self.process_stmt(&stmt)?;
+            }
+            return Ok(());
+        }
+
         // ── G4: Skip stmts referencing failed components ──
         // If any FuncCall in the phrase references a class whose instantiation
         // previously failed, skip the entire stmt to avoid ghost pins.

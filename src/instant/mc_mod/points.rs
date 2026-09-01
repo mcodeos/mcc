@@ -665,6 +665,33 @@ impl InstantiationBuilder {
                     },
                     _ => None,
                 };
+                // ── Vector member alignment (`c[1:2].1 -> d[1:2].1`) ──
+                // The inner phrase is `Endpoint(List([c1, c2]))` (array members)
+                // and `member_name` is the shared pin/member (`1`). Expand each
+                // list member to its own `<member>.<pin>` point so the lane
+                // collector can group the endpoints into a vector slice.
+                if let Some(ref mname) = member_name {
+                    if let McPhrase::Endpoint(McEndpoint::List(items)) = &**phrase {
+                        let mut points = Vec::new();
+                        for item in items {
+                            let name = match item {
+                                McEndpoint::Single(ir) => match &ir.base {
+                                    McInstance::Component(c) => Some(c.name.to_string()),
+                                    McInstance::Label(s) => Some(s.clone()),
+                                    _ => None,
+                                },
+                                _ => None,
+                            };
+                            if let Some(name) = name {
+                                let path = format!("{name}.{mname}");
+                                points.push(self.node_to_netpoint(&McBus::new(&path)));
+                            }
+                        }
+                        if !points.is_empty() {
+                            return Ok(points);
+                        }
+                    }
+                }
                 // try to extract caller component name from inner phrase
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
@@ -1102,6 +1129,31 @@ impl InstantiationBuilder {
                     },
                     _ => None,
                 };
+                // ── Vector member alignment (`c[1:2].1 -> d[1:2].1`) ──
+                // Mirror of get_left_points: expand each array member to its own
+                // `<member>.<pin>` point for slice grouping.
+                if let Some(ref mname) = member_name {
+                    if let McPhrase::Endpoint(McEndpoint::List(items)) = &**phrase {
+                        let mut points = Vec::new();
+                        for item in items {
+                            let name = match item {
+                                McEndpoint::Single(ir) => match &ir.base {
+                                    McInstance::Component(c) => Some(c.name.to_string()),
+                                    McInstance::Label(s) => Some(s.clone()),
+                                    _ => None,
+                                },
+                                _ => None,
+                            };
+                            if let Some(name) = name {
+                                let path = format!("{name}.{mname}");
+                                points.push(self.node_to_netpoint(&McBus::new(&path)));
+                            }
+                        }
+                        if !points.is_empty() {
+                            return Ok(points);
+                        }
+                    }
+                }
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
                         // (A) direct component lookup
