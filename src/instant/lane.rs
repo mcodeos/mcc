@@ -35,7 +35,7 @@
 
 use crate::db::member_ledger::DefMemberId;
 use crate::instant::arena::NodeArena;
-use crate::instant::identity::NodeId;
+use crate::instant::identity::{IdentityRegistry, NodeId};
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_mod::McModuleInst;
 use crate::instant::mc_net::{ConnectionInst, NetPoint};
@@ -513,4 +513,40 @@ fn union_find_union(parent: &mut [usize], a: usize, b: usize) {
             parent[ra] = rb;
         }
     }
+}
+
+// ============================================================================
+// Phase G (D9) — persistent net identity
+// ============================================================================
+
+/// Assign persistent identity to the derived net layer (plan §9 G item 5,
+/// design §11.1 D9).
+///
+/// - Labeled nets intern their label into the circuit's persistent
+///   [`IdentityRegistry`] — same label, same `NetId` across rebuilds (the
+///   label is the net's name attribute, so a net keeps its id when its member
+///   set grows or shrinks).
+/// - Unlabeled nets carry no stable key; they receive build-scoped ids past
+///   the interned range (no collision within the build). Their cross-build
+///   identity is carried by the checkpoint net snapshots + bipartite overlap
+///   matching, never by the id itself.
+/// - Interned labels that no longer appear in the circuit are tombstoned
+///   (rename = tombstone + fresh id, the node discipline).
+///
+/// Deterministic: labeled first (derived-net order), then unlabeled.
+pub fn finalize_net_ids(nets: &mut [Net], registry: &mut IdentityRegistry) {
+    for net in nets.iter_mut() {
+        if let Some(label) = &net.label {
+            net.id = registry.intern_net(label);
+        }
+    }
+    let mut next = registry.next_net_id();
+    for net in nets.iter_mut() {
+        if net.label.is_none() {
+            net.id = next;
+            next = NetId(next.0 + 1);
+        }
+    }
+    let active: HashSet<String> = nets.iter().filter_map(|n| n.label.clone()).collect();
+    registry.reconcile_net_labels(&active);
 }

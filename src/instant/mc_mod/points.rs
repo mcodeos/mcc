@@ -1334,7 +1334,7 @@ impl InstantiationBuilder {
                 if (rest_part == "in" || rest_part == "out")
                     && !comp.def.pins.names_to_id.contains_key(rest_part)
                 {
-                    let (isolated, _) = self.auto_name(super::AutoNameKind::Phantom, owner_part);
+                    let (isolated, _, _) = self.auto_name(super::AutoNameKind::Phantom, owner_part);
                     let pin = if rest_part == "in" { "1" } else { "2" };
                     let path = format!("{isolated}.{pin}");
                     return NetPoint::with_owner(&path, &isolated, IOType::None);
@@ -1423,7 +1423,7 @@ impl InstantiationBuilder {
                     && !self.is_port(class_part)
                     && !self.is_bus(class_part)
                 {
-                    let (isolated, _) = self.auto_name(super::AutoNameKind::Phantom, class_part);
+                    let (isolated, _, _) = self.auto_name(super::AutoNameKind::Phantom, class_part);
                     let pin = if suffix == "in" { "1" } else { "2" };
                     let path = format!("{isolated}.{pin}");
                     // ── [P4-PHANTOM] temp probe: who's leaking CLASS.in/out ──

@@ -225,11 +225,22 @@ module main {
         Vec::new(),
     );
     let reg = tree2.identity();
-    for (path, id) in &ldo_products {
+    for (_, id) in &ldo_products {
+        // The re-entered product is interned under its "source span + role"
+        // anchor key (plan §9 G item 5 / §115) — the display path
+        // `main.ldo._C1` is not the identity key, so resolve the id back
+        // through the registry's recorded anchor path instead.
+        let recorded = reg
+            .path_of(*id)
+            .expect("the registry recorded the re-entered product's id");
+        assert!(
+            recorded.starts_with("main.ldo.normal@"),
+            "the product is anchored by (role, construction offset); got {recorded}"
+        );
         assert_eq!(
-            reg.node_id_of(path),
+            reg.node_id_of(recorded),
             Some(*id),
-            "registry resolves re-entered product '{path}' to its tree id"
+            "registry resolves the re-entered product '{recorded}' to its tree id"
         );
         assert_ne!(*id, ldo_id, "product id differs from the sub-module id");
         assert!(
@@ -1052,5 +1063,653 @@ module main {
         deps.iter()
             .any(|d| d.ident.to_string() == "RES" && d.uri == "/mcc/dianlu.mc"),
         "same-file class def is a dependency: {deps:?}"
+    );
+}
+
+// ============================================================================
+// Phase G — CircuitWorld (§11.3 D10 / plan §9 G)
+// ============================================================================
+
+/// A CAP (2-pin) + `module main` fixture whose nets carry the labels VDD/GND.
+fn world_main_src() -> &'static str {
+    "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    io VDD
+    io GND
+    CAP c1
+    CAP c2
+    c1.1 -> VDD
+    c1.2 -> GND
+    c2.1 -> VDD
+    c2.2 -> GND
+}"
+}
+
+/// The same fixture with one more member `c3` on VDD/GND — a rebuild target.
+fn world_main_src_with_c3() -> &'static str {
+    "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    io VDD
+    io GND
+    CAP c1
+    CAP c2
+    CAP c3
+    c1.1 -> VDD
+    c1.2 -> GND
+    c2.1 -> VDD
+    c2.2 -> GND
+    c3.1 -> VDD
+    c3.2 -> GND
+}"
+}
+
+/// The CAP-only prefix of the main file — its def-identity ("CAP" in
+/// `main_uri`) is the invalidation-domain handle used by the world tests.
+fn world_cap_def(main_uri: &str) -> (mcc::McSpaceName, mcc::DefId) {
+    let sn = mcc::McSpaceName::new(&mcc::McIds::from("CAP"), main_uri.to_string());
+    let id =
+        mcc::def_id(&sn, mcc::DefKind::Component).expect("the CAP component def is registered");
+    (sn, id)
+}
+
+/// Phase G (D1/D9): the world's registry is a persistent per-circuit field —
+/// re-instantiating the same circuit (no source change) keeps the same
+/// `NodeId` for the same canonical path AND the same interned `NetId` for the
+/// same net label. The labeled GND net in the built net layer carries exactly
+/// the registry's interned id, and an unchanged rebuild diffs empty.
+#[test]
+fn world_persists_node_and_net_identity_across_rebuilds() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let uri = "/mcc/world.mc".to_string();
+    mcc::mcc_load_from_string(&uri, world_main_src());
+    let ident = mcc::McSpaceName::new(&mcc::McIds::from("main"), uri.clone());
+
+    let mut world = mcc::CircuitWorld::new(1000);
+    let key = world.instantiate(&ident).expect("first build");
+
+    // Node identity: the entry path resolves to a stable id.
+    let main_id = world
+        .registry(&key)
+        .unwrap()
+        .node_id_of("main")
+        .expect("the entry path is interned");
+
+    // D9 net identity: the labelled GND net in the net layer carries the
+    // registry's interned NetId — one identity, two faces (net.id == intern).
+    let gnd_net_id = world
+        .registry(&key)
+        .unwrap()
+        .net_id_of("GND")
+        .expect("GND is interned as a net label");
+    let gnd_net = world
+        .circuit(&key)
+        .unwrap()
+        .nets()
+        .iter()
+        .find(|n| n.label.as_deref() == Some("GND"))
+        .expect("the built net layer holds the GND net");
+    assert_eq!(
+        gnd_net.id, gnd_net_id,
+        "labelled net id == the registry-interned NetId"
+    );
+
+    // Rebuild the same circuit without touching the source: the registry is
+    // carried across builds, so identities hold and the diff is empty.
+    let key2 = world.instantiate(&ident).expect("rebuild");
+    assert_eq!(key, key2, "same entry, same circuit key");
+    assert_eq!(
+        world.registry(&key).unwrap().node_id_of("main"),
+        Some(main_id),
+        "the same path keeps the same NodeId across rebuilds (D1)"
+    );
+    assert_eq!(
+        world.registry(&key).unwrap().net_id_of("GND"),
+        Some(gnd_net_id),
+        "the same label keeps the same NetId across rebuilds (D9)"
+    );
+
+    let diff = world
+        .diff_versions(&key, 0, 1)
+        .expect("two checkpoints exist");
+    assert!(
+        diff.nodes.is_empty(),
+        "no source change -> no node delta; got {:?}",
+        diff.nodes
+    );
+    assert!(
+        diff.nets
+            .iter()
+            .all(|d| d.added.is_empty() && d.removed.is_empty()),
+        "no source change -> every net delta is empty; got {:?}",
+        diff.nets
+    );
+    assert!(
+        world.semantic_equivalent(&key, 0, 1),
+        "identical builds are semantically equivalent"
+    );
+    assert!(
+        world.label_violations(&key).is_empty(),
+        "a valid circuit has no label violations"
+    );
+}
+
+/// Phase G (design §12.6): the invalidation domain is the def→circuits reverse
+/// index built from each circuit's frozen circuit→def edges. Changing the CAP
+/// def re-instantiates ONLY the circuit that depends on CAP; the other circuit
+/// (a different entry, same world) keeps its DianLu and its checkpoints
+/// untouched.
+#[test]
+fn world_rebuild_invalidated_rebuilds_only_affected_circuits() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+
+    let main_uri = "/mcc/world-main.mc".to_string();
+    let pwr_uri = "/mcc/world-pwr.mc".to_string();
+    mcc::mcc_load_from_string(&main_uri, world_main_src());
+    mcc::mcc_load_from_string(
+        &pwr_uri,
+        "\
+component RES {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module pwr {
+    io V5V
+    RES r1
+    r1.1 -> V5V
+}",
+    );
+
+    let mut world = mcc::CircuitWorld::new(1000);
+    let main_ident = mcc::McSpaceName::new(&mcc::McIds::from("main"), main_uri.clone());
+    let pwr_ident = mcc::McSpaceName::new(&mcc::McIds::from("pwr"), pwr_uri.clone());
+    let key_main = world.instantiate(&main_ident).expect("build main");
+    let key_pwr = world.instantiate(&pwr_ident).expect("build pwr");
+
+    let (_, cap_def) = world_cap_def(&main_uri);
+    assert_eq!(
+        world.invalidated(cap_def),
+        &[key_main.clone()],
+        "CAP's reverse index points at the main circuit only"
+    );
+
+    // Change the CAP def: re-parse the main file (the component def is revived
+    // under the same DefId — D11), then re-instantiate the affected circuit.
+    mcc::mcc_load_from_string(&main_uri, world_main_src_with_c3());
+    let rebuilt = world.rebuild_invalidated(&[cap_def]);
+    assert_eq!(
+        rebuilt,
+        vec![key_main.clone()],
+        "only the circuit depending on CAP is rebuilt"
+    );
+
+    // The main circuit got a second checkpoint (v1 -> v2); the pwr circuit was
+    // NOT rebuilt — it keeps exactly one checkpoint and its old identity.
+    assert_eq!(
+        world.checkpoints(&key_main).map(|c| c.len()),
+        Some(2),
+        "the affected circuit gained a checkpoint"
+    );
+    assert_eq!(
+        world.checkpoints(&key_pwr).map(|c| c.len()),
+        Some(1),
+        "the unaffected circuit was not re-instantiated"
+    );
+    assert!(
+        world.diff_versions(&key_pwr, 0, 1).is_none(),
+        "the unaffected circuit has no second checkpoint to diff"
+    );
+    let pwr_before = world.circuit(&key_pwr).unwrap().nets().len();
+    let pwr_after = world.circuit(&key_pwr).unwrap().nets().len();
+    assert_eq!(pwr_before, pwr_after, "pwr's net layer is untouched");
+
+    // And the rebuilt main circuit now carries c3 in its checkpoint diff.
+    let diff = world.diff_versions(&key_main, 0, 1).expect("main v1 -> v2");
+    assert!(
+        diff.nodes.iter().any(|n| n.path == "main.c3" && n.added),
+        "the rebuilt circuit's diff reports the new node; got {:?}",
+        diff.nodes
+    );
+}
+
+/// Phase G (design §10.2 / §11.5.1): `diff_versions` answers "what changed in
+/// this circuit between two builds" — node additions/removals plus per-net
+/// member deltas (`VDD: +c3.1`) with the point sets anchored on the persistent
+/// node ids.
+#[test]
+fn world_diff_versions_reports_node_add_and_net_delta() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let uri = "/mcc/world.mc".to_string();
+    mcc::mcc_load_from_string(&uri, world_main_src());
+    let ident = mcc::McSpaceName::new(&mcc::McIds::from("main"), uri.clone());
+
+    let mut world = mcc::CircuitWorld::new(1000);
+    let key = world.instantiate(&ident).expect("v1 build");
+    let (_, cap_def) = world_cap_def(&uri);
+
+    // v2: add c3 on VDD/GND, re-parse, and rebuild through the invalidation
+    // domain — same as a real "library changed" edit.
+    mcc::mcc_load_from_string(&uri, world_main_src_with_c3());
+    world.rebuild_invalidated(&[cap_def]);
+
+    let diff = world.diff_versions(&key, 0, 1).expect("v1 -> v2 diff");
+    assert!(
+        diff.nodes.iter().any(|n| n.path == "main.c3" && n.added),
+        "c3 is reported as added; got {:?}",
+        diff.nodes
+    );
+
+    // Per-net member delta: the VDD net gained c3's pin 1. The added point is
+    // anchored on c3's persistent node id (the world registry resolves the
+    // path to the same id the built tree carries).
+    let c3_node = world
+        .circuit(&key)
+        .unwrap()
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c3")
+        .expect("c3 exists after the rebuild")
+        .node_id
+        .expect("c3 carries a node id");
+    assert_eq!(
+        world.registry(&key).unwrap().node_id_of("main.c3"),
+        Some(c3_node),
+        "the rebuilt c3 keeps its persistent node id"
+    );
+    let pin1 = world
+        .circuit(&key)
+        .unwrap()
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c3")
+        .unwrap()
+        .def
+        .pins
+        .ledger
+        .id_of("1")
+        .unwrap();
+    let vdd_delta = diff
+        .nets
+        .iter()
+        .find(|d| d.label.as_deref() == Some("VDD"))
+        .expect("the VDD net has a delta");
+    assert_eq!(
+        vdd_delta.added,
+        vec![mcc::PointId {
+            node: c3_node,
+            pin: pin1,
+        }],
+        "VDD: +c3.1"
+    );
+    assert!(
+        vdd_delta.removed.is_empty(),
+        "no VDD member disappeared in this edit"
+    );
+}
+
+/// Phase G (design §10.3): semantic equivalence ignores net labels — renaming
+/// a net label is NOT a definition change. The two builds differ only in the
+/// port name (VDD -> V5V, same port ordinal), so the canonical point-set
+/// membership is identical and the versions compare equivalent, while the
+/// label uniqueness invariant stays clean.
+#[test]
+fn world_semantic_equivalent_ignores_label_rename() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let uri = "/mcc/world.mc".to_string();
+
+    let v1 = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    io VDD
+    CAP c1
+    c1.1 -> VDD
+}";
+    let v2 = v1
+        .replace("io VDD", "io V5V")
+        .replace("c1.1 -> VDD", "c1.1 -> V5V");
+
+    mcc::mcc_load_from_string(&uri, v1);
+    let ident = mcc::McSpaceName::new(&mcc::McIds::from("main"), uri.clone());
+    let mut world = mcc::CircuitWorld::new(1000);
+    let key = world.instantiate(&ident).expect("v1 build");
+
+    mcc::mcc_load_from_string(&uri, &v2);
+    let (_, cap_def) = world_cap_def(&uri);
+    world.rebuild_invalidated(&[cap_def]);
+
+    assert!(
+        world.semantic_equivalent(&key, 0, 1),
+        "rename-not-definition: a renamed label is semantically equivalent"
+    );
+    assert!(
+        world.label_violations(&key).is_empty(),
+        "no duplicate label in either build"
+    );
+}
+
+/// Phase G (design §12 / plan §9 G item ④): the description layer derives the
+/// class template instantiations of the circuit. A curly bus port
+/// `in PWR{VCC, GND}` yields BOTH an interface binding (the port's member
+/// table) and a bus group (the registered prefix bundle), each with the
+/// member points in declaration order.
+#[test]
+fn description_layer_bus_groups_and_iface_bindings_from_member_ports() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    in PWR{VCC, GND}
+    CAP c1
+    c1.1 -> VCC
+    c1.2 -> GND
+}";
+    let dl = build_dianlu(src);
+    let desc = dl.descriptions();
+
+    // The curly bus port registers a bus group carrying both members' points
+    // (each member net has its port point + the component pin on it).
+    let pwr_bus = desc
+        .bus_groups
+        .iter()
+        .find(|b| b.name == "PWR")
+        .expect("the PWR bus bundle is in the description layer");
+    assert_eq!(
+        pwr_bus.member_points.len(),
+        2,
+        "VCC and GND each contribute their net points; got {:?}",
+        pwr_bus.member_points
+    );
+
+    // The same port is an interface binding: port node + member table.
+    let pwr_bind = desc
+        .iface_bindings
+        .iter()
+        .find(|b| b.name == "PWR")
+        .expect("the PWR port binding is in the description layer");
+    assert_eq!(
+        pwr_bind.members,
+        vec!["VCC", "GND"],
+        "members in declaration order"
+    );
+    assert_eq!(
+        pwr_bind.points, pwr_bus.member_points,
+        "the binding's member points equal the bus group's member points"
+    );
+    let pwr_port = dl
+        .tree()
+        .ports
+        .iter()
+        .find(|p| p.name == "PWR")
+        .expect("the PWR port exists in the frozen tree");
+    assert_eq!(
+        pwr_bind.port,
+        pwr_port.node_id.unwrap(),
+        "the binding anchors on the port's persistent node id"
+    );
+}
+
+/// Phase G (design §12.3): the description layer groups func template
+/// expansions — a sub-module method call (`ldo.Add`) expands the `Add` body,
+/// whose products (the inline `CAP(1)` instance) and connections are bucketed
+/// into the func group.
+#[test]
+fn description_layer_func_groups_anchor_user_func_expansions() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module REG(in VIN) {
+    func Add(net) {
+        CAP(1).Cap([net, VIN])
+    }
+}
+module main {
+    io VDD
+    io GND
+    REG ldo(VDD)
+    ldo.Add(GND)
+}";
+    let dl = build_dianlu(src);
+    let desc = dl.descriptions();
+
+    let add = desc
+        .func_groups
+        .iter()
+        .find(|g| g.name == "Add")
+        .expect("the Add func expansion is a func group");
+    assert!(
+        !add.participants.is_empty(),
+        "the expansion's products participate in the group"
+    );
+    assert!(
+        !add.lanes.is_empty(),
+        "the expansion's connections reference statement trunks"
+    );
+    // Every referenced trunk id is real.
+    let trunk_ids: Vec<usize> = dl.lanes().iter().map(|t| t.id).collect();
+    for lane in &add.lanes {
+        assert!(
+            trunk_ids.contains(&lane.trunk),
+            "lane ref points at an existing trunk {}",
+            lane.trunk
+        );
+    }
+}
+
+/// Phase G (design §12.3 first row): a device instance anchors its
+/// ComponentTemplate — every physical component's `def` resolves to a live
+/// def-space entry (uri-anchored), so the template anchor assertion holds
+/// for the physical layer.
+#[test]
+fn template_anchor_device_instances_resolve_component_defs() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+component RES {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    io VDD
+    io GND
+    CAP c1
+    RES r1
+    c1.1 -> VDD
+    c1.2 -> GND
+    r1.1 -> VDD
+    r1.2 -> GND
+}";
+    let dl = build_dianlu(src);
+    for comp in &dl.tree().components {
+        let sn = mcc::McSpaceName::new(&comp.def.name, comp.def.uri.clone());
+        assert!(
+            mcc::def_id(&sn, mcc::DefKind::Component).is_some(),
+            "device instance '{}' anchors its ComponentTemplate def ({})",
+            comp.name,
+            comp.def.name
+        );
+    }
+}
+
+/// Phase G (plan §9 G item 5 / §115): the "source span + role" anchor keeps
+/// auto-named devices stable across re-instantiation. An anonymous `CAP(1)`
+/// construction inside `ldo` is interned by (role, construction offset) —
+/// `main.ldo.normal@<offset>`, not the counter name `main.ldo._C1` — so
+/// re-building the same circuit (def invalidation, source unchanged) keeps
+/// the exact same `NodeId`; and appending a second anonymous construction
+/// (a new statement at a new offset) allocates a fresh id without disturbing
+/// the existing device.
+#[test]
+fn world_auto_named_device_keeps_anchor_identity_across_rebuilds() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let uri = "/mcc/world-auto.mc".to_string();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module REG(in VIN) {
+    func Add(net) {
+        CAP(1).Cap([net, VIN])
+    }
+}
+module main {
+    io VDD
+    io GND
+    REG ldo(VDD)
+    ldo.Add(GND)
+}";
+    mcc::mcc_load_from_string(&uri, src);
+    let ident = mcc::McSpaceName::new(&mcc::McIds::from("main"), uri.clone());
+    let mut world = mcc::CircuitWorld::new(1000);
+    let key = world.instantiate(&ident).expect("v1 build");
+
+    let ldo_c1 = |w: &mcc::CircuitWorld| {
+        w.circuit(&key)
+            .unwrap()
+            .tree()
+            .sub_modules
+            .iter()
+            .find(|s| s.name == "ldo")
+            .expect("ldo exists")
+            .components
+            .iter()
+            .find(|c| c.name == "_C1")
+            .expect("the anonymous CAP(1) is auto-named _C1")
+            .node_id
+            .expect("the auto-named device carries a node id")
+    };
+
+    // The construction is interned by the anchor path, not the counter name:
+    // the registry records `main.ldo.normal@<offset>` for the device's id.
+    let c1_v1 = ldo_c1(&world);
+    let anchor_path = world
+        .registry(&key)
+        .unwrap()
+        .path_of(c1_v1)
+        .expect("the registry records the anchor path")
+        .to_string();
+    assert!(
+        anchor_path.starts_with("main.ldo.normal@"),
+        "interned by (role, construction offset), not by name; got {anchor_path}"
+    );
+    assert_eq!(
+        world.registry(&key).unwrap().node_id_of(&anchor_path),
+        Some(c1_v1),
+        "the anchor key resolves to the device id"
+    );
+
+    // Rebuild the same circuit (CAP def invalidated, source unchanged): the
+    // same construction site -> the same anchor key -> the same NodeId.
+    let (_, cap_def) = world_cap_def(&uri);
+    world.rebuild_invalidated(&[cap_def]);
+    assert_eq!(
+        ldo_c1(&world),
+        c1_v1,
+        "the auto-named device keeps its NodeId across rebuilds (D1 boundary)"
+    );
+
+    // Append a second anonymous construction (new statement at a new offset):
+    // a fresh id for the new device, the existing device untouched.
+    let src2 = src.replace(
+        "        CAP(1).Cap([net, VIN])\n",
+        "        CAP(1).Cap([net, VIN])\n        CAP(1).Cap([net, VIN])\n",
+    );
+    assert_ne!(src2, src, "the edit appends a construction");
+    mcc::mcc_load_from_string(&uri, &src2);
+    world.rebuild_invalidated(&[cap_def]);
+
+    let c2 = world
+        .circuit(&key)
+        .unwrap()
+        .tree()
+        .sub_modules
+        .iter()
+        .find(|s| s.name == "ldo")
+        .unwrap()
+        .components
+        .iter()
+        .find(|c| c.name == "_C2")
+        .expect("the appended construction is auto-named _C2")
+        .node_id
+        .expect("the new device carries a node id");
+    assert_ne!(
+        c2, c1_v1,
+        "the new construction allocates a fresh, distinct id"
+    );
+    assert_eq!(
+        ldo_c1(&world),
+        c1_v1,
+        "appending a sibling does not disturb the existing device"
+    );
+    let c2_path = world
+        .registry(&key)
+        .unwrap()
+        .path_of(c2)
+        .unwrap()
+        .to_string();
+    assert!(
+        c2_path.starts_with("main.ldo.normal@") && c2_path != anchor_path,
+        "the new device anchors at its own construction offset; got {c2_path}"
+    );
+
+    // The v2 -> v3 checkpoint diff reports the added anchored device.
+    let diff = world.diff_versions(&key, 1, 2).expect("v2 -> v3 diff");
+    assert!(
+        diff.nodes.iter().any(|n| n.path == c2_path && n.added),
+        "the diff reports the new anchored device; got {:?}",
+        diff.nodes
     );
 }

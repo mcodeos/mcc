@@ -89,9 +89,17 @@ pub use builder::{
 };
 
 // ── Instant / Net ──
+pub use db::defregistry::{def_id, kind_of, DefId, DefKind};
 pub use db::member_ledger::DefMemberId;
 pub use instant::arena::{arena_sub_modules, NodeArena};
+pub use instant::circuit_world::{
+    CircuitCheckpoint, CircuitDiff, CircuitWorld, NetDelta, NetSnapshot, NodePathChange,
+};
+pub use instant::descriptions::{
+    BusGroup, DescriptionLayer, EnumRef, FuncGroup, IfaceBinding, LaneRef,
+};
 pub use instant::dianlu::DianLu;
+pub use instant::identity::{CircuitKey, IdentityRegistry, NodeId};
 pub use instant::insttab::{
     InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry, VectorMemberInfo,
 };

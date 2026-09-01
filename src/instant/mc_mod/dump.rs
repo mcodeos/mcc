@@ -580,6 +580,11 @@ impl InstantiationBuilder {
     ///
     /// Equivalent to calling in order: `dump_pass1_input()` + `dump_pass2_output()` + `dump_pass_diff()`.
     /// Note: Only has complete pass2 view **after instantiation has completed**.
+    ///
+    /// Intentionally never called from library code paths — it is the debugger /
+    /// IDE / test entry point that bypasses the `MC_INST_DUMP` env gate, so it
+    /// stays dead from the compiler's point of view by design.
+    #[allow(dead_code)]
     pub fn dump_pass_summary(&self) {
         self.dump_pass1_input();
         self.dump_pass2_output();

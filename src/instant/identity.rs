@@ -28,6 +28,7 @@
 //! `CircuitWorld` (Phase G, D10); Phase C1 only guarantees per-build
 //! determinism (same path → same ID within one instantiation).
 
+use crate::instant::lane::NetId;
 use std::collections::{HashMap, HashSet};
 
 /// Stable per-build node identity (design §4: arena node id).
@@ -88,8 +89,78 @@ impl Default for CircuitKey {
     }
 }
 
+/// The role of an auto-named instance (plan §9 G item 5 / §115): the role
+/// half of the "source span + role" identity key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AutoNameRole {
+    /// Real anonymous device (reference-designator style `_C1`, `_R2`).
+    Normal,
+    /// Internal isolation node (`@_phantom_<name>_<n>`, never a device).
+    Phantom,
+    /// Stub for an unrecognized class name (`@?<name>_<n>`).
+    Stub,
+}
+
+/// The stable identity anchor of an auto-named instance: source span (the
+/// construction byte offset) + role. User-written names carry no anchor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AutoAnchor {
+    /// The naming role (which prefix family generated the name).
+    pub role: AutoNameRole,
+    /// Construction site byte offset — the source-span half of the key.
+    /// Phantom/stub isolation nodes report 0 (no distinguishable anchor).
+    pub offset: u32,
+}
+
+/// The identity key for a child instance (plan §9 G item 5 / §115): real
+/// anonymous devices anchor by (role, construction offset) instead of their
+/// counter name, so the same construction site always yields the same id —
+/// a rebuild of the same circuit (or a sibling appended after it) never
+/// renumbers existing devices.
+///
+/// The anchor key records the name of the device that owns it, so a rebuild
+/// recognizes the same device across builds (same name, same offset → reuse
+/// the anchor) while an iterated call emitting several instances from one
+/// statement (same offset, different counter names) falls back to the name
+/// path for the siblings. Nodes without an anchor (user-written names,
+/// phantom/stub isolation nodes) always use the name path.
+///
+/// Construction (`add_component` / `add_submodule`) and resume
+/// (`resume_tree` / `resume_module`) must call this against the same registry
+/// state so both sides reproduce the same key for the same node; the owner
+/// record is written here so both sides stay consistent.
+pub fn anchored_child_key(
+    reg: &mut IdentityRegistry,
+    module_path: &str,
+    name: &str,
+    anchor: Option<AutoAnchor>,
+) -> String {
+    if let Some(a) = anchor {
+        if a.role == AutoNameRole::Normal {
+            let key = format!("{module_path}.normal@{}", a.offset);
+            match reg.anchor_owner(&key) {
+                // Fresh anchor: claim it for this device.
+                None => {
+                    reg.anchor_owner.insert(key.clone(), name.to_string());
+                    return key;
+                }
+                // The same device across a rebuild: reuse the anchor key.
+                Some(owner) if owner == name => return key,
+                // Another device claims the offset (iterated sibling):
+                // fall back to the name path.
+                Some(_) => {}
+            }
+        }
+    }
+    format!("{module_path}.{name}")
+}
+
 /// Per-build identity registry: deterministic `path ↔ NodeId` interning with
-/// append-only id records and tombstone semantics (design §4 / D6).
+/// append-only id records and tombstone semantics (design §4 / D6). Since
+/// Phase G (D9/D10) the registry is a persistent per-world field: it also
+/// interns labeled net names (`label ↔ NetId`, D9) so a circuit's named nets
+/// carry stable ids across rebuilds, and its alive set feeds the per-circuit
+/// checkpoints (design §11.5.1).
 #[derive(Debug, Clone)]
 pub struct IdentityRegistry {
     /// The circuit this registry namespaces.
@@ -104,6 +175,25 @@ pub struct IdentityRegistry {
     tombstones: HashSet<NodeId>,
     /// Next id to allocate (monotonic, starts at 1).
     next: u32,
+    /// D9 net identity: net label (the net's name attribute) → current
+    /// `NetId`. A tombstoned label keeps its stale id here; [`Self::intern_net`]
+    /// overwrites it with a fresh id on re-interning (rename = tombstone +
+    /// fresh id, the same discipline as nodes).
+    net_by_label: HashMap<String, NetId>,
+    /// Append-only net id → label records. Tombstoned net ids keep their
+    /// record (a deleted net is distinguishable from one that never existed).
+    net_label_of: Vec<(NetId, String)>,
+    /// Deleted net ids (tombstones) — never reused.
+    net_tombstones: HashSet<NetId>,
+    /// Next net id to allocate (monotonic, starts at 1 — `NetId(0)` is never
+    /// allocated by the registry, so the derived space head stays free).
+    next_net: u32,
+    /// Anchor key (`main.ldo.normal@<offset>`) → the name of the device that
+    /// currently owns it (plan §9 G item 5). Lets [`anchored_child_key`]
+    /// distinguish "same device across a rebuild" (same name, reuse the
+    /// anchor) from "iterated sibling" (different name, same offset — name
+    /// path instead).
+    anchor_owner: HashMap<String, String>,
 }
 
 impl IdentityRegistry {
@@ -116,6 +206,11 @@ impl IdentityRegistry {
             id_to_path: Vec::new(),
             tombstones: HashSet::new(),
             next: 1,
+            net_by_label: HashMap::new(),
+            net_label_of: Vec::new(),
+            net_tombstones: HashSet::new(),
+            next_net: 1,
+            anchor_owner: HashMap::new(),
         }
     }
 
@@ -169,6 +264,11 @@ impl IdentityRegistry {
             .filter(|id| !self.tombstones.contains(id))
     }
 
+    /// The name of the device that currently owns `anchor_key`, if any.
+    pub fn anchor_owner(&self, anchor_key: &str) -> Option<&str> {
+        self.anchor_owner.get(anchor_key).map(String::as_str)
+    }
+
     /// Whether `path` has ever been registered (alive or tombstoned).
     pub fn contains(&self, path: &str) -> bool {
         self.path_to_id.contains_key(path)
@@ -203,6 +303,99 @@ impl IdentityRegistry {
     /// Whether the registry has no registrations.
     pub fn is_empty(&self) -> bool {
         self.path_to_id.is_empty()
+    }
+
+    // ========================================================================
+    // D9 net identity — labeled nets get a persistent `NetId` (the label is
+    // the net's name attribute; same label = same net). Same tombstone
+    // discipline as node ids: ids monotonic, never reused, delete is a
+    // tombstone.
+    // ========================================================================
+
+    /// Deterministic interning of a net label: return the `NetId` for `label`,
+    /// allocating a fresh id on first sight. A re-interned (tombstoned) label
+    /// gets a **fresh** id — a renamed net is a different net object, exactly
+    /// as a renamed node is.
+    pub fn intern_net(&mut self, label: &str) -> NetId {
+        if let Some(&id) = self.net_by_label.get(label) {
+            if !self.net_tombstones.contains(&id) {
+                return id;
+            }
+        }
+        let id = NetId(self.next_net);
+        self.next_net += 1;
+        self.net_by_label.insert(label.to_string(), id);
+        self.net_label_of.push((id, label.to_string()));
+        self.net_tombstones.remove(&id);
+        id
+    }
+
+    /// Current `NetId` for `label`, if alive (not tombstoned).
+    pub fn net_id_of(&self, label: &str) -> Option<NetId> {
+        self.net_by_label
+            .get(label)
+            .copied()
+            .filter(|id| !self.net_tombstones.contains(id))
+    }
+
+    /// The label of `id` (latest record; a tombstoned net keeps its label).
+    pub fn net_label_of(&self, id: NetId) -> Option<&str> {
+        self.net_label_of
+            .iter()
+            .rev()
+            .find(|(i, _)| *i == id)
+            .map(|(_, l)| l.as_str())
+    }
+
+    /// Every live (label, id) pair, sorted by label — the snapshot of what the
+    /// registry currently names.
+    pub fn live_nets(&self) -> Vec<(String, NetId)> {
+        let mut out: Vec<(String, NetId)> = self
+            .net_by_label
+            .iter()
+            .filter(|(_, id)| !self.net_tombstones.contains(id))
+            .map(|(l, id)| (l.clone(), *id))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// Tombstone every interned label not present in `active` — a net whose
+    /// name disappeared from the circuit is deleted (its id is never reused;
+    /// a re-appearing name allocates a fresh id).
+    pub fn reconcile_net_labels(&mut self, active: &HashSet<String>) {
+        let stale: Vec<NetId> = self
+            .net_by_label
+            .iter()
+            .filter(|(l, id)| !active.contains(*l) && !self.net_tombstones.contains(id))
+            .map(|(_, id)| *id)
+            .collect();
+        for id in stale {
+            self.delete_net(id);
+        }
+    }
+
+    /// Tombstone `id`: its label record stays, its id is never reused.
+    pub fn delete_net(&mut self, id: NetId) {
+        self.net_tombstones.insert(id);
+    }
+
+    /// The next id the net allocator will hand out. Unlabeled nets carry no
+    /// stable key, so they receive build-scoped ids from here (past the
+    /// interned range) — their cross-build identity comes from the checkpoint
+    /// net snapshots + overlap matching (D9), never from the id itself.
+    pub fn next_net_id(&self) -> NetId {
+        NetId(self.next_net)
+    }
+
+    /// Every alive (canonical path, node id) pair — the node half of a
+    /// checkpoint's alive set (design §11.5.1).
+    pub fn alive_paths(&self) -> Vec<(String, NodeId)> {
+        self.path_to_id
+            .iter()
+            .filter(|(_, id)| !self.tombstones.contains(id))
+            .map(|(p, id)| (p.clone(), *id))
+            .collect()
     }
 }
 

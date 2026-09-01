@@ -154,11 +154,12 @@ impl InstantiationBuilder {
             )),
         );
         let safe_type = type_name.replace('.', "_");
-        let (inst_name, gen_line) = if let Some(name) = caller_name {
+        let (inst_name, gen_line, anchor) = if let Some(name) = caller_name {
             // P2-7: use caller name as instance name (e.g. R442::RES(1MΩ) → R442)
-            (name.to_string(), self.current_offset())
+            (name.to_string(), self.current_offset(), None)
         } else {
-            self.auto_name(super::AutoNameKind::Normal, &safe_type)
+            let (n, l, a) = self.auto_name(super::AutoNameKind::Normal, &safe_type);
+            (n, l, Some(a))
         };
 
         // 2. Create the component instance with parameters
@@ -216,6 +217,10 @@ impl InstantiationBuilder {
             line: gen_line,
             expansion_id: Some(eidx),
         };
+        // Phase G (plan §9 G item 5): the "source span + role" anchor of an
+        // anonymous construction — the registry interns it by the anchor, not
+        // the counter name, so inserting a sibling never renumbers it.
+        inst.anchor = anchor;
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
         // Filter out synthetic interface placeholders that mc_fcall.rs injects when
@@ -437,10 +442,9 @@ impl InstantiationBuilder {
         //    interfering with path resolution ──
         let type_name = func_name.to_string();
         let safe_type = type_name.replace('.', "_");
-        let (inst_name, _) = self.auto_name(super::AutoNameKind::Normal, &safe_type);
-
-        // 2. Create the sub-module instance with parameters
+        let (inst_name, _, anchor) = self.auto_name(super::AutoNameKind::Normal, &safe_type);
         let mut sub_inst = McModuleInst::with_params(&inst_name, module_def, params)?;
+        sub_inst.anchor = Some(anchor);
 
         // ── Expansion provenance: ModuleCall (parent-side leaf record, §4.1-B7) ──
         // The sub-module's own interior expands on its own ExpansionLog

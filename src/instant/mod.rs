@@ -3,7 +3,9 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 pub(crate) mod arena;
+pub(crate) mod circuit_world;
 pub(crate) mod deps;
+pub(crate) mod descriptions;
 pub(crate) mod dianlu;
 pub(crate) mod identity;
 pub(crate) mod insttab;

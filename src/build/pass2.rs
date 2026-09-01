@@ -6,11 +6,14 @@ use crate::build::pass1::canonicalize_project_uri;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::init::uri_equivalent;
 use crate::instant::dianlu::DianLu;
+use crate::instant::identity::IdentityRegistry;
 use crate::instant::insttab::InstTable;
 use crate::instant::mc_mod::McModuleInst;
+use crate::semantic::module::McModule;
 use crate::ParserResult;
 use crate::{McSpaceName, McURI};
 use std::error::Error;
+use std::sync::Arc;
 
 pub type MccProjectTree = McModuleInst;
 
@@ -69,16 +72,31 @@ pub(crate) fn mcb_instantiate(
     entry: &McSpaceName,
     start_id: u32,
 ) -> Result<DianLu, Box<dyn Error>> {
-    // FIX: Extract module def from prj_modules and DROP the MutexGuard
-    // BEFORE calling inst.instantiate(). instantiate() internally calls
-    // mcb_get_cmie() -> prj_modules.borrow() which would deadlock if the
-    // lock is still held (std::sync::Mutex is NOT reentrant).
-    //
-    // We avoid returning DashMap Ref temporaries from block expressions,
-    // which would extend their borrow lifetime past the MutexGuard drop.
-    let matched_uri;
-    let target_module_def;
+    do_instantiate(entry, start_id, None)
+}
 
+/// Phase G (D10): like [`mcb_instantiate`], but the top-level builder interns
+/// into `registry` (a CircuitWorld-persistent registry) and the [`DianLu`]
+/// resumes the frozen tree's pairs back into it — a rebuild of the same
+/// circuit continues on the same id namespace (D1 / D9).
+pub(crate) fn mcb_instantiate_with_registry(
+    entry: &McSpaceName,
+    start_id: u32,
+    registry: &mut IdentityRegistry,
+) -> Result<DianLu, Box<dyn Error>> {
+    do_instantiate(entry, start_id, Some(registry))
+}
+
+/// Resolve the entry module def: exact `McSpaceName` match first, then the URI
+/// suffix fallback (canonical path vs relative path inconsistency). Returns the
+/// matched canonical URI and the module def. The bindings are dropped before
+/// any instantiation work starts — `instantiate()` internally calls
+/// `mcb_get_cmie()` -> `prj_modules.borrow()`, which would deadlock if a
+/// `std::sync::Mutex` guard were still held (std::sync::Mutex is NOT
+/// reentrant).
+pub(crate) fn resolve_entry_module(
+    entry: &McSpaceName,
+) -> Result<(String, Arc<McModule>), Box<dyn Error>> {
     {
         let modules = crate::definition_space().workspace_modules();
 
@@ -88,38 +106,48 @@ pub(crate) fn mcb_instantiate(
             .map(|def| (entry.uri.to_string(), def));
 
         if let Some((uri, def)) = exact {
-            matched_uri = uri;
-            target_module_def = def;
-        } else {
-            // 2. Suffix match fallback ("main.mc" vs "/abs/path/to/main.mc")
-            let entry_uri = entry.uri.as_uri();
-            let canonical_entry = canonicalize_project_uri(&McURI::from(entry_uri.as_ref()));
-            let suffix = modules
-                .iter()
-                .find(|(sn, _)| {
-                    sn.ident == entry.ident
-                        && uri_equivalent(&sn.uri.as_uri(), &entry_uri, &canonical_entry)
-                })
-                .map(|(sn, def)| (sn.uri.to_string(), (*def).clone()));
-
-            if let Some((uri, def)) = suffix {
-                matched_uri = uri;
-                target_module_def = def;
-            } else {
-                let available: Vec<String> = modules
-                    .iter()
-                    .map(|(sn, _)| format!("{}@{}", sn.ident, sn.uri))
-                    .collect();
-                return Err(format!(
-                    "Target module not found: {} (uri={})\n  Available modules: [{}]",
-                    entry.ident,
-                    entry.uri,
-                    available.join(", ")
-                )
-                .into());
-            }
+            return Ok((uri, def));
         }
-    } // binding (MutexGuard) dropped here, BEFORE instantiate()
+
+        // 2. Suffix match fallback ("main.mc" vs "/abs/path/to/main.mc")
+        let entry_uri = entry.uri.as_uri();
+        let canonical_entry = canonicalize_project_uri(&McURI::from(entry_uri.as_ref()));
+        let suffix = modules
+            .iter()
+            .find(|(sn, _)| {
+                sn.ident == entry.ident
+                    && uri_equivalent(&sn.uri.as_uri(), &entry_uri, &canonical_entry)
+            })
+            .map(|(sn, def)| (sn.uri.to_string(), (*def).clone()));
+
+        if let Some((uri, def)) = suffix {
+            return Ok((uri, def));
+        }
+
+        let available: Vec<String> = modules
+            .iter()
+            .map(|(sn, _)| format!("{}@{}", sn.ident, sn.uri))
+            .collect();
+        Err(format!(
+            "Target module not found: {} (uri={})\n  Available modules: [{}]",
+            entry.ident,
+            entry.uri,
+            available.join(", ")
+        )
+        .into())
+    }
+}
+
+/// The shared instantiation core: resolve the entry module, open the Phase F
+/// circuit→def dependency window, run the instantiation body (into a fresh
+/// per-build registry, or into `registry` when one is supplied), and wrap the
+/// frozen tree into a [`DianLu`].
+fn do_instantiate(
+    entry: &McSpaceName,
+    start_id: u32,
+    mut registry: Option<&mut IdentityRegistry>,
+) -> Result<DianLu, Box<dyn Error>> {
+    let (matched_uri, target_module_def) = resolve_entry_module(entry)?;
 
     let mut inst = McModuleInst::new(&entry.ident.to_string(), target_module_def);
 
@@ -155,9 +183,11 @@ pub(crate) fn mcb_instantiate(
     // net-table store alongside the tree (the tree never carries NetPoint).
     // It rides into the DianLu so the projection and the tree-level string
     // net consumers read the same tables.
-    let net_store = inst
-        .instantiate_with_store()
-        .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
+    let net_store = if let Some(reg) = registry.as_deref_mut() {
+        inst.instantiate_with_store_in_registry(reg)?
+    } else {
+        inst.instantiate_with_store()?
+    };
 
     // Phase F: close the dependency window and freeze the circuit→def edge
     // set into the DianLu. The tree sweep records the declared-instance defs
@@ -166,7 +196,11 @@ pub(crate) fn mcb_instantiate(
     crate::instant::deps::record_tree_defs(&inst);
     let deps = deps_guard.finish();
 
-    Ok(DianLu::new(inst, start_id, net_store, deps))
+    Ok(if let Some(reg) = registry {
+        DianLu::new_with_registry(inst, start_id, net_store, deps, reg)
+    } else {
+        DianLu::new(inst, start_id, net_store, deps)
+    })
 }
 
 // === pub fn mcb_pass2_flat( ===

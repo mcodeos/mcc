@@ -70,7 +70,7 @@ impl std::fmt::Display for McUse {
 }
 
 impl McUse {
-    pub(crate) fn new(node: &AstNode, current_path: &Path) -> Option<McUse> {
+    pub(crate) fn new(node: &AstNode, current_path: &Path, source: &str) -> Option<McUse> {
         // MCAST_USE / MCAST_USE_PUB
         //      |- MCAST_URI_PREFIX  str($ ./ ../)
         //  (1) |- MCAST_URI_MODULE
@@ -101,66 +101,75 @@ impl McUse {
 
         //2. uri module / file
         let module_file_node = pre_fix_node.get_next().expect(MISSING_SUBNODE);
-        let uri_path = match module_file_node.get_type() {
-            MCAST_URI_MODULE => {
-                if let Some(path_strs) = module_file_node.subs_to_string_vec() {
-                    // C parser may misclassify MCAST_URI_FILE as MCAST_URI_MODULE
-                    // when the path has a .mc extension (e.g. "use ./xtal.mc").
-                    // When prefix is ./ or ../ it's always a file path — never auto-complete.
-                    let is_file_path = matches!(
-                        uri_prefix,
-                        McUsePrefix::PathCurrent | McUsePrefix::PathParent
+
+        // File paths (`./`, `../`) are recovered from the raw source text.
+        // The C lexer only treats `[A-Za-z0-9_.]` as URI characters, so a
+        // hyphenated file name such as `use ./comp-cap.mc` is lexed as
+        // `comp` `-` `cap` `.` `mc` and the parser drops everything after
+        // the first `-`. The path is sliced verbatim from the module/file
+        // node's start position up to the first whitespace (a file path
+        // never contains whitespace).
+        let uri_path = if matches!(
+            uri_prefix,
+            McUsePrefix::PathCurrent | McUsePrefix::PathParent
+        ) {
+            let path_start = module_file_node.get_pos() as usize;
+            source
+                .get(path_start..)
+                .map(|tail| {
+                    tail.split(|c: char| c.is_ascii_whitespace())
+                        .next()
+                        .unwrap_or("")
+                })
+                .unwrap_or("")
+                .to_string()
+        } else {
+            match module_file_node.get_type() {
+                MCAST_URI_MODULE => {
+                    if let Some(path_strs) = module_file_node.subs_to_string_vec() {
+                        if path_strs.len() == 1 {
+                            // Single module name like `use conn` → conn/conn
+                            let module_name = path_strs[0].clone();
+                            format!("{module_name}/{module_name}")
+                        } else {
+                            // Multi-segment module: man.mcu.comp → man/mcu/comp/comp
+                            let last = path_strs.last().unwrap();
+                            let mut path = path_strs.join("/");
+                            path.push('/');
+                            path.push_str(last);
+                            path
+                        }
+                    } else {
+                        String::new()
+                    }
+                }
+                MCAST_URI_FILE => {
+                    // Handle C parser potentially splitting "power.mc" into two child nodes
+                    if let Some(path_strs) = module_file_node.subs_to_string_vec() {
+                        if path_strs.len() >= 2 {
+                            let last = path_strs.last().unwrap();
+                            if last == "mc" {
+                                // ["power", "mc"] → "power.mc" (join with dot)
+                                let prefix = path_strs[..path_strs.len() - 1].join("/");
+                                format!("{prefix}.mc")
+                            } else {
+                                path_strs.join("/")
+                            }
+                        } else {
+                            path_strs.join("/")
+                        }
+                    } else {
+                        String::new()
+                    }
+                }
+                _ => {
+                    dlog_error(
+                        crate::errcodes::USE_PATH_INVALID,
+                        &module_file_node,
+                        &crate::errcodes::format_msg(crate::errcodes::USE_PATH_INVALID, &[]),
                     );
-                    if is_file_path {
-                        // Simple file path: join segments as-is (C parser may split ext)
-                        if path_strs.len() >= 2 && path_strs.last().map_or(false, |s| s == "mc") {
-                            let prefix = path_strs[..path_strs.len() - 1].join("/");
-                            format!("{prefix}.mc")
-                        } else {
-                            path_strs.join("/")
-                        }
-                    } else if path_strs.len() == 1 {
-                        // Single module name like `use conn` → conn/conn
-                        let module_name = path_strs[0].clone();
-                        format!("{module_name}/{module_name}")
-                    } else {
-                        // Multi-segment module: man.mcu.comp → man/mcu/comp/comp
-                        let last = path_strs.last().unwrap();
-                        let mut path = path_strs.join("/");
-                        path.push('/');
-                        path.push_str(last);
-                        path
-                    }
-                } else {
-                    String::new()
+                    return None;
                 }
-            }
-            MCAST_URI_FILE => {
-                // ★ Fix: handle C parser potentially splitting "power.mc" into two child nodes
-                if let Some(path_strs) = module_file_node.subs_to_string_vec() {
-                    if path_strs.len() >= 2 {
-                        let last = path_strs.last().unwrap();
-                        if last == "mc" {
-                            // ["power", "mc"] → "power.mc" (join with dot)
-                            let prefix = path_strs[..path_strs.len() - 1].join("/");
-                            format!("{prefix}.mc")
-                        } else {
-                            path_strs.join("/")
-                        }
-                    } else {
-                        path_strs.join("/")
-                    }
-                } else {
-                    String::new()
-                }
-            }
-            _ => {
-                dlog_error(
-                    crate::errcodes::USE_PATH_INVALID,
-                    &module_file_node,
-                    &crate::errcodes::format_msg(crate::errcodes::USE_PATH_INVALID, &[]),
-                );
-                return None;
             }
         };
 
