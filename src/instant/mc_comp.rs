@@ -7,6 +7,7 @@
 //! McComponentInst
 
 use super::mc_net::{InstError, NetPoint};
+use crate::instant::identity::NodeId;
 use crate::instant::insttab::InstOrigin;
 use crate::semantic::basic::mc_conds::McConds;
 use crate::semantic::basic::mc_expr::McExpression;
@@ -63,6 +64,11 @@ pub struct McComponentInst {
     /// Expansion provenance: index into the owning module's `ExpansionLog`.
     /// None = created at module top level (no active expansion).
     pub expansion_id: Option<usize>,
+
+    /// Phase C1: per-build node identity (canonical path interned in the
+    /// circuit's `IdentityRegistry`). `None` until the instance is added to
+    /// its module (`add_component`); the frozen tree always carries it.
+    pub node_id: Option<NodeId>,
 }
 
 impl McComponentInst {
@@ -81,6 +87,7 @@ impl McComponentInst {
             origin: InstOrigin::Declared,
             degraded: false,
             expansion_id: None,
+            node_id: None,
         };
 
         inst.init_pins();
@@ -102,6 +109,7 @@ impl McComponentInst {
             origin: InstOrigin::Declared,
             degraded: true,
             expansion_id: None,
+            node_id: None,
         }
     }
 
@@ -142,6 +150,7 @@ impl McComponentInst {
             origin: InstOrigin::Declared,
             degraded: false,
             expansion_id: None,
+            node_id: None,
         };
 
         inst.init_pins();
@@ -164,6 +173,7 @@ impl McComponentInst {
             origin: InstOrigin::Declared,
             degraded: false,
             expansion_id: None,
+            node_id: None,
         };
 
         inst.init_pins();

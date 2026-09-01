@@ -12,7 +12,7 @@
 //! - `is_port` / `find_component` / `find_submodule` / `ensure_label` —— lookup helpers
 
 use super::funccall::FaceSide;
-use super::McModuleInst;
+use super::{InstantiationBuilder, McModuleInst};
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
@@ -143,7 +143,7 @@ fn resolve_bare_member_pid(
     }
 }
 
-impl McModuleInst {
+impl InstantiationBuilder {
     pub(super) fn get_left_points(
         &mut self,
         phrase: &McPhrase,
@@ -1956,57 +1956,6 @@ impl McModuleInst {
         self.ports.iter().any(|p| p.name == name)
     }
 
-    /// Structural port-reference check for post-expansion validation.
-    ///
-    /// Sub-module expansion produces member-expanded path forms that
-    /// `is_port`'s exact port-name match cannot see, because the member group
-    /// is registered on [`PortInst::bus_members`] at instantiation time
-    /// (derived from the port's structured IDX — curly/square members or the
-    /// interface base-pin names). This recognizes all three forms:
-    ///
-    ///   1. exact port name            `vin`
-    ///   2. bare member of a bus port  `VDD_3V3`  (member of `[VDD_3V3, GND]`)
-    ///   3. dotted member              `vin.POWER_SYS` (port `vin`, member `POWER_SYS`)
-    ///
-    /// A pure-numeric path (e.g. `10`) is a physical pin-id artifact passed
-    /// through the module boundary by func expansion (`uC.SPI` → pins 8..11),
-    /// not a module port reference — module ports are identifier labels, so
-    /// it is treated as valid and not flagged.
-    pub(super) fn is_valid_port_ref(&self, name: &str) -> bool {
-        // Pin-id artifact (func expansion): numeric-only paths never name a port.
-        if !name.is_empty() && name.chars().all(|c| c.is_ascii_digit()) {
-            return true;
-        }
-
-        // Curly-named ports are registered with the brace suffix in the name
-        // (e.g. "USB_VBUS_1{VDD_3V, GND}"); the base matches member paths.
-        let base_matches = |candidate: &str, target: &str| -> bool {
-            let base = brace_suffix_strip(candidate);
-            candidate == target || (!base.is_empty() && base == target)
-        };
-
-        // 1. Exact port name (covers square forms like "[VDD_3V3, GND]").
-        if self.ports.iter().any(|p| base_matches(&p.name, name)) {
-            return true;
-        }
-        // 2. Bare member of a bus port.
-        if self
-            .ports
-            .iter()
-            .any(|p| p.bus_members.iter().any(|m| m == name))
-        {
-            return true;
-        }
-        // 3. Dotted member: port.member.
-        if let Some((port, member)) = name.split_once('.') {
-            return self
-                .ports
-                .iter()
-                .any(|p| base_matches(&p.name, port) && p.bus_members.iter().any(|m| m == member));
-        }
-        false
-    }
-
     pub(super) fn find_component(&self, name: &str) -> Option<&McComponentInst> {
         self.components.iter().find(|c| c.name == name)
     }
@@ -2020,22 +1969,5 @@ impl McModuleInst {
             self.labels
                 .insert(name.to_string(), NetPoint::new(name, IOType::None));
         }
-    }
-}
-
-/// Strip a trailing `{...}` / `[...]` member suffix from a port name to get
-/// its base identifier (e.g. "USB_VBUS_1{VDD_3V, GND}" → "USB_VBUS_1").
-/// Square-only names like "[VDD_3V3, GND]" strip to "" and keep the exact
-/// form for matching.
-fn brace_suffix_strip(s: &str) -> &str {
-    let cut = match (s.find('{'), s.find('[')) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        (None, None) => None,
-    };
-    match cut {
-        Some(i) => &s[..i],
-        None => s,
     }
 }

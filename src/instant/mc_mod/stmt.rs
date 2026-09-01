@@ -10,7 +10,7 @@
 //! - `process_member_internal`: single member internal processing (FuncCall / Closure / Group …)
 
 use super::funccall::FuncCallInst;
-use super::McModuleInst;
+use super::InstantiationBuilder;
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -29,7 +29,7 @@ enum LaneItem<'a> {
     Bridge(NetPoint),
 }
 
-impl McModuleInst {
+impl InstantiationBuilder {
     /// Process connection stmt - accepts McPhrase
     pub(super) fn process_stmt(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
         // ── G4: Skip stmts referencing failed components ──
@@ -822,13 +822,13 @@ impl McModuleInst {
         // normally happen since Transposed with FuncCall inner is handled
         // separately in process_member_internal).
         let key = Self::member_key(inner);
-        if let Some(inst_name) = self.auto_inst_map.get(&key) {
+        if let Some(inst_name) = self.auto_inst_map.get(&key).cloned() {
             if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
                 for name in stripped.split(',') {
                     self.bridge_passive_names.insert(name.to_string());
                 }
             } else {
-                self.bridge_passive_names.insert(inst_name.clone());
+                self.bridge_passive_names.insert(inst_name);
             }
         }
     }
@@ -2414,17 +2414,14 @@ impl McModuleInst {
                         self.process_member_internal(inner)?;
                         // ★ M11.3: record bridge passive instance names from Transposed
                         let key = Self::member_key(inner);
-                        match self.auto_inst_map.get(&key) {
-                            Some(inst_name) => {
-                                if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
-                                    for name in stripped.split(',') {
-                                        self.bridge_passive_names.insert(name.to_string());
-                                    }
-                                } else {
-                                    self.bridge_passive_names.insert(inst_name.clone());
+                        if let Some(inst_name) = self.auto_inst_map.get(&key).cloned() {
+                            if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
+                                for name in stripped.split(',') {
+                                    self.bridge_passive_names.insert(name.to_string());
                                 }
+                            } else {
+                                self.bridge_passive_names.insert(inst_name);
                             }
-                            None => {}
                         }
                     }
                     _ => {

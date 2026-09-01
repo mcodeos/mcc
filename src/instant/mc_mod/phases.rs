@@ -12,7 +12,7 @@ use super::matching::{
     is_ground_name, pair_members_to_lanes, parse_bracket_members, voltage_token,
 };
 use super::FailedRecord;
-use super::McModuleInst;
+use super::{InstantiationBuilder, McModuleInst};
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{canonicalize_path, ConnectionInst, InstError, NetPoint, PortInst};
 use crate::instant::provenance::ExpansionKind;
@@ -30,7 +30,7 @@ use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, Ledge
 use std::collections::HashSet;
 use std::sync::Arc;
 
-impl McModuleInst {
+impl InstantiationBuilder {
     // ========================================================================
     // Phase 1: Interface instantiation
     // ========================================================================
@@ -223,7 +223,10 @@ impl McModuleInst {
         // Module signature params like `[VDD_3V3,GND]::DC(3.3V)` live in `def.params`,
         // not `def.insts`. Without this, `bind_actual_args_to_ports` can't find them,
         // and parent modules can't pass bus arguments to submodule interface ports.
-        for pd in self.def.params.iter() {
+        // The param list is cloned so the `self.ports` / `self.labels` writes below
+        // do not fight the `self.def` read (both go through the builder deref).
+        let def_params = self.def.params.clone();
+        for pd in def_params.iter() {
             let is_interface_port = matches!(
                 pd.param_type.kind,
                 McParamTypeKind::Interface { .. } | McParamTypeKind::InterfaceWithRole { .. }
@@ -509,12 +512,14 @@ impl McModuleInst {
                                     reason
                                 );
                                 self.failed_classes.insert(c.base.name.to_string());
+                                let stmt_line = self
+                                    .current_stmt_span
+                                    .as_ref()
+                                    .map(|s| (s.offset / 1000) as usize);
+                                let module_name = self.name.clone();
                                 self.failed_records.push(FailedRecord {
-                                    module: self.name.clone(),
-                                    src_line: self
-                                        .current_stmt_span
-                                        .as_ref()
-                                        .map(|s| (s.offset / 1000) as usize),
+                                    module: module_name,
+                                    src_line: stmt_line,
                                     component_name: c.name.to_string(),
                                     class_name: c.base.name.to_string(),
                                     reason,
@@ -564,7 +569,11 @@ impl McModuleInst {
                     let inst_name = m.name.to_string();
                     let mut inst = McModuleInst::new(&inst_name, m.base.clone());
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
-                    if let Err(e) = inst.instantiate() {
+                    // Phase C1: intern into the circuit registry under the full path
+                    // (`{parent}.{inst_name}`), so this sub-module and its products
+                    // carry circuit-global node ids.
+                    let sub_path = self.child_path(&inst_name);
+                    if let Err(e) = inst.instantiate_in_scope(self.identity_mut(), &sub_path) {
                         self.record_error(
                             crate::errcodes::INST_SUBMODULE_INSTANTIATE_FAILED,
                             crate::errcodes::format_msg(
@@ -1368,11 +1377,12 @@ impl McModuleInst {
         // ── Expansion provenance: ComponentCtor (same-name constructor func body) ──
         // Nested under the enclosing declare / construction record when present;
         // body products expand in the current module, tagged with this record.
+        let call_site = self.current_call_site();
         let eidx = self.expansion.begin(
             ExpansionKind::ComponentCtor,
             Some(inst_name.to_string()),
             last.clone(),
-            self.current_call_site(),
+            call_site,
             Self::func_def_site(&func),
         );
         let conn_start = self.connections.len(); // ← P4 backstop start point

@@ -15,7 +15,7 @@
 //! - `substitute_phrase` / `substitute_stmt` —— substitute throughout the McPhrase tree
 
 use super::expand::ExpansionContext;
-use super::McModuleInst;
+use super::InstantiationBuilder;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_closure::McClosure;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -27,7 +27,7 @@ use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::mc_inst::McInstance;
 use crate::McIds;
 
-impl McModuleInst {
+impl InstantiationBuilder {
     // ========================================================================
     // McParamValue / McOpd / McIds → Vec<McBus>
     // ========================================================================
@@ -725,7 +725,7 @@ mod tests {
             key_span: None,
         };
         let value = McParamValue::InlineAttrs(vec![attr]);
-        let elems = McModuleInst::param_value_to_node_elements(&value);
+        let elems = InstantiationBuilder::param_value_to_node_elements(&value);
         assert!(
             elems.is_empty(),
             "InlineAttrs must not become a net node, got {elems:?}"

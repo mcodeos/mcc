@@ -6,6 +6,7 @@
 //!
 //! Runs after `mcb_pass2()` when the full flattened netlist (`InstTable`) is available.
 
+use crate::db::diagnostic::diagnostic::{Diagnostic, DiagnosticLevel, Location};
 use crate::instant::insttab::{
     is_ground_name, is_supply_name, InstEntry, InstKind, InstOrigin, InstTable, MemberRole,
     NetEntry,
@@ -51,6 +52,52 @@ pub struct NetCheckResult {
     pub pos: u32,
     /// Source file URI (empty if not available)
     pub uri: String,
+}
+
+/// Convert net-check results into ready-to-log `Diagnostic`s (dianlu-tree
+/// Phase A). `uri` is taken verbatim from each result; a result without one
+/// keeps an empty uri and [`log_net_check_diagnostics`] falls back to the
+/// caller's `current_uri` at log time.
+pub fn net_results_to_diagnostics(results: &[NetCheckResult]) -> Vec<Diagnostic> {
+    results
+        .iter()
+        .map(|r| {
+            let level = match r.severity {
+                "error" => DiagnosticLevel::Error,
+                "info" => DiagnosticLevel::Info,
+                _ => DiagnosticLevel::Warning,
+            };
+            Diagnostic::new(
+                r.code,
+                level,
+                Location::new(crate::McURI::from(r.uri.as_str()), r.pos, 0),
+                r.message.clone(),
+            )
+        })
+        .collect()
+}
+
+/// Log net-check diagnostics at their own uris (dianlu-tree Phase A
+/// caller-side helper). A diagnostic with an empty uri falls back to the
+/// caller's `current_uri` — the entry module's file. Replaces the logging
+/// that used to live inside `DianLu::flatten`.
+pub fn log_net_check_diagnostics(diags: &[Diagnostic]) {
+    for d in diags {
+        let uri = if d.loc.uri.is_empty() {
+            crate::current_uri::try_get().unwrap_or_default()
+        } else {
+            d.loc.uri.clone()
+        };
+        crate::db::diagnostic::diagnostic::diagnostic_log_at(
+            d.code,
+            d.level,
+            uri,
+            d.loc.pos,
+            d.loc.len,
+            &d.msg,
+            &[],
+        );
+    }
 }
 
 /// Extract the best available source position from an InstEntry.

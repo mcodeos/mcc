@@ -859,7 +859,7 @@ mod phase0_golden {
         // One instantiation → one DianLu (§12.2); the flat projection and net
         // checks run once inside `flatten`, never a second instantiation.
         let mut dl = mcc::mcc_build_dianlu(&ident, &entry_uri, 1000).expect("mcc_build_dianlu");
-        dl.flatten();
+        let _ = dl.flatten(); // viz path does not consume net-check diagnostics
         let (inst, table) = dl.into_parts();
         let vec_block = mcc::build_mc_vec(&inst, &table);
         mcc::build_mc_vec_graph(&vec_block, &table)
@@ -973,10 +973,12 @@ mod d_detectors {
         let ident = McIds::from("top");
         let build_result = mcc::mcc_build_dianlu(&ident, &uri, 1000);
         let build_err = build_result.as_ref().err().map(|e| e.to_string());
+        let mut diags = mcc::mcc_diagnose_all();
         if let Ok(mut dl) = build_result {
-            let _ = dl.flatten();
+            // Phase A: flatten returns the net-check diagnostics — the caller
+            // owns them. Append instead of logging into the workspace.
+            diags.extend(dl.flatten());
         }
-        let diags = mcc::mcc_diagnose_all();
         (diags, build_err)
     }
 
@@ -1001,11 +1003,13 @@ mod d_detectors {
         mcc::mcc_load_from_string(&uri, content);
         let ident = McIds::from("top");
         let mut dl = mcc::mcc_build_dianlu(&ident, &uri, 1000).expect("mcc_build_dianlu");
-        dl.flatten();
+        let flat_diags = dl.flatten(); // Phase A: caller owns net-check diagnostics
         let (inst, table) = dl.into_parts();
         let vec_block = mcc::build_mc_vec(&inst, &table);
         let _graph = mcc::build_mc_vec_graph(&vec_block, &table);
-        mcc::mcc_diagnose_all()
+        let mut diags = mcc::mcc_diagnose_all();
+        diags.extend(flat_diags);
+        diags
     }
 
     fn has_code(diags: &[McDiagnostic], code: u32) -> bool {

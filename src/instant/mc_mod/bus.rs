@@ -10,13 +10,13 @@
 //! - `resolve_curly_mn_points`  —— resolve `m{a,b}` curly-mn
 //! - `process_curly_mn_as_bus`  —— generate base_name-type NetPoint list
 
-use super::McModuleInst;
+use super::InstantiationBuilder;
 use crate::instant::mc_bus::McBusInst;
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::common::IOType;
 
-impl McModuleInst {
+impl InstantiationBuilder {
     /// register or merge bus members incrementally
     ///
     /// ## Iter 3: from "equality check" to "incremental merge"

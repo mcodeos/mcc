@@ -14,8 +14,8 @@ use super::expand::ExpansionContext;
 use super::funccall::FuncCallInst;
 use super::matching::{check_vector_width, WidthCheck};
 use super::FailedRecord;
-use super::McModuleInst;
 use super::McVectorInst;
+use super::{InstantiationBuilder, McModuleInst};
 use crate::instant::insttab::InstOrigin;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{InstError, NetPoint};
@@ -56,7 +56,10 @@ thread_local! {
 /// (wm7121.VCC) floats. The deleted builtin-twopin path did this in
 /// `wire_builtin_twopin`; ordinary method dispatch (`instantiate_instance_method`)
 /// must do the same in the caller's context, before the body stmts run.
-fn wire_series_params(this: &mut McModuleInst, params: &[McParamValue]) -> Result<(), InstError> {
+fn wire_series_params(
+    this: &mut InstantiationBuilder,
+    params: &[McParamValue],
+) -> Result<(), InstError> {
     use crate::semantic::basic::mc_phrase::McPhrase;
     fn collect_series<'a>(value: &'a McParamValue, out: &mut Vec<(&'a [McPhrase], ConnDir)>) {
         match value {
@@ -83,7 +86,7 @@ fn wire_series_params(this: &mut McModuleInst, params: &[McParamValue]) -> Resul
     Ok(())
 }
 
-impl McModuleInst {
+impl InstantiationBuilder {
     // ========================================================================
     // 1. Inline component construction  e.g. CAP(0.1uF) / Diode('SMBJ30A') / HDR(46)
     // ========================================================================
@@ -186,12 +189,15 @@ impl McModuleInst {
                     reason
                 );
                 self.failed_classes.insert(type_name.clone());
+                let module_name = self.name.clone();
+                let def_uri = self.def_uri.clone();
+                let src_line = self.current_stmt_span.as_ref().and_then(|s| {
+                    crate::db::infra::context::lookup_line_col(&def_uri, s.offset)
+                        .map(|(line, _col)| line as usize)
+                });
                 self.failed_records.push(FailedRecord {
-                    module: self.name.clone(),
-                    src_line: self.current_stmt_span.as_ref().and_then(|s| {
-                        crate::db::infra::context::lookup_line_col(&self.def_uri, s.offset)
-                            .map(|(line, _col)| line as usize)
-                    }),
+                    module: module_name,
+                    src_line,
                     component_name: inst_name.clone(),
                     class_name: type_name.clone(),
                     reason: reason.clone(),
@@ -440,11 +446,12 @@ impl McModuleInst {
         // The sub-module's own interior expands on its own ExpansionLog
         // (module-local id space, §7.9-2); `sub_target` trunks the parent record
         // to the sub-module instance path.
+        let call_site = self.current_call_site();
         let eidx = self.expansion.begin(
             ExpansionKind::ModuleCall,
             Some(inst_name.clone()),
             type_name.clone(),
-            self.current_call_site(),
+            call_site,
             Some(crate::semantic::common::SourcePos::new(
                 sub_inst.def_uri.clone(),
                 sub_inst.def.span.start as u32,
@@ -455,7 +462,9 @@ impl McModuleInst {
         // 3. Recursively instantiate the sub-module interior (expand its ports,
         //    declarations, connection stmts)
         //    ★ On failure, record a diagnostic but keep the instance
-        if let Err(e) = sub_inst.instantiate() {
+        //    Phase C1: intern into the circuit registry under the full path.
+        let sub_path = self.child_path(&inst_name);
+        if let Err(e) = sub_inst.instantiate_in_scope(self.identity_mut(), &sub_path) {
             self.record_error(
                 932,
                 format!("Inline module '{inst_name}' ({type_name}) instantiation failed: {e}"),
@@ -679,11 +688,12 @@ impl McModuleInst {
                 // snapshot (preserves the chained return `X6.setup(...).XTAL`).
                 let outer_auto_inst = this.auto_inst_map.clone();
                 // ── Expansion provenance: UserFunc (body expansion) ──
+                let call_site = this.current_call_site();
                 let eidx = this.expansion.begin(
                     ExpansionKind::UserFunc,
                     caller_inst_name.map(|s| s.to_string()),
                     func_def.name.to_string(),
-                    this.current_call_site(),
+                    call_site,
                     Self::func_def_site(&func_def),
                 );
                 for (_li, stmt) in func_def.stmts.iter().enumerate() {
@@ -1416,7 +1426,16 @@ impl McModuleInst {
         // Only substitute value formals; keep names of boundary formals
         let value_bindings = bindings.subset_excluding(&boundary_formals);
 
-        // Phase A: Execute the body inside the sub-module
+        // Phase A: Execute the body inside the sub-module.
+        //
+        // Re-entry wrap (dianlu-tree refactor Phase B): the sub-module is a
+        // finished (frozen) tree in `sub_modules`, while construction methods
+        // (`ensure_bus` / `with_func_stmt` / `process_stmt`) now live on
+        // `InstantiationBuilder`. Lift the tree into a builder, run the body,
+        // then freeze back. `InstantiationBuilder::new` resumes the counters
+        // from the tree's observable state (connection ids / `auto_inst_map` /
+        // auto-name pattern), so the re-entered body never collides with the
+        // sub-module's own products (zero behavior change).
         let idx = self
             .sub_modules
             .iter()
@@ -1425,12 +1444,23 @@ impl McModuleInst {
                 InstError::Other(format!("submodule '{inst_name}' not found for method"))
             })?;
         let sub_eidx = {
-            let sub = &mut self.sub_modules[idx];
+            let sub_name = self.sub_modules[idx].name.clone();
+            let sub_def = self.sub_modules[idx].def.clone();
+            let sub_path = self.child_path(&sub_name);
+            let sub_tree = std::mem::replace(
+                &mut self.sub_modules[idx],
+                McModuleInst::new(&sub_name, sub_def),
+            );
+            // Phase C1: carry the circuit-global registry into the lifted
+            // builder and take it back when the body freezes, so the
+            // re-entered products intern onto the same ids.
+            let identity = self.take_identity();
+            let mut b = InstantiationBuilder::with_identity(sub_tree, identity, sub_path);
             // ── Expansion provenance: sub-module body expansion (§7.3) ──
             // Same call site as the parent record; id space is the sub-module's
-            // own ExpansionLog. Products pushed via `sub.add_*` during body
+            // own ExpansionLog. Products pushed via `b.add_*` during body
             // processing are tagged with this record.
-            let se = sub.expansion.begin(
+            let se = b.expansion.begin(
                 ExpansionKind::InstanceMethod,
                 Some(inst_name.to_string()),
                 func_def.name.to_string(),
@@ -1444,13 +1474,13 @@ impl McModuleInst {
             // the body connection becomes N×N instead of 1×N broadcast.
             for (formal, _) in &boundary_pairs {
                 // Resolve formal to declared port name (case-insensitive)
-                let resolved_port = sub
+                let resolved_port = b
                     .ports
                     .iter()
                     .find(|p| p.name.eq_ignore_ascii_case(formal))
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| formal.clone());
-                if let Some(pin_ids) = sub
+                if let Some(pin_ids) = b
                     .components
                     .iter()
                     .find_map(|comp| comp.find_bus_port_pin_ids(&resolved_port))
@@ -1458,20 +1488,20 @@ impl McModuleInst {
                     if pin_ids.len() >= 2 {
                         let members: Vec<String> =
                             pin_ids.iter().map(|(_, pid)| pid.clone()).collect();
-                        let _ = sub.ensure_bus(formal, &members);
+                        let _ = b.ensure_bus(formal, &members);
                     }
                 }
             }
             // ── P4-b: Isolate anonymous instance entries for each body stmt
             //    in the same func ──
             // (This is a sub-module; snapshot-reset sub.auto_inst_map)
-            let outer = sub.auto_inst_map.clone();
+            let outer = b.auto_inst_map.clone();
             for (_li, stmt) in func_def.stmts.iter().enumerate() {
-                sub.auto_inst_map = outer.clone();
+                b.auto_inst_map = outer.clone();
                 // Attribute anonymous instances/connections of this body stmt
                 // to its exact source stmt in the func's own file. RAII
                 // (§7.11(2)): restore happens even on early exit.
-                sub.with_func_stmt(func_def, Some(_li), |this| {
+                b.with_func_stmt(func_def, Some(_li), |this| {
                     let substituted = if value_bindings.is_empty() {
                         stmt.clone()
                     } else {
@@ -1483,10 +1513,16 @@ impl McModuleInst {
                     }
                 });
             }
+            // Freeze the body products back into the sub-module tree and hand
+            // the registry back to the parent builder.
+            let (frozen, reg) = b.into_parts();
+            self.sub_modules[idx] = frozen;
+            self.restore_identity(reg);
             se
-        }; // sub's mutable borrow ends here
+        };
 
         // ── Process conditional blocks in sub-module ──
+        // (same re-entry lift pattern as Phase A: freeze back after the run)
         if !func_def.conds.is_empty() {
             let params: Vec<(crate::McIds, String)> = bindings
                 .iter()
@@ -1504,13 +1540,21 @@ impl McModuleInst {
                 .ok_or_else(|| {
                     InstError::Other(format!("submodule '{inst_name}' not found for method"))
                 })?;
-            let sub = &mut self.sub_modules[idx];
+            let sub_name = self.sub_modules[idx].name.clone();
+            let sub_def = self.sub_modules[idx].def.clone();
+            let sub_path = self.child_path(&sub_name);
+            let sub_tree = std::mem::replace(
+                &mut self.sub_modules[idx],
+                McModuleInst::new(&sub_name, sub_def),
+            );
+            let identity = self.take_identity();
+            let mut b = InstantiationBuilder::with_identity(sub_tree, identity, sub_path);
             for conds in &func_def.conds {
                 let matched_stmts = conds.evaluate(&params);
                 for stmt in matched_stmts {
                     // Conditional-block stmts carry no per-stmt offset; fall
                     // back to the func's definition stmt. RAII §7.11(2).
-                    sub.with_func_stmt(func_def, None, |this| {
+                    b.with_func_stmt(func_def, None, |this| {
                         let substituted = if value_bindings.is_empty() {
                             stmt.clone()
                         } else {
@@ -1520,6 +1564,9 @@ impl McModuleInst {
                     });
                 }
             }
+            let (frozen, reg) = b.into_parts();
+            self.sub_modules[idx] = frozen;
+            self.restore_identity(reg);
         }
         // End the sub-module body expansion record (covers Phase A + conds).
         if let Some(sub) = self.sub_modules.get_mut(idx) {
@@ -1865,11 +1912,12 @@ impl McModuleInst {
         let _outer_auto_inst = self.auto_inst_map.clone();
         // ── Expansion provenance: InstanceMethod (component method, body
         //    expands at the call site on the outer module) ──
+        let call_site = self.current_call_site();
         let eidx = self.expansion.begin(
             ExpansionKind::InstanceMethod,
             Some(inst_name.to_string()),
             func_def.name.to_string(),
-            self.current_call_site(),
+            call_site,
             Self::func_def_site(func_def),
         );
         for (_li, stmt) in func_def.stmts.iter().enumerate() {
