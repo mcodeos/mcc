@@ -14,6 +14,7 @@
 //! table.dump();
 //! ```
 
+use super::arena::{arena_sub_modules, NodeArena, NodeKind};
 use super::mc_mod::McModuleInst;
 use crate::semantic::common::IOType;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -387,14 +388,36 @@ impl InstTable {
         }
     }
 
-    /// Recursively generate flattened instance table from McModuleInst tree
+    /// Recursively generate flattened instance table from McModuleInst tree.
+    ///
+    /// Tree-recursion fallback (no arena): used by callers that hold only the
+    /// tree, e.g. the `mcc build` net-check path. See
+    /// [`Self::from_module_inst_with_arena`] for the Phase C arena-driven
+    /// variant used by the `DianLu` flatten projection.
     pub fn from_module_inst(inst: &McModuleInst, start_id: u32) -> Self {
         let mut table = InstTable::new(start_id);
-        table.flatten_module(inst, "", None);
+        table.flatten_module(inst, "", None, None);
         // NOTE: no global ground merge here (strict DC rail identity). Ground
         // nets stay exactly as wired: each DC rail keeps its own ground
         // (`V5V.GND` != `V3V3.GND`) and grounds merge only through real wiring
         // ties (shared component ground pins, explicit `X.GND -> GND`).
+        table
+    }
+
+    /// Recursively generate flattened instance table, with the Phase C arena
+    /// driving the traversal: sub-module order follows the arena `children`
+    /// edges (design §4 — the tree is a view over arena edges) instead of the
+    /// tree's recursive `sub_modules` Vec. The sub-module data itself still
+    /// comes from the aligned tree node; a `debug_assert` verifies the
+    /// arena/tree isomorphism on every flatten (Phase C two-track migration:
+    /// identical projection, order sourced from the arena).
+    pub(crate) fn from_module_inst_with_arena(
+        inst: &McModuleInst,
+        start_id: u32,
+        arena: &NodeArena,
+    ) -> Self {
+        let mut table = InstTable::new(start_id);
+        table.flatten_module(inst, "", None, Some(arena));
         table
     }
 
@@ -753,7 +776,13 @@ impl InstTable {
     ///
     /// Traversal order: module itself → ports → components + pins →
     /// bus + members → standalone labels → sub-modules (recursive)
-    fn flatten_module(&mut self, inst: &McModuleInst, prefix: &str, parent_id: Option<u32>) {
+    fn flatten_module(
+        &mut self,
+        inst: &McModuleInst,
+        prefix: &str,
+        parent_id: Option<u32>,
+        arena: Option<&NodeArena>,
+    ) {
         // 1. Register the module itself
         let my_path = if prefix.is_empty() {
             inst.name.clone()
@@ -1196,9 +1225,19 @@ impl InstTable {
             }
         }
 
-        // 6. Recursively process sub-modules
-        for sub in &inst.sub_modules {
-            self.flatten_module(sub, &my_path, Some(my_id));
+        // 6. Recursively process sub-modules. Phase C: when the arena is
+        //    available, its `children` edges drive the traversal order
+        //    (design §4 — the tree is a view over arena edges); the aligned
+        //    tree node still supplies the sub-module data. `debug_assert`
+        //    inside `arena_sub_modules` verifies the arena/tree isomorphism.
+        if let Some(arena) = arena {
+            for sub in arena_sub_modules(arena, inst) {
+                self.flatten_module(sub, &my_path, Some(my_id), Some(arena));
+            }
+        } else {
+            for sub in &inst.sub_modules {
+                self.flatten_module(sub, &my_path, Some(my_id), None);
+            }
         }
 
         // 7. Register network information (map McModuleInst.nets to InstEntry IDs)

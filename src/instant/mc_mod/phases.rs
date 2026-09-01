@@ -212,7 +212,13 @@ impl InstantiationBuilder {
                     }
                 }
             }
+            // Phase C1: intern the port's canonical path before it enters the
+            // module's port list (its node id lives in the circuit registry).
+            let port_path = self.child_path(port_name);
+            let port_id = self.identity_mut().intern(&port_path);
             let port = PortInst::with_members(port_name, iotype.clone(), bus_members.clone());
+            let mut port = port;
+            port.node_id = Some(port_id);
             self.ports.push(port);
 
             // 2. Iter-5.B —— inject member labels / register prefix bus according to port form.
@@ -272,7 +278,13 @@ impl InstantiationBuilder {
                 _ => Vec::new(),
             };
 
+            // Phase C1: intern the port's canonical path (interface-signature
+            // ports enter the circuit registry like declared ones).
+            let port_path = self.child_path(&port_name);
+            let port_id = self.identity_mut().intern(&port_path);
             let port = PortInst::with_members(&port_name, iotype.clone(), bus_members.clone());
+            let mut port = port;
+            port.node_id = Some(port_id);
             self.ports.push(port);
 
             // Inject member labels so that connection stmts can reference them

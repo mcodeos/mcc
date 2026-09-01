@@ -225,3 +225,72 @@ module main {
         );
     }
 }
+
+/// Ordered content signature of a flat table: every entry `(path, class,
+/// kind)` in id order, then every net `(name, points)` in net-id order.
+/// Independent of HashMap iteration order (entries/nets are BTreeMaps), so two
+/// independently built tables can be compared for equality.
+fn flat_signature(t: &mcc::InstTable) -> Vec<String> {
+    let mut out: Vec<String> = t
+        .iter()
+        .map(|(id, e)| format!("{id}:{}:{}:{:?}", e.path, e.class_name, e.kind))
+        .collect();
+    out.extend(t.get_nets().iter().map(|n| {
+        let points = n
+            .points
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("{}:{}:{}", n.id, n.name, points)
+    }));
+    out
+}
+
+/// Phase C two-track consistency: the arena-driven flatten
+/// (`DianLu::flatten`, sub-module order sourced from arena `children` edges)
+/// and the tree-recursive flatten (`InstTable::from_module_inst`) produce the
+/// identical flat projection for the same frozen tree — entries and nets
+/// line-for-line. This locks "arena edges drive the traversal with zero
+/// projection change" (design §4: the tree is a view over arena edges) and is
+/// the template every later consumer switch (export / viz walks) is verified
+/// against.
+#[test]
+fn arena_flatten_matches_tree_recursive_flatten() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    // A sub-module circuit: nesting + components + ports + nets all present,
+    // so both traversal paths cover the full flatten projection.
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module REG(in VIN) {
+    func Add(net) {
+        CAP(1).Cap([net, VIN])
+    }
+}
+module main {
+    io VDD
+    io GND
+    REG ldo(VDD)
+    ldo.Add(GND)
+}";
+    let mut dl = build_dianlu(src);
+    dl.flatten();
+    let arena_table = dl.table().expect("flatten ran");
+    let tree = dl.tree();
+    let tree_table = mcc::InstTable::from_module_inst(tree, 1000);
+
+    assert_eq!(
+        flat_signature(arena_table),
+        flat_signature(&tree_table),
+        "arena-driven flatten and tree-recursive flatten are line-for-line identical"
+    );
+}

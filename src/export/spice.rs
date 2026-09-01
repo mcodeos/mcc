@@ -1,6 +1,7 @@
 // Copyright (c) 2026 MCode
 //! SPICE netlist export
 
+use crate::export::NodeArena;
 use crate::instant::insttab::InstTable;
 use crate::McModuleInst;
 use serde_json::Value;
@@ -8,7 +9,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::netlist::collect_nets;
 
-pub fn build_spice(tree: &McModuleInst, table: &InstTable, top: &str) -> (String, Value, usize) {
+pub fn build_spice(
+    tree: &McModuleInst,
+    table: &InstTable,
+    arena: &NodeArena,
+    top: &str,
+) -> (String, Value, usize) {
     let mut out = String::new();
     out.push_str(&format!("* SPICE netlist: top={}\n", top));
     out.push_str(&format!("* Generated: {}\n\n", super::chrono_like_now()));
@@ -28,7 +34,7 @@ pub fn build_spice(tree: &McModuleInst, table: &InstTable, top: &str) -> (String
     }
 
     let mut netmap: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    collect_nets(tree, &mut netmap);
+    collect_nets(tree, arena, &mut netmap);
 
     let mut inst_nodes: HashMap<String, BTreeSet<String>> = HashMap::new();
 

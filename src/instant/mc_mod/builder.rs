@@ -1237,12 +1237,22 @@ fn resume_auto_inst_counter(tree: &McModuleInst) -> HashMap<String, u32> {
 }
 
 /// Reload every node id a frozen tree already carries into `registry`
-/// (Phase C1 re-entry / defensive lift): module root, its components, and
-/// its sub-modules recursively. Idempotent under [`IdentityRegistry::resume`]
-/// — re-lifting the same tree keeps the same ids.
+/// (Phase C1 re-entry / defensive lift): module root, its ports, its vectors,
+/// its components, and its sub-modules recursively. Idempotent under
+/// [`IdentityRegistry::resume`] — re-lifting the same tree keeps the same ids.
 fn resume_tree(registry: &mut IdentityRegistry, path: &str, module: &McModuleInst) {
     if let Some(id) = module.node_id {
         registry.resume(path, id);
+    }
+    for port in &module.ports {
+        if let Some(id) = port.node_id {
+            registry.resume(&format!("{path}.{}", port.name), id);
+        }
+    }
+    for vec in &module.vectors {
+        if let Some(id) = vec.node_id {
+            registry.resume(&format!("{path}.{}", vec.base), id);
+        }
     }
     for comp in &module.components {
         if let Some(id) = comp.node_id {

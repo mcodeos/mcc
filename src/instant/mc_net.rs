@@ -12,6 +12,7 @@
 //! - `InstError`      - Instantiation Error
 //! - `NetTable`       - Network Table (union-find)
 
+use crate::instant::identity::NodeId;
 use crate::semantic::common::{ConnDir, ConnOp, IOType, SourcePos};
 use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use crate::vector::model::trunk::TrunkCtx;
@@ -467,6 +468,11 @@ pub struct PortInst {
     /// rules document §10.4 "[N×1] vs [N×1] element-by-element correspondence"
     /// is truly realized at the endpoint layer.
     pub bus_members: Vec<String>,
+
+    /// Phase C1: per-build node identity (canonical path interned in the
+    /// circuit's `IdentityRegistry`). `None` until the port is added to its
+    /// module (`instantiate_interface`); the frozen tree always carries it.
+    pub node_id: Option<NodeId>,
 }
 
 impl PortInst {
@@ -478,6 +484,7 @@ impl PortInst {
             iotype,
             net_point,
             bus_members: Vec::new(),
+            node_id: None,
         }
     }
 
@@ -491,6 +498,7 @@ impl PortInst {
             iotype,
             net_point,
             bus_members: members,
+            node_id: None,
         }
     }
 
