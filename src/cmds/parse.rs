@@ -329,13 +329,13 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         // instance" model (mcext-folder-parse-design.md §4.1 change 4).
         renderer.pass2_header(&top_name);
 
-        match mcc::mcc_build(&ident, &uri) {
-            Ok(inst) => {
-                renderer.instances(&inst, 0);
-                renderer.connections(&inst, 0);
-                renderer.nets(&inst, 0);
+        match mcc::mcc_build_with_arena(&ident, &uri) {
+            Ok((inst, arena)) => {
+                renderer.instances(&inst, 0, Some(&arena));
+                renderer.connections(&inst, 0, Some(&arena));
+                renderer.nets(&inst, 0, Some(&arena));
 
-                let pass2 = public_collect_pass2(&top_name, &inst, &mut tracker);
+                let pass2 = public_collect_pass2(&top_name, &inst, Some(&arena), &mut tracker);
                 builder.set_pass2(pass2);
 
                 // Print diagnostics before Net Summary
@@ -343,7 +343,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 {
                     builder.print_diagnostics_summary();
                 }
-                renderer.net_summary(&inst);
+                renderer.net_summary(&inst, Some(&arena));
             }
             Err(e) => {
                 renderer.pass2_failed(&format!("{}", e));
@@ -397,19 +397,20 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     let mod_ident = McIds::from(mod_name.as_str());
                     let mod_mc_uri = McURI::from(module_uri.as_str());
 
-                    let (inst, table) = match mcc::mcc_build_flat(&mod_ident, &mod_mc_uri, 1000) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!(
-                                "[viz] skip module '{}': mcc_build_flat failed: {}",
-                                mod_name, e
-                            );
-                            continue;
-                        }
-                    };
+                    let (inst, table, arena) =
+                        match mcc::mcc_build_flat_with_arena(&mod_ident, &mod_mc_uri, 1000) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                eprintln!(
+                                    "[viz] skip module '{}': mcc_build_flat failed: {}",
+                                    mod_name, e
+                                );
+                                continue;
+                            }
+                        };
 
                     mcc::vector::builder::reset_np_warn_count();
-                    let vec_block = mcc::build_mc_vec(&inst, &table);
+                    let vec_block = mcc::build_mc_vec_with_arena(&inst, &table, &arena);
                     let graph = mcc::build_mc_vec_graph(&vec_block, &table);
                     let graph_box_count = graph.boxes.len();
                     let graph_edge_count = graph.edges.len();
@@ -714,11 +715,12 @@ fn group_by_uri(defs: &DefinitionsIndex) -> Vec<LoadedFile> {
 pub fn public_collect_pass2(
     top: &str,
     inst: &mcc::MccProjectTree,
+    arena: Option<&mcc::NodeArena>,
     tracker: &mut PhaseTracker,
 ) -> Pass2Report {
-    let instances = Some(instance_to_node(inst));
-    let nets = extract_nets(inst);
-    let connections = extract_connections(inst);
+    let instances = Some(instance_to_node(inst, arena));
+    let nets = extract_nets(inst, arena);
+    let connections = extract_connections(inst, arena);
     let diagnostics = tracker.collect(Phase::Pass2);
 
     Pass2Report {
@@ -730,7 +732,7 @@ pub fn public_collect_pass2(
     }
 }
 
-fn instance_to_node(inst: &mcc::MccProjectTree) -> InstanceNode {
+fn instance_to_node(inst: &mcc::MccProjectTree, arena: Option<&mcc::NodeArena>) -> InstanceNode {
     let mut ports = Vec::new();
     for p in inst.ports.iter() {
         if matches!(p.iotype, IOType::None | IOType::NonCon | IOType::Return) {
@@ -771,7 +773,14 @@ fn instance_to_node(inst: &mcc::MccProjectTree) -> InstanceNode {
         })
         .collect();
 
-    let sub_modules = inst.sub_modules.iter().map(instance_to_node).collect();
+    let subs: Vec<&mcc::MccProjectTree> = match arena {
+        Some(a) => mcc::arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    let sub_modules = subs
+        .into_iter()
+        .map(|s| instance_to_node(s, arena))
+        .collect();
 
     InstanceNode {
         name: inst.name.to_string(),
@@ -798,13 +807,21 @@ fn iotype_str(io: &IOType) -> &'static str {
     }
 }
 
-fn extract_connections(inst: &mcc::MccProjectTree) -> Vec<ConnectionEntry> {
+fn extract_connections(
+    inst: &mcc::MccProjectTree,
+    arena: Option<&mcc::NodeArena>,
+) -> Vec<ConnectionEntry> {
     let mut out = Vec::new();
-    walk_connections(inst, "", &mut out);
+    walk_connections(inst, "", arena, &mut out);
     out
 }
 
-fn walk_connections(inst: &mcc::MccProjectTree, scope: &str, out: &mut Vec<ConnectionEntry>) {
+fn walk_connections(
+    inst: &mcc::MccProjectTree,
+    scope: &str,
+    arena: Option<&mcc::NodeArena>,
+    out: &mut Vec<ConnectionEntry>,
+) {
     // Full scope path (e.g. `main.speaker`): the engine's connection ids and
     // instance names repeat across modules, so each entry must carry its scope
     // to stay unambiguous.
@@ -842,18 +859,27 @@ fn walk_connections(inst: &mcc::MccProjectTree, scope: &str, out: &mut Vec<Conne
             points: conn.points.iter().map(|p| p.path.clone()).collect(),
         });
     }
-    for sub in &inst.sub_modules {
-        walk_connections(sub, &my_scope, out);
+    let subs: Vec<&mcc::MccProjectTree> = match arena {
+        Some(a) => mcc::arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in subs {
+        walk_connections(sub, &my_scope, arena, out);
     }
 }
 
-fn extract_nets(inst: &mcc::MccProjectTree) -> Vec<NetEntry> {
+fn extract_nets(inst: &mcc::MccProjectTree, arena: Option<&mcc::NodeArena>) -> Vec<NetEntry> {
     let mut nets = Vec::new();
-    walk_nets(inst, "", &mut nets);
+    walk_nets(inst, "", arena, &mut nets);
     nets
 }
 
-fn walk_nets(inst: &mcc::MccProjectTree, scope: &str, out: &mut Vec<NetEntry>) {
+fn walk_nets(
+    inst: &mcc::MccProjectTree,
+    scope: &str,
+    arena: Option<&mcc::NodeArena>,
+    out: &mut Vec<NetEntry>,
+) {
     let my_scope = if scope.is_empty() {
         inst.name.clone()
     } else {
@@ -866,8 +892,12 @@ fn walk_nets(inst: &mcc::MccProjectTree, scope: &str, out: &mut Vec<NetEntry>) {
             points: points.iter().map(|point| point.path.clone()).collect(),
         });
     }
-    for sub in &inst.sub_modules {
-        walk_nets(sub, &my_scope, out);
+    let subs: Vec<&mcc::MccProjectTree> = match arena {
+        Some(a) => mcc::arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in subs {
+        walk_nets(sub, &my_scope, arena, out);
     }
 }
 
@@ -993,7 +1023,7 @@ fn run_viz(
 
     info!(target: "mcc_cli::viz", "generating circuit visualization");
 
-    let (inst, table) = mcc::mcc_build_flat(ident, uri, 1000)
+    let (inst, table, arena) = mcc::mcc_build_flat_with_arena(ident, uri, 1000)
         .map_err(|e| anyhow::anyhow!("mcc_build_flat failed: {}", e))?;
 
     debug!(
@@ -1006,7 +1036,7 @@ fn run_viz(
     );
 
     mcc::vector::builder::reset_np_warn_count();
-    let vec_block = mcc::build_mc_vec(&inst, &table);
+    let vec_block = mcc::build_mc_vec_with_arena(&inst, &table, &arena);
     debug!(
         target: "mcc_cli::viz",
         bid = vec_block.bid,

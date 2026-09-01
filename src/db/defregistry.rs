@@ -134,6 +134,7 @@ pub struct DefEntry {
     /// The persistent identity of this entry (D11). The arena is keyed by
     /// this id and the checkpoint journal reads it per entry — identities
     /// stay comparable across loads.
+    #[allow(dead_code)] // read by the Phase-9 checkpoint journal, wired in a later phase
     pub id: DefId,
     pub kind: DefKind,
     pub sn: McSpaceName,
@@ -549,6 +550,7 @@ pub struct Checkpoint {
     pub entries: Vec<RegistryEntrySnapshot>,
 }
 
+#[allow(dead_code)] // Phase-9 checkpoint journal API; unit-tested, wired in a later phase
 impl Checkpoint {
     /// Serialize to a JSON string — the disk / RPC form (daemon, process
     /// restart). Infallible: every field is JSON-clean.
@@ -564,6 +566,7 @@ impl Checkpoint {
 
 /// One def's change between two checkpoints (design §10): added, removed, or
 /// modified — compared by [`DefId`].
+#[allow(dead_code)] // Phase-9 checkpoint diff item; unit-tested, wired in a later phase
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DefChange {
     pub id: DefId,
@@ -574,6 +577,7 @@ pub struct DefChange {
     pub after: Option<RegistryEntrySnapshot>,
 }
 
+#[allow(dead_code)] // Phase-9 checkpoint diff item; unit-tested, wired in a later phase
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DefChangeKind {
     /// Not usable at t1 (unregistered or tombstoned), live at t2.
@@ -596,6 +600,7 @@ static JOURNAL: LazyLock<Mutex<Vec<Checkpoint>>> = LazyLock::new(|| Mutex::new(V
 /// Returns the new checkpoint so a caller can diff it against any earlier
 /// captured one. The def-layer mutation surfaces and the daemon/RPC layer call
 /// it when a persistable "definition space as of version N" is needed.
+#[allow(dead_code)] // Phase-9 checkpoint API; unit-tested, wired in a later phase
 pub fn checkpoint() -> Checkpoint {
     let version = NEXT_VERSION.fetch_add(1, Ordering::Relaxed);
     let mut entries: Vec<RegistryEntrySnapshot> = ARENA
@@ -623,6 +628,7 @@ pub fn checkpoint() -> Checkpoint {
 /// - **Modified**: live on both sides, but kind / key / domain changed.
 ///
 /// Unchanged defs (same description, same liveness) do not appear.
+#[allow(dead_code)] // Phase-9 checkpoint API; unit-tested, wired in a later phase
 pub fn diff_versions(t1: &Checkpoint, t2: &Checkpoint) -> Vec<DefChange> {
     let a: HashMap<DefId, &RegistryEntrySnapshot> = t1.entries.iter().map(|e| (e.id, e)).collect();
     let b: HashMap<DefId, &RegistryEntrySnapshot> = t2.entries.iter().map(|e| (e.id, e)).collect();
@@ -689,6 +695,7 @@ pub fn diff_versions(t1: &Checkpoint, t2: &Checkpoint) -> Vec<DefChange> {
 
 /// The files (uris) touched by a diff — the "which files changed" half of the
 /// Phase 9 question ("which defs / files changed"). Sorted, de-duplicated.
+#[allow(dead_code)] // Phase-9 checkpoint API; unit-tested, wired in a later phase
 pub fn changed_files(changes: &[DefChange]) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     for c in changes {

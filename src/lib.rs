@@ -89,6 +89,7 @@ pub use builder::{
 };
 
 // ── Instant / Net ──
+pub use instant::arena::{arena_sub_modules, NodeArena};
 pub use instant::dianlu::DianLu;
 pub use instant::insttab::{
     InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry, VectorMemberInfo,
@@ -129,6 +130,7 @@ pub use semantic::mc_func::{McFunction, McFunctions};
 
 // 🆕 Step 8: McVec rendering side data structure exports
 pub use vector::builder::build_mc_vec;
+pub use vector::builder::build_mc_vec_with_arena;
 pub use vector::builder::build_mc_vec_with_report;
 pub use vector::model::{ConnectionType, McVec, McVecBlock, McVecNet};
 
@@ -292,6 +294,26 @@ pub fn mcc_build(ident: &McIds, uri: &McURI) -> Result<MccProjectTree, Box<dyn E
     builder::mcb_pass2(&McSpaceName::new(ident, canonical_uri))
 }
 
+/// mcc interface: build the tree and return the Phase C companion arena
+/// (design §4, plan §9 C item 3).
+///
+/// Same contract as [`mcc_build`] (one Pass2 instantiation, no flat
+/// projection, no electrical net checks), and additionally returns the arena
+/// whose `children` edges drive the consumer walks. Tree-rendering consumers
+/// (show / print / parse / verify / hierarchy / rpc) hold the arena alongside
+/// the tree and switch their `for sub in &inst.sub_modules` recursion to
+/// [`crate::instant::arena::arena_sub_modules`].
+pub fn mcc_build_with_arena(
+    ident: &McIds,
+    uri: &McURI,
+) -> Result<(MccProjectTree, crate::instant::arena::NodeArena), Box<dyn Error>> {
+    let canonical_uri = builder::mcb_canonicalize_uri(uri);
+    let dl = builder::mcb_instantiate(&McSpaceName::new(ident, canonical_uri), 0)?;
+    let arena = dl.arena().clone();
+    let tree = dl.into_tree();
+    Ok((tree, arena))
+}
+
 /// mcc interface: build + flatten (Step 7)
 ///
 /// Execute Pass2 instantiation and generate flattened instance table.
@@ -306,6 +328,31 @@ pub fn mcc_build_flat(
     // `mcc build` must surface the same net-check issues as `mcc check --nets`.
     let canonical_uri = builder::mcb_canonicalize_uri(uri);
     mcb_pass2_flat(&McSpaceName::new(ident, canonical_uri), start_id)
+}
+
+/// mcc interface: build + flatten + Phase C companion arena (Step 7).
+///
+/// Same contract as [`mcc_build_flat`] (one instantiation, flat projection,
+/// flat electrical net checks logged by the caller layer), and additionally
+/// returns the arena whose `children` edges drive the consumer walks
+/// (flatten / export / viz — design §4, plan §9 C item 3). Callers that hold
+/// a `NodeArena` switch their `for sub in &inst.sub_modules` recursion to
+/// [`crate::instant::arena::arena_sub_modules`].
+pub fn mcc_build_flat_with_arena(
+    ident: &McIds,
+    uri: &McURI,
+    start_id: u32,
+) -> Result<(MccProjectTree, InstTable, crate::instant::arena::NodeArena), Box<dyn Error>> {
+    let canonical_uri = builder::mcb_canonicalize_uri(uri);
+    let mut dl = builder::mcb_instantiate(&McSpaceName::new(ident, canonical_uri), start_id)?;
+    // Project once (this also runs the flat electrical net checks), then take
+    // both parts out of the object — no second instantiation, no clone. The
+    // arena rides along for the consumer walks.
+    let diags = dl.flatten_with_prefix(None);
+    crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
+    let arena = dl.arena().clone();
+    let (tree, table) = dl.into_parts();
+    Ok((tree, table, arena))
 }
 
 /// mcc interface: build the physical model as the core circuit object

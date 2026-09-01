@@ -20,7 +20,7 @@ use anyhow::Result;
 use mcc::cli::{OutputFormat, VerifyArgs};
 use mcc::hierarchy;
 use mcc::vector::model::trunk::{TrunkCtx, TrunkKind};
-use mcc::{InstOrigin, McModuleInst, Span};
+use mcc::{arena_sub_modules, InstOrigin, McModuleInst, NodeArena, Span};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -86,11 +86,11 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
         .find(|(n, _)| *n == top)
         .map(|(_, u)| mcc::McURI::from(u.as_str()))
         .unwrap_or_else(|| mcc::McURI::from(top.clone()));
-    let inst = common::build_pass2(&top, &uri).map_err(anyhow::Error::msg)?;
+    let (inst, arena) = common::build_pass2_with_arena(&top, &uri).map_err(anyhow::Error::msg)?;
 
     let mut totals = VerifyTotals::default();
     let mut modules: Vec<Value> = Vec::new();
-    verify_module(&inst, &top, &mut totals, &mut modules);
+    verify_module(&inst, &top, Some(&arena), &mut totals, &mut modules);
     let hierarchy = hierarchy::build_hierarchy(&modules);
 
     let summary = json!({
@@ -147,7 +147,13 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
 
 /// Recurse through one module section: compare instances and connections, then
 /// descend into sub-modules.
-fn verify_module(inst: &McModuleInst, path: &str, totals: &mut VerifyTotals, out: &mut Vec<Value>) {
+fn verify_module(
+    inst: &McModuleInst,
+    path: &str,
+    arena: Option<&NodeArena>,
+    totals: &mut VerifyTotals,
+    out: &mut Vec<Value>,
+) {
     let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
     let (inst_report, inst_counts) = compare_instances(inst, &content);
     totals.source_insts += inst_counts.0;
@@ -170,8 +176,12 @@ fn verify_module(inst: &McModuleInst, path: &str, totals: &mut VerifyTotals, out
     }));
 
     totals.modules += 1;
-    for sub in &inst.sub_modules {
-        verify_module(sub, &format!("{path}.{}", sub.name), totals, out);
+    let subs: Vec<&McModuleInst> = match arena {
+        Some(a) => arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in subs {
+        verify_module(sub, &format!("{path}.{}", sub.name), arena, totals, out);
     }
 }
 

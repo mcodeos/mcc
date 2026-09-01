@@ -250,11 +250,11 @@ fn execute_pass2(mc_uri: &McURI, top: Option<&str>) -> Result<(String, Value), J
     }
 
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_build(&ident, mc_uri)
+        crate::mcc_build_with_arena(&ident, mc_uri)
     }));
 
     match built {
-        Ok(Ok(inst)) => {
+        Ok(Ok((inst, arena))) => {
             info!(target: "crate::pass2", "----------------------------------------");
             info!(target: "crate::pass2", "[Pass 2] Instantiating top module: {}", top_name);
             info!(target: "crate::pass2", "----------------------------------------");
@@ -268,7 +268,7 @@ fn execute_pass2(mc_uri: &McURI, top: Option<&str>) -> Result<(String, Value), J
                 info!(target: "crate::pass2", "|     - {} (class {})",
                     sub.name.to_string(), sub.def.name.to_string());
             }
-            let pass2 = collect_pass2(&top_name, &inst);
+            let pass2 = collect_pass2(&top_name, &inst, Some(&arena));
             Ok((top_name, pass2))
         }
         Ok(Err(e)) => Err(JsonRpcError::custom(
@@ -433,7 +433,7 @@ pub(crate) fn run_full_build_envelope(
         }
     };
 
-    let mut pass2 = collect_pass2(&top_name, &inst);
+    let mut pass2 = collect_pass2(&top_name, &inst, None);
     pass2["diagnostics"] = Value::Array(take_diags("pass2"));
 
     // ── Summary, mirroring ResultBuilder::finish() ──
@@ -576,7 +576,7 @@ fn run_full_build_dir_envelope(
     pass2_diags.extend(failures);
     let pass2 = match &first_inst {
         Some(inst) => {
-            let mut p2 = collect_pass2(&top_name, inst);
+            let mut p2 = collect_pass2(&top_name, inst, None);
             p2["diagnostics"] = Value::Array(pass2_diags);
             p2
         }
@@ -950,19 +950,26 @@ pub(crate) fn collect_pass1(_uri: &str, include_system: bool) -> Value {
     })
 }
 
-pub(crate) fn collect_pass2(top: &str, inst: &crate::MccProjectTree) -> Value {
+pub(crate) fn collect_pass2(
+    top: &str,
+    inst: &crate::MccProjectTree,
+    arena: Option<&crate::NodeArena>,
+) -> Value {
     json!({
         "top": top,
-        "instances": instance_to_json(inst),
-        "connections": extract_connections(inst),
-        "nets":       extract_nets(inst),
+        "instances": instance_to_json(inst, arena),
+        "connections": extract_connections(inst, arena),
+        "nets":       extract_nets(inst, arena),
         "diagnostics": []
     })
 }
 
-pub(crate) fn extract_connections(inst: &crate::MccProjectTree) -> Vec<Value> {
+pub(crate) fn extract_connections(
+    inst: &crate::MccProjectTree,
+    arena: Option<&crate::NodeArena>,
+) -> Vec<Value> {
     let mut out = Vec::new();
-    walk_connections(inst, "", &mut out);
+    walk_connections(inst, "", arena, &mut out);
     out
 }
 
@@ -972,7 +979,12 @@ pub(crate) fn extract_connections(inst: &crate::MccProjectTree) -> Vec<Value> {
 /// net name is resolved against this module's net table so every connection
 /// gets the same surviving name as the matching nets row (mirrors
 /// `cmds::parse::walk_connections`); the statement label is only a fallback.
-pub(crate) fn walk_connections(inst: &crate::MccProjectTree, scope: &str, out: &mut Vec<Value>) {
+pub(crate) fn walk_connections(
+    inst: &crate::MccProjectTree,
+    scope: &str,
+    arena: Option<&crate::NodeArena>,
+    out: &mut Vec<Value>,
+) {
     let my_scope = if scope.is_empty() {
         inst.name.clone()
     } else {
@@ -998,12 +1010,19 @@ pub(crate) fn walk_connections(inst: &crate::MccProjectTree, scope: &str, out: &
             "points": conn.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
         }));
     }
-    for sub in &inst.sub_modules {
-        walk_connections(sub, &my_scope, out);
+    let subs: Vec<&crate::MccProjectTree> = match arena {
+        Some(a) => crate::instant::arena::arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in subs {
+        walk_connections(sub, &my_scope, arena, out);
     }
 }
 
-pub(crate) fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
+pub(crate) fn instance_to_json(
+    inst: &crate::MccProjectTree,
+    arena: Option<&crate::NodeArena>,
+) -> Value {
     use crate::IOType;
     let ports: Vec<Value> = inst
         .ports
@@ -1039,7 +1058,14 @@ pub(crate) fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
             })
         })
         .collect();
-    let sub_modules: Vec<Value> = inst.sub_modules.iter().map(instance_to_json).collect();
+    let subs: Vec<&crate::MccProjectTree> = match arena {
+        Some(a) => crate::instant::arena::arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    let sub_modules: Vec<Value> = subs
+        .into_iter()
+        .map(|s| instance_to_json(s, arena))
+        .collect();
     json!({
         "name":        inst.name.to_string(),
         "kind":        "module",
@@ -1051,15 +1077,23 @@ pub(crate) fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
     })
 }
 
-pub(crate) fn extract_nets(inst: &crate::MccProjectTree) -> Vec<Value> {
+pub(crate) fn extract_nets(
+    inst: &crate::MccProjectTree,
+    arena: Option<&crate::NodeArena>,
+) -> Vec<Value> {
     let mut nets = Vec::new();
-    walk_nets(inst, "", &mut nets);
+    walk_nets(inst, "", arena, &mut nets);
     nets
 }
 
 /// Flatten the instance tree's nets into envelope rows, each tagged with its
 /// module scope (`main.speaker`) as the CLI's `NetEntry` requires.
-pub(crate) fn walk_nets(inst: &crate::MccProjectTree, scope: &str, out: &mut Vec<Value>) {
+pub(crate) fn walk_nets(
+    inst: &crate::MccProjectTree,
+    scope: &str,
+    arena: Option<&crate::NodeArena>,
+    out: &mut Vec<Value>,
+) {
     let my_scope = if scope.is_empty() {
         inst.name.clone()
     } else {
@@ -1069,8 +1103,12 @@ pub(crate) fn walk_nets(inst: &crate::MccProjectTree, scope: &str, out: &mut Vec
         let points: Vec<String> = points.iter().map(|point| point.path.clone()).collect();
         out.push(json!({ "module": my_scope, "name": name, "points": points }));
     }
-    for sub in &inst.sub_modules {
-        walk_nets(sub, &my_scope, out);
+    let subs: Vec<&crate::MccProjectTree> = match arena {
+        Some(a) => crate::instant::arena::arena_sub_modules(a, inst).collect(),
+        None => inst.sub_modules.iter().collect(),
+    };
+    for sub in subs {
+        walk_nets(sub, &my_scope, arena, out);
     }
 }
 

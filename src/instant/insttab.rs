@@ -14,7 +14,7 @@
 //! table.dump();
 //! ```
 
-use super::arena::{arena_sub_modules, NodeArena, NodeKind};
+use super::arena::{arena_sub_modules, NodeArena};
 use super::mc_mod::McModuleInst;
 use crate::semantic::common::IOType;
 use std::collections::{BTreeMap, HashMap, HashSet};

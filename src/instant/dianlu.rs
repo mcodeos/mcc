@@ -78,11 +78,11 @@ impl DianLu {
     /// The companion arena (design §4 / D6): `HashMap<NodeId, Node>` + root +
     /// parent/children edges rebuilt from the frozen tree.
     ///
-    /// `#[allow(dead_code)]`: the arena is the migration target for the
-    /// flatten / export / viz walks in later Phase C steps; the accessor lands
-    /// ahead of its first consumer (two-track migration).
-    #[allow(dead_code)]
-    pub(crate) fn arena(&self) -> &NodeArena {
+    /// Consumers hold the arena alongside the tree and drive their
+    /// sub-module recursion with [`crate::instant::arena::arena_sub_modules`]
+    /// (Phase C two-track migration — design §4: the tree is a view over
+    /// arena edges).
+    pub fn arena(&self) -> &NodeArena {
         &self.arena
     }
 
