@@ -29,9 +29,10 @@
 //! Honest boundary of the collector: scalar chain statements plus vector
 //! slices. A vector broadcast keeps its bundle — member endpoints of the
 //! same (vector node, member pin) collapse into a [`PointGroup::Slice`] lane
-//! (design §4, keep-bundle). Same-name pad groups / quarantined bracket
-//! literals still emit no lanes, and both-sides-member alignment
-//! (`c[1:2].1 -> d[1:2].1`) is a later Phase D step.
+//! (design §4, keep-bundle), and a both-sides-member alignment
+//! (`c[1:2].1 -> d[1:2].1`) emits one `Slice -> Slice` lane that `derive_nets`
+//! zips positionally. Same-name pad groups / quarantined bracket literals
+//! still emit no lanes.
 
 use crate::db::member_ledger::DefMemberId;
 use crate::instant::arena::NodeArena;
@@ -63,8 +64,10 @@ pub enum PointGroup {
     /// Scalar point.
     One(PointId),
     /// Vector slice — the bundle is preserved, not exploded member-by-member
-    /// (design §4). Emitted by later Phase D steps; the initial collector
-    /// produces scalar groups only.
+    /// (design §4). Produced by a vector broadcast (`c[1:2].Cap([VDD, GND])`,
+    /// scalar member against a preserved bundle) and by both-sides member
+    /// alignment (`c[1:2].1 -> d[1:2].1`, one `Slice -> Slice` lane that
+    /// `derive_nets` zips positionally).
     Slice {
         base: PointId,
         members: Vec<PointId>,
@@ -169,6 +172,12 @@ fn trunk_from_connections(
     // wiring stays a bundle instead of exploding member-by-member.
     let mut bundles: HashMap<(NodeId, DefMemberId), BundleAcc> = HashMap::new();
     let mut bundle_order: Vec<(NodeId, DefMemberId)> = Vec::new();
+    // Both-sides-member alignment (`c[1:2].1 -> d[1:2].1`): each connection
+    // whose two endpoints are both vector members pairs their bundles
+    // (source bundle -> target bundle, deduped). One aligned lane per pair
+    // is emitted at statement end; `derive_nets` zips the member slices
+    // positionally.
+    let mut slice_pairs: Vec<((NodeId, DefMemberId), (NodeId, DefMemberId))> = Vec::new();
 
     for conn in conns {
         let resolved: Vec<Option<PointId>> =
@@ -192,8 +201,8 @@ fn trunk_from_connections(
         // A connection touching a vector member aggregates into the bundle;
         // its non-member endpoint is recorded with the written direction
         // (member on the source side → other is a target, and vice versa).
-        // Both-sides-member alignment (`c[1:2].1 -> d[1:2].1`) stays a later
-        // Phase D step. Other bundle-expanding connections (same-name pad
+        // A both-sides-member connection (`c[1:2].1 -> d[1:2].1`) pairs the
+        // two bundles. Other bundle-expanding connections (same-name pad
         // groups, quarantined phantoms) keep their scalar skip below.
         let has_member = members.iter().any(Option::is_some);
         if has_member {
@@ -223,6 +232,21 @@ fn trunk_from_connections(
                                 if !acc.sources.contains(&op) {
                                     acc.sources.push(op);
                                 }
+                            }
+                        }
+                    }
+                    (Some(k0), Some(k1)) => {
+                        if let (Some(pa), Some(pb)) = (a, b) {
+                            let acc0 = bundle_entry(&mut bundles, &mut bundle_order, k0);
+                            if !acc0.members.contains(&pa) {
+                                acc0.members.push(pa);
+                            }
+                            let acc1 = bundle_entry(&mut bundles, &mut bundle_order, k1);
+                            if !acc1.members.contains(&pb) {
+                                acc1.members.push(pb);
+                            }
+                            if !slice_pairs.iter().any(|(x, y)| *x == k0 && *y == k1) {
+                                slice_pairs.push((k0, k1));
                             }
                         }
                     }
@@ -273,6 +297,32 @@ fn trunk_from_connections(
                 target: PointGroup::One(*tgt),
             });
         }
+    }
+
+    // Both-sides-member alignment: one `Slice -> Slice` lane per bundle pair.
+    // Member order follows each side's declared member-set order, so the
+    // positional zip in `derive_nets` aligns c1.1↔d1.1, c2.1↔d2.1.
+    for (src_key, tgt_key) in slice_pairs {
+        let (src_vec, src_pin) = src_key;
+        let (tgt_vec, tgt_pin) = tgt_key;
+        let src_slice = PointGroup::Slice {
+            base: PointId {
+                node: src_vec,
+                pin: src_pin,
+            },
+            members: order_members(inst, src_vec, &bundles[&src_key].members),
+        };
+        let tgt_slice = PointGroup::Slice {
+            base: PointId {
+                node: tgt_vec,
+                pin: tgt_pin,
+            },
+            members: order_members(inst, tgt_vec, &bundles[&tgt_key].members),
+        };
+        lanes.push(Lane {
+            source: src_slice,
+            target: tgt_slice,
+        });
     }
 
     Trunk {
@@ -328,18 +378,23 @@ fn is_bundle_point(p: &NetPoint) -> bool {
 
 /// Resolve one connection point to a physical point (design §4 / §9 D item
 /// ②, port-ordinal convention):
-/// - a component pin in the statement's own module scope →
-///   `(component node, def pin ledger id)`;
+/// - a component pin in the statement's own module scope → `(component node,
+///   def pin ledger id)` — this also covers interface / bus members: Pass2
+///   normalizes `U2.SPI.SCLK`, `U1.UART0.TX` and idx aliases like `G1.GPIO1`
+///   to the physical pin path (`U2.1` etc.), so the leaf is a ledger pin id;
 /// - the module's own port (`A`, owner-less) or a sub-module port
 ///   (`sub1.clk`) → `(module node, port ordinal in the module's port table)`.
 ///
-/// Returns `None` for non-physical points: interface members (they resolve to
-/// their bound pin / port in the description layer, Phase G), labels, bus
-/// members, and unresolved paths. A `PortInst` is a module boundary point, so
-/// both the parent-side reference (`sub1.clk`) and the sub-module's own
-/// reference (`clk`) land on the SAME `PointId` — the derived net layer then
-/// merges a parent net with the sub-module's internal net through the port
-/// (the boundary is transparent to connectivity).
+/// Returns `None` only for non-physical points: an owner-less path that is
+/// not a module port (a bare net label), an unknown owner, or an unresolvable
+/// pin leaf. Statements whose endpoints were rejected upstream (bracket
+/// literals, `[A,B][1]`-style group subscripts, whole-slice broadcasts —
+/// §10.4 / name-equivalence R-family) never reach this point. A `PortInst`
+/// is a module boundary point, so both the parent-side reference (`sub1.clk`)
+/// and the sub-module's own reference (`clk`) land on the SAME `PointId` —
+/// the derived net layer then merges a parent net with the sub-module's
+/// internal net through the port (the boundary is transparent to
+/// connectivity).
 fn resolve_point(inst: &McModuleInst, p: &NetPoint) -> Option<PointId> {
     match &p.owner {
         Some(owner) => {
@@ -353,8 +408,9 @@ fn resolve_point(inst: &McModuleInst, p: &NetPoint) -> Option<PointId> {
             }
         }
         // Owner-less points: the module's own port (found in the port table)
-        // or a label / net name (not a port — left unresolved; net-anchored
-        // labels are a Phase G step).
+        // or a bare net label that is not a port (left unresolved — a
+        // net-anchored label needs the label's own physical anchor, a Phase G
+        // description-layer step).
         None => resolve_port_ordinal(inst, &p.path),
     }
 }
@@ -430,11 +486,12 @@ pub struct Net {
 /// statement's label names the net even when the port-boundary lane is
 /// skipped), and lanes drive the union edges.
 ///
-/// Honest boundary mirrors the collector: only `One`/`One` scalar lanes
-/// participate — `Slice` bundle lanes are not produced yet, and port/label
-/// endpoints themselves never enter the lane layer, so a net whose statement
-/// ties into a module port carries the port label on the component side only
-/// until the port-ordinal resolution step.
+/// Both `One`/`One` scalar lanes and `Slice` bundle lanes participate: a
+/// scalar-vs-slice lane unions the scalar with every bundle member, and a
+/// slice-vs-slice lane unions positionally (c1.1↔d1.1, c2.1↔d2.1 — never a
+/// cross product). The bundle base is a grouping node, not a physical point,
+/// so it never enters the union. Port/label endpoints that resolve to `None`
+/// carry their name on the component side only (the per-point label).
 pub fn derive_nets(trunks: &[Trunk]) -> Vec<Net> {
     // Union-find parent array, parallel to `points`.
     let mut index: HashMap<PointId, usize> = HashMap::new();
@@ -464,8 +521,42 @@ pub fn derive_nets(trunks: &[Trunk]) -> Vec<Net> {
     let mut parent: Vec<usize> = (0..points.len()).collect();
     for trunk in trunks {
         for lane in &trunk.lanes {
-            if let (PointGroup::One(a), PointGroup::One(b)) = (&lane.source, &lane.target) {
-                union_find_union(&mut parent, index[a], index[b]);
+            match (&lane.source, &lane.target) {
+                (PointGroup::One(a), PointGroup::One(b)) => {
+                    if let (Some(&ia), Some(&ib)) = (index.get(a), index.get(b)) {
+                        union_find_union(&mut parent, ia, ib);
+                    }
+                }
+                // A scalar endpoint against a preserved slice unions the
+                // endpoint with every bundle member (the members share the
+                // scalar's net); the bundle base is a grouping node, not a
+                // physical point, so it never enters the union.
+                (PointGroup::One(a), PointGroup::Slice { members, .. }) => {
+                    let Some(&ia) = index.get(a) else { continue };
+                    for m in members {
+                        if let Some(&im) = index.get(m) {
+                            union_find_union(&mut parent, ia, im);
+                        }
+                    }
+                }
+                (PointGroup::Slice { members, .. }, PointGroup::One(b)) => {
+                    let Some(&ib) = index.get(b) else { continue };
+                    for m in members {
+                        if let Some(&im) = index.get(m) {
+                            union_find_union(&mut parent, im, ib);
+                        }
+                    }
+                }
+                // Both sides preserved slices (member-aligned statement,
+                // `c[1:2].1 -> d[1:2].1`): positional zip — c1.1↔d1.1,
+                // c2.1↔d2.1 — never a cross product.
+                (PointGroup::Slice { members: m1, .. }, PointGroup::Slice { members: m2, .. }) => {
+                    for (a, b) in m1.iter().zip(m2.iter()) {
+                        if let (Some(&ia), Some(&ib)) = (index.get(a), index.get(b)) {
+                            union_find_union(&mut parent, ia, ib);
+                        }
+                    }
+                }
             }
         }
     }

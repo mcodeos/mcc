@@ -840,9 +840,409 @@ module main {
     }
 }
 
+/// Phase D: the net layer consumes `Slice` bundle lanes — a vector broadcast
+/// (`c[1:2].Cap([VDD, GND])`) unions each member pin with its scalar
+/// endpoint, so the VDD net holds VDD + c1.1 + c2.1 and the GND net holds
+/// GND + c1.2 + c2.2. The bundle base is a grouping node, never a physical
+/// point, so it stays out of the union.
+#[test]
+fn net_layer_unions_slice_bundle() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component CAP(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([n1, n2]) {
+        n1 - this - n2
+    }
+}
+module main {
+    io VDD
+    io GND
+    CAP c[1:2](1)
+    c[1:2].Cap([VDD, GND])
+}";
+    let dl = build_dianlu(src);
+    let nets = dl.nets();
+    assert_eq!(nets.len(), 2, "one VDD net + one GND net; got {nets:?}");
+
+    let c1 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c1")
+        .unwrap();
+    let c2 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "c2")
+        .unwrap();
+    let pin1 = c1.def.pins.ledger.id_of("1").unwrap();
+    let pin2 = c1.def.pins.ledger.id_of("2").unwrap();
+    let vdd_ord = dl
+        .tree()
+        .ports
+        .iter()
+        .position(|p| p.name == "VDD")
+        .unwrap();
+    let gnd_ord = dl
+        .tree()
+        .ports
+        .iter()
+        .position(|p| p.name == "GND")
+        .unwrap();
+    let p_vdd = mcc::PointId {
+        node: dl.tree().node_id.unwrap(),
+        pin: mcc::DefMemberId(vdd_ord as u32),
+    };
+    let p_gnd = mcc::PointId {
+        node: dl.tree().node_id.unwrap(),
+        pin: mcc::DefMemberId(gnd_ord as u32),
+    };
+    let p_c1_1 = mcc::PointId {
+        node: c1.node_id.unwrap(),
+        pin: pin1,
+    };
+    let p_c2_1 = mcc::PointId {
+        node: c2.node_id.unwrap(),
+        pin: pin1,
+    };
+    let p_c1_2 = mcc::PointId {
+        node: c1.node_id.unwrap(),
+        pin: pin2,
+    };
+    let p_c2_2 = mcc::PointId {
+        node: c2.node_id.unwrap(),
+        pin: pin2,
+    };
+
+    let vdd_net = nets
+        .iter()
+        .find(|n| n.label.as_deref() == Some("VDD"))
+        .expect("VDD net present");
+    let gnd_net = nets
+        .iter()
+        .find(|n| n.label.as_deref() == Some("GND"))
+        .expect("GND net present");
+    assert_eq!(
+        vdd_net.points.len(),
+        3,
+        "VDD + c1.1 + c2.1; got {:?}",
+        vdd_net.points
+    );
+    assert_eq!(
+        gnd_net.points.len(),
+        3,
+        "GND + c1.2 + c2.2; got {:?}",
+        gnd_net.points
+    );
+    for p in [p_vdd, p_c1_1, p_c2_1] {
+        assert!(
+            vdd_net.points.contains(&p),
+            "VDD net contains {p}; got {:?}",
+            vdd_net.points
+        );
+    }
+    for p in [p_gnd, p_c1_2, p_c2_2] {
+        assert!(
+            gnd_net.points.contains(&p),
+            "GND net contains {p}; got {:?}",
+            gnd_net.points
+        );
+    }
+}
+
 // ============================================================================
 // Phase E — overlay layer (§3/§4, design §5 D5)
 // ============================================================================
+
+/// Phase D item ② (plan §9 D): port / interface-member / label / bus-member
+/// endpoints all resolve to a `PointId` — a component pin (Pass2 normalizes
+/// interface members, interface-binding members and idx aliases to the
+/// physical pin path), a module port (port-ordinal), or a sub-module port.
+/// Every legal statement endpoint lands in the lane and net layers as a
+/// physical point; nothing is silently dropped. (Whole-slice broadcasts and
+/// group subscripts are rejected upstream — mcrule §10.4 / name-equivalence
+/// R-family — so they never reach the lane layer.)
+#[test]
+fn endpoint_resolution_every_form_reaches_point_id() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+interface UART.TTL(role) {
+    pins = [
+        1 = TX, \"Transmit\"
+        2 = RX, \"Receive\"
+    ]
+    role DCE {
+        name = \"UART.TTL DCE\"
+        pins = [
+            1 = TX, \"Transmit\"
+            2 = RX, \"Receive\"
+        ]
+        peer = DTE
+    }
+    role DTE {
+        name = \"UART.TTL DTE\"
+        pins = [
+            1 = RX, \"Receive\"
+            2 = TX, \"Transmit\"
+        ]
+        peer = DCE
+    }
+}
+component BUS_DEV {
+    pins = [
+        io [1,2] = SPI{SCLK, MOSI}
+        ps 3 = GND
+    ]
+}
+component GPIO_DEV {
+    pins = [
+        io [1:2] = GPIO[1:2]
+        ps 3 = GND
+    ]
+}
+component PAD_DEV {
+    pins = [
+        ps [1,2] = GND
+        ps 3 = VCC
+    ]
+}
+component IFACE_DEV {
+    pins = [
+        io [1:2] = UART0::UART.TTL(DCE)
+        ps 3 = GND
+    ]
+}
+module SUB(in VIN, ps SGND) {
+    io NET_B
+    BUS_DEV s
+    s.SPI.SCLK -> VIN
+    NET_B -> SGND
+}
+module main(ps GND) {
+    io NET_A
+    BUS_DEV U2
+    GPIO_DEV G1
+    PAD_DEV P1
+    IFACE_DEV U1
+    SUB r
+    NET_A -> GND
+    U2.SPI.SCLK -> GND
+    G1.GPIO1 -> NET_A
+    P1.GND -> GND
+    U1.UART0.TX -> NET_A
+    r.VIN -> NET_A
+}";
+    let dl = build_dianlu(src);
+    let tree = dl.tree();
+
+    // Every legal connection statement emits lanes; no endpoint is silently
+    // dropped (each resolved endpoint pair becomes a One/One lane).
+    let trunks = dl.lanes();
+    assert_eq!(
+        trunks.len(),
+        8,
+        "one trunk per legal connection statement: 6 in main + 2 in SUB"
+    );
+    for t in trunks {
+        assert!(
+            !t.lanes.is_empty(),
+            "statement trunk {} produced lanes",
+            t.id
+        );
+        for lane in &t.lanes {
+            match (&lane.source, &lane.target) {
+                (mcc::PointGroup::One(_), mcc::PointGroup::One(_)) => {}
+                other => panic!("expected One/One lane, got {other:?}"),
+            }
+        }
+    }
+
+    // The named NET_A net unions every endpoint that ties into it: the label
+    // port, the GND port, the interface member, the idx-alias member, both
+    // same-name pads of the pad group, the interface-binding member, and the
+    // sub-module port (the boundary is transparent to connectivity).
+    let nets = dl.nets();
+    let net_a = nets
+        .iter()
+        .find(|n| n.label.as_deref() == Some("NET_A"))
+        .expect("NET_A net present");
+    let net_a_ord = tree.ports.iter().position(|p| p.name == "NET_A").unwrap();
+    let gnd_ord = tree.ports.iter().position(|p| p.name == "GND").unwrap();
+    let p_net_a = mcc::PointId {
+        node: tree.node_id.unwrap(),
+        pin: mcc::DefMemberId(net_a_ord as u32),
+    };
+    let p_gnd = mcc::PointId {
+        node: tree.node_id.unwrap(),
+        pin: mcc::DefMemberId(gnd_ord as u32),
+    };
+    let u2 = tree.components.iter().find(|c| c.name == "U2").unwrap();
+    let p_u2_sclk = mcc::PointId {
+        node: u2.node_id.unwrap(),
+        pin: u2.def.pins.ledger.id_of("1").unwrap(),
+    };
+    let g1 = tree.components.iter().find(|c| c.name == "G1").unwrap();
+    let p_g1_gpio1 = mcc::PointId {
+        node: g1.node_id.unwrap(),
+        pin: g1.def.pins.ledger.id_of("1").unwrap(),
+    };
+    let u1 = tree.components.iter().find(|c| c.name == "U1").unwrap();
+    let p_u1_tx = mcc::PointId {
+        node: u1.node_id.unwrap(),
+        pin: u1.def.pins.ledger.id_of("1").unwrap(),
+    };
+    let r = tree.sub_modules.iter().find(|s| s.name == "r").unwrap();
+    let vin_ord = r.ports.iter().position(|p| p.name == "VIN").unwrap();
+    let p_r_vin = mcc::PointId {
+        node: r.node_id.unwrap(),
+        pin: mcc::DefMemberId(vin_ord as u32),
+    };
+    for p in [p_net_a, p_gnd, p_u2_sclk, p_g1_gpio1, p_u1_tx, p_r_vin] {
+        assert!(
+            net_a.points.contains(&p),
+            "NET_A net contains {p}; got {:?}",
+            net_a.points
+        );
+    }
+    // Both physical pads of the same-name group `P1.GND` fan into the net.
+    let p1 = tree.components.iter().find(|c| c.name == "P1").unwrap();
+    let p1_node = p1.node_id.unwrap();
+    assert_eq!(
+        net_a.points.iter().filter(|p| p.node == p1_node).count(),
+        2,
+        "both P1 GND pads are in the NET_A net; got {:?}",
+        net_a.points
+    );
+}
+
+// ============================================================================
+// Phase E — overlay layer (§3/§4, design §5 D5)
+// ============================================================================
+
+/// GAP1: both-sides vector member alignment `a[1:2].1 -> b[1:2].1` produces
+/// member-level wiring. Pass2 expands each array member to its own
+/// `<member>.1` point (a1.1↔b1.1, a2.1↔b2.1), the lane layer keeps the two
+/// bundles as one `Slice -> Slice` lane, and the net layer zips the members
+/// positionally — exactly two nets, never a cross product.
+#[test]
+fn vector_member_alignment_aligns_members_positionally() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component RES(res::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    RES a[1:2](1)
+    RES b[1:2](1)
+    a[1:2].1 -> b[1:2].1
+}";
+    let dl = build_dianlu(src);
+
+    // Pass2: member-level connections, a1.1↔b1.1 and a2.1↔b2.1.
+    let conns = &dl.tree().connections;
+    assert_eq!(
+        conns.len(),
+        2,
+        "one connection per aligned member; got {conns:?}"
+    );
+    let paths: Vec<Vec<String>> = conns
+        .iter()
+        .map(|c| c.points.iter().map(|p| p.path.clone()).collect())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            vec!["a1.1".to_string(), "b1.1".to_string()],
+            vec!["a2.1".to_string(), "b2.1".to_string()]
+        ],
+        "member-by-member wiring in written order"
+    );
+
+    // Lane layer: one statement trunk, one Slice -> Slice lane keeping both bundles.
+    let trunks = dl.lanes();
+    assert_eq!(trunks.len(), 1, "one trunk for the one statement");
+    let lane = trunks[0].lanes.first().expect("one aligned lane");
+    match (&lane.source, &lane.target) {
+        (
+            mcc::PointGroup::Slice { members: m1, .. },
+            mcc::PointGroup::Slice { members: m2, .. },
+        ) => {
+            assert_eq!(m1.len(), 2, "source bundle keeps both members");
+            assert_eq!(m2.len(), 2, "target bundle keeps both members");
+        }
+        other => panic!("expected Slice -> Slice lane, got {other:?}"),
+    }
+
+    // Net layer: positional zip — a1.1 joins b1.1, a2.1 joins b2.1.
+    let a1 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "a1")
+        .unwrap();
+    let a2 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "a2")
+        .unwrap();
+    let b1 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "b1")
+        .unwrap();
+    let b2 = dl
+        .tree()
+        .components
+        .iter()
+        .find(|c| c.name == "b2")
+        .unwrap();
+    let pin1 = a1.def.pins.ledger.id_of("1").unwrap();
+    let p_a1_1 = mcc::PointId {
+        node: a1.node_id.unwrap(),
+        pin: pin1,
+    };
+    let p_a2_1 = mcc::PointId {
+        node: a2.node_id.unwrap(),
+        pin: pin1,
+    };
+    let p_b1_1 = mcc::PointId {
+        node: b1.node_id.unwrap(),
+        pin: pin1,
+    };
+    let p_b2_1 = mcc::PointId {
+        node: b2.node_id.unwrap(),
+        pin: pin1,
+    };
+    let nets = dl.nets();
+    assert_eq!(nets.len(), 2, "two aligned nets; got {nets:?}");
+    let net_ab1 = nets
+        .iter()
+        .find(|n| n.points.contains(&p_a1_1))
+        .expect("a1.1 net present");
+    let net_ab2 = nets
+        .iter()
+        .find(|n| n.points.contains(&p_a2_1))
+        .expect("a2.1 net present");
+    assert_eq!(net_ab1.points.len(), 2);
+    assert!(net_ab1.points.contains(&p_b1_1), "a1.1 joins b1.1");
+    assert!(!net_ab1.points.contains(&p_b2_1), "no cross product");
+    assert_eq!(net_ab2.points.len(), 2);
+    assert!(net_ab2.points.contains(&p_b2_1), "a2.1 joins b2.1");
+    assert!(!net_ab2.points.contains(&p_b1_1), "no cross product");
+}
 
 /// Phase E: the circuit-level overlay derives `labels` and the lookup indexes
 /// from the frozen tree + net layer. A chain `GND -> c1.2 -> c2.2` unions
@@ -1711,5 +2111,134 @@ module main {
         diff.nodes.iter().any(|n| n.path == c2_path && n.added),
         "the diff reports the new anchored device; got {:?}",
         diff.nodes
+    );
+}
+
+/// mcrule.md §10.6.3: a group `(,)` allows front AND rear operands — the rule
+/// `opd1 op1 (s1, .., sN) op2 opd2` expands to per-branch statements that
+/// share opd2. `R101 - (R102 - R103, R104 - R105) + R106` must build without
+/// a parallel shape error, and the net layer must join R106.2 with BOTH group
+/// exits (R103.2, R105.2) on the shared right net, while R106.1 joins the
+/// shared left net (R101.1) and R101.2 fans out to both branch heads.
+#[test]
+fn group_rule3_front_and_rear_operands_share_opd2() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset_workspace();
+    let src = "\
+component RES(res::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+module main {
+    RES R101(1), R102(1), R103(1), R104(1), R105(1), R106(1)
+    R101 - (R102 - R103, R104 - R105) + R106
+}";
+    let dl = build_dianlu(src);
+
+    let codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_PARALLEL_SHAPE_MISMATCH),
+        "rule §10.6.3 allows a rear operand around a group; got {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
+        "no series shape error; got {codes:?}"
+    );
+
+    let find_comp = |name: &str| {
+        dl.tree()
+            .components
+            .iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("instance {name} exists"))
+    };
+    let p1 = find_comp("R101").def.pins.ledger.id_of("1").unwrap();
+    let p2 = find_comp("R101").def.pins.ledger.id_of("2").unwrap();
+    let pt = |name: &str, pin| mcc::PointId {
+        node: find_comp(name).node_id.unwrap(),
+        pin,
+    };
+    let p_r101_1 = pt("R101", p1);
+    let p_r101_2 = pt("R101", p2);
+    let p_r102_1 = pt("R102", p1);
+    let p_r104_1 = pt("R104", p1);
+    let p_r103_2 = pt("R103", p2);
+    let p_r105_2 = pt("R105", p2);
+    let p_r106_1 = pt("R106", p1);
+    let p_r106_2 = pt("R106", p2);
+
+    let nets = dl.nets();
+
+    // The group expands into TWO standalone statements
+    // (`R101 - R102 - R103 + R106` / `R101 - R104 - R105 + R106`) — the
+    // two series joins of each chain (4) plus both parallel right joins (2)
+    // plus the SHARED left join `R101.1 -> R106.1` recorded once (1) = 7.
+    let conns: Vec<Vec<String>> = dl
+        .tree()
+        .connections
+        .iter()
+        .map(|c| {
+            let mut pts: Vec<String> = c.points.iter().map(|p| p.path.clone()).collect();
+            pts.sort();
+            pts
+        })
+        .collect();
+    assert_eq!(
+        conns.len(),
+        7,
+        "expanded branches, shared left join deduped; got {conns:?}"
+    );
+    for expect in [
+        vec!["R101.2", "R102.1"],
+        vec!["R102.2", "R103.1"],
+        vec!["R101.1", "R106.1"],
+        vec!["R103.2", "R106.2"],
+        vec!["R101.2", "R104.1"],
+        vec!["R104.2", "R105.1"],
+        vec!["R105.2", "R106.2"],
+    ] {
+        let expect: Vec<String> = expect.iter().map(|s| s.to_string()).collect();
+        assert!(
+            conns.contains(&expect),
+            "missing join {expect:?}; got {conns:?}"
+        );
+    }
+
+    // Shared left net: R101.1 and R106.1 join.
+    let left = nets
+        .iter()
+        .find(|n| n.points.contains(&p_r101_1))
+        .expect("left net holds R101.1");
+    assert!(
+        left.points.contains(&p_r106_1),
+        "R106.1 joins the shared left net; got {left:?}"
+    );
+    // Shared right net: BOTH group exits and R106.2 join.
+    let right = nets
+        .iter()
+        .find(|n| n.points.contains(&p_r103_2))
+        .expect("right net holds R103.2");
+    assert!(
+        right.points.contains(&p_r105_2),
+        "R105.2 joins the shared right net; got {right:?}"
+    );
+    assert!(
+        right.points.contains(&p_r106_2),
+        "R106.2 joins the shared right net; got {right:?}"
+    );
+    // Series fan-out: R101.2 reaches both branch heads.
+    let fan = nets
+        .iter()
+        .find(|n| n.points.contains(&p_r101_2))
+        .expect("fan-out net holds R101.2");
+    assert!(
+        fan.points.contains(&p_r102_1),
+        "R101.2 joins branch head R102.1; got {fan:?}"
+    );
+    assert!(
+        fan.points.contains(&p_r104_1),
+        "R101.2 joins branch head R104.1; got {fan:?}"
     );
 }
