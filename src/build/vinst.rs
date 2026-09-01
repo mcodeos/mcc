@@ -215,6 +215,27 @@ pub fn virtual_build(
     crate::mcc_build(&McIds::from(mod_name.as_str()), uri)
 }
 
+/// Like [`virtual_build`], but also returns the Phase D frozen string
+/// net-table store (`McModuleInst` never carries `NetPoint`, so consumers of
+/// the tree-level string nets — e.g. the `mcc build` net-check path that
+/// re-flattens the tree — read the per-module tables from the store).
+pub fn virtual_build_with_nets(
+    target: &str,
+    uri: &McURI,
+) -> Result<
+    (
+        crate::build::pass2::MccProjectTree,
+        crate::instant::net_store::NetTableStore,
+    ),
+    Box<dyn Error>,
+> {
+    if is_module_in_file(target, uri) {
+        return crate::mcc_build_with_nets(&McIds::from(target), uri);
+    }
+    let mod_name = ensure_synthetic_view(target, uri)?;
+    crate::mcc_build_with_nets(&McIds::from(mod_name.as_str()), uri)
+}
+
 /// Like [`virtual_build`] but returns the flattened instance table too.
 ///
 /// When `target` is a component/interface wrapped in a synthetic module, the

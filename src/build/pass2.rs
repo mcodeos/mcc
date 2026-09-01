@@ -143,10 +143,15 @@ pub(crate) fn mcb_instantiate(
         })
         .collect();
 
-    inst.instantiate()
+    // Phase D: the instantiation produces the circuit-wide frozen string
+    // net-table store alongside the tree (the tree never carries NetPoint).
+    // It rides into the DianLu so the projection and the tree-level string
+    // net consumers read the same tables.
+    let net_store = inst
+        .instantiate_with_store()
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
-    Ok(DianLu::new(inst, start_id))
+    Ok(DianLu::new(inst, start_id, net_store))
 }
 
 // === pub fn mcb_pass2_flat( ===

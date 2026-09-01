@@ -230,16 +230,19 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     // ── 3. Pass2 ──
     // The envelope carries the first target's Pass 2 tree (matching
-    // `--format json`); viz still renders all targets.
-    let inst = match mcc::mcc_virtual_build(&top_name, &entry_uri) {
-        Ok(i) => {
+    // `--format json`); viz still renders all targets. The build also returns
+    // the Phase D frozen string net-table store (the tree never carries
+    // `NetPoint`); it feeds the flat net checks below.
+    let (inst, net_store) = match mcc::mcc_virtual_build_with_nets(&top_name, &entry_uri) {
+        Ok((i, ns)) => {
             builder.set_pass2(crate::cmds::parse::public_collect_pass2(
                 &top_name,
                 &i,
                 None,
+                &ns,
                 &mut tracker,
             ));
-            i
+            (i, ns)
         }
         Err(e) => {
             let err = RpcError::build_error(format!("{}", e));
@@ -482,7 +485,8 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     // diagnostics block renders before Pass 2, so DB-only logging would never
     // be visible). Findings are printed, not gated: the Tier-0 netcheck and the
     // exit-code error count below own the failure semantics.
-    let mut flat_table = mcc::InstTable::from_module_inst(&inst, 1000);
+    let mut flat_table =
+        mcc::InstTable::from_module_inst(&inst, 1000, net_store.clone().into_shared());
     // from_module_inst rebuilds a fresh table that drops the synthetic markers
     // pass2 attached to the virtual wrapper's entries; re-apply them so the net
     // checks don't re-flag the unwired interface/component view's ports.
@@ -573,7 +577,7 @@ fn build_browse_dir(
     // ── 3. Pass2: per-file default top build, aggregated ──
     let explicit_top = mcc::cli::globals().top.as_deref();
     let mut top_name = String::new();
-    let mut first_inst: Option<mcc::MccProjectTree> = None;
+    let mut first_inst: Option<(mcc::MccProjectTree, mcc::NetTableStore)> = None;
     let mut failures: Vec<Diagnostic> = Vec::new();
     let mut built: Vec<(String, PathBuf)> = Vec::new(); // (target, file) for viz
 
@@ -582,13 +586,13 @@ fn build_browse_dir(
     let build_one = |target: &str,
                      file: &Path,
                      failures: &mut Vec<Diagnostic>|
-     -> Option<mcc::MccProjectTree> {
+     -> Option<(mcc::MccProjectTree, mcc::NetTableStore)> {
         let uri = file.to_string_lossy().to_string();
         let mc_uri = mcc::McURI::from(uri.as_str());
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            mcc::mcc_virtual_build(target, &mc_uri)
+            mcc::mcc_virtual_build_with_nets(target, &mc_uri)
         })) {
-            Ok(Ok(inst)) => Some(inst),
+            Ok(Ok(pair)) => Some(pair),
             Ok(Err(e)) => {
                 failures.push(build_failure_diag(
                     &uri,
@@ -620,9 +624,9 @@ fn build_browse_dir(
             if !declares {
                 continue;
             }
-            if let Some(inst) = build_one(t, f, &mut failures) {
+            if let Some(pair) = build_one(t, f, &mut failures) {
                 top_name = t.to_string();
-                first_inst = Some(inst);
+                first_inst = Some(pair);
                 built.push((t.to_string(), f.clone()));
             }
             break;
@@ -638,11 +642,11 @@ fn build_browse_dir(
             let Some(tgt) = targets.into_iter().next() else {
                 continue;
             };
-            if let Some(inst) = build_one(&tgt, f, &mut failures) {
+            if let Some(pair) = build_one(&tgt, f, &mut failures) {
                 built.push((tgt.clone(), f.clone()));
                 if first_inst.is_none() {
                     top_name = tgt;
-                    first_inst = Some(inst);
+                    first_inst = Some(pair);
                 }
             }
         }
@@ -650,9 +654,14 @@ fn build_browse_dir(
 
     // ── Pass2 report: aggregated diagnostics, first tree in the envelope ──
     match &first_inst {
-        Some(inst) => {
-            let mut report =
-                crate::cmds::parse::public_collect_pass2(&top_name, inst, None, &mut tracker);
+        Some((inst, net_store)) => {
+            let mut report = crate::cmds::parse::public_collect_pass2(
+                &top_name,
+                inst,
+                None,
+                net_store,
+                &mut tracker,
+            );
             report.diagnostics.extend(failures);
             builder.set_pass2(report);
         }
@@ -670,7 +679,7 @@ fn build_browse_dir(
     }
 
     // ── G4: baseline from the first successful tree (if any) ──
-    if let Some(inst) = &first_inst {
+    if let Some((inst, _)) = &first_inst {
         mcc::InstTable::write_known_missing(inst, "baseline/known_missing.md");
     }
 
@@ -766,8 +775,9 @@ fn build_browse_dir(
     }
 
     // ── 4.5. Electrical net checks (Pass2) on the first successful tree ──
-    if let Some(inst) = &first_inst {
-        let mut flat_table = mcc::InstTable::from_module_inst(inst, 1000);
+    if let Some((inst, net_store)) = &first_inst {
+        let mut flat_table =
+            mcc::InstTable::from_module_inst(inst, 1000, net_store.clone().into_shared());
         mcc::mcc_virtual_mark_synthetic_flat_entries(&mut flat_table);
         let net_results = mcc::check::nets::run_net_checks(&flat_table);
         if !net_results.is_empty() {
@@ -1386,12 +1396,13 @@ module top {
         mcc::mcc_clear_workspace();
         mcc::mcc_load_from_string(&uri, fixture);
         let ident = McIds::from("top");
-        let inst = mcc::mcc_build(&ident, &uri).expect("mcc_build");
+        let (_inst, net_store) = mcc::mcc_build_with_nets(&ident, &uri).expect("mcc_build");
+        let root_nets = net_store.get("top").map(|t| t.to_vec()).unwrap_or_default();
+
         let diags = mcc::mcc_diagnose_all();
 
         // Debug dump of every net so a regression shows exactly what got wired.
-        let net_dump: Vec<String> = inst
-            .nets
+        let net_dump: Vec<String> = root_nets
             .iter()
             .map(|(name, pts)| {
                 format!(
@@ -1407,7 +1418,7 @@ module top {
 
         // The arity-0 gate must intercept: the no-arg body `A -> GND_PIN` must
         // NOT be expanded, so no single net may contain both c1.A and GND_PIN.
-        let shorted = inst.nets.iter().any(|(_, pts)| {
+        let shorted = root_nets.iter().any(|(_, pts)| {
             pts.iter().any(|p| p.path == "c1.A") && pts.iter().any(|p| p.path.ends_with("GND_PIN"))
         });
         assert!(
@@ -1511,16 +1522,16 @@ module top {
         mcc::mcc_clear_workspace();
         mcc::mcc_load_from_string(&uri, fixture);
         let ident = McIds::from("top");
-        let inst = mcc::mcc_build(&ident, &uri).expect("mcc_build");
-        let vcc = inst
-            .nets
+        let (_inst, net_store) = mcc::mcc_build_with_nets(&ident, &uri).expect("mcc_build");
+        let root_nets = net_store.get("top").map(|t| t.to_vec()).unwrap_or_default();
+        let vcc = root_nets
             .iter()
             .find(|(name, _)| name == "PWR.VCC")
             .map(|(_, pts)| pts);
         assert!(
             vcc.is_some(),
             "D8 PWR.VCC net missing. Nets: {:?}",
-            inst.nets.iter().map(|(n, _)| n).collect::<Vec<_>>()
+            root_nets.iter().map(|(n, _)| n).collect::<Vec<_>>()
         );
         let paths: Vec<&str> = vcc.unwrap().iter().map(|p| p.path.as_str()).collect();
         assert!(

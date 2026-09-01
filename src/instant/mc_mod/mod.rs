@@ -39,11 +39,14 @@ use super::mc_bus::McBusInst;
 use super::mc_comp::McComponentInst;
 use super::mc_net::{ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, PortInst};
 use crate::instant::identity::{IdentityRegistry, NodeId};
+use crate::instant::net_store::NetTableStore;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::IOType;
 use crate::semantic::module::McModule;
 use crate::{current_uri, McURI};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 
 // ============================================================================
@@ -76,14 +79,6 @@ pub struct McModuleInst {
 
     /// Internal connections
     pub connections: Vec<ConnectionInst>,
-
-    /// Net table (label -> set of connection points)
-    ///
-    /// Ground nets stay merged per module scope: a bare `GND` label follows the
-    /// module's input ground source instead of being re-partitioned into local
-    /// groups. Duplicate net names are still legal (e.g. distinct rail-member
-    /// grounds such as `va.GND` vs `dc.GND`), hence a `Vec` not a `HashMap`.
-    pub nets: Vec<(String, Vec<NetPoint>)>,
 
     /// Internal label registry (for implicit labels)
     pub(super) labels: HashMap<String, NetPoint>,
@@ -254,7 +249,6 @@ impl McModuleInst {
             components: Vec::new(),
             sub_modules: Vec::new(),
             connections: Vec::new(),
-            nets: Vec::new(),
             labels: HashMap::new(),
             buses: HashMap::new(),
             auto_inst_map: HashMap::new(),
@@ -289,7 +283,6 @@ impl McModuleInst {
             components: Vec::new(),
             sub_modules: Vec::new(),
             connections: Vec::new(),
-            nets: Vec::new(),
             labels: HashMap::new(),
             buses: HashMap::new(),
             auto_inst_map: HashMap::new(),
@@ -313,6 +306,17 @@ impl McModuleInst {
     /// instantiation entry keeps its signature and every call site stays
     /// unchanged.
     pub fn instantiate(&mut self) -> Result<(), InstError> {
+        self.instantiate_with_store().map(|_| ())
+    }
+
+    /// Like [`Self::instantiate`], but returns the circuit-wide frozen string
+    /// net-table store (Phase D) the flow produced. The store is the only
+    /// carrier of the per-module string net tables after the tree freezes —
+    /// `McModuleInst` no longer stores `NetPoint`, so the caller (the
+    /// `DianLu` / the projection) takes the store out of the build.
+    pub(crate) fn instantiate_with_store(
+        &mut self,
+    ) -> Result<Rc<RefCell<NetTableStore>>, InstError> {
         // Clone the identity fields first: `replace` needs its new value while
         // `self` is still mutably borrowed, so the placeholder tree cannot read
         // through `self`. The placeholder is discarded — `tree` (the actual
@@ -322,19 +326,23 @@ impl McModuleInst {
         let tree = std::mem::replace(self, Self::new(&name, def));
         let mut builder = InstantiationBuilder::new(tree);
         let result = builder.instantiate();
+        let store = builder.net_store();
         *self = builder.finish();
-        result
+        result.map(|()| store)
     }
 
     /// Like [`Self::instantiate`], but interns every product into the
     /// caller's per-build [`IdentityRegistry`] under `current_path` (Phase
     /// C1). Sub-module instantiation goes through here so node ids stay
     /// circuit-global; the registry is handed back through `identity` after
-    /// the flow freezes the tree.
+    /// the flow freezes the tree. The caller's shared circuit-wide net-table
+    /// store is handed down (Phase D) so this module's frozen table lands in
+    /// the same store the parent reads for ground-tie propagation.
     pub(crate) fn instantiate_in_scope(
         &mut self,
         identity: &mut IdentityRegistry,
         current_path: &str,
+        net_store: Rc<RefCell<NetTableStore>>,
     ) -> Result<(), InstError> {
         let name = self.name.clone();
         let def = self.def.clone();
@@ -343,6 +351,7 @@ impl McModuleInst {
             tree,
             std::mem::take(identity),
             current_path.to_string(),
+            net_store,
         );
         let result = builder.instantiate();
         let (frozen, reg) = builder.into_parts();
@@ -383,17 +392,6 @@ impl McModuleInst {
     /// Get a read-only reference to all bus instances
     pub fn get_buses(&self) -> &HashMap<String, McBusInst> {
         &self.buses
-    }
-
-    /// Return this module's union-find merged nets in deterministic name order.
-    pub fn sorted_nets(&self) -> Vec<(&str, &[NetPoint])> {
-        let mut nets: Vec<(&str, &[NetPoint])> = self
-            .nets
-            .iter()
-            .map(|(name, points)| (name.as_str(), points.as_slice()))
-            .collect();
-        nets.sort_by(|a, b| a.0.cmp(b.0));
-        nets
     }
 
     // ========================================================================
@@ -543,14 +541,6 @@ impl std::fmt::Display for McModuleInst {
             writeln!(f, "  Connections:")?;
             for conn in &self.connections {
                 writeln!(f, "    - {conn}")?;
-            }
-        }
-
-        if !self.nets.is_empty() {
-            writeln!(f, "  Nets:")?;
-            for (name, points) in &self.nets {
-                let points_str: Vec<String> = points.iter().map(|p| p.to_string()).collect();
-                writeln!(f, "    {}: [{}]", name, points_str.join(", "))?;
             }
         }
 

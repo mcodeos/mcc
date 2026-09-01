@@ -92,19 +92,38 @@ pub fn build_pass2(top: &str, uri: &str) -> Result<mcc::McModuleInst, String> {
     }
 }
 
+/// Like [`build_pass2`], but also returns the Phase D frozen string net-table
+/// store so the caller can read the tree-level string nets (`McModuleInst`
+/// never carries `NetPoint`).
+pub fn build_pass2_with_nets(
+    top: &str,
+    uri: &str,
+) -> Result<(mcc::McModuleInst, mcc::NetTableStore), String> {
+    let ident = mcc::McIds::from(top);
+    let mcc_uri = mcc::McURI::from(uri);
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        mcc::mcc_build_with_nets(&ident, &mcc_uri)
+    })) {
+        Ok(Ok(pair)) => Ok(pair),
+        Ok(Err(e)) => Err(format!("build failed: {}", e)),
+        Err(_) => Err("build panicked (engine Pass2 bug)".to_string()),
+    }
+}
+
 /// Like [`build_pass2`], but also returns the Phase C companion arena so the
 /// tree-rendering consumer can walk the arena `children` edges instead of the
-/// tree's `sub_modules` Vec (design §4, plan §9 C item 3).
+/// tree's `sub_modules` Vec (design §4, plan §9 C item 3), plus the Phase D
+/// frozen string net-table store for the tree-level net consumers.
 pub fn build_pass2_with_arena(
     top: &str,
     uri: &str,
-) -> Result<(mcc::McModuleInst, mcc::NodeArena), String> {
+) -> Result<(mcc::McModuleInst, mcc::NodeArena, mcc::NetTableStore), String> {
     let ident = mcc::McIds::from(top);
     let mcc_uri = mcc::McURI::from(uri);
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         mcc::mcc_build_with_arena(&ident, &mcc_uri)
     })) {
-        Ok(Ok(pair)) => Ok(pair),
+        Ok(Ok(triple)) => Ok(triple),
         Ok(Err(e)) => Err(format!("build failed: {}", e)),
         Err(_) => Err("build panicked (engine Pass2 bug)".to_string()),
     }

@@ -24,9 +24,13 @@
 
 use super::arena::{build_node_arena, NodeArena};
 use super::insttab::InstTable;
+use super::lane::{collect_stmt_trunks, derive_nets, Net, Trunk};
 use super::mc_mod::McModuleInst;
 use crate::db::diagnostic::diagnostic::Diagnostic;
 use crate::instant::identity::{CircuitKey, IdentityRegistry};
+use crate::instant::net_store::NetTableStore;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// One instantiation of one entry module — the physical model plus its flat
 /// projection view (design §12.2, code name `DianLu`).
@@ -51,15 +55,32 @@ pub struct DianLu {
     /// The tree stays authoritative (two-track migration); the arena is the
     /// storage the flatten / export / viz walks migrate onto.
     arena: NodeArena,
+    /// Phase D: statement-level lane layer (design §11.3 ③) — one [`Trunk`]
+    /// per connection statement, collected from the frozen tree on
+    /// construction. The structured statement storage the derived electrical
+    /// nets (union-find) and the drawing / layout walks consume.
+    lanes: Vec<Trunk>,
+    /// Phase D: net layer (design §11.3 ③) — the union-find equivalence
+    /// classes derived from `lanes`, rebuilt on construction. Derived index,
+    /// never primary storage: the projection `NetTable` stays authoritative.
+    nets: Vec<Net>,
+    /// Phase D: the circuit-wide frozen string net-table store produced
+    /// during construction (`McModuleInst` never carries `NetPoint` — the
+    /// projection layer only). The flat projection and every tree-level string
+    /// net consumer read their per-module tables from here, keyed by canonical
+    /// module path (`main`, `main.ldo`, ...).
+    net_table: Rc<RefCell<NetTableStore>>,
 }
 
 impl DianLu {
     /// Wrap an already-instantiated tree. The model is authoritative; the flat
     /// projection is derived lazily via [`Self::flatten`]. The per-build
     /// identity registry is rebuilt from the tree's companion node ids.
-    pub fn new(tree: McModuleInst, start_id: u32) -> Self {
+    pub fn new(tree: McModuleInst, start_id: u32, net_store: Rc<RefCell<NetTableStore>>) -> Self {
         let identity = build_identity_registry(&tree);
         let arena = build_node_arena(&tree);
+        let lanes = collect_stmt_trunks(&tree, &arena);
+        let nets = derive_nets(&lanes);
         DianLu {
             tree,
             start_id,
@@ -67,6 +88,9 @@ impl DianLu {
             net_diags: Vec::new(),
             identity,
             arena,
+            lanes,
+            nets,
+            net_table: net_store,
         }
     }
 
@@ -89,6 +113,26 @@ impl DianLu {
     /// The instance tree (modelling layer), not the flat projection.
     pub fn tree(&self) -> &McModuleInst {
         &self.tree
+    }
+
+    /// Phase D statement-level lane layer: one [`Trunk`] per connection
+    /// statement (design §11.3 ③), collected from the frozen tree.
+    pub fn lanes(&self) -> &[Trunk] {
+        &self.lanes
+    }
+
+    /// Phase D net layer: the union-find equivalence classes derived from the
+    /// lane layer (design §11.3 ③). Derived index — the projection
+    /// `NetTable` remains the authoritative flat netlist.
+    pub fn nets(&self) -> &[Net] {
+        &self.nets
+    }
+
+    /// The circuit-wide frozen string net-table store (Phase D). Tree-level
+    /// string-net consumers that hold a `DianLu` read per-module tables here,
+    /// keyed by canonical module path.
+    pub fn net_store(&self) -> Rc<RefCell<NetTableStore>> {
+        self.net_table.clone()
     }
 
     /// Consume the object, discarding any flat projection.
@@ -130,8 +174,12 @@ impl DianLu {
             // edges source the sub-module order, design §4 — the tree is a
             // view over arena edges); the projection output is identical to
             // the tree-recursive form (`debug_assert` guards the isomorphism).
-            let mut table =
-                InstTable::from_module_inst_with_arena(&self.tree, self.start_id, &self.arena);
+            let mut table = InstTable::from_module_inst_with_arena(
+                &self.tree,
+                self.start_id,
+                &self.arena,
+                self.net_table.clone(),
+            );
             if let Some(prefix) = synthetic_prefix {
                 table.mark_synthetic_by_path_prefix(prefix);
             }

@@ -48,15 +48,16 @@ fn codes_without_benign(codes: &[u32]) -> Vec<u32> {
         .collect()
 }
 
-/// Build `main` and return the module instance.
-fn build_main(src: &str, uri: &str) -> mcc::McModuleInst {
+/// Build `main` and return the module instance plus the Phase D frozen string
+/// net-table store (the tree never carries `NetPoint`).
+fn build_main(src: &str, uri: &str) -> (mcc::McModuleInst, mcc::NetTableStore) {
     let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     mcc::mcc_init_no_lib();
     mcc::mcc_set_system_root(std::path::Path::new(""));
     mcc::mcc_clear_workspace();
     let u = McURI::from(uri);
     mcc::mcc_load_from_string(&u, src);
-    mcc::mcc_build(&McIds::from("main"), &u).expect("build")
+    mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build")
 }
 
 /// ── §11.4 legal case: equal-width slice zips, stays quiet ────────────────
@@ -77,12 +78,15 @@ fn aligned_vector_slice_arg_zips_and_is_quiet() {
         "aligned slice is quiet; got {codes:?}"
     );
 
-    let inst = build_main(&src, "/mcc/gap1-aligned.mc");
+    let (_inst, net_store) = build_main(&src, "/mcc/gap1-aligned.mc");
     // Zip: the res3 net carries c1.1, the res4 net carries c2.1 — no
     // cross-pairing, no broadcast of both slice members onto both caps.
+    let root_nets = net_store
+        .get("main")
+        .map(|t| t.to_vec())
+        .unwrap_or_default();
     let net_paths = |base: &str| {
-        let mut out: Vec<String> = inst
-            .nets
+        let mut out: Vec<String> = root_nets
             .iter()
             .filter(|(n, _)| n == base)
             .flat_map(|(_, pts)| pts.iter().map(|p| p.path.clone()))
@@ -174,13 +178,15 @@ fn scalar_lanes_broadcast_no_gap1() {
     );
 
     // Both caps' pin 1 on the VDD net (broadcast, not zip).
-    let inst = build_main(&src, "/mcc/gap1-scalar.mc");
-    let vdd_net = inst
-        .nets
+    let (inst, net_store) = build_main(&src, "/mcc/gap1-scalar.mc");
+    let vdd_net = net_store
+        .get(&inst.name.to_string())
+        .unwrap_or_default()
         .iter()
         .find(|(n, _)| n.starts_with("VDD"))
-        .unwrap_or_else(|| panic!("no VDD net; nets={:?}", inst.nets));
-    let paths: Vec<&String> = vdd_net.1.iter().map(|p| &p.path).collect();
+        .cloned()
+        .unwrap_or_else(|| panic!("no VDD net"));
+    let paths: Vec<String> = vdd_net.1.iter().map(|p| p.path.clone()).collect();
     assert!(
         paths.iter().any(|p| p.contains("c1.1")),
         "c1.1 on VDD; got {paths:?}"

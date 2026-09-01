@@ -30,6 +30,7 @@
 //! This ensures enabling dump doesn't pollute the normal diagnostics flow.
 
 use super::super::mc_net::{canonicalize_path, NetPoint};
+use super::builder::InstantiationBuilder;
 use super::McModuleInst;
 use crate::semantic::common::IOType;
 use crate::semantic::mc_inst::McInstance;
@@ -194,7 +195,17 @@ impl McModuleInst {
             "{p} ── END ──────────────────────────────────"
         );
     }
+}
 
+// ============================================================================
+// Public API (impl InstantiationBuilder)
+// ============================================================================
+//
+// The pass2 output snapshot reads the construction-phase net table and the
+// circuit-wide frozen net store (Phase D: `McModuleInst` no longer carries
+// net tables), so it lives on the builder instead of the frozen model.
+
+impl InstantiationBuilder {
     // ------------------------------------------------------------------------
     // 2. Pass2 output snapshot
     // ------------------------------------------------------------------------
@@ -286,6 +297,11 @@ impl McModuleInst {
             self.sub_modules.len()
         );
         for sub in &self.sub_modules {
+            let sub_nets = self
+                .net_store
+                .borrow()
+                .get(&self.child_path(&sub.name))
+                .map_or(0usize, |t| t.len());
             mcc_dbg!(
                 "inst::dump",
                 "{}   submod  {} : {} ({} ports, {} comps, {} subs, {} conns, {} nets)",
@@ -296,7 +312,7 @@ impl McModuleInst {
                 sub.components.len(),
                 sub.sub_modules.len(),
                 sub.connections.len(),
-                sub.nets.len(),
+                sub_nets,
             );
         }
 
@@ -388,8 +404,8 @@ impl McModuleInst {
         }
 
         // ---- nets ----
-        mcc_dbg!("inst::dump", "{} nets      : {}", p, self.nets.len());
-        for (name, points) in &self.nets {
+        mcc_dbg!("inst::dump", "{} nets      : {}", p, self.net_table.len());
+        for (name, points) in &self.net_table {
             let pts: Vec<String> = points.iter().map(|x| x.to_string()).collect();
             mcc_dbg!(
                 "inst::dump",
@@ -418,7 +434,13 @@ impl McModuleInst {
             "{p} ── END ──────────────────────────────────"
         );
     }
+}
 
+// ============================================================================
+// Public API (impl McModuleInst)
+// ============================================================================
+
+impl McModuleInst {
     // ------------------------------------------------------------------------
     // 3. Pass1 ↔ Pass2 reconciliation
     // ------------------------------------------------------------------------
@@ -543,7 +565,13 @@ impl McModuleInst {
             "{p} ── END ──────────────────────────────────"
         );
     }
+}
 
+// ============================================================================
+// Public API (impl InstantiationBuilder)
+// ============================================================================
+
+impl InstantiationBuilder {
     // ------------------------------------------------------------------------
     // 4. Public API: one-click print three sections (for tests / external code as needed)
     // ------------------------------------------------------------------------

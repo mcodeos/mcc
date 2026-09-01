@@ -34,7 +34,11 @@ pub fn build_spice(
     }
 
     let mut netmap: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    collect_nets(tree, arena, &mut netmap);
+    // Phase D: the tree never stores NetPoint — read the frozen per-module
+    // string net tables from the flat table's store.
+    let store_ref = table.net_table();
+    let store_ref = store_ref.borrow();
+    collect_nets(tree, arena, &store_ref, &mut netmap);
 
     let mut inst_nodes: HashMap<String, BTreeSet<String>> = HashMap::new();
 

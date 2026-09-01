@@ -300,15 +300,15 @@ impl<'a> McVecBuilder<'a> {
         block.nets = nets;
         block.port_trunks = trunks;
 
-        // ★ M6.5: ground nets follow the pass2 net table (`inst.nets`), NOT
-        // the builder's FIX-B merged single ground net. Pass2 keeps each
-        // module scope's ground as its own net (`GND`, `vin.GND`,
+        // ★ M6.5: ground nets follow the pass2 net table (the frozen string
+        // net store), NOT the builder's FIX-B merged single ground net. Pass2
+        // keeps each module scope's ground as its own net (`GND`, `vin.GND`,
         // `USB_VBUS_1.GND`, ...), so each distinct pass2 ground net becomes its
         // own net → its own glyph. Only sub-modules (device layers) are
         // overridden — the root/block layer keeps its merged ground net, which
         // the projection audit expects.
         if my_path.contains('.') {
-            self.override_ground_nets_from_pass2(&mut block, inst, &my_path);
+            self.override_ground_nets_from_pass2(&mut block, &my_path);
         }
 
         // 4. Recursively process sub-modules
@@ -1296,17 +1296,12 @@ impl<'a> McVecBuilder<'a> {
     // ========================================================================
 
     /// ★ M6.5: replace the builder's merged ground net(s) with the pass2
-    /// [`McModuleInst::sorted_nets`] grouping. The builder's own path groups
+    /// frozen string net-table grouping. The builder's own path groups
     /// ground connections by net name then FIX-B merges by shared pin,
     /// collapsing every ground into one `GND` net and losing the port-member
     /// names (`GND_OUT`, `vin.GND`); the pass2 table keeps each module scope's
     /// ground nets distinct, and each such net must draw its own ground symbol.
-    fn override_ground_nets_from_pass2(
-        &self,
-        block: &mut McVecBlock,
-        inst: &McModuleInst,
-        module_path: &str,
-    ) {
+    fn override_ground_nets_from_pass2(&self, block: &mut McVecBlock, module_path: &str) {
         // Ground-name classifier, aligned with the graph side
         // (`naming::classify_net` / `naming::is_ground` classify by the LAST
         // segment, so a port-member ground like `USB_VBUS_1.GND` / `vin.GND`
@@ -1320,9 +1315,17 @@ impl<'a> McVecBuilder<'a> {
             crate::vector::graph::naming::is_ground(leaf)
         };
 
-        // Pass2 ground nets → (name, resolved point ids, deduped, order preserved).
+        // Pass2 ground nets → (name, resolved point ids, deduped, order
+        // preserved). Phase D: the module's frozen table comes from the flat
+        // table's store (the tree never stores NetPoint); it is pre-sorted by
+        // build_net_table, so iteration order is deterministic.
+        let net_store = self.inst_table.net_table();
+        let table = net_store.borrow();
+        let Some(nets) = table.get(module_path) else {
+            return;
+        };
         let mut pass2_grounds: Vec<(String, Vec<i64>)> = Vec::new();
-        for (name, pts) in inst.sorted_nets() {
+        for (name, pts) in nets {
             if !is_gnd_name(name) {
                 continue;
             }

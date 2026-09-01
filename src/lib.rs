@@ -89,15 +89,20 @@ pub use builder::{
 };
 
 // ── Instant / Net ──
+pub use db::member_ledger::DefMemberId;
 pub use instant::arena::{arena_sub_modules, NodeArena};
 pub use instant::dianlu::DianLu;
 pub use instant::insttab::{
     InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry, VectorMemberInfo,
 };
+pub use instant::lane::{
+    collect_stmt_trunks, derive_nets, Lane, Net, NetId, PointGroup, PointId, Trunk,
+};
 pub use instant::mc_bus::McBusInst;
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::{McModuleInst, McVectorInst};
 pub use instant::mc_net::NetPoint;
+pub use instant::net_store::NetTableStore;
 pub use instant::provenance::{
     ExpansionKind, ExpansionLog, ExpansionRecord, ProductGroup, ProductGroups, StatementNode,
 };
@@ -295,23 +300,46 @@ pub fn mcc_build(ident: &McIds, uri: &McURI) -> Result<MccProjectTree, Box<dyn E
 }
 
 /// mcc interface: build the tree and return the Phase C companion arena
-/// (design §4, plan §9 C item 3).
+/// (design §4, plan §9 C item 3) plus the Phase D frozen string net-table
+/// store (plan §9 D item 3 — `McModuleInst` never carries `NetPoint`).
 ///
 /// Same contract as [`mcc_build`] (one Pass2 instantiation, no flat
 /// projection, no electrical net checks), and additionally returns the arena
-/// whose `children` edges drive the consumer walks. Tree-rendering consumers
-/// (show / print / parse / verify / hierarchy / rpc) hold the arena alongside
-/// the tree and switch their `for sub in &inst.sub_modules` recursion to
-/// [`crate::instant::arena::arena_sub_modules`].
+/// whose `children` edges drive the consumer walks, and the store whose
+/// per-module string net tables the tree-level net consumers read. Tree
+/// rendering consumers (show / print / parse / verify / hierarchy / rpc) hold
+/// the arena alongside the tree and switch their `for sub in &inst.sub_modules`
+/// recursion to [`crate::instant::arena::arena_sub_modules`].
 pub fn mcc_build_with_arena(
     ident: &McIds,
     uri: &McURI,
-) -> Result<(MccProjectTree, crate::instant::arena::NodeArena), Box<dyn Error>> {
+) -> Result<
+    (
+        MccProjectTree,
+        crate::instant::arena::NodeArena,
+        NetTableStore,
+    ),
+    Box<dyn Error>,
+> {
     let canonical_uri = builder::mcb_canonicalize_uri(uri);
     let dl = builder::mcb_instantiate(&McSpaceName::new(ident, canonical_uri), 0)?;
     let arena = dl.arena().clone();
+    // The store is frozen once construction ends; snapshot it as an owned
+    // value for the returned API surface (`into_tree` consumes `dl`).
+    let net_store = dl.net_store().borrow().clone();
     let tree = dl.into_tree();
-    Ok((tree, arena))
+    Ok((tree, arena, net_store))
+}
+
+/// mcc interface: build the tree and return the Phase D frozen string
+/// net-table store (plan §9 D item 3) — for consumers that read the
+/// tree-level string nets but do not walk the arena (e.g. `mcc erc`).
+pub fn mcc_build_with_nets(
+    ident: &McIds,
+    uri: &McURI,
+) -> Result<(MccProjectTree, NetTableStore), Box<dyn Error>> {
+    let (tree, _arena, net_store) = mcc_build_with_arena(ident, uri)?;
+    Ok((tree, net_store))
 }
 
 /// mcc interface: build + flatten (Step 7)
@@ -492,6 +520,22 @@ pub fn mcc_virtual_build(
     uri: &McURI,
 ) -> Result<crate::build::pass2::MccProjectTree, Box<dyn Error>> {
     crate::build::vinst::virtual_build(target, uri)
+}
+
+/// Like [`mcc_virtual_build`], but also returns the Phase D frozen string
+/// net-table store (tree-level string net consumers read the per-module
+/// tables from the store — `McModuleInst` never carries `NetPoint`).
+pub fn mcc_virtual_build_with_nets(
+    target: &str,
+    uri: &McURI,
+) -> Result<
+    (
+        crate::build::pass2::MccProjectTree,
+        crate::instant::net_store::NetTableStore,
+    ),
+    Box<dyn Error>,
+> {
+    crate::build::vinst::virtual_build_with_nets(target, uri)
 }
 
 /// Append a synthetic wrapper module for every virtual target at once and

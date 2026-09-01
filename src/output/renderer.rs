@@ -18,8 +18,19 @@ pub trait OutputRenderer {
     fn pass2_failed(&self, err: &str);
     fn instances(&self, inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>);
     fn connections(&self, inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>);
-    fn nets(&self, inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>);
-    fn net_summary(&self, inst: &MccProjectTree, arena: Option<&NodeArena>);
+    fn nets(
+        &self,
+        inst: &MccProjectTree,
+        depth: usize,
+        arena: Option<&NodeArena>,
+        net_store: &mcc::NetTableStore,
+    );
+    fn net_summary(
+        &self,
+        inst: &MccProjectTree,
+        arena: Option<&NodeArena>,
+        net_store: &mcc::NetTableStore,
+    );
 
     fn viz_written(&self, path: &str, bytes: usize);
 }
@@ -44,8 +55,8 @@ impl OutputRenderer for SilentRenderer {
     fn pass2_failed(&self, _: &str) {}
     fn instances(&self, _: &MccProjectTree, _: usize, _: Option<&NodeArena>) {}
     fn connections(&self, _: &MccProjectTree, _: usize, _: Option<&NodeArena>) {}
-    fn nets(&self, _: &MccProjectTree, _: usize, _: Option<&NodeArena>) {}
-    fn net_summary(&self, _: &MccProjectTree, _: Option<&NodeArena>) {}
+    fn nets(&self, _: &MccProjectTree, _: usize, _: Option<&NodeArena>, _: &mcc::NetTableStore) {}
+    fn net_summary(&self, _: &MccProjectTree, _: Option<&NodeArena>, _: &mcc::NetTableStore) {}
     fn viz_written(&self, _: &str, _: usize) {}
 }
 
@@ -163,15 +174,26 @@ impl OutputRenderer for TextRenderer {
         crate::cmds::print::print_connections(inst, depth, arena);
     }
 
-    fn nets(&self, inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>) {
+    fn nets(
+        &self,
+        inst: &MccProjectTree,
+        depth: usize,
+        arena: Option<&NodeArena>,
+        net_store: &mcc::NetTableStore,
+    ) {
         println!("\n───────────────────────────────────────────────────────────────");
         println!(" Nets");
         println!("───────────────────────────────────────────────────────────────");
-        crate::cmds::print::print_nets(inst, depth, arena);
+        crate::cmds::print::print_nets(inst, &inst.name, depth, arena, net_store);
     }
 
-    fn net_summary(&self, inst: &MccProjectTree, arena: Option<&NodeArena>) {
-        crate::cmds::print::print_net_summary(inst, arena);
+    fn net_summary(
+        &self,
+        inst: &MccProjectTree,
+        arena: Option<&NodeArena>,
+        net_store: &mcc::NetTableStore,
+    ) {
+        crate::cmds::print::print_net_summary(inst, arena, net_store);
     }
 
     fn viz_written(&self, path: &str, bytes: usize) {

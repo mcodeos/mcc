@@ -585,7 +585,12 @@ impl InstantiationBuilder {
                     // (`{parent}.{inst_name}`), so this sub-module and its products
                     // carry circuit-global node ids.
                     let sub_path = self.child_path(&inst_name);
-                    if let Err(e) = inst.instantiate_in_scope(self.identity_mut(), &sub_path) {
+                    // Phase D: hand the shared circuit-wide net-table store
+                    // down so the sub-module's frozen table lands in the same
+                    // store the parent reads for ground-tie propagation.
+                    let net_store = self.net_store.clone();
+                    let identity = self.identity_mut();
+                    if let Err(e) = inst.instantiate_in_scope(identity, &sub_path, net_store) {
                         self.record_error(
                             crate::errcodes::INST_SUBMODULE_INSTANTIATE_FAILED,
                             crate::errcodes::format_msg(

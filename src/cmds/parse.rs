@@ -330,12 +330,13 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         renderer.pass2_header(&top_name);
 
         match mcc::mcc_build_with_arena(&ident, &uri) {
-            Ok((inst, arena)) => {
+            Ok((inst, arena, net_store)) => {
                 renderer.instances(&inst, 0, Some(&arena));
                 renderer.connections(&inst, 0, Some(&arena));
-                renderer.nets(&inst, 0, Some(&arena));
+                renderer.nets(&inst, 0, Some(&arena), &net_store);
 
-                let pass2 = public_collect_pass2(&top_name, &inst, Some(&arena), &mut tracker);
+                let pass2 =
+                    public_collect_pass2(&top_name, &inst, Some(&arena), &net_store, &mut tracker);
                 builder.set_pass2(pass2);
 
                 // Print diagnostics before Net Summary
@@ -343,7 +344,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 {
                     builder.print_diagnostics_summary();
                 }
-                renderer.net_summary(&inst, Some(&arena));
+                renderer.net_summary(&inst, Some(&arena), &net_store);
             }
             Err(e) => {
                 renderer.pass2_failed(&format!("{}", e));
@@ -716,11 +717,12 @@ pub fn public_collect_pass2(
     top: &str,
     inst: &mcc::MccProjectTree,
     arena: Option<&mcc::NodeArena>,
+    net_store: &mcc::NetTableStore,
     tracker: &mut PhaseTracker,
 ) -> Pass2Report {
     let instances = Some(instance_to_node(inst, arena));
-    let nets = extract_nets(inst, arena);
-    let connections = extract_connections(inst, arena);
+    let nets = extract_nets(inst, arena, net_store);
+    let connections = extract_connections(inst, arena, net_store);
     let diagnostics = tracker.collect(Phase::Pass2);
 
     Pass2Report {
@@ -810,9 +812,10 @@ fn iotype_str(io: &IOType) -> &'static str {
 fn extract_connections(
     inst: &mcc::MccProjectTree,
     arena: Option<&mcc::NodeArena>,
+    net_store: &mcc::NetTableStore,
 ) -> Vec<ConnectionEntry> {
     let mut out = Vec::new();
-    walk_connections(inst, "", arena, &mut out);
+    walk_connections(inst, "", arena, net_store, &mut out);
     out
 }
 
@@ -820,6 +823,7 @@ fn walk_connections(
     inst: &mcc::MccProjectTree,
     scope: &str,
     arena: Option<&mcc::NodeArena>,
+    net_store: &mcc::NetTableStore,
     out: &mut Vec<ConnectionEntry>,
 ) {
     // Full scope path (e.g. `main.speaker`): the engine's connection ids and
@@ -831,18 +835,24 @@ fn walk_connections(
         format!("{}.{}", scope, inst.name)
     };
     // Every connection's points merge into exactly one net in this module's
-    // net table, so resolve the net name from `inst.nets` — not from the
-    // statement label. `ConnectionInst.net_name` keeps the label *as written*
-    // (bare wires have None; merged rails keep a pre-merge name like
-    // `V1V2.GND` that no longer exists as a net). Resolving against the table
-    // gives every connection the same surviving name as the matching Nets
-    // table row — including engine-assigned anonymous `_net{N}` numbers — so
-    // the two tables always agree and stay stable across runs. The statement
-    // label is only a fallback for points absent from the table (e.g. NC).
+    // net table (Phase D: read from the frozen store, keyed by the module's
+    // canonical scope path), so resolve the net name from the table — not
+    // from the statement label. `ConnectionInst.net_name` keeps the label
+    // *as written* (bare wires have None; merged rails keep a pre-merge name
+    // like `V1V2.GND` that no longer exists as a net). Resolving against the
+    // table gives every connection the same surviving name as the matching
+    // Nets table row — including engine-assigned anonymous `_net{N}` numbers
+    // — so the two tables always agree and stay stable across runs. The
+    // statement label is only a fallback for points absent from the table
+    // (e.g. NC).
     let mut point_to_net: HashMap<&str, &str> = HashMap::new();
-    for (net_name, points) in &inst.nets {
-        for p in points {
-            point_to_net.entry(p.path.as_str()).or_insert(net_name);
+    // Phase D: the module's frozen union-find net table comes from the store,
+    // keyed by its canonical scope path.
+    if let Some(table) = net_store.get(&my_scope) {
+        for (net_name, points) in table {
+            for p in points {
+                point_to_net.entry(p.path.as_str()).or_insert(net_name);
+            }
         }
     }
     for conn in &inst.connections {
@@ -864,13 +874,17 @@ fn walk_connections(
         None => inst.sub_modules.iter().collect(),
     };
     for sub in subs {
-        walk_connections(sub, &my_scope, arena, out);
+        walk_connections(sub, &my_scope, arena, net_store, out);
     }
 }
 
-fn extract_nets(inst: &mcc::MccProjectTree, arena: Option<&mcc::NodeArena>) -> Vec<NetEntry> {
+fn extract_nets(
+    inst: &mcc::MccProjectTree,
+    arena: Option<&mcc::NodeArena>,
+    net_store: &mcc::NetTableStore,
+) -> Vec<NetEntry> {
     let mut nets = Vec::new();
-    walk_nets(inst, "", arena, &mut nets);
+    walk_nets(inst, "", arena, net_store, &mut nets);
     nets
 }
 
@@ -878,6 +892,7 @@ fn walk_nets(
     inst: &mcc::MccProjectTree,
     scope: &str,
     arena: Option<&mcc::NodeArena>,
+    net_store: &mcc::NetTableStore,
     out: &mut Vec<NetEntry>,
 ) {
     let my_scope = if scope.is_empty() {
@@ -885,19 +900,23 @@ fn walk_nets(
     } else {
         format!("{}.{}", scope, inst.name)
     };
-    for (name, points) in inst.sorted_nets() {
-        out.push(NetEntry {
-            module: my_scope.clone(),
-            name: name.to_string(),
-            points: points.iter().map(|point| point.path.clone()).collect(),
-        });
+    // Phase D: the module's frozen union-find net table comes from the store
+    // (pre-sorted by build_net_table), keyed by its canonical scope path.
+    if let Some(table) = net_store.get(&my_scope) {
+        for (name, points) in table {
+            out.push(NetEntry {
+                module: my_scope.clone(),
+                name: name.to_string(),
+                points: points.iter().map(|point| point.path.clone()).collect(),
+            });
+        }
     }
     let subs: Vec<&mcc::MccProjectTree> = match arena {
         Some(a) => mcc::arena_sub_modules(a, inst).collect(),
         None => inst.sub_modules.iter().collect(),
     };
     for sub in subs {
-        walk_nets(sub, &my_scope, arena, out);
+        walk_nets(sub, &my_scope, arena, net_store, out);
     }
 }
 

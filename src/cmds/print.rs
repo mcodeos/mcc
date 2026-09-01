@@ -17,8 +17,9 @@
 //! repeating them as "??:" in Ports section is redundant and misleading. New version filters them directly.
 //!
 //! ### 2) print_nets — Report the merged Pass 2 net table
-//! Connections remain the source-level segments, while `inst.nets` is the
-//! union-find result used for electrical network reporting.
+//! Connections remain the source-level segments, while the frozen string
+//! net table (from the Phase D `NetTableStore`) is the union-find result
+//! used for electrical network reporting.
 
 use mcc::cli::PinSortMode;
 use mcc::{
@@ -384,9 +385,18 @@ pub fn print_connections(inst: &MccProjectTree, depth: usize, arena: Option<&Nod
 // Print Nets — use the union-find merged Pass 2 net table
 // ============================================================================
 
-pub fn print_nets(inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>) {
+pub fn print_nets(
+    inst: &MccProjectTree,
+    path: &str,
+    depth: usize,
+    arena: Option<&NodeArena>,
+    net_store: &mcc::NetTableStore,
+) {
     let indent = "  ".repeat(depth);
-    let nets = inst.sorted_nets();
+    // Phase D: the tree never stores NetPoint — each module's union-find
+    // merged net table comes from the frozen store, keyed by its canonical
+    // path (`main`, `main.ldo`, ...); it is pre-sorted by build_net_table.
+    let nets = net_store.get(path).map(|t| t.to_vec()).unwrap_or_default();
 
     // ── Print ──
     if nets.is_empty() {
@@ -404,7 +414,7 @@ pub fn print_nets(inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>
             stub_count,
             inst.connections.len()
         );
-        for (net_name, points) in nets {
+        for (net_name, points) in &nets {
             let marker = if points.len() < 2 { " (stub)" } else { "" };
             let labels: Vec<&str> = points.iter().map(|point| point.path.as_str()).collect();
             println!(
@@ -423,7 +433,8 @@ pub fn print_nets(inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>
         None => inst.sub_modules.iter().collect(),
     };
     for sub in subs {
-        print_nets(sub, depth + 1, arena);
+        let sub_path = format!("{path}.{}", sub.name);
+        print_nets(sub, &sub_path, depth + 1, arena, net_store);
     }
 }
 
@@ -432,7 +443,11 @@ pub fn print_nets(inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>
 // ============================================================================
 
 /// Total connections / total nets for entire instance tree (deduplicated by (module_path, net_name)).
-pub fn print_net_summary(inst: &MccProjectTree, arena: Option<&NodeArena>) {
+pub fn print_net_summary(
+    inst: &MccProjectTree,
+    arena: Option<&NodeArena>,
+    net_store: &mcc::NetTableStore,
+) {
     let mut total_conn = 0usize;
     let mut total_nets = 0usize;
     let mut total_modules = 0usize;
@@ -440,7 +455,9 @@ pub fn print_net_summary(inst: &MccProjectTree, arena: Option<&NodeArena>) {
 
     fn walk(
         inst: &MccProjectTree,
+        path: &str,
         arena: Option<&NodeArena>,
+        net_store: &mcc::NetTableStore,
         total_conn: &mut usize,
         total_nets: &mut usize,
         total_modules: &mut usize,
@@ -459,16 +476,19 @@ pub fn print_net_summary(inst: &MccProjectTree, arena: Option<&NodeArena>) {
             }
         }
 
-        *total_nets += inst.nets.len();
+        *total_nets += net_store.get(path).map_or(0, |t| t.len());
 
         let subs: Vec<&MccProjectTree> = match arena {
             Some(a) => arena_sub_modules(a, inst).collect(),
             None => inst.sub_modules.iter().collect(),
         };
         for sub in subs {
+            let sub_path = format!("{path}.{}", sub.name);
             walk(
                 sub,
+                &sub_path,
                 arena,
+                net_store,
                 total_conn,
                 total_nets,
                 total_modules,
@@ -479,7 +499,9 @@ pub fn print_net_summary(inst: &MccProjectTree, arena: Option<&NodeArena>) {
 
     walk(
         inst,
+        &inst.name,
         arena,
+        net_store,
         &mut total_conn,
         &mut total_nets,
         &mut total_modules,
