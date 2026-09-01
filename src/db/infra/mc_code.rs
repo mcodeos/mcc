@@ -897,6 +897,10 @@ impl McCode {
                 // breaking all ClassRef→ClassDef goto-def mappings.
                 self.spacenames.clone_from(&existing.spacenames);
                 self.uselist.clone_from(&existing.uselist);
+                // Keep the visibility index in sync even on the reuse path
+                // (idempotent overwrite — the entries were first derived when
+                // this file's spacenames were built).
+                self.sync_visibility();
                 return;
             }
         }
@@ -1143,6 +1147,24 @@ impl McCode {
 
         //3. self file cmie definitions
         self.parse_cmie_names();
+        self.sync_visibility();
+    }
+
+    /// Phase 6 (§13 delta 2): materialize this file's visibility index into
+    /// the per-world workspace table — `(from_file, symbol) → target
+    /// identity`. Derived from the finished `spacenames` (itself derived from
+    /// `uselist` + `as_id` / `impt_ids` in [`Self::parse_nsp`]), so the
+    /// shadowing rule is already applied: an own-file declaration overwrites
+    /// an imported symbol, and later imports overwrite earlier ones.
+    /// `Resolver::resolve_class` consults the table for O(1) P4 hits with the
+    /// scope-chain fallback intact.
+    pub(crate) fn sync_visibility(&self) {
+        let from = crate::build::pass1::canonicalize_project_uri(&self.uri);
+        for (key, value) in &self.spacenames {
+            workspace::WORKSPACE
+                .visibility
+                .insert((from.clone(), key.to_string()), value.clone());
+        }
     }
 
     /// Compute spacenames from already-resolved dependencies in the workspace.
@@ -1165,6 +1187,10 @@ impl McCode {
             if !existing.spacenames.is_empty() {
                 self.spacenames.clone_from(&existing.spacenames);
                 self.uselist.clone_from(&existing.uselist);
+                // Keep the visibility index in sync even on the reuse path
+                // (idempotent overwrite — the entries were first derived when
+                // this file's spacenames were built).
+                self.sync_visibility();
                 return;
             }
         }
@@ -1325,6 +1351,7 @@ impl McCode {
 
         // Register self's CMIE names
         self.parse_cmie_names();
+        self.sync_visibility();
     }
 
     /// List of class names defined in this file
@@ -6704,6 +6731,196 @@ module main
             dc_span_count >= 2,
             "DC ClassRef spans must include both the module port AND the \
              func-header binding (got {dc_span_count})"
+        );
+    }
+
+    /// Phase 6 (defspace §13 delta 2 / §12.2): the visibility table is
+    /// derived from each file's `uselist` + `as_id` / `impt_ids` at
+    /// parse_nsp time — `(from_file, symbol) → target identity` — and stays
+    /// consistent with the six import forms:
+    ///
+    /// 1. default import: the used file's CMIEs are visible under their own names;
+    /// 2. `as` alias: the first CMIE is visible under the alias only;
+    /// 3. named import (`[V6LED]`): only the listed symbol is visible;
+    /// 4. shadowing: an own-file declaration overwrites an imported symbol.
+    #[test]
+    fn visibility_table_matches_import_forms() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        // Real files on disk: `use ./b.mc` resolution requires the target.
+        let dir = std::env::temp_dir().join(format!("mcc-visibility-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("b.mc"),
+            "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("a.mc"),
+            "use ./b.mc\n\nmodule main\n{\n    io A\n    io GND\n    A -> GND\n}\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("c.mc"), "use ./b.mc as led\n\nmodule main\n{\n}\n").unwrap();
+        std::fs::write(
+            dir.join("d.mc"),
+            "use ./b.mc [V6LED]\n\nmodule main\n{\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("e.mc"),
+            "use ./b.mc\n\ncomponent V6LED\n{\n    pins = [\n        1 = X\n    ]\n}\n\nmodule main\n{\n}\n",
+        )
+        .unwrap();
+
+        let b_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("b.mc").to_string_lossy().into_owned(),
+        );
+        let a_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("a.mc").to_string_lossy().into_owned(),
+        );
+        let c_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("c.mc").to_string_lossy().into_owned(),
+        );
+        let d_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("d.mc").to_string_lossy().into_owned(),
+        );
+        let e_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("e.mc").to_string_lossy().into_owned(),
+        );
+
+        crate::mcc_load_from_string(&b_uri, &std::fs::read_to_string(dir.join("b.mc")).unwrap());
+        crate::mcc_load_from_string(&a_uri, &std::fs::read_to_string(dir.join("a.mc")).unwrap());
+        crate::mcc_load_from_string(&c_uri, &std::fs::read_to_string(dir.join("c.mc")).unwrap());
+        crate::mcc_load_from_string(&d_uri, &std::fs::read_to_string(dir.join("d.mc")).unwrap());
+        crate::mcc_load_from_string(&e_uri, &std::fs::read_to_string(dir.join("e.mc")).unwrap());
+
+        let b_id = crate::semantic::common::uri_intern(&b_uri);
+        let e_id = crate::semantic::common::uri_intern(&e_uri);
+        let v6led = McIds::from("V6LED");
+
+        // 1. Default import: b's CMIE is visible from a under its own name.
+        let hit = workspace::WORKSPACE
+            .visibility
+            .get(&(a_uri.clone(), "V6LED".to_string()))
+            .expect("default import registers V6LED");
+        assert_eq!(hit.ident, v6led, "target ident is the defined name");
+        assert_eq!(hit.uri, b_id, "default import points into b.mc");
+
+        // Own-file declaration of b: V6LED → b itself.
+        let own = workspace::WORKSPACE
+            .visibility
+            .get(&(b_uri.clone(), "V6LED".to_string()))
+            .expect("own declaration registers V6LED");
+        assert_eq!(own.uri, b_id, "own-file entry points at itself");
+
+        // 2. Alias: `use ./b.mc as led` → visible as `led` only.
+        let alias = workspace::WORKSPACE
+            .visibility
+            .get(&(c_uri.clone(), "led".to_string()))
+            .expect("alias registers the renamed symbol");
+        assert_eq!(alias.ident, v6led, "alias maps to the original ident");
+        assert_eq!(alias.uri, b_id, "alias points into b.mc");
+        assert!(
+            !workspace::WORKSPACE
+                .visibility
+                .contains_key(&(c_uri, "V6LED".to_string())),
+            "alias must not leak the original name"
+        );
+
+        // 3. Named import: only the listed symbol is visible.
+        let named = workspace::WORKSPACE
+            .visibility
+            .get(&(d_uri.clone(), "V6LED".to_string()))
+            .expect("named import registers the listed symbol");
+        assert_eq!(named.uri, b_id, "named import points into b.mc");
+
+        // 4. Shadowing: an own-file declaration overwrites the import.
+        let shadow = workspace::WORKSPACE
+            .visibility
+            .get(&(e_uri.clone(), "V6LED".to_string()))
+            .expect("shadowed symbol stays registered");
+        assert_eq!(
+            shadow.uri, e_id,
+            "own-file declaration wins over the import"
+        );
+
+        // 5. Resolution path: resolve_class reaches the use-target def
+        // through the visibility hit (b.mc's V6LED) — pre-consolidation the
+        // RefDefMap is None, so the visibility table is the P4 hit.
+        let cmie = crate::db::resolve::Resolver::resolve_class(&a_uri, &McIds::from("V6LED"))
+            .expect("V6LED resolves from a.mc");
+        match cmie {
+            crate::McCMIE::Component(c) => assert_eq!(c.uri, b_uri, "resolves to b.mc's def"),
+            _ => panic!("resolve_class must return the imported component"),
+        }
+    }
+
+    /// Phase 8 (defspace D14): the DefRefGraph records def resolution edges
+    /// at the single bridge — `out` gives the goto-def answer, `rev` the
+    /// who-uses / invalidation answer. A cross-file reference from a.mc to a
+    /// component defined in b.mc must produce both edges.
+    #[test]
+    fn refgraph_records_cross_file_resolution_edges() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-refgraph-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("b.mc"),
+            "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("a.mc"),
+            "use ./b.mc\n\nmodule main\n{\n    io A\n    io GND\n    V6LED led1\n}\n",
+        )
+        .unwrap();
+
+        let b_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("b.mc").to_string_lossy().into_owned(),
+        );
+        let a_uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("a.mc").to_string_lossy().into_owned(),
+        );
+
+        crate::mcc_load_from_string(&b_uri, &std::fs::read_to_string(dir.join("b.mc")).unwrap());
+        crate::mcc_load_from_string(&a_uri, &std::fs::read_to_string(dir.join("a.mc")).unwrap());
+
+        let b_id = crate::semantic::common::uri_intern(&b_uri);
+        let a_id = crate::semantic::common::uri_intern(&a_uri);
+        let v6led = McIds::from("V6LED");
+        let to = McSpaceName {
+            ident: v6led.clone(),
+            uri: b_id,
+        };
+        let from = McSpaceName {
+            ident: v6led.clone(),
+            uri: a_id,
+        };
+
+        // out: a.mc's ref-point resolved to b.mc's def.
+        assert!(
+            workspace::WORKSPACE
+                .refgraph
+                .referenced(&from)
+                .contains(&to),
+            "out edge records the resolved def"
+        );
+        // rev: b.mc's def is referenced from a.mc (who-uses / invalidation).
+        assert!(
+            workspace::WORKSPACE
+                .refgraph
+                .dependents(&to)
+                .contains(&from),
+            "rev edge records the referencing ref-point"
         );
     }
 }

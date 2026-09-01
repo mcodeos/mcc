@@ -7,6 +7,7 @@ pub mod dynamic;
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::dlog_trace;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
+use crate::db::member_ledger::{DefMember, DefMemberId, MemberLedger};
 use crate::query::refs::mcb_register_declare_class;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ida::IdaSegment;
@@ -139,6 +140,14 @@ pub struct McPins {
     /// deliberately NOT registered in `names_to_id`; this table lets tools
     /// render the original `PDM[CLK, DATA]` group.
     pub list_groups: Vec<(String, Vec<String>, Vec<String>)>, // (list_name, members, pins)
+
+    /// Phase 7 (defspace D13 / invariant C): append-only member account ledger.
+    /// Every registered pin id gets a stable [`DefMemberId`] (generation
+    /// index) that survives mid-table inserts; instance-side PointIds will
+    /// reference it. Physical `pins`/`decl_order` tables stay the lookup and
+    /// ordering source — the ledger is written alongside them at
+    /// `register_pin`, so behavior is unchanged.
+    pub ledger: MemberLedger,
 }
 
 impl Default for McPins {
@@ -165,6 +174,7 @@ impl McPins {
             values_pool: Vec::new(),
             dynamic_pins: Vec::new(),
             list_groups: Vec::new(),
+            ledger: MemberLedger::new(),
         }
     }
 
@@ -189,6 +199,19 @@ impl McPins {
             .iter()
             .filter_map(|id| self.pins.get(id).and_then(|p| p.names.first().cloned()))
             .collect()
+    }
+
+    /// Phase 7 (D13): the stable [`DefMemberId`] of a pin, if registered.
+    /// Instance-side PointIds reference this id, not the pin's position.
+    pub fn pin_ord(&self, pinid: &str) -> Option<DefMemberId> {
+        self.ledger.id_of(pinid)
+    }
+
+    /// Phase 7 (D13): the ledger entry for a pin, if registered.
+    pub fn member_of_pin(&self, pinid: &str) -> Option<&DefMember> {
+        self.ledger
+            .id_of(pinid)
+            .and_then(|id| self.ledger.member(id))
     }
 
     pub fn resolve_dynamic_pins(
@@ -1759,6 +1782,9 @@ impl McPins {
             // §11.1: record the pin ID in declaration order at first
             // registration — the member sequence source for interfaces.
             self.decl_order.push(pinid.to_string());
+            // Phase 7 (D13): allocate the pin's stable member id in the
+            // append-only ledger alongside the physical table.
+            self.ledger.register(pinid, &format!("{iotype:?}"));
             self.pins.insert(
                 pinid.to_string(),
                 McPin {

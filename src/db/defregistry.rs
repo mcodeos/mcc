@@ -39,20 +39,21 @@ use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
-use crate::McSpaceName;
+use crate::{McCMIE, McSpaceName};
 use dashmap::DashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Compact persistent identity of one definition (design §5 D11). Process-local
 /// while the single active workspace is the only world; per-world in the
 /// target design (Phase 5).
 pub type DefId = u32;
 
-/// Which world a definition belongs to (design §4).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Which world a definition belongs to (design §4). Serialized inside a
+/// checkpoint (Phase 9) so a diff can report a def changing worlds.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LoadDomain {
     /// Project / user files.
     Project,
@@ -63,7 +64,9 @@ pub enum LoadDomain {
 /// The six definition kinds, one per AST top-level class template
 /// (design §13.2) plus the function-template addressing entries
 /// (design §12.1 / §13.6 delta 1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum DefKind {
     Component,
     Module,
@@ -128,11 +131,9 @@ pub enum InsertOutcome {
 /// the live data or a tombstone. `data: None` marks a removed definition —
 /// the key stays registered (append-only identity, D11).
 pub struct DefEntry {
-    /// The persistent identity of this entry (D11). Not read by the current
-    /// view layer — the arena is keyed by this id, so the field mirrors the
-    /// key — but the Phase 9 checkpoint/diff work reads it to tell identities
-    /// apart across loads.
-    #[allow(dead_code)]
+    /// The persistent identity of this entry (D11). The arena is keyed by
+    /// this id and the checkpoint journal reads it per entry — identities
+    /// stay comparable across loads.
     pub id: DefId,
     pub kind: DefKind,
     pub sn: McSpaceName,
@@ -482,12 +483,15 @@ fn tombstone_key(key: &McSpaceName) {
 
 /// Full process reset: drop every registered identity and its data. Used by
 /// the full state clear (`clear_state(ClearScope::Full)`); the append-only
-/// identity journal starts over with a clean slate.
+/// identity journal and the checkpoint journal both start over with a clean
+/// slate.
 pub fn clear_all() {
     KEY_TO_ID.clear();
     ARENA.clear();
     SYSTEM_NAME_INDEX.clear();
     NEXT_DEF_ID.store(0, Ordering::Relaxed);
+    JOURNAL.lock().unwrap().clear();
+    NEXT_VERSION.store(1, Ordering::Relaxed);
 }
 
 /// Tombstone every live definition — project and system-library alike — the
@@ -501,6 +505,203 @@ pub fn mark_all_tombstones() {
     for key in keys {
         tombstone_key(&key);
     }
+}
+
+// ============================================================================
+// Phase 9 — registry journal, checkpoint, and def-space diff (design §9 E / §10)
+// ============================================================================
+
+/// One lightweight, serializable description of a registry identity — the
+/// checkpoint/diff record form (design §10). [`DefValue`] is not serializable
+/// (it wraps `Arc<McComponent>` and friends), so a checkpoint captures the
+/// identity set — id, kind, canonical key, domain, liveness — never the
+/// payload. Daemon/RPC and process-restart DefId alignment (§5 D11) read this
+/// form; the arena stays the live-data home.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RegistryEntrySnapshot {
+    /// The persistent identity (D11) — stable across loads, so a diff can
+    /// tell the same def apart across checkpoints.
+    pub id: DefId,
+    pub kind: DefKind,
+    /// Display-form identifier of the canonical key (the `ident` half of
+    /// [`McSpaceName`]).
+    pub ident: String,
+    /// Resolved uri of the canonical key (the `uri` half).
+    pub uri: String,
+    /// Which world this def lived in at the checkpoint.
+    pub domain: LoadDomain,
+    /// `true` = live data at the checkpoint; `false` = tombstone (deleted,
+    /// distinguishable from never existed — D11).
+    pub alive: bool,
+}
+
+/// One versioned registry checkpoint (design §10). Each load/change appends a
+/// `(version, full identity snapshot)` record to the journal; [`diff_versions`]
+/// answers "what changed in the definition space" between any two of them.
+/// Fully serializable, so daemon/RPC and a process restart can re-align DefIds
+/// with cached / external references (§5 D11).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Checkpoint {
+    pub version: u64,
+    /// Every registered identity at this version — live and tombstoned — so a
+    /// diff can classify added / removed / modified per [`DefId`] without any
+    /// external state.
+    pub entries: Vec<RegistryEntrySnapshot>,
+}
+
+impl Checkpoint {
+    /// Serialize to a JSON string — the disk / RPC form (daemon, process
+    /// restart). Infallible: every field is JSON-clean.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("checkpoint serialization cannot fail")
+    }
+
+    /// Deserialize a [`Checkpoint`] from [`Checkpoint::to_json`] output.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+}
+
+/// One def's change between two checkpoints (design §10): added, removed, or
+/// modified — compared by [`DefId`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DefChange {
+    pub id: DefId,
+    pub kind: DefChangeKind,
+    /// The identity description on the older side (`None` when added).
+    pub before: Option<RegistryEntrySnapshot>,
+    /// The identity description on the newer side (`None` when removed).
+    pub after: Option<RegistryEntrySnapshot>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum DefChangeKind {
+    /// Not usable at t1 (unregistered or tombstoned), live at t2.
+    Added,
+    /// Live at t1, not usable at t2 (tombstoned or unregistered).
+    Removed,
+    /// Live on both sides, but kind / key / domain changed.
+    Modified,
+}
+
+/// Monotonic checkpoint version; the journal itself is append-only.
+static NEXT_VERSION: AtomicU64 = AtomicU64::new(1);
+
+/// Append-only checkpoint journal (design §10). A full state reset
+/// ([`clear_all`]) starts it over.
+static JOURNAL: LazyLock<Mutex<Vec<Checkpoint>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// Capture a versioned snapshot of the whole registry — every registered
+/// identity, live and tombstoned — and append it to the journal (design §10).
+/// Returns the new checkpoint so a caller can diff it against any earlier
+/// captured one. The def-layer mutation surfaces and the daemon/RPC layer call
+/// it when a persistable "definition space as of version N" is needed.
+pub fn checkpoint() -> Checkpoint {
+    let version = NEXT_VERSION.fetch_add(1, Ordering::Relaxed);
+    let mut entries: Vec<RegistryEntrySnapshot> = ARENA
+        .iter()
+        .map(|e| RegistryEntrySnapshot {
+            id: e.id,
+            kind: e.kind,
+            ident: e.sn.ident.to_string(),
+            uri: e.sn.uri.as_uri().to_string(),
+            domain: e.domain.clone(),
+            alive: e.data.is_some(),
+        })
+        .collect();
+    entries.sort_by_key(|e| e.id);
+    let cp = Checkpoint { version, entries };
+    JOURNAL.lock().unwrap().push(cp.clone());
+    cp
+}
+
+/// Diff two checkpoints (design §10): every def whose identity-set or
+/// liveness changed between them, ordered by [`DefId`].
+///
+/// - **Added**: not usable at `t1` (unregistered or tombstoned) → live at `t2`.
+/// - **Removed**: live at `t1` → not usable at `t2` (tombstoned or unregistered).
+/// - **Modified**: live on both sides, but kind / key / domain changed.
+///
+/// Unchanged defs (same description, same liveness) do not appear.
+pub fn diff_versions(t1: &Checkpoint, t2: &Checkpoint) -> Vec<DefChange> {
+    let a: HashMap<DefId, &RegistryEntrySnapshot> = t1.entries.iter().map(|e| (e.id, e)).collect();
+    let b: HashMap<DefId, &RegistryEntrySnapshot> = t2.entries.iter().map(|e| (e.id, e)).collect();
+    let mut ids: Vec<DefId> = a.keys().chain(b.keys()).copied().collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut changes = Vec::new();
+    for id in ids {
+        let before = a.get(&id).copied();
+        let after = b.get(&id).copied();
+        let change = match (before, after) {
+            (None, Some(after_e)) => Some(DefChange {
+                id,
+                kind: DefChangeKind::Added,
+                before: None,
+                after: Some(after_e.clone()),
+            }),
+            (Some(before_e), None) => Some(DefChange {
+                id,
+                kind: DefChangeKind::Removed,
+                before: Some(before_e.clone()),
+                after: None,
+            }),
+            (Some(before_e), Some(after_e)) => {
+                if before_e.alive && !after_e.alive {
+                    Some(DefChange {
+                        id,
+                        kind: DefChangeKind::Removed,
+                        before: Some(before_e.clone()),
+                        after: Some(after_e.clone()),
+                    })
+                } else if !before_e.alive && after_e.alive {
+                    Some(DefChange {
+                        id,
+                        kind: DefChangeKind::Added,
+                        before: Some(before_e.clone()),
+                        after: Some(after_e.clone()),
+                    })
+                } else if before_e.alive
+                    && after_e.alive
+                    && (before_e.kind != after_e.kind
+                        || before_e.ident != after_e.ident
+                        || before_e.uri != after_e.uri
+                        || before_e.domain != after_e.domain)
+                {
+                    Some(DefChange {
+                        id,
+                        kind: DefChangeKind::Modified,
+                        before: Some(before_e.clone()),
+                        after: Some(after_e.clone()),
+                    })
+                } else {
+                    None
+                }
+            }
+            (None, None) => None,
+        };
+        if let Some(c) = change {
+            changes.push(c);
+        }
+    }
+    changes
+}
+
+/// The files (uris) touched by a diff — the "which files changed" half of the
+/// Phase 9 question ("which defs / files changed"). Sorted, de-duplicated.
+pub fn changed_files(changes: &[DefChange]) -> Vec<String> {
+    let mut files: Vec<String> = Vec::new();
+    for c in changes {
+        if let Some(e) = &c.before {
+            files.push(e.uri.clone());
+        }
+        if let Some(e) = &c.after {
+            files.push(e.uri.clone());
+        }
+    }
+    files.sort();
+    files.dedup();
+    files
 }
 
 /// One system-library definition captured by [`snapshot_system`] for a world
@@ -963,6 +1164,42 @@ pub fn live_entry_by_id(id: DefId) -> Option<(McSpaceName, DefValue)> {
     })
 }
 
+/// Resolve a definition identity to its live class value, in kind-priority
+/// order (component → module → interface → enum — the same ordering as the
+/// P3/P4 `find_scoped_by_name` in `db/resolve/policy.rs`). O(1) identity
+/// lookup covering project and system-lib defs alike; the Phase 6
+/// visibility-table hit path resolves through here, and a miss keeps the
+/// caller's scope-chain fallback intact.
+pub fn cmie_by_identity(sn: &McSpaceName) -> Option<McCMIE> {
+    let ids = KEY_TO_ID.get(sn)?;
+    for kind in [
+        DefKind::Component,
+        DefKind::Module,
+        DefKind::Interface,
+        DefKind::Enum,
+    ] {
+        for id in ids.iter() {
+            let Some(entry) = ARENA.get(id) else {
+                continue;
+            };
+            if entry.kind != kind {
+                continue;
+            }
+            let Some(def) = &entry.data else {
+                continue;
+            };
+            match def {
+                DefValue::Component(c) => return Some(McCMIE::Component(c.clone())),
+                DefValue::Module(m) => return Some(McCMIE::Module(m.clone())),
+                DefValue::Interface(i) => return Some(McCMIE::Interface(i.clone())),
+                DefValue::Enum(e) => return Some(McCMIE::Enum(e.clone())),
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
 /// Does the system library (not the workspace) define this identity, as any
 /// class kind (component / module / interface / enum)?
 pub fn system_contains(sn: &McSpaceName) -> bool {
@@ -1134,6 +1371,142 @@ mod tests {
             "project shadowing evicts the system hit"
         );
         assert!(!system_contains(&sn), "the identity is a project def now");
+
+        // Leave no residue for parallel tests.
+        remove_by_uri(URI);
+    }
+
+    /// Monotonic suffix so parallel test threads never collide on a temp file
+    /// name inside one process (pid covers cross-process runs).
+    static TEST_FILE_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+    /// Phase 9 golden diff: a def appearing (Added), shadowing across worlds
+    /// (Modified), disappearing (Removed) and reviving (Added) must be
+    /// reported per stable [`DefId`], and the touched files must be
+    /// answerable. Assertions filter by this test's uri because lib tests run
+    /// in parallel and share the registry.
+    #[test]
+    fn checkpoint_diff_reports_add_remove_modify() {
+        const NAME: &str = "CP_DIFF_GOLD";
+        const URI: &str = "/cp/diff_gold.mc";
+        let (sn, def) = sys_enum(NAME, URI);
+        let system = LoadDomain::SystemLib("mcode".into());
+        let ours = |changes: Vec<DefChange>| -> Vec<DefChange> {
+            changes
+                .into_iter()
+                .filter(|c| {
+                    c.before.as_ref().is_some_and(|e| e.uri == URI)
+                        || c.after.as_ref().is_some_and(|e| e.uri == URI)
+                })
+                .collect()
+        };
+
+        // t1: registry state as of now (any parallel test residue included).
+        let t1 = checkpoint();
+
+        // The enum appears.
+        assert_eq!(
+            insert(&sn, system.clone(), def.clone()),
+            InsertOutcome::Inserted
+        );
+        let t2 = checkpoint();
+
+        // A project def shadows the same identity (workspace-first): the same
+        // DefId stays live but its world changes -> Modified.
+        assert_eq!(
+            insert(&sn, LoadDomain::Project, def.clone()),
+            InsertOutcome::Inserted
+        );
+        let t3 = checkpoint();
+
+        // Unload sweep tombstones it: live -> dead -> Removed.
+        remove_by_uri(URI);
+        let t4 = checkpoint();
+
+        // Re-load revives it under the same key: dead -> live -> Added.
+        assert_eq!(
+            insert(&sn, LoadDomain::Project, def.clone()),
+            InsertOutcome::Inserted
+        );
+        let t5 = checkpoint();
+
+        let d1 = ours(diff_versions(&t1, &t2));
+        assert_eq!(d1.len(), 1, "one def appeared");
+        assert_eq!(d1[0].kind, DefChangeKind::Added);
+        let after1 = d1[0].after.as_ref().unwrap();
+        assert_eq!(after1.ident, NAME);
+        assert_eq!(after1.uri, URI);
+        assert!(after1.alive);
+        assert!(d1[0].before.is_none());
+
+        let d2 = ours(diff_versions(&t2, &t3));
+        assert_eq!(d2.len(), 1, "one def modified");
+        assert_eq!(d2[0].kind, DefChangeKind::Modified);
+        assert_eq!(d2[0].id, d1[0].id, "the same DefId across checkpoints");
+        assert_eq!(d2[0].before.as_ref().unwrap().domain, system);
+        assert_eq!(d2[0].after.as_ref().unwrap().domain, LoadDomain::Project);
+
+        let d3 = ours(diff_versions(&t3, &t4));
+        assert_eq!(d3.len(), 1, "one def removed");
+        assert_eq!(d3[0].kind, DefChangeKind::Removed);
+        assert_eq!(d3[0].id, d1[0].id, "the same DefId stayed a tombstone");
+        assert_eq!(d3[0].after.as_ref().unwrap().alive, false);
+
+        let d4 = ours(diff_versions(&t4, &t5));
+        assert_eq!(d4.len(), 1, "one def revived");
+        assert_eq!(d4[0].kind, DefChangeKind::Added);
+        assert_eq!(d4[0].id, d1[0].id, "revival reuses the stable DefId");
+
+        // "Which files changed" is answerable from the diff.
+        assert_eq!(changed_files(&d4), vec![URI.to_string()]);
+
+        // An identity held live and unchanged across both sides is invisible
+        // to the diff.
+        assert!(ours(diff_versions(&t5, &checkpoint())).is_empty());
+
+        // Leave no residue for parallel tests.
+        remove_by_uri(URI);
+    }
+
+    /// Phase 9: a checkpoint round-trips through JSON in memory and through a
+    /// real disk file (daemon/RPC persistence); the restored copy is
+    /// identical — the process-restart DefId alignment surface (§5 D11).
+    #[test]
+    fn checkpoint_serializes_to_json_and_disk() {
+        const NAME: &str = "CP_SERDE_GOLD";
+        const URI: &str = "/cp/serde_gold.mc";
+        let (sn, def) = sys_enum(NAME, URI);
+        assert_eq!(
+            insert(&sn, LoadDomain::SystemLib("mcode".into()), def.clone()),
+            InsertOutcome::Inserted
+        );
+        let cp = checkpoint();
+
+        // In-memory JSON round trip.
+        let json = cp.to_json();
+        assert!(json.contains(NAME), "json carries the ident");
+        assert!(json.contains(URI), "json carries the uri");
+        assert!(json.contains("\"alive\":true"), "json carries liveness");
+        assert_eq!(
+            Checkpoint::from_json(&json).expect("json round trips"),
+            cp,
+            "deserialized checkpoint is identical"
+        );
+
+        // Disk round trip (daemon/RPC persistence): write, read back, drop.
+        let path = std::env::temp_dir().join(format!(
+            "mcc_checkpoint_{}_{}.json",
+            std::process::id(),
+            TEST_FILE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ));
+        std::fs::write(&path, &json).expect("write checkpoint to disk");
+        let from_disk = std::fs::read_to_string(&path).expect("read checkpoint back");
+        assert_eq!(
+            Checkpoint::from_json(&from_disk).expect("disk json parses"),
+            cp,
+            "disk round trip is identical"
+        );
+        std::fs::remove_file(&path).expect("clean up the checkpoint file");
 
         // Leave no residue for parallel tests.
         remove_by_uri(URI);

@@ -50,7 +50,33 @@ pub(crate) fn mcb_get_cmie_with_uri(class_name: &McIds, uri: &McURI) -> Option<(
     // name (a workspace-wide name-only scan would violate §5.4.5 and could
     // return a same-named def from an unrelated file).
     let source_uri = cmie_uri(&cmie).unwrap_or_else(|| uri.clone());
+    // Phase 8 (D14): record the def resolution edge at the single bridge —
+    // from = the referencing ref-point `(referenced-name, referencing-file)`,
+    // to = the resolved def `(def-name, defining-file)`. Edges are the
+    // natural byproduct of pass1 resolution; the per-world DefRefGraph keeps
+    // the out side and the rev (dependents) side for goto-def / who-uses /
+    // the future def→circuits invalidation index.
+    crate::db::cmie::tables::WORKSPACE.refgraph.record(
+        &McSpaceName {
+            ident: class_name.clone(),
+            uri: crate::semantic::common::uri_intern(uri),
+        },
+        &McSpaceName {
+            ident: cmie_ident(&cmie),
+            uri: crate::semantic::common::uri_intern(&source_uri),
+        },
+    );
     Some((cmie, source_uri))
+}
+
+/// The declared name of a resolved class definition.
+pub(crate) fn cmie_ident(cmie: &McCMIE) -> McIds {
+    match cmie {
+        McCMIE::Component(c) => c.name.clone(),
+        McCMIE::Module(m) => m.name.clone(),
+        McCMIE::Interface(i) => i.name.clone(),
+        McCMIE::Enum(e) => e.name.clone(),
+    }
 }
 
 // ============================================================================

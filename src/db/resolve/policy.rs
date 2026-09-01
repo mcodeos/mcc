@@ -187,6 +187,7 @@ impl Resolver {
         // The referencing file is not loaded (or its symbols lock is
         // poisoned): fall through to P3/P4/P5.
         Self::resolve_own_file(from_uri, name)
+            .or_else(|| Self::resolve_visibility(from_uri, name))
             .or_else(|| Self::resolve_use_chain(from_uri, name))
             .or_else(|| Self::resolve_system(name))
     }
@@ -267,6 +268,13 @@ impl Resolver {
         // the same P4 visibility rule (see visibility.rs); when the map
         // exists it is authoritative and ① already covered P4.
         if sem.ref_def_map.is_none() {
+            // Phase 6 (§13 delta 2): the visibility table is an O(1) P4 hit
+            // derived from the same use edges; the chain walk below remains
+            // the fallback for any table miss.
+            let vis_hit = Self::resolve_visibility(from_uri, name);
+            if let Some(cmie) = vis_hit {
+                return Some(cmie);
+            }
             let chain_hit = Self::resolve_use_chain(from_uri, name);
             if let Some(cmie) = chain_hit {
                 return Some(cmie);
@@ -314,6 +322,26 @@ impl Resolver {
         let canonical = crate::build::pass1::canonicalize_project_uri(from_uri);
         let canonical_id = uri_intern(&canonical);
         find_scoped_by_name(name, |u| *u == canonical_id)
+    }
+
+    /// Phase 6 (§13 delta 2): O(1) visibility-table hit. The table is derived
+    /// from each file's `uselist` + `as_id` / `impt_ids` at parse_nsp time,
+    /// so a hit is exactly the P4 target the scope-chain walk would produce
+    /// (own-file shadowing already applied by the spacenames derivation).
+    /// A miss — or an unloaded file, whose stale entries must not resurrect
+    /// it — falls through to the chain walk unchanged.
+    fn resolve_visibility(from_uri: &McURI, name: &McIds) -> Option<McCMIE> {
+        let canonical = crate::build::pass1::canonicalize_project_uri(from_uri);
+        let loaded = workspace::WORKSPACE.mcodes.contains_key(&canonical)
+            || crate::db::infra::context::lookup_parsing_uses(&McURI::from(canonical.as_str()))
+                .is_some();
+        if !loaded {
+            return None;
+        }
+        let sn = workspace::WORKSPACE
+            .visibility
+            .get(&(canonical, name.to_string()))?;
+        crate::db::defregistry::cmie_by_identity(&sn)
     }
 
     /// P4 use-chain lookup while the referencing file's RefDefMap is not yet
