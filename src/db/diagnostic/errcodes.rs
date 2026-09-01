@@ -389,6 +389,14 @@ pub const SHAPE_INST_3PIN_PLUSMINUS: u32 = 2905;
 /// that have not yet been covered by `build_net_shape`).
 pub const SHAPE_INCOMPLETE: u32 = 2906;
 
+/// Column-width mix in a `[...]` list (vec-arch.md §4.1.1 R4): a single-column
+/// element (point / column vector) placed among double-column elements (two-pin
+/// row / node) silently spans both columns of the resulting Node — e.g.
+/// `[A, R101]` → `node{[A,R101.1] | [A,R101.2]}` makes A equipotential with
+/// both pins. R4 forbids P⊕R / C⊕R / P⊕N / C⊕N; `_` is exempt (inherits the
+/// sibling column width, so `[_, R101]` stays legal).
+pub const SHAPE_COLUMN_WIDTH_MIXED: u32 = 2907;
+
 // ============================================================================
 // Pass1c: component definition (pins / attrs / units) (3000-3049)
 // ============================================================================
@@ -1522,6 +1530,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SHAPE_EXPAND_DIM_MISMATCH, "Vector expansion dimension mismatch (eval.md §7 rule 3); implicit auto-expansion forbidden.", "Vector expansion dimension mismatch: left {0} rows vs right {1} rows. {2}"),
     entry!(SHAPE_INST_3PIN_PLUSMINUS, "Instance with 3+ pins cannot directly participate in `+`/`-`; only 1x1/1x2 instances can (veccircuit.md).", "Instance '{0}' with {1} pins cannot directly participate in `+`/`-`. Use `->` for a pass-through connection."),
     entry!(SHAPE_INCOMPLETE, "NetShape missing; fell back to the deprecated connection_type() inference (stage 3).", "SHAPE_INCOMPLETE: net '{0}' has no NetShape provenance; fell back to connection_type() inference."),
+    entry!(SHAPE_COLUMN_WIDTH_MIXED, "Column-width mix in a `[...]` list (vec-arch.md §4.1.1 R4): a single-column element among two-pin/node elements silently spans both columns.", "Column-width mix in a list: '{0}' spans both columns (single-column element among two-pin/node elements, e.g. `[A, R101]`). All elements must be single-column or all two-pin/node; use '_' to inherit the sibling column width."),
     entry!(CONN_GROUP_SHAPE_MISMATCH, "Group connection shape mismatch; truncated by branch count.", "Group shape mismatch: {0} external points vs {1} group points ({2} branches), truncating"),
     entry!(INST_INPUT_PIN_COUNT_MISMATCH, "Component input pin count mismatch in a function call.", "Component '{0}' ({1}) input pin count mismatch: {2} connections vs {3} input pins"),
     entry!(INST_OUTPUT_PIN_COUNT_MISMATCH, "Component output pin count mismatch in a function call.", "Component '{0}' ({1}) output pin count mismatch: {2} connections vs {3} output pins"),
