@@ -229,6 +229,55 @@ fn transpose_shape_limit_emitted_and_legal_transposes_pass() {
     drop(lock);
 }
 
+/// List-literal transpose (`[A,B]'`) now parses and connects as a node whose
+/// members are transposed row vectors (vec-arch.md §5.2). Regression for the
+/// `STRING_SQ` lexer rule that used to swallow `]'` into a single-quoted
+/// string, breaking `[[A,B]',[C,D]']`.
+#[test]
+fn list_literal_transpose_node_connects() {
+    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    // Legal: the same list-of-transposed-rows node on both sides of `->`.
+    // Each inner `[A,B]'` is a 2-by-1 column transposed to a 1-by-2 row; the
+    // outer list groups two rows. The connection must parse (no E2082) and
+    // shape-match (no E2902 / E4007).
+    let rr = "module main {\n    [[A,B]',[C,D]'] -> [[E,F]',[G,H]']\n}";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/transpose-rr.mc".to_string();
+    mcc::mcc_load_from_string(&uri, rr);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    for forbidden in [
+        mcc::errcodes::PARSER_CLAUSE_INVALID,
+        mcc::errcodes::SHAPE_TRANSPOSE_LIMIT,
+        mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+    ] {
+        assert!(
+            !codes.contains(&forbidden),
+            "list-literal transpose must connect; unexpected code {forbidden} in {codes:?}"
+        );
+    }
+
+    // Illegal: a 3-by-1 column transposed to a 1-by-3 row has no left/right
+    // face to connect, so the shape layer reports E2902.
+    let wide = "module main {\n    [A,B,C]'\n}";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/transpose-wide.mc".to_string();
+    mcc::mcc_load_from_string(&uri, wide);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&mcc::errcodes::SHAPE_TRANSPOSE_LIMIT),
+        "E2902 not emitted for a 3-row list-literal transpose; got codes: {codes:?}"
+    );
+
+    drop(lock);
+}
+
 /// E2903 (SHAPE_REVERSE_NOOP): reverse `^` on a vector operand is a hint
 /// (eval.md §9 / examples L180). Parallel operands carry no order to reverse.
 #[test]
