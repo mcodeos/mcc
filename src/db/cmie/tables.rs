@@ -89,6 +89,12 @@ struct WorkspaceSnapshot {
     // the world they were loaded into.
     blibs: DashMap<String, McCode>,
     system_defs: Vec<crate::db::defregistry::SystemDefSnapshot>,
+    // Phase 6 (§13 delta 2): per-world visibility index — (from_file, symbol)
+    // → the definition identity that symbol resolves to. Derived from each
+    // file's spacenames (uselist + as_id + impt_ids) at parse_nsp time.
+    visibility: DashMap<(McURI, String), McSpaceName>,
+    // Phase 8 (D14): per-world def resolution edges (out + rev dependents).
+    refgraph: crate::db::refgraph::DefRefGraph,
 }
 
 // ============================================================================
@@ -128,6 +134,13 @@ pub struct WorkspaceManager {
     // process-global `libmgr::mcc_blibs`). Each world owns the libraries it
     // loaded, so a switch can never leak a stale lib into another world.
     pub(crate) blibs: DashMap<String, crate::db::infra::mc_code::McCode>,
+    // Phase 6 (§13 delta 2): per-world visibility index — (from_file, symbol)
+    // → the definition identity that symbol resolves to. resolve_class reads
+    // it for O(1) P4 hits; the scope-chain fallback stays intact.
+    pub(crate) visibility: DashMap<(McURI, String), McSpaceName>,
+    // Phase 8 (D14): per-world def resolution edges (out + rev dependents),
+    // recorded at the single resolution bridge.
+    pub(crate) refgraph: crate::db::refgraph::DefRefGraph,
 }
 
 impl WorkspaceManager {
@@ -150,6 +163,8 @@ impl WorkspaceManager {
             sources: DashMap::new(),
             libs: DashMap::new(),
             blibs: DashMap::new(),
+            visibility: DashMap::new(),
+            refgraph: crate::db::refgraph::DefRefGraph::new(),
         }
     }
 
@@ -239,6 +254,8 @@ impl WorkspaceManager {
         self.sources.clear();
         self.libs.clear();
         self.blibs.clear();
+        self.visibility.clear();
+        self.refgraph.clear();
         // The definition registry drops every identity — project and loaded
         // system libs alike — as tombstones (Phase 5 makes the libs
         // per-world): a later re-load revives them under the same DefId, and
@@ -324,6 +341,9 @@ impl WorkspaceManager {
         let sources = clone_and_clear(&self.sources);
         let libs = clone_and_clear(&self.libs);
         let blibs = clone_and_clear(&self.blibs);
+        let visibility = clone_and_clear(&self.visibility);
+        let refgraph = self.refgraph.clone();
+        self.refgraph.clear();
         // Phase 5: the registry's system-library segment follows the world.
         // Captured before the registry is tombstoned by `clear_active`.
         let system_defs = if self.is_process_global() {
@@ -346,6 +366,8 @@ impl WorkspaceManager {
             libs,
             blibs,
             system_defs,
+            visibility,
+            refgraph,
         };
 
         debug!(target: "mcc::workspace", id = %id, "snapshot saved");
@@ -366,6 +388,16 @@ impl WorkspaceManager {
         fill_dashmap(&self.sources, snap.sources);
         fill_dashmap(&self.libs, snap.libs);
         fill_dashmap(&self.blibs, snap.blibs);
+        fill_dashmap(&self.visibility, snap.visibility);
+        // Rebuild the restored world's ref graph from its out edges
+        // (record() reconstructs the rev side).
+        let refgraph = snap.refgraph;
+        self.refgraph.clear();
+        for (from, tos) in refgraph.out_pairs() {
+            for to in tos {
+                self.refgraph.record(&from, &to);
+            }
+        }
 
         *self.diagnostics.lock().unwrap() = snap.diagnostics;
 

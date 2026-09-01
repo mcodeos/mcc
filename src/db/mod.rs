@@ -8,5 +8,7 @@ pub(crate) mod defregistry;
 pub(crate) mod defspace;
 pub(crate) mod diagnostic;
 pub(crate) mod infra;
+pub(crate) mod member_ledger;
+pub(crate) mod refgraph;
 pub mod resolve;
 pub(crate) mod symbol;

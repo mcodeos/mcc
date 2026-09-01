@@ -42,12 +42,12 @@
 
 // ── Type definition layer ──
 pub mod boxdef;
-pub(crate) mod psymbol;
 pub mod graphdef;
 pub mod json;
 pub mod kinds;
 pub mod naming;
 pub mod netdef;
+pub(crate) mod psymbol;
 pub mod symbol;
 // ── Algorithm layer ──
 pub mod detect;
