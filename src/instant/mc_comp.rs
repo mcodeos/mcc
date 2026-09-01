@@ -69,6 +69,13 @@ pub struct McComponentInst {
     /// circuit's `IdentityRegistry`). `None` until the instance is added to
     /// its module (`add_component`); the frozen tree always carries it.
     pub node_id: Option<NodeId>,
+
+    /// Phase G (plan §9 G item 5): the "source span + role" identity anchor
+    /// of an auto-named instance. `Some` → the registry interns the instance
+    /// by the anchor key instead of its counter name, so inserting a sibling
+    /// statement never renumbers existing anonymous devices. `None` for
+    /// user-written names and phantom/stub isolation nodes.
+    pub anchor: Option<crate::instant::identity::AutoAnchor>,
 }
 
 impl McComponentInst {
@@ -88,6 +95,7 @@ impl McComponentInst {
             degraded: false,
             expansion_id: None,
             node_id: None,
+            anchor: None,
         };
 
         inst.init_pins();
@@ -110,6 +118,7 @@ impl McComponentInst {
             degraded: true,
             expansion_id: None,
             node_id: None,
+            anchor: None,
         }
     }
 
@@ -151,6 +160,7 @@ impl McComponentInst {
             degraded: false,
             expansion_id: None,
             node_id: None,
+            anchor: None,
         };
 
         inst.init_pins();
@@ -174,6 +184,7 @@ impl McComponentInst {
             degraded: false,
             expansion_id: None,
             node_id: None,
+            anchor: None,
         };
 
         inst.init_pins();

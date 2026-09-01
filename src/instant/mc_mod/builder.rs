@@ -43,7 +43,7 @@ use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
 use super::{AutoNameKind, CurrentUriGuard, McModuleInst};
-use crate::instant::identity::{CircuitKey, IdentityRegistry};
+use crate::instant::identity::{anchored_child_key, AutoAnchor, CircuitKey, IdentityRegistry};
 use crate::instant::mc_bus::McBusInst;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{
@@ -183,12 +183,27 @@ impl InstantiationBuilder {
     /// keys, and the locked auto-name pattern — so the re-entered body never
     /// collides with the sub-module's own products (zero behavior change).
     pub(crate) fn new(tree: McModuleInst) -> Self {
+        let key = CircuitKey::new(&tree.def_uri.to_string(), &tree.name);
+        Self::with_registry(tree, IdentityRegistry::new(key))
+    }
+
+    /// Wrap a module tree into a construction builder whose node ids are
+    /// interned into a caller-provided registry (Phase G, D10): the top-level
+    /// entry of a CircuitWorld instantiation. The registry is the circuit's
+    /// persistent namespace — the tree's node ids come from it, so a rebuild
+    /// of the same circuit keeps the same ids for the same paths (D1). The
+    /// builder interns into a clone (the authoritative registry stays with the
+    /// world; the DianLu resumes the pairs back into it on construction).
+    ///
+    /// Mirrors [`Self::new`] exactly except for the registry origin: the
+    /// circuit root is interned (it is no one's sub-module, so it never passes
+    /// `add_submodule`) and the tree's existing ids are resumed, keeping
+    /// re-entered / frozen trees stable.
+    pub(crate) fn with_registry(tree: McModuleInst, mut identity: IdentityRegistry) -> Self {
         // Top-level entry: derive the circuit key from the tree, resume any
         // node ids the tree already carries (defensive — a plain frozen tree
         // may be lifted directly), and build from the circuit root path.
         let current_path = tree.name.clone();
-        let mut identity =
-            IdentityRegistry::new(CircuitKey::new(&tree.def_uri.to_string(), &tree.name));
         let mut tree = tree;
         // The circuit root is not anyone's sub-module, so it never passes
         // `add_submodule`; intern it here so the root node carries an id too
@@ -321,8 +336,13 @@ impl InstantiationBuilder {
             inst.expansion_id = self.expansion.current_id();
         }
         if inst.node_id.is_none() {
-            let path = format!("{}.{}", self.current_path, inst.name);
-            inst.node_id = Some(self.identity.intern(&path));
+            let key = anchored_child_key(
+                &mut self.identity,
+                &self.current_path,
+                &inst.name,
+                inst.anchor,
+            );
+            inst.node_id = Some(self.identity.intern(&key));
         }
         self.components.push(inst);
     }
@@ -335,8 +355,13 @@ impl InstantiationBuilder {
             inst.expansion_id = self.expansion.current_id();
         }
         if inst.node_id.is_none() {
-            let path = format!("{}.{}", self.current_path, inst.name);
-            inst.node_id = Some(self.identity.intern(&path));
+            let key = anchored_child_key(
+                &mut self.identity,
+                &self.current_path,
+                &inst.name,
+                inst.anchor,
+            );
+            inst.node_id = Some(self.identity.intern(&key));
         }
         self.sub_modules.push(inst);
     }
@@ -655,14 +680,24 @@ impl InstantiationBuilder {
     /// user-written names. The second return value is the byte offset of the
     /// construction site (decision A, §7.1; used by `mcc verify` to annotate
     /// generated instances with an `L<n>` column); it is 0 when the site is
-    /// unknown or for internal phantom / stub types.
+    /// unknown or for internal phantom / stub types. The third return value
+    /// is the Phase G "source span + role" identity anchor: normal anonymous
+    /// devices carry (role, construction offset) so the registry interns them
+    /// by the anchor instead of the counter name — inserting a sibling
+    /// statement never renumbers existing devices. Phantom / stub isolation
+    /// nodes have no distinguishable anchor (offset 0) and keep name-path
+    /// interning.
     ///
     /// Internal phantom / stub types keep their special prefix and plain
     /// numbering — they are not real devices and their names participate in
     /// normalize/reuse logic that must not see a `@line` suffix. The prefix
     /// is generated here per `AutoNameKind` (§7.11(4)); call sites never
     /// concatenate `@_phantom_` / `@?` themselves.
-    pub(super) fn auto_name(&mut self, kind: AutoNameKind, type_name: &str) -> (String, u32) {
+    pub(super) fn auto_name(
+        &mut self,
+        kind: AutoNameKind,
+        type_name: &str,
+    ) -> (String, u32, AutoAnchor) {
         match kind {
             AutoNameKind::Normal => {
                 let prefix = Self::ref_designator_prefix(type_name);
@@ -683,7 +718,14 @@ impl InstantiationBuilder {
                         self.name
                     );
                 }
-                (name, line)
+                (
+                    name,
+                    line,
+                    AutoAnchor {
+                        role: crate::instant::identity::AutoNameRole::Normal,
+                        offset: line,
+                    },
+                )
             }
             AutoNameKind::Phantom => {
                 let key = format!("@_phantom_{type_name}");
@@ -697,13 +739,27 @@ impl InstantiationBuilder {
                     LedgerEntry::new(LedgerKind::Phantom, type_name.to_string(), module_name)
                         .with_action(LedgerAction::Silent),
                 );
-                (format!("{key}_{counter}"), 0)
+                (
+                    format!("{key}_{counter}"),
+                    0,
+                    AutoAnchor {
+                        role: crate::instant::identity::AutoNameRole::Phantom,
+                        offset: 0,
+                    },
+                )
             }
             AutoNameKind::Stub => {
                 let key = format!("@?{type_name}");
                 let counter = self.auto_inst_counter.entry(key.clone()).or_insert(0);
                 *counter += 1;
-                (format!("{key}_{counter}"), 0)
+                (
+                    format!("{key}_{counter}"),
+                    0,
+                    AutoAnchor {
+                        role: crate::instant::identity::AutoNameRole::Stub,
+                        offset: 0,
+                    },
+                )
             }
         }
     }
@@ -1358,13 +1414,15 @@ fn resume_tree(registry: &mut IdentityRegistry, path: &str, module: &McModuleIns
     }
     for comp in &module.components {
         if let Some(id) = comp.node_id {
-            registry.resume(&format!("{path}.{}", comp.name), id);
+            let key = anchored_child_key(registry, path, &comp.name, comp.anchor);
+            registry.resume(&key, id);
         }
     }
     for sub in &module.sub_modules {
         let sub_path = format!("{path}.{}", sub.name);
         if let Some(id) = sub.node_id {
-            registry.resume(&sub_path, id);
+            let key = anchored_child_key(registry, path, &sub.name, sub.anchor);
+            registry.resume(&key, id);
         }
         resume_tree(registry, &sub_path, sub);
     }

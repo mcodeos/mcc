@@ -23,12 +23,13 @@
 //! [`Self::flatten`].
 
 use super::arena::{build_node_arena, NodeArena};
+use super::descriptions::DescriptionLayer;
 use super::insttab::InstTable;
-use super::lane::{collect_stmt_trunks, derive_nets, Net, Trunk};
+use super::lane::{collect_stmt_trunks, derive_nets, finalize_net_ids, Net, Trunk};
 use super::mc_mod::McModuleInst;
 use super::overlays::Overlays;
 use crate::db::diagnostic::diagnostic::Diagnostic;
-use crate::instant::identity::{CircuitKey, IdentityRegistry};
+use crate::instant::identity::{anchored_child_key, CircuitKey, IdentityRegistry};
 use crate::instant::net_store::NetTableStore;
 use crate::McSpaceName;
 use std::cell::RefCell;
@@ -78,6 +79,11 @@ pub struct DianLu {
     /// frozen tree and its net layer. Pure annotation overlay: never
     /// participates in identity.
     overlays: Overlays,
+    /// Phase G: description layer (design §12, plan §9 G) — the class
+    /// template instantiations of this circuit (func expansion groups, bus
+    /// groups, interface member bindings), derived per build. Content
+    /// addressed: no independent identity (the same discipline as lanes).
+    descriptions: DescriptionLayer,
     /// Phase F: circuit → def dependency edges (plan §9 F, design §12.6) —
     /// every definition-space resolution this instantiation performed
     /// (entry module + each class resolved at the `mcb_get_cmie` /
@@ -89,18 +95,53 @@ pub struct DianLu {
 impl DianLu {
     /// Wrap an already-instantiated tree. The model is authoritative; the flat
     /// projection is derived lazily via [`Self::flatten`]. The per-build
-    /// identity registry is rebuilt from the tree's companion node ids.
+    /// identity registry is rebuilt from the tree's companion node ids, and
+    /// the labeled nets are interned into it (D9).
     pub fn new(
         tree: McModuleInst,
         start_id: u32,
         net_store: Rc<RefCell<NetTableStore>>,
         circuit_deps: Vec<McSpaceName>,
     ) -> Self {
-        let identity = build_identity_registry(&tree);
+        let mut identity = build_identity_registry(&tree);
+        Self::assemble(tree, start_id, net_store, circuit_deps, &mut identity)
+    }
+
+    /// Phase G (D10): wrap an already-instantiated tree whose node ids were
+    /// interned into `registry` (a CircuitWorld-persistent registry). The
+    /// frozen tree's `(path, id)` pairs are resumed into it (idempotent), the
+    /// labeled nets are interned into it (D9), and the registry — now carrying
+    /// the circuit's full identity — is cloned into the DianLu as its frozen
+    /// view. The caller keeps the authoritative registry across rebuilds, so
+    /// re-instantiation continues on the same id namespace (D1).
+    pub(crate) fn new_with_registry(
+        tree: McModuleInst,
+        start_id: u32,
+        net_store: Rc<RefCell<NetTableStore>>,
+        circuit_deps: Vec<McSpaceName>,
+        registry: &mut IdentityRegistry,
+    ) -> Self {
+        resume_module(registry, &tree.name, &tree);
+        Self::assemble(tree, start_id, net_store, circuit_deps, registry)
+    }
+
+    /// Shared construction: derive the arena, lane layer, net layer (with D9
+    /// persistent net ids finalized into `identity`), and overlay from the
+    /// frozen tree; the DianLu keeps a clone of `identity` as its frozen view.
+    fn assemble(
+        tree: McModuleInst,
+        start_id: u32,
+        net_store: Rc<RefCell<NetTableStore>>,
+        circuit_deps: Vec<McSpaceName>,
+        identity: &mut IdentityRegistry,
+    ) -> Self {
         let arena = build_node_arena(&tree);
         let lanes = collect_stmt_trunks(&tree, &arena);
-        let nets = derive_nets(&lanes);
+        let mut nets = derive_nets(&lanes);
+        finalize_net_ids(&mut nets, identity);
+        let identity = identity.clone();
         let overlays = Overlays::derive(&tree, &nets);
+        let descriptions = DescriptionLayer::derive(&tree, &lanes, &overlays, &net_store.borrow());
         DianLu {
             tree,
             start_id,
@@ -112,6 +153,7 @@ impl DianLu {
             nets,
             net_table: net_store,
             overlays,
+            descriptions,
             circuit_deps,
         }
     }
@@ -162,6 +204,14 @@ impl DianLu {
     /// annotation layer, derived per build; consumers never mutate it.
     pub fn overlays(&self) -> &Overlays {
         &self.overlays
+    }
+
+    /// The description layer (Phase G): the class template instantiations of
+    /// this circuit — func expansion groups, bus groups and interface member
+    /// bindings. Content addressed (no independent identity), derived per
+    /// build; consumers never mutate it.
+    pub fn descriptions(&self) -> &DescriptionLayer {
+        &self.descriptions
     }
 
     /// The circuit → def dependency edges (Phase F): every definition-space
@@ -245,7 +295,9 @@ fn build_identity_registry(tree: &McModuleInst) -> IdentityRegistry {
 
 /// Recursive resume over one module's scope: the module node itself, its
 /// ports, its vectors, its components (leaf nodes), and its sub-modules
-/// (recursive).
+/// (recursive). Auto-named devices resume under their "source span + role"
+/// anchor key (plan §9 G item 5) so a rebuild keeps their ids stable even
+/// when a sibling insertion renumbers the counter name.
 fn resume_module(reg: &mut IdentityRegistry, path: &str, module: &McModuleInst) {
     if let Some(id) = module.node_id {
         reg.resume(path, id);
@@ -262,13 +314,15 @@ fn resume_module(reg: &mut IdentityRegistry, path: &str, module: &McModuleInst) 
     }
     for comp in &module.components {
         if let Some(id) = comp.node_id {
-            reg.resume(&format!("{path}.{}", comp.name), id);
+            let key = anchored_child_key(reg, path, &comp.name, comp.anchor);
+            reg.resume(&key, id);
         }
     }
     for sub in &module.sub_modules {
         let sub_path = format!("{path}.{}", sub.name);
         if let Some(id) = sub.node_id {
-            reg.resume(&sub_path, id);
+            let key = anchored_child_key(reg, path, &sub.name, sub.anchor);
+            reg.resume(&key, id);
         }
         resume_module(reg, &sub_path, sub);
     }

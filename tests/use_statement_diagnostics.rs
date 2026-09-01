@@ -318,3 +318,71 @@ fn alias_registers_spacename_without_collision() {
         "alias collision message should not appear. stdout:\n{stdout}"
     );
 }
+
+/// The C lexer only treats `[A-Za-z0-9_.]` as URI characters, so a file name
+/// containing a hyphen (`use ./comp-cap.mc`) is tokenized as `comp` `-` `cap`
+/// `.` `mc`: the parser drops everything after the first `-`, resolves the use
+/// to the wrong file, and reports a spurious PARSER_TOP_INVALID (2081). The
+/// path must be recovered from the raw source text and the use must resolve to
+/// the real file with no E2081 and no "use target not found" (E2003).
+#[test]
+fn hyphenated_file_name_in_relative_use_resolves() {
+    use std::process::Command as StdCommand;
+    let dir = std::env::temp_dir().join(format!("mcc-hyphen-use-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    std::fs::write(
+        dir.join("comp-cap.mc"),
+        "component comp_cap {\n  pin +VIN\n  pin -GND\n}\n",
+    )
+    .expect("write comp-cap.mc");
+    std::fs::write(
+        dir.join("main.mc"),
+        "use ./comp-cap.mc\n\nmodule main {\n    comp_cap c1\n}\n",
+    )
+    .expect("write main.mc");
+
+    let output = StdCommand::new(env!("CARGO_BIN_EXE_mcc"))
+        .args([
+            "parse",
+            dir.join("main.mc").to_str().expect("main.mc path"),
+            "--local",
+            "--pass1",
+            "--pass2",
+            "--top",
+            "main",
+            "-f",
+            "json",
+        ])
+        .env(
+            "MCC_SYSTEM_ROOT",
+            std::env::temp_dir().join("mcc-hyphen-use-root"),
+        )
+        .output()
+        .expect("run JSON parse on hyphen use file");
+    assert!(
+        output.status.success(),
+        "mcc parse failed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let envelope: Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
+    let diags = envelope["result"]["pass0"]["diagnostics"]
+        .as_array()
+        .expect("pass0 diagnostics");
+    let codes: Vec<u64> = diags.iter().filter_map(|d| d["code"].as_u64()).collect();
+    assert!(
+        !codes.contains(&2081),
+        "no spurious top-level error for the hyphenated file name, got codes: {codes:?}\nfull: {diags:#?}"
+    );
+    assert!(
+        !codes.contains(&2003),
+        "no 'use target not found' for the hyphenated file name, got codes: {codes:?}\nfull: {diags:#?}"
+    );
+    // The used component must resolve (no unresolved-class diagnostics).
+    assert!(
+        !codes.contains(&3157) && !codes.contains(&3154) && !codes.contains(&5256),
+        "hyphenated use must resolve its component, got codes: {codes:?}\nfull: {diags:#?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

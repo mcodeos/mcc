@@ -129,6 +129,13 @@ pub struct McModuleInst {
     /// added to its parent (`add_submodule`) or, for the top module, until
     /// it is interned as the circuit root; the frozen tree always carries it.
     pub node_id: Option<NodeId>,
+
+    /// Phase G (plan §9 G item 5): the "source span + role" identity anchor
+    /// of an auto-named module instance. `Some` → the registry interns the
+    /// instance by the anchor key instead of its counter name, so inserting a
+    /// sibling statement never renumbers existing anonymous sub-modules.
+    /// `None` for user-written names and phantom/stub isolation nodes.
+    pub anchor: Option<crate::instant::identity::AutoAnchor>,
 }
 
 /// §11.2: a declared vector instance — modeling-layer grouping node.
@@ -252,6 +259,7 @@ impl McModuleInst {
             expansion_id: None,
             vectors: Vec::new(),
             node_id: None,
+            anchor: None,
         }
     }
 
@@ -284,6 +292,7 @@ impl McModuleInst {
             expansion_id: None,
             vectors: Vec::new(),
             node_id: None,
+            anchor: None,
         })
     }
 
@@ -314,6 +323,28 @@ impl McModuleInst {
         let def = self.def.clone();
         let tree = std::mem::replace(self, Self::new(&name, def));
         let mut builder = InstantiationBuilder::new(tree);
+        let result = builder.instantiate();
+        let store = builder.net_store();
+        *self = builder.finish();
+        result.map(|()| store)
+    }
+
+    /// Like [`Self::instantiate_with_store`], but the top-level builder
+    /// interns its products into a caller-provided registry (Phase G, D10) —
+    /// the circuit's persistent namespace — instead of a fresh per-build one.
+    /// The tree's node ids therefore come from the persistent registry, so a
+    /// rebuild of the same circuit keeps the same ids for the same paths (D1).
+    /// The builder interns into a clone; the authoritative registry stays with
+    /// the caller (CircuitWorld), and the DianLu resumes the pairs back into
+    /// it on construction.
+    pub(crate) fn instantiate_with_store_in_registry(
+        &mut self,
+        identity: &mut IdentityRegistry,
+    ) -> Result<Rc<RefCell<NetTableStore>>, InstError> {
+        let name = self.name.clone();
+        let def = self.def.clone();
+        let tree = std::mem::replace(self, Self::new(&name, def));
+        let mut builder = InstantiationBuilder::with_registry(tree, identity.clone());
         let result = builder.instantiate();
         let store = builder.net_store();
         *self = builder.finish();

@@ -3106,7 +3106,7 @@ impl InstantiationBuilder {
                                 if let Some(real_name) = reusable {
                                     self.auto_inst_map.insert(key, real_name);
                                 } else {
-                                    let (stub, _) =
+                                    let (stub, _, _) =
                                         self.auto_name(super::AutoNameKind::Stub, &safe);
                                     self.auto_inst_map.insert(key, stub);
                                 }
