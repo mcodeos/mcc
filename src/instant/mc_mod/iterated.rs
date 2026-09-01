@@ -8,7 +8,7 @@
 //! - `resolve_indexed_params`          —— Expand `Set` etc. in parameters by the iteration index
 
 use super::funccall::FuncCallInst;
-use super::McModuleInst;
+use super::InstantiationBuilder;
 use crate::instant::mc_net::InstError;
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_bus::McBus;
@@ -19,7 +19,7 @@ use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::mc_inst::McInstance;
 use crate::McIds;
 
-impl McModuleInst {
+impl InstantiationBuilder {
     /// Detect and process iterated calls
     ///
     /// When the FuncCall caller is a Vector (e.g. `cx[1:2]`),
@@ -122,11 +122,12 @@ impl McModuleInst {
         // ── Expansion provenance: Iterated (covers the per-item loop,
         //    §4.1-A4 / B8). Per-item constructions / func calls begin their
         //    own records nested under this one. ──
+        let call_site = self.current_call_site();
         let eidx = self.expansion.begin(
             ExpansionKind::Iterated,
             None,
             func_name.to_string(),
-            self.current_call_site(),
+            call_site,
             None,
         );
 

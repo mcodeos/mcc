@@ -9,7 +9,7 @@
 //! - `create_connection`            —— Generic N×M connection generation (1:1 / 1:N / N:1 / truncation)
 
 use super::expand::expand_match;
-use super::McModuleInst;
+use super::InstantiationBuilder;
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_phrase::McPhrase;
@@ -23,7 +23,7 @@ use crate::vector::model::trunk::{TrunkCtx, TrunkKind};
 pub(crate) static BUS_BITS_MISMATCHED: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
-impl McModuleInst {
+impl InstantiationBuilder {
     // ========================================================================
     // Group processing (Iteration 6)
     // ========================================================================

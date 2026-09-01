@@ -177,6 +177,9 @@ pub(crate) fn mcb_pass2_flat_with(
     let mut dl = mcb_instantiate(entry, start_id)?;
     // Project once (this also runs the flat electrical net checks), then take
     // both parts out of the object — no second instantiation, no clone.
-    dl.flatten_with_prefix(synthetic_prefix);
+    // Phase A: flatten returns the net-check diagnostics; the build layer owns
+    // logging them into the workspace (the current_uri context is ours).
+    let diags = dl.flatten_with_prefix(synthetic_prefix);
+    crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
     Ok(dl.into_parts())
 }

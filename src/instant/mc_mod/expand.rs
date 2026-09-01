@@ -825,6 +825,7 @@ mod inst_scope_tests {
             degraded: false,
             origin: Default::default(),
             expansion_id: None,
+            node_id: None,
         }
     }
 

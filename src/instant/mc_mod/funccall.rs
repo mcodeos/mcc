@@ -18,7 +18,7 @@
 //! is in `funccall_inst.rs`, and iterated call expansion is in `iterated.rs`.
 
 use super::expand::{resolve_inst_chain, InstEntry};
-use super::McModuleInst;
+use super::{InstantiationBuilder, McModuleInst};
 use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
@@ -66,7 +66,7 @@ impl FaceSide {
     }
 }
 
-impl McModuleInst {
+impl InstantiationBuilder {
     // ========================================================================
     // FuncCall dispatch entry
     // ========================================================================
@@ -486,7 +486,7 @@ impl McModuleInst {
 
         // Resolve the full scope chain via InstFindInst. `entry` is owned, so
         // the `&self` borrow ends here and `&mut self` calls below are legal.
-        let Some(entry) = resolve_inst_chain(&scope_segments, &*self) else {
+        let Some(entry) = resolve_inst_chain(&scope_segments, &**self) else {
             // Scope chain doesn't resolve to a declared instance — the caller
             // is probably a typo or an undeclared instance name.
             crate::db::diagnostic::diagnostic::dlog_trace(
