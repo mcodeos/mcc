@@ -1,12 +1,12 @@
 // Copyright (c) 2026 MCode
 //
-// Integration tests for the scalar -> bus upgrade mechanism (shape by use,
-// vec-dianlu.md §8.9.6.3 / §8.9.6.6 step 2). A module port declared as a
-// single point (`out spi1`) is upgraded to a bus before instantiation when
-// the module body uses it as one:
-//   1. curly multi-member   `spi1{CS, SCLK, MOSI, MISO}`
-//   2. dotted member access `spi1.CS`
-//   5. vector connection    `spi1` as scalar operand with a >1-member sibling
+// Integration tests for the authoritative-declared-shape rule (the replacement
+// of the former scalar -> bus "usage auto-expansion" mechanism). A module port
+// declared without members (`out spi1`) is a scalar and stays scalar: body
+// member/lane access against it is an E3183 error (BUS_MEMBER_ON_SCALAR_PORT),
+// never an implicit widening of the port. Membered ports (`io SPI{...}` /
+// `io X[...]` / typed) declare their own authoritative member set; internal
+// undeclared nets remain usage-defined and are unaffected.
 //
 // NOTE: These tests share global mcc state, so a mutex serializes them.
 
@@ -42,16 +42,17 @@ fn port_members(inst: &mcc::McModuleInst, name: &str) -> Vec<String> {
         .clone()
 }
 
-// ── Form 1: curly multi-member use ────────────────────────────────────────
+/// Codes of all diagnostics currently in the global workspace.
+fn diag_codes() -> Vec<u32> {
+    mcc::mcc_diagnose_all().iter().map(|d| d.code).collect()
+}
+
+// ── Form 1: curly multi-member use no longer widens a scalar port ──────────
 
 #[test]
-fn curly_use_upgrades_scalar_port() {
-    // `spi1` is declared as a single point; the body uses it as a 4-member
-    // bus, so the port is upgraded with the curly members before
-    // instantiation. The right side must be 4-wide too: `spi1{...} -> GND`
-    // (4x1 vs 1x1) is intentionally rejected by the strict opcheck as a
-    // single-point broadcast (no carve-out), so the fan-in shape is written
-    // as an explicit 4-wide vector.
+fn curly_use_does_not_upgrade_scalar_port() {
+    // `spi1` is declared scalar; the curly multi-member use is an E3183 error
+    // and must NOT back-fill the port's bus_members.
     let inst = build(
         r#"
 module main
@@ -62,18 +63,24 @@ module main
 }
 "#,
     );
+    let codes = diag_codes();
+    assert!(
+        codes.contains(&mcc::errcodes::BUS_MEMBER_ON_SCALAR_PORT),
+        "E3183 not emitted for curly use of a scalar port; codes: {codes:?}"
+    );
     assert_eq!(
         port_members(&inst, "spi1"),
-        vec!["CS", "SCLK", "MOSI", "MISO"]
+        Vec::<String>::new(),
+        "scalar port must not be widened by body usage"
     );
 }
 
-// ── Form 2: dotted member access ──────────────────────────────────────────
+// ── Form 2: dotted member access no longer widens a scalar port ────────────
 
 #[test]
-fn dotted_use_upgrades_scalar_port() {
-    // Four single-level dotted accesses upgrade the port; the union keeps
-    // first-appearance order.
+fn dotted_use_does_not_upgrade_scalar_port() {
+    // Four single-level dotted accesses each report E3183 (one per offending
+    // reference) and never widen the port.
     let inst = build(
         r#"
 module main
@@ -87,18 +94,30 @@ module main
 }
 "#,
     );
+    let e3183: Vec<u32> = diag_codes()
+        .iter()
+        .copied()
+        .filter(|&c| c == mcc::errcodes::BUS_MEMBER_ON_SCALAR_PORT)
+        .collect();
+    assert_eq!(
+        e3183.len(),
+        4,
+        "expected one E3183 per dotted member reference; got {e3183:?}"
+    );
     assert_eq!(
         port_members(&inst, "spi1"),
-        vec!["CS", "SCLK", "MOSI", "MISO"]
+        Vec::<String>::new(),
+        "scalar port must not be widened by body usage"
     );
 }
 
-// ── Form 5: vector connection with a >1-member sibling ────────────────────
+// ── Form 3: vector connection no longer widens a scalar port ───────────────
 
 #[test]
-fn vector_connection_upgrades_scalar_port() {
-    // `spi1` is a plain scalar operand whose sibling `spi{...}` is a
-    // 4-member vector; the port is upgraded with the sibling's members.
+fn vector_connection_does_not_upgrade_scalar_port() {
+    // `spi1` is a plain scalar operand; its sibling `spi{...}` is a
+    // multi-member use of the scalar-declared `spi`, which is itself an
+    // E3183. `spi1` must stay scalar (no back-prop from the sibling).
     let inst = build(
         r#"
 module main
@@ -110,9 +129,15 @@ module main
 }
 "#,
     );
+    let codes = diag_codes();
+    assert!(
+        codes.contains(&mcc::errcodes::BUS_MEMBER_ON_SCALAR_PORT),
+        "E3183 not emitted for multi-member sibling of a scalar-declared port; codes: {codes:?}"
+    );
     assert_eq!(
         port_members(&inst, "spi1"),
-        vec!["CS", "SCLK", "MOSI", "MISO"]
+        Vec::<String>::new(),
+        "scalar port must not be widened by the sibling vector"
     );
 }
 
@@ -120,7 +145,8 @@ module main
 
 #[test]
 fn scalar_use_keeps_port_scalar() {
-    // No bus-shaped usage in the body, so `spi1` stays a bare scalar port.
+    // No member/lane-shaped usage in the body, so `spi1` stays a bare scalar
+    // port and no E3183 fires.
     let inst = build(
         r#"
 module main
@@ -130,6 +156,11 @@ module main
     spi1 -> GND
 }
 "#,
+    );
+    let codes = diag_codes();
+    assert!(
+        !codes.contains(&mcc::errcodes::BUS_MEMBER_ON_SCALAR_PORT),
+        "whole-port scalar use must not report E3183; codes: {codes:?}"
     );
     assert!(
         port_members(&inst, "spi1").is_empty(),

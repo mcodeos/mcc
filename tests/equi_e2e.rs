@@ -102,7 +102,7 @@ fn e2e_hbl_render_has_no_nan() {
 /// Diagnostic (not a real assertion test): render the whole hbl tree and print
 /// per-layer diagnostics so layout bugs can be pinned to actual output.
 /// Ignored by default; run explicitly with `-- --ignored` to export the SVGs
-/// to /tmp/m6_diag/ for eyeballing.
+/// to `<os temp dir>/m6_diag/` (path printed below) for eyeballing.
 #[test]
 #[ignore = "diagnostic only"]
 fn e2e_diag_layers() {
@@ -125,8 +125,13 @@ fn e2e_diag_layers() {
             layer.svg.len(),
             viewbox
         );
-        let dir = std::path::Path::new("/tmp/m6_diag");
-        let _ = std::fs::create_dir_all(dir);
+        // OS temp dir (honors TMPDIR/TEMP) — never assume Unix-only /tmp.
+        let dir = std::env::temp_dir().join("m6_diag");
+        let _ = std::fs::create_dir_all(&dir);
+        eprintln!(
+            "DIAG svg written to {}",
+            dir.join(format!("{}.svg", layer.name)).display()
+        );
         let _ = std::fs::write(dir.join(format!("{}.svg", layer.name)), &layer.svg);
     }
 }

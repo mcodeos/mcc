@@ -89,8 +89,8 @@ pub use builder::{
 };
 
 // ── Instant / Net ──
+pub use db::defmember::DefMemberId;
 pub use db::defregistry::{def_id, kind_of, DefId, DefKind};
-pub use db::member_ledger::DefMemberId;
 pub use instant::arena::NodeArena;
 pub use instant::descriptions::{
     BusGroup, DescriptionLayer, EnumRef, FuncGroup, IfaceBinding, LaneRef,

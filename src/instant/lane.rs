@@ -34,7 +34,7 @@
 //! zips positionally. Same-name pad groups / quarantined bracket literals
 //! still emit no lanes.
 
-use crate::db::member_ledger::DefMemberId;
+use crate::db::defmember::DefMemberId;
 use crate::instant::arena::NodeArena;
 use crate::instant::identity::{IdentityRegistry, NodeId};
 use crate::instant::inststore::{InstanceStore, TreeView};

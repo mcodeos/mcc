@@ -2273,17 +2273,7 @@ impl McCode {
         sem: &mut McSemSymbols,
     ) -> Option<(DeclareId, SymbolKind)> {
         // Rebuild the dotted text (`VIN.Vin`) and extract the chain root.
-        let full_name: String = segments
-            .iter()
-            .filter_map(|s| match s {
-                crate::refdef::types::ChainSegment::Ident(name) => Some(name.clone()),
-                crate::refdef::types::ChainSegment::Group { base, members } => {
-                    Some(format!("{}{{{}}}", base, members.join(",")))
-                }
-                crate::refdef::types::ChainSegment::Fcall(_) => None,
-            })
-            .collect::<Vec<_>>()
-            .join(".");
+        let full_name = crate::refdef::chain::chain_segments_to_hop_texts(segments).join(".");
         let root = match segments.first() {
             Some(crate::refdef::types::ChainSegment::Ident(name)) => name.as_str(),
             Some(crate::refdef::types::ChainSegment::Group { base, .. }) => base.as_str(),

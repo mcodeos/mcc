@@ -38,6 +38,17 @@ fn validate_inst_member_ref(
             | McInstance::Attr(_)
             | McInstance::Func(_)
             | McInstance::EnumVal { .. } => {
+                // ★ Authoritative declared-shape gate: `io X` is a scalar —
+                // a curly member access would implicitly widen it (E3183);
+                // a member outside a membered port's declared set is E3181.
+                // The declaration itself is never mutated here, so emit and
+                // keep building the reference endpoint (no cascade).
+                let _ = context.enforce_declared_port_shape(
+                    base_name,
+                    members,
+                    &format!("{{{}}}", members.join(", ")),
+                    node,
+                );
                 // A multi-member curly reference `name{P, N}` is a column
                 // vector: a single endpoint carrying all members, not a
                 // series of single-member endpoints. The component/module/

@@ -265,13 +265,21 @@ pub mod tests {
 
     pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    /// Unique scratch directory for one env-override test, rooted under the OS
+    /// temp dir (`TMPDIR`/`TEMP`, via [`std::env::temp_dir`]) — never assume a
+    /// fixed `/tmp`, which only exists on Unix. Each test passes a distinct
+    /// `tag` so parallel runs do not collide.
+    fn scratch_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("mcc-{tag}-{}", std::process::id()))
+    }
+
     #[test]
     fn env_override_absolute() {
         let _lock = ENV_LOCK.lock().unwrap();
         let prev = std::env::var(MCC_SYSTEM_ENV).ok();
-        let unique = format!("/tmp/mcc-test-env-{}-{}", std::process::id(), line!());
+        let unique = scratch_dir("test-env");
         std::env::set_var(MCC_SYSTEM_ENV, &unique);
-        assert_eq!(data_root(), PathBuf::from(&unique));
+        assert_eq!(data_root(), unique);
         match prev {
             Some(v) => std::env::set_var(MCC_SYSTEM_ENV, v),
             None => std::env::remove_var(MCC_SYSTEM_ENV),
@@ -282,11 +290,17 @@ pub mod tests {
     fn pid_always_at_home_mcode() {
         let _lock = ENV_LOCK.lock().unwrap();
         let prev = std::env::var(MCC_SYSTEM_ENV).ok();
-        let unique = format!("/tmp/somewhere-else-{}-{}", std::process::id(), line!());
+        let unique = scratch_dir("somewhere-else");
         std::env::set_var(MCC_SYSTEM_ENV, &unique);
         let p = pid_file();
         assert!(p.to_string_lossy().ends_with(".mcode/logs/mcc.pid"));
-        assert!(!p.to_string_lossy().contains("/tmp/somewhere-else"));
+        // The PID file is decoupled from MCC_SYSTEM_ROOT: never under it.
+        assert!(
+            !p.starts_with(&unique),
+            "pid file {:?} must not live under the override root {:?}",
+            p,
+            unique
+        );
         match prev {
             Some(v) => std::env::set_var(MCC_SYSTEM_ENV, v),
             None => std::env::remove_var(MCC_SYSTEM_ENV),
@@ -310,12 +324,12 @@ pub mod tests {
     fn sub_dirs_under_data_root() {
         let _lock = ENV_LOCK.lock().unwrap();
         let prev = std::env::var(MCC_SYSTEM_ENV).ok();
-        let unique = format!("/tmp/mcc-data_dir-test-{}-{}", std::process::id(), line!());
+        let unique = scratch_dir("data-dir");
         std::env::set_var(MCC_SYSTEM_ENV, &unique);
-        assert_eq!(mcode_dir(), PathBuf::from(format!("{unique}/mcode")));
-        assert_eq!(logs_dir(), PathBuf::from(format!("{unique}/logs")));
-        assert_eq!(config_dir(), PathBuf::from(format!("{unique}/config")));
-        assert_eq!(index_file(), PathBuf::from(format!("{unique}/index.json")));
+        assert_eq!(mcode_dir(), unique.join("mcode"));
+        assert_eq!(logs_dir(), unique.join("logs"));
+        assert_eq!(config_dir(), unique.join("config"));
+        assert_eq!(index_file(), unique.join("index.json"));
         match prev {
             Some(v) => std::env::set_var(MCC_SYSTEM_ENV, v),
             None => std::env::remove_var(MCC_SYSTEM_ENV),

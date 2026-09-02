@@ -15,7 +15,7 @@
 //! decide vector-ness. `canonical_single` is the read-side fallback that only
 //! accepts exactly one bare identifier.
 
-use super::mc_ids::{expand_numeric_slice, McIds};
+use super::mc_ids::{parse_display, McIds};
 
 /// Expand the segment tree of `ids` to its ordered member set.
 ///
@@ -57,78 +57,21 @@ pub(crate) fn are_equivalent(a: &McIds, b: &McIds) -> bool {
 
 /// String front-end: parse `display` to its ordered member set.
 ///
-/// The string port has no AST; it parses the same spelling grammar that the
-/// segment tree captures (squares, escapes, dotted chains) and additionally
-/// handles curly groups (`{A|B}`, `{A,B|C}`) with `,` and `|` separators that
-/// the segment tree only sees structurally from the AST. This is the member-set
-/// counterpart of the deferred `parse_display`/`segmentize` (§8.1) — it shares
-/// the square/escape parsing core (`McIda::parse`) but is a standalone helper,
-/// not a parallel parser of the McIds shape.
+/// The string port has no AST; it goes through the shared text entry
+/// [`parse_display`] (mc_ids.rs), which builds the same segment tree the AST
+/// front end produces — squares/escapes/dots via `McIda`, curly groups
+/// (`{A|B}`, `{A,B|C}`, numeric slices `{1:3}`) as structural `Curly`
+/// segments — and then expands it with `member_set`. This is the P3 port of
+/// the pipeline's single `parse_display` entry; callers never split the
+/// string themselves.
 pub(crate) fn member_set_from_str(display: &str) -> Option<Vec<String>> {
-    let ids = McIds::from(display);
-    let mut expanded = member_set(&ids)?;
-
-    // Curly groups the single-Ida string form could not structurally parse
-    // (`Q1{S|D}` arrives as one Ida "Q1{S|D}" because `McIda::parse` only
-    // handles squares): split residual `{...}` groups on `,` and `|`.
-    expanded = split_curly_groups(expanded);
-
+    let ids = parse_display(display);
+    let expanded = member_set(&ids)?;
     if expanded.is_empty() {
         None
     } else {
         Some(expanded)
     }
-}
-
-/// Split any residual `{...}` curly group in expanded member names on `,` and
-/// `|` separators, expanding each member with the prefix in declaration order.
-fn split_curly_groups(expanded: Vec<String>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for name in expanded {
-        if let Some(open) = name.find('{') {
-            if let Some(close) = name.rfind('}') {
-                if close > open {
-                    let prefix = &name[..open];
-                    let body = &name[open + 1..close];
-                    let suffix = &name[close + 1..];
-                    let mut members: Vec<String> = Vec::new();
-                    for token in body.split([',', '|']) {
-                        let token = token.trim();
-                        if token.is_empty() {
-                            continue;
-                        }
-                        // R12: a numeric-slice token `1:3` inside a curly group
-                        // expands to its interval (declaration direction
-                        // authoritative), mirroring the AST Curly+Slice branch
-                        // in mc_ids.rs — the string front-end must yield the
-                        // same member set the segment tree does (double front-end
-                        // §2.1). `IO0{0:7}` -> `IO0.0..IO0.7`; non-slice tokens
-                        // (names, `|` pipes) fall through to literal members.
-                        if let Some((from, to)) = token.split_once(':') {
-                            if let (Ok(f), Ok(t)) =
-                                (from.trim().parse::<i64>(), to.trim().parse::<i64>())
-                            {
-                                members.extend(
-                                    expand_numeric_slice(f, t)
-                                        .into_iter()
-                                        .map(|i| i.to_string()),
-                                );
-                                continue;
-                            }
-                        }
-                        members.push(token.to_string());
-                    }
-                    for m in &members {
-                        out.push(format!("{prefix}.{m}{suffix}"));
-                    }
-                    // A curly group consumed the whole name — nothing else to do.
-                    continue;
-                }
-            }
-        }
-        out.push(name);
-    }
-    out
 }
 
 #[cfg(test)]
@@ -232,6 +175,79 @@ mod tests {
         assert_eq!(
             member_set_from_str("P{1,3:5}"),
             Some(vec!["P.1".into(), "P.3".into(), "P.4".into(), "P.5".into(),])
+        );
+    }
+
+    #[test]
+    fn parse_display_curly_is_structural() {
+        // The string front-end now parses `Q1{S|D}` into a base `Ida` run
+        // plus a `Curly` member group — the same tree shape the AST front
+        // end builds — instead of a single flat Ida that a text post-pass
+        // re-splits. Ports can read base and members from the tree.
+        let ids = parse_display("Q1{S|D}");
+        assert_eq!(ids.segments.len(), 2);
+        assert!(matches!(
+            &ids.segments[0],
+            crate::semantic::basic::mc_ids::IdsSegment::Ida(_)
+        ));
+        match &ids.segments[1] {
+            crate::semantic::basic::mc_ids::IdsSegment::Curly(members) => {
+                assert_eq!(members.len(), 2);
+            }
+            other => panic!("expected a Curly member group, got {other:?}"),
+        }
+        // Member set is unchanged from the pre-parse_display front-end.
+        assert_eq!(
+            member_set_from_str("Q1{S|D}"),
+            Some(vec!["Q1.S".into(), "Q1.D".into()])
+        );
+    }
+
+    #[test]
+    fn parse_display_curly_slice_is_slice_segment() {
+        // R12 numeric slice `{0:7}` is a structural `Slice` inside the curly
+        // group; expand later yields the interval in declaration order.
+        let ids = parse_display("IO0{0:7}");
+        match &ids.segments[1] {
+            crate::semantic::basic::mc_ids::IdsSegment::Curly(members) => {
+                assert!(matches!(
+                    &members[0],
+                    crate::semantic::basic::mc_ids::IdsSegment::Slice { .. }
+                ));
+            }
+            other => panic!("expected a Curly member group, got {other:?}"),
+        }
+        assert_eq!(
+            member_set_from_str("IO0{0:7}"),
+            Some(vec![
+                "IO0.0".into(),
+                "IO0.1".into(),
+                "IO0.2".into(),
+                "IO0.3".into(),
+                "IO0.4".into(),
+                "IO0.5".into(),
+                "IO0.6".into(),
+                "IO0.7".into(),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_display_empty_curly_yields_no_members() {
+        // An empty curly body removes the whole name (keeps the `dc{}`
+        // param-name fallback in scope.rs a plain Label).
+        assert_eq!(member_set_from_str("dc{}"), None);
+    }
+
+    #[test]
+    fn parse_display_escaped_brace_stays_literal() {
+        // An escaped brace is a literal character, not a curly group — the
+        // AST would never see a group there, and neither should the string
+        // port (the old text pass split it only because escapes were already
+        // consumed by expansion time).
+        assert_eq!(
+            member_set_from_str("A\\{X}"),
+            Some(vec!["A{X}".to_string()])
         );
     }
 

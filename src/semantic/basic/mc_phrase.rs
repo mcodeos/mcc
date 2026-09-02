@@ -52,18 +52,44 @@ fn warn_prefix_id_as_wire(node: &AstNode, name: &str) {
     }
 }
 
-/// Split an array spelling carrying a trailing dot-member (`a[1:2].1`) into
-/// its array prefix (`a[1:2]`) and the shared member (`1`). The split is the
-/// dot that follows the closing bracket, so the member is whatever the
-/// `Member` access named after the array (single or dotted, e.g. `.SPI.SCLK`).
-fn split_array_member(s: &str) -> Option<(&str, &str)> {
-    let close = s.rfind([']', '}'])?;
-    let after = &s[close + 1..];
-    let member = after.strip_prefix('.')?;
-    if member.is_empty() || member.contains(['[', ']', '{', '}']) {
+/// Split a vector spelling's trailing dot-member chain off its segment tree
+/// (`c[1:2].1` → prefix `McIds([Ida(c[1:2])])` + member `"1"`; a multi-dot
+/// suffix `a[1:2].SPI.SCLK` keeps the whole `"SPI.SCLK"` member). The AST
+/// already models the dotted suffix as trailing `DotInt`/`DotIda` segments
+/// (McIds::new, MCAST_IDS), so no display-text re-split is needed. Returns
+/// `None` when the last square-bearing segment has no pure-dot suffix.
+fn split_vector_member(ids: &McIds) -> Option<(McIds, String)> {
+    let mut last_square: Option<usize> = None;
+    for (i, seg) in ids.segments.iter().enumerate() {
+        let carries_square = match seg {
+            crate::semantic::basic::mc_ids::IdsSegment::Square(_) => true,
+            crate::semantic::basic::mc_ids::IdsSegment::Ida(ida) => ida.has_square(),
+            crate::semantic::basic::mc_ids::IdsSegment::DotIda(ida) => ida.has_square(),
+            _ => false,
+        };
+        if carries_square {
+            last_square = Some(i);
+        }
+    }
+    let i = last_square?;
+    let tail = &ids.segments[i + 1..];
+    if tail.is_empty()
+        || tail.iter().any(|s| {
+            !matches!(
+                s,
+                crate::semantic::basic::mc_ids::IdsSegment::DotInt(_)
+                    | crate::semantic::basic::mc_ids::IdsSegment::DotIda(_)
+            )
+        })
+    {
         return None;
     }
-    Some((&s[..close + 1], member))
+    let member = tail.iter().map(ToString::to_string).collect::<String>();
+    let member = member.strip_prefix('.').unwrap_or(&member).to_string();
+    let prefix = McIds {
+        segments: ids.segments[..=i].to_vec(),
+    };
+    Some((prefix, member))
 }
 
 // ============================================================================
@@ -333,14 +359,17 @@ impl McPhrase {
                             // `McIds::from` form, §4.3) where `is_square_bracket()` is
                             // false — handled by spelling, gated on a real expansion
                             // differing from the literal.
-                            // `!starts_with('[')` excludes pure list forms
-                            // (`[res4]`, `[VDD, GND]`) which have their own
-                            // square-bracket branch below.
-                            if ids_str.contains(['[', ']']) && !ids_str.starts_with('[') {
+                            // Gate read off the segment tree, not the display text: a
+                            // square group with a non-empty base (`res[4]`); a pure
+                            // list form (`[res4]`, `[VDD, GND]`) has an empty base
+                            // name and its own square-bracket branch below.
+                            if ids.has_square() && !ids.base_name().is_empty() {
+                                // `ids` is already the AST segment tree — expand it
+                                // directly instead of a to_string() / parse_display
+                                // round trip (member_set_from_str is the P3 string
+                                // front end for callers that only hold text).
                                 if let Some(members) =
-                                    crate::semantic::basic::equivalent::member_set_from_str(
-                                        &ids_str,
-                                    )
+                                    crate::semantic::basic::equivalent::member_set(&ids)
                                 {
                                     if members.len() == 1 && members[0] != ids_str {
                                         let member = &members[0];
@@ -402,15 +431,15 @@ impl McPhrase {
                                         // The full expansion is `["c1.1", "c2.1"]`, but
                                         // `classify` sees `Mixed` (square + dot), so the
                                         // `resolve_reference` vector arm above did not fire.
-                                        // Split the trailing dot-member off the array
-                                        // spelling, resolve the array prefix alone, and wrap
-                                        // the shared member back on as a
+                                        // The AST carries the dot suffix as trailing
+                                        // DotInt/DotIda segments — split them off the
+                                        // segment tree (no display-text re-split),
+                                        // resolve the array prefix alone, and wrap the
+                                        // shared member back on as a
                                         // `Member(Endpoint(List), member)` so Pass2 expands
                                         // member-by-member (GAP1 alignment).
-                                        if let Some((array_str, member)) =
-                                            split_array_member(&ids_str)
+                                        if let Some((array_ids, member)) = split_vector_member(&ids)
                                         {
-                                            let array_ids = McIds::from(array_str);
                                             let verdict = context.resolve_reference(
                                                 &array_ids,
                                                 node.get_pos(),
@@ -430,10 +459,9 @@ impl McPhrase {
                                                         }
                                                     })
                                                     .collect();
-                                                let member_ep =
-                                                    McEndpoint::Single(McInstanceRef::new(
-                                                        McInstance::Label(member.to_string()),
-                                                    ));
+                                                let member_ep = McEndpoint::Single(
+                                                    McInstanceRef::new(McInstance::Label(member)),
+                                                );
                                                 return Some(McPhrase::Member(
                                                     Box::new(McPhrase::Endpoint(McEndpoint::List(
                                                         lanes,
@@ -863,6 +891,23 @@ impl McPhrase {
                                                 scope.as_deref(),
                                             );
                                         }
+                                        // ★ E3183/E3181 gate: a declared module
+                                        // port's shape is authoritative — a
+                                        // member access must never auto-widen it
+                                        // (the banned usage expansion). Emit on
+                                        // violation and reference the member lane
+                                        // directly, skipping the upgrade.
+                                        if context.enforce_declared_port_shape(
+                                            base,
+                                            &[rest.clone()],
+                                            &format!(".{rest}"),
+                                            &subnode,
+                                        ) {
+                                            let member_ref = McBus::member_ref(base, rest);
+                                            return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                                McInstanceRef::new(McInstance::Bus(member_ref)),
+                                            )));
+                                        }
                                         context.upgrade_label_to_bus(base);
                                         if let Some(McPhrase::Endpoint(McEndpoint::Single(
                                             McInstanceRef {
@@ -1046,6 +1091,21 @@ impl McPhrase {
                                             scope.as_deref(),
                                         );
                                     }
+                                    // ★ E3183/E3181 gate — declared module
+                                    // port shape is authoritative (no usage
+                                    // auto-expansion); see site 1.
+                                    if context.enforce_declared_port_shape(
+                                        base,
+                                        &[member.to_string()],
+                                        &format!(".{member}"),
+                                        node,
+                                    ) {
+                                        let member_ref =
+                                            McBus::member_ref(base, member.to_string());
+                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(McInstance::Bus(member_ref)),
+                                        )));
+                                    }
                                     context.upgrade_label_to_bus(base);
                                     if let Some(McPhrase::Endpoint(McEndpoint::Single(
                                         McInstanceRef {
@@ -1099,15 +1159,62 @@ impl McPhrase {
                     }
                 } else {
                     // ── Iter-6 P0-2.mcid-merge ──────────────────────────────
-                    // Root cause: extract_ida expands `MIC{P, N}` to ["MIC.P", "MIC.N"]
-                    //       two independent id strings, then Multiple path turns each into
-                    //       single-member Bus, phrase_to_members flattens to sibling phrases,
-                    //       chain adjacency directly shorts MIC.P ~ MIC.N.
+                    // A multi-member selection on one declared base (`MIC{P,N}`)
+                    // must collapse into a single `Bus(base, members)` phrase —
+                    // not into sibling single-member Buses whose lanes would
+                    // short `MIC.P ~ MIC.N` after flattening. This mirrors the
+                    // collapse the MCAST_OPD_CURLY arm already performs on the
+                    // same source text.
                     //
-                    // If all ids are "base.rest" shape sharing same base, and base is
-                    // declared instance, then treat as multi-member access to base, collapse to single Bus(base, [..]).
-                    // (aligning with validate_inst_reference output, downstream goes through points.rs
-                    //  P1-A4 owner=base path.)
+                    // Structural path (no flatten-to-text round trip): an
+                    // MCAST_IDS whose segment tree ends in a Curly tail yields
+                    // base + members from `McIds::as_bus` directly. Curly
+                    // groups never reach `extract_ida` (it has no `{}`
+                    // handling), so this route is the only one that sees the
+                    // member grouping; dotted-leaf chains keep the text
+                    // fallback below.
+                    if node.get_type() == MCAST_IDS {
+                        if let Some(ids) = crate::McIds::new(&node) {
+                            if ids.is_curly_bracket() {
+                                if let Some((base_name, members)) = ids.as_bus() {
+                                    let raw_len = members.len();
+                                    let clean: Vec<String> = members
+                                        .into_iter()
+                                        .filter(|m| !m.is_empty() && !m.contains('.'))
+                                        .collect();
+                                    if !clean.is_empty()
+                                        && clean.len() == raw_len
+                                        && context.find_inst(&base_name).is_some()
+                                    {
+                                        // ★ E3183/E3181 gate: multi-member curly
+                                        // selection on a declared module port is
+                                        // validated against its authoritative
+                                        // member set (scalar port → E3183).
+                                        let _ = context.enforce_declared_port_shape(
+                                            &base_name,
+                                            &clean,
+                                            &format!("{{{}}}", clean.join(", ")),
+                                            node,
+                                        );
+                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(McInstance::Bus(
+                                                McBus::new_with_members(&base_name, clean),
+                                            )),
+                                        )));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Text fallback (flat dotted-ID leaves only): the tokenizer
+                    // yields one dotted MCAST_IDA leaf per dotted id (`MIC.P`),
+                    // so a chain of such leaves has no segment-level group
+                    // structure and the shared base must be recovered from the
+                    // leaf texts. If all ids are "base.rest" sharing the same
+                    // declared base, collapse to single Bus(base, [..])
+                    // (aligning with validate_inst_reference output; downstream
+                    // goes through points.rs P1-A4 owner=base path).
                     let common = {
                         let mut base: Option<String> = None;
                         let mut members: Vec<String> = Vec::with_capacity(data.len());
@@ -1140,6 +1247,15 @@ impl McPhrase {
                     };
 
                     if let Some((base_name, members)) = common {
+                        // ★ E3183/E3181 gate: same-base dotted collapse over a
+                        // declared module port is validated against its
+                        // authoritative member set (scalar port → E3183).
+                        let _ = context.enforce_declared_port_shape(
+                            &base_name,
+                            &members,
+                            &format!(".{}", members.join(", .")),
+                            node,
+                        );
                         return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(&base_name, members)),
                         ))));
@@ -1185,6 +1301,24 @@ impl McPhrase {
                                                     Some("mc_phrase.rs:737 add_bus ghost-bus");
                                             }
                                             RefVerdict::Resolved => {
+                                                // ★ E3183/E3181 gate — declared
+                                                // module port shape is
+                                                // authoritative (no usage
+                                                // auto-expansion); see site 1.
+                                                if context.enforce_declared_port_shape(
+                                                    base,
+                                                    &[member.to_string()],
+                                                    &format!(".{member}"),
+                                                    node,
+                                                ) {
+                                                    let member_ref =
+                                                        McBus::member_ref(base, member.to_string());
+                                                    return Some(McPhrase::Endpoint(
+                                                        McEndpoint::Single(McInstanceRef::new(
+                                                            McInstance::Bus(member_ref),
+                                                        )),
+                                                    ));
+                                                }
                                                 context.upgrade_label_to_bus(base);
                                                 if let Some(McPhrase::Endpoint(
                                                     McEndpoint::Single(McInstanceRef {
@@ -4422,39 +4556,32 @@ fn module_port_elems(
         Some(McInstance::Module(m)) => m,
         _ => return None,
     };
-    // Match by base name: a port may be stored under its curly / vector form
-    // (`vin{POWER_SYS, GND}`, `[VDD_3V3, GND]`) while the reference uses the
-    // plain name (`vin`). Take the port with the most effective members.
-    let base_member = member
-        .split(|c| c == '{' || c == '[')
-        .next()
-        .unwrap_or(member);
+    // Match by base name: a port may be stored under its group form
+    // (`[VDD_3V3, GND]`) while the reference uses the plain name (`vin`) or
+    // the whole group. Take the port with the most effective members.
+    let base_member = crate::semantic::basic::mc_ids::display_base_members(member).0;
     let mut best: Option<Vec<McBus>> = None;
     let mut best_len = 0usize;
     for (name, port) in m.base.insts.iter() {
-        let name_base = name.split(|c| c == '{' || c == '[').next().unwrap_or(name);
-        if name_base != base_member {
+        // Key base from the shared parse_display entrance (P3): the stored key
+        // is the declared String currency — only the base comparison reads it.
+        if crate::semantic::basic::mc_ids::display_base_members(name).0 != base_member {
             continue;
         }
         let elems: Vec<McBus> = match port {
             McInstance::Interface(iface) => interface_elems(iface),
-            _ => {
-                let bracket: Vec<String> = name
-                    .strip_prefix('[')
-                    .and_then(|s| s.strip_suffix(']'))
-                    .map(|s| {
-                        s.split(',')
-                            .map(|x| x.trim().to_string())
-                            .filter(|x| !x.is_empty())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if bracket.len() >= 2 {
-                    bracket.into_iter().map(|m| McBus::new(&m)).collect()
-                } else {
-                    Vec::new()
-                }
+            // Members are structured fields registered from the AST at
+            // declaration time — never recovered from the key text. A bus/list
+            // port contributes one lane per member (a `1:2` slice was stored
+            // as a raw single member, matching the Pass2 expand_port_lanes
+            // width); scalar ports have none.
+            McInstance::Bus(b) if b.member.len() >= 2 => {
+                b.member.iter().map(|m| McBus::new(m)).collect()
             }
+            McInstance::List(l) if l.member.len() >= 2 => {
+                l.member.iter().map(|m| McBus::new(m)).collect()
+            }
+            _ => Vec::new(),
         };
         if elems.len() >= 2 && elems.len() > best_len {
             best_len = elems.len();
@@ -4579,24 +4706,17 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                         }
                     }
                     _ => {
-                        // Bracket / curly vector name (`[A, B]`) carries the
-                        // declared members; anything else is a scalar port.
-                        let name = port.get_name();
-                        let members: Vec<String> = name
-                            .strip_prefix('[')
-                            .and_then(|s| s.strip_suffix(']'))
-                            .or_else(|| name.strip_prefix('{').and_then(|s| s.strip_suffix('}')))
-                            .map(|s| {
-                                s.split(',')
-                                    .map(|x| x.trim().to_string())
-                                    .filter(|x| !x.is_empty())
-                                    .collect()
-                            })
-                            .unwrap_or_default();
+                        // Members are structured fields registered from the
+                        // AST at declaration time — never recovered from the
+                        // port's display name. A bus/list port contributes one
+                        // lane per member (a `1:2` slice was stored as a raw
+                        // single member, matching the Pass2 expand_port_lanes
+                        // width); a scalar port keeps its declared name.
+                        let members = port.members();
                         if members.len() >= 2 {
                             elems.extend(members.into_iter().map(|m| McBus::new(&m)));
                         } else {
-                            elems.push(McBus::new(&name));
+                            elems.push(McBus::new(&port.get_name()));
                         }
                     }
                 }
@@ -4749,8 +4869,24 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                     return buses;
                 }
             }
-            if let (Some(member), Some(base)) = (member, base_instance_name(inner)) {
+            // Resolve the member's base instance so a multi-lane port presents
+            // its full member count (`mic(V3V3).MIC` → MIC port {P,N} → P,N on
+            // both sides). A FuncCall head without a caller (`MIC(V3V3)`)
+            // falls back to its callee name when that names a real instance,
+            // mirroring the MCAST_OPD_DOT validation site; method names
+            // (`Cap`, `Pullup`) never resolve and fall through.
+            let base_name = base_instance_name(inner).or_else(|| match inner.as_ref() {
+                McPhrase::FuncCall(fc) => {
+                    let name = fc.func_name.to_string();
+                    context.find_inst(&name).is_some().then_some(name)
+                }
+                _ => None,
+            });
+            if let (Some(member), Some(base)) = (member, base_name) {
                 if let Some(elems) = component_port_elems(context, &base, &member) {
+                    return elems;
+                }
+                if let Some(elems) = module_port_elems(context, &base, &member) {
                     return elems;
                 }
             }

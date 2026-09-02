@@ -1743,20 +1743,12 @@ impl InstantiationBuilder {
                 .filter(|(p, m)| m.len() >= 2 && iotype_allowed(&p.iotype))
                 .max_by_key(|(_, m)| m.len())
                 .map(|(p, m)| (p.name.clone(), p.iotype.clone(), m));
-            if let Some((port_name, iotype, members)) = best_info {
-                // ── P2-3: back-propagate bus_members to the port ──
-                // When the port declaration has no bus_members (e.g., `io MIC`)
-                // but the body uses `MIC{P,N}`, write the members back so parent
-                // modules can also expand the port via Case 1 (b).
-                if let Some(target_port) = self
-                    .ports
-                    .iter_mut()
-                    .find(|p| p.name == port_name || strip_brace_suffix(&p.name) == port_name)
-                {
-                    if target_port.bus_members.is_empty() {
-                        target_port.bus_members = members.clone();
-                    }
-                }
+            if let Some((_port_name, iotype, members)) = best_info {
+                // ★ Authoritative declared-shape rule: NO back-propagation of usage members
+                // into the declared port. A port's `bus_members` comes only from its
+                // declaration; body member/lane access on a scalar-declared port is an
+                // E3183 error caught in Pass1, and this expansion only emits the lanes for
+                // that already-error'd reference without re-widening the port itself.
                 return Some(
                     members
                         .iter()

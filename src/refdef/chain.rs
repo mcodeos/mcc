@@ -111,22 +111,25 @@ fn base_of(seg: &str) -> &str {
 /// `"GPIO[1:2]"` expands the slice → [`"1"`, `"2"`]. Returns `None` when the
 /// segment has no `{}` / `[]` group or the group is empty.
 ///
-/// The member split routes through the pipeline's string front-end
-/// (`equivalent::member_set_from_str`, §4.2 shared) so `,` and `|` separators
-/// (`Q1{S|D}`, `{SPI,MIC|DAC_OUT,SPK_MUTE}`) share one member-set expansion,
-/// and the base prefix is stripped from the expanded member paths
-/// (`MIC.P`/`MIC.N`) to recover the bare member names the chain walk resolves
-/// against. The `[k:m]` slice expansion stays numeric — `McIda` square parsing
-/// yields the same digits the list-member hops consume.
+/// A curly bus hop (`MIC{P,N}`, `Q1{S|D}`, `X{SPI,MIC|DAC_OUT,SPK_MUTE}`)
+/// reads base and members straight from the trailing `Curly` segment of the
+/// shared text entry (`mc_ids::parse_display`, §4.2 shared) — `,`/`|`
+/// separators and R12 slices share one structural parse, with no `base_of`
+/// slice or prefix strip over expanded member paths. A square list hop
+/// (`GPIO[1:2]`) keeps the front-end expansion: its group is nested inside
+/// the run's `McIda`, so the base prefix strip happens on the expanded output.
 fn group_members(seg: &str) -> Option<(String, Vec<String>)> {
+    if let Some((base, members)) = crate::semantic::basic::mc_ids::curly_base_members(seg) {
+        return Some((base, members));
+    }
+    // Square list hop — the group is inside the run's McIda, not an outer
+    // segment, so parse_display yields one Ida and no structural split.
     let base = base_of(seg);
     if base.is_empty() || base.len() == seg.len() {
         return None;
     }
     let inner = &seg[base.len()..];
-    let is_group = (inner.starts_with('{') && inner.ends_with('}'))
-        || (inner.starts_with('[') && inner.ends_with(']'));
-    if !is_group {
+    if !(inner.starts_with('[') && inner.ends_with(']')) {
         return None;
     }
     let content = &inner[1..inner.len() - 1];
@@ -134,19 +137,10 @@ fn group_members(seg: &str) -> Option<(String, Vec<String>)> {
         return None;
     }
     let expanded = crate::semantic::basic::equivalent::member_set_from_str(seg)?;
-    // Curly groups expand to `base.member` (split_curly_groups joins on `.`),
-    // square groups to `base<member>` (McIda concatenates, no dot) — strip
-    // whichever separator the group kind produced.
+    // Square groups concatenate (`GPIO1`) — strip the bare base.
     let members: Vec<String> = expanded
         .iter()
-        .map(|m| {
-            if inner.starts_with('{') {
-                m.strip_prefix(&format!("{base}.")).unwrap_or(m)
-            } else {
-                m.strip_prefix(base).unwrap_or(m)
-            }
-        })
-        .map(str::to_string)
+        .map(|m| m.strip_prefix(base).unwrap_or(m).to_string())
         .filter(|m| !m.is_empty())
         .collect();
     if members.is_empty() {
@@ -660,6 +654,11 @@ fn module_member_kind(base: &McModule, member: &str, inst: &McInstance) -> Symbo
 ///
 /// Single-container version — `ref_text` is resolved against `insts` (ports,
 /// buses, labels, instances) and `params` of the same module/component.
+///
+/// Text entry: splits `ref_text` with [`split_segments`] and walks the result.
+/// The structural entry [`resolve_member_chain_from_segments`] feeds this same
+/// walk with segments mapped one-to-one from the AST (no `split_segments`
+/// re-parse), so both entries share one walk implementation.
 pub fn resolve_member_chain(
     uri: &McURI,
     ref_text: &str,
@@ -674,14 +673,25 @@ pub fn resolve_member_chain(
         ref_text,
         segs
     );
+    walk_segments(uri, &segs, insts, params)
+}
+
+/// Shared chain walk over an already-split segment list.
+///
+/// Each segment is a hop string as [`split_segments`] would produce (a plain
+/// name like `MIC`, or a base with its group attached like `ADC{P,N}`), so the
+/// hop resolution below only ever resolves one segment at a time and never
+/// needs to re-split the whole reference.
+fn walk_segments(
+    uri: &McURI,
+    segs: &[String],
+    insts: &McInstances,
+    params: &McParamDeclares,
+) -> Option<ChainHit> {
     let first = match segs.first() {
         Some(f) => f,
         None => {
-            mcc_dbg!(
-                "refdef::chain",
-                "[chain] EMPTY segments for {:?} → None",
-                ref_text
-            );
+            mcc_dbg!("refdef::chain", "[chain] EMPTY segments → None");
             return None;
         }
     };
@@ -764,20 +774,13 @@ pub fn resolve_member_chain(
     hit
 }
 
-/// Convenience wrapper: resolve a chain from pre-split segments.
-pub fn resolve_member_chain_from_segments(
-    uri: &McURI,
-    segs: &[ChainSegment],
-    insts: &McInstances,
-    params: &McParamDeclares,
-) -> Option<ChainHit> {
-    // `inst.f(..).member`: an Fcall segment is transparent — the function
-    // returns `this` (chaining off a non-`this` return is rejected by
-    // check_chain_validity/1316), so `.member` resolves against the receiver
-    // instance. Skipping the Fcall avoids rebuilding a broken "uC..I2C0"
-    // double-dot text (an empty segment would fail member resolution).
-    let ref_text: String = segs
-        .iter()
+/// Fold AST chain segments into hop strings (the walk's input form).
+///
+/// `Ident` stays itself; a `Group` keeps its braces so `group_members()`
+/// below can recover base/members; `Fcall` is dropped (transparent hop).
+/// No dotted re-join happens here — segments are consumed one-to-one.
+pub(crate) fn chain_segments_to_hop_texts(segs: &[ChainSegment]) -> Vec<String> {
+    segs.iter()
         .filter_map(|s| match s {
             ChainSegment::Ident(name) => Some(name.clone()),
             ChainSegment::Group { base, members } => {
@@ -785,9 +788,29 @@ pub fn resolve_member_chain_from_segments(
             }
             ChainSegment::Fcall(_) => None,
         })
-        .collect::<Vec<_>>()
-        .join(".");
-    resolve_member_chain(uri, &ref_text, insts, params)
+        .collect()
+}
+
+/// Structural entry: resolve a chain whose segments come straight from the AST.
+///
+/// Maps each [`ChainSegment`] one-to-one onto a walk segment and hands it to
+/// the shared [`walk_segments`] — no join back into a whole reference text and
+/// no [`split_segments`] re-parse, so the structure recorded at parse time is
+/// never flattened and rebuilt (aligns with `refdef/types.rs` design note).
+///
+/// `inst.f(..).member`: an Fcall segment is transparent — the function
+/// returns `this` (chaining off a non-`this` return is rejected by
+/// check_chain_validity/1316), so `.member` resolves against the receiver
+/// instance. Skipping the Fcall avoids feeding the walk an empty segment (a
+/// "uC..I2C0" double-dot artifact of a text round-trip).
+pub fn resolve_member_chain_from_segments(
+    uri: &McURI,
+    segs: &[ChainSegment],
+    insts: &McInstances,
+    params: &McParamDeclares,
+) -> Option<ChainHit> {
+    let walk_segs = chain_segments_to_hop_texts(segs);
+    walk_segments(uri, &walk_segs, insts, params)
 }
 
 /// Resolve only the base (first) segment of a member chain to its own def.

@@ -141,30 +141,20 @@ impl<'a> ParamsScope<'a> {
 /// dcdc{Vin, GND}` fails the §5 row-count check. `McBus` keeps the real
 /// member width on both sides of the operator.
 ///
-/// The member split routes through the pipeline's string front-end
-/// (`equivalent::member_set_from_str`, §4.2 shared), so `,` and `|` separators
-/// (`Q1{S|D}`, `{SPI,MIC|DAC_OUT,SPK_MUTE}`) share one member-set expansion.
-/// The def key is the canonical `to_string()` rendering (e.g.
-/// `USB_VBUS_1{VDD_3V3, GND}`), which `McIds::from(&str)` wraps as a single
-/// `Ida` segment; the front-end recovers the ordered member paths from it.
+/// The member split reads the def key through the shared text entry
+/// (`mc_ids::parse_display`, §4.2 shared) and takes base + members straight
+/// from the trailing `Curly` segment — `,`/`|` separators and R12 slices
+/// (`Q1{S|D}`, `X{SPI,MIC|DAC_OUT,SPK_MUTE}`, `IO0{0:7}`) share one structural
+/// parse, with no `find('{')`/prefix-strip text re-derivation.
 fn param_name_to_inst(name: &str) -> McInstance {
-    let expanded = crate::semantic::basic::equivalent::member_set_from_str(name);
-    if let (Some(members), Some(open)) = (&expanded, name.find('{')) {
-        // Structured curly form: `base{A,B|C}` expands to `[base.A, base.B, ...]`.
-        let base = name[..open].to_string();
+    if let Some((base, members)) = crate::semantic::basic::mc_ids::curly_base_members(name) {
         if !base.is_empty() && !members.is_empty() {
-            let prefix = format!("{base}.");
-            let stripped: Vec<String> = members
-                .iter()
-                .map(|m| m.strip_prefix(&prefix).unwrap_or(m).to_string())
-                .collect();
-            if stripped.iter().all(|m| !m.is_empty()) {
-                return McInstance::Bus(McBus::new_with_members(&base, stripped));
-            }
+            return McInstance::Bus(McBus::new_with_members(&base, members));
         }
     }
     McInstance::Label(name.to_string())
 }
+
 impl ResolveScope<Resolved> for ParamsScope<'_> {
     fn resolve(&self, name: &str) -> Option<Resolved> {
         self.params

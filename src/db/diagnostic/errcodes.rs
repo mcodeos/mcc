@@ -625,6 +625,14 @@ pub const BUS_MEMBER_UNDECLARED: u32 = 3181;
 /// the component-finish recheck's verdict.
 pub const INSTANCE_REF_UNDECLARED: u32 = 3182;
 
+/// Member/lane access on a module port that was declared without members
+/// (a bare scalar `io X` / `out X` / `in X`). The declared port shape is
+/// authoritative: a bare io is a single scalar net, and a `{P,N}` / `.member` /
+/// `[...]` reference would implicitly widen it to a bus ("usage auto-expansion"),
+/// which is prohibited. Declare the members or an interface type on the port,
+/// or reference the whole port as a scalar.
+pub const BUS_MEMBER_ON_SCALAR_PORT: u32 = 3183;
+
 // ============================================================================
 // Pass2: connection / shape (4000-4049)
 // ============================================================================
@@ -1435,6 +1443,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(IFACE_NO_TOPLEVEL_PINS, "Interface has no top-level pin definitions (all pins are inside role blocks); no pin-to-member mapping is created.", "Interface '{0}' has no top-level pins (all pins are inside `role` blocks, e.g. UART.X); no pin-to-member mapping will be created. If you want the role-specific pins registered, list them explicitly (e.g. `pins = TX, RX, GND`)."),
     entry!(BUS_MEMBER_UNDECLARED, "Referenced member is not defined on the declared bus.", "Definition exists for '{0}': {2}; referenced member '{1}' is not defined."),
     entry!(INSTANCE_REF_UNDECLARED, "A structured instance/member reference resolves to no declared instance in scope.", "The base name '{0}' of the structured reference '{1}' resolves to no declared instance in this component/module; declare it or fix the name."),
+    entry!(BUS_MEMBER_ON_SCALAR_PORT, "Member/lane access on a module port declared without members (scalar io/out/in).", "Port '{0}' is declared scalar (no members); member/lane access '{1}' is not allowed. Declare its members or an interface type, or reference the whole port."),
     // ---- section ----
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
