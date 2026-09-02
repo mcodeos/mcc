@@ -882,9 +882,6 @@ mod inst_scope_tests {
             parent: None,
             children: Vec::new(),
             name: module.name.clone(),
-            def: None,
-            pins: Vec::new(),
-            shape: None,
         });
         for mut comp in components {
             let id = reg.intern(&format!("{}.{}", module.name, comp.name));
@@ -895,9 +892,6 @@ mod inst_scope_tests {
                 parent: Some(root),
                 children: Vec::new(),
                 name: comp.name.clone(),
-                def: None,
-                pins: Vec::new(),
-                shape: None,
             });
             arena.add_child_grouped(root, id, NodeKind::Device);
             store.insert(id, NodeInstance::Component(Rc::new(comp)));
@@ -911,9 +905,6 @@ mod inst_scope_tests {
                 parent: Some(root),
                 children: Vec::new(),
                 name: sub.name.clone(),
-                def: None,
-                pins: Vec::new(),
-                shape: None,
             });
             arena.add_child_grouped(root, id, NodeKind::Module);
             store.insert(id, NodeInstance::Module(Rc::new(sub)));

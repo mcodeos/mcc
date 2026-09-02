@@ -22,12 +22,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use crate::db::defregistry::{def_id, DefId, DefKind};
-use crate::db::member_ledger::DefMemberId;
 use crate::instant::identity::NodeId;
-use crate::instant::mc_comp::McComponentInst;
-use crate::instant::mc_mod::McModuleInst;
-use crate::McSpaceName;
 
 /// The four node kinds of the circuit arena (design §4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,12 +39,14 @@ pub enum NodeKind {
 
 /// One arena node (design §4): integer identity plus flat data, no references.
 ///
-/// `#[allow(dead_code)]`: some node fields are written by the
-/// construction-time builder and only read by the flatten / export / viz
-/// walks that migrate onto the arena over the Phase C steps.
+/// Phase C S3-D cleanup: the node carries only the structural fields the
+/// arena consumers read (TreeView walks `kind` + `children`/`parent` edges;
+/// instance content — the class def, pins, vector shape — resolves from the
+/// companion [`InstanceStore`](crate::instant::inststore::InstanceStore)).
+/// The `def`/`pins`/`shape` payload an earlier step wrote here had no
+/// production readers and was removed.
 ///
 /// `PartialEq` is derived for equality assertions on the arena.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
     /// The node's per-build identity.
@@ -64,26 +61,6 @@ pub struct Node {
     pub children: Vec<NodeId>,
     /// Display name (instance name / port name / vector base).
     pub name: String,
-    /// Definition-space id of the instance's class, when the def is
-    /// registered (best-effort; `None` for ports/vectors and for defs not in
-    /// the registry, e.g. test stubs).
-    pub def: Option<DefId>,
-    /// Device only: the component class's pin ordinals in declaration order
-    /// (append-only member ledger, invariant C).
-    pub pins: Vec<DefMemberId>,
-    /// Vector only: optional 2D+ declared shape (1D vectors omit it).
-    pub shape: Option<Vec<usize>>,
-}
-
-/// Node queries — same migration-surface rationale as [`NodeArena`]'s
-/// accessors; exercised by the arena unit tests today, consumed by the
-/// flatten / export / viz walks in later steps.
-#[allow(dead_code)]
-impl Node {
-    /// Whether this node is the circuit root.
-    pub fn is_root(&self) -> bool {
-        self.parent.is_none()
-    }
 }
 
 /// Arena storage for one circuit: `HashMap<NodeId, Node>` plus a root, with
@@ -172,7 +149,6 @@ impl NodeArena {
 
 /// Accessor surface — consumed by the flatten / export / viz walks and the
 /// [`TreeView`](crate::instant::inststore::TreeView) structure queries.
-#[allow(dead_code)]
 impl NodeArena {
     /// The circuit root node id.
     pub fn root(&self) -> NodeId {
@@ -204,8 +180,10 @@ impl NodeArena {
         self.nodes.is_empty()
     }
 
-    /// Level-order (BFS) walk from the root — the deterministic traversal
-    /// the flatten / export / viz consumers migrate onto.
+    /// Level-order (BFS) walk from the root — a deterministic flat traversal
+    /// over the whole tree (design §4). Exercised by the arena unit tests;
+    /// consumers needing a full walk (rather than a kind-filtered
+    /// `children` pass) can use it directly.
     pub fn iter_level_order(&self) -> impl Iterator<Item = &Node> {
         let mut out = Vec::with_capacity(self.nodes.len());
         let mut queue = VecDeque::new();
@@ -218,33 +196,6 @@ impl NodeArena {
         }
         out.into_iter()
     }
-}
-
-/// Best-effort `DefId` of a module instance's class (module def registry).
-///
-/// `pub(crate)`: the construction-time builder resolves the module node's
-/// `def` through here.
-pub(crate) fn module_def_id(module: &McModuleInst) -> Option<DefId> {
-    def_id(
-        &McSpaceName::new(&module.def.name, module.def_uri.clone()),
-        DefKind::Module,
-    )
-}
-
-/// Best-effort `DefId` of a component instance's class (component def
-/// registry).
-pub(crate) fn component_def_id(comp: &McComponentInst) -> Option<DefId> {
-    def_id(
-        &McSpaceName::new(&comp.def.name, comp.def.uri.clone()),
-        DefKind::Component,
-    )
-}
-
-/// Device node pins: the component class's pin ordinals in declaration order.
-/// `get_all_pins()` sorts by name, so the append-only member ledger (invariant
-/// C) is the declaration-order source.
-pub(crate) fn component_pins(comp: &McComponentInst) -> Vec<DefMemberId> {
-    comp.def.pins.ledger.live_members().map(|m| m.id).collect()
 }
 
 #[cfg(test)]
@@ -282,9 +233,6 @@ mod tests {
             parent: None,
             children: Vec::new(),
             name: "main".to_string(),
-            def: None,
-            pins: Vec::new(),
-            shape: None,
         });
         // Port / vector / device / module nodes: leaf groups first (children
         // edges added via `add_child_grouped`), then the sub-module root.
@@ -294,9 +242,6 @@ mod tests {
             parent: Some(root),
             children: Vec::new(),
             name: "VDD".to_string(),
-            def: None,
-            pins: Vec::new(),
-            shape: None,
         });
         arena.insert(Node {
             id: c,
@@ -304,9 +249,6 @@ mod tests {
             parent: Some(root),
             children: Vec::new(),
             name: "c".to_string(),
-            def: None,
-            pins: Vec::new(),
-            shape: Some(vec![2]),
         });
         arena.insert(Node {
             id: c1,
@@ -314,9 +256,6 @@ mod tests {
             parent: Some(root),
             children: Vec::new(),
             name: "c1".to_string(),
-            def: None,
-            pins: Vec::new(),
-            shape: None,
         });
         // Sub-module subtree: its own root + a port + a device.
         arena.insert(Node {
@@ -325,9 +264,6 @@ mod tests {
             parent: Some(root),
             children: Vec::new(),
             name: "ldo".to_string(),
-            def: None,
-            pins: Vec::new(),
-            shape: None,
         });
         arena.insert(Node {
             id: vin,
@@ -335,9 +271,6 @@ mod tests {
             parent: Some(ldo),
             children: Vec::new(),
             name: "VIN".to_string(),
-            def: None,
-            pins: Vec::new(),
-            shape: None,
         });
         arena.insert(Node {
             id: cap1,
@@ -345,9 +278,6 @@ mod tests {
             parent: Some(ldo),
             children: Vec::new(),
             name: "cap1".to_string(),
-            def: None,
-            pins: Vec::new(),
-            shape: None,
         });
         // Edges, in a deliberately non-grouped order to prove `add_child_grouped`
         // regroups into ports, vectors, devices, modules.
@@ -383,7 +313,7 @@ mod tests {
 
         let root_id = arena.root();
         let root = arena.node(root_id).expect("root node present");
-        assert!(root.is_root(), "root has no parent");
+        assert!(root.parent.is_none(), "root has no parent");
         assert_eq!(root.kind, NodeKind::Module);
         assert_eq!(root.name, "main");
         assert_eq!(
@@ -403,14 +333,12 @@ mod tests {
             .unwrap();
         assert_eq!(vdd.kind, NodeKind::Port);
         assert_eq!(vdd.parent, Some(root_id));
-        assert!(vdd.def.is_none(), "ports carry no def");
 
-        // Vector node carries its declared shape.
+        // Vector node.
         let vec = arena
             .node(node_id_of(&arena, "c", NodeKind::Vector))
             .unwrap();
         assert_eq!(vec.kind, NodeKind::Vector);
-        assert_eq!(vec.shape, Some(vec![2]));
         assert_eq!(vec.parent, Some(root_id));
 
         // Device node.
@@ -419,7 +347,6 @@ mod tests {
             .unwrap();
         assert_eq!(c1.kind, NodeKind::Device);
         assert_eq!(c1.parent, Some(root_id));
-        assert!(c1.pins.is_empty(), "stub def has no pins");
 
         // Sub-module subtree.
         let ldo = arena
