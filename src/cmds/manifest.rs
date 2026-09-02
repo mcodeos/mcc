@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! manifest.toml parsing + `mcc build` integration — PR-4b
+//! project.toml parsing + `mcc build` integration — PR-4b
 //!
 //! ## Manifest format
 //!
@@ -67,10 +67,9 @@ impl Manifest {
         Ok(manifest)
     }
 
-    /// Find manifest from project root.
-    /// Prefers `project.toml`, then `manifest.toml`, then `mcc.toml`.
+    /// Find the project manifest (`project.toml`) from the project root.
     /// Delegates to the shared lib-layer helper so CLI, RPC and MCP agree on
-    /// the candidate set.
+    /// the manifest name.
     pub fn find_in(root: &Path) -> Option<PathBuf> {
         mcc::cli::datadir::find_manifest_in(root)
     }
@@ -316,11 +315,11 @@ pub fn load_libs(lib_names: &[String]) {
 }
 
 /// Walk up from `target` (a file or directory path) to find the project root:
-/// the nearest ancestor directory containing `project.toml`, `manifest.toml`,
-/// or `mcc.toml` (in that order, see [`Manifest::find_in`]). Falls back to the
-/// target's own directory (or its parent for a file) when nothing is found.
-/// Relative targets are resolved against the current directory first, so the
-/// returned root is always absolute.
+/// the nearest ancestor directory containing `project.toml` (see
+/// [`Manifest::find_in`]). Falls back to the target's own directory (or its
+/// parent for a file) when nothing is found. Relative targets are resolved
+/// against the current directory first, so the returned root is always
+/// absolute.
 pub fn find_project_root(target: Option<&str>) -> Option<PathBuf> {
     let t = target?;
     let raw = Path::new(t);
@@ -348,8 +347,8 @@ pub fn find_project_root(target: Option<&str>) -> Option<PathBuf> {
 ///
 /// Initializes the engine without the config-gated system library, sets the
 /// system root to the auto-discovered base, walks up from `target` to find the
-/// project root (a directory containing project.toml / manifest.toml /
-/// mcc.toml, see [`find_project_root`]), then loads libraries from global
+/// project root (a directory containing project.toml, see [`find_project_root`]),
+/// then loads libraries from global
 /// config, project config, manifest, CLI --lib, plus the mcode default
 /// (unless disabled by libs.disable_mcode).
 ///
@@ -375,7 +374,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_manifest_toml() {
+    fn parse_project_toml() {
         let toml = r#"
 [project]
 name = "hbl"

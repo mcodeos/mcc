@@ -311,7 +311,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         //
         // Priority for Top Module Selection:
         //   1. CLI --top argument (highest priority): e.g., `mcc parse --top MyModule`
-        //   2. Manifest top_module field: defined in manifest.toml
+        //   2. Manifest top_module field: defined in project.toml
         //   3. Fallback to the first module of the target file (usually "main")
         //
         // Strategy 2: No Top Module (Flat/Peer Modules)

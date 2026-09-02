@@ -157,19 +157,18 @@ fn check_system_use_lib(uri: &McURI, mcuse: &McUse, current_path: &Path) {
     );
 }
 
-/// Walk up from `start` looking for a project manifest. Accepts the same
-/// three candidate names as the unified project-root discovery
-/// (`project.toml` / `manifest.toml` / `mcc.toml`, see
-/// [`PROJECT_MANIFEST_NAMES`](crate::cli::datadir::PROJECT_MANIFEST_NAMES)),
-/// so use validation and project-root resolution agree on what counts as a
+/// Walk up from `start` looking for a project manifest (`project.toml`, see
+/// [`PROJECT_MANIFEST_NAME`](crate::cli::datadir::PROJECT_MANIFEST_NAME)), so
+/// use validation and project-root resolution agree on what counts as a
 /// project.
 fn manifest_reachable_from(start: &Path) -> bool {
     let mut current = Some(start);
     while let Some(dir) = current {
-        for name in crate::cli::datadir::PROJECT_MANIFEST_NAMES {
-            if dir.join(name).exists() {
-                return true;
-            }
+        if dir
+            .join(crate::cli::datadir::PROJECT_MANIFEST_NAME)
+            .exists()
+        {
+            return true;
         }
         current = dir.parent();
     }
