@@ -13,7 +13,7 @@ pub fn classify_token_by_symbol(
     lex_type: i16,
     position: usize,
     length: usize,
-    lapper: &crate::ast::ast_semantic::SymbolRangeLapper,
+    lapper: &crate::ast::sem::SymbolRangeLapper,
 ) -> i16 {
     // Only re-classify identifiers (lexer marks them as KEYWORD=13 or NONE=255)
     if lex_type != 13 && lex_type != 255 {
@@ -29,7 +29,7 @@ pub fn classify_token_by_symbol(
             let sym_start = interval.start;
             let sym_stop = interval.stop;
             if token_start < sym_stop && token_end > sym_start {
-                use crate::ast::ast_semantic::SymbolKind;
+                use crate::ast::sem::SymbolKind;
                 if interval.val.kind == SymbolKind::ClassDef as u8 {
                     return 3; // CLASS
                 }
@@ -77,7 +77,7 @@ pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
                 .lock()
                 .ok()
                 .map(|s| s.symbol_lapper.clone())
-                .unwrap_or_else(|| crate::ast::ast_semantic::SymbolRangeLapper::new(vec![]));
+                .unwrap_or_else(|| crate::ast::sem::SymbolRangeLapper::new(vec![]));
 
             // Re-classify tokens using symbol lapper
             let tokens: Vec<serde_json::Value> = raw_tokens
@@ -128,7 +128,7 @@ pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
             let symbols = mcfile
                 .symbols
                 .lock()
-                .map(|s| crate::ast::ast_semantic::symbol_table_to_json(&s, mc_uri))
+                .map(|s| crate::ast::sem::symbol_table_to_json(&s, mc_uri))
                 .unwrap_or_else(|_| serde_json::json!({}));
 
             // ★ §7.6: Affected files via reverse_deps — files that `use` this one

@@ -16,7 +16,7 @@ use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_ifs::Mc2Interface;
 use crate::{
-    ast::ast_node::AstNode, ast::c_macros::*, ast::error::message::*,
+    ast::error::message::*, ast::macros::*, ast::node::AstNode,
     semantic::basic::mc_expr::McExpression, semantic::basic::mc_param::McParamValue,
     semantic::common::IOType,
 };

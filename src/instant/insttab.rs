@@ -14,11 +14,12 @@
 //! table.dump();
 //! ```
 
-use super::arena::{arena_sub_modules, NodeArena};
+use super::arena::NodeArena;
+use super::inststore::{InstanceStore, TreeView};
 use super::mc_bus::McBusInst;
 use super::mc_mod::McModuleInst;
 use super::mc_net::NetPoint;
-use crate::instant::net_store::NetTableStore;
+use crate::instant::nettab::NetTableStore;
 use crate::semantic::common::IOType;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -411,10 +412,13 @@ impl InstTable {
 
     /// Recursively generate flattened instance table from McModuleInst tree.
     ///
-    /// Tree-recursion fallback (no arena): used by callers that hold only the
-    /// tree, e.g. the `mcc build` net-check path. See
-    /// [`Self::from_module_inst_with_arena`] for the Phase C arena-driven
-    /// variant used by the `DianLu` flatten projection.
+    /// `view` (Phase C S3: arena edges + instance store) drives the traversal:
+    /// sub-module order follows the arena `children` edges and the content
+    /// resolves from the store (design §4 — the tree is a view over arena
+    /// edges) instead of the tree's (now-removed) recursive `sub_modules` Vec.
+    /// Callers hold the owning build's arena + store and construct the view
+    /// (`mcc build` net-check path, `DianLu` flatten projection via
+    /// [`Self::from_module_inst_with_arena`]).
     ///
     /// `net_store` (Phase D) carries the circuit-wide frozen string net tables
     /// produced during construction — the tree no longer stores `NetPoint`, so
@@ -423,10 +427,11 @@ impl InstTable {
         inst: &McModuleInst,
         start_id: u32,
         net_store: Rc<RefCell<NetTableStore>>,
+        view: &TreeView,
     ) -> Self {
         let mut table = InstTable::new(start_id);
         table.net_table = net_store;
-        table.flatten_module(inst, "", None, None);
+        table.flatten_module(inst, "", None, view);
         // NOTE: no global ground merge here (strict DC rail identity). Ground
         // nets stay exactly as wired: each DC rail keeps its own ground
         // (`V5V.GND` != `V3V3.GND`) and grounds merge only through real wiring
@@ -435,22 +440,18 @@ impl InstTable {
     }
 
     /// Recursively generate flattened instance table, with the Phase C arena
-    /// driving the traversal: sub-module order follows the arena `children`
-    /// edges (design §4 — the tree is a view over arena edges) instead of the
-    /// tree's recursive `sub_modules` Vec. The sub-module data itself still
-    /// comes from the aligned tree node; a `debug_assert` verifies the
-    /// arena/tree isomorphism on every flatten (Phase C two-track migration:
-    /// identical projection, order sourced from the arena).
+    /// + instance store driving the traversal. Thin wrapper over
+    /// [`Self::from_module_inst`] that builds the view from the owning build's
+    /// arena + store.
     pub(crate) fn from_module_inst_with_arena(
         inst: &McModuleInst,
         start_id: u32,
         arena: &NodeArena,
+        store: &InstanceStore,
         net_store: Rc<RefCell<NetTableStore>>,
     ) -> Self {
-        let mut table = InstTable::new(start_id);
-        table.net_table = net_store;
-        table.flatten_module(inst, "", None, Some(arena));
-        table
+        let view = TreeView::new(arena, store);
+        Self::from_module_inst(inst, start_id, net_store, &view)
     }
 
     /// Register an instance, return the allocated ID
@@ -844,7 +845,7 @@ impl InstTable {
         inst: &McModuleInst,
         prefix: &str,
         parent_id: Option<u32>,
-        arena: Option<&NodeArena>,
+        view: &TreeView,
     ) {
         // 1. Register the module itself
         let my_path = if prefix.is_empty() {
@@ -963,7 +964,8 @@ impl InstTable {
         // ★ P9-A1 fix: only include Declared components. Func-created instances
         // (CAP, RES etc.) are themselves being reparented and cannot be owners.
         let mut func_to_owner: HashMap<String, String> = HashMap::new();
-        for comp in &inst.components {
+        let comps: Vec<_> = view.components(inst).collect();
+        for comp in comps {
             if !matches!(comp.origin, InstOrigin::Declared) {
                 continue;
             }
@@ -994,7 +996,8 @@ impl InstTable {
 
         // 3. Register components + pins (two-pass: non-func-created first,
         //    then func-created with corrected parent_id)
-        for comp in &inst.components {
+        let comps: Vec<_> = view.components(inst).collect();
+        for comp in comps {
             if matches!(comp.origin, InstOrigin::FuncCall { .. }) {
                 continue; // handled in second pass
             }
@@ -1112,7 +1115,8 @@ impl InstTable {
 
         // ★ P8-1 pass 2: func-created components — re-parent to the component
         // that defines the func, not the calling module.
-        for comp in &inst.components {
+        let comps: Vec<_> = view.components(inst).collect();
+        for comp in comps {
             if !matches!(comp.origin, InstOrigin::FuncCall { .. }) {
                 continue;
             }
@@ -1333,19 +1337,12 @@ impl InstTable {
             }
         }
 
-        // 6. Recursively process sub-modules. Phase C: when the arena is
-        //    available, its `children` edges drive the traversal order
-        //    (design §4 — the tree is a view over arena edges); the aligned
-        //    tree node still supplies the sub-module data. `debug_assert`
-        //    inside `arena_sub_modules` verifies the arena/tree isomorphism.
-        if let Some(arena) = arena {
-            for sub in arena_sub_modules(arena, inst) {
-                self.flatten_module(sub, &my_path, Some(my_id), Some(arena));
-            }
-        } else {
-            for sub in &inst.sub_modules {
-                self.flatten_module(sub, &my_path, Some(my_id), None);
-            }
+        // 6. Recursively process sub-modules. Phase C S3: the view's arena
+        //    `children` edges drive the traversal order (design §4 — the tree
+        //    is a view over arena edges); the aligned tree node supplies the
+        //    sub-module data from the store.
+        for sub in view.sub_modules(inst) {
+            self.flatten_module(sub, &my_path, Some(my_id), view);
         }
 
         // 7. Register network information (module's frozen string net table)
@@ -1673,9 +1670,12 @@ impl InstTable {
     }
 
     /// Collect all failed component records from the module tree and write to known_missing.md.
-    pub fn write_known_missing(inst: &McModuleInst, output_path: &str) {
+    ///
+    /// Phase C S3-D: the tree walk resolves sub-modules through `view` (arena
+    /// edges + store — the tree's Vec fields are gone).
+    pub fn write_known_missing(inst: &McModuleInst, output_path: &str, view: &TreeView) {
         let mut all_records: Vec<&crate::instant::mc_mod::FailedRecord> = Vec::new();
-        Self::collect_failed_records(inst, &mut all_records);
+        Self::collect_failed_records(inst, view, &mut all_records);
 
         if all_records.is_empty() {
             return;
@@ -1724,13 +1724,14 @@ impl InstTable {
 
     fn collect_failed_records<'a>(
         inst: &'a McModuleInst,
+        view: &'a TreeView<'a>,
         out: &mut Vec<&'a crate::instant::mc_mod::FailedRecord>,
     ) {
         for r in &inst.failed_records {
             out.push(r);
         }
-        for sub in &inst.sub_modules {
-            Self::collect_failed_records(sub, out);
+        for sub in view.sub_modules(inst) {
+            Self::collect_failed_records(sub, view, out);
         }
     }
 }

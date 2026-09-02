@@ -57,8 +57,9 @@ module main {
 }";
     let dl = build_dianlu(src);
     let tree = dl.tree();
-    let c1 = tree.components.iter().find(|c| c.name == "c1").unwrap();
-    let c2 = tree.components.iter().find(|c| c.name == "c2").unwrap();
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
+    let c1 = view.components(tree).find(|c| c.name == "c1").unwrap();
+    let c2 = view.components(tree).find(|c| c.name == "c2").unwrap();
     let pin1 = c1.def.pins.ledger.id_of("1").unwrap();
     let vdd_ord = tree.ports.iter().position(|p| p.name == "VDD").unwrap();
     let p_vdd = mcc::PointId {
@@ -158,10 +159,11 @@ module main {
 }";
     let dl = build_dianlu(src);
     let tree = dl.tree();
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
     let root = tree.node_id.unwrap();
-    let r1 = tree.sub_modules.iter().find(|s| s.name == "r1").unwrap();
-    let c1 = tree.components.iter().find(|c| c.name == "c1").unwrap();
-    let s1 = r1.components.iter().find(|c| c.name == "s1").unwrap();
+    let r1 = view.sub_modules(tree).find(|s| s.name == "r1").unwrap();
+    let c1 = view.components(tree).find(|c| c.name == "c1").unwrap();
+    let s1 = view.components(r1).find(|c| c.name == "s1").unwrap();
 
     let subtree = dl.module_subtree(root);
     assert_eq!(subtree[0], root, "walk starts at the root");

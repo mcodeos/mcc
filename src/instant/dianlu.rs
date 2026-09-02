@@ -22,7 +22,7 @@
 //! tree-only consumers read [`Self::tree`], flat consumers call
 //! [`Self::flatten`].
 
-use super::arena::{build_node_arena, NodeArena};
+use super::arena::NodeArena;
 use super::descriptions::DescriptionLayer;
 use super::insttab::InstTable;
 use super::lane::{collect_stmt_trunks, derive_nets, finalize_net_ids, Net, NetId, PointId, Trunk};
@@ -30,7 +30,8 @@ use super::mc_mod::McModuleInst;
 use super::overlays::Overlays;
 use crate::db::diagnostic::diagnostic::Diagnostic;
 use crate::instant::identity::{anchored_child_key, CircuitKey, IdentityRegistry};
-use crate::instant::net_store::NetTableStore;
+use crate::instant::inststore::{InstanceStore, TreeView};
+use crate::instant::nettab::NetTableStore;
 use crate::McSpaceName;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -55,10 +56,16 @@ pub struct DianLu {
     /// Consumers resolve `node_id` by path (or vice versa) through here.
     identity: IdentityRegistry,
     /// Phase C: companion arena storage (`HashMap<NodeId, Node>` + root +
-    /// parent/children edges), rebuilt from the frozen tree on construction.
-    /// The tree stays authoritative (two-track migration); the arena is the
-    /// storage the flatten / export / viz walks migrate onto.
+    /// parent/children edges), laid down incrementally by the construction
+    /// builder and moved in here on construction. The arena is the sole
+    /// structural store — `McModuleInst` carries no children Vecs.
     arena: NodeArena,
+    /// Phase C S3: the instance store — every component / sub-module's
+    /// modelling-layer content, keyed by arena node id. Same carrier rule as
+    /// the arena: built incrementally by the construction builder, moved in on
+    /// construction. The [`TreeView`](crate::instant::inststore::TreeView)
+    /// resolves children through arena edges + these values.
+    store: InstanceStore,
     /// Phase D: statement-level lane layer (design §11.3 ③) — one [`Trunk`]
     /// per connection statement, collected from the frozen tree on
     /// construction. The structured statement storage the derived electrical
@@ -108,9 +115,22 @@ impl DianLu {
         start_id: u32,
         net_store: Rc<RefCell<NetTableStore>>,
         circuit_deps: Vec<McSpaceName>,
+        arena: NodeArena,
+        store: InstanceStore,
     ) -> Self {
-        let mut identity = build_identity_registry(&tree);
-        Self::assemble(tree, start_id, net_store, circuit_deps, &mut identity)
+        // Phase C S3-D: resume the frozen tree's ids through the store-backed
+        // view (the tree's `components` / `sub_modules` Vec fields are gone).
+        let view = TreeView::new(&arena, &store);
+        let mut identity = build_identity_registry(&tree, &view);
+        Self::assemble(
+            tree,
+            start_id,
+            net_store,
+            circuit_deps,
+            &mut identity,
+            arena,
+            store,
+        )
     }
 
     /// Phase G (D10): wrap an already-instantiated tree whose node ids were
@@ -126,9 +146,21 @@ impl DianLu {
         net_store: Rc<RefCell<NetTableStore>>,
         circuit_deps: Vec<McSpaceName>,
         registry: &mut IdentityRegistry,
+        arena: NodeArena,
+        store: InstanceStore,
     ) -> Self {
-        resume_module(registry, &tree.name, &tree);
-        Self::assemble(tree, start_id, net_store, circuit_deps, registry)
+        // Phase C S3-D: resume through the store-backed view (see `Self::new`).
+        let view = TreeView::new(&arena, &store);
+        resume_module(registry, &tree.name, &tree, &view);
+        Self::assemble(
+            tree,
+            start_id,
+            net_store,
+            circuit_deps,
+            registry,
+            arena,
+            store,
+        )
     }
 
     /// Shared construction: derive the arena, lane layer, net layer (with D9
@@ -140,9 +172,12 @@ impl DianLu {
         net_store: Rc<RefCell<NetTableStore>>,
         circuit_deps: Vec<McSpaceName>,
         identity: &mut IdentityRegistry,
+        arena: NodeArena,
+        store: InstanceStore,
     ) -> Self {
-        let arena = build_node_arena(&tree);
-        let lanes = collect_stmt_trunks(&tree, &arena);
+        // Phase C: the incremental arena the builder laid down during
+        // construction is the sole structural store.
+        let lanes = collect_stmt_trunks(&tree, &arena, &store);
         let mut nets = derive_nets(&lanes);
         finalize_net_ids(&mut nets, identity);
         // §11.5.2 read API reverse index: built after `finalize_net_ids` so the
@@ -152,8 +187,12 @@ impl DianLu {
             .flat_map(|n| n.points.iter().map(move |p| (*p, n.id)))
             .collect();
         let identity = identity.clone();
-        let overlays = Overlays::derive(&tree, &nets);
-        let descriptions = DescriptionLayer::derive(&tree, &lanes, &overlays, &net_store.borrow());
+        // Phase C S3-D: the frozen-side overlay/description derivation resolves
+        // children through the view (arena edges + store), not the tree Vecs.
+        let view = TreeView::new(&arena, &store);
+        let overlays = Overlays::derive(&tree, &nets, &view);
+        let descriptions =
+            DescriptionLayer::derive(&tree, &lanes, &overlays, &net_store.borrow(), &view);
         DianLu {
             tree,
             start_id,
@@ -161,6 +200,7 @@ impl DianLu {
             net_diags: Vec::new(),
             identity,
             arena,
+            store,
             lanes,
             nets,
             point_net,
@@ -177,12 +217,11 @@ impl DianLu {
     }
 
     /// The companion arena (design §4 / D6): `HashMap<NodeId, Node>` + root +
-    /// parent/children edges rebuilt from the frozen tree.
+    /// parent/children edges laid down by the construction builder.
     ///
-    /// Consumers hold the arena alongside the tree and drive their
-    /// sub-module recursion with [`crate::instant::arena::arena_sub_modules`]
-    /// (Phase C two-track migration — design §4: the tree is a view over
-    /// arena edges).
+    /// Consumers hold the arena + store alongside the tree and read children
+    /// through a [`TreeView`](crate::instant::inststore::TreeView)
+    /// (design §4 — the tree is a view over arena edges + store values).
     pub fn arena(&self) -> &NodeArena {
         &self.arena
     }
@@ -190,6 +229,15 @@ impl DianLu {
     /// The instance tree (modelling layer), not the flat projection.
     pub fn tree(&self) -> &McModuleInst {
         &self.tree
+    }
+
+    /// Phase C S3: the instance store — every component / sub-module's
+    /// modelling-layer content, keyed by arena node id. Consumers that hold a
+    /// [`TreeView`](crate::instant::inststore::TreeView) read children
+    /// through arena edges + these values instead of the tree's (now-removed)
+    /// Vec fields.
+    pub fn store(&self) -> &InstanceStore {
+        &self.store
     }
 
     /// Phase D statement-level lane layer: one [`Trunk`] per connection
@@ -278,12 +326,12 @@ impl DianLu {
         if self.table.is_none() {
             // Phase C: the arena drives the flatten traversal (arena children
             // edges source the sub-module order, design §4 — the tree is a
-            // view over arena edges); the projection output is identical to
-            // the tree-recursive form (`debug_assert` guards the isomorphism).
+            // view over arena edges + store values).
             let mut table = InstTable::from_module_inst_with_arena(
                 &self.tree,
                 self.start_id,
                 &self.arena,
+                &self.store,
                 self.net_table.clone(),
             );
             if let Some(prefix) = synthetic_prefix {
@@ -305,9 +353,12 @@ impl DianLu {
 /// flat projection and resume every `(canonical path, node id)` pair. The
 /// result is identical to the construction-time registry — same path, same
 /// id (per-build determinism).
-fn build_identity_registry(tree: &McModuleInst) -> IdentityRegistry {
+///
+/// Phase C S3-D: the walk resolves children through the store-backed `view`
+/// (the tree's `components` / `sub_modules` Vec fields are gone).
+fn build_identity_registry(tree: &McModuleInst, view: &TreeView) -> IdentityRegistry {
     let mut reg = IdentityRegistry::new(CircuitKey::new(&tree.def_uri.to_string(), &tree.name));
-    resume_module(&mut reg, &tree.name, tree);
+    resume_module(&mut reg, &tree.name, tree, view);
     reg
 }
 
@@ -316,7 +367,12 @@ fn build_identity_registry(tree: &McModuleInst) -> IdentityRegistry {
 /// (recursive). Auto-named devices resume under their "source span + role"
 /// anchor key (plan §9 G item 5) so a rebuild keeps their ids stable even
 /// when a sibling insertion renumbers the counter name.
-fn resume_module(reg: &mut IdentityRegistry, path: &str, module: &McModuleInst) {
+///
+/// Phase C S3-D: children resolve through the store-backed `view` — the
+/// caller (`DianLu::new` / `new_with_registry`) holds the companion arena +
+/// instance store produced by the same build, so the frozen tree's ids
+/// resume exactly as the old Vec walk did.
+fn resume_module(reg: &mut IdentityRegistry, path: &str, module: &McModuleInst, view: &TreeView) {
     if let Some(id) = module.node_id {
         reg.resume(path, id);
     }
@@ -330,18 +386,18 @@ fn resume_module(reg: &mut IdentityRegistry, path: &str, module: &McModuleInst) 
             reg.resume(&format!("{path}.{}", vec.base), id);
         }
     }
-    for comp in &module.components {
+    for comp in view.components(module) {
         if let Some(id) = comp.node_id {
             let key = anchored_child_key(reg, path, &comp.name, comp.anchor);
             reg.resume(&key, id);
         }
     }
-    for sub in &module.sub_modules {
+    for sub in view.sub_modules(module) {
         let sub_path = format!("{path}.{}", sub.name);
         if let Some(id) = sub.node_id {
             let key = anchored_child_key(reg, path, &sub.name, sub.anchor);
             reg.resume(&key, id);
         }
-        resume_module(reg, &sub_path, sub);
+        resume_module(reg, &sub_path, sub, view);
     }
 }

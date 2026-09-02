@@ -54,8 +54,12 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         .map(|(_, u)| u.clone())
         .unwrap_or_else(|| top.clone());
 
-    let (inst, net_store) = crate::cmds::common::build_pass2_with_nets(top.as_str(), &uri)
-        .map_err(|e| anyhow::anyhow!("erc: {e}"))?;
+    let (inst, arena, store, net_store) =
+        crate::cmds::common::build_pass2_with_arena(top.as_str(), &uri)
+            .map_err(|e| anyhow::anyhow!("erc: {e}"))?;
+    // Phase C S3-D: children resolve through the view (the tree's Vec fields
+    // are gone).
+    let view = mcc::TreeView::new(&arena, &store);
 
     let mut diags: Vec<serde_json::Value> = Vec::new();
 
@@ -180,7 +184,7 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         "summary": {
             "net_count": root_nets.len(),
             "connection_count": inst.connections.len(),
-            "component_count": inst.components.len(),
+            "component_count": view.components(&inst).count(),
             "port_count": inst.ports.len(),
             "violations": diags.len(),
             "single_point_nets": diags.iter().filter(|d| d["check"] == "single_point_net").count(),

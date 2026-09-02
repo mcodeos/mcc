@@ -6,7 +6,7 @@ use std::path::Path;
 
 use tracing::{debug, warn};
 
-use crate::ast::{ast_node::AstNode, c_macros::*, error::message::*};
+use crate::ast::{error::message::*, macros::*, node::AstNode};
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::db::infra::init::{mcb_get_project_root, mcb_get_system_root};
 use crate::{McIds, McURI};

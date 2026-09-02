@@ -42,14 +42,18 @@ use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
-use super::{AutoNameKind, CurrentUriGuard, McModuleInst};
+use super::{AutoNameKind, CurrentUriGuard, McModuleInst, McVectorInst};
+use crate::instant::arena::{
+    component_def_id, component_pins, module_def_id, Node, NodeArena, NodeKind,
+};
 use crate::instant::identity::{anchored_child_key, AutoAnchor, CircuitKey, IdentityRegistry};
+use crate::instant::inststore::{InstanceStore, NodeInstance, TreeView};
 use crate::instant::mc_bus::McBusInst;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{
-    is_ground_name, ConnectionInst, InstDiagnostic, InstError, NetPoint, NetTable,
+    is_ground_name, ConnectionInst, InstDiagnostic, InstError, NetPoint, NetTable, PortInst,
 };
-use crate::instant::net_store::NetTableStore;
+use crate::instant::nettab::NetTableStore;
 use crate::instant::overlays::ModuleOverlay;
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_param::McParamBindings;
@@ -153,6 +157,21 @@ pub(crate) struct InstantiationBuilder {
     /// Phase E: this module's bus table (bus name → bus instance) under
     /// construction — same carrier rule as [`Self::labels`].
     pub(super) buses: HashMap<String, McBusInst>,
+
+    /// Phase C: the shared arena the builder lays down incrementally as it
+    /// pushes products. Threaded through `with_identity` / `instantiate_in_scope`
+    /// so a sub-module's construction writes its nodes into the same arena as
+    /// its parent — the arena is the sole structural store (`McModuleInst`
+    /// carries no children Vecs).
+    ///
+    /// The top-level entry extracts it via [`Self::finish`] into the
+    /// [`DianLu`](crate::instant::dianlu::DianLu).
+    pub(super) arena: Rc<RefCell<NodeArena>>,
+
+    /// Phase C S3: the shared instance store the builder fills alongside the
+    /// arena — every component / sub-module product's modelling-layer content,
+    /// keyed by its arena node id. Same threading rule as [`Self::arena`].
+    pub(super) store: Rc<RefCell<InstanceStore>>,
 }
 
 impl Deref for InstantiationBuilder {
@@ -211,12 +230,30 @@ impl InstantiationBuilder {
         if tree.node_id.is_none() {
             tree.node_id = Some(identity.intern(&current_path));
         }
-        resume_tree(&mut identity, &current_path, &tree);
+        // Phase C S3: the top-level entry owns a fresh arena + instance store,
+        // rooted at the circuit root (this module).
+        let arena = Rc::new(RefCell::new(NodeArena::new(
+            tree.node_id
+                .expect("Phase C1: the top-level root is interned above"),
+        )));
+        let store = Rc::new(RefCell::new(InstanceStore::default()));
+        // Phase C S3-D: resume any node ids the frozen tree already carries
+        // through the store-backed view (the tree's Vec fields are gone). A
+        // freshly declared circuit root has no children, so this walks only
+        // the root; a frozen tree lifted directly resumes its whole subtree.
+        {
+            let a = arena.borrow();
+            let s = store.borrow();
+            let view = TreeView::new(&a, &s);
+            resume_tree(&mut identity, &current_path, &tree, &view);
+        }
         Self::assemble(
             tree,
             identity,
             current_path,
             Rc::new(RefCell::new(NetTableStore::new())),
+            arena,
+            store,
         )
     }
 
@@ -226,23 +263,43 @@ impl InstantiationBuilder {
     /// intern into the same circuit namespace. The shared net-table store is
     /// handed down so the sub-module's frozen table lands in the same
     /// circuit-wide store the parent reads for ground-tie propagation.
+    ///
+    /// Phase C S3: `arena` / `store` are the parent builder's shared
+    /// structural stores — the sub-module's construction writes its nodes into
+    /// the same arena + instance store its parent appends to.
     pub(crate) fn with_identity(
         tree: McModuleInst,
         identity: IdentityRegistry,
         current_path: String,
         net_store: Rc<RefCell<NetTableStore>>,
+        arena: Rc<RefCell<NodeArena>>,
+        store: Rc<RefCell<InstanceStore>>,
     ) -> Self {
-        Self::assemble(tree, identity, current_path, net_store)
+        Self::assemble(tree, identity, current_path, net_store, arena, store)
     }
 
     /// Shared constructor: resume the construction counters from the tree and
-    /// assemble the builder around `identity` / `current_path` / `net_store`.
+    /// assemble the builder around `identity` / `current_path` / `net_store`
+    /// and the shared Phase C S3 arena + instance store.
     fn assemble(
-        tree: McModuleInst,
-        identity: IdentityRegistry,
+        mut tree: McModuleInst,
+        mut identity: IdentityRegistry,
         current_path: String,
         net_store: Rc<RefCell<NetTableStore>>,
+        arena: Rc<RefCell<NodeArena>>,
+        store: Rc<RefCell<InstanceStore>>,
     ) -> Self {
+        // Phase C1: every module (top-level or re-entered sub-module) carries a
+        // node id — the arena lays its root node keyed by it. The top-level
+        // entry (`with_registry`) interns the root before calling here; a
+        // freshly declared / inline sub-module (never interned) interns its
+        // canonical path now — the same id the parent's `add_submodule` would
+        // assign, since declared sub-modules carry `anchor: None` (the anchored
+        // child key is the plain path). A re-entered frozen sub-module already
+        // carries its id, so this is a no-op for it.
+        if tree.node_id.is_none() {
+            tree.node_id = Some(identity.intern(&current_path));
+        }
         let conn_id_counter = tree
             .connections
             .iter()
@@ -250,7 +307,16 @@ impl InstantiationBuilder {
             .max()
             .map_or(0, |max| max + 1);
         let next_phrase_id = tree.auto_inst_map.keys().max().map_or(0, |max| max + 1);
-        let auto_inst_counter = resume_auto_inst_counter(&tree);
+        // Phase C S3-D: resume the auto-name counters from the frozen tree's
+        // components through the store-backed view (the tree's `components` Vec
+        // is gone). A re-entered sub-module's children are in the shared store;
+        // a fresh module has none.
+        let auto_inst_counter = {
+            let a = arena.borrow();
+            let s = store.borrow();
+            let view = TreeView::new(&a, &s);
+            resume_auto_inst_counter(&tree, &view)
+        };
         // Phase E re-entry restore: when the tree being lifted was already
         // built (a frozen sub-module re-entered by `run_submodule_method` /
         // the conds block), its label registry and bus table live in the
@@ -264,6 +330,28 @@ impl InstantiationBuilder {
                 None => (HashMap::new(), HashMap::new()),
             }
         };
+        // Phase C S3: lay the module's own node down in the arena. Idempotent —
+        // re-entry finds it already present (its children were laid down by the
+        // sub-module's own construction) and only the parent is fixed by the
+        // parent's `add_submodule` when the frozen module returns to the arena.
+        let root_id = tree
+            .node_id
+            .expect("Phase C1: a frozen module carries a node_id");
+        {
+            let mut arena = arena.borrow_mut();
+            if arena.node(root_id).is_none() {
+                arena.insert(Node {
+                    id: root_id,
+                    kind: NodeKind::Module,
+                    parent: None,
+                    children: Vec::new(),
+                    name: tree.name.clone(),
+                    def: module_def_id(&tree),
+                    pins: Vec::new(),
+                    shape: None,
+                });
+            }
+        }
         Self {
             tree,
             conn_id_counter,
@@ -281,14 +369,26 @@ impl InstantiationBuilder {
             net_store,
             labels,
             buses,
+            arena,
+            store,
         }
     }
 
     /// Consume the builder and return the finished module tree (D4 frozen
-    /// model). All scratch state is dropped here — nothing construction-phase
-    /// survives into the model.
-    pub(crate) fn finish(self) -> McModuleInst {
-        self.tree
+    /// model) plus the Phase C S3 arena + instance store the builder laid down
+    /// incrementally. All other scratch state is dropped here — nothing
+    /// construction-phase survives into the model. Only the top-level entry
+    /// consumes the builder this way; sub-module re-entry goes through
+    /// [`Self::into_parts`], where the parent builder keeps the shared arena +
+    /// store (so they are not returned again).
+    pub(crate) fn finish(
+        self,
+    ) -> (
+        McModuleInst,
+        Rc<RefCell<NodeArena>>,
+        Rc<RefCell<InstanceStore>>,
+    ) {
+        (self.tree, self.arena, self.store)
     }
 
     /// Consume the builder into (tree, identity registry): the frozen model
@@ -322,6 +422,119 @@ impl InstantiationBuilder {
     }
 
     // ========================================================================
+    // Phase C S3: store-backed construction lookups
+    // ========================================================================
+
+    /// The component instances directly under arena node `node_id`, in build
+    /// order, resolved from the instance store (Phase C S3). Cheap `Rc`
+    /// handles cloned out of a transient store borrow.
+    pub(super) fn components_of(
+        &self,
+        node_id: crate::instant::identity::NodeId,
+    ) -> Vec<Rc<McComponentInst>> {
+        let arena = self.arena.borrow();
+        let store = self.store.borrow();
+        arena
+            .children(node_id)
+            .unwrap_or(&[])
+            .iter()
+            .copied()
+            .filter_map(|cid| store.component_rc(cid))
+            .collect()
+    }
+
+    /// The sub-module instances directly under arena node `node_id`, in build
+    /// order, resolved from the instance store (same Phase C S3 rationale as
+    /// [`Self::components_of`]).
+    pub(super) fn modules_of(
+        &self,
+        node_id: crate::instant::identity::NodeId,
+    ) -> Vec<Rc<McModuleInst>> {
+        let arena = self.arena.borrow();
+        let store = self.store.borrow();
+        arena
+            .children(node_id)
+            .unwrap_or(&[])
+            .iter()
+            .copied()
+            .filter_map(|cid| store.module_rc(cid))
+            .collect()
+    }
+
+    /// Look up a component instance by name among this module's arena children,
+    /// resolved from the instance store (Phase C S3 — shadows the
+    /// Vec-backed [`McModuleInst::find_component`] so builder construction
+    /// reads stop touching the `components` Vec before it leaves the module).
+    /// The arena + store are always ahead of the read: `add_component` appends
+    /// both at declaration, so every reference finds its product. Returns a
+    /// cheap `Rc` handle cloned out of a transient store borrow.
+    pub(super) fn find_component(&self, name: &str) -> Option<Rc<McComponentInst>> {
+        self.components_of(self.tree.node_id?)
+            .into_iter()
+            .find(|c| c.name == name)
+    }
+
+    /// Look up a sub-module instance by name among this module's arena
+    /// children, resolved from the instance store (same Phase C S3 rationale
+    /// as [`Self::find_component`]).
+    pub(super) fn find_submodule(&self, name: &str) -> Option<Rc<McModuleInst>> {
+        self.modules_of(self.tree.node_id?)
+            .into_iter()
+            .find(|m| m.name == name)
+    }
+
+    /// Look up a component by name under an arbitrary (store-resolved) module
+    /// instance (Phase C S3-D dotted-scope resolution — the tree's `components`
+    /// Vec is gone, so the lookup walks the parent's arena Device children and
+    /// resolves the store). Mirrors [`Self::find_component`] for a non-`self`
+    /// module node.
+    pub(super) fn component_in(
+        &self,
+        parent: &McModuleInst,
+        name: &str,
+    ) -> Option<Rc<McComponentInst>> {
+        self.components_of(parent.node_id?)
+            .into_iter()
+            .find(|c| c.name == name)
+    }
+
+    /// Look up a sub-module by name under an arbitrary (store-resolved) module
+    /// instance (same S3-D role as [`Self::component_in`]).
+    pub(super) fn submodule_in(
+        &self,
+        parent: &McModuleInst,
+        name: &str,
+    ) -> Option<Rc<McModuleInst>> {
+        self.modules_of(parent.node_id?)
+            .into_iter()
+            .find(|m| m.name == name)
+    }
+
+    /// Store-backed view over this module's components in build order
+    /// (Phase C S3 — shadows the Vec-backed `McModuleInst` method for
+    /// builder construction reads). Defensive `None` node id → empty: a
+    /// builder's module node is always interned in `assemble`, so this is
+    /// unreachable in practice.
+    pub(super) fn components_view(&self) -> Vec<Rc<McComponentInst>> {
+        let Some(node_id) = self.tree.node_id else {
+            return Vec::new();
+        };
+        self.components_of(node_id)
+    }
+
+    /// Store-backed view over this module's sub-modules in build order
+    /// (Phase C S3 — shadows the Vec-backed `McModuleInst` method for
+    /// builder construction reads). Defensive `None` node id → empty: a
+    /// builder's module node is always interned in `assemble`, so this is
+    /// unreachable in practice.
+    pub(super) fn submodules_view(&self) -> Vec<Rc<McModuleInst>> {
+        let Some(node_id) = self.tree.node_id else {
+            return Vec::new();
+        };
+        self.modules_of(node_id)
+    }
+
+    // ========================================================================
     // Unified product factories (expansion provenance tagging, §7.11)
     // ========================================================================
 
@@ -344,7 +557,36 @@ impl InstantiationBuilder {
             );
             inst.node_id = Some(self.identity.intern(&key));
         }
-        self.components.push(inst);
+        // Phase C S3-D: the arena + instance store are the structural storage;
+        // the `components` Vec field is gone. The arena child edge is appended
+        // in the deterministic grouped order (idempotent — re-entry never
+        // re-appends an existing product's node).
+        let node_id = inst
+            .node_id
+            .expect("Phase C1: add_component interned the node id above");
+        self.store
+            .borrow_mut()
+            .insert(node_id, NodeInstance::Component(Rc::new(inst.clone())));
+        let parent = self
+            .tree
+            .node_id
+            .expect("Phase C1: the module carries a node_id");
+        {
+            let mut arena = self.arena.borrow_mut();
+            if arena.node(node_id).is_none() {
+                arena.insert(Node {
+                    id: node_id,
+                    kind: NodeKind::Device,
+                    parent: Some(parent),
+                    children: Vec::new(),
+                    name: inst.name.clone(),
+                    def: component_def_id(&inst),
+                    pins: component_pins(&inst),
+                    shape: None,
+                });
+            }
+            arena.add_child_grouped(parent, node_id, NodeKind::Device);
+        }
     }
 
     /// Push a sub-module instance, tagging it with the current expansion id
@@ -363,7 +605,97 @@ impl InstantiationBuilder {
             );
             inst.node_id = Some(self.identity.intern(&key));
         }
-        self.sub_modules.push(inst);
+        // Phase C S3: store the sub-module's content in the shared instance
+        // store and rewire its module node's parent to this module. The
+        // sub-module's own builder laid the node down with a `None` parent (it
+        // assembled as a root) while laying its ports / vectors / components /
+        // sub-sub-modules under it — only this edge needs fixing here.
+        let node_id = inst
+            .node_id
+            .expect("Phase C1: add_submodule interned the node id above");
+        self.store
+            .borrow_mut()
+            .insert(node_id, NodeInstance::Module(Rc::new(inst.clone())));
+        let parent = self
+            .tree
+            .node_id
+            .expect("Phase C1: the module carries a node_id");
+        {
+            let mut arena = self.arena.borrow_mut();
+            if let Some(node) = arena.node_mut(node_id) {
+                node.parent = Some(parent);
+            } else {
+                arena.insert(Node {
+                    id: node_id,
+                    kind: NodeKind::Module,
+                    parent: Some(parent),
+                    children: Vec::new(),
+                    name: inst.name.clone(),
+                    def: module_def_id(&inst),
+                    pins: Vec::new(),
+                    shape: None,
+                });
+            }
+            arena.add_child_grouped(parent, node_id, NodeKind::Module);
+        }
+    }
+
+    /// Lay a port's arena node down under the module being built (Phase C S3).
+    /// Ports are created in phase 1 (interface instantiation), before any
+    /// component / sub-module / vector product, so the grouped child order the
+    /// post-freeze rebuild uses (ports, vectors, components, sub-modules) is
+    /// preserved by appending in creation order. Idempotent for re-entry.
+    pub(super) fn append_port_arena(&self, port: &PortInst) {
+        let node_id = port
+            .node_id
+            .expect("Phase C1: a frozen port carries a node_id");
+        let parent = self
+            .tree
+            .node_id
+            .expect("Phase C1: the module carries a node_id");
+        let mut arena = self.arena.borrow_mut();
+        if arena.node(node_id).is_none() {
+            arena.insert(Node {
+                id: node_id,
+                kind: NodeKind::Port,
+                parent: Some(parent),
+                children: Vec::new(),
+                name: port.name.clone(),
+                def: None,
+                pins: Vec::new(),
+                shape: None,
+            });
+        }
+        arena.add_child_grouped(parent, node_id, NodeKind::Port);
+    }
+
+    /// Lay a vector grouping node's arena node down under the module being
+    /// built (Phase C S3). Vectors are materialized after the declared
+    /// components, so the grouped child order the post-freeze rebuild uses is
+    /// restored by inserting at the vector position (after the ports, before
+    /// any component / sub-module). Idempotent for re-entry.
+    pub(super) fn append_vector_arena(&self, vec: &McVectorInst) {
+        let node_id = vec
+            .node_id
+            .expect("Phase C1: a frozen vector carries a node_id");
+        let parent = self
+            .tree
+            .node_id
+            .expect("Phase C1: the module carries a node_id");
+        let mut arena = self.arena.borrow_mut();
+        if arena.node(node_id).is_none() {
+            arena.insert(Node {
+                id: node_id,
+                kind: NodeKind::Vector,
+                parent: Some(parent),
+                children: Vec::new(),
+                name: vec.base.clone(),
+                def: None,
+                pins: Vec::new(),
+                shape: vec.shape.clone(),
+            });
+        }
+        arena.add_child_grouped(parent, node_id, NodeKind::Vector);
     }
 
     /// Full canonical path of a child under the module being built
@@ -499,7 +831,13 @@ impl InstantiationBuilder {
         // ── DEBUG: pass2 output + pass1↔pass2 diff (optional) ─────────────
         if super::dump::dump_enabled() {
             self.dump_pass2_output();
-            self.dump_pass_diff();
+            // Phase C S3-D: the pass1↔pass2 diff resolves built children
+            // through the builder's own arena + store (the tree's Vec fields
+            // are gone). Bind the Ref borrows so they outlive the view.
+            let arena = self.arena.borrow();
+            let store = self.store.borrow();
+            let view = crate::instant::inststore::TreeView::new(&arena, &store);
+            self.dump_pass_diff(&view);
         }
 
         Ok(()) // Always return Ok — errors have been recorded to diagnostics
@@ -943,7 +1281,7 @@ impl InstantiationBuilder {
         // `net_store` (keyed by canonical path) when its `instantiate()`
         // completed — read it from there; `McModuleInst` no longer carries
         // net tables.
-        for sub in &self.sub_modules {
+        for sub in self.submodules_view() {
             let prefix = format!("{}.", sub.name);
             let sub_path = self.child_path(&sub.name);
             let store_ref = self.net_store.borrow();
@@ -1061,8 +1399,11 @@ impl InstantiationBuilder {
         // points are NOT hangings and stay in the central ground group. Owned
         // `String`s so the set does not borrow `self.components` across the
         // net re-partition loop below.
-        let component_owners: std::collections::BTreeSet<String> =
-            self.components.iter().map(|c| c.name.clone()).collect();
+        let component_owners: std::collections::BTreeSet<String> = self
+            .components_view()
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
 
         // Indices of nets that contain a ground-name point. A net carrying a
         // rail-member ground (`va.GND`, `vin.GND`, `dc.GND` — multi-segment
@@ -1371,9 +1712,9 @@ impl InstantiationBuilder {
 /// match the pattern (user-written instance names, prefix-bearing nested
 /// products) are skipped; a max-per-prefix merge keeps the counter exact even
 /// when components were consumed by a failed construction and never pushed.
-fn resume_auto_inst_counter(tree: &McModuleInst) -> HashMap<String, u32> {
+fn resume_auto_inst_counter(tree: &McModuleInst, view: &TreeView) -> HashMap<String, u32> {
     let mut counters: HashMap<String, u32> = HashMap::new();
-    for comp in &tree.components {
+    for comp in view.components(tree) {
         let name = comp.name.as_str();
         if !(name.starts_with('_') || name.starts_with('@')) {
             continue;
@@ -1398,7 +1739,15 @@ fn resume_auto_inst_counter(tree: &McModuleInst) -> HashMap<String, u32> {
 /// (Phase C1 re-entry / defensive lift): module root, its ports, its vectors,
 /// its components, and its sub-modules recursively. Idempotent under
 /// [`IdentityRegistry::resume`] — re-lifting the same tree keeps the same ids.
-fn resume_tree(registry: &mut IdentityRegistry, path: &str, module: &McModuleInst) {
+///
+/// Phase C S3-D: children resolve through the store-backed `view` (the tree's
+/// `components` / `sub_modules` Vec fields are gone).
+fn resume_tree(
+    registry: &mut IdentityRegistry,
+    path: &str,
+    module: &McModuleInst,
+    view: &TreeView,
+) {
     if let Some(id) = module.node_id {
         registry.resume(path, id);
     }
@@ -1412,18 +1761,18 @@ fn resume_tree(registry: &mut IdentityRegistry, path: &str, module: &McModuleIns
             registry.resume(&format!("{path}.{}", vec.base), id);
         }
     }
-    for comp in &module.components {
+    for comp in view.components(module) {
         if let Some(id) = comp.node_id {
             let key = anchored_child_key(registry, path, &comp.name, comp.anchor);
             registry.resume(&key, id);
         }
     }
-    for sub in &module.sub_modules {
+    for sub in view.sub_modules(module) {
         let sub_path = format!("{path}.{}", sub.name);
         if let Some(id) = sub.node_id {
             let key = anchored_child_key(registry, path, &sub.name, sub.anchor);
             registry.resume(&key, id);
         }
-        resume_tree(registry, &sub_path, sub);
+        resume_tree(registry, &sub_path, sub, view);
     }
 }

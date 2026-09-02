@@ -5,8 +5,10 @@
 use crate::build::pass1::canonicalize_project_uri;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::init::uri_equivalent;
+use crate::instant::arena::NodeArena;
 use crate::instant::dianlu::DianLu;
 use crate::instant::identity::IdentityRegistry;
+use crate::instant::inststore::InstanceStore;
 use crate::instant::insttab::InstTable;
 use crate::instant::mc_mod::McModuleInst;
 use crate::semantic::module::McModule;
@@ -180,10 +182,11 @@ fn do_instantiate(
         .collect();
 
     // Phase D: the instantiation produces the circuit-wide frozen string
-    // net-table store alongside the tree (the tree never carries NetPoint).
-    // It rides into the DianLu so the projection and the tree-level string
-    // net consumers read the same tables.
-    let net_store = if let Some(reg) = registry.as_deref_mut() {
+    // net-table store alongside the tree (the tree never carries NetPoint),
+    // and Phase C S3: the companion arena + instance store the construction
+    // builder laid down incrementally. All three ride into the DianLu so the
+    // projection and the tree-level consumers read the same structures.
+    let (net_store, arena, store) = if let Some(reg) = registry.as_deref_mut() {
         inst.instantiate_with_store_in_registry(reg)?
     } else {
         inst.instantiate_with_store()?
@@ -193,13 +196,16 @@ fn do_instantiate(
     // set into the DianLu. The tree sweep records the declared-instance defs
     // (resolved by pass1, never seen by the resolution bridge), completing the
     // edge set by construction.
-    crate::instant::deps::record_tree_defs(&inst);
+    // Phase C S3-D: the tree sweep resolves children through the view (arena
+    // edges + store) instead of the tree's Vec fields.
+    let view = crate::instant::inststore::TreeView::new(&arena, &store);
+    crate::instant::deps::record_tree_defs(&inst, &view);
     let deps = deps_guard.finish();
 
     Ok(if let Some(reg) = registry {
-        DianLu::new_with_registry(inst, start_id, net_store, deps, reg)
+        DianLu::new_with_registry(inst, start_id, net_store, deps, reg, arena, store)
     } else {
-        DianLu::new(inst, start_id, net_store, deps)
+        DianLu::new(inst, start_id, net_store, deps, arena, store)
     })
 }
 
@@ -213,7 +219,8 @@ pub fn mcb_pass2_flat(
     entry: &McSpaceName,
     start_id: u32,
 ) -> Result<(MccProjectTree, InstTable), Box<dyn Error>> {
-    mcb_pass2_flat_with(entry, start_id, None)
+    let (tree, table, _arena, _store) = mcb_pass2_flat_with(entry, start_id, None)?;
+    Ok((tree, table))
 }
 
 /// Like [`mcb_pass2_flat`], but marks every entry under `synthetic_prefix` (a
@@ -227,7 +234,7 @@ pub(crate) fn mcb_pass2_flat_with(
     entry: &McSpaceName,
     start_id: u32,
     synthetic_prefix: Option<&str>,
-) -> Result<(MccProjectTree, InstTable), Box<dyn Error>> {
+) -> Result<(MccProjectTree, InstTable, NodeArena, InstanceStore), Box<dyn Error>> {
     let mut dl = mcb_instantiate(entry, start_id)?;
     // Project once (this also runs the flat electrical net checks), then take
     // both parts out of the object — no second instantiation, no clone.
@@ -235,5 +242,8 @@ pub(crate) fn mcb_pass2_flat_with(
     // logging them into the workspace (the current_uri context is ours).
     let diags = dl.flatten_with_prefix(synthetic_prefix);
     crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
-    Ok(dl.into_parts())
+    let arena = dl.arena().clone();
+    let store = dl.store().clone();
+    let (tree, table) = dl.into_parts();
+    Ok((tree, table, arena, store))
 }

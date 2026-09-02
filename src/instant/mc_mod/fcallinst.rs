@@ -16,6 +16,7 @@ use super::matching::{check_vector_width, WidthCheck};
 use super::FailedRecord;
 use super::McVectorInst;
 use super::{InstantiationBuilder, McModuleInst};
+use crate::instant::inststore::NodeInstance;
 use crate::instant::insttab::InstOrigin;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{InstError, NetPoint};
@@ -36,6 +37,7 @@ use crate::semantic::module::McModule;
 use crate::vector::model::trunk::TrunkKind;
 use crate::McIds;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 // ── P2-2: thread_local side channel ──────────────────────────────────────
@@ -470,11 +472,16 @@ impl InstantiationBuilder {
         let sub_path = self.child_path(&inst_name);
         // Phase D: hand the shared circuit-wide net-table store down so this
         // inline module's frozen table lands in the same store the parent
-        // reads for ground-tie propagation. Clone the `Rc` before taking the
+        // reads for ground-tie propagation. Phase C S3: likewise share the
+        // construction arena + instance store so the sub-module's products
+        // append to the same structures. Clone the `Rc`s before taking the
         // mutable identity borrow to avoid a borrow conflict.
         let net_store = self.net_store.clone();
+        let arena = self.arena.clone();
+        let store = self.store.clone();
         let identity = self.identity_mut();
-        if let Err(e) = sub_inst.instantiate_in_scope(identity, &sub_path, net_store) {
+        if let Err(e) = sub_inst.instantiate_in_scope(identity, &sub_path, net_store, arena, store)
+        {
             self.record_error(
                 932,
                 format!("Inline module '{inst_name}' ({type_name}) instantiation failed: {e}"),
@@ -1006,7 +1013,7 @@ impl InstantiationBuilder {
                 } else {
                     format!("{inst_name}.{name}")
                 };
-                if self.components.iter().any(|c| c.name == full) {
+                if self.find_component(&full).is_some() {
                     continue;
                 }
                 self.materialize_component(&full, comp)?;
@@ -1049,7 +1056,7 @@ impl InstantiationBuilder {
                 .collect();
             let all_materialized = member_ids
                 .iter()
-                .all(|full| self.components.iter().any(|c| &c.name == full));
+                .all(|full| self.find_component(full).is_some());
             if !all_materialized {
                 continue;
             }
@@ -1057,13 +1064,18 @@ impl InstantiationBuilder {
             // (`{module}.{base}`) before it enters the module's vector list.
             let vec_path = self.child_path(&base);
             let vec_id = self.identity_mut().intern(&vec_path);
-            self.vectors.push(McVectorInst {
+            // Phase C S3: lay the vector node's arena node down beside the Vec
+            // push (the arena is the structural store; `vectors` stays on the
+            // tree, same carrier rule as `ports`).
+            let vec_inst = McVectorInst {
                 base: base.clone(),
                 member_names: members.clone(),
                 member_ids,
                 shape: None,
                 node_id: Some(vec_id),
-            });
+            };
+            self.append_vector_arena(&vec_inst);
+            self.vectors.push(vec_inst);
         }
     }
 
@@ -1128,11 +1140,11 @@ impl InstantiationBuilder {
                         // exists as an instance (a declared/constructed
                         // receiver). Skip without rewriting, so the Component
                         // reference keeps resolving to its default face.
-                        if self.components.iter().any(|c| c.name == cname) {
+                        if self.find_component(&cname).is_some() {
                             return Ok(());
                         }
                         let full = format!("{inst_name}.{cname}");
-                        if self.components.iter().any(|c| c.name == full) {
+                        if self.find_component(&full).is_some() {
                             return Ok(());
                         }
                         self.materialize_component(&full, comp)?;
@@ -1264,16 +1276,26 @@ impl InstantiationBuilder {
         // Declared origin (verify/golden depend on declaration status), and a
         // sub-module method (dotted inst_name, not in `self.components`) is
         // left untouched.
-        if let Some(comp) = self.components.iter_mut().find(|c| c.name == inst_name) {
+        let store = self.store.clone();
+        if let Some(mut comp) = self.find_component(inst_name) {
             if let InstOrigin::FuncCall {
                 line, expansion_id, ..
             } = comp.origin
             {
-                comp.origin = InstOrigin::FuncCall {
+                let cid = comp
+                    .node_id
+                    .expect("Phase C1: a component carries a node_id");
+                Rc::make_mut(&mut comp).origin = InstOrigin::FuncCall {
                     fn_name: func_def.name.to_string(),
                     line,
                     expansion_id,
                 };
+                // Phase C S3: the instance store is the sole content store —
+                // the D7 pullup check reads the origin marker post-build, so
+                // the rewritten origin lands back in the store.
+                store
+                    .borrow_mut()
+                    .insert(cid, NodeInstance::Component(comp));
             }
         }
 
@@ -1401,14 +1423,9 @@ impl InstantiationBuilder {
         // executed again — it would create duplicate components and wrong
         // connections.
         {
-            let idx = self
-                .sub_modules
-                .iter()
-                .position(|s| s.name == inst_name)
-                .ok_or_else(|| {
-                    InstError::Other(format!("submodule '{inst_name}' not found for method"))
-                })?;
-            let sub = &self.sub_modules[idx];
+            let sub = self.find_submodule(inst_name).ok_or_else(|| {
+                InstError::Other(format!("submodule '{inst_name}' not found for method"))
+            })?;
             let func_name = func_def.name.to_string();
             if sub.auto_invoked_funcs.contains(&func_name) {
                 mcc_dbg!("inst::fcall", 
@@ -1451,28 +1468,26 @@ impl InstantiationBuilder {
         // from the tree's observable state (connection ids / `auto_inst_map` /
         // auto-name pattern), so the re-entered body never collides with the
         // sub-module's own products (zero behavior change).
-        let idx = self
-            .sub_modules
-            .iter()
-            .position(|s| s.name == inst_name)
-            .ok_or_else(|| {
-                InstError::Other(format!("submodule '{inst_name}' not found for method"))
-            })?;
+        let sub = self.find_submodule(inst_name).ok_or_else(|| {
+            InstError::Other(format!("submodule '{inst_name}' not found for method"))
+        })?;
         let sub_eidx = {
-            let sub_name = self.sub_modules[idx].name.clone();
-            let sub_def = self.sub_modules[idx].def.clone();
+            let sub_name = sub.name.clone();
             let sub_path = self.child_path(&sub_name);
-            let sub_tree = std::mem::replace(
-                &mut self.sub_modules[idx],
-                McModuleInst::new(&sub_name, sub_def),
-            );
+            let sub_tree = sub.as_ref().clone();
             // Phase C1: carry the circuit-global registry into the lifted
             // builder and take it back when the body freezes, so the
             // re-entered products intern onto the same ids.
             let identity = self.take_identity();
             let net_store = self.net_store.clone();
-            let mut b =
-                InstantiationBuilder::with_identity(sub_tree, identity, sub_path, net_store);
+            // Phase C S3: the re-entered builder shares the parent's arena +
+            // instance store, so its new products land in the same structural
+            // storage the parent (and the DianLu) read.
+            let arena = self.arena.clone();
+            let store = self.store.clone();
+            let mut b = InstantiationBuilder::with_identity(
+                sub_tree, identity, sub_path, net_store, arena, store,
+            );
             // ── Expansion provenance: sub-module body expansion (§7.3) ──
             // Same call site as the parent record; id space is the sub-module's
             // own ExpansionLog. Products pushed via `b.add_*` during body
@@ -1498,7 +1513,7 @@ impl InstantiationBuilder {
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| formal.clone());
                 if let Some(pin_ids) = b
-                    .components
+                    .components_view()
                     .iter()
                     .find_map(|comp| comp.find_bus_port_pin_ids(&resolved_port))
                 {
@@ -1534,7 +1549,15 @@ impl InstantiationBuilder {
             // the registry back to the parent builder.
             b.freeze_fragment();
             let (frozen, reg) = b.into_parts();
-            self.sub_modules[idx] = frozen;
+            // Phase C S3-D: write the re-entered + extended sub-module back into
+            // the shared instance store — the sole content store (the
+            // `sub_modules` Vec field is gone).
+            let frozen_id = frozen
+                .node_id
+                .expect("Phase C1: a frozen sub-module carries a node_id");
+            self.store
+                .borrow_mut()
+                .insert(frozen_id, NodeInstance::Module(Rc::new(frozen.clone())));
             self.restore_identity(reg);
             se
         };
@@ -1551,24 +1574,19 @@ impl InstantiationBuilder {
                 })
                 .collect();
 
-            let idx = self
-                .sub_modules
-                .iter()
-                .position(|s| s.name == inst_name)
-                .ok_or_else(|| {
-                    InstError::Other(format!("submodule '{inst_name}' not found for method"))
-                })?;
-            let sub_name = self.sub_modules[idx].name.clone();
-            let sub_def = self.sub_modules[idx].def.clone();
+            let sub = self.find_submodule(inst_name).ok_or_else(|| {
+                InstError::Other(format!("submodule '{inst_name}' not found for method"))
+            })?;
+            let sub_name = sub.name.clone();
             let sub_path = self.child_path(&sub_name);
-            let sub_tree = std::mem::replace(
-                &mut self.sub_modules[idx],
-                McModuleInst::new(&sub_name, sub_def),
-            );
+            let sub_tree = sub.as_ref().clone();
             let identity = self.take_identity();
             let net_store = self.net_store.clone();
-            let mut b =
-                InstantiationBuilder::with_identity(sub_tree, identity, sub_path, net_store);
+            let arena = self.arena.clone();
+            let store = self.store.clone();
+            let mut b = InstantiationBuilder::with_identity(
+                sub_tree, identity, sub_path, net_store, arena, store,
+            );
             for conds in &func_def.conds {
                 let matched_stmts = conds.evaluate(&params);
                 for stmt in matched_stmts {
@@ -1586,12 +1604,29 @@ impl InstantiationBuilder {
             }
             b.freeze_fragment();
             let (frozen, reg) = b.into_parts();
-            self.sub_modules[idx] = frozen;
+            // Phase C S3-D: write the re-entered + extended sub-module back into
+            // the shared instance store — the sole content store (the
+            // `sub_modules` Vec field is gone).
+            let frozen_id = frozen
+                .node_id
+                .expect("Phase C1: a frozen sub-module carries a node_id");
+            self.store
+                .borrow_mut()
+                .insert(frozen_id, NodeInstance::Module(Rc::new(frozen.clone())));
             self.restore_identity(reg);
         }
         // End the sub-module body expansion record (covers Phase A + conds).
-        if let Some(sub) = self.sub_modules.get_mut(idx) {
-            sub.expansion.end(sub_eidx);
+        let store = self.store.clone();
+        if let Some(mut sub) = self.find_submodule(inst_name) {
+            let sub_id = sub
+                .node_id
+                .expect("Phase C1: a frozen sub-module carries a node_id");
+            Rc::make_mut(&mut sub).expansion.end(sub_eidx);
+            // Phase C S3-D: the store is the sole content store — the ended
+            // expansion ledger lands back in it.
+            store
+                .borrow_mut()
+                .insert(sub_id, NodeInstance::Module(Rc::new(sub.as_ref().clone())));
         }
 
         // Phase B: Boundary connections (in parent module self)
@@ -1661,7 +1696,10 @@ impl InstantiationBuilder {
             let boundary_name = format!("{inst_name}.{declared_port_name}");
             let pin_ids: Option<Vec<(String, String)>> =
                 self.find_submodule(inst_name).and_then(|sub| {
-                    sub.components
+                    let sub_id = sub
+                        .node_id
+                        .expect("Phase C1: a frozen sub-module carries a node_id");
+                    self.components_of(sub_id)
                         .iter()
                         .find_map(|comp| comp.find_bus_port_pin_ids(&declared_port_name))
                 });
@@ -1686,6 +1724,7 @@ impl InstantiationBuilder {
             // next connection.
             let port_kind = self
                 .find_submodule(inst_name)
+                .as_ref()
                 .and_then(|sub| sub.ports.iter().find(|p| p.name == declared_port_name))
                 .map(|p| {
                     if p.bus_members.is_empty() {
@@ -1704,15 +1743,32 @@ impl InstantiationBuilder {
             // them. Without this, the pins are silently dropped from the actual nets.
             if let Some(ref pids) = pin_ids {
                 if pids.len() >= 2 {
-                    if let Some(sub) = self.sub_modules.iter_mut().find(|s| s.name == inst_name) {
-                        if let Some(port) =
-                            sub.ports.iter_mut().find(|p| p.name == declared_port_name)
-                        {
-                            if port.bus_members.is_empty() {
-                                let members: Vec<String> =
-                                    pids.iter().map(|(_, pid)| pid.clone()).collect();
-                                port.bus_members = members;
+                    let store = self.store.clone();
+                    if let Some(mut sub) = self.find_submodule(inst_name) {
+                        let changed = {
+                            let sub = Rc::make_mut(&mut sub);
+                            if let Some(port) =
+                                sub.ports.iter_mut().find(|p| p.name == declared_port_name)
+                            {
+                                if port.bus_members.is_empty() {
+                                    let members: Vec<String> =
+                                        pids.iter().map(|(_, pid)| pid.clone()).collect();
+                                    port.bus_members = members;
+                                    true
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
                             }
+                        };
+                        // Phase C S3: the store is the sole content store — the
+                        // registered port members land back in it.
+                        if changed {
+                            let sub_id = sub
+                                .node_id
+                                .expect("Phase C1: a frozen sub-module carries a node_id");
+                            store.borrow_mut().insert(sub_id, NodeInstance::Module(sub));
                         }
                     }
                 }
@@ -1948,10 +2004,11 @@ impl InstantiationBuilder {
             // RAII (§7.11(2)): `with_func_stmt` restores `current_func_span`
             // even when `process_stmt` errors and we return early.
             self.with_func_stmt(func_def, Some(_li), |this| -> Result<(), _> {
-                // Build ExpansionContext for this stmt (lifetime scoped per iteration)
-                let expansion_ctx = this
-                    .find_component(inst_name)
-                    .map(|comp| ExpansionContext::new(comp));
+                // Build ExpansionContext for this stmt (lifetime scoped per
+                // iteration). The `Rc` handle stays owned in the outer scope so
+                // the context's borrow of it outlives the map closure.
+                let comp_opt = this.find_component(inst_name);
+                let expansion_ctx = comp_opt.as_ref().map(|comp| ExpansionContext::new(comp));
                 let mut substituted = if bindings.is_empty() {
                     stmt.clone()
                 } else {
@@ -2009,9 +2066,9 @@ impl InstantiationBuilder {
                     // Conditional-block stmts carry no per-stmt offset; fall
                     // back to the func's definition stmt. RAII §7.11(2).
                     self.with_func_stmt(func_def, None, |this| -> Result<(), _> {
-                        let expansion_ctx = this
-                            .find_component(inst_name)
-                            .map(|comp| ExpansionContext::new(comp));
+                        let comp_opt = this.find_component(inst_name);
+                        let expansion_ctx =
+                            comp_opt.as_ref().map(|comp| ExpansionContext::new(comp));
                         let mut substituted = if bindings.is_empty() {
                             stmt.clone()
                         } else {

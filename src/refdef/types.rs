@@ -4,7 +4,7 @@
 
 //! Unified ref/def type definitions — SymbolKind, RefDefMap, RefDefEntry, SourceLocation.
 //!
-//! Extracted from `ast/ast_semantic.rs` as the single source of truth for
+//! Extracted from `ast/sem.rs` as the single source of truth for
 //! symbol resolution types (see design doc §16).
 
 use crate::McURI;

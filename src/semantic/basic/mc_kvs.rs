@@ -6,7 +6,7 @@ use super::mc_expr::McExpression;
 use super::mc_literal::McConst;
 use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*},
+    ast::{macros::*, node::AstNode},
     semantic::component::mc_attr::{McAttrVal, McAttribute},
     McIds,
 };

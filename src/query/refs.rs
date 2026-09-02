@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::ast::ast_semantic::{DeclareId, Span};
+use crate::ast::sem::{DeclareId, Span};
 use crate::db::cmie::tables as workspace;
 use crate::refdef::types::CmieKind;
 use crate::semantic::common::McSpaceName;
@@ -117,9 +117,7 @@ fn register_lib_class_in_global_table(
     // Not found — compute a stable (deterministic) DeclareId and register
     // in the first available file's global table. Using a hash-based id
     // avoids the non-determinism of per-file sequential counters (Defect 73).
-    let cid = crate::ast::ast_semantic::LocalSymbolTable::assign_declare_id_stable(
-        &mc_uri, "", class_name,
-    );
+    let cid = crate::ast::sem::LocalSymbolTable::assign_declare_id_stable(&mc_uri, "", class_name);
     for entry in binding.iter() {
         if let Ok(sem) = entry.value().symbols.lock() {
             if let Ok(mut gt) = sem.global_table.lock() {
@@ -440,11 +438,8 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
 /// func headers are never entered into the lapper / RefDefMap, so goto-def
 /// and hover cannot resolve them (unlike module ports and component pin
 /// bindings).
-pub(crate) fn register_func_header_iface_refs(
-    func_node: &crate::ast::ast_node::AstNode,
-    uri: &McURI,
-) {
-    use crate::ast::c_macros::{MCAST_DECLARE, MCAST_PARAM, MCAST_PARAMS};
+pub(crate) fn register_func_header_iface_refs(func_node: &crate::ast::node::AstNode, uri: &McURI) {
+    use crate::ast::macros::{MCAST_DECLARE, MCAST_PARAM, MCAST_PARAMS};
     use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
     // MCAST_FUNCTION → MCAST_PARAMS → (MCAST_PARAM → MCAST_DECLARE)*
     let Some(params_node) = func_node

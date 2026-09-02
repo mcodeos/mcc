@@ -35,10 +35,6 @@ fn codes(src: &str, uri: &str) -> Vec<u32> {
     v
 }
 
-fn has_code(codes: &[u32], code: u32) -> bool {
-    codes.binary_search(&code).is_ok()
-}
-
 fn codes_without_benign(codes: &[u32]) -> Vec<u32> {
     // 5641/5642/5054 are unrelated warnings from the probe's short names.
     codes
@@ -48,9 +44,17 @@ fn codes_without_benign(codes: &[u32]) -> Vec<u32> {
         .collect()
 }
 
-/// Build `main` and return the module instance plus the Phase D frozen string
-/// net-table store (the tree never carries `NetPoint`).
-fn build_main(src: &str, uri: &str) -> (mcc::McModuleInst, mcc::NetTableStore) {
+/// Build `main` and return the module instance + arena + store plus the Phase D
+/// frozen string net-table store (the tree never carries `NetPoint`).
+fn build_main(
+    src: &str,
+    uri: &str,
+) -> (
+    mcc::McModuleInst,
+    mcc::NodeArena,
+    mcc::InstanceStore,
+    mcc::NetTableStore,
+) {
     let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     mcc::mcc_init_no_lib();
     mcc::mcc_set_system_root(std::path::Path::new(""));
@@ -78,7 +82,7 @@ fn aligned_vector_slice_arg_zips_and_is_quiet() {
         "aligned slice is quiet; got {codes:?}"
     );
 
-    let (_inst, net_store) = build_main(&src, "/mcc/gap1-aligned.mc");
+    let (_inst, _, _, net_store) = build_main(&src, "/mcc/gap1-aligned.mc");
     // Zip: the res3 net carries c1.1, the res4 net carries c2.1 — no
     // cross-pairing, no broadcast of both slice members onto both caps.
     let root_nets = net_store
@@ -178,7 +182,7 @@ fn scalar_lanes_broadcast_no_gap1() {
     );
 
     // Both caps' pin 1 on the VDD net (broadcast, not zip).
-    let (inst, net_store) = build_main(&src, "/mcc/gap1-scalar.mc");
+    let (inst, _, _, net_store) = build_main(&src, "/mcc/gap1-scalar.mc");
     let vdd_net = net_store
         .get(&inst.name.to_string())
         .unwrap_or_default()

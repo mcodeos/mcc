@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use super::mc_ids::{expand_char_slice, expand_numeric_slice};
-use crate::ast::ast_node::AstNode;
+use crate::ast::node::AstNode;
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq, Hash)]

@@ -33,9 +33,10 @@
 
 use crate::db::defregistry::DefId;
 use crate::instant::identity::NodeId;
+use crate::instant::inststore::TreeView;
 use crate::instant::lane::{PointId, Trunk};
 use crate::instant::mc_mod::McModuleInst;
-use crate::instant::net_store::NetTableStore;
+use crate::instant::nettab::NetTableStore;
 use crate::instant::overlays::Overlays;
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::common::SourcePos;
@@ -134,19 +135,32 @@ impl DescriptionLayer {
         lanes: &[Trunk],
         overlays: &Overlays,
         net_store: &NetTableStore,
+        view: &TreeView,
     ) -> Self {
         let mut dl = DescriptionLayer::default();
         let span_trunk: HashMap<SourcePos, usize> = lanes
             .iter()
             .filter_map(|t| t.stmt_span.clone().map(|s| (s, t.id)))
             .collect();
-        derive_module(tree, &tree.name, overlays, net_store, &span_trunk, &mut dl);
+        derive_module(
+            tree,
+            &tree.name,
+            overlays,
+            net_store,
+            &span_trunk,
+            &mut dl,
+            view,
+        );
         dl
     }
 }
 
 /// Recursive derivation over one module's scope, in the same order as the
 /// identity resume (dianlu.rs `resume_module`).
+///
+/// Phase C S3-D: children resolve through the [`TreeView`] (arena edges +
+/// store) — `group_products` buckets arena node ids and the sub-module
+/// recursion walks the view.
 fn derive_module(
     module: &McModuleInst,
     path: &str,
@@ -154,6 +168,7 @@ fn derive_module(
     net_store: &NetTableStore,
     span_trunk: &HashMap<SourcePos, usize>,
     dl: &mut DescriptionLayer,
+    view: &TreeView,
 ) {
     // ── Func groups: every func-kind expansion record, grouped by its
     // products (provenance.rs `group_products`). A func body's statements are
@@ -165,8 +180,7 @@ fn derive_module(
     // the group references the top-level call site's statement trunk. ──
     let expansion = &module.expansion;
     if !expansion.records.is_empty() {
-        let groups =
-            expansion.group_products(&module.components, &module.sub_modules, &module.connections);
+        let groups = expansion.group_products(view, module);
         for (i, rec) in expansion.records.iter().enumerate() {
             if !matches!(
                 rec.kind,
@@ -178,18 +192,16 @@ fn derive_module(
             let mut stack: Vec<usize> = vec![i];
             while let Some(ri) = stack.pop() {
                 let g = &groups.by_record[ri];
-                for &ci in &g.components {
-                    if let Some(id) = module.components[ci].node_id {
-                        if !participants.contains(&id) {
-                            participants.push(id);
-                        }
+                // S3-D: the groups carry arena node ids directly (was
+                // `components[ci].node_id` through the tree Vec).
+                for &id in &g.components {
+                    if !participants.contains(&id) {
+                        participants.push(id);
                     }
                 }
-                for &si in &g.sub_modules {
-                    if let Some(id) = module.sub_modules[si].node_id {
-                        if !participants.contains(&id) {
-                            participants.push(id);
-                        }
+                for &id in &g.sub_modules {
+                    if !participants.contains(&id) {
+                        participants.push(id);
                     }
                 }
                 for (r, rec2) in expansion.records.iter().enumerate() {
@@ -269,7 +281,7 @@ fn derive_module(
 
     // ── Enum refs: empty by design (see `EnumRef`) — honest boundary. ──
 
-    for sub in &module.sub_modules {
+    for sub in view.sub_modules(module) {
         derive_module(
             sub,
             &format!("{path}.{}", sub.name),
@@ -277,6 +289,7 @@ fn derive_module(
             net_store,
             span_trunk,
             dl,
+            view,
         );
     }
 }

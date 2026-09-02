@@ -6,7 +6,7 @@
 //!
 //! Provides a clean facade for pass2 and LSP consumers (see design doc §16).
 
-use crate::ast::ast_semantic::SymbolRangeLapper;
+use crate::ast::sem::SymbolRangeLapper;
 use crate::refdef::types::{RefDefEntry, RefDefMap, SymbolKind};
 use crate::semantic::common::uri_of_file_id;
 

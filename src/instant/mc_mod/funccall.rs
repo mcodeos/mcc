@@ -103,8 +103,8 @@ impl InstantiationBuilder {
             })
             .unwrap_or("None");
         let func_name_str = func_name.to_string();
-        let _sub_mod_hit = self.sub_modules.iter().any(|m| m.name == func_name_str);
-        let _comp_hit = self.components.iter().any(|c| c.name == func_name_str);
+        let _sub_mod_hit = self.find_submodule(&func_name_str).is_some();
+        let _comp_hit = self.find_component(&func_name_str).is_some();
         let _cmie_hit =
             crate::db::cmie::cmie::mcb_get_cmie(func_name, &crate::current_uri::get()).is_some();
 
@@ -118,12 +118,10 @@ impl InstantiationBuilder {
         // a same-name instance can be found in self.sub_modules. Does not go through
         // the CMIE path (which would create a new instance).
         let func_name_str = func_name.to_string();
-        if let Some(sub_idx) = self
-            .sub_modules
-            .iter()
-            .position(|m| m.name == func_name_str)
-        {
-            return self.rebind_submodule_params(sub_idx, params, left, right);
+        if let Some(sub) = self.find_submodule(&func_name_str) {
+            let inst_name = sub.name.clone();
+            let ports = sub.ports.clone();
+            return self.rebind_submodule_params(&inst_name, &ports, params, left, right);
         }
 
         // ── P0-3 fix ─────────────────────────────────────────────────────
@@ -174,12 +172,10 @@ impl InstantiationBuilder {
         // class name, will fall to P0-4 stub, args are dropped, .MIC member
         // selection collapses.
         if caller.is_none() {
-            if let Some(idx) = self
-                .sub_modules
-                .iter()
-                .position(|m| m.name == func_name_str)
-            {
-                return self.rebind_submodule_params(idx, params, left, right);
+            if let Some(sub) = self.find_submodule(&func_name_str) {
+                let inst_name = sub.name.clone();
+                let ports = sub.ports.clone();
+                return self.rebind_submodule_params(&inst_name, &ports, params, left, right);
             }
         }
 
@@ -463,7 +459,7 @@ impl InstantiationBuilder {
         // Iter-2.2 path: exact match on the flat component list. Pins are not
         // components and can't dispatch methods, so an exact dotted-name match
         // never shadows a pin-name caller.
-        if let Some(comp) = self.components.iter().find(|c| c.name == caller_path) {
+        if let Some(comp) = self.find_component(&caller_path) {
             if let Some(func) = comp.def.funcs.find(name_str) {
                 let func_clone = func.clone();
                 let full_scope = caller_path;
@@ -650,11 +646,11 @@ impl InstantiationBuilder {
                 return self.decode_array_face(list_str, side);
             }
             // ── case ①: instance own face ─────────────────────────────────
-            if let Some(comp) = self.components.iter().find(|c| c.name == inst_name) {
-                return self.component_own_face(comp, side);
+            if let Some(comp) = self.find_component(&inst_name) {
+                return self.component_own_face(&comp, side);
             }
-            if let Some(sub) = self.sub_modules.iter().find(|s| s.name == inst_name) {
-                return self.submodule_own_face(sub, side);
+            if let Some(sub) = self.find_submodule(&inst_name) {
+                return self.submodule_own_face(&sub, side);
             }
             // Synthetic stub (P0-4)? Unrecognized class name FuncCall uses independent stub endpoint
             if inst_name.starts_with("@?") {
@@ -682,7 +678,7 @@ impl InstantiationBuilder {
     /// point on the encoded path.
     fn decode_return_endpoint(&self, ep_path: &str) -> Result<Vec<NetPoint>, InstError> {
         if let Some((owner_name, port_name)) = ep_path.split_once('.') {
-            if let Some(comp) = self.components.iter().find(|c| c.name == owner_name) {
+            if let Some(comp) = self.find_component(owner_name) {
                 if let Some(pids) = comp.find_bus_port_pin_ids(port_name) {
                     if pids.len() >= 2 {
                         return Ok(pids
@@ -726,7 +722,7 @@ impl InstantiationBuilder {
     ) -> Result<Vec<NetPoint>, InstError> {
         let mut points = Vec::new();
         for n in list_str.split(',').filter(|s| !s.is_empty()) {
-            if let Some(comp) = self.components.iter().find(|c| c.name == n) {
+            if let Some(comp) = self.find_component(n) {
                 if comp.is_multi_pin() && comp.has_io_annotations() {
                     if side.is_left() {
                         let ins = comp.get_input_pins();
@@ -760,7 +756,7 @@ impl InstantiationBuilder {
                 if let Some(pin) = pin {
                     points.push(pin);
                 }
-            } else if let Some(sub) = self.sub_modules.iter().find(|s| s.name == n) {
+            } else if let Some(sub) = self.find_submodule(n) {
                 let sub_name = sub.name.clone();
                 for p in sub.ports.iter().filter(|p| {
                     if side.is_left() {
@@ -888,7 +884,7 @@ impl InstantiationBuilder {
             // In/Out ports (right expands N×1 bus ports into lanes).
             if let Some((inst_part, s)) = e.name.split_once('.') {
                 if s == suffix {
-                    if let Some(sub) = self.sub_modules.iter().find(|s| s.name == inst_part) {
+                    if let Some(sub) = self.find_submodule(inst_part) {
                         let sub_name = sub.name.clone();
                         for p in sub.ports.iter().filter(|p| {
                             if side.is_left() {
@@ -978,7 +974,8 @@ impl InstantiationBuilder {
 
     fn rebind_submodule_params(
         &mut self,
-        sub_idx: usize,
+        inst_name: &str,
+        ports: &[PortInst],
         params: &[McParamValue],
         _left: &[McBus],
         _right: &[McBus],
@@ -998,12 +995,7 @@ impl InstantiationBuilder {
         // named ports simultaneously connect bare `inst.MEMBER` and dotted
         // `inst.base.MEMBER` two label forms, consistent with the inject
         // convention from inject_port_member_labels in sub-modules.
-        let (inst_name, ports): (String, Vec<PortInst>) = {
-            let sub = &self.sub_modules[sub_idx];
-            (sub.name.clone(), sub.ports.clone())
-        };
-
-        let new_connections = self.bind_call_args_to_ports(&inst_name, &ports, params);
+        let new_connections = self.bind_call_args_to_ports(inst_name, ports, params);
 
         Ok(FuncCallInst::Components {
             new_components: Vec::new(),

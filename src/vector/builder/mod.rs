@@ -33,10 +33,7 @@ pub mod visit;
 // ============================================================================
 
 // Main entry + data structures
-pub use visit::{
-    build_mc_vec, build_mc_vec_strict, build_mc_vec_with_arena, build_mc_vec_with_report,
-    McVecBuilder,
-};
+pub use visit::{build_mc_vec, build_mc_vec_with_arena, build_mc_vec_with_report, McVecBuilder};
 
 // ★ P02 additions
 pub use report::{

@@ -29,6 +29,7 @@
 //! This module **read-only**, does not write to `self.diagnostics`, does not affect `has_errors()`.
 //! This ensures enabling dump doesn't pollute the normal diagnostics flow.
 
+use super::super::inststore::TreeView;
 use super::super::mc_net::{canonicalize_path, NetPoint};
 use super::builder::InstantiationBuilder;
 use super::McModuleInst;
@@ -209,9 +210,16 @@ impl InstantiationBuilder {
     // ------------------------------------------------------------------------
     // 2. Pass2 output snapshot
     // ------------------------------------------------------------------------
-    /// Print pass2 output snapshot (called at end of `instantiate()`, after net table construction)
+    /// Print pass2 output snapshot (called at end of `instantiate()`, after net table construction).
+    ///
+    /// Phase C S3-D: children resolve through the builder's own arena + store
+    /// (the tree's Vec fields are gone).
     pub(super) fn dump_pass2_output(&self) {
         let p = p2_prefix(&self.name);
+        // Bind the Ref borrows so they outlive the view.
+        let arena = self.arena.borrow();
+        let store = self.store.borrow();
+        let view = TreeView::new(&arena, &store);
         mcc_dbg!(
             "inst::dump",
             "{p} ── BEGIN ────────────────────────────────"
@@ -260,8 +268,13 @@ impl InstantiationBuilder {
         }
 
         // ---- components ----
-        mcc_dbg!("inst::dump", "{} components: {}", p, self.components.len());
-        for comp in &self.components {
+        mcc_dbg!(
+            "inst::dump",
+            "{} components: {}",
+            p,
+            view.components(&self.tree).count()
+        );
+        for comp in view.components(&self.tree) {
             mcc_dbg!(
                 "inst::dump",
                 "{}   comp    {} : {} ({} pin(s))",
@@ -290,13 +303,9 @@ impl InstantiationBuilder {
         }
 
         // ---- sub_modules ----
-        mcc_dbg!(
-            "inst::dump",
-            "{} sub_modules: {}",
-            p,
-            self.sub_modules.len()
-        );
-        for sub in &self.sub_modules {
+        let subs: Vec<_> = view.sub_modules(&self.tree).collect();
+        mcc_dbg!("inst::dump", "{} sub_modules: {}", p, subs.len());
+        for sub in &subs {
             let sub_nets = self
                 .net_store
                 .borrow()
@@ -309,8 +318,8 @@ impl InstantiationBuilder {
                 sub.name,
                 sub.def.name,
                 sub.ports.len(),
-                sub.components.len(),
-                sub.sub_modules.len(),
+                view.components(sub).count(),
+                view.sub_modules(sub).count(),
                 sub.connections.len(),
                 sub_nets,
             );
@@ -346,9 +355,9 @@ impl InstantiationBuilder {
         for inst_name in self.auto_inst_map.values() {
             let kind = if inst_name.starts_with("@?") {
                 "stub(P0-4)"
-            } else if self.components.iter().any(|c| &c.name == inst_name) {
+            } else if view.components(&self.tree).any(|c| &c.name == inst_name) {
                 "component"
-            } else if self.sub_modules.iter().any(|s| &s.name == inst_name) {
+            } else if view.sub_modules(&self.tree).any(|s| &s.name == inst_name) {
                 "sub_module"
             } else {
                 "unknown"
@@ -445,8 +454,11 @@ impl McModuleInst {
     // 3. Pass1 ↔ Pass2 reconciliation
     // ------------------------------------------------------------------------
 
-    /// Verify pass1 → pass2 info completeness
-    pub(super) fn dump_pass_diff(&self) {
+    /// Verify pass1 → pass2 info completeness.
+    ///
+    /// Phase C S3-D: the declared↔built comparison resolves the built children
+    /// through `view` (arena edges + store — the tree's Vec fields are gone).
+    pub(super) fn dump_pass_diff(&self, view: &TreeView) {
         let p = diff_prefix(&self.name);
         let m = missing_prefix(&self.name);
         mcc_dbg!(
@@ -465,14 +477,14 @@ impl McModuleInst {
                 McInstance::Component(c) => {
                     declared_comps += 1;
                     let want = c.name.to_string();
-                    if !self.components.iter().any(|x| x.name == want) {
+                    if !view.components(self).any(|x| x.name == want) {
                         missing_comps.push(want);
                     }
                 }
                 McInstance::Module(m_) => {
                     declared_mods += 1;
                     let want = m_.name.to_string();
-                    if !self.sub_modules.iter().any(|x| x.name == want) {
+                    if !view.sub_modules(self).any(|x| x.name == want) {
                         missing_mods.push(want);
                     }
                 }
@@ -514,9 +526,8 @@ impl McModuleInst {
         let stmts_count = self.def.stmts.len();
         let conn_count = self.connections.len();
         let auto_map_count = self.auto_inst_map.len();
-        let inline_subs = self
-            .sub_modules
-            .iter()
+        let inline_subs = view
+            .sub_modules(self)
             .filter(|s| {
                 // auto_name generated inline module constructions are named `_<type><n>`
                 let n = &s.name;
@@ -588,7 +599,11 @@ impl InstantiationBuilder {
     pub fn dump_pass_summary(&self) {
         self.dump_pass1_input();
         self.dump_pass2_output();
-        self.dump_pass_diff();
+        // Bind the Ref borrows so they outlive the view.
+        let arena = self.arena.borrow();
+        let store = self.store.borrow();
+        let view = TreeView::new(&arena, &store);
+        self.dump_pass_diff(&view);
     }
 }
 

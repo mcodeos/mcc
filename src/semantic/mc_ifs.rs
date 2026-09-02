@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::semantic::basic::mc_conds::McConds;
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*},
+    ast::{macros::*, node::AstNode},
     semantic::{
         basic::mc_param::McParamDeclares, basic::mc_phrase::McPhrase, basic::mc_role::McRole,
         component::mc_attr::McAttributes, component::mc_pins::McPins, mc_func::HasFindInst,
@@ -23,7 +23,7 @@ pub struct McInterface {
     pub roles: Vec<McRole>,
     pub body: AstNode,
     pub uri: McURI,
-    pub span: crate::ast::ast_semantic::Span, // ★ LSP: span for goto definition
+    pub span: crate::ast::sem::Span, // ★ LSP: span for goto definition
 }
 
 impl McInterface {
@@ -37,7 +37,7 @@ impl McInterface {
         let ids_node = name_node.get_sub_node()?;
         let start = ids_node.get_pos() as usize;
         let end = start + ids_node.get_len() as usize;
-        let span = crate::ast::ast_semantic::Span { start, end };
+        let span = crate::ast::sem::Span { start, end };
 
         let mut ret = Self {
             name: McIds::new_with_dot(&name_node.get_sub_node()?)?,

@@ -12,9 +12,9 @@ use crate::semantic::module::Mc2Module;
 use crate::McIds;
 use crate::McInstances;
 use crate::{
-    ast::ast_node::AstNode,
-    ast::c_macros::*,
     ast::error::message::*,
+    ast::macros::*,
+    ast::node::AstNode,
     semantic::basic::form::{classify, reference_parts, Form, RefVerdict},
     semantic::basic::mc_param::McParamDeclares,
 };
@@ -714,7 +714,7 @@ impl McFunction {
             // Pure print, no behavior change. List each top-level node's type under body + its
             // child node type sequence, used to confirm that `MIC{P,N} -> cap[4:5]::CAP() -> uC.ADC{P,N}`
             // this statement appears in AST in what form (or doesn't appear at all).
-            // get_type() returns u16; against c_macros.rs: NET=33, DECLARE=26,
+            // get_type() returns u16; against macros.rs: NET=33, DECLARE=26,
             // OPD=52, OPD_RIGHTARROW=71, OPD_DBCOLON=77, INSTANCE=29, CLASS=28。
             {
                 let mut idx = 0;

@@ -811,8 +811,10 @@ impl InstantiationBuilder {
                         // component inside the submodule that has a same-named bus port,
                         // and use its physical pin IDs (e.g. mcu.10 instead of mcu.SPI.1).
                         // First try member-name matching, then fall back to positional.
-                        let pin_ids: Option<Vec<String>> =
-                            submod.components.iter().find_map(|comp| {
+                        let pin_ids: Option<Vec<String>> = self
+                            .components_of(submod.node_id?)
+                            .into_iter()
+                            .find_map(|comp| {
                                 comp.find_bus_port_pin_ids(port)
                                     .map(|pairs| pairs.into_iter().map(|(_, pid)| pid).collect())
                             });

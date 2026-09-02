@@ -62,8 +62,9 @@ fn build_block(source: &str) -> mcc::vector::model::McVecBlock {
         ident: McIds::from("main"),
         uri: mcc::uri_intern(&uri),
     };
-    let (inst, table) = mcc::mcb_pass2_flat(&entry, 1).expect("pass2_flat failed");
-    let block = mcc::vector::builder::visit::build_mc_vec(&inst, &table);
+    let (inst, table, arena, store) =
+        mcc::mcc_build_flat_with_arena(&entry.ident, &uri, 1).expect("pass2_flat failed");
+    let block = mcc::vector::builder::visit::build_mc_vec(&inst, &table, &arena, &store);
 
     drop(lock);
     block

@@ -18,7 +18,7 @@ use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::McFuncReturn;
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*},
+    ast::{macros::*, node::AstNode},
     semantic::basic::mc_param::McParamDeclares,
     IOType, McCMIE, McIds, McParamValue, McURI,
 };
@@ -35,11 +35,11 @@ pub struct McModule {
     pub stmts: Vec<McPhrase>,
     /// Source span for each connection stmt in `stmts` (parallel array).
     /// Used for diagnostic position reporting during instantiation.
-    pub stmt_spans: Vec<crate::ast::ast_semantic::Span>,
+    pub stmt_spans: Vec<crate::ast::sem::Span>,
     pub funcs: McFunctions,
     pub uri: McURI,
     /// Source span for LSP goto-definition (byte range in `uri`).
-    pub span: crate::ast::ast_semantic::Span,
+    pub span: crate::ast::sem::Span,
     anon_counter: usize,
     /// resolve-gate §1.3: instance names / FuncCall callers noted during body
     /// parse. Module-level B-family bases (e.g. `PL3085A(...) PL.Cap()` → `PL`)
@@ -100,7 +100,7 @@ impl McModule {
                 stmts: Vec::new(),
                 stmt_spans: Vec::new(),
                 uri: uri.clone(),
-                span: crate::ast::ast_semantic::Span { start, end },
+                span: crate::ast::sem::Span { start, end },
                 anon_counter: 1,
                 seen_callers: Vec::new(),
                 gate_candidates: Vec::new(),
@@ -152,7 +152,7 @@ impl McModule {
             stmt_spans: Vec::new(),
             funcs: McFunctions::new(),
             uri: McURI::default(),
-            span: crate::ast::ast_semantic::Span {
+            span: crate::ast::sem::Span {
                 start: 0,
                 end: name.len(),
             },
@@ -304,7 +304,7 @@ impl McModule {
                                     // Track source span for diagnostic position reporting
                                     let stmt_start = subnode.get_pos() as usize;
                                     let stmt_end = stmt_start + subnode.get_len() as usize;
-                                    self.stmt_spans.push(crate::ast::ast_semantic::Span {
+                                    self.stmt_spans.push(crate::ast::sem::Span {
                                         start: stmt_start,
                                         end: stmt_end,
                                     });
@@ -1148,7 +1148,7 @@ impl McModule {
                                 if let Ok(mut sem) = mcode.symbols.lock() {
                                     sem.local_table.add_declare_with_name(
                                         uri,
-                                        crate::ast::ast_semantic::SourceLocation::from_span(&span),
+                                        crate::ast::sem::SourceLocation::from_span(&span),
                                         Some(key),
                                         Some(scope),
                                     );

@@ -29,7 +29,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::instant::arena::{arena_sub_modules, NodeArena};
+use crate::instant::arena::NodeArena;
+use crate::instant::inststore::{InstanceStore, TreeView};
 use crate::instant::insttab::{InstKind, InstOrigin, InstTable};
 use crate::instant::mc_mod::McModuleInst;
 use crate::vector::graph::extract_last_segment;
@@ -68,10 +69,10 @@ fn pair_with_conn_meta(mut p: ConnPair, conn: &crate::instant::mc_net::Connectio
 pub struct McVecBuilder<'a> {
     /// Flattened instance table (provides globally unique ID + path lookup)
     inst_table: &'a InstTable,
-    /// Phase C companion arena: when present, sub-module order is sourced
-    /// from the arena `children` edges instead of the tree's `sub_modules`
-    /// Vec (two-track migration — `arena_sub_modules` guards 1:1 alignment).
-    arena: Option<&'a NodeArena>,
+    /// Phase C companion view: sub-module / component children resolve from
+    /// the arena `children` edges + instance store (the tree's own Vec fields
+    /// are gone).
+    view: &'a TreeView<'a>,
     /// Net ID counter (unique across all levels)
     net_id_counter: i64,
     /// ★ NEW P02: Accumulated diagnostics
@@ -84,10 +85,10 @@ pub struct McVecBuilder<'a> {
 
 impl<'a> McVecBuilder<'a> {
     /// Create converter (default Tolerant mode)
-    pub fn new(inst_table: &'a InstTable) -> Self {
+    pub fn new(inst_table: &'a InstTable, view: &'a TreeView<'a>) -> Self {
         Self {
             inst_table,
-            arena: None,
+            view,
             net_id_counter: 0,
             report: BuilderReport::new(),
             mode: BuildMode::Tolerant,
@@ -98,12 +99,6 @@ impl<'a> McVecBuilder<'a> {
     /// ★ NEW P02: Switch error tolerance mode
     pub fn with_mode(mut self, mode: BuildMode) -> Self {
         self.mode = mode;
-        self
-    }
-
-    /// Phase C: drive sub-module traversal from the arena `children` edges.
-    pub fn with_arena(mut self, arena: &'a NodeArena) -> Self {
-        self.arena = Some(arena);
         self
     }
 
@@ -220,8 +215,9 @@ impl<'a> McVecBuilder<'a> {
     // ========================================================================
 
     fn convert_module(&mut self, inst: &McModuleInst, prefix: &str) -> McVecBlock {
+        let view = self.view;
         // ── Debug: input snapshot (printed when MC_VEC_DUMP=1) ──
-        debug::dump_input(inst);
+        debug::dump_input(inst, view);
 
         // 1. Determine this module's path and ID
         let my_path = if prefix.is_empty() {
@@ -247,14 +243,15 @@ impl<'a> McVecBuilder<'a> {
         // ★ S3.5 change: Detailed diagnostics — print to stderr when each component path resolve fails
         // If upstream visit phase drops a component, downstream from_block.rs can only see empty insts
         // and will use Phase 1.5 to substitute endpoints as PowerLabel, causing ICs/resistors/capacitors to not render at all.
-        if !inst.components.is_empty() {
+        let comps: Vec<_> = view.components(inst).collect();
+        if !comps.is_empty() {
             crate::velog!(
                 "[visit] '{}': {} component(s) declared in pass2",
                 my_path,
-                inst.components.len()
+                comps.len()
             );
         }
-        for comp in &inst.components {
+        for comp in comps {
             let comp_path = format!("{}.{}", my_path, comp.name);
             match self.inst_table.get_id_by_path(&comp_path) {
                 Some(comp_id) => {
@@ -312,18 +309,14 @@ impl<'a> McVecBuilder<'a> {
         }
 
         // 4. Recursively process sub-modules
-        if !inst.sub_modules.is_empty() {
+        let subs: Vec<&McModuleInst> = view.sub_modules(inst).collect();
+        if !subs.is_empty() {
             crate::velog!(
                 "[visit] '{}': {} sub_module(s) declared in pass2",
                 my_path,
-                inst.sub_modules.len()
+                subs.len()
             );
         }
-        let arena = self.arena;
-        let subs: Vec<&McModuleInst> = match arena {
-            Some(arena) => arena_sub_modules(arena, inst).collect(),
-            None => inst.sub_modules.iter().collect(),
-        };
         for sub in subs {
             let sub_path = format!("{}.{}", my_path, sub.name);
             match self.inst_table.get_id_by_path(&sub_path) {
@@ -416,7 +409,7 @@ impl<'a> McVecBuilder<'a> {
 
         // ── Debug: output snapshot + consistency check (printed when MC_VEC_DUMP=1) ──
         debug::dump_output(&block);
-        debug::dump_diff(inst, &block);
+        debug::dump_diff(inst, &block, view);
 
         block
     }
@@ -1485,27 +1478,35 @@ fn trunk_end_from_id(table: &InstTable, id: i64, base: &str) -> TrunkEnd {
 // Public API
 // ============================================================================
 
-/// One-step build `McVecBlock` tree from pass2 result (Tolerant mode)
+/// One-step build `McVecBlock` tree from pass2 result (Tolerant mode).
+///
+/// Phase C S3-D: the children walk resolves through the store-backed view
+/// (design §4 — the tree's `sub_modules` / `components` Vec fields are gone),
+/// so callers must hold the companion `arena` + `inststore` (e.g. from
+/// `mcc_build_flat_with_arena`).
 ///
 /// **Behavior-compatible**: all errors swallowed, check total warnings via `np_warn_count()`.
 /// For structured diagnostics, use [`build_mc_vec_with_report`] or hold `McVecBuilder` directly.
-pub fn build_mc_vec(root: &McModuleInst, inst_table: &InstTable) -> McVecBlock {
-    let mut builder = McVecBuilder::new(inst_table);
+pub fn build_mc_vec(
+    root: &McModuleInst,
+    inst_table: &InstTable,
+    arena: &NodeArena,
+    store: &InstanceStore,
+) -> McVecBlock {
+    let view = TreeView::new(arena, store);
+    let mut builder = McVecBuilder::new(inst_table, &view);
     builder.build(root)
 }
 
-/// Phase C: same as [`build_mc_vec`], but sub-module order is sourced from the
-/// arena `children` edges (design §4) instead of the tree's `sub_modules` Vec.
-/// Callers that hold a `NodeArena` (e.g. from `mcc_build_flat_with_arena`)
-/// use this entry; the walk stays byte-identical thanks to the 1:1 alignment
-/// guard inside [`arena_sub_modules`].
+/// Phase C: same as [`build_mc_vec`] — kept as the pre-S3-D name for callers
+/// that already threaded the arena. Delegates to [`build_mc_vec`].
 pub fn build_mc_vec_with_arena(
     root: &McModuleInst,
     inst_table: &InstTable,
     arena: &NodeArena,
+    store: &InstanceStore,
 ) -> McVecBlock {
-    let mut builder = McVecBuilder::new(inst_table).with_arena(arena);
-    builder.build(root)
+    build_mc_vec(root, inst_table, arena, store)
 }
 
 /// ★ NEW P02: Return both block and report
@@ -1517,18 +1518,12 @@ pub fn build_mc_vec_with_arena(
 pub fn build_mc_vec_with_report(
     root: &McModuleInst,
     inst_table: &InstTable,
+    arena: &NodeArena,
+    store: &InstanceStore,
 ) -> (McVecBlock, BuilderReport) {
-    let mut builder = McVecBuilder::new(inst_table);
+    let view = TreeView::new(arena, store);
+    let mut builder = McVecBuilder::new(inst_table, &view);
     let block = builder.build(root);
     let report = builder.report().clone();
     (block, report)
-}
-
-/// ★ NEW P02: Strict mode entry, any data loss immediately Err
-pub fn build_mc_vec_strict(
-    root: &McModuleInst,
-    inst_table: &InstTable,
-) -> Result<McVecBlock, BuilderError> {
-    let mut builder = McVecBuilder::new(inst_table).with_mode(BuildMode::Strict);
-    builder.try_build(root)
 }

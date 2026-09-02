@@ -9,12 +9,14 @@
 //! Phase 2.5 of the namespace refactoring plan.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
+use super::super::inststore::TreeView;
 use super::super::mc_bus::McBusInst;
 use super::super::mc_comp::McComponentInst;
 use super::super::mc_net::{NetPoint, PortInst};
-use super::super::net_store::NetTableStore;
+use super::super::nettab::NetTableStore;
 use super::builder::InstantiationBuilder;
 use super::McModuleInst;
 use crate::semantic::basic::mc_param::McParamBindings;
@@ -204,13 +206,15 @@ impl ResolveScope<InstEntry> for ModuleLabelsScope<'_> {
     }
 }
 
-/// Module component instances (mechanism B P3).
+/// Module component instances (mechanism B P3). Phase C S3 store-backed: the
+/// scope holds `Rc` handles resolved from the instance store (the tree no
+/// longer carries a `components` Vec); the resolver clones only the match.
 struct ModuleComponentsScope<'a> {
-    components: &'a [McComponentInst],
+    components: &'a [Rc<McComponentInst>],
 }
 
 impl<'a> ModuleComponentsScope<'a> {
-    fn new(components: &'a [McComponentInst]) -> Self {
+    fn new(components: &'a [Rc<McComponentInst>]) -> Self {
         Self { components }
     }
 }
@@ -220,17 +224,18 @@ impl ResolveScope<InstEntry> for ModuleComponentsScope<'_> {
         self.components
             .iter()
             .find(|c| c.name == name)
-            .map(|c| InstEntry::Component(Arc::new(c.clone())))
+            .map(|c| InstEntry::Component(Arc::new(c.as_ref().clone())))
     }
 }
 
-/// Module sub-module instances (mechanism B P4).
+/// Module sub-module instances (mechanism B P4). Phase C S3 store-backed (same
+/// rationale as [`ModuleComponentsScope`]).
 struct ModuleSubModulesScope<'a> {
-    sub_modules: &'a [McModuleInst],
+    sub_modules: &'a [Rc<McModuleInst>],
 }
 
 impl<'a> ModuleSubModulesScope<'a> {
-    fn new(sub_modules: &'a [McModuleInst]) -> Self {
+    fn new(sub_modules: &'a [Rc<McModuleInst>]) -> Self {
         Self { sub_modules }
     }
 }
@@ -240,7 +245,7 @@ impl ResolveScope<InstEntry> for ModuleSubModulesScope<'_> {
         self.sub_modules
             .iter()
             .find(|s| s.name == name)
-            .map(|s| InstEntry::SubModule(Arc::new(s.clone())))
+            .map(|s| InstEntry::SubModule(Arc::new(s.as_ref().clone())))
     }
 }
 
@@ -337,20 +342,27 @@ fn module_find_overlay(
     path: &str,
     scratch: Option<(&HashMap<String, NetPoint>, &HashMap<String, McBusInst>)>,
     store: &NetTableStore,
+    view: &TreeView,
     name: &str,
 ) -> Option<InstEntry> {
     let (labels, buses): (&HashMap<String, NetPoint>, &HashMap<String, McBusInst>) = match scratch {
         Some((l, b)) => (l, b),
         None => (store.labels_of(path), store.buses_of(path)),
     };
-    ScopeChain::new(vec![
+    // Phase C S3: the tree carries no children — components / sub-modules
+    // resolve store-backed from the view (only the match is cloned).
+    let comps: Vec<Rc<McComponentInst>> =
+        view.components(tree).map(|c| Rc::new(c.clone())).collect();
+    let subs: Vec<Rc<McModuleInst>> = view.sub_modules(tree).map(|s| Rc::new(s.clone())).collect();
+    // Named local so the chain (borrowing `comps` / `subs`) drops before them.
+    let chain = ScopeChain::new(vec![
         Box::new(ModulePortsScope::new(&tree.ports)),
         Box::new(ModuleLabelsScope::new(labels)),
-        Box::new(ModuleComponentsScope::new(&tree.components)),
-        Box::new(ModuleSubModulesScope::new(&tree.sub_modules)),
+        Box::new(ModuleComponentsScope::new(&comps)),
+        Box::new(ModuleSubModulesScope::new(&subs)),
         Box::new(ModuleBusesScope::new(buses, labels)),
-    ])
-    .resolve(name)
+    ]);
+    chain.resolve(name)
 }
 
 /// Recursively resolve a DOT-separated name chain with the Phase E overlay.
@@ -368,6 +380,7 @@ pub(crate) fn resolve_chain_overlay(
     top_labels: &HashMap<String, NetPoint>,
     top_buses: &HashMap<String, McBusInst>,
     store: &NetTableStore,
+    view: &TreeView,
 ) -> Option<InstEntry> {
     if chain.is_empty() {
         return None;
@@ -378,6 +391,7 @@ pub(crate) fn resolve_chain_overlay(
         top_path,
         Some((top_labels, top_buses)),
         store,
+        view,
         &chain[0],
     )?;
 
@@ -386,7 +400,7 @@ pub(crate) fn resolve_chain_overlay(
             // SubModule: recurse with the sub-module's own overlay fragment.
             InstEntry::SubModule(sub) => {
                 let sub_path = format!("{top_path}.{}", sub.name);
-                module_find_overlay(sub, &sub_path, None, store, seg)?
+                module_find_overlay(sub, &sub_path, None, store, view, seg)?
             }
             // Component: resolve via its pins
             InstEntry::Component(comp) => {
@@ -411,6 +425,9 @@ impl InstantiationBuilder {
     /// descent reads the sub-module's overlay from the shared store.
     pub(super) fn resolve_chain(&self, chain: &[String]) -> Option<InstEntry> {
         let store = self.net_store.borrow();
+        let arena = self.arena.borrow();
+        let inst_store = self.store.borrow();
+        let view = TreeView::new(&arena, &inst_store);
         resolve_chain_overlay(
             chain,
             &self.tree,
@@ -418,6 +435,7 @@ impl InstantiationBuilder {
             &self.labels,
             &self.buses,
             &store,
+            &view,
         )
     }
 }
@@ -773,6 +791,9 @@ mod expand_match_tests {
 #[cfg(test)]
 mod inst_scope_tests {
     use super::*;
+    use crate::instant::arena::{Node, NodeArena, NodeKind};
+    use crate::instant::identity::{CircuitKey, IdentityRegistry};
+    use crate::instant::inststore::{InstanceStore, NodeInstance};
     use crate::semantic::basic::mc_ids::McIds;
     use crate::semantic::basic::mc_param::McParamValue;
     use crate::semantic::basic::mc_param_type::McParamType;
@@ -811,7 +832,7 @@ mod inst_scope_tests {
                 },
                 cond_pins: Vec::new(),
                 cond_attrs: Vec::new(),
-                span: crate::ast::ast_semantic::Span { start: 0, end: 0 },
+                span: crate::ast::sem::Span { start: 0, end: 0 },
                 anon_counter: 1,
             }),
             params: McParamBindings::new(),
@@ -839,6 +860,65 @@ mod inst_scope_tests {
             );
         }
         inst
+    }
+
+    /// Phase C S3 store fixture: intern `module`'s node and its direct
+    /// component / sub-module children in a fresh arena + instance store,
+    /// wire the arena edges, and return them. The caller builds the
+    /// [`TreeView`] over the pair.
+    fn store_fixture(
+        module: &mut McModuleInst,
+        components: Vec<McComponentInst>,
+        sub_modules: Vec<McModuleInst>,
+    ) -> (NodeArena, InstanceStore) {
+        let mut reg = IdentityRegistry::new(CircuitKey::default());
+        let mut store = InstanceStore::default();
+        let root = reg.intern(&module.name);
+        let mut arena = NodeArena::new(root);
+        module.node_id = Some(root);
+        arena.insert(Node {
+            id: root,
+            kind: NodeKind::Module,
+            parent: None,
+            children: Vec::new(),
+            name: module.name.clone(),
+            def: None,
+            pins: Vec::new(),
+            shape: None,
+        });
+        for mut comp in components {
+            let id = reg.intern(&format!("{}.{}", module.name, comp.name));
+            comp.node_id = Some(id);
+            arena.insert(Node {
+                id,
+                kind: NodeKind::Device,
+                parent: Some(root),
+                children: Vec::new(),
+                name: comp.name.clone(),
+                def: None,
+                pins: Vec::new(),
+                shape: None,
+            });
+            arena.add_child_grouped(root, id, NodeKind::Device);
+            store.insert(id, NodeInstance::Component(Rc::new(comp)));
+        }
+        for mut sub in sub_modules {
+            let id = reg.intern(&format!("{}.{}", module.name, sub.name));
+            sub.node_id = Some(id);
+            arena.insert(Node {
+                id,
+                kind: NodeKind::Module,
+                parent: Some(root),
+                children: Vec::new(),
+                name: sub.name.clone(),
+                def: None,
+                pins: Vec::new(),
+                shape: None,
+            });
+            arena.add_child_grouped(root, id, NodeKind::Module);
+            store.insert(id, NodeInstance::Module(Rc::new(sub)));
+        }
+        (arena, store)
     }
 
     /// A `McParamBindings` with a single positional binding `name -> n1`.
@@ -944,7 +1024,7 @@ mod inst_scope_tests {
     /// Module components resolve to a recursive `InstEntry::Component` arc.
     #[test]
     fn module_components_scope_resolves_component_entry() {
-        let components = vec![comp_inst_with_pins("R1", &[("1", IOType::None)])];
+        let components = vec![Rc::new(comp_inst_with_pins("R1", &[("1", IOType::None)]))];
         let scope = ModuleComponentsScope::new(&components);
         match scope.resolve("R1").expect("component should resolve") {
             InstEntry::Component(c) => assert_eq!(c.name, "R1"),
@@ -957,7 +1037,7 @@ mod inst_scope_tests {
     #[test]
     fn module_sub_modules_scope_resolves_submodule_entry() {
         let sub = McModuleInst::new("mcu513", Arc::new(McModule::test_stub("mcu")));
-        let sub_modules = vec![sub];
+        let sub_modules = vec![Rc::new(sub)];
         let scope = ModuleSubModulesScope::new(&sub_modules);
         match scope.resolve("mcu513").expect("sub-module should resolve") {
             InstEntry::SubModule(s) => assert_eq!(s.name, "mcu513"),
@@ -1003,22 +1083,29 @@ mod inst_scope_tests {
     }
 
     /// The overlay chain resolver descends `U1` → pin `VDD` through the
-    /// tree-carried component category.
+    /// store-backed component category (Phase C S3).
     #[test]
     fn overlay_chain_resolves_component_pin() {
         let mut m = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));
-        m.components
-            .push(comp_inst_with_pins("U1", &[("VDD", IOType::Power)]));
-        let (store, labels, buses) = empty_overlay();
+        let (arena, inst_store) = store_fixture(
+            &mut m,
+            vec![comp_inst_with_pins("U1", &[("VDD", IOType::Power)])],
+            vec![],
+        );
+        let view = TreeView::new(&arena, &inst_store);
+        let (net_store, labels, buses) = empty_overlay();
         let chain = vec!["U1".to_string(), "VDD".to_string()];
-        match resolve_chain_overlay(&chain, &m, "main", &labels, &buses, &store)
+        match resolve_chain_overlay(&chain, &m, "main", &labels, &buses, &net_store, &view)
             .expect("chain should resolve")
         {
             InstEntry::Port(p) => assert_eq!(p.path, "U1.VDD"),
             other => panic!("expected InstEntry::Port, got {other:?}"),
         }
         let missing = vec!["U1".to_string(), "GND".to_string()];
-        assert!(resolve_chain_overlay(&missing, &m, "main", &labels, &buses, &store).is_none());
+        assert!(
+            resolve_chain_overlay(&missing, &m, "main", &labels, &buses, &net_store, &view)
+                .is_none()
+        );
     }
 
     /// The overlay chain resolver follows the ports → labels → components →
@@ -1029,19 +1116,39 @@ mod inst_scope_tests {
     fn overlay_chain_priority_ports_over_components() {
         let mut m = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));
         m.ports.push(PortInst::new("SIG", IOType::InOut));
-        m.components
-            .push(comp_inst_with_pins("SIG", &[("1", IOType::None)]));
-        let (store, mut labels, buses) = empty_overlay();
+        let (arena, inst_store) = store_fixture(
+            &mut m,
+            vec![comp_inst_with_pins("SIG", &[("1", IOType::None)])],
+            vec![],
+        );
+        let view = TreeView::new(&arena, &inst_store);
+        let (net_store, mut labels, buses) = empty_overlay();
         labels.insert("N_SIG".to_string(), np("N_SIG"));
-        match resolve_chain_overlay(&["SIG".to_string()], &m, "main", &labels, &buses, &store)
-            .expect("port should win")
+        match resolve_chain_overlay(
+            &["SIG".to_string()],
+            &m,
+            "main",
+            &labels,
+            &buses,
+            &net_store,
+            &view,
+        )
+        .expect("port should win")
         {
             InstEntry::Port(p) => assert_eq!(p.path, "SIG"),
             other => panic!("expected port to shadow component/label, got {other:?}"),
         }
         // A label-only name still resolves through the overlay label category.
-        match resolve_chain_overlay(&["N_SIG".to_string()], &m, "main", &labels, &buses, &store)
-            .expect("label should resolve")
+        match resolve_chain_overlay(
+            &["N_SIG".to_string()],
+            &m,
+            "main",
+            &labels,
+            &buses,
+            &net_store,
+            &view,
+        )
+        .expect("label should resolve")
         {
             InstEntry::Label(l) => assert_eq!(l.path, "N_SIG"),
             other => panic!("expected InstEntry::Label, got {other:?}"),
@@ -1056,10 +1163,11 @@ mod inst_scope_tests {
         let mut sub = McModuleInst::new("mcu513", Arc::new(McModule::test_stub("mcu")));
         sub.ports.push(PortInst::new("VDD", IOType::Power));
         let mut m = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));
-        m.sub_modules.push(sub);
-        let (store, labels, buses) = empty_overlay();
+        let (arena, inst_store) = store_fixture(&mut m, vec![], vec![sub]);
+        let view = TreeView::new(&arena, &inst_store);
+        let (net_store, labels, buses) = empty_overlay();
         let chain = vec!["mcu513".to_string(), "VDD".to_string()];
-        match resolve_chain_overlay(&chain, &m, "main", &labels, &buses, &store)
+        match resolve_chain_overlay(&chain, &m, "main", &labels, &buses, &net_store, &view)
             .expect("chain should resolve")
         {
             InstEntry::Port(p) => assert_eq!(p.path, "VDD"),
@@ -1067,6 +1175,9 @@ mod inst_scope_tests {
         }
         // Terminal types do not support further DOT resolution.
         let bad_chain = vec!["mcu513".to_string(), "VDD".to_string(), "X".to_string()];
-        assert!(resolve_chain_overlay(&bad_chain, &m, "main", &labels, &buses, &store).is_none());
+        assert!(
+            resolve_chain_overlay(&bad_chain, &m, "main", &labels, &buses, &net_store, &view)
+                .is_none()
+        );
     }
 }

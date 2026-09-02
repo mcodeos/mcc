@@ -10,7 +10,7 @@
 //!
 //! - [`ModuleOverlay`]: one module's label registry and bus table. The
 //!   construction scratch freezes a fragment per canonical module path into
-//!   the [`NetTableStore`](crate::instant::net_store::NetTableStore) (the
+//!   the [`NetTableStore`](crate::instant::nettab::NetTableStore) (the
 //!   same carrier as the Phase D string net tables), and the projection /
 //!   query consumers read them back from there via `labels_of` / `buses_of`.
 //! - [`Overlays`]: the circuit-level derived overlay on the
@@ -22,6 +22,7 @@
 //!   separate structure.
 
 use crate::instant::identity::NodeId;
+use crate::instant::inststore::TreeView;
 use crate::instant::lane::{Net, NetId, PointId};
 use crate::instant::mc_bus::McBusInst;
 use crate::instant::mc_mod::McModuleInst;
@@ -83,7 +84,7 @@ impl Overlays {
     ///   point in one pass. Pin-path symbols (`c1.1`) need the def pin
     ///   ledger to reverse ordinals and arrive with the description layer
     ///   (Phase G) — the net-name index is the honest Phase E boundary.
-    pub fn derive(tree: &McModuleInst, nets: &[Net]) -> Self {
+    pub fn derive(tree: &McModuleInst, nets: &[Net], view: &TreeView) -> Self {
         let mut labels: Vec<(NetId, String)> = Vec::new();
         let mut point_index: HashMap<String, Vec<PointId>> = HashMap::new();
         for net in nets {
@@ -98,7 +99,7 @@ impl Overlays {
         }
 
         let mut name_index: HashMap<String, Vec<NodeId>> = HashMap::new();
-        index_module(&mut name_index, &tree.name, tree);
+        index_module(&mut name_index, &tree.name, tree, view);
         Overlays {
             labels,
             name_index,
@@ -112,7 +113,15 @@ impl Overlays {
 /// ports, its vectors (base → member node set), its components, and its
 /// sub-modules. Every node is keyed by its canonical path and its
 /// member-set symbol (bare name).
-fn index_module(name_index: &mut HashMap<String, Vec<NodeId>>, path: &str, module: &McModuleInst) {
+///
+/// Phase C S3-D: children resolve through the [`TreeView`] (arena edges +
+/// instance store) instead of the tree's `components` / `sub_modules` Vecs.
+fn index_module(
+    name_index: &mut HashMap<String, Vec<NodeId>>,
+    path: &str,
+    module: &McModuleInst,
+    view: &TreeView,
+) {
     if let Some(id) = module.node_id {
         name_index.entry(path.to_string()).or_default().push(id);
         // The module's own bare name is its member-set symbol — for the root
@@ -141,9 +150,7 @@ fn index_module(name_index: &mut HashMap<String, Vec<NodeId>>, path: &str, modul
             .iter()
             .filter_map(|mid| {
                 let member = mid.rsplit('.').next().unwrap_or(mid);
-                module
-                    .components
-                    .iter()
+                view.components(module)
                     .find(|c| c.name == member)
                     .and_then(|c| c.node_id)
             })
@@ -163,7 +170,7 @@ fn index_module(name_index: &mut HashMap<String, Vec<NodeId>>, path: &str, modul
                 .push(id);
         }
     }
-    for comp in &module.components {
+    for comp in view.components(module) {
         if let Some(id) = comp.node_id {
             name_index
                 .entry(format!("{path}.{}", comp.name))
@@ -172,8 +179,8 @@ fn index_module(name_index: &mut HashMap<String, Vec<NodeId>>, path: &str, modul
             name_index.entry(comp.name.clone()).or_default().push(id);
         }
     }
-    for sub in &module.sub_modules {
+    for sub in view.sub_modules(module) {
         let sub_path = format!("{path}.{}", sub.name);
-        index_module(name_index, &sub_path, sub);
+        index_module(name_index, &sub_path, sub, view);
     }
 }

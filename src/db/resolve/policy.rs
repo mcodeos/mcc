@@ -12,7 +12,7 @@
 //! (P4). Everything else falls through to the per-world system library (P5).
 
 use super::use_chain_reaches;
-use crate::ast::ast_semantic::McSemSymbols;
+use crate::ast::sem::McSemSymbols;
 use crate::db::cmie::tables as workspace;
 use crate::db::defregistry::{DefKind, DefValue};
 use crate::db::infra::init::interface_lookup;
@@ -108,7 +108,7 @@ fn find_scoped_by_name(name: &McIds, uri_ok: impl Fn(&UriId) -> bool) -> Option<
 /// URI-scoped — never a name-only workspace scan.
 fn lookup_cmie_by_kind(cmie_kind: u8, space_name: &McSpaceName) -> Option<McCMIE> {
     let name_str = space_name.ident.to_string();
-    if cmie_kind == crate::ast::ast_semantic::CmieKind::UNKNOWN {
+    if cmie_kind == crate::ast::sem::CmieKind::UNKNOWN {
         // §5.4.6 A3: RefDefMap entries for class refs are matched with an
         // UNKNOWN kind (see matching.rs) — this is the normal state, not a
         // stale-map inconsistency. Resolve by exact key against every table;
@@ -222,12 +222,8 @@ impl Resolver {
                         .get(&(*fid, *cid, *fnid, name_str.clone()))
                         .map(|(id, _)| *id)
                 });
-            let id_hit = decl_id.and_then(|did| {
-                map.get(
-                    crate::ast::ast_semantic::SymbolKind::ClassRef,
-                    u32::from(did),
-                )
-            });
+            let id_hit = decl_id
+                .and_then(|did| map.get(crate::ast::sem::SymbolKind::ClassRef, u32::from(did)));
             // §5: name-based Use table lookup
             let entry = id_hit.or_else(|| map.get_by_name(from_uri, &name_str));
             if let Some(entry) = entry {

@@ -17,8 +17,8 @@ use std::sync::{Mutex, OnceLock};
 /// Global mutex to serialize tests that share mcc's global workspace state.
 static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-/// Helper: acquire lock, load source from string, build module, return module instance.
-fn build(source: &str) -> mcc::McModuleInst {
+/// Helper: acquire lock, load source from string, build module, return instance + arena + store.
+fn build(source: &str) -> (mcc::McModuleInst, mcc::NodeArena, mcc::InstanceStore) {
     let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
 
     // Runtime-resolved system root (MCC_SYSTEM_ROOT env or ~/.mcode default).
@@ -30,16 +30,22 @@ fn build(source: &str) -> mcc::McModuleInst {
 
     let uri: McURI = "/mcc/fcall-return-shape-test.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
-    let result = mcc::mcc_build(&McIds::from("main"), &uri);
+    let result = mcc::mcc_build_with_arena(&McIds::from("main"), &uri);
+    let (inst, arena, store, _net_store) = result.expect("build failed");
 
     drop(lock);
-    result.expect("build failed")
+    (inst, arena, store)
 }
 
-/// Helper: find a component instance by name.
-fn find_component<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McComponentInst {
-    inst.components
-        .iter()
+/// Helper: find a component instance by name (through the store-backed view).
+fn find_component<'a>(
+    inst: &'a mcc::McModuleInst,
+    arena: &'a mcc::NodeArena,
+    store: &'a mcc::InstanceStore,
+    name: &str,
+) -> &'a mcc::McComponentInst {
+    let view = mcc::TreeView::new(arena, store);
+    view.components(inst)
         .find(|c| c.name == name)
         .unwrap_or_else(|| panic!("component '{}' not found", name))
 }
@@ -84,7 +90,7 @@ fn find_funccall<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McFunc
 
 #[test]
 fn fcall_return_this_preserves_caller_shape_for_chaining() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component CHAIN_TEST
 {
@@ -124,7 +130,7 @@ module main
     );
 
     // Verify: CHAIN_TEST instantiated, all 3 pins exist
-    let comp = find_component(&inst, "CT");
+    let comp = find_component(&inst, &arena, &store, "CT");
     assert_eq!(comp.pin_count(), 3, "CHAIN_TEST should have 3 pins");
     assert!(comp.pin_name("1").is_some(), "pin 1 (PIN_A) should exist");
     assert!(comp.pin_name("2").is_some(), "pin 2 (PIN_B) should exist");
@@ -145,7 +151,7 @@ module main
 
 #[test]
 fn fcall_implicit_return_preserves_caller_shape() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component LED_DRIVER
 {
@@ -176,7 +182,7 @@ module main
 "#,
     );
 
-    let comp = find_component(&inst, "D1");
+    let comp = find_component(&inst, &arena, &store, "D1");
     assert_eq!(comp.pin_count(), 2, "LED_DRIVER should have 2 pins");
     assert!(comp.pin_name("1").is_some(), "ANODE pin should exist");
     assert!(comp.pin_name("2").is_some(), "CATHODE pin should exist");
@@ -188,7 +194,7 @@ module main
 
 #[test]
 fn fcall_return_this_multiple_independent_calls() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component PASSTHROUGH
 {
@@ -228,7 +234,7 @@ module main
 "#,
     );
 
-    let comp = find_component(&inst, "PT");
+    let comp = find_component(&inst, &arena, &store, "PT");
     assert_eq!(comp.pin_count(), 4, "PASSTHROUGH should have 4 pins");
 }
 
@@ -238,7 +244,7 @@ module main
 
 #[test]
 fn fcall_on_twopin_component_with_return_this() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component LED
 {
@@ -280,7 +286,7 @@ module main
     );
 
     // Verify DIO component exists with 2 pins
-    let comp = find_component(&inst, "D1");
+    let comp = find_component(&inst, &arena, &store, "D1");
     assert_eq!(comp.pin_count(), 2, "DIO should have 2 pins");
 }
 
@@ -290,7 +296,7 @@ module main
 
 #[test]
 fn fcall_complex_chain_with_passives() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component FILTER_BLOCK
 {
@@ -327,7 +333,7 @@ module main
 "#,
     );
 
-    let comp = find_component(&inst, "F1");
+    let comp = find_component(&inst, &arena, &store, "F1");
     assert_eq!(comp.pin_count(), 3, "FILTER_BLOCK should have 3 pins");
 }
 
@@ -338,7 +344,7 @@ module main
 
 #[test]
 fn fcall_twopin_instantiation_via_method_chain() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component REGULATOR
 {
@@ -373,7 +379,7 @@ module main
 "#,
     );
 
-    let reg = find_component(&inst, "U1");
+    let reg = find_component(&inst, &arena, &store, "U1");
     assert_eq!(reg.pin_count(), 3, "REGULATOR should have 3 pins");
 }
 
@@ -384,7 +390,7 @@ module main
 
 #[test]
 fn fcall_label_return_resolves_to_zero_left_n_right() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component BUS_SRC
 {
@@ -429,6 +435,6 @@ module main
     }
 
     // The call still instantiates its circuit effects (net -> OUT_A, OUT_B -> GND).
-    let comp = find_component(&inst, "B");
+    let comp = find_component(&inst, &arena, &store, "B");
     assert_eq!(comp.pin_count(), 2, "BUS_SRC should have 2 pins");
 }

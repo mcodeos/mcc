@@ -8,8 +8,8 @@ use super::mc_ids::McIds;
 use super::mc_opd::McOpd;
 use super::mc_param::{McParamBindings, McParamValue, ParamBindError};
 use super::mc_phrase::McPhrase;
-use crate::ast::ast_node::AstNode;
-use crate::ast::c_macros::*;
+use crate::ast::macros::*;
+use crate::ast::node::AstNode;
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::query::refs::mcb_register_declare_class;
@@ -1008,7 +1008,7 @@ impl McFuncCall {
                             mcc_dbg!(
                                 "sem::fcall",
                                 "[FCALL-INST-DBG] inner_type={inner_type} MCAST_OPD_FCALL={}",
-                                crate::ast::c_macros::MCAST_OPD_FCALL
+                                crate::ast::macros::MCAST_OPD_FCALL
                             );
                             // ── P2-12: Handle nested FuncCall inside MCAST_INSTANCE ──
                             // When a FuncCall like CAP(10uF,10V) is wrapped in MCAST_INSTANCE
@@ -1016,7 +1016,7 @@ impl McFuncCall {
                             // parse it as a FuncCall to preserve the parameters.
                             // For two-pin classes (CAP/RES/IND/...), build FuncCall directly
                             // to avoid premature anonymous component instantiation.
-                            if inner_type == crate::ast::c_macros::MCAST_OPD_FCALL {
+                            if inner_type == crate::ast::macros::MCAST_OPD_FCALL {
                                 mcc_dbg!(
                                     "sem::fcall",
                                     "[FCALL-INST-DBG] nested FuncCall, parsing via parse_phrase"
@@ -1027,11 +1027,10 @@ impl McFuncCall {
                                         caller = Some(Box::new(phrase));
                                     }
                                 }
-                            } else if inner_type == crate::ast::c_macros::MCAST_OPD {
+                            } else if inner_type == crate::ast::macros::MCAST_OPD {
                                 // MCAST_OPD may wrap MCAST_OPD_FCALL
                                 if let Some(opd_inner) = inner.get_sub_node() {
-                                    if opd_inner.get_type() == crate::ast::c_macros::MCAST_OPD_FCALL
-                                    {
+                                    if opd_inner.get_type() == crate::ast::macros::MCAST_OPD_FCALL {
                                         mcc_dbg!("sem::fcall", "[FCALL-INST-DBG] MCAST_OPD wraps FuncCall, parsing via parse_phrase");
                                         caller = Self::try_parse_inner_fcall(&opd_inner, context);
                                         if caller.is_none() {

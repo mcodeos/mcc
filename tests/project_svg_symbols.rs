@@ -18,9 +18,10 @@ fn project_manifest_symbol_reaches_rendered_svg() {
     mcc::mcc_clear_workspace();
     mcc::mcc_load_project(&entry_uri);
 
-    let (instance, table) = mcc::mcc_build_flat(&McIds::from("main"), &entry_uri, 1000)
-        .expect("build SVG symbol fixture");
-    let block = mcc::build_mc_vec(&instance, &table);
+    let (instance, table, arena, store) =
+        mcc::mcc_build_flat_with_arena(&McIds::from("main"), &entry_uri, 1000)
+            .expect("build SVG symbol fixture");
+    let block = mcc::build_mc_vec(&instance, &table, &arena, &store);
     let graph = mcc::build_mc_vec_graph(&block, &table);
     let document = mcc::viz::api::render(graph);
 

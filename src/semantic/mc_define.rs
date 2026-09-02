@@ -3,8 +3,8 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::{
-    ast::ast_node::AstNode, ast::c_macros::*, ast::error::message::*,
-    semantic::basic::mc_ids::McIds, semantic::component::mc_attr::McAttributes, McURI,
+    ast::error::message::*, ast::macros::*, ast::node::AstNode, semantic::basic::mc_ids::McIds,
+    semantic::component::mc_attr::McAttributes, McURI,
 };
 
 #[derive(Debug)]
@@ -13,7 +13,7 @@ pub struct McDefineDef {
     pub attrs: McAttributes,
     pub body: AstNode,
     pub uri: McURI,
-    pub span: crate::ast::ast_semantic::Span,
+    pub span: crate::ast::sem::Span,
 }
 
 impl McDefineDef {
@@ -35,7 +35,7 @@ impl McDefineDef {
                 .find(|x| x.is_type(MCAST_BODY))
                 .expect(MISSING_SUBNODE),
             uri: uri.clone(),
-            span: crate::ast::ast_semantic::Span {
+            span: crate::ast::sem::Span {
                 start: ids_node.get_pos() as usize,
                 end: (ids_node.get_pos() + ids_node.get_len()) as usize,
             },

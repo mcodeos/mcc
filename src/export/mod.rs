@@ -10,7 +10,8 @@ pub mod kicad;
 pub mod netlist;
 pub mod spice;
 
-use crate::instant::arena::{arena_sub_modules, NodeArena};
+use crate::instant::arena::NodeArena;
+use crate::instant::inststore::{InstanceStore, TreeView};
 use crate::instant::insttab::InstTable;
 use crate::{McIds, McModuleInst, McURI};
 use serde_json::Value;
@@ -27,43 +28,23 @@ use std::panic;
 /// get_components`) keep that view — it carries per-instance class names that
 /// the module tree does not store.
 ///
-/// Tree-recursive form (no arena); exporters that hold a `NodeArena` use
-/// [`for_each_module_with_arena`] — same walk, sub-module order sourced from
-/// the arena `children` edges (Phase C two-track migration).
-pub fn for_each_module(inst: &McModuleInst, f: &mut impl FnMut(&McModuleInst)) {
-    for_each_module_impl(inst, None, f);
-}
-
-/// Phase C: arena-driven depth-first pre-order walk — sub-module order
-/// sourced from the arena `children` edges (design §4: the tree is a view
-/// over arena edges) instead of the tree's recursive `sub_modules` Vec. The
-/// aligned tree node still supplies the sub-module data; `debug_assert`
-/// inside [`arena_sub_modules`] verifies the arena/tree isomorphism.
+/// Phase C: store-backed depth-first pre-order walk — sub-module order
+/// sourced through the [`TreeView`] (design §4: the tree is a view over arena
+/// edges, and the tree's `sub_modules` Vec is gone).
 pub fn for_each_module_with_arena(
     inst: &McModuleInst,
     arena: &NodeArena,
+    store: &InstanceStore,
     f: &mut impl FnMut(&McModuleInst),
 ) {
-    for_each_module_impl(inst, Some(arena), f);
+    let view = TreeView::new(arena, store);
+    for_each_module_impl(inst, &view, f);
 }
 
-fn for_each_module_impl(
-    inst: &McModuleInst,
-    arena: Option<&NodeArena>,
-    f: &mut impl FnMut(&McModuleInst),
-) {
+fn for_each_module_impl(inst: &McModuleInst, view: &TreeView, f: &mut impl FnMut(&McModuleInst)) {
     f(inst);
-    match arena {
-        Some(arena) => {
-            for sub in arena_sub_modules(arena, inst) {
-                for_each_module_impl(sub, Some(arena), f);
-            }
-        }
-        None => {
-            for sub in &inst.sub_modules {
-                for_each_module_impl(sub, None, f);
-            }
-        }
+    for sub in view.sub_modules(inst) {
+        for_each_module_impl(sub, view, f);
     }
 }
 
@@ -99,13 +80,14 @@ pub fn format_from_str(s: &str) -> u8 {
 
 /// Load project + libs, resolve top module, run Pass2 (with panic guard).
 ///
-/// Returns the tree, the flat projection, and the Phase C companion arena
-/// (design §4: the arena's `children` edges drive the exporter walks).
+/// Returns the tree, the flat projection, and the Phase C companion arena +
+/// Phase C S3 instance store (design §4: the arena's `children` edges drive
+/// the exporter walks, the store supplies the instance content).
 pub fn build_tree(
     file: &str,
     top: Option<&str>,
     libs: &[String],
-) -> Result<(McModuleInst, InstTable, NodeArena), String> {
+) -> Result<(McModuleInst, InstTable, NodeArena, InstanceStore), String> {
     let _ = libs;
     let _ = crate::mcc_load_project(&McURI::from(file));
 
@@ -123,42 +105,45 @@ pub fn build_tree(
         // One instantiation via the core circuit object, then the single
         // one-way flatten projection (Phase A: net-check diagnostics are
         // returned, and the caller logs them — same contract as
-        // `mcb_pass2_flat_with`). The arena rides along for the exporters.
+        // `mcb_pass2_flat_with`). The arena + store ride along for the
+        // exporters.
         let mut dl = crate::mcc_build_dianlu(&ident, &uri, 0)?;
         let diags = dl.flatten_with_prefix(None);
         crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
         let arena = dl.arena().clone();
+        let store = dl.store().clone();
         let (tree, table) = dl.into_parts();
-        Ok::<_, Box<dyn std::error::Error>>((tree, table, arena))
+        Ok::<_, Box<dyn std::error::Error>>((tree, table, arena, store))
     }));
     match built {
-        Ok(Ok(triple)) => Ok(triple),
+        Ok(Ok(quad)) => Ok(quad),
         Ok(Err(e)) => Err(format!("build failed: {}", e)),
         Err(_) => Err("build panicked (engine Pass2 bug)".into()),
     }
 }
 
-/// Build the export payload for a single kind. `arena` drives the module
-/// walks of the bom / netlist / kicad exporters (Phase C); spice reads the
-/// flat table and does not traverse the tree.
+/// Build the export payload for a single kind. `arena` + `inst_store` drive
+/// the module walks of the bom / netlist / kicad exporters (Phase C); spice
+/// reads the flat table and does not traverse the tree.
 pub fn build_payload(
     tree: &McModuleInst,
     table: &InstTable,
     arena: &NodeArena,
+    inst_store: &InstanceStore,
     top: &str,
     kind: u8,
     format: u8,
 ) -> (String, Value, usize) {
     match kind {
-        1 => bom::build_bom(tree, arena, top, format),
-        2 => spice::build_spice(tree, table, arena, top),
-        3 => kicad::build_kicad_netlist(tree, table, arena, top),
+        1 => bom::build_bom(tree, arena, inst_store, top, format),
+        2 => spice::build_spice(tree, table, arena, inst_store, top),
+        3 => kicad::build_kicad_netlist(tree, table, arena, inst_store, top),
         _ => {
             // Phase D: the tree never stores NetPoint — the netlist export
             // reads the frozen string net tables from the flat table's store.
             let store = table.net_table();
             let store_ref = store.borrow();
-            netlist::build_netlist(tree, arena, top, format, &store_ref)
+            netlist::build_netlist(tree, arena, inst_store, top, format, &store_ref)
         }
     }
 }

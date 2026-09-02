@@ -18,7 +18,7 @@
 use crate::output::compact;
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowScope, ShowTarget};
-use mcc::{arena_sub_modules, McIds, McURI, NodeArena};
+use mcc::{McIds, McURI, TreeView};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -758,7 +758,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         .unwrap_or_else(|| mcc::McURI::from(top.clone()));
 
     // Guardrail: a Pass2 panic must not abort the process.
-    let (inst, arena, net_store) = crate::cmds::common::build_pass2_with_arena(&top, &uri)
+    let (inst, arena, store, net_store) = crate::cmds::common::build_pass2_with_arena(&top, &uri)
         .unwrap_or_else(|e| {
             error!(target: "mcc::show", "{e}");
             std::process::exit(1);
@@ -768,11 +768,9 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
     // module in source order with its declared / declareb / funcall-generated
     // instances, so the whole instance structure is visible before the
     // per-module sections.
+    let view = mcc::TreeView::new(&arena, &store);
     let hierarchy = mcc::hierarchy::build_hierarchy(&mcc::hierarchy::collect_module_nodes(
-        &inst,
-        &top,
-        Some(&arena),
-        &net_store,
+        &inst, &top, &view, &net_store,
     ));
 
     // Text mode: hand-rendered sections (aligned with the user-facing
@@ -784,7 +782,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         mcc::hierarchy::render_hierarchy_text(&mut htext, &hierarchy);
         lines.push(htext.trim_end().to_string());
         lines.push(String::new());
-        render_dianlu_section(&inst, &top, Some(&arena), &net_store, &mut lines);
+        render_dianlu_section(&inst, &top, &view, &net_store, &mut lines);
         let rendered = lines.join("\n");
         if let Some(path) = &mcc::cli::globals().output {
             std::fs::write(path, rendered)?;
@@ -798,7 +796,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         "type": "dianlu",
         "top": top,
         "hierarchy": hierarchy,
-        "sections": dianlu_sections(&inst, &top, Some(&arena), &net_store),
+        "sections": dianlu_sections(&inst, &top, &view, &net_store),
     });
     output(&data, args.span)
 }
@@ -808,14 +806,14 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
 fn render_dianlu_section(
     inst: &mcc::McModuleInst,
     path: &str,
-    arena: Option<&NodeArena>,
+    view: &TreeView,
     store: &mcc::NetTableStore,
     lines: &mut Vec<String>,
 ) {
     lines.push(format!("===== Section: {path} (module) ====="));
     lines.push("Instances:".to_string());
 
-    for comp in &inst.components {
+    for comp in view.components(inst) {
         lines.push(format!(
             "  [C] {}: {} [pins: {}]",
             comp.name,
@@ -823,10 +821,7 @@ fn render_dianlu_section(
             comp_pin_labels(comp).join(", ")
         ));
     }
-    let subs: Vec<&mcc::McModuleInst> = match arena {
-        Some(a) => arena_sub_modules(a, inst).collect(),
-        None => inst.sub_modules.iter().collect(),
-    };
+    let subs: Vec<&mcc::McModuleInst> = view.sub_modules(inst).collect();
     for sub in &subs {
         lines.push(format!("  [M] {}: {}", sub.name, sub.def.name));
     }
@@ -841,14 +836,14 @@ fn render_dianlu_section(
     buses.sort_by(|a, b| a.name.cmp(&b.name));
     for bus in buses {
         let mut line = format!("  [B] {}{{{}}}", bus.name, bus.members.join(", "));
-        if let Some(ty) = bus_interface_type(inst, bus) {
+        if let Some(ty) = bus_interface_type(inst, bus, view) {
             line.push_str(&format!(" :: {ty}"));
         }
         lines.push(line);
     }
     // Interface buses projected by component instances (Pass2 keeps their
     // members as physical pins, so they are surfaced here synthetically).
-    for (name, members, ty) in comp_interface_buses(inst, store, path) {
+    for (name, members, ty) in comp_interface_buses(inst, store, path, view) {
         lines.push(format!("  [B] {name}{{{}}} :: {ty}", members.join(", ")));
     }
 
@@ -887,7 +882,7 @@ fn render_dianlu_section(
 
     for sub in subs {
         lines.push(String::new());
-        render_dianlu_section(sub, &format!("{path}.{}", sub.name), arena, store, lines);
+        render_dianlu_section(sub, &format!("{path}.{}", sub.name), view, store, lines);
     }
 }
 
@@ -896,17 +891,14 @@ fn render_dianlu_section(
 fn dianlu_sections(
     inst: &mcc::McModuleInst,
     path: &str,
-    arena: Option<&NodeArena>,
+    view: &TreeView,
     store: &mcc::NetTableStore,
 ) -> Vec<Value> {
-    let subs: Vec<&mcc::McModuleInst> = match arena {
-        Some(a) => arena_sub_modules(a, inst).collect(),
-        None => inst.sub_modules.iter().collect(),
-    };
+    let subs: Vec<&mcc::McModuleInst> = view.sub_modules(inst).collect();
     let mut section = json!({
         "module": path,
         "uri": inst.def_uri.to_string(),
-        "components": inst.components.iter().map(comp_json).collect::<Vec<_>>(),
+        "components": view.components(inst).map(comp_json).collect::<Vec<_>>(),
         "sub_modules": subs.iter().map(|s| json!({
             "name": s.name,
             "class": s.def.name.to_string(),
@@ -920,26 +912,27 @@ fn dianlu_sections(
 
     let mut buses: Vec<&mcc::McBusInst> = store.buses_of(path).values().collect();
     buses.sort_by(|a, b| a.name.cmp(&b.name));
-    section["buses"] =
-        json!(buses
-            .iter()
-            .map(|bus| {
-                json!({
-                    "name": bus.name,
-                    "members": bus.members,
-                    "interface": bus_interface_type(inst, bus),
-                })
+    section["buses"] = json!(buses
+        .iter()
+        .map(|bus| {
+            json!({
+                "name": bus.name,
+                "members": bus.members,
+                "interface": bus_interface_type(inst, bus, view),
             })
-            .chain(comp_interface_buses(inst, store, path).into_iter().map(
-                |(name, members, ty)| {
+        })
+        .chain(
+            comp_interface_buses(inst, store, path, view)
+                .into_iter()
+                .map(|(name, members, ty)| {
                     json!({
                         "name": name,
                         "members": members,
                         "interface": Some(ty),
                     })
-                }
-            ))
-            .collect::<Vec<_>>());
+                })
+        )
+        .collect::<Vec<_>>());
 
     let conns: Vec<Value> = inst
         .connections
@@ -976,7 +969,7 @@ fn dianlu_sections(
         sections.extend(dianlu_sections(
             sub,
             &format!("{path}.{}", sub.name),
-            arena,
+            view,
             store,
         ));
     }
@@ -1027,9 +1020,13 @@ fn comp_pin_labels(comp: &mcc::McComponentInst) -> Vec<String> {
 
 /// Resolve an interface class annotation for a bus that projects a component
 /// interface (e.g. bus `uC.UART0` → `UART.TTL(DCE)`). Plain buses return None.
-fn bus_interface_type(inst: &mcc::McModuleInst, bus: &mcc::McBusInst) -> Option<String> {
+fn bus_interface_type(
+    inst: &mcc::McModuleInst,
+    bus: &mcc::McBusInst,
+    view: &TreeView,
+) -> Option<String> {
     let (comp_name, member) = bus.name.split_once('.')?;
-    let comp = inst.components.iter().find(|c| c.name == comp_name)?;
+    let comp = view.components(inst).find(|c| c.name == comp_name)?;
     let mcc::McPinPort::Interface(iface) = comp.def.pins.names_to_id.get(member)? else {
         return None;
     };
@@ -1046,9 +1043,10 @@ fn comp_interface_buses(
     inst: &mcc::McModuleInst,
     store: &mcc::NetTableStore,
     path: &str,
+    view: &TreeView,
 ) -> Vec<(String, Vec<String>, String)> {
     let mut out = Vec::new();
-    for comp in &inst.components {
+    for comp in view.components(inst) {
         for (iface_name, port) in &comp.def.pins.names_to_id {
             let mcc::McPinPort::Interface(iface) = port else {
                 continue;
@@ -1222,10 +1220,13 @@ fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
                 .find(|(n, _)| n == &top)
                 .map(|(_, u)| mcc::McURI::from(u.as_str()))
                 .unwrap_or_else(|| mcc::McURI::from(top.as_str()));
-            let (inst, net_store) = crate::cmds::common::build_pass2_with_nets(&top, &uri)
-                .map_err(anyhow::Error::msg)?;
+            let (inst, arena, store, net_store) =
+                crate::cmds::common::build_pass2_with_arena(&top, &uri)
+                    .map_err(anyhow::Error::msg)?;
             let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
-            let fam = mcc::hierarchy::extract_instance_families(&inst, &top, &net_store, &content);
+            let view = mcc::TreeView::new(&arena, &store);
+            let fam =
+                mcc::hierarchy::extract_instance_families(&inst, &top, &net_store, &content, &view);
             let mut items: Vec<Value> = Vec::new();
             for (n, k, l, cl, o) in fam.source {
                 if args

@@ -2,8 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::ast::c_bindings;
-use crate::ast::c_macros::*;
+use crate::ast::bindings;
+use crate::ast::macros::*;
 use crate::db::diagnostic::diagnostic::{dlog_error, Position};
 use crate::McIds;
 use std::ffi::{c_char, c_void, CStr};
@@ -629,7 +629,7 @@ impl Drop for AstNode {
     fn drop(&mut self) {
         if self.owned {
             unsafe {
-                c_bindings::mcc_free(self.ptr);
+                bindings::mcc_free(self.ptr);
             }
         }
     }

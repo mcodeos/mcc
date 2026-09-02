@@ -19,8 +19,8 @@ use super::{
     mc_func::McFunctions,
 };
 use crate::{
-    ast::ast_node::AstNode,
-    ast::c_macros::*,
+    ast::macros::*,
+    ast::node::AstNode,
     db::cmie::tables as workspace,
     semantic::basic::mc_bus::{McBus, McList},
     semantic::basic::mc_ids::McIds,
@@ -70,7 +70,7 @@ pub struct McComponent {
     /// (because parameters have no default values). Evaluated at instantiation time.
     pub cond_attrs: Vec<CondAttrs>,
     /// Source span for LSP goto-definition (byte range in `uri`).
-    pub span: crate::ast::ast_semantic::Span,
+    pub span: crate::ast::sem::Span,
     /// Counter for anonymous-instance names (`@{classname}{counter}`), mirroring
     /// `McModule::anon_counter`. Anonymous chains in component func bodies
     /// (`XTAL2(...).Setup(VSS)`) name their receiver here (§3.1). pass2 never
@@ -139,7 +139,7 @@ impl McComponent {
             layout: McLayout::empty(),
             cond_pins: Vec::new(),
             cond_attrs: Vec::new(),
-            span: crate::ast::ast_semantic::Span { start, end },
+            span: crate::ast::sem::Span { start, end },
             anon_counter: 1,
         };
 

@@ -5,8 +5,8 @@
 use super::mc_bus::McBus;
 use super::mc_param::McParamDeclares;
 use super::mc_phrase::McPhrase;
-use crate::ast::ast_node::AstNode;
-use crate::ast::c_macros::*;
+use crate::ast::macros::*;
+use crate::ast::node::AstNode;
 use crate::semantic::mc_func::HasFindInst;
 
 /// Closure

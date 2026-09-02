@@ -9,10 +9,10 @@
 //! plus member-access enumeration for `inst.` / `this.` / enum-value scopes
 //! (§5.6).
 
-use crate::ast::ast_node::AstNode;
-use crate::ast::c_macros::{
+use crate::ast::macros::{
     MCAST_COMPONENT, MCAST_ENUM, MCAST_FUNCTION, MCAST_INTERFACE, MCAST_MODULE, MCAST_NAME,
 };
+use crate::ast::node::AstNode;
 use crate::db::cmie::cmie::mcb_get_cmie_with_uri;
 use crate::query::lookup::{find_container, CmieKind, ContainerRef};
 use crate::semantic::component::McComponent;
