@@ -243,7 +243,7 @@ mcc build path/to/main.mc -f json -o output.json
 mcc build --include-system
 ```
 
-Uses `project.toml` / `manifest.toml` / `mcc.toml`:
+Uses `project.toml`:
 
 ```toml
 [project]

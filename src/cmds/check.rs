@@ -61,8 +61,8 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     //   - Directory: manifest-driven project mode; falls back to browse mode
     //     (§19.5 rule 3 of use-design.md) when the directory has no manifest,
     //     using the unique `module main` file or --entry.
-    //   - File: nearest project root (project.toml / manifest.toml / mcc.toml)
-    //     is resolved by walking up, then the manifest (if any) drives the load.
+    //   - File: nearest project root (a directory with project.toml) is
+    //     resolved by walking up, then the manifest (if any) drives the load.
     let _uri: McURI = if let Some(t) = &args.target {
         let p = Path::new(t);
         if p.is_dir() {

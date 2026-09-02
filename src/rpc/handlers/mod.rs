@@ -65,7 +65,7 @@ pub(crate) fn project_dir(id: &str) -> PathBuf {
     projects_dir().join(id)
 }
 pub(crate) fn project_manifest(id: &str) -> PathBuf {
-    project_dir(id).join("manifest.toml")
+    project_dir(id).join(crate::cli::datadir::PROJECT_MANIFEST_NAME)
 }
 pub(crate) fn mcode_dir() -> PathBuf {
     mcc_system_root().join("mcode")
@@ -2502,7 +2502,7 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
 
 /// Walk up from a file path to find the project root
 /// A project root is a directory containing a project manifest
-/// (project.toml / manifest.toml / mcc.toml) or .mc files at top level
+/// (project.toml) or .mc files at top level
 pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
     // Priority 1: the configured project root (the folder opened in the editor,
     // set via mcext set_project_root). In non-project mode every .mc file under
@@ -2523,8 +2523,8 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("."))
     };
 
-    // First pass: walk up looking for a project manifest (3 names, same
-    // priority as CLI project-root discovery).
+    // First pass: walk up looking for a project manifest (same name as CLI
+    // project-root discovery).
     let mut probe = current.clone();
     let mut toml_dir: Option<PathBuf> = None;
     loop {
@@ -3161,7 +3161,7 @@ mod tests {
     }
 
     #[test]
-    fn find_project_root_detects_any_manifest_name() {
+    fn find_project_root_detects_project_manifest() {
         let saved = crate::db::infra::init::mcb_get_project_root();
         crate::db::infra::init::mcb_set_project_root(std::path::Path::new(""));
 
@@ -3171,17 +3171,7 @@ mod tests {
         let file = sub.join("x.mc");
         fs::write(&file, "").unwrap();
 
-        // manifest.toml project
-        fs::write(tmp.join("manifest.toml"), "[project]\nname = \"m\"\n").unwrap();
-        assert_eq!(find_project_root(&file), tmp);
-
-        // mcc.toml project (no manifest.toml / project.toml present)
-        fs::remove_file(tmp.join("manifest.toml")).unwrap();
-        fs::write(tmp.join("mcc.toml"), "[project]\nname = \"m\"\n").unwrap();
-        assert_eq!(find_project_root(&file), tmp);
-
-        // project.toml project (the original single-name behavior)
-        fs::remove_file(tmp.join("mcc.toml")).unwrap();
+        // project.toml marks the project root.
         fs::write(tmp.join("project.toml"), "[project]\nname = \"m\"\n").unwrap();
         assert_eq!(find_project_root(&file), tmp);
 
