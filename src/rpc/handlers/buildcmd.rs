@@ -172,7 +172,7 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             crate::mcc_virtual_build_flat(target, &mc_uri, 1000)
         }));
-        let (_inst, table) = match built {
+        let (_inst, table, arena, store) = match built {
             Ok(Ok(x)) => x,
             Ok(Err(e)) => return Err(JsonRpcError::custom(32107, &format!("build failed: {e}"))),
             Err(_) => {
@@ -189,7 +189,7 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
 
         crate::vector::builder::reset_np_warn_count();
         let t3 = std::time::Instant::now();
-        let (vec_block, _report) = crate::build_mc_vec_with_report(&_inst, &table);
+        let (vec_block, _report) = crate::build_mc_vec_with_report(&_inst, &table, &arena, &store);
         let is_virtual_target = !crate::mcc_get_modules_in_file(&mc_uri)
             .iter()
             .any(|m| m == target);

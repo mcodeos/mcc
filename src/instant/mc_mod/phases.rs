@@ -219,6 +219,9 @@ impl InstantiationBuilder {
             let port = PortInst::with_members(port_name, iotype.clone(), bus_members.clone());
             let mut port = port;
             port.node_id = Some(port_id);
+            // Phase C S3: lay the port's arena node down beside the Vec push
+            // (the arena is the structural store; `ports` stays on the tree).
+            self.append_port_arena(&port);
             self.ports.push(port);
 
             // 2. Iter-5.B —— inject member labels / register prefix bus according to port form.
@@ -285,6 +288,8 @@ impl InstantiationBuilder {
             let port = PortInst::with_members(&port_name, iotype.clone(), bus_members.clone());
             let mut port = port;
             port.node_id = Some(port_id);
+            // Phase C S3: interface-signature ports enter the arena too.
+            self.append_port_arena(&port);
             self.ports.push(port);
 
             // Inject member labels so that connection stmts can reference them
@@ -587,10 +592,18 @@ impl InstantiationBuilder {
                     let sub_path = self.child_path(&inst_name);
                     // Phase D: hand the shared circuit-wide net-table store
                     // down so the sub-module's frozen table lands in the same
-                    // store the parent reads for ground-tie propagation.
+                    // store the parent reads for ground-tie propagation. Phase C
+                    // S3: likewise share the construction arena + instance
+                    // store so the sub-module's products append to the same
+                    // structures. Clone the `Rc`s before taking the mutable
+                    // identity borrow to avoid a borrow conflict.
                     let net_store = self.net_store.clone();
+                    let arena = self.arena.clone();
+                    let store = self.store.clone();
                     let identity = self.identity_mut();
-                    if let Err(e) = inst.instantiate_in_scope(identity, &sub_path, net_store) {
+                    if let Err(e) =
+                        inst.instantiate_in_scope(identity, &sub_path, net_store, arena, store)
+                    {
                         self.record_error(
                             crate::errcodes::INST_SUBMODULE_INSTANTIATE_FAILED,
                             crate::errcodes::format_msg(
@@ -1266,7 +1279,7 @@ impl InstantiationBuilder {
         //    and `Label dc{VDD_3V3,GND}` PortInst entries, both with base name `dc`,
         //    use key to dedup and avoid duplicate warnings on the same physical port.
         let mut needs: Vec<(String, String, Vec<String>)> = Vec::new();
-        for sub in &self.sub_modules {
+        for sub in self.submodules_view() {
             let inst = sub.name.clone();
             for p in &sub.ports {
                 if matches!(p.iotype, IOType::Out) {

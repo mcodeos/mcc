@@ -9,8 +9,8 @@
 //!
 //! Core principle: NO name-based heuristics. Only usage analysis.
 
-use crate::ast::ast_node::AstNode;
-use crate::ast::c_macros::*;
+use crate::ast::macros::*;
+use crate::ast::node::AstNode;
 use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclare;
 use crate::semantic::basic::mc_uval::McUnit;

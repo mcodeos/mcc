@@ -134,8 +134,8 @@ fn main() {
     mcc_load_project(&entry_uri);
 
     let ident = McIds::from(module_name.as_str());
-    let (inst, table, arena) = match mcc_build_flat_with_arena(&ident, &entry_uri, 1000) {
-        Ok(triple) => triple,
+    let (inst, table, arena, store) = match mcc_build_flat_with_arena(&ident, &entry_uri, 1000) {
+        Ok(quad) => quad,
         Err(e) => {
             eprintln!("Error: mcc_build_flat failed: {}", e);
             process::exit(1);
@@ -144,7 +144,7 @@ fn main() {
 
     // ── McVecBlock + McVecGraph ──
     reset_np_warn_count();
-    let vec_block = build_mc_vec_with_arena(&inst, &table, &arena);
+    let vec_block = build_mc_vec_with_arena(&inst, &table, &arena, &store);
     let graph = build_mc_vec_graph(&vec_block, &table);
 
     // ── Output: three modes ──
@@ -188,8 +188,9 @@ fn main() {
     }
 
     // ── Summary ──
+    let view = mcc::TreeView::new(&arena, &store);
     let bus_warns = inst
-        .all_diagnostics()
+        .all_diagnostics(&view)
         .iter()
         .filter(|d| d.code == 921)
         .count();

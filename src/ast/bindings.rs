@@ -2,8 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::ast::ast_node::McValueFFI;
-use crate::ast::ast_token::McSemTokenFFI;
+use crate::ast::node::McValueFFI;
+use crate::ast::token::McSemTokenFFI;
 
 // FFI binding for C struct mc_dlog_entry
 #[repr(C)]

@@ -628,17 +628,16 @@ pub fn handle_show_instances(params: Option<Value>) -> RpcResult {
                 .map(|(_, u)| crate::McURI::from(u.as_str()))
                 .unwrap_or_else(|| crate::McURI::from(top));
             let ident = crate::McIds::from(top);
-            let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::mcc_build_with_nets(&ident, &top_uri)
-            }))
-            .map_err(|_| JsonRpcError::custom(32111, "build panicked (engine Pass2 bug)"))?
-            .map_err(|e| JsonRpcError::custom(32111, &format!("build failed: {e}")))?;
-            let content = std::fs::read_to_string(&inst.0.def_uri.to_string()).ok();
+            let (tree, arena, store, net_store) =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    crate::mcc_build_with_arena(&ident, &top_uri)
+                }))
+                .map_err(|_| JsonRpcError::custom(32111, "build panicked (engine Pass2 bug)"))?
+                .map_err(|e| JsonRpcError::custom(32111, &format!("build failed: {e}")))?;
+            let view = crate::TreeView::new(&arena, &store);
+            let content = std::fs::read_to_string(&tree.def_uri.to_string()).ok();
             let fam = crate::hierarchy::extract_instance_families(
-                &inst.0,
-                &inst.0.name,
-                &inst.1,
-                &content,
+                &tree, &tree.name, &net_store, &content, &view,
             );
             let mut items: Vec<Value> = Vec::new();
             for (n, k, l, cl, o) in fam.source {

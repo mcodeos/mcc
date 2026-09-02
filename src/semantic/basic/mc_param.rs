@@ -9,7 +9,7 @@ pub use super::mc_paramd::*;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
 use crate::semantic::mc_func::HasFindInst;
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*},
+    ast::{macros::*, node::AstNode},
     semantic::{
         basic::mc_expr::McExpression,
         basic::mc_literal::{McConst, McHex, McLiteral, McString},

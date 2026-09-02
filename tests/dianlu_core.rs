@@ -38,6 +38,26 @@ fn build_dianlu(src: &str) -> mcc::DianLu {
     mcc::mcc_build_dianlu(&ident, &uri, 1000).expect("mcc_build_dianlu")
 }
 
+/// Rebuild a `DianLu` directly from a frozen tree (identity-only view). Phase C
+/// S3 produces the companion arena + instance store during instantiation, so a
+/// direct rebuild must take the source build's arena + store (the callers
+/// clone them before `into_tree`). These assertions only read the identity
+/// registry.
+fn rebuild_dianlu(
+    tree: mcc::McModuleInst,
+    arena: mcc::NodeArena,
+    store: mcc::InstanceStore,
+) -> mcc::DianLu {
+    mcc::DianLu::new(
+        tree,
+        1000,
+        Rc::new(RefCell::new(mcc::NetTableStore::new())),
+        Vec::new(),
+        arena,
+        store,
+    )
+}
+
 /// A 0-pin net statement fires GAP2 (E4057) during instantiation
 /// (`add_connection`), exactly once for a single `DianLu` — and twice calling
 /// `flatten()` must NOT re-instantiate (the old `mcb_pass2_flat` re-ran the
@@ -118,6 +138,10 @@ fn identity_registry_rebuilt_from_frozen_tree_matches() {
         .identity()
         .node_id_of("main")
         .expect("registry knows the circuit root path");
+    // Phase C S3: the arena + instance store ride along for the rebuild; clone
+    // them before the tree is taken out.
+    let arena = dl.arena().clone();
+    let store = dl.store().clone();
     let tree = dl.into_tree();
     // The frozen tree carries the same id on the root node.
     assert_eq!(
@@ -126,14 +150,15 @@ fn identity_registry_rebuilt_from_frozen_tree_matches() {
         "tree root node_id equals the registry's path id"
     );
     // Every child node also carries a non-empty id.
-    for comp in &tree.components {
+    let view = mcc::TreeView::new(&arena, &store);
+    for comp in view.components(&tree) {
         assert!(
             comp.node_id.is_some(),
             "component '{}' carries a node id",
             comp.name
         );
     }
-    for sub in &tree.sub_modules {
+    for sub in view.sub_modules(&tree) {
         assert!(
             sub.node_id.is_some(),
             "sub-module '{}' carries a node id",
@@ -142,12 +167,7 @@ fn identity_registry_rebuilt_from_frozen_tree_matches() {
     }
     // Rebuilding a DianLu from the frozen tree must reproduce the same ids.
     // (identity-only view; the Phase D net-table store starts empty here.)
-    let dl2 = mcc::DianLu::new(
-        tree,
-        1000,
-        Rc::new(RefCell::new(mcc::NetTableStore::new())),
-        Vec::new(),
-    );
+    let dl2 = rebuild_dianlu(tree, arena, store);
     assert_eq!(
         dl2.identity().node_id_of("main"),
         Some(root_id),
@@ -186,11 +206,15 @@ module main {
     ldo.Add(GND)
 }";
     let dl = build_dianlu(src);
+    // Phase C S3: the arena + instance store ride along for the rebuild; clone
+    // them before the tree is taken out.
+    let arena = dl.arena().clone();
+    let store = dl.store().clone();
     let tree = dl.into_tree();
+    let view = mcc::TreeView::new(&arena, &store);
     // The declared sub-module instance carries a circuit-global id.
-    let ldo_id = tree
-        .sub_modules
-        .iter()
+    let ldo_id = view
+        .sub_modules(&tree)
         .find(|s| s.name == "ldo")
         .expect("declared sub-module 'ldo'")
         .node_id
@@ -198,10 +222,9 @@ module main {
     // The re-entered body's product (auto-named inside `ldo`) carries a
     // non-empty id, and the registry resolves its full canonical path to the
     // same id (the lift's registry was carried in and written back).
-    let ldo = tree.sub_modules.iter().find(|s| s.name == "ldo").unwrap();
-    let ldo_products: Vec<_> = ldo
-        .components
-        .iter()
+    let ldo = view.sub_modules(&tree).find(|s| s.name == "ldo").unwrap();
+    let ldo_products: Vec<_> = view
+        .components(ldo)
         .map(|c| {
             (
                 format!("main.ldo.{}", c.name),
@@ -218,12 +241,7 @@ module main {
         !ldo_products.is_empty(),
         "re-entered sub-module body produced components; conns={ldo_conns:?}"
     );
-    let tree2 = mcc::DianLu::new(
-        tree,
-        1000,
-        Rc::new(RefCell::new(mcc::NetTableStore::new())),
-        Vec::new(),
-    );
+    let tree2 = rebuild_dianlu(tree, arena, store);
     let reg = tree2.identity();
     for (_, id) in &ldo_products {
         // The re-entered product is interned under its "source span + role"
@@ -310,7 +328,10 @@ module main {
     dl.flatten();
     let arena_table = dl.table().expect("flatten ran");
     let tree = dl.tree();
-    let tree_table = mcc::InstTable::from_module_inst(tree, 1000, dl.net_store());
+    // Phase C S3-D: `from_module_inst` resolves children through a store-backed
+    // view (the tree's Vec fields are gone).
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
+    let tree_table = mcc::InstTable::from_module_inst(tree, 1000, dl.net_store(), &view);
 
     assert_eq!(
         flat_signature(arena_table),
@@ -354,11 +375,11 @@ module main {
     let uri = "/mcc/dianlu.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let ident = McIds::from("main");
-    let (tree, table, arena) =
+    let (tree, table, arena, store) =
         mcc::mcc_build_flat_with_arena(&ident, &uri, 1000).expect("mcc_build_flat_with_arena");
 
-    let vec_tree = mcc::build_mc_vec(&tree, &table);
-    let vec_arena = mcc::build_mc_vec_with_arena(&tree, &table, &arena);
+    let vec_tree = mcc::build_mc_vec(&tree, &table, &arena, &store);
+    let vec_arena = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
     assert_eq!(
         format!("{vec_tree:?}"),
         format!("{vec_arena:?}"),
@@ -396,6 +417,7 @@ module main {
     c1.2 -> GND
 }";
     let dl = build_dianlu(src);
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
 
     // Two connection statements → two statement trunks, each carrying its
     // source span.
@@ -412,18 +434,8 @@ module main {
     let lane = &trunks[0].lanes[0];
     match (&lane.source, &lane.target) {
         (mcc::PointGroup::One(a), mcc::PointGroup::One(b)) => {
-            let c1 = dl
-                .tree()
-                .components
-                .iter()
-                .find(|c| c.name == "c1")
-                .unwrap();
-            let c2 = dl
-                .tree()
-                .components
-                .iter()
-                .find(|c| c.name == "c2")
-                .unwrap();
+            let c1 = view.components(dl.tree()).find(|c| c.name == "c1").unwrap();
+            let c2 = view.components(dl.tree()).find(|c| c.name == "c2").unwrap();
             assert_eq!(a.node, c1.node_id.unwrap(), "source node is c1");
             assert_eq!(b.node, c2.node_id.unwrap(), "target node is c2");
             assert_eq!(
@@ -445,12 +457,7 @@ module main {
     );
     match (&trunks[1].lanes[0].source, &trunks[1].lanes[0].target) {
         (mcc::PointGroup::One(a), mcc::PointGroup::One(b)) => {
-            let c1 = dl
-                .tree()
-                .components
-                .iter()
-                .find(|c| c.name == "c1")
-                .unwrap();
+            let c1 = view.components(dl.tree()).find(|c| c.name == "c1").unwrap();
             assert_eq!(a.node, c1.node_id.unwrap(), "source node is c1");
             assert_eq!(b.node, dl.tree().node_id.unwrap(), "target node is main");
             let gnd_ord = dl
@@ -492,13 +499,13 @@ module main {
 }";
     let dl = build_dianlu(src);
     let tree = dl.tree();
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
 
     // Expected statements: `c.1 -> VIN` inside `r` (2 points, one statement)
     // plus `r.c -> GND` inside `main` (one statement).
     let total: usize = tree.connections.len()
-        + tree
-            .sub_modules
-            .iter()
+        + view
+            .sub_modules(tree)
             .map(|s| s.connections.len())
             .sum::<usize>();
     assert_eq!(
@@ -531,6 +538,7 @@ module main {
     c2.1 -> c3.1
 }";
     let dl = build_dianlu(src);
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
 
     let nets = dl.nets();
     assert_eq!(
@@ -546,24 +554,9 @@ module main {
         "net members are c1.1, c2.1, c3.1 in written order; got {:?}",
         net.points
     );
-    let c1 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c1")
-        .unwrap();
-    let c2 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c2")
-        .unwrap();
-    let c3 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c3")
-        .unwrap();
+    let c1 = view.components(dl.tree()).find(|c| c.name == "c1").unwrap();
+    let c2 = view.components(dl.tree()).find(|c| c.name == "c2").unwrap();
+    let c3 = view.components(dl.tree()).find(|c| c.name == "c3").unwrap();
     let p1 = mcc::PointId {
         node: c1.node_id.unwrap(),
         pin: c1.def.pins.ledger.id_of("1").unwrap(),
@@ -640,6 +633,7 @@ module main {
     GND -> c1.2 -> c2.2
 }";
     let dl = build_dianlu(src);
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
     let trunks = dl.lanes();
     assert_eq!(trunks.len(), 1, "one chain statement -> one trunk");
     let t = &trunks[0];
@@ -650,18 +644,8 @@ module main {
     );
     assert_eq!(t.points.len(), 3, "port + both component pins resolve");
 
-    let c1 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c1")
-        .unwrap();
-    let c2 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c2")
-        .unwrap();
+    let c1 = view.components(dl.tree()).find(|c| c.name == "c1").unwrap();
+    let c2 = view.components(dl.tree()).find(|c| c.name == "c2").unwrap();
     let p_c1_2 = mcc::PointId {
         node: c1.node_id.unwrap(),
         pin: c1.def.pins.ledger.id_of("2").unwrap(),
@@ -716,6 +700,7 @@ module main {
     c[1:2].Cap([VDD, GND])
 }";
     let dl = build_dianlu(src);
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
     let trunks = dl.lanes();
     assert_eq!(trunks.len(), 1, "one broadcast statement -> one trunk");
     let t = &trunks[0];
@@ -725,18 +710,8 @@ module main {
         "both members x both pins + the VDD/GND port-ordinal points"
     );
 
-    let c1 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c1")
-        .unwrap();
-    let c2 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c2")
-        .unwrap();
+    let c1 = view.components(dl.tree()).find(|c| c.name == "c1").unwrap();
+    let c2 = view.components(dl.tree()).find(|c| c.name == "c2").unwrap();
     let pin1 = c1.def.pins.ledger.id_of("1").unwrap();
     let pin2 = c1.def.pins.ledger.id_of("2").unwrap();
     let vdd_ord = dl
@@ -866,21 +841,12 @@ module main {
     c[1:2].Cap([VDD, GND])
 }";
     let dl = build_dianlu(src);
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
     let nets = dl.nets();
     assert_eq!(nets.len(), 2, "one VDD net + one GND net; got {nets:?}");
 
-    let c1 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c1")
-        .unwrap();
-    let c2 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c2")
-        .unwrap();
+    let c1 = view.components(dl.tree()).find(|c| c.name == "c1").unwrap();
+    let c2 = view.components(dl.tree()).find(|c| c.name == "c2").unwrap();
     let pin1 = c1.def.pins.ledger.id_of("1").unwrap();
     let pin2 = c1.def.pins.ledger.id_of("2").unwrap();
     let vdd_ord = dl
@@ -1041,6 +1007,7 @@ module main(ps GND) {
 }";
     let dl = build_dianlu(src);
     let tree = dl.tree();
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
 
     // Every legal connection statement emits lanes; no endpoint is silently
     // dropped (each resolved endpoint pair becomes a One/One lane).
@@ -1083,22 +1050,22 @@ module main(ps GND) {
         node: tree.node_id.unwrap(),
         pin: mcc::DefMemberId(gnd_ord as u32),
     };
-    let u2 = tree.components.iter().find(|c| c.name == "U2").unwrap();
+    let u2 = view.components(tree).find(|c| c.name == "U2").unwrap();
     let p_u2_sclk = mcc::PointId {
         node: u2.node_id.unwrap(),
         pin: u2.def.pins.ledger.id_of("1").unwrap(),
     };
-    let g1 = tree.components.iter().find(|c| c.name == "G1").unwrap();
+    let g1 = view.components(tree).find(|c| c.name == "G1").unwrap();
     let p_g1_gpio1 = mcc::PointId {
         node: g1.node_id.unwrap(),
         pin: g1.def.pins.ledger.id_of("1").unwrap(),
     };
-    let u1 = tree.components.iter().find(|c| c.name == "U1").unwrap();
+    let u1 = view.components(tree).find(|c| c.name == "U1").unwrap();
     let p_u1_tx = mcc::PointId {
         node: u1.node_id.unwrap(),
         pin: u1.def.pins.ledger.id_of("1").unwrap(),
     };
-    let r = tree.sub_modules.iter().find(|s| s.name == "r").unwrap();
+    let r = view.sub_modules(tree).find(|s| s.name == "r").unwrap();
     let vin_ord = r.ports.iter().position(|p| p.name == "VIN").unwrap();
     let p_r_vin = mcc::PointId {
         node: r.node_id.unwrap(),
@@ -1112,7 +1079,7 @@ module main(ps GND) {
         );
     }
     // Both physical pads of the same-name group `P1.GND` fan into the net.
-    let p1 = tree.components.iter().find(|c| c.name == "P1").unwrap();
+    let p1 = view.components(tree).find(|c| c.name == "P1").unwrap();
     let p1_node = p1.node_id.unwrap();
     assert_eq!(
         net_a.points.iter().filter(|p| p.node == p1_node).count(),
@@ -1148,6 +1115,7 @@ module main {
     a[1:2].1 -> b[1:2].1
 }";
     let dl = build_dianlu(src);
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
 
     // Pass2: member-level connections, a1.1↔b1.1 and a2.1↔b2.1.
     let conns = &dl.tree().connections;
@@ -1185,30 +1153,10 @@ module main {
     }
 
     // Net layer: positional zip — a1.1 joins b1.1, a2.1 joins b2.1.
-    let a1 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "a1")
-        .unwrap();
-    let a2 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "a2")
-        .unwrap();
-    let b1 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "b1")
-        .unwrap();
-    let b2 = dl
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "b2")
-        .unwrap();
+    let a1 = view.components(dl.tree()).find(|c| c.name == "a1").unwrap();
+    let a2 = view.components(dl.tree()).find(|c| c.name == "a2").unwrap();
+    let b1 = view.components(dl.tree()).find(|c| c.name == "b1").unwrap();
+    let b2 = view.components(dl.tree()).find(|c| c.name == "b2").unwrap();
     let pin1 = a1.def.pins.ledger.id_of("1").unwrap();
     let p_a1_1 = mcc::PointId {
         node: a1.node_id.unwrap(),
@@ -1282,8 +1230,9 @@ module main {
     assert_eq!(gnd_net.points.len(), 3, "port + both component pins");
 
     let tree = dl.tree();
-    let c1 = tree.components.iter().find(|c| c.name == "c1").unwrap();
-    let c2 = tree.components.iter().find(|c| c.name == "c2").unwrap();
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
+    let c1 = view.components(tree).find(|c| c.name == "c1").unwrap();
+    let c2 = view.components(tree).find(|c| c.name == "c2").unwrap();
     let p_c1_2 = mcc::PointId {
         node: c1.node_id.unwrap(),
         pin: c1.def.pins.ledger.id_of("2").unwrap(),
@@ -1344,8 +1293,9 @@ module main {
 }";
     let dl = build_dianlu(src);
     let tree = dl.tree();
-    let c1 = tree.components.iter().find(|c| c.name == "c1").unwrap();
-    let c2 = tree.components.iter().find(|c| c.name == "c2").unwrap();
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
+    let c1 = view.components(tree).find(|c| c.name == "c1").unwrap();
+    let c2 = view.components(tree).find(|c| c.name == "c2").unwrap();
 
     let ov = dl.overlays();
     assert_eq!(
@@ -1718,34 +1668,19 @@ fn world_diff_versions_reports_node_add_and_net_delta() {
     // Per-net member delta: the VDD net gained c3's pin 1. The added point is
     // anchored on c3's persistent node id (the world registry resolves the
     // path to the same id the built tree carries).
-    let c3_node = world
-        .circuit(&key)
-        .unwrap()
-        .tree()
-        .components
-        .iter()
+    let dl = world.circuit(&key).unwrap();
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
+    let c3 = view
+        .components(dl.tree())
         .find(|c| c.name == "c3")
-        .expect("c3 exists after the rebuild")
-        .node_id
-        .expect("c3 carries a node id");
+        .expect("c3 exists after the rebuild");
+    let c3_node = c3.node_id.expect("c3 carries a node id");
     assert_eq!(
         world.registry(&key).unwrap().node_id_of("main.c3"),
         Some(c3_node),
         "the rebuilt c3 keeps its persistent node id"
     );
-    let pin1 = world
-        .circuit(&key)
-        .unwrap()
-        .tree()
-        .components
-        .iter()
-        .find(|c| c.name == "c3")
-        .unwrap()
-        .def
-        .pins
-        .ledger
-        .id_of("1")
-        .unwrap();
+    let pin1 = c3.def.pins.ledger.id_of("1").unwrap();
     let vdd_delta = diff
         .nets
         .iter()
@@ -1966,7 +1901,8 @@ module main {
     r1.2 -> GND
 }";
     let dl = build_dianlu(src);
-    for comp in &dl.tree().components {
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
+    for comp in view.components(dl.tree()) {
         let sn = mcc::McSpaceName::new(&comp.def.name, comp.def.uri.clone());
         assert!(
             mcc::def_id(&sn, mcc::DefKind::Component).is_some(),
@@ -2017,15 +1953,13 @@ module main {
     let key = world.instantiate(&ident).expect("v1 build");
 
     let ldo_c1 = |w: &mcc::CircuitWorld| {
-        w.circuit(&key)
-            .unwrap()
-            .tree()
-            .sub_modules
-            .iter()
+        let dl = w.circuit(&key).unwrap();
+        let view = mcc::TreeView::new(dl.arena(), dl.store());
+        let ldo = view
+            .sub_modules(dl.tree())
             .find(|s| s.name == "ldo")
-            .expect("ldo exists")
-            .components
-            .iter()
+            .expect("ldo exists");
+        view.components(ldo)
             .find(|c| c.name == "_C1")
             .expect("the anonymous CAP(1) is auto-named _C1")
             .node_id
@@ -2071,16 +2005,14 @@ module main {
     mcc::mcc_load_from_string(&uri, &src2);
     world.rebuild_invalidated(&[cap_def]);
 
-    let c2 = world
-        .circuit(&key)
-        .unwrap()
-        .tree()
-        .sub_modules
-        .iter()
+    let dl2 = world.circuit(&key).unwrap();
+    let view2 = mcc::TreeView::new(dl2.arena(), dl2.store());
+    let ldo2 = view2
+        .sub_modules(dl2.tree())
         .find(|s| s.name == "ldo")
-        .unwrap()
-        .components
-        .iter()
+        .unwrap();
+    let c2 = view2
+        .components(ldo2)
         .find(|c| c.name == "_C2")
         .expect("the appended construction is auto-named _C2")
         .node_id
@@ -2147,10 +2079,9 @@ module main {
         "no series shape error; got {codes:?}"
     );
 
+    let view = mcc::TreeView::new(dl.arena(), dl.store());
     let find_comp = |name: &str| {
-        dl.tree()
-            .components
-            .iter()
+        view.components(dl.tree())
             .find(|c| c.name == name)
             .unwrap_or_else(|| panic!("instance {name} exists"))
     };

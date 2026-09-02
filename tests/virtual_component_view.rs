@@ -55,7 +55,7 @@ fn component_only_file_resolves_and_builds() {
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
     assert_eq!(targets, vec!["HUM011D_5_S".to_string()]);
 
-    let (inst, table) =
+    let (inst, table, _arena, _store) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
     assert_eq!(inst.name, "VIRT_HUM011D_5_S");
 
@@ -87,9 +87,9 @@ fn component_view_renders_box() {
     setup(&uri);
 
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
-    let (inst, table) =
+    let (inst, table, arena, store) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
-    let block = mcc::build_mc_vec(&inst, &table);
+    let block = mcc::build_mc_vec(&inst, &table, &arena, &store);
     let graph =
         mcc::mcc_virtual_prepare_graph(mcc::build_mc_vec_graph(&block, &table), &targets[0]);
     let doc = mcc::viz::api::render(graph);
@@ -115,9 +115,9 @@ fn component_view_renders_pin_name_and_id() {
     setup(&uri);
 
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
-    let (inst, table) =
+    let (inst, table, arena, store) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
-    let block = mcc::build_mc_vec(&inst, &table);
+    let block = mcc::build_mc_vec(&inst, &table, &arena, &store);
     let graph =
         mcc::mcc_virtual_prepare_graph(mcc::build_mc_vec_graph(&block, &table), &targets[0]);
     let doc = mcc::viz::api::render(graph);
@@ -188,7 +188,7 @@ fn interface_only_file_resolves_and_builds() {
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
     assert_eq!(targets, vec!["I2C".to_string()]);
 
-    let (inst, _table) =
+    let (inst, _table, _arena, _store) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
     assert_eq!(inst.name, "VIRT_I2C");
     fs::remove_dir_all(path.parent().unwrap()).ok();
@@ -222,9 +222,9 @@ component CONN12
     setup(&uri);
 
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
-    let (inst, table) =
+    let (inst, table, arena, store) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
-    let block = mcc::build_mc_vec(&inst, &table);
+    let block = mcc::build_mc_vec(&inst, &table, &arena, &store);
     let graph =
         mcc::mcc_virtual_prepare_graph(mcc::build_mc_vec_graph(&block, &table), &targets[0]);
     let b = &graph.boxes[0];
@@ -305,9 +305,9 @@ component PCA9555(partno)
     setup(&uri);
 
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
-    let (inst, table) =
+    let (inst, table, arena, store) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
-    let block = mcc::build_mc_vec(&inst, &table);
+    let block = mcc::build_mc_vec(&inst, &table, &arena, &store);
     let graph = mcc::build_mc_vec_graph(&block, &table);
     let b = &graph.boxes[0];
     assert_eq!(b.pins.len(), 16, "16 IO pins must register");
@@ -355,9 +355,9 @@ component XFR
     setup(&uri);
 
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
-    let (inst, table) =
+    let (inst, table, arena, store) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
-    let block = mcc::build_mc_vec(&inst, &table);
+    let block = mcc::build_mc_vec(&inst, &table, &arena, &store);
     let mut graph =
         mcc::mcc_virtual_prepare_graph(mcc::build_mc_vec_graph(&block, &table), &targets[0]);
     // The fallback sizing runs inside the device layout; the render path calls
@@ -429,7 +429,7 @@ component XTAL.CERAMIC
     setup(&uri);
 
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
-    let (inst, table) =
+    let (inst, table, _arena, _store) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
     let _ = (inst, table);
 
@@ -474,7 +474,7 @@ component SYS.Clock.MCP7940M
     setup(&uri);
 
     let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
-    let (inst, table) =
+    let (inst, table, _arena, _store) =
         mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
     let _ = (inst, table);
 

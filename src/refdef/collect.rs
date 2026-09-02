@@ -6,8 +6,8 @@
 //!
 //! Extracted from `db/infra/mc_code.rs` (see design doc §16).
 
-use crate::ast::ast_node::AstNode;
-use crate::ast::ast_semantic::{DeclareId, LocalSymbolTable};
+use crate::ast::node::AstNode;
+use crate::ast::sem::{DeclareId, LocalSymbolTable};
 use crate::refdef::register::{lookup_declare_id, scope_path_from_scope_str};
 use crate::McURI;
 
@@ -22,7 +22,7 @@ pub fn collect_funccall_arg_refs(
     file_uri: &McURI,
     enclosing: &str,
 ) -> Vec<(std::ops::Range<usize>, DeclareId)> {
-    use crate::ast::c_macros::{
+    use crate::ast::macros::{
         MCAST_ID, MCAST_IDA, MCAST_IDS, MCAST_OPD_LEFTARROW, MCAST_OPD_MINUS, MCAST_OPD_PLUS,
         MCAST_OPD_RIGHTARROW, MCAST_OPD_SQUARE_VEC, MCAST_SQUARE_VEC,
     };
@@ -164,7 +164,7 @@ pub fn resolve_arg_ref_kind(
         (crate::refdef::SymbolKind, u32),
         crate::refdef::SourceLocation,
     >,
-    decl_id: crate::ast::ast_semantic::DeclareId,
+    decl_id: crate::ast::sem::DeclareId,
 ) -> crate::refdef::SymbolKind {
     use crate::refdef::SymbolKind;
     let raw_id = u32::from(decl_id);

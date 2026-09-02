@@ -5,19 +5,20 @@
 //! Phase C (storage back-migration) of the dianlu-tree refactor (implementation
 //! plan §9 C / design §4, D6/D7): [`NodeArena`] — the arena storage layer.
 //!
-//! The modelling tree (`McModuleInst`) is a recursive ownership tree whose
-//! nodes carry `name + Rust reference` — no stable id for global access, so
-//! flatten / export / viz walks recurse by hand and nothing is reachable in
-//! O(1) from an arbitrary node id. This module adds the arena as a **companion
-//! data layer** rebuilt from the frozen tree ([`build_node_arena`]):
-//! `HashMap<NodeId, Node>` plus a `root` and parent/children edges.
+//! The modelling tree (`McModuleInst`) is a non-recursive object whose
+//! structure lives in this flat arena: `HashMap<NodeId, Node>` plus a `root`
+//! and parent/children edges. Nodes carry only integer ids and flat data — no
+//! Rust references — so the arena is snapshot-able / serializable (design §4),
+//! offers O(1) node access by id, child lists, and a deterministic level-order
+//! walk, and is the sole structural store the flatten / export / viz walks
+//! consume.
 //!
-//! Two-track migration (plan §9 C item 3): the tree stays authoritative and
-//! every consumer keeps working unchanged; the arena offers O(1) node access
-//! by id, child lists, and a deterministic level-order walk — the storage the
-//! flatten / export / viz walks migrate onto in later steps, one consumer at a
-//! time. Nodes carry only integer ids and flat data — no Rust references — so
-//! the arena is snapshot-able / serializable (design §4).
+//! The arena is laid down **incrementally** by the construction-time builder
+//! (Phase C S3, [`InstantiationBuilder`](crate::instant::mc_mod::builder::InstantiationBuilder)):
+//! each `add_component` / `add_submodule` / port / vector interning appends the
+//! child edge through [`NodeArena::add_child_grouped`]. The instance content
+//! for those children (the modelling-layer values) lives in the companion
+//! [`InstanceStore`](crate::instant::inststore::InstanceStore).
 
 use std::collections::{HashMap, VecDeque};
 
@@ -43,12 +44,13 @@ pub enum NodeKind {
 
 /// One arena node (design §4): integer identity plus flat data, no references.
 ///
-/// `#[allow(dead_code)]`: the companion layer lands ahead of its consumers by
-/// design (two-track migration) — the fields are written by
-/// [`build_node_arena`] and read by the flatten / export / viz walks in later
-/// Phase C steps.
+/// `#[allow(dead_code)]`: some node fields are written by the
+/// construction-time builder and only read by the flatten / export / viz
+/// walks that migrate onto the arena over the Phase C steps.
+///
+/// `PartialEq` is derived for equality assertions on the arena.
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
     /// The node's per-build identity.
     pub id: NodeId,
@@ -86,35 +88,90 @@ impl Node {
 
 /// Arena storage for one circuit: `HashMap<NodeId, Node>` plus a root, with
 /// parent/children edges forming the tree view (design §4 / D6).
-#[derive(Debug, Clone)]
+///
+/// `PartialEq` is derived for the Phase C S3 cross-check (see [`Node`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeArena {
     nodes: HashMap<NodeId, Node>,
     root: NodeId,
 }
 
 impl NodeArena {
-    fn new(root: NodeId) -> Self {
+    /// Construct an empty arena rooted at `root`. `pub(crate)`: the Phase C
+    /// construction-time builder lays the arena down incrementally from this
+    /// root (the module being built) — the arena is the sole structural store.
+    pub(crate) fn new(root: NodeId) -> Self {
         NodeArena {
             nodes: HashMap::new(),
             root,
         }
     }
 
-    fn insert(&mut self, node: Node) {
+    /// Insert a node, replacing any node at the same id (idempotent for the
+    /// construction-time path — the same node is never laid down twice).
+    pub(crate) fn insert(&mut self, node: Node) {
         self.nodes.insert(node.id, node);
     }
 
-    fn children_push(&mut self, parent: NodeId, child: NodeId) {
+    /// Mutable node access by id (construction-time parent fixing: a
+    /// sub-module node is laid down by its own builder with a `None` parent
+    /// and the parent builder rewires it when the sub-module is added).
+    pub(crate) fn node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
+        self.nodes.get_mut(&id)
+    }
+
+    /// Append `child` to `parent`'s children in the deterministic grouped tree
+    /// order — ports, vectors, components, then sub-modules — matching the
+    /// identity-resume walk (dianlu.rs `resume_module`). Idempotent: a child
+    /// already present is left in place (sub-module re-entry / resume).
+    ///
+    /// Phase C S3: the construction-time builder appends through here, so the
+    /// arena is the sole structural store from build time on.
+    pub(crate) fn add_child_grouped(&mut self, parent: NodeId, child: NodeId, kind: NodeKind) {
+        // Idempotency + insertion position computed against immutable reads
+        // (no borrow conflict with the final `get_mut`).
+        let children: Vec<NodeId> = self.children(parent).unwrap_or(&[]).to_vec();
+        if children.contains(&child) {
+            return;
+        }
+        // Each new node is inserted at the end of its own group's run, so a
+        // group keeps its creation order while the inter-group layout stays
+        // ports, vectors, devices, sub-modules (the post-freeze walk's order).
+        let pos = match kind {
+            NodeKind::Port => children
+                .iter()
+                .take_while(|c| {
+                    self.node(**c)
+                        .map(|n| n.kind == NodeKind::Port)
+                        .unwrap_or(false)
+                })
+                .count(),
+            NodeKind::Vector => children
+                .iter()
+                .take_while(|c| {
+                    self.node(**c)
+                        .map(|n| matches!(n.kind, NodeKind::Port | NodeKind::Vector))
+                        .unwrap_or(false)
+                })
+                .count(),
+            NodeKind::Device => children
+                .iter()
+                .position(|c| {
+                    self.node(*c)
+                        .map(|n| n.kind == NodeKind::Module)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(children.len()),
+            NodeKind::Module => children.len(),
+        };
         if let Some(node) = self.nodes.get_mut(&parent) {
-            node.children.push(child);
+            node.children.insert(pos, child);
         }
     }
 }
 
-/// Accessor surface — the migration target for the flatten / export / viz
-/// walks in later Phase C steps. The companion layer lands ahead of its
-/// consumers by design (two-track migration), so these stay partially unused
-/// until the first consumer switches to arena edges.
+/// Accessor surface — consumed by the flatten / export / viz walks and the
+/// [`TreeView`](crate::instant::inststore::TreeView) structure queries.
 #[allow(dead_code)]
 impl NodeArena {
     /// The circuit root node id.
@@ -163,101 +220,11 @@ impl NodeArena {
     }
 }
 
-/// Rebuild the arena from a frozen tree (design §4 / plan §9 C item 2): walk
-/// the modelling tree in the same order as the identity-resume walk and lay
-/// down every node with its `(parent, children)` edges. `def` / `pins` are
-/// best-effort resolutions — the arena stays a faithful structural copy of
-/// the tree even when a def is not registered (e.g. test stubs).
-///
-/// Panics if any tree node lacks its Phase C1 companion `node_id` — the
-/// frozen tree always carries one (construction interning invariant).
-pub(crate) fn build_node_arena(tree: &McModuleInst) -> NodeArena {
-    let root = tree
-        .node_id
-        .expect("Phase C1 invariant: the circuit root carries a node_id");
-    let mut arena = NodeArena::new(root);
-    build_module(&mut arena, tree, None);
-    arena
-}
-
-/// Recursively lay one module node and its ports / vectors / components /
-/// sub-modules down in the arena.
-fn build_module(arena: &mut NodeArena, module: &McModuleInst, parent: Option<NodeId>) -> NodeId {
-    let id = module
-        .node_id
-        .expect("Phase C1 invariant: a frozen module node carries a node_id");
-    arena.insert(Node {
-        id,
-        kind: NodeKind::Module,
-        parent,
-        children: Vec::new(),
-        name: module.name.clone(),
-        def: module_def_id(module),
-        pins: Vec::new(),
-        shape: None,
-    });
-
-    for port in &module.ports {
-        let pid = port
-            .node_id
-            .expect("Phase C1 invariant: a frozen port node carries a node_id");
-        arena.insert(Node {
-            id: pid,
-            kind: NodeKind::Port,
-            parent: Some(id),
-            children: Vec::new(),
-            name: port.name.clone(),
-            def: None,
-            pins: Vec::new(),
-            shape: None,
-        });
-        arena.children_push(id, pid);
-    }
-
-    for vec in &module.vectors {
-        let vid = vec
-            .node_id
-            .expect("Phase C1 invariant: a frozen vector node carries a node_id");
-        arena.insert(Node {
-            id: vid,
-            kind: NodeKind::Vector,
-            parent: Some(id),
-            children: Vec::new(),
-            name: vec.base.clone(),
-            def: None,
-            pins: Vec::new(),
-            shape: vec.shape.clone(),
-        });
-        arena.children_push(id, vid);
-    }
-
-    for comp in &module.components {
-        let cid = comp
-            .node_id
-            .expect("Phase C1 invariant: a frozen component node carries a node_id");
-        arena.insert(Node {
-            id: cid,
-            kind: NodeKind::Device,
-            parent: Some(id),
-            children: Vec::new(),
-            name: comp.name.clone(),
-            def: component_def_id(comp),
-            pins: component_pins(comp),
-            shape: None,
-        });
-        arena.children_push(id, cid);
-    }
-
-    for sub in &module.sub_modules {
-        let sub_id = build_module(arena, sub, Some(id));
-        arena.children_push(id, sub_id);
-    }
-
-    id
-}
-
 /// Best-effort `DefId` of a module instance's class (module def registry).
-fn module_def_id(module: &McModuleInst) -> Option<DefId> {
+///
+/// `pub(crate)`: the construction-time builder resolves the module node's
+/// `def` through here.
+pub(crate) fn module_def_id(module: &McModuleInst) -> Option<DefId> {
     def_id(
         &McSpaceName::new(&module.def.name, module.def_uri.clone()),
         DefKind::Module,
@@ -266,141 +233,29 @@ fn module_def_id(module: &McModuleInst) -> Option<DefId> {
 
 /// Best-effort `DefId` of a component instance's class (component def
 /// registry).
-fn component_def_id(comp: &McComponentInst) -> Option<DefId> {
+pub(crate) fn component_def_id(comp: &McComponentInst) -> Option<DefId> {
     def_id(
         &McSpaceName::new(&comp.def.name, comp.def.uri.clone()),
         DefKind::Component,
     )
 }
 
-/// Arena-driven sub-module iterator (design §4 — the tree is a view over
-/// arena edges): the Module-kind `children` ids of the module's node drive
-/// the traversal, and the sub-module data is fetched from the aligned tree
-/// node. The two orders coincide (both are the module's build order); a
-/// `debug_assert` guards the 1:1 alignment on every call. Consumers that hold
-/// a `NodeArena` switch their `for sub in &inst.sub_modules` recursion to
-/// this iterator (Phase C two-track migration).
-pub fn arena_sub_modules<'a>(
-    arena: &'a NodeArena,
-    inst: &'a McModuleInst,
-) -> impl Iterator<Item = &'a McModuleInst> + 'a {
-    let module_id = inst
-        .node_id
-        .expect("Phase C1 invariant: a frozen module carries a node_id");
-    let module_children: Vec<NodeId> = arena
-        .children(module_id)
-        .unwrap_or(&[])
-        .iter()
-        .copied()
-        .filter(|cid| {
-            arena
-                .node(*cid)
-                .map(|n| n.kind == NodeKind::Module)
-                .unwrap_or(false)
-        })
-        .collect();
-    debug_assert_eq!(
-        module_children.len(),
-        inst.sub_modules.len(),
-        "Phase C invariant: arena Module children align 1:1 with the tree's sub_modules"
-    );
-    module_children
-        .into_iter()
-        .zip(inst.sub_modules.iter())
-        .map(|(_, sub)| sub)
-}
-
-/// Arena-driven component iterator (design §4 — the tree is a view over
-/// arena edges): the Device-kind `children` ids of the module's node drive
-/// the traversal, and the component data is fetched from the aligned tree
-/// node. The two orders coincide (both are the module's build order); a
-/// `debug_assert` guards the 1:1 alignment on every call. The `TreeView`
-/// (instance_store.rs) delegates to this iterator while the Phase C
-/// dual-track removal is in flight.
-#[allow(dead_code)]
-pub fn arena_components<'a>(
-    arena: &'a NodeArena,
-    inst: &'a McModuleInst,
-) -> impl Iterator<Item = &'a McComponentInst> + 'a {
-    let module_id = inst
-        .node_id
-        .expect("Phase C1 invariant: a frozen module carries a node_id");
-    let module_children: Vec<NodeId> = arena
-        .children(module_id)
-        .unwrap_or(&[])
-        .iter()
-        .copied()
-        .filter(|cid| {
-            arena
-                .node(*cid)
-                .map(|n| n.kind == NodeKind::Device)
-                .unwrap_or(false)
-        })
-        .collect();
-    debug_assert_eq!(
-        module_children.len(),
-        inst.components.len(),
-        "Phase C invariant: arena Device children align 1:1 with the tree's components"
-    );
-    module_children
-        .into_iter()
-        .zip(inst.components.iter())
-        .map(|(_, comp)| comp)
-}
-
 /// Device node pins: the component class's pin ordinals in declaration order.
 /// `get_all_pins()` sorts by name, so the append-only member ledger (invariant
 /// C) is the declaration-order source.
-fn component_pins(comp: &McComponentInst) -> Vec<DefMemberId> {
+pub(crate) fn component_pins(comp: &McComponentInst) -> Vec<DefMemberId> {
     comp.def.pins.ledger.live_members().map(|m| m.id).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instant::identity::IdentityRegistry;
-    use crate::instant::mc_comp::McComponentInst;
-    use crate::instant::mc_mod::McVectorInst;
-    use crate::instant::mc_net::PortInst;
-    use crate::semantic::basic::mc_paramd::McParamDeclares;
-    use crate::semantic::common::{IOType, McURI};
-    use crate::semantic::component::mc_attr::McAttributes;
-    use crate::semantic::component::mc_layout::McLayout;
-    use crate::semantic::component::mc_pins::McPins;
-    use crate::semantic::component::McComponent;
-    use crate::semantic::mc_func::McFunctions;
-    use crate::semantic::mc_inst::McInstances;
-    use crate::semantic::module::McModule;
-    use crate::McIds;
-    use std::sync::Arc;
 
-    /// Minimal component def stub (no pins) for arena tests.
-    fn stub_comp(name: &str) -> McComponent {
-        McComponent {
-            name: McIds::from(name),
-            params: McParamDeclares::new(),
-            pins: McPins::new(),
-            attrs: McAttributes::new(),
-            funcs: McFunctions::new(),
-            insts: McInstances::new(),
-            layout: McLayout {
-                left: Vec::new(),
-                right: Vec::new(),
-                top: Vec::new(),
-                bottom: Vec::new(),
-            },
-            uri: McURI::default(),
-            cond_pins: Vec::new(),
-            cond_attrs: Vec::new(),
-            span: crate::ast::ast_semantic::Span { start: 0, end: 0 },
-            anon_counter: 0,
-        }
-    }
-
-    /// Build a small frozen tree with Phase C1 companion node ids:
+    /// Lay down the sample circuit directly (the Phase C construction-time
+    /// pattern: `insert` each node, then `add_child_grouped` for the edges):
     ///
     /// ```text
-    /// main (module)
+    /// main (module, root)
     /// ├─ VDD (port)
     /// ├─ c   (vector, shape [2])
     /// ├─ c1  (device)
@@ -408,45 +263,105 @@ mod tests {
     ///    ├─ VIN (port)
     ///    └─ cap1 (device)
     /// ```
-    fn sample_tree() -> McModuleInst {
-        let mut reg = IdentityRegistry::new(crate::instant::identity::CircuitKey::new(
-            "/proj/main.mc",
-            "main",
-        ));
-        let mut main = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));
-        main.node_id = Some(reg.intern("main"));
-
-        let mut vdd = PortInst::with_members("VDD", IOType::In, Vec::new());
-        vdd.node_id = Some(reg.intern("main.VDD"));
-        main.ports.push(vdd);
-
-        main.vectors.push(McVectorInst {
-            base: "c".to_string(),
-            member_names: vec!["c1".to_string(), "c2".to_string()],
-            member_ids: vec!["c1".to_string(), "c2".to_string()],
-            shape: Some(vec![2]),
-            node_id: Some(reg.intern("main.c")),
+    fn sample_arena() -> NodeArena {
+        let root = NodeId(1);
+        let mut arena = NodeArena::new(root);
+        let (vdd, c, c1, ldo, vin, cap1) = (
+            NodeId(2),
+            NodeId(3),
+            NodeId(4),
+            NodeId(5),
+            NodeId(6),
+            NodeId(7),
+        );
+        // The module root is a first-class arena node (the construction-time
+        // builder lays it down in mc_mod/builder.rs before any child edge).
+        arena.insert(Node {
+            id: root,
+            kind: NodeKind::Module,
+            parent: None,
+            children: Vec::new(),
+            name: "main".to_string(),
+            def: None,
+            pins: Vec::new(),
+            shape: None,
         });
-
-        let mut c1 = McComponentInst::new("c1", Arc::new(stub_comp("CAP")));
-        c1.node_id = Some(reg.intern("main.c1"));
-        main.components.push(c1);
-
-        let mut ldo = McModuleInst::new("ldo", Arc::new(McModule::test_stub("ldo")));
-        ldo.node_id = Some(reg.intern("main.ldo"));
-        let mut vin = PortInst::with_members("VIN", IOType::In, Vec::new());
-        vin.node_id = Some(reg.intern("main.ldo.VIN"));
-        ldo.ports.push(vin);
-        let mut cap1 = McComponentInst::new("cap1", Arc::new(stub_comp("CAP")));
-        cap1.node_id = Some(reg.intern("main.ldo.cap1"));
-        ldo.components.push(cap1);
-        main.sub_modules.push(ldo);
-
-        main
+        // Port / vector / device / module nodes: leaf groups first (children
+        // edges added via `add_child_grouped`), then the sub-module root.
+        arena.insert(Node {
+            id: vdd,
+            kind: NodeKind::Port,
+            parent: Some(root),
+            children: Vec::new(),
+            name: "VDD".to_string(),
+            def: None,
+            pins: Vec::new(),
+            shape: None,
+        });
+        arena.insert(Node {
+            id: c,
+            kind: NodeKind::Vector,
+            parent: Some(root),
+            children: Vec::new(),
+            name: "c".to_string(),
+            def: None,
+            pins: Vec::new(),
+            shape: Some(vec![2]),
+        });
+        arena.insert(Node {
+            id: c1,
+            kind: NodeKind::Device,
+            parent: Some(root),
+            children: Vec::new(),
+            name: "c1".to_string(),
+            def: None,
+            pins: Vec::new(),
+            shape: None,
+        });
+        // Sub-module subtree: its own root + a port + a device.
+        arena.insert(Node {
+            id: ldo,
+            kind: NodeKind::Module,
+            parent: Some(root),
+            children: Vec::new(),
+            name: "ldo".to_string(),
+            def: None,
+            pins: Vec::new(),
+            shape: None,
+        });
+        arena.insert(Node {
+            id: vin,
+            kind: NodeKind::Port,
+            parent: Some(ldo),
+            children: Vec::new(),
+            name: "VIN".to_string(),
+            def: None,
+            pins: Vec::new(),
+            shape: None,
+        });
+        arena.insert(Node {
+            id: cap1,
+            kind: NodeKind::Device,
+            parent: Some(ldo),
+            children: Vec::new(),
+            name: "cap1".to_string(),
+            def: None,
+            pins: Vec::new(),
+            shape: None,
+        });
+        // Edges, in a deliberately non-grouped order to prove `add_child_grouped`
+        // regroups into ports, vectors, devices, modules.
+        arena.add_child_grouped(ldo, cap1, NodeKind::Device);
+        arena.add_child_grouped(ldo, vin, NodeKind::Port);
+        arena.add_child_grouped(root, ldo, NodeKind::Module);
+        arena.add_child_grouped(root, c1, NodeKind::Device);
+        arena.add_child_grouped(root, c, NodeKind::Vector);
+        arena.add_child_grouped(root, vdd, NodeKind::Port);
+        arena
     }
 
     /// Find a node's id by name + kind (test helper; names are unique within
-    /// this sample tree).
+    /// this sample circuit).
     fn node_id_of(arena: &NodeArena, name: &str, kind: NodeKind) -> NodeId {
         arena
             .iter_level_order()
@@ -455,17 +370,16 @@ mod tests {
             .id
     }
 
-    /// The arena rebuilt from the frozen tree is isomorphic to it: every tree
-    /// node (module / port / vector / device) appears exactly once, parent /
-    /// children edges round-trip, and the root is the module node with no
-    /// parent.
+    /// A directly-constructed arena carries the full grouped structure: every
+    /// node appears exactly once, `add_child_grouped` orders children
+    /// ports → vectors → devices → sub-modules, parent / children edges
+    /// round-trip, and the root is the module node with no parent.
     #[test]
-    fn arena_isomorphic_to_frozen_tree() {
-        let tree = sample_tree();
-        let arena = build_node_arena(&tree);
+    fn arena_direct_build_structure() {
+        let arena = sample_arena();
 
         // 1 root + 1 port + 1 vector + 1 device + 1 sub (1 port + 1 device) = 7.
-        assert_eq!(arena.len(), 7, "every tree node appears exactly once");
+        assert_eq!(arena.len(), 7, "every node appears exactly once");
 
         let root_id = arena.root();
         let root = arena.node(root_id).expect("root node present");
@@ -542,21 +456,24 @@ mod tests {
         );
     }
 
-    /// `def` resolution is best-effort: unregistered stubs resolve to `None`
-    /// without disturbing the structural copy.
+    /// `add_child_grouped` is idempotent: re-adding an existing child leaves
+    /// the children list unchanged (the construction-time sub-module re-entry /
+    /// resume path relies on this).
     #[test]
-    fn arena_def_resolution_is_best_effort() {
-        let tree = sample_tree();
-        let arena = build_node_arena(&tree);
-        // Stub defs are not in the def registry — every node resolves to None
-        // (devices and modules) and the arena still carries the full tree.
-        for node in arena.iter_level_order() {
-            assert!(
-                node.def.is_none(),
-                "unregistered stub def resolves to None (node '{}')",
-                node.name
-            );
+    fn arena_add_child_grouped_is_idempotent() {
+        let mut arena = sample_arena();
+        let root_id = arena.root();
+        let before = arena.children(root_id).unwrap().to_vec();
+        // Re-add every root child exactly as it is laid down.
+        for cid in &before {
+            let node = arena.node(*cid).unwrap();
+            arena.add_child_grouped(root_id, *cid, node.kind);
         }
-        assert_eq!(arena.len(), 7);
+        assert_eq!(
+            arena.children(root_id).unwrap(),
+            before.as_slice(),
+            "re-adding an existing child is a no-op"
+        );
+        assert_eq!(arena.len(), 7, "no duplicate nodes laid down");
     }
 }

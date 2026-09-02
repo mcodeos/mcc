@@ -16,9 +16,9 @@
 //! are **module-local** and must not be referenced across modules — cross-module
 //! links go through `ExpansionRecord::sub_target` (sub-module instance path).
 
-use crate::instant::mc_comp::McComponentInst;
+use crate::instant::identity::NodeId;
+use crate::instant::inststore::TreeView;
 use crate::instant::mc_mod::McModuleInst;
-use crate::instant::mc_net::ConnectionInst;
 use crate::semantic::common::SourcePos;
 
 /// Kind of an expansion / instantiation event.
@@ -218,33 +218,37 @@ impl ExpansionLog {
     /// `None` → module top-level statements (no active expansion).
     /// Nested products tag the innermost record, so each record's group holds
     /// only its own direct products — no range subtraction is needed.
-    pub fn group_products(
-        &self,
-        components: &[McComponentInst],
-        sub_modules: &[McModuleInst],
-        connections: &[ConnectionInst],
-    ) -> ProductGroups {
+    ///
+    /// Phase C S3-D: components / sub-modules resolve through the [`TreeView`]
+    /// (arena edges + store) and are bucketed by arena `NodeId` — the old
+    /// `Vec<usize>` positions replaced by the node ids, which are identical
+    /// sequences since arena creation order preserves the Vec order. `module`
+    /// still supplies the flat `connections` (that field stays on
+    /// `McModuleInst`).
+    pub fn group_products(&self, view: &TreeView, module: &McModuleInst) -> ProductGroups {
         let mut groups = ProductGroups {
             by_record: (0..self.records.len())
                 .map(|_| ProductGroup::default())
                 .collect(),
             top_level: ProductGroup::default(),
         };
-        for (i, c) in components.iter().enumerate() {
+        for c in view.components(module) {
+            let Some(id) = c.node_id else { continue };
             match c.expansion_id {
-                Some(k) if k < groups.by_record.len() => groups.by_record[k].components.push(i),
-                None => groups.top_level.components.push(i),
+                Some(k) if k < groups.by_record.len() => groups.by_record[k].components.push(id),
+                None => groups.top_level.components.push(id),
                 Some(_) => {} // stale id (records never removed today); ignore
             }
         }
-        for (i, m) in sub_modules.iter().enumerate() {
+        for m in view.sub_modules(module) {
+            let Some(id) = m.node_id else { continue };
             match m.expansion_id {
-                Some(k) if k < groups.by_record.len() => groups.by_record[k].sub_modules.push(i),
-                None => groups.top_level.sub_modules.push(i),
+                Some(k) if k < groups.by_record.len() => groups.by_record[k].sub_modules.push(id),
+                None => groups.top_level.sub_modules.push(id),
                 Some(_) => {}
             }
         }
-        for (i, c) in connections.iter().enumerate() {
+        for (i, c) in module.connections.iter().enumerate() {
             match c.expansion_id {
                 Some(k) if k < groups.by_record.len() => groups.by_record[k].connections.push(i),
                 None => groups.top_level.connections.push(i),
@@ -255,15 +259,17 @@ impl ExpansionLog {
     }
 }
 
-/// Direct product set of one expansion record: indices into the owning
-/// module's `components` / `sub_modules` / `connections` whose `expansion_id`
-/// equals the record's index.
+/// Direct product set of one expansion record: the arena `NodeId`s of the
+/// owning module's components / sub-modules whose `expansion_id` equals the
+/// record's index, plus connection indices into the module's flat
+/// `connections`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProductGroup {
-    /// Component instance indices (into `McModuleInst.components`).
-    pub components: Vec<usize>,
-    /// Sub-module instance indices (into `McModuleInst.sub_modules`).
-    pub sub_modules: Vec<usize>,
+    /// Component instance arena node ids (Phase C S3-D: was `Vec<usize>`
+    /// positions into `McModuleInst.components`, now the node ids).
+    pub components: Vec<NodeId>,
+    /// Sub-module instance arena node ids (same S3-D change).
+    pub sub_modules: Vec<NodeId>,
     /// Connection indices (into `McModuleInst.connections`).
     pub connections: Vec<usize>,
 }

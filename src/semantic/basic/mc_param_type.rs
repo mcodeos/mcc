@@ -14,8 +14,8 @@
 //! `direction: Option<McIoTy>`, not a separate variant.
 
 use super::mc_uval::McUnit;
-use crate::ast::ast_node::AstNode;
-use crate::ast::c_macros::*;
+use crate::ast::macros::*;
+use crate::ast::node::AstNode;
 use crate::McIds;
 
 // ============================================================================

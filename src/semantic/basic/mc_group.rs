@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use super::mc_phrase::McPhrase;
-use crate::ast::ast_node::AstNode;
+use crate::ast::node::AstNode;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::mc_func::HasFindInst;

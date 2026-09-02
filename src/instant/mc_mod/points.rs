@@ -12,8 +12,7 @@
 //! - `is_port` / `find_component` / `find_submodule` / `ensure_label` —— lookup helpers
 
 use super::funccall::FaceSide;
-use super::{InstantiationBuilder, McModuleInst};
-use crate::instant::mc_comp::McComponentInst;
+use super::InstantiationBuilder;
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -714,9 +713,7 @@ impl InstantiationBuilder {
                         // (B) cross-module component lookup: caller="mcu.uC" → sub="mcu", comp="uC"
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
                             if let Some(sub) = self.find_submodule(sub_name) {
-                                if let Some(comp) =
-                                    sub.components.iter().find(|c| c.name == comp_name)
-                                {
+                                if let Some(comp) = self.component_in(&sub, comp_name) {
                                     if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
                                         return Ok(pids
                                             .iter()
@@ -1175,9 +1172,7 @@ impl InstantiationBuilder {
                         // (B) cross-module component lookup
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
                             if let Some(sub) = self.find_submodule(sub_name) {
-                                if let Some(comp) =
-                                    sub.components.iter().find(|c| c.name == comp_name)
-                                {
+                                if let Some(comp) = self.component_in(&sub, comp_name) {
                                     if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
                                         return Ok(pids
                                             .iter()
@@ -2006,14 +2001,6 @@ impl InstantiationBuilder {
 
     pub(super) fn is_port(&self, name: &str) -> bool {
         self.ports.iter().any(|p| p.name == name)
-    }
-
-    pub(super) fn find_component(&self, name: &str) -> Option<&McComponentInst> {
-        self.components.iter().find(|c| c.name == name)
-    }
-
-    pub(super) fn find_submodule(&self, name: &str) -> Option<&McModuleInst> {
-        self.sub_modules.iter().find(|m| m.name == name)
     }
 
     pub(super) fn ensure_label(&mut self, name: &str) {

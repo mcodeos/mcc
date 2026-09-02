@@ -17,8 +17,8 @@ use std::sync::{Mutex, OnceLock};
 /// Global mutex to serialize tests that share mcc's global workspace state.
 static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-/// Helper: acquire lock, load source, build module, return instance.
-fn build(source: &str) -> mcc::McModuleInst {
+/// Helper: acquire lock, load source, build module, return instance + arena + store.
+fn build(source: &str) -> (mcc::McModuleInst, mcc::NodeArena, mcc::InstanceStore) {
     let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
 
     mcc::mcc_init_no_lib();
@@ -27,16 +27,22 @@ fn build(source: &str) -> mcc::McModuleInst {
 
     let uri: McURI = "/mcc/dynamic-pin-expansion.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
-    let result = mcc::mcc_build(&McIds::from("main"), &uri);
+    let result = mcc::mcc_build_with_arena(&McIds::from("main"), &uri);
+    let (inst, arena, store, _net_store) = result.expect("build failed");
 
     drop(lock);
-    result.expect("build failed")
+    (inst, arena, store)
 }
 
-/// Helper: find a component instance by name.
-fn find_component<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McComponentInst {
-    inst.components
-        .iter()
+/// Helper: find a component instance by name (through the store-backed view).
+fn find_component<'a>(
+    inst: &'a mcc::McModuleInst,
+    arena: &'a mcc::NodeArena,
+    store: &'a mcc::InstanceStore,
+    name: &str,
+) -> &'a mcc::McComponentInst {
+    let view = mcc::TreeView::new(arena, store);
+    view.components(inst)
         .find(|c| c.name == name)
         .unwrap_or_else(|| panic!("component '{}' not found", name))
 }
@@ -45,7 +51,7 @@ fn find_component<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McCom
 
 #[test]
 fn dynamic_pin_parameter_reference_expands() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component HDR_SINGLE(cols::INT)
 {
@@ -63,7 +69,7 @@ module main
 "#,
     );
 
-    let comp = find_component(&inst, "J1");
+    let comp = find_component(&inst, &arena, &store, "J1");
     // cols=5 → pins 1..5 should exist
     assert_eq!(comp.pin_count(), 5, "expected 5 pins for cols=5");
     assert_eq!(comp.pin_name("1").as_deref(), Some("1"));
@@ -74,7 +80,7 @@ module main
 
 #[test]
 fn static_nested_range_expands() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component HDR_2x3()
 {
@@ -92,7 +98,7 @@ module main
 "#,
     );
 
-    let comp = find_component(&inst, "J1");
+    let comp = find_component(&inst, &arena, &store, "J1");
     assert_eq!(comp.pin_count(), 6, "expected 6 pins for 2x3 header");
     // Pin names should follow R<row>C<col> pattern
     assert_eq!(comp.pin_name("1").as_deref(), Some("R1C1"));
@@ -107,7 +113,7 @@ module main
 
 #[test]
 fn dynamic_pin_expression_and_nested_range_expands() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component HDR_MULTI(rows::INT, cols::INT)
 {
@@ -125,7 +131,7 @@ module main
 "#,
     );
 
-    let comp = find_component(&inst, "J1");
+    let comp = find_component(&inst, &arena, &store, "J1");
     // rows=2, cols=3 → rows*cols=6 → pins 1..6
     assert_eq!(
         comp.pin_count(),
@@ -141,7 +147,7 @@ module main
 
 #[test]
 fn dynamic_pin_expression_different_dimensions() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component HDR_MULTI(rows::INT, cols::INT)
 {
@@ -159,7 +165,7 @@ module main
 "#,
     );
 
-    let comp = find_component(&inst, "J1");
+    let comp = find_component(&inst, &arena, &store, "J1");
     // rows=3, cols=2 → rows*cols=6 → pins 1..6
     assert_eq!(comp.pin_count(), 6, "expected 6 pins for rows=3, cols=2");
     // R1C1, R1C2, R2C1, R2C2, R3C1, R3C2
@@ -175,7 +181,7 @@ module main
 
 #[test]
 fn dynamic_pin_parameter_reference_single_pin() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component HDR_SINGLE(cols::INT)
 {
@@ -192,14 +198,14 @@ module main
 "#,
     );
 
-    let comp = find_component(&inst, "J1");
+    let comp = find_component(&inst, &arena, &store, "J1");
     assert_eq!(comp.pin_count(), 1, "expected 1 pin for cols=1");
     assert_eq!(comp.pin_name("1").as_deref(), Some("1"));
 }
 
 #[test]
 fn dynamic_pin_parameter_reference_large() {
-    let inst = build(
+    let (inst, arena, store) = build(
         r#"
 component HDR_SINGLE(cols::INT)
 {
@@ -217,7 +223,7 @@ module main
 "#,
     );
 
-    let comp = find_component(&inst, "J1");
+    let comp = find_component(&inst, &arena, &store, "J1");
     assert_eq!(comp.pin_count(), 20, "expected 20 pins for cols=20");
     assert_eq!(comp.pin_name("1").as_deref(), Some("1"));
     assert_eq!(comp.pin_name("20").as_deref(), Some("20"));

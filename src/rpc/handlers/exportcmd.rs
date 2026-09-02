@@ -21,8 +21,9 @@ pub fn handle_export(params: Option<Value>) -> RpcResult {
         Some("csv") => crate::cli::OutputFormat::Csv,
         _ => crate::cli::OutputFormat::Text,
     };
-    let (tree, table, arena) = crate::export::build_tree(&p.entry, p.top.as_deref(), &p.libs)
-        .map_err(|e| JsonRpcError::custom(-32603, &format!("export: {}", e)))?;
+    let (tree, table, arena, inst_store) =
+        crate::export::build_tree(&p.entry, p.top.as_deref(), &p.libs)
+            .map_err(|e| JsonRpcError::custom(-32603, &format!("export: {}", e)))?;
     let top = p.top.clone().unwrap_or_else(|| "?".to_string());
     // Convert local cli enums → u8 tags for export.
     let kind_tag = match kind {
@@ -38,8 +39,15 @@ pub fn handle_export(params: Option<Value>) -> RpcResult {
         crate::cli::OutputFormat::Yaml => 3u8,
         crate::cli::OutputFormat::Csv => 4u8,
     };
-    let (raw_text, items, count) =
-        crate::export::build_payload(&tree, &table, &arena, &top, kind_tag, format_tag);
+    let (raw_text, items, count) = crate::export::build_payload(
+        &tree,
+        &table,
+        &arena,
+        &inst_store,
+        &top,
+        kind_tag,
+        format_tag,
+    );
     let kind_str = match kind_tag {
         1 => "bom",
         2 => "spice",

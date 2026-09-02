@@ -6,7 +6,7 @@
 //!
 //! Extracted from `db/infra/mc_code.rs` (see design doc §16).
 
-use crate::ast::ast_semantic::{DeclareId, LocalSymbolTable, McSemSymbols};
+use crate::ast::sem::{DeclareId, LocalSymbolTable, McSemSymbols};
 use crate::refdef::types::{intern, SourceLocation, SymbolKind};
 use crate::McURI;
 

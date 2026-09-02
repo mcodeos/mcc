@@ -2,6 +2,7 @@
 //! SPICE netlist export
 
 use crate::export::NodeArena;
+use crate::instant::inststore::InstanceStore;
 use crate::instant::insttab::InstTable;
 use crate::McModuleInst;
 use serde_json::Value;
@@ -13,6 +14,7 @@ pub fn build_spice(
     tree: &McModuleInst,
     table: &InstTable,
     arena: &NodeArena,
+    inst_store: &InstanceStore,
     top: &str,
 ) -> (String, Value, usize) {
     let mut out = String::new();
@@ -38,7 +40,7 @@ pub fn build_spice(
     // string net tables from the flat table's store.
     let store_ref = table.net_table();
     let store_ref = store_ref.borrow();
-    collect_nets(tree, arena, &store_ref, &mut netmap);
+    collect_nets(tree, arena, inst_store, &store_ref, &mut netmap);
 
     let mut inst_nodes: HashMap<String, BTreeSet<String>> = HashMap::new();
 

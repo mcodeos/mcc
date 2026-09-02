@@ -254,21 +254,22 @@ fn execute_pass2(mc_uri: &McURI, top: Option<&str>) -> Result<(String, Value), J
     }));
 
     match built {
-        Ok(Ok((inst, arena, net_store))) => {
+        Ok(Ok((inst, arena, store, net_store))) => {
+            let view = crate::TreeView::new(&arena, &store);
             info!(target: "crate::pass2", "----------------------------------------");
             info!(target: "crate::pass2", "[Pass 2] Instantiating top module: {}", top_name);
             info!(target: "crate::pass2", "----------------------------------------");
             info!(target: "crate::pass2", ">> Instance: {} (class {})",
                 inst.name.to_string(), inst.def.name.to_string());
             info!(target: "crate::pass2", "|   ports:       {}", inst.ports.len());
-            info!(target: "crate::pass2", "|   components:  {}", inst.components.len());
-            info!(target: "crate::pass2", "|   sub_modules: {}", inst.sub_modules.len());
+            info!(target: "crate::pass2", "|   components:  {}", view.components(&inst).count());
+            info!(target: "crate::pass2", "|   sub_modules: {}", view.sub_modules(&inst).count());
             info!(target: "crate::pass2", "|   connections: {}", inst.connections.len());
-            for sub in crate::instant::arena::arena_sub_modules(&arena, &inst) {
+            for sub in view.sub_modules(&inst) {
                 info!(target: "crate::pass2", "|     - {} (class {})",
                     sub.name.to_string(), sub.def.name.to_string());
             }
-            let pass2 = collect_pass2(&top_name, &inst, Some(&arena), &net_store);
+            let pass2 = collect_pass2(&top_name, &inst, &view, &net_store);
             Ok((top_name, pass2))
         }
         Ok(Err(e)) => Err(JsonRpcError::custom(
@@ -417,7 +418,7 @@ pub(crate) fn run_full_build_envelope(
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::mcc_virtual_build_with_nets(&top_name, &mc_uri)
     }));
-    let (inst, net_store) = match built {
+    let (inst, arena, store, net_store) = match built {
         Ok(Ok(pair)) => pair,
         Ok(Err(e)) => {
             return Err(JsonRpcError::custom(
@@ -433,11 +434,14 @@ pub(crate) fn run_full_build_envelope(
         }
     };
 
-    let mut pass2 = collect_pass2(&top_name, &inst, None, &net_store);
+    let view = crate::TreeView::new(&arena, &store);
+    let mut pass2 = collect_pass2(&top_name, &inst, &view, &net_store);
     pass2["diagnostics"] = Value::Array(take_diags("pass2"));
 
     // ── Summary, mirroring ResultBuilder::finish() ──
-    let summary = build_envelope_summary(&pass0, &pass1, &pass2, Some(&inst), t0);
+    // Phase C S3-D: the tree tally resolves children through the view (the
+    // tree's Vec fields are gone).
+    let summary = build_envelope_summary(&pass0, &pass1, &pass2, Some(&inst), Some(&view), t0);
 
     Ok(json!({
         "command": command,
@@ -499,12 +503,22 @@ fn run_full_build_dir_envelope(
 
     // ── Pass 2: per-file default top build, aggregated ──
     let mut top_name = String::new();
-    let mut first_inst: Option<(crate::MccProjectTree, crate::NetTableStore)> = None;
+    let mut first_inst: Option<(
+        crate::MccProjectTree,
+        crate::NodeArena,
+        crate::InstanceStore,
+        crate::NetTableStore,
+    )> = None;
     let mut failures: Vec<Value> = Vec::new();
     let build_one = |target: &str,
                      file: &Path,
                      failures: &mut Vec<Value>|
-     -> Option<(crate::MccProjectTree, crate::NetTableStore)> {
+     -> Option<(
+        crate::MccProjectTree,
+        crate::NodeArena,
+        crate::InstanceStore,
+        crate::NetTableStore,
+    )> {
         let uri = file.to_string_lossy().to_string();
         let mc_uri = McURI::from(uri.as_str());
         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -577,8 +591,11 @@ fn run_full_build_dir_envelope(
     let mut pass2_diags = take_diags("pass2");
     pass2_diags.extend(failures);
     let pass2 = match &first_inst {
-        Some((inst, net_store)) => {
-            let mut p2 = collect_pass2(&top_name, inst, None, net_store);
+        Some((inst, arena, store, net_store)) => {
+            // Phase C S3-D: the tree tally resolves children through the view
+            // (the tree's Vec fields are gone).
+            let view = crate::TreeView::new(arena, store);
+            let mut p2 = collect_pass2(&top_name, inst, &view, net_store);
             p2["diagnostics"] = Value::Array(pass2_diags);
             p2
         }
@@ -591,11 +608,18 @@ fn run_full_build_dir_envelope(
         }),
     };
 
+    // Phase C S3-D: the tree tally resolves children through the view (the
+    // tree's Vec fields are gone).
+    let view = first_inst.as_ref().map(|(_, a, s, _)| {
+        let v = crate::TreeView::new(a, s);
+        v
+    });
     let summary = build_envelope_summary(
         &pass0,
         &pass1,
         &pass2,
-        first_inst.as_ref().map(|(i, _)| i),
+        first_inst.as_ref().map(|(i, ..)| i),
+        view.as_ref(),
         t0,
     );
 
@@ -633,6 +657,7 @@ fn build_envelope_summary(
     pass1: &Value,
     pass2: &Value,
     inst: Option<&crate::MccProjectTree>,
+    view: Option<&crate::TreeView>,
     t0: std::time::Instant,
 ) -> Value {
     let all_diags: Vec<&Value> = pass0["diagnostics"]
@@ -706,9 +731,10 @@ fn build_envelope_summary(
     let mut used_components = std::collections::BTreeSet::new();
     let mut module_insts = 0usize;
     let mut component_insts = 0usize;
-    if let Some(inst) = inst {
+    if let (Some(inst), Some(view)) = (inst, view) {
         tally_build_stats(
             inst,
+            view,
             &mut used_modules,
             &mut used_components,
             &mut module_insts,
@@ -834,8 +860,12 @@ fn def_class_split(arr: Option<&Value>) -> (usize, usize) {
 
 /// Walk the instance tree, collecting per-kind instance counts and the distinct
 /// set of classes actually instantiated (mirrors `output/mod.rs` `tally_tree`).
+///
+/// Phase C S3-D: children resolve through the store-backed `view` (the tree's
+/// Vec fields are gone).
 fn tally_build_stats(
     node: &crate::MccProjectTree,
+    view: &crate::TreeView,
     used_modules: &mut std::collections::BTreeSet<String>,
     used_components: &mut std::collections::BTreeSet<String>,
     module_insts: &mut usize,
@@ -848,14 +878,15 @@ fn tally_build_stats(
         return;
     }
     *module_insts += 1;
-    *component_insts += node.components.len();
+    *component_insts += view.components(node).count();
     used_modules.insert(node.def.name.to_string());
-    for c in &node.components {
+    for c in view.components(node) {
         used_components.insert(c.def.name.to_string());
     }
-    for sub in &node.sub_modules {
+    for sub in view.sub_modules(node) {
         tally_build_stats(
             sub,
+            view,
             used_modules,
             used_components,
             module_insts,
@@ -961,25 +992,25 @@ pub(crate) fn collect_pass1(_uri: &str, include_system: bool) -> Value {
 pub(crate) fn collect_pass2(
     top: &str,
     inst: &crate::MccProjectTree,
-    arena: Option<&crate::NodeArena>,
+    view: &crate::TreeView,
     net_store: &crate::NetTableStore,
 ) -> Value {
     json!({
         "top": top,
-        "instances": instance_to_json(inst, arena),
-        "connections": extract_connections(inst, arena, net_store),
-        "nets":       extract_nets(inst, arena, net_store),
+        "instances": instance_to_json(inst, view),
+        "connections": extract_connections(inst, view, net_store),
+        "nets":       extract_nets(inst, view, net_store),
         "diagnostics": []
     })
 }
 
 pub(crate) fn extract_connections(
     inst: &crate::MccProjectTree,
-    arena: Option<&crate::NodeArena>,
+    view: &crate::TreeView,
     net_store: &crate::NetTableStore,
 ) -> Vec<Value> {
     let mut out = Vec::new();
-    walk_connections(inst, "", arena, net_store, &mut out);
+    walk_connections(inst, "", view, net_store, &mut out);
     out
 }
 
@@ -992,7 +1023,7 @@ pub(crate) fn extract_connections(
 pub(crate) fn walk_connections(
     inst: &crate::MccProjectTree,
     scope: &str,
-    arena: Option<&crate::NodeArena>,
+    view: &crate::TreeView,
     net_store: &crate::NetTableStore,
     out: &mut Vec<Value>,
 ) {
@@ -1025,19 +1056,13 @@ pub(crate) fn walk_connections(
             "points": conn.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
         }));
     }
-    let subs: Vec<&crate::MccProjectTree> = match arena {
-        Some(a) => crate::instant::arena::arena_sub_modules(a, inst).collect(),
-        None => inst.sub_modules.iter().collect(),
-    };
+    let subs: Vec<&crate::MccProjectTree> = view.sub_modules(inst).collect();
     for sub in subs {
-        walk_connections(sub, &my_scope, arena, net_store, out);
+        walk_connections(sub, &my_scope, view, net_store, out);
     }
 }
 
-pub(crate) fn instance_to_json(
-    inst: &crate::MccProjectTree,
-    arena: Option<&crate::NodeArena>,
-) -> Value {
+pub(crate) fn instance_to_json(inst: &crate::MccProjectTree, view: &crate::TreeView) -> Value {
     use crate::IOType;
     let ports: Vec<Value> = inst
         .ports
@@ -1050,8 +1075,8 @@ pub(crate) fn instance_to_json(
             })
         })
         .collect();
-    let components: Vec<Value> = inst
-        .components
+    let comps: Vec<_> = view.components(inst).collect();
+    let components: Vec<Value> = comps
         .iter()
         .map(|c| {
             let pins: Vec<Value> = c
@@ -1073,13 +1098,10 @@ pub(crate) fn instance_to_json(
             })
         })
         .collect();
-    let subs: Vec<&crate::MccProjectTree> = match arena {
-        Some(a) => crate::instant::arena::arena_sub_modules(a, inst).collect(),
-        None => inst.sub_modules.iter().collect(),
-    };
+    let subs: Vec<&crate::MccProjectTree> = view.sub_modules(inst).collect();
     let sub_modules: Vec<Value> = subs
         .into_iter()
-        .map(|s| instance_to_json(s, arena))
+        .map(|s| instance_to_json(s, view))
         .collect();
     json!({
         "name":        inst.name.to_string(),
@@ -1094,11 +1116,11 @@ pub(crate) fn instance_to_json(
 
 pub(crate) fn extract_nets(
     inst: &crate::MccProjectTree,
-    arena: Option<&crate::NodeArena>,
+    view: &crate::TreeView,
     net_store: &crate::NetTableStore,
 ) -> Vec<Value> {
     let mut nets = Vec::new();
-    walk_nets(inst, "", arena, net_store, &mut nets);
+    walk_nets(inst, "", view, net_store, &mut nets);
     nets
 }
 
@@ -1107,7 +1129,7 @@ pub(crate) fn extract_nets(
 pub(crate) fn walk_nets(
     inst: &crate::MccProjectTree,
     scope: &str,
-    arena: Option<&crate::NodeArena>,
+    view: &crate::TreeView,
     net_store: &crate::NetTableStore,
     out: &mut Vec<Value>,
 ) {
@@ -1120,12 +1142,9 @@ pub(crate) fn walk_nets(
         let points: Vec<String> = points.iter().map(|point| point.path.clone()).collect();
         out.push(json!({ "module": my_scope, "name": name, "points": points }));
     }
-    let subs: Vec<&crate::MccProjectTree> = match arena {
-        Some(a) => crate::instant::arena::arena_sub_modules(a, inst).collect(),
-        None => inst.sub_modules.iter().collect(),
-    };
+    let subs: Vec<&crate::MccProjectTree> = view.sub_modules(inst).collect();
     for sub in subs {
-        walk_nets(sub, &my_scope, arena, net_store, out);
+        walk_nets(sub, &my_scope, view, net_store, out);
     }
 }
 
@@ -1255,11 +1274,14 @@ pub(crate) fn run_erc() -> RpcResult {
     let ident = crate::McIds::from(top.as_str());
 
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_build_with_nets(&ident, &uri)
+        crate::mcc_build_with_arena(&ident, &uri)
     }))
     .map_err(|_| JsonRpcError::custom(32111, "semantic: build panicked"))?
     .map_err(|e| JsonRpcError::custom(32111, &format!("semantic: build failed: {e}")))?;
-    let (inst, net_store) = built;
+    let (inst, arena, store, net_store) = built;
+    // Phase C S3-D: children resolve through the view (the tree's Vec fields
+    // are gone).
+    let view = crate::TreeView::new(&arena, &store);
     // Phase D: the tree never carries `NetPoint` — the root module's frozen
     // string net table comes from the store (same source the projection and
     // the other string-net consumers read).
@@ -1368,7 +1390,7 @@ pub(crate) fn run_erc() -> RpcResult {
             "erc": {
                 "net_count": root_nets.len(),
                 "connection_count": inst.connections.len(),
-                "component_count": inst.components.len(),
+                "component_count": view.components(&inst).count(),
                 "port_count": inst.ports.len(),
                 "single_point_nets": single_point.len(),
                 "unconnected_ports": diags.iter().filter(|d| d["check"] == "unconnected_port").count(),

@@ -16,7 +16,7 @@ use super::super::{
     module::Mc2Module,
 };
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*, error::message::*},
+    ast::{error::message::*, macros::*, node::AstNode},
     db::{
         context::DB,
         diagnostic::diagnostic::{dlog_error, dlog_trace, dlog_warning},

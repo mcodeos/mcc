@@ -4,7 +4,7 @@
 
 use crate::db::diagnostic::diagnostic::dlog_warning;
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*},
+    ast::{macros::*, node::AstNode},
     McIds,
 };
 

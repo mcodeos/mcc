@@ -6,7 +6,7 @@
 //!
 //! Centralizes symbol type definitions, registration, ref collection,
 //! ref→def matching, and query APIs previously scattered across
-//! `ast/ast_semantic.rs` and `db/infra/mc_code.rs`.
+//! `ast/sem.rs` and `db/infra/mc_code.rs`.
 
 pub mod chain;
 pub mod collect;

@@ -2,8 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::ast::ast_node::AstNode;
-use crate::ast::c_macros::*;
+use crate::ast::macros::*;
+use crate::ast::node::AstNode;
 use crate::message::MISSING_SUBNODE;
 use crate::semantic::basic::mc_literal::{McConst, McFloat, McInt, McString};
 use crate::semantic::basic::mc_opd::McOpd;

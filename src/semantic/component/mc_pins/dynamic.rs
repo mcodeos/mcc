@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::ast::ast_node::AstNode;
+use crate::ast::node::AstNode;
 use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::common::IOType;

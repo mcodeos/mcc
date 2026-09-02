@@ -36,8 +36,8 @@ fn build_once() -> (String, String, String, String) {
     mcc::mcc_set_project_root(&project_root);
     mcc::mcc_load_project(&entry_uri);
 
-    let (tree, table) =
-        mcc::mcc_build_flat(&McIds::from("main"), &entry_uri, 1000).expect("build hbl");
+    let (tree, table, arena, store) =
+        mcc::mcc_build_flat_with_arena(&McIds::from("main"), &entry_uri, 1000).expect("build hbl");
 
     // ── Fingerprint 1: all InstTable nets (names + sorted endpoint paths) ──
     let mut flat_lines: Vec<String> = table
@@ -70,7 +70,7 @@ fn build_once() -> (String, String, String, String) {
     let flat = flat_lines.join("\n");
 
     // ── Fingerprint 2: McVecBlock ──
-    let vec_block = mcc::vector::builder::visit::build_mc_vec(&tree, &table);
+    let vec_block = mcc::vector::builder::visit::build_mc_vec(&tree, &table, &arena, &store);
     let mut block_lines: Vec<String> = Vec::new();
     let mut path_lines: Vec<String> = Vec::new();
     fn walk_block(

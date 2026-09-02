@@ -8,7 +8,7 @@
 //! this module resolves the member (func / pin / enum value) inside the
 //! resolved class and reports where it is defined.
 
-use crate::ast::ast_semantic::{McSemSymbols, SymbolKind};
+use crate::ast::sem::{McSemSymbols, SymbolKind};
 use crate::db::resolve::Resolver;
 use crate::{McCMIE, McIds, McURI};
 

@@ -77,12 +77,12 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         mcc::cli::globals().format
     };
 
-    let (tree, table, arena) = match export::build_tree(
+    let (tree, table, arena, inst_store) = match export::build_tree(
         &args.file,
         mcc::cli::globals().top.as_deref(),
         &mcc::cli::globals().lib,
     ) {
-        Ok(t) => t,
+        Ok(quad) => quad,
         Err(e) => {
             eprintln!("{}", e);
             return Ok(());
@@ -113,8 +113,15 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         OutputFormat::Yaml => 3u8,
         OutputFormat::Csv => 4u8,
     };
-    let (raw_text, items, count) =
-        export::build_payload(&tree, &table, &arena, &top, kind_tag, format_tag);
+    let (raw_text, items, count) = export::build_payload(
+        &tree,
+        &table,
+        &arena,
+        &inst_store,
+        &top,
+        kind_tag,
+        format_tag,
+    );
 
     if format == OutputFormat::Json {
         let data = ExportData {

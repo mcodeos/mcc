@@ -233,26 +233,33 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     // `--format json`); viz still renders all targets. The build also returns
     // the Phase D frozen string net-table store (the tree never carries
     // `NetPoint`); it feeds the flat net checks below.
-    let (inst, net_store) = match mcc::mcc_virtual_build_with_nets(&top_name, &entry_uri) {
-        Ok((i, ns)) => {
-            builder.set_pass2(crate::cmds::parse::public_collect_pass2(
-                &top_name,
-                &i,
-                None,
-                &ns,
-                &mut tracker,
-            ));
-            (i, ns)
-        }
-        Err(e) => {
-            let err = RpcError::build_error(format!("{}", e));
-            emit_err(&mcc::cli::globals().format, err)?;
-            return Ok(BuildOutcome { exit_code: 1 });
-        }
-    };
+    let (inst, arena, store, net_store) =
+        match mcc::mcc_virtual_build_with_nets(&top_name, &entry_uri) {
+            Ok((i, a, s, ns)) => {
+                // Phase C S3-D: the tree tally resolves children through the
+                // view (the tree's Vec fields are gone).
+                let view = mcc::TreeView::new(&a, &s);
+                builder.set_pass2(crate::cmds::parse::public_collect_pass2(
+                    &top_name,
+                    &i,
+                    &view,
+                    &ns,
+                    &mut tracker,
+                ));
+                (i, a, s, ns)
+            }
+            Err(e) => {
+                let err = RpcError::build_error(format!("{}", e));
+                emit_err(&mcc::cli::globals().format, err)?;
+                return Ok(BuildOutcome { exit_code: 1 });
+            }
+        };
 
     // ── G4: Write known_missing.md baseline ──
-    mcc::InstTable::write_known_missing(&inst, "baseline/known_missing.md");
+    // Phase C S3-D: the failed-record tree walk resolves sub-modules through
+    // the view (the tree's Vec fields are gone).
+    let view = mcc::TreeView::new(&arena, &store);
+    mcc::InstTable::write_known_missing(&inst, "baseline/known_missing.md", &view);
 
     // ── 4. Viz generation ──
     if args.viz {
@@ -268,7 +275,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 let mod_uri = entry_uri.clone();
 
                 match mcc::mcc_virtual_build_flat(target, &mod_uri, 1000) {
-                    Ok((mod_inst, mod_table)) => {
+                    Ok((mod_inst, mod_table, mod_arena, mod_store)) => {
                         // ★ netcheck Tier 0: netlist health check (hard gate;
                         // a target failing it skips viz entirely)
                         let nc_report = mcc::instant::netcheck::run(&mod_table);
@@ -284,8 +291,9 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         }
 
                         mcc::vector::builder::reset_np_warn_count();
-                        let (vec_block, report) =
-                            mcc::build_mc_vec_with_report(&mod_inst, &mod_table);
+                        let (vec_block, report) = mcc::build_mc_vec_with_report(
+                            &mod_inst, &mod_table, &mod_arena, &mod_store,
+                        );
                         // ★ P5.3: NetShape coverage to CLI — N/M nets have shape info
                         let ss = &report.shape_stats;
                         eprintln!(
@@ -375,22 +383,23 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             );
         } else {
             // Single target render (explicit --top or only one target)
-            let table = mcc::mcc_virtual_build_flat(&top_name, &entry_uri, 1000)
-                .map_err(|e| anyhow::anyhow!("mcc_virtual_build_flat failed: {}", e))?;
+            let (_tinst, table, _tarena, _tstore) =
+                mcc::mcc_virtual_build_flat(&top_name, &entry_uri, 1000)
+                    .map_err(|e| anyhow::anyhow!("mcc_virtual_build_flat failed: {}", e))?;
 
             // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
             if mcc::viz::log::enabled() {
                 mcc_dbg!("build", "[DUMP] ====== InstTable contents ======");
-                table.1.dump();
+                table.dump();
                 mcc_dbg!("build", "[DUMP] ==============================");
             }
 
             // ★ netcheck Tier 0: netlist health check (hard gate; fails the build)
-            let nc_report = mcc::instant::netcheck::run(&table.1);
+            let nc_report = mcc::instant::netcheck::run(&table);
             nc_report.print();
 
             // ★ M1-4: alignment metrics (self-test variant)
-            let align_report = mcc::viz::metrics::align::AlignMetricsReport::compute(&table.1);
+            let align_report = mcc::viz::metrics::align::AlignMetricsReport::compute(&table);
             align_report.print();
 
             if !nc_report.is_clean() {
@@ -407,7 +416,8 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 );
             }
 
-            let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
+            let (vec_block, build_report) =
+                mcc::build_mc_vec_with_report(&inst, &table, &arena, &store);
             // Virtual (component/interface) targets render in the device
             // pipeline with the fabricated instance name hidden so the
             // physical pins (id + name) show.
@@ -416,11 +426,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 .any(|m| *m == top_name);
             let graph = if is_virtual {
                 mcc::mcc_virtual_prepare_graph(
-                    mcc::build_mc_vec_graph(&vec_block, &table.1),
+                    mcc::build_mc_vec_graph(&vec_block, &table),
                     &top_name,
                 )
             } else {
-                mcc::build_mc_vec_graph(&vec_block, &table.1)
+                mcc::build_mc_vec_graph(&vec_block, &table)
             };
 
             let opts = build_viz_opts(args.layouter.as_deref());
@@ -485,8 +495,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     // diagnostics block renders before Pass 2, so DB-only logging would never
     // be visible). Findings are printed, not gated: the Tier-0 netcheck and the
     // exit-code error count below own the failure semantics.
+    // Phase C S3-D: the net-check re-flatten resolves children through the
+    // view (the owning build's arena + store) — the tree's Vec fields are gone.
+    let view = mcc::TreeView::new(&arena, &store);
     let mut flat_table =
-        mcc::InstTable::from_module_inst(&inst, 1000, net_store.clone().into_shared());
+        mcc::InstTable::from_module_inst(&inst, 1000, net_store.clone().into_shared(), &view);
     // from_module_inst rebuilds a fresh table that drops the synthetic markers
     // pass2 attached to the virtual wrapper's entries; re-apply them so the net
     // checks don't re-flag the unwired interface/component view's ports.
@@ -577,7 +590,15 @@ fn build_browse_dir(
     // ── 3. Pass2: per-file default top build, aggregated ──
     let explicit_top = mcc::cli::globals().top.as_deref();
     let mut top_name = String::new();
-    let mut first_inst: Option<(mcc::MccProjectTree, mcc::NetTableStore)> = None;
+    // Phase C S3-D: the arena + store ride alongside the tree so the
+    // net-check re-flatten can build a store-backed view (the tree's Vec
+    // fields are gone).
+    let mut first_inst: Option<(
+        mcc::MccProjectTree,
+        mcc::NodeArena,
+        mcc::InstanceStore,
+        mcc::NetTableStore,
+    )> = None;
     let mut failures: Vec<Diagnostic> = Vec::new();
     let mut built: Vec<(String, PathBuf)> = Vec::new(); // (target, file) for viz
 
@@ -586,7 +607,12 @@ fn build_browse_dir(
     let build_one = |target: &str,
                      file: &Path,
                      failures: &mut Vec<Diagnostic>|
-     -> Option<(mcc::MccProjectTree, mcc::NetTableStore)> {
+     -> Option<(
+        mcc::MccProjectTree,
+        mcc::NodeArena,
+        mcc::InstanceStore,
+        mcc::NetTableStore,
+    )> {
         let uri = file.to_string_lossy().to_string();
         let mc_uri = mcc::McURI::from(uri.as_str());
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -654,11 +680,14 @@ fn build_browse_dir(
 
     // ── Pass2 report: aggregated diagnostics, first tree in the envelope ──
     match &first_inst {
-        Some((inst, net_store)) => {
+        Some((inst, arena, store, net_store)) => {
+            // Phase C S3-D: the tree tally resolves children through the view
+            // (the tree's Vec fields are gone).
+            let view = mcc::TreeView::new(arena, store);
             let mut report = crate::cmds::parse::public_collect_pass2(
                 &top_name,
                 inst,
-                None,
+                &view,
                 net_store,
                 &mut tracker,
             );
@@ -679,8 +708,11 @@ fn build_browse_dir(
     }
 
     // ── G4: baseline from the first successful tree (if any) ──
-    if let Some((inst, _)) = &first_inst {
-        mcc::InstTable::write_known_missing(inst, "baseline/known_missing.md");
+    if let Some((inst, arena, store, _)) = &first_inst {
+        // Phase C S3-D: the failed-record tree walk resolves sub-modules
+        // through the view (the tree's Vec fields are gone).
+        let view = mcc::TreeView::new(arena, store);
+        mcc::InstTable::write_known_missing(inst, "baseline/known_missing.md", &view);
     }
 
     // ── 4. Viz: each built file's top, combined ──
@@ -693,7 +725,7 @@ fn build_browse_dir(
             let uri = file.to_string_lossy().to_string();
             let mc_uri = mcc::McURI::from(uri.as_str());
             match mcc::mcc_virtual_build_flat(target, &mc_uri, 1000) {
-                Ok((mod_inst, mod_table)) => {
+                Ok((mod_inst, mod_table, mod_arena, mod_store)) => {
                     let nc_report = mcc::instant::netcheck::run(&mod_table);
                     nc_report.print();
                     if !nc_report.is_clean() {
@@ -705,7 +737,9 @@ fn build_browse_dir(
                         continue;
                     }
                     mcc::vector::builder::reset_np_warn_count();
-                    let (vec_block, report) = mcc::build_mc_vec_with_report(&mod_inst, &mod_table);
+                    let (vec_block, report) = mcc::build_mc_vec_with_report(
+                        &mod_inst, &mod_table, &mod_arena, &mod_store,
+                    );
                     let ss = &report.shape_stats;
                     eprintln!(
                         "shape info: {}/{} nets have shape info ({:.0}%)",
@@ -775,9 +809,12 @@ fn build_browse_dir(
     }
 
     // ── 4.5. Electrical net checks (Pass2) on the first successful tree ──
-    if let Some((inst, net_store)) = &first_inst {
+    if let Some((inst, arena, store, net_store)) = &first_inst {
+        // Phase C S3-D: re-flatten resolves children through the view (the
+        // owning build's arena + store) — the tree's Vec fields are gone.
+        let view = mcc::TreeView::new(arena, store);
         let mut flat_table =
-            mcc::InstTable::from_module_inst(inst, 1000, net_store.clone().into_shared());
+            mcc::InstTable::from_module_inst(inst, 1000, net_store.clone().into_shared(), &view);
         mcc::mcc_virtual_mark_synthetic_flat_entries(&mut flat_table);
         let net_results = mcc::check::nets::run_net_checks(&flat_table);
         if !net_results.is_empty() {
@@ -872,8 +909,9 @@ mod phase0_golden {
         let mut dl = mcc::mcc_build_dianlu(&ident, &entry_uri, 1000).expect("mcc_build_dianlu");
         let _ = dl.flatten(); // viz path does not consume net-check diagnostics
         let arena = dl.arena().clone();
+        let store = dl.store().clone();
         let (inst, table) = dl.into_parts();
-        let vec_block = mcc::build_mc_vec_with_arena(&inst, &table, &arena);
+        let vec_block = mcc::build_mc_vec_with_arena(&inst, &table, &arena, &store);
         mcc::build_mc_vec_graph(&vec_block, &table)
     }
 
@@ -1017,8 +1055,9 @@ mod d_detectors {
         let mut dl = mcc::mcc_build_dianlu(&ident, &uri, 1000).expect("mcc_build_dianlu");
         let flat_diags = dl.flatten(); // Phase A: caller owns net-check diagnostics
         let arena = dl.arena().clone();
+        let store = dl.store().clone();
         let (inst, table) = dl.into_parts();
-        let vec_block = mcc::build_mc_vec_with_arena(&inst, &table, &arena);
+        let vec_block = mcc::build_mc_vec_with_arena(&inst, &table, &arena, &store);
         let _graph = mcc::build_mc_vec_graph(&vec_block, &table);
         let mut diags = mcc::mcc_diagnose_all();
         diags.extend(flat_diags);
@@ -1396,7 +1435,7 @@ module top {
         mcc::mcc_clear_workspace();
         mcc::mcc_load_from_string(&uri, fixture);
         let ident = McIds::from("top");
-        let (_inst, net_store) = mcc::mcc_build_with_nets(&ident, &uri).expect("mcc_build");
+        let (_inst, _, _, net_store) = mcc::mcc_build_with_nets(&ident, &uri).expect("mcc_build");
         let root_nets = net_store.get("top").map(|t| t.to_vec()).unwrap_or_default();
 
         let diags = mcc::mcc_diagnose_all();
@@ -1522,7 +1561,7 @@ module top {
         mcc::mcc_clear_workspace();
         mcc::mcc_load_from_string(&uri, fixture);
         let ident = McIds::from("top");
-        let (_inst, net_store) = mcc::mcc_build_with_nets(&ident, &uri).expect("mcc_build");
+        let (_inst, _, _, net_store) = mcc::mcc_build_with_nets(&ident, &uri).expect("mcc_build");
         let root_nets = net_store.get("top").map(|t| t.to_vec()).unwrap_or_default();
         let vcc = root_nets
             .iter()

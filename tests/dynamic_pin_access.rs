@@ -36,7 +36,8 @@ module main
 "#;
 
     mcc::mcc_load_from_string(&uri, source);
-    let instance = mcc::mcc_build(&McIds::from("main"), &uri).expect("build dynamic pin fixture");
+    let (instance, arena, store, _net_store) =
+        mcc::mcc_build_with_arena(&McIds::from("main"), &uri).expect("build dynamic pin fixture");
     let diagnostics = mcc::mcc_diagnose_all();
 
     assert!(
@@ -59,9 +60,9 @@ module main
         "resolved paths: {paths:?}"
     );
 
-    let component = instance
-        .components
-        .iter()
+    let view = mcc::TreeView::new(&arena, &store);
+    let component = view
+        .components(&instance)
         .find(|component| component.name == "U_WIDE")
         .expect("U_WIDE instance");
     assert_eq!(component.pin_name("2").as_deref(), Some("GPIO8"));
@@ -138,11 +139,12 @@ module main
 "#;
 
     mcc::mcc_load_from_string(&uri, source);
-    let instance = mcc::mcc_build(&McIds::from("main"), &uri).expect("build pin name span fixture");
+    let (instance, arena, store, _net_store) =
+        mcc::mcc_build_with_arena(&McIds::from("main"), &uri).expect("build pin name span fixture");
 
-    let component = instance
-        .components
-        .iter()
+    let view = mcc::TreeView::new(&arena, &store);
+    let component = view
+        .components(&instance)
         .find(|component| component.name == "uC")
         .expect("uC instance");
 

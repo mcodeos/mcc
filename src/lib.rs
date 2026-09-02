@@ -64,13 +64,13 @@ pub use db::diagnostic::errcodes;
 pub use db::defspace::{definition_space, DefinitionSpace, LibBoundary, SourceDomain};
 pub mod export;
 pub mod refdef;
-pub use ast::ast_semantic::{
+pub use ast::error::*;
+pub use ast::macros::*;
+pub use ast::sem::{
     scope_from_ids, symbol_table_to_json, McSemSymbols, SourceLocation, Span, SymbolKind,
     SymbolType,
 };
-pub use ast::ast_token::{McSemToken, McSemTokens};
-pub use ast::c_macros::*;
-pub use ast::error::*;
+pub use ast::token::{McSemToken, McSemTokens};
 // ── Builder / Pass infrastructure ──
 pub use builder::diagnostic::{
     Diagnostic as McDiagnostic, DiagnosticLevel, Location as McLocation,
@@ -91,15 +91,13 @@ pub use builder::{
 // ── Instant / Net ──
 pub use db::defregistry::{def_id, kind_of, DefId, DefKind};
 pub use db::member_ledger::DefMemberId;
-pub use instant::arena::{arena_sub_modules, NodeArena};
-pub use instant::circuit_world::{
-    CircuitCheckpoint, CircuitDiff, CircuitWorld, NetDelta, NetSnapshot, NodePathChange,
-};
+pub use instant::arena::NodeArena;
 pub use instant::descriptions::{
     BusGroup, DescriptionLayer, EnumRef, FuncGroup, IfaceBinding, LaneRef,
 };
 pub use instant::dianlu::DianLu;
 pub use instant::identity::{CircuitKey, IdentityRegistry, NodeId};
+pub use instant::inststore::{InstanceStore, TreeView};
 pub use instant::insttab::{
     InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry, VectorMemberInfo,
 };
@@ -110,10 +108,13 @@ pub use instant::mc_bus::McBusInst;
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::{McModuleInst, McVectorInst};
 pub use instant::mc_net::NetPoint;
-pub use instant::net_store::NetTableStore;
+pub use instant::nettab::NetTableStore;
 pub use instant::overlays::{ModuleOverlay, Overlays};
 pub use instant::provenance::{
     ExpansionKind, ExpansionLog, ExpansionRecord, ProductGroup, ProductGroups, StatementNode,
+};
+pub use instant::world::{
+    CircuitCheckpoint, CircuitDiff, CircuitWorld, NetDelta, NetSnapshot, NodePathChange,
 };
 pub use semantic::common::ConnDir;
 
@@ -317,8 +318,9 @@ pub fn mcc_build(ident: &McIds, uri: &McURI) -> Result<MccProjectTree, Box<dyn E
 /// whose `children` edges drive the consumer walks, and the store whose
 /// per-module string net tables the tree-level net consumers read. Tree
 /// rendering consumers (show / print / parse / verify / hierarchy / rpc) hold
-/// the arena alongside the tree and switch their `for sub in &inst.sub_modules`
-/// recursion to [`crate::instant::arena::arena_sub_modules`].
+/// the arena + store alongside the tree and read children through a
+/// [`TreeView`](crate::instant::inststore::TreeView)
+/// (`view.components(tree)` / `view.sub_modules(tree)`).
 pub fn mcc_build_with_arena(
     ident: &McIds,
     uri: &McURI,
@@ -326,6 +328,7 @@ pub fn mcc_build_with_arena(
     (
         MccProjectTree,
         crate::instant::arena::NodeArena,
+        crate::instant::inststore::InstanceStore,
         NetTableStore,
     ),
     Box<dyn Error>,
@@ -333,22 +336,35 @@ pub fn mcc_build_with_arena(
     let canonical_uri = builder::mcb_canonicalize_uri(uri);
     let dl = builder::mcb_instantiate(&McSpaceName::new(ident, canonical_uri), 0)?;
     let arena = dl.arena().clone();
-    // The store is frozen once construction ends; snapshot it as an owned
-    // value for the returned API surface (`into_tree` consumes `dl`).
+    // The arena + instance store are frozen once construction ends; snapshot
+    // them as owned values for the returned API surface (`into_tree` consumes
+    // `dl`). Phase C S3: the store is the tree-rendering view's content
+    // source, so it rides alongside the arena.
+    let store = dl.store().clone();
     let net_store = dl.net_store().borrow().clone();
     let tree = dl.into_tree();
-    Ok((tree, arena, net_store))
+    Ok((tree, arena, store, net_store))
 }
 
-/// mcc interface: build the tree and return the Phase D frozen string
-/// net-table store (plan §9 D item 3) — for consumers that read the
-/// tree-level string nets but do not walk the arena (e.g. `mcc erc`).
+/// mcc interface: build the tree and return the Phase C companion arena +
+/// instance store plus the Phase D frozen string net-table store (plan §9 D
+/// item 3 — `McModuleInst` never carries `NetPoint`). Phase C S3-D: any
+/// children walk on the returned tree needs a
+/// [`TreeView`](crate::instant::inststore::TreeView) built from the arena
+/// + store, so this entry returns them bundled.
 pub fn mcc_build_with_nets(
     ident: &McIds,
     uri: &McURI,
-) -> Result<(MccProjectTree, NetTableStore), Box<dyn Error>> {
-    let (tree, _arena, net_store) = mcc_build_with_arena(ident, uri)?;
-    Ok((tree, net_store))
+) -> Result<
+    (
+        MccProjectTree,
+        crate::instant::arena::NodeArena,
+        crate::instant::inststore::InstanceStore,
+        NetTableStore,
+    ),
+    Box<dyn Error>,
+> {
+    mcc_build_with_arena(ident, uri)
 }
 
 /// mcc interface: build + flatten (Step 7)
@@ -371,25 +387,35 @@ pub fn mcc_build_flat(
 ///
 /// Same contract as [`mcc_build_flat`] (one instantiation, flat projection,
 /// flat electrical net checks logged by the caller layer), and additionally
-/// returns the arena whose `children` edges drive the consumer walks
-/// (flatten / export / viz — design §4, plan §9 C item 3). Callers that hold
-/// a `NodeArena` switch their `for sub in &inst.sub_modules` recursion to
-/// [`crate::instant::arena::arena_sub_modules`].
+/// returns the arena + instance store whose `children` edges and values drive
+/// the consumer walks (flatten / export / viz — design §4, plan §9 C item 3).
+/// Callers that hold the arena + store read children through a
+/// [`TreeView`](crate::instant::inststore::TreeView)
+/// (`view.components(tree)` / `view.sub_modules(tree)`).
 pub fn mcc_build_flat_with_arena(
     ident: &McIds,
     uri: &McURI,
     start_id: u32,
-) -> Result<(MccProjectTree, InstTable, crate::instant::arena::NodeArena), Box<dyn Error>> {
+) -> Result<
+    (
+        MccProjectTree,
+        InstTable,
+        crate::instant::arena::NodeArena,
+        crate::instant::inststore::InstanceStore,
+    ),
+    Box<dyn Error>,
+> {
     let canonical_uri = builder::mcb_canonicalize_uri(uri);
     let mut dl = builder::mcb_instantiate(&McSpaceName::new(ident, canonical_uri), start_id)?;
     // Project once (this also runs the flat electrical net checks), then take
     // both parts out of the object — no second instantiation, no clone. The
-    // arena rides along for the consumer walks.
+    // arena + instance store (Phase C S3) ride along for the consumer walks.
     let diags = dl.flatten_with_prefix(None);
     crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
     let arena = dl.arena().clone();
+    let store = dl.store().clone();
     let (tree, table) = dl.into_parts();
-    Ok((tree, table, arena))
+    Ok((tree, table, arena, store))
 }
 
 /// mcc interface: build the physical model as the core circuit object
@@ -531,16 +557,21 @@ pub fn mcc_virtual_build(
     crate::build::vinst::virtual_build(target, uri)
 }
 
-/// Like [`mcc_virtual_build`], but also returns the Phase D frozen string
-/// net-table store (tree-level string net consumers read the per-module
-/// tables from the store — `McModuleInst` never carries `NetPoint`).
+/// Like [`mcc_virtual_build`], but also returns the Phase C companion arena +
+/// instance store and the Phase D frozen string net-table store (tree-level
+/// string net consumers read the per-module tables from the store —
+/// `McModuleInst` never carries `NetPoint`). The arena + store let the caller
+/// build a [`TreeView`](crate::instant::inststore::TreeView) for
+/// store-backed children traversal (Phase C S3-D).
 pub fn mcc_virtual_build_with_nets(
     target: &str,
     uri: &McURI,
 ) -> Result<
     (
         crate::build::pass2::MccProjectTree,
-        crate::instant::net_store::NetTableStore,
+        crate::instant::arena::NodeArena,
+        crate::instant::inststore::InstanceStore,
+        crate::instant::nettab::NetTableStore,
     ),
     Box<dyn Error>,
 > {
@@ -562,7 +593,10 @@ pub fn mcc_virtual_install_synthetic_views(
     crate::build::vinst::install_synthetic_views(targets, uri)
 }
 
-/// Like [`mcc_virtual_build`] but also flattens to the instance table.
+/// Like [`mcc_virtual_build`] but also flattens to the instance table, and
+/// returns the Phase C companion arena + instance store (Phase C S3-D: any
+/// children walk on the returned tree needs a
+/// [`TreeView`](crate::instant::inststore::TreeView) built from them).
 pub fn mcc_virtual_build_flat(
     target: &str,
     uri: &McURI,
@@ -571,6 +605,8 @@ pub fn mcc_virtual_build_flat(
     (
         crate::build::pass2::MccProjectTree,
         crate::instant::insttab::InstTable,
+        crate::instant::arena::NodeArena,
+        crate::instant::inststore::InstanceStore,
     ),
     Box<dyn Error>,
 > {
@@ -615,7 +651,7 @@ pub fn dump_symbols_json(uri: &McURI) -> Option<serde_json::Value> {
     let ds = crate::definition_space();
     let mcfile = ds.source_file(uri)?;
     let sym = mcfile.symbols.lock().ok()?;
-    let json_data = crate::ast::ast_semantic::symbol_table_to_json(&sym, uri);
+    let json_data = crate::ast::sem::symbol_table_to_json(&sym, uri);
     Some(serde_json::json!({
         "file": uri.as_str(),
         "lapper": json_data["lapper"],
@@ -633,7 +669,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
 
     let content = std::fs::read_to_string(std::path::Path::new(uri.as_str())).unwrap_or_default();
     let file_uri = uri.as_str();
-    use crate::ast::ast_semantic::SymbolKind;
+    use crate::ast::sem::SymbolKind;
 
     let mut out = String::new();
 
@@ -673,12 +709,8 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
     let mut declares: Vec<_> = sym.local_table.name_to_declare_id.iter().collect();
     declares.sort_by_key(|((fid, _, _, _), (_, loc))| (*fid, loc.byte_start));
     for ((fid, cid, fnid, name), (decl_id, loc)) in &declares {
-        let scope = crate::ast::ast_semantic::scope_from_ids(
-            &sym.container_table,
-            &sym.func_table,
-            *cid,
-            *fnid,
-        );
+        let scope =
+            crate::ast::sem::scope_from_ids(&sym.container_table, &sym.func_table, *cid, *fnid);
         let file_name = sym
             .file_table
             .get(*fid as usize)
@@ -1181,13 +1213,13 @@ pub fn workspace_list() -> Vec<(String, String)> {
 pub fn mcc_log_init(log_file: &str) {
     if let Ok(c) = std::ffi::CString::new(log_file) {
         unsafe {
-            crate::ast::c_bindings::mc_log_init(c.as_ptr());
+            crate::ast::bindings::mc_log_init(c.as_ptr());
         }
     }
 }
 pub fn mcc_log_close() {
     unsafe {
-        crate::ast::c_bindings::mc_log_close();
+        crate::ast::bindings::mc_log_close();
     }
 }
 

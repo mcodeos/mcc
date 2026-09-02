@@ -22,6 +22,7 @@
 use std::sync::OnceLock;
 
 use super::super::model::McVecBlock;
+use crate::instant::inststore::TreeView;
 use crate::instant::mc_mod::McModuleInst;
 
 // ============================================================================
@@ -58,25 +59,29 @@ macro_rules! velog {
 
 /// Print input snapshot when entering `convert_module`
 ///
-/// Called by builder at the start of conversion (e.g.):
+/// `view` supplies the component/sub-module counts from the Phase C store
+/// (design §4) — the tree's own children Vecs are gone. Called by builder at
+/// the start of conversion (e.g.):
 /// ```ignore
-/// fn convert_module(&mut self, inst: &McModuleInst, ...) -> McVecBlock {
-///     debug::dump_input(inst);
+/// fn convert_module(&mut self, inst: &McModuleInst, view: &TreeView, ...) -> McVecBlock {
+///     debug::dump_input(inst, view);
 ///     // ... actual conversion ...
 ///     debug::dump_output(&block);
-///     debug::dump_diff(inst, &block);
+///     debug::dump_diff(inst, &block, view);
 ///     block
 /// }
 /// ```
-pub fn dump_input(inst: &McModuleInst) {
+pub fn dump_input(inst: &McModuleInst, view: &TreeView) {
     if !dump_enabled() {
         return;
     }
     let p = format!("[VEC-IN ][{}]", inst.name);
     mcc_dbg!("vec", "{p} ── BEGIN ────────────────────────────────");
     mcc_dbg!("vec", "{} module       = {}", p, inst.def.name);
-    mcc_dbg!("vec", "{} components   = {}", p, inst.components.len());
-    mcc_dbg!("vec", "{} sub_modules  = {}", p, inst.sub_modules.len());
+    let components = view.components(inst).count();
+    let sub_modules = view.sub_modules(inst).count();
+    mcc_dbg!("vec", "{} components   = {}", p, components);
+    mcc_dbg!("vec", "{} sub_modules  = {}", p, sub_modules);
     mcc_dbg!("vec", "{} ports        = {}", p, inst.ports.len());
     mcc_dbg!("vec", "{} connections  = {}", p, inst.connections.len());
     // Phase E: labels/buses no longer live on the tree — they are read from
@@ -129,11 +134,14 @@ pub fn dump_output(block: &McVecBlock) {
 }
 
 /// Consistency check after `convert_module`
-pub fn dump_diff(inst: &McModuleInst, block: &McVecBlock) {
+pub fn dump_diff(inst: &McModuleInst, block: &McVecBlock, view: &TreeView) {
     if !dump_enabled() {
         return;
     }
     let p = format!("[VEC-DIFF][{}]", inst.name);
+
+    let components = view.components(inst).count();
+    let sub_modules = view.sub_modules(inst).count();
 
     // Check 1: has connections but no nets
     if !inst.connections.is_empty() && block.nets.is_empty() {
@@ -146,7 +154,7 @@ pub fn dump_diff(inst: &McModuleInst, block: &McVecBlock) {
     }
 
     // Check 2: components count vs insts count reconciliation
-    let expect_insts = inst.components.len() + inst.sub_modules.len();
+    let expect_insts = components + sub_modules;
     if expect_insts != block.insts.len() {
         mcc_dbg!(
             "vec",
@@ -158,12 +166,12 @@ pub fn dump_diff(inst: &McModuleInst, block: &McVecBlock) {
     }
 
     // Check 3: sub_modules count vs blocks count reconciliation
-    if inst.sub_modules.len() != block.blocks.len() {
+    if sub_modules != block.blocks.len() {
         mcc_dbg!(
             "vec",
             "{} ⚠ blocks mismatch: pass2 has {} sub_modules but block has {} sub_blocks",
             p,
-            inst.sub_modules.len(),
+            sub_modules,
             block.blocks.len()
         );
     }

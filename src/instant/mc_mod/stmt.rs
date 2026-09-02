@@ -1085,7 +1085,7 @@ impl InstantiationBuilder {
                 // input side as fallback.
                 let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
                 if !expanded.is_empty() {
-                    let sub_opt = self.sub_modules.iter().find(|s| s.name == inst_name);
+                    let sub_opt = self.find_submodule(&inst_name);
                     let mut input: Vec<McEndpoint> = Vec::new();
                     let mut output: Vec<McEndpoint> = Vec::new();
                     for m_name in &expanded {
@@ -1094,6 +1094,7 @@ impl InstantiationBuilder {
                             McBus::new(&path),
                         )));
                         let iotype = sub_opt
+                            .as_ref()
                             .and_then(|s| s.ports.iter().find(|p| p.name == *m_name))
                             .map(|p| p.iotype.clone())
                             .unwrap_or(IOType::None);
@@ -1118,7 +1119,7 @@ impl InstantiationBuilder {
                 // Prefer declared submodule instance ports (pass2 reliable data),
                 // m.base.insts is empty on some parse paths, can't rely on it.
                 let (left, right): (Vec<McBus>, Vec<McBus>) =
-                    if let Some(sub) = self.sub_modules.iter().find(|s| s.name == inst_name) {
+                    if let Some(sub) = self.find_submodule(&inst_name) {
                         let lp: Vec<McBus> = sub
                             .ports
                             .iter()
@@ -2681,8 +2682,8 @@ impl InstantiationBuilder {
                     // dispatch onto the constructed instance.
                     let mut inst_name = Self::extract_caller_inst_name(caller_box.as_ref());
                     if let Some(nm) = &inst_name {
-                        let known = self.components.iter().any(|c| c.name == *nm)
-                            || self.sub_modules.iter().any(|m| m.name == *nm);
+                        let known =
+                            self.find_component(nm).is_some() || self.find_submodule(nm).is_some();
                         if !known {
                             if let McPhrase::FuncCall(caller_fc) = caller_box.as_ref() {
                                 if let Some(real) = self.auto_inst_map.get(&caller_fc.id).cloned() {
@@ -2698,9 +2699,7 @@ impl InstantiationBuilder {
 
                         // Component instance method
                         let comp_func = self
-                            .components
-                            .iter()
-                            .find(|c| c.name == inst_name)
+                            .find_component(&inst_name)
                             .and_then(|c| c.def.funcs.find(&func_name_str).cloned());
                         if let Some(func_def) = comp_func {
                             // arity guard: only dispatch when formals and
@@ -2726,9 +2725,7 @@ impl InstantiationBuilder {
 
                         // Sub-module instance method
                         let sub_func = self
-                            .sub_modules
-                            .iter()
-                            .find(|m| m.name == inst_name)
+                            .find_submodule(&inst_name)
                             .and_then(|m| m.def.funcs.find(&func_name_str).cloned());
                         if let Some(func_def) = sub_func {
                             // arity guard (mirrors the component-method and
@@ -2759,25 +2756,21 @@ impl InstantiationBuilder {
                             let segs: Vec<&str> = inst_name.split('.').collect();
                             if segs.len() >= 2 {
                                 // Try sub_modules[seg0].components[seg1].funcs[func]
-                                if let Some(sub) =
-                                    self.sub_modules.iter().find(|m| m.name == segs[0])
-                                {
+                                if let Some(sub) = self.find_submodule(segs[0]) {
                                     let inner_comp_func =
-                                        sub.components.iter().find(|c| c.name == segs[1]).and_then(
-                                            |c| {
-                                                let f = c.def.funcs.find(&func_name_str)?;
-                                                // arity guard
-                                                let func_arity = f.params.iter().count();
-                                                let call_arity = fc.params.len();
-                                                if func_arity > 0 && call_arity > 0
-                                                    || func_arity == 0 && call_arity == 0
-                                                {
-                                                    Some(f.clone())
-                                                } else {
-                                                    None
-                                                }
-                                            },
-                                        );
+                                        self.component_in(&sub, segs[1]).and_then(|c| {
+                                            let f = c.def.funcs.find(&func_name_str)?;
+                                            // arity guard
+                                            let func_arity = f.params.iter().count();
+                                            let call_arity = fc.params.len();
+                                            if func_arity > 0 && call_arity > 0
+                                                || func_arity == 0 && call_arity == 0
+                                            {
+                                                Some(f.clone())
+                                            } else {
+                                                None
+                                            }
+                                        });
                                     if let Some(func_def) = inner_comp_func {
                                         let key = Self::member_key(phrase);
                                         let result = self.instantiate_instance_method(
@@ -2791,13 +2784,9 @@ impl InstantiationBuilder {
                                 }
 
                                 // Try sub_modules[seg0].sub_modules[seg1].funcs[func]
-                                if let Some(sub) =
-                                    self.sub_modules.iter().find(|m| m.name == segs[0])
-                                {
-                                    let inner_sub_func = sub
-                                        .sub_modules
-                                        .iter()
-                                        .find(|m| m.name == segs[1])
+                                if let Some(sub) = self.find_submodule(segs[0]) {
+                                    let inner_sub_func = self
+                                        .submodule_in(&sub, segs[1])
                                         .and_then(|m| m.def.funcs.find(&func_name_str).cloned());
                                     if let Some(func_def) = inner_sub_func {
                                         let key = Self::member_key(phrase);
@@ -2871,9 +2860,8 @@ impl InstantiationBuilder {
                         // persistent across process_stmt is not further aggravated
                         // here, the root fix is Iter-6.S4.3 adding per-line clear in
                         // phases.rs's instantiate_stmts_resilient.
-                        let inst_is_component = self.components.iter().any(|c| c.name == inst_name);
-                        let inst_is_submodule =
-                            self.sub_modules.iter().any(|m| m.name == inst_name);
+                        let inst_is_component = self.find_component(&inst_name).is_some();
+                        let inst_is_submodule = self.find_submodule(&inst_name).is_some();
                         if inst_is_component || inst_is_submodule {
                             let owner_kind = if inst_is_component {
                                 "component"
@@ -3101,7 +3089,7 @@ impl InstantiationBuilder {
                                 //     without inner real construction (e.g. truly unknown
                                 //     class), keeping original behavior.
                                 let reusable = self
-                                    .components
+                                    .components_view()
                                     .iter()
                                     .rev() // Most recently created takes priority (matches AST processing order)
                                     .find(|c| {
@@ -3406,11 +3394,7 @@ impl InstantiationBuilder {
                     _ => return None,
                 }
             }
-            if names.len() > 1
-                && names
-                    .iter()
-                    .all(|n| self.components.iter().any(|c| &c.name == n))
-            {
+            if names.len() > 1 && names.iter().all(|n| self.find_component(n).is_some()) {
                 return Some(names);
             }
             return None;

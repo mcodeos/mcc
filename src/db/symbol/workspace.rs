@@ -7,7 +7,7 @@
 //! Bundles the three LSP-specific tables that were previously mixed into
 //! [`WorkspaceManager`] alongside CMIE data.
 
-use crate::ast::ast_semantic::{DeclareId, Span};
+use crate::ast::sem::{DeclareId, Span};
 use crate::ContainerKind;
 use crate::McIds;
 use std::collections::HashMap;

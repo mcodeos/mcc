@@ -4,7 +4,7 @@
 
 use crate::output::OutputFormatExt;
 use mcc::cli::{OutputFormat, PinSortMode};
-use mcc::{McModule, MccProjectTree, NodeArena};
+use mcc::{McModule, MccProjectTree, TreeView};
 use tracing::info;
 
 pub trait OutputRenderer {
@@ -16,21 +16,16 @@ pub trait OutputRenderer {
 
     fn pass2_header(&self, top_name: &str);
     fn pass2_failed(&self, err: &str);
-    fn instances(&self, inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>);
-    fn connections(&self, inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>);
+    fn instances(&self, inst: &MccProjectTree, depth: usize, view: &TreeView);
+    fn connections(&self, inst: &MccProjectTree, depth: usize, view: &TreeView);
     fn nets(
         &self,
         inst: &MccProjectTree,
         depth: usize,
-        arena: Option<&NodeArena>,
+        view: &TreeView,
         net_store: &mcc::NetTableStore,
     );
-    fn net_summary(
-        &self,
-        inst: &MccProjectTree,
-        arena: Option<&NodeArena>,
-        net_store: &mcc::NetTableStore,
-    );
+    fn net_summary(&self, inst: &MccProjectTree, view: &TreeView, net_store: &mcc::NetTableStore);
 
     fn viz_written(&self, path: &str, bytes: usize);
 }
@@ -53,10 +48,10 @@ impl OutputRenderer for SilentRenderer {
     fn module_stmts(&self, _: &McModule) {}
     fn pass2_header(&self, _: &str) {}
     fn pass2_failed(&self, _: &str) {}
-    fn instances(&self, _: &MccProjectTree, _: usize, _: Option<&NodeArena>) {}
-    fn connections(&self, _: &MccProjectTree, _: usize, _: Option<&NodeArena>) {}
-    fn nets(&self, _: &MccProjectTree, _: usize, _: Option<&NodeArena>, _: &mcc::NetTableStore) {}
-    fn net_summary(&self, _: &MccProjectTree, _: Option<&NodeArena>, _: &mcc::NetTableStore) {}
+    fn instances(&self, _: &MccProjectTree, _: usize, _: &TreeView) {}
+    fn connections(&self, _: &MccProjectTree, _: usize, _: &TreeView) {}
+    fn nets(&self, _: &MccProjectTree, _: usize, _: &TreeView, _: &mcc::NetTableStore) {}
+    fn net_summary(&self, _: &MccProjectTree, _: &TreeView, _: &mcc::NetTableStore) {}
     fn viz_written(&self, _: &str, _: usize) {}
 }
 
@@ -160,40 +155,35 @@ impl OutputRenderer for TextRenderer {
         println!("? hint: dependent component/module may be undefined");
     }
 
-    fn instances(&self, inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>) {
+    fn instances(&self, inst: &MccProjectTree, depth: usize, view: &TreeView) {
         println!("\n───────────────────────────────────────────────────────────────");
         println!(" Instance Tree");
         println!("───────────────────────────────────────────────────────────────");
-        crate::cmds::print::print_module_inst(inst, depth, self.sort, arena);
+        crate::cmds::print::print_module_inst(inst, depth, self.sort, view);
     }
 
-    fn connections(&self, inst: &MccProjectTree, depth: usize, arena: Option<&NodeArena>) {
+    fn connections(&self, inst: &MccProjectTree, depth: usize, view: &TreeView) {
         println!("\n───────────────────────────────────────────────────────────────");
         println!(" Connections");
         println!("───────────────────────────────────────────────────────────────");
-        crate::cmds::print::print_connections(inst, depth, arena);
+        crate::cmds::print::print_connections(inst, depth, view);
     }
 
     fn nets(
         &self,
         inst: &MccProjectTree,
         depth: usize,
-        arena: Option<&NodeArena>,
+        view: &TreeView,
         net_store: &mcc::NetTableStore,
     ) {
         println!("\n───────────────────────────────────────────────────────────────");
         println!(" Nets");
         println!("───────────────────────────────────────────────────────────────");
-        crate::cmds::print::print_nets(inst, &inst.name, depth, arena, net_store);
+        crate::cmds::print::print_nets(inst, &inst.name, depth, view, net_store);
     }
 
-    fn net_summary(
-        &self,
-        inst: &MccProjectTree,
-        arena: Option<&NodeArena>,
-        net_store: &mcc::NetTableStore,
-    ) {
-        crate::cmds::print::print_net_summary(inst, arena, net_store);
+    fn net_summary(&self, inst: &MccProjectTree, view: &TreeView, net_store: &mcc::NetTableStore) {
+        crate::cmds::print::print_net_summary(inst, view, net_store);
     }
 
     fn viz_written(&self, path: &str, bytes: usize) {

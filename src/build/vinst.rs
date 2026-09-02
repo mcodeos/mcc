@@ -215,35 +215,44 @@ pub fn virtual_build(
     crate::mcc_build(&McIds::from(mod_name.as_str()), uri)
 }
 
-/// Like [`virtual_build`], but also returns the Phase D frozen string
-/// net-table store (`McModuleInst` never carries `NetPoint`, so consumers of
-/// the tree-level string nets — e.g. the `mcc build` net-check path that
-/// re-flattens the tree — read the per-module tables from the store).
+/// Like [`virtual_build`], but also returns the Phase C companion arena +
+/// instance store and the Phase D frozen string net-table store
+/// (`McModuleInst` never carries `NetPoint`, so consumers of the tree-level
+/// string nets — e.g. the `mcc build` net-check path that re-flattens the
+/// tree — read the per-module tables from the store). The arena + store let
+/// the caller build a [`TreeView`](crate::instant::inststore::TreeView)
+/// for store-backed children traversal (Phase C S3-D: the tree's Vec fields
+/// are gone).
 pub fn virtual_build_with_nets(
     target: &str,
     uri: &McURI,
 ) -> Result<
     (
         crate::build::pass2::MccProjectTree,
-        crate::instant::net_store::NetTableStore,
+        crate::instant::arena::NodeArena,
+        crate::instant::inststore::InstanceStore,
+        crate::instant::nettab::NetTableStore,
     ),
     Box<dyn Error>,
 > {
     if is_module_in_file(target, uri) {
-        return crate::mcc_build_with_nets(&McIds::from(target), uri);
+        return crate::mcc_build_with_arena(&McIds::from(target), uri);
     }
     let mod_name = ensure_synthetic_view(target, uri)?;
-    crate::mcc_build_with_nets(&McIds::from(mod_name.as_str()), uri)
+    crate::mcc_build_with_arena(&McIds::from(mod_name.as_str()), uri)
 }
 
-/// Like [`virtual_build`] but returns the flattened instance table too.
+/// Like [`virtual_build`] but returns the flattened instance table plus the
+/// Phase C companion arena + instance store.
 ///
 /// When `target` is a component/interface wrapped in a synthetic module, the
 /// returned table's wrapper-module and wrapped-instance entries are marked
 /// `synthetic` (via the module name this function itself generated), so
 /// downstream build/diagnostic layers can distinguish the fabricated wrapper
 /// from real user modules and instances without matching on the `VIRT_`/`u_1`
-/// names.
+/// names. Phase C S3-D: the caller needs the arena + store to build a
+/// [`TreeView`](crate::instant::inststore::TreeView) for any children walk
+/// (the tree's Vec fields are gone).
 pub fn virtual_build_flat(
     target: &str,
     uri: &McURI,
@@ -252,11 +261,13 @@ pub fn virtual_build_flat(
     (
         crate::build::pass2::MccProjectTree,
         crate::instant::insttab::InstTable,
+        crate::instant::arena::NodeArena,
+        crate::instant::inststore::InstanceStore,
     ),
     Box<dyn Error>,
 > {
     if is_module_in_file(target, uri) {
-        return crate::mcc_build_flat(&McIds::from(target), uri, start_id);
+        return crate::mcc_build_flat_with_arena(&McIds::from(target), uri, start_id);
     }
     let mod_name = ensure_synthetic_view(target, uri)?;
     // Build through `mcb_pass2_flat_with` so the wrapper module is flagged
@@ -264,12 +275,12 @@ pub fn virtual_build_flat(
     // report E4112/E4116 on the unwired standalone component/interface view.
     let canonical_uri: crate::McURI = crate::db::infra::init::mcb_canonicalize_uri(uri).into();
     let ident = crate::McIds::from(mod_name.as_str());
-    let (tree, table) = crate::build::pass2::mcb_pass2_flat_with(
+    let (tree, table, arena, store) = crate::build::pass2::mcb_pass2_flat_with(
         &crate::McSpaceName::new(&ident, canonical_uri),
         start_id,
         Some(&mod_name),
     )?;
-    Ok((tree, table))
+    Ok((tree, table, arena, store))
 }
 
 /// Return the synthetic module name that wraps `target` (a component/interface),

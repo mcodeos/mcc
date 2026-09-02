@@ -13,7 +13,7 @@
 //! emits for its sections), [`build_hierarchy`] nests those nodes by their
 //! dot path, and [`render_hierarchy_text`] draws the ASCII tree.
 
-use crate::instant::net_store::NetTableStore;
+use crate::instant::nettab::NetTableStore;
 use crate::{InstOrigin, McInstance, McModuleInst};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -141,6 +141,7 @@ pub fn extract_instance_families(
     path: &str,
     store: &NetTableStore,
     content: &Option<String>,
+    view: &crate::TreeView,
 ) -> InstanceFamilies {
     let mut source: Vec<(String, String, u32, Option<String>, String)> = Vec::new();
     let mut source_names: HashSet<String> = HashSet::new();
@@ -279,9 +280,10 @@ pub fn extract_instance_families(
     // never enter `insts`; they are recorded in the declareb hint table and
     // expand with a FuncCall origin, so the component class comes from the
     // expanded component def.
-    let comp_class: HashMap<String, String> = inst
-        .components
-        .iter()
+    // Phase C S3-D: components resolve through the view (arena edges + store)
+    // instead of the tree's `components` Vec.
+    let comp_class: HashMap<String, String> = view
+        .components(inst)
         .map(|c| {
             (
                 c.name.clone(),
@@ -309,7 +311,7 @@ pub fn extract_instance_families(
     // which also carries the caller chain (`caller_inst.func_name`) for the
     // call-site view (§5.1 `generated`).
     let mut generated: Vec<(String, u32, String, String)> = Vec::new();
-    for comp in &inst.components {
+    for comp in view.components(inst) {
         if let InstOrigin::FuncCall { .. } = comp.origin {
             if !source_names.contains(&comp.name) {
                 let (line, caller) = comp
@@ -385,11 +387,11 @@ pub fn extract_instance_families(
 pub fn collect_module_nodes(
     inst: &McModuleInst,
     path: &str,
-    arena: Option<&crate::instant::arena::NodeArena>,
+    view: &crate::TreeView,
     store: &NetTableStore,
 ) -> Vec<Value> {
     let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
-    let fam = extract_instance_families(inst, path, store, &content);
+    let fam = extract_instance_families(inst, path, store, &content, view);
     let instances = json!({
         "source": fam.source.iter().map(|(n, k, l, cl, o)| json!({
             "name": n, "kind": k, "line": l, "class": cl, "origin": o,
@@ -402,15 +404,12 @@ pub fn collect_module_nodes(
         "uri": inst.def_uri.to_string(),
         "instances": instances,
     })];
-    let subs: Vec<&McModuleInst> = match arena {
-        Some(a) => crate::instant::arena::arena_sub_modules(a, inst).collect(),
-        None => inst.sub_modules.iter().collect(),
-    };
+    let subs: Vec<&McModuleInst> = view.sub_modules(inst).collect();
     for sub in subs {
         out.extend(collect_module_nodes(
             sub,
             &format!("{path}.{}", sub.name),
-            arena,
+            view,
             store,
         ));
     }

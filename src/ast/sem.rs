@@ -604,7 +604,7 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
             "files": files,
             "containers": &m.containers,
             "kind_names": (0u8..=29).map(|i| {
-                let kind: crate::ast::ast_semantic::SymbolKind = unsafe { std::mem::transmute(i) };
+                let kind: crate::ast::sem::SymbolKind = unsafe { std::mem::transmute(i) };
                 kind.kind_name()
             }).collect::<Vec<_>>(),
             "result_id": result_id,

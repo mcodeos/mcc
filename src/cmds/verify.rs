@@ -20,7 +20,7 @@ use anyhow::Result;
 use mcc::cli::{OutputFormat, VerifyArgs};
 use mcc::hierarchy;
 use mcc::vector::model::trunk::{TrunkCtx, TrunkKind};
-use mcc::{arena_sub_modules, InstOrigin, McModuleInst, NodeArena, Span};
+use mcc::{InstOrigin, McModuleInst, Span, TreeView};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -86,20 +86,14 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
         .find(|(n, _)| *n == top)
         .map(|(_, u)| mcc::McURI::from(u.as_str()))
         .unwrap_or_else(|| mcc::McURI::from(top.clone()));
-    let (inst, arena, net_store) =
+    let (inst, arena, store, net_store) =
         common::build_pass2_with_arena(&top, &uri).map_err(anyhow::Error::msg)?;
     let store_ref = &net_store;
 
+    let view = TreeView::new(&arena, &store);
     let mut totals = VerifyTotals::default();
     let mut modules: Vec<Value> = Vec::new();
-    verify_module(
-        &inst,
-        &top,
-        Some(&arena),
-        &store_ref,
-        &mut totals,
-        &mut modules,
-    );
+    verify_module(&inst, &top, &view, &store_ref, &mut totals, &mut modules);
     let hierarchy = hierarchy::build_hierarchy(&modules);
 
     let summary = json!({
@@ -159,20 +153,20 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
 fn verify_module(
     inst: &McModuleInst,
     path: &str,
-    arena: Option<&NodeArena>,
+    view: &TreeView,
     store: &mcc::NetTableStore,
     totals: &mut VerifyTotals,
     out: &mut Vec<Value>,
 ) {
     let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
-    let (inst_report, inst_counts) = compare_instances(inst, path, arena, store, &content);
+    let (inst_report, inst_counts) = compare_instances(inst, path, view, store, &content);
     totals.source_insts += inst_counts.0;
     totals.expanded_insts += inst_counts.1;
     totals.missing += inst_counts.2;
     totals.extra += inst_counts.3;
     totals.generated += inst_counts.4;
 
-    let (conn_report, conn_counts) = compare_connections(inst);
+    let (conn_report, conn_counts) = compare_connections(inst, view);
     totals.statements += conn_counts.0;
     totals.expanded_conns += conn_counts.1;
     totals.untraced += conn_counts.2;
@@ -186,15 +180,12 @@ fn verify_module(
     }));
 
     totals.modules += 1;
-    let subs: Vec<&McModuleInst> = match arena {
-        Some(a) => arena_sub_modules(a, inst).collect(),
-        None => inst.sub_modules.iter().collect(),
-    };
+    let subs: Vec<&McModuleInst> = view.sub_modules(inst).collect();
     for sub in subs {
         verify_module(
             sub,
             &format!("{path}.{}", sub.name),
-            arena,
+            view,
             store,
             totals,
             out,
@@ -209,7 +200,7 @@ fn verify_module(
 fn compare_instances(
     inst: &McModuleInst,
     path: &str,
-    arena: Option<&NodeArena>,
+    view: &TreeView,
     store: &mcc::NetTableStore,
     content: &Option<String>,
 ) -> (Value, (usize, usize, usize, usize, usize)) {
@@ -217,7 +208,7 @@ fn compare_instances(
     // shared hierarchy module; the comparison below adds the expanded side
     // (component / sub-module / label / bus instances Pass2 produced) and
     // computes missing / extra / generated.
-    let fam = hierarchy::extract_instance_families(inst, path, store, content);
+    let fam = hierarchy::extract_instance_families(inst, path, store, content, view);
     let source = fam.source;
     let declareb = fam.declareb;
     let source_names = fam.source_names;
@@ -229,7 +220,7 @@ fn compare_instances(
     // is the 1-based construction line (0 when unknown / declared).
     let mut expanded: Vec<(String, String, String, u32)> = Vec::new();
     let mut expanded_declared: HashSet<String> = HashSet::new();
-    for comp in &inst.components {
+    for comp in view.components(inst) {
         match comp.origin {
             InstOrigin::Declared => {
                 expanded_declared.insert(comp.name.clone());
@@ -271,10 +262,7 @@ fn compare_instances(
             }
         }
     }
-    let subs: Vec<&McModuleInst> = match arena {
-        Some(a) => arena_sub_modules(a, inst).collect(),
-        None => inst.sub_modules.iter().collect(),
-    };
+    let subs: Vec<&McModuleInst> = view.sub_modules(inst).collect();
     for sub in subs {
         expanded_declared.insert(sub.name.clone());
         expanded.push((
@@ -397,6 +385,7 @@ fn record_tree_node(
     idx: usize,
     groups: &mcc::ProductGroups,
     inst: &McModuleInst,
+    view: &TreeView,
     sub_conns: Vec<Value>,
 ) -> Option<Value> {
     let r = &inst.expansion.records[idx];
@@ -413,26 +402,31 @@ fn record_tree_node(
             })
         })
         .collect();
+    // S3-D: product groups carry arena node ids; resolve content through the
+    // view's store (was `inst.components[ci]`).
     let comps: Vec<Value> = groups.by_record[idx]
         .components
         .iter()
-        .map(|&ci| {
-            let c = &inst.components[ci];
-            json!({
+        .filter_map(|&id| {
+            let c = view.component(id)?;
+            Some(json!({
                 "name": c.name,
                 "class": hierarchy::comp_class_raw(&c.def.name.to_string(), &c.raw_params),
-            })
+            }))
         })
         .collect();
     let subs: Vec<Value> = groups.by_record[idx]
         .sub_modules
         .iter()
-        .map(|&si| json!({"name": inst.sub_modules[si].name}))
+        .filter_map(|&id| {
+            let m = view.module(id)?;
+            Some(json!({"name": m.name}))
+        })
         .collect();
     let children: Vec<Value> = r
         .children
         .iter()
-        .filter_map(|&ci| record_tree_node(ci, groups, inst, Vec::new()))
+        .filter_map(|&ci| record_tree_node(ci, groups, inst, view, Vec::new()))
         .collect();
     if conns.is_empty()
         && comps.is_empty()
@@ -453,7 +447,10 @@ fn record_tree_node(
     }))
 }
 
-fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usize)) {
+fn compare_connections(
+    inst: &McModuleInst,
+    view: &TreeView,
+) -> (Value, (usize, usize, usize, usize)) {
     let stmts = &inst.def.stmts;
     let stmt_spans = &inst.def.stmt_spans;
 
@@ -475,9 +472,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     // exemption into a real "did the call expand anything" check (§5.1).
     // §7.10: built via the shared `build_tree` read API instead of a
     // hand-rolled statement aggregation.
-    let groups =
-        inst.expansion
-            .group_products(&inst.components, &inst.sub_modules, &inst.connections);
+    let groups = inst.expansion.group_products(view, inst);
     let mut stmt_records: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
     for node in inst.expansion.build_tree() {
         if node.call_site.uri == def_file {
@@ -511,16 +506,13 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         if pos.uri != def_file {
             continue;
         }
-        let Some(sub) = inst
-            .sub_modules
-            .iter()
+        let Some(sub) = view
+            .sub_modules(inst)
             .find(|s| s.name.as_str() == sub_path.as_str())
         else {
             continue;
         };
-        let sub_groups =
-            sub.expansion
-                .group_products(&sub.components, &sub.sub_modules, &sub.connections);
+        let sub_groups = sub.expansion.group_products(view, sub);
         for (si, sr) in sub.expansion.records.iter().enumerate() {
             if sr.parent.is_some() {
                 continue;
@@ -780,7 +772,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                             } else {
                                 Vec::new()
                             };
-                            record_tree_node(idx, &groups, inst, sub)
+                            record_tree_node(idx, &groups, inst, view, sub)
                         })
                         .collect()
                 })

@@ -80,9 +80,9 @@ fn generate_macros_from_header() {
     }
 
     // write generated Rust file
-    let out_path = PathBuf::from("src/ast/c_macros.rs");
+    let out_path = PathBuf::from("src/ast/macros.rs");
     if let Err(e) = fs::write(&out_path, rust_code) {
-        eprintln!("Error writing c_macros.rs: {}", e);
+        eprintln!("Error writing macros.rs: {}", e);
     } else {
         println!(
             "cargo:warning=Generated {} - remember to commit this file!",

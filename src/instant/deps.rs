@@ -18,6 +18,7 @@
 //! design §12.6) is NOT held here — it is the CircuitWorld's (Phase G); this
 //! module only produces the per-circuit out side.
 
+use crate::instant::inststore::TreeView;
 use crate::McCMIE;
 use crate::McSpaceName;
 use std::cell::RefCell;
@@ -86,17 +87,17 @@ pub fn record_cmie(cmie: &McCMIE) {
 /// their def resolved by pass1 (the lapper), so they never pass through the
 /// `mcb_get_cmie` bridge at instantiation time; the tree sweep is what makes
 /// the circuit→def edge set complete by construction (plan §9 F).
-pub fn record_tree_defs(tree: &crate::instant::mc_mod::McModuleInst) {
-    for comp in &tree.components {
+pub fn record_tree_defs(tree: &crate::instant::mc_mod::McModuleInst, view: &TreeView) {
+    for comp in view.components(tree) {
         let uri = comp.def.uri.clone();
         if !uri.is_empty() {
             record_def(&McSpaceName::new(&comp.def.name, uri));
         }
     }
-    for sub in &tree.sub_modules {
+    for sub in view.sub_modules(tree) {
         if !sub.def_uri.is_empty() {
             record_def(&McSpaceName::new(&sub.def.name, sub.def_uri.clone()));
         }
-        record_tree_defs(sub);
+        record_tree_defs(sub, view);
     }
 }

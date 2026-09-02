@@ -37,9 +37,9 @@ fn build_hbl_graph() -> McVecGraph {
     mcc::mcc_set_project_root(&project_root);
     mcc::mcc_load_project(&entry_uri);
 
-    let (tree, table) =
-        mcc::mcc_build_flat(&McIds::from("main"), &entry_uri, 1000).expect("build hbl");
-    let vec_block = mcc::vector::builder::visit::build_mc_vec(&tree, &table);
+    let (tree, table, arena, store) =
+        mcc::mcc_build_flat_with_arena(&McIds::from("main"), &entry_uri, 1000).expect("build hbl");
+    let vec_block = mcc::vector::builder::visit::build_mc_vec(&tree, &table, &arena, &store);
     mcc::vector::graph::fromblock::build_mc_vec_graph(&vec_block, &table)
 }
 

@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::ast::{ast_node::AstNode, c_macros::*};
+use crate::ast::{macros::*, node::AstNode};
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 

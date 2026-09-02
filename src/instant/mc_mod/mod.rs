@@ -35,10 +35,11 @@ mod subst;
 
 pub(crate) use builder::InstantiationBuilder;
 
-use super::mc_comp::McComponentInst;
 use super::mc_net::{ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, PortInst};
+use crate::instant::arena::NodeArena;
 use crate::instant::identity::{IdentityRegistry, NodeId};
-use crate::instant::net_store::NetTableStore;
+use crate::instant::inststore::{InstanceStore, TreeView};
+use crate::instant::nettab::NetTableStore;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::IOType;
 use crate::semantic::module::McModule;
@@ -69,12 +70,6 @@ pub struct McModuleInst {
 
     /// Port instances (all port types)
     pub ports: Vec<PortInst>,
-
-    /// Sub-component instances
-    pub components: Vec<McComponentInst>,
-
-    /// Sub-module instances
-    pub sub_modules: Vec<McModuleInst>,
 
     /// Internal connections
     pub connections: Vec<ConnectionInst>,
@@ -246,8 +241,6 @@ impl McModuleInst {
             def_uri,
             params: McParamBindings::new(),
             ports: Vec::new(),
-            components: Vec::new(),
-            sub_modules: Vec::new(),
             connections: Vec::new(),
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
@@ -279,8 +272,6 @@ impl McModuleInst {
             def_uri,
             params,
             ports: Vec::new(),
-            components: Vec::new(),
-            sub_modules: Vec::new(),
             connections: Vec::new(),
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
@@ -314,7 +305,7 @@ impl McModuleInst {
     /// `DianLu` / the projection) takes the store out of the build.
     pub(crate) fn instantiate_with_store(
         &mut self,
-    ) -> Result<Rc<RefCell<NetTableStore>>, InstError> {
+    ) -> Result<(Rc<RefCell<NetTableStore>>, NodeArena, InstanceStore), InstError> {
         // Clone the identity fields first: `replace` needs its new value while
         // `self` is still mutably borrowed, so the placeholder tree cannot read
         // through `self`. The placeholder is discarded — `tree` (the actual
@@ -325,8 +316,18 @@ impl McModuleInst {
         let mut builder = InstantiationBuilder::new(tree);
         let result = builder.instantiate();
         let store = builder.net_store();
-        *self = builder.finish();
-        result.map(|()| store)
+        // Phase C S3: the builder laid the arena + instance store down
+        // incrementally during construction; extract them for the DianLu (the
+        // builder's Rc's have a single strong ref here, so unwrap is lossless).
+        let (tree, arena, inst_store) = builder.finish();
+        *self = tree;
+        let arena = Rc::try_unwrap(arena)
+            .map(RefCell::into_inner)
+            .unwrap_or_else(|rc| rc.borrow().clone());
+        let inst_store = Rc::try_unwrap(inst_store)
+            .map(RefCell::into_inner)
+            .unwrap_or_else(|rc| rc.borrow().clone());
+        result.map(|()| (store, arena, inst_store))
     }
 
     /// Like [`Self::instantiate_with_store`], but the top-level builder
@@ -340,15 +341,22 @@ impl McModuleInst {
     pub(crate) fn instantiate_with_store_in_registry(
         &mut self,
         identity: &mut IdentityRegistry,
-    ) -> Result<Rc<RefCell<NetTableStore>>, InstError> {
+    ) -> Result<(Rc<RefCell<NetTableStore>>, NodeArena, InstanceStore), InstError> {
         let name = self.name.clone();
         let def = self.def.clone();
         let tree = std::mem::replace(self, Self::new(&name, def));
         let mut builder = InstantiationBuilder::with_registry(tree, identity.clone());
         let result = builder.instantiate();
         let store = builder.net_store();
-        *self = builder.finish();
-        result.map(|()| store)
+        let (tree, arena, inst_store) = builder.finish();
+        *self = tree;
+        let arena = Rc::try_unwrap(arena)
+            .map(RefCell::into_inner)
+            .unwrap_or_else(|rc| rc.borrow().clone());
+        let inst_store = Rc::try_unwrap(inst_store)
+            .map(RefCell::into_inner)
+            .unwrap_or_else(|rc| rc.borrow().clone());
+        result.map(|()| (store, arena, inst_store))
     }
 
     /// Like [`Self::instantiate`], but interns every product into the
@@ -363,6 +371,8 @@ impl McModuleInst {
         identity: &mut IdentityRegistry,
         current_path: &str,
         net_store: Rc<RefCell<NetTableStore>>,
+        arena: Rc<RefCell<NodeArena>>,
+        store: Rc<RefCell<InstanceStore>>,
     ) -> Result<(), InstError> {
         let name = self.name.clone();
         let def = self.def.clone();
@@ -372,6 +382,8 @@ impl McModuleInst {
             std::mem::take(identity),
             current_path.to_string(),
             net_store,
+            arena,
+            store,
         );
         let result = builder.instantiate();
         let (frozen, reg) = builder.into_parts();
@@ -391,11 +403,15 @@ impl McModuleInst {
             .any(|d| d.level == InstDiagLevel::Error)
     }
 
-    /// Recursively collect all diagnostics (including sub-modules)
-    pub fn all_diagnostics(&self) -> Vec<&InstDiagnostic> {
-        let mut all: Vec<&InstDiagnostic> = self.diagnostics.iter().collect();
-        for sub in &self.sub_modules {
-            all.extend(sub.all_diagnostics());
+    /// Recursively collect all diagnostics (including sub-modules), resolving
+    /// sub-modules through the arena + instance-store view (Phase C S3: the
+    /// tree no longer carries its children). The sub-module diagnostics are
+    /// borrowed from the store, so the returned slice's lifetime is the view's
+    /// (the module itself lives in that same store).
+    pub fn all_diagnostics<'a>(&'a self, view: &TreeView<'a>) -> Vec<&'a InstDiagnostic> {
+        let mut all: Vec<&'a InstDiagnostic> = self.diagnostics.iter().collect();
+        for sub in view.sub_modules(self) {
+            all.extend(sub.all_diagnostics(view));
         }
         all
     }
@@ -513,28 +529,9 @@ impl std::fmt::Display for McModuleInst {
             }
         }
 
-        if !self.components.is_empty() {
-            writeln!(f, "  Components:")?;
-            for comp in &self.components {
-                writeln!(f, "    - {comp}")?;
-            }
-        }
-
-        if !self.sub_modules.is_empty() {
-            writeln!(f, "  Sub-modules:")?;
-            for sub in &self.sub_modules {
-                write!(f, "    ")?;
-                // Recursively indent sub-module content
-                let sub_str = format!("{sub}");
-                for (i, line) in sub_str.lines().enumerate() {
-                    if i == 0 {
-                        writeln!(f, "{line}")?;
-                    } else {
-                        writeln!(f, "    {line}")?;
-                    }
-                }
-            }
-        }
+        // Phase C S3: the tree carries no children — the component /
+        // sub-module listing is store-resolved. The recursive tree view lives
+        // in the debug dump (`dump.rs`), which walks the arena + store.
 
         if !self.connections.is_empty() {
             writeln!(f, "  Connections:")?;

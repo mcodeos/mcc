@@ -4,8 +4,8 @@
 
 use super::mc_ida::{IdaSegment, McIda, SquareItem};
 use super::mc_literal::McInt;
-use crate::ast::ast_node::AstNode;
-use crate::ast::c_macros::*;
+use crate::ast::macros::*;
+use crate::ast::node::AstNode;
 use crate::db::diagnostic::diagnostic::dlog_error;
 
 /// Expand a numeric slice in declaration order (eval.md §11.1: the declared

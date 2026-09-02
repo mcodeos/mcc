@@ -167,14 +167,10 @@ impl InstantiationBuilder {
             let func_name_str = func_name.to_string();
             if let Some(inst_name) = Self::iterated_item_inst_name(item) {
                 let member_func = self
-                    .components
-                    .iter()
-                    .find(|c| c.name == inst_name)
+                    .find_component(&inst_name)
                     .and_then(|c| c.def.funcs.find(&func_name_str).cloned())
                     .or_else(|| {
-                        self.sub_modules
-                            .iter()
-                            .find(|m| m.name == inst_name)
+                        self.find_submodule(&inst_name)
                             .and_then(|m| m.def.funcs.find(&func_name_str).cloned())
                     });
                 if let Some(func_def) = member_func {

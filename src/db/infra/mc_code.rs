@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::ast::ast_node::McValueFFI;
+use crate::ast::node::McValueFFI;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // DedupLapper — wraps SymbolRangeLapper, deduplicates by (kind, start, stop)
@@ -33,11 +33,11 @@ impl DedupLapper {
     }
 }
 
-use crate::ast::ast_semantic::{
+use crate::ast::error::message::MISSING_SUBNODE;
+use crate::ast::sem::{
     DeclareId, McSemSymbols, SourceLocation, Span, SymbolKind, SymbolRangeLapper, SymbolType,
 };
-use crate::ast::ast_token::McSemTokens;
-use crate::ast::error::message::MISSING_SUBNODE;
+use crate::ast::token::McSemTokens;
 use crate::db::cmie::tables as workspace;
 use crate::db::defregistry::{DefValue, InsertOutcome, LoadDomain};
 use crate::db::diagnostic::diagnostic::{
@@ -47,7 +47,7 @@ use crate::db::diagnostic::errcodes;
 use crate::db::infra::mc_use::{McUse, McUsePrefix};
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
-use crate::{ast::ast_node::AstNode, ast::c_macros::*};
+use crate::{ast::macros::*, ast::node::AstNode};
 use crate::{current_uri, mcb_loaded_libs, McComponent, McIds, McModule, McSpaceName, McURI};
 use line_index::LineIndex;
 use rust_lapper::Interval;
@@ -93,7 +93,7 @@ pub struct McCode {
     /// The trailing u8 is the class's CMIE kind (Component/Module/Interface/Enum
     /// or 255 UNKNOWN), captured at registration so Layer 1c entries carry it.
     cross_file_targets: Vec<(
-        crate::ast::ast_semantic::DeclareId,
+        crate::ast::sem::DeclareId,
         McURI,
         std::ops::Range<usize>,
         u8,
@@ -311,7 +311,7 @@ impl McCode {
     pub fn free(&mut self) {
         if !self.ast.is_null() {
             unsafe {
-                crate::ast::c_bindings::mcc_free(self.ast.get_ptr());
+                crate::ast::bindings::mcc_free(self.ast.get_ptr());
             }
         }
         self.ast.set_ptr(null_mut() as *mut McValueFFI);
@@ -339,13 +339,13 @@ impl McCode {
         // visit output is controlled uniformly by Rust side explicitly calling mcc_visit_tree_color()
         let parse_flag = trace_flag & !0x08u8;
         unsafe {
-            crate::ast::c_bindings::mcc_reset(parse_flag);
+            crate::ast::bindings::mcc_reset(parse_flag);
         }
 
         // Use C mcc_load instead of Rust read_to_string
         // Must use CString to ensure null-terminated string for C
         let c_path = std::ffi::CString::new(binding.clone()).expect("Failed to create CString");
-        let fcontent_ptr = unsafe { crate::ast::c_bindings::mcc_load(c_path.as_ptr() as *mut i8) };
+        let fcontent_ptr = unsafe { crate::ast::bindings::mcc_load(c_path.as_ptr() as *mut i8) };
         if fcontent_ptr.is_null() {
             tracing::warn!(target: "mcc::code", file = ?fname, "mcc_load failed");
             return;
@@ -366,7 +366,7 @@ impl McCode {
 
         unsafe {
             // Call mcc_reset to ensure complete state cleanup (exclude visit bit, avoid duplicate output)
-            crate::ast::c_bindings::mcc_reset(parse_flag);
+            crate::ast::bindings::mcc_reset(parse_flag);
 
             // Clear tokens and symbols, ensure no residual data
             if let Ok(mut t) = self.tokens.lock() {
@@ -379,10 +379,10 @@ impl McCode {
             // P2-7-XTAL: set file name for lexer debug
             let fname_cstr =
                 std::ffi::CString::new(fname.to_string_lossy().as_bytes()).unwrap_or_default();
-            crate::ast::c_bindings::mcc_set_lex_file(fname_cstr.as_ptr());
-            crate::ast::c_bindings::mcc_lex(fcontent_ptr);
+            crate::ast::bindings::mcc_set_lex_file(fname_cstr.as_ptr());
+            crate::ast::bindings::mcc_lex(fcontent_ptr);
 
-            let ast = AstNode::new(crate::ast::c_bindings::mcc_parse());
+            let ast = AstNode::new(crate::ast::bindings::mcc_parse());
             if ast.is_null() {
                 tracing::warn!(target: "mcc::code", file = ?fname, "AST parse returned null");
             } else {
@@ -393,7 +393,7 @@ impl McCode {
                     && !crate::cli::config::is_trace_stdout_suppressed()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
-                    crate::ast::c_bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
+                    crate::ast::bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
                 }
                 self.ast = ast;
             }
@@ -411,7 +411,7 @@ impl McCode {
 
             // Collect error tokens from parser and create diagnostics
             {
-                let mut err_ptr = crate::ast::c_bindings::mcc_get_error_tokens();
+                let mut err_ptr = crate::ast::bindings::mcc_get_error_tokens();
                 while !err_ptr.is_null() {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
@@ -440,7 +440,7 @@ impl McCode {
             {
                 // Gather all entries, resolve messages, dedup by position
                 let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
-                let mut dlog_ptr = crate::ast::c_bindings::mcc_get_dlog_entries();
+                let mut dlog_ptr = crate::ast::bindings::mcc_get_dlog_entries();
                 while !dlog_ptr.is_null() {
                     let entry = &*dlog_ptr;
                     let msg = if entry.msg.is_null() {
@@ -508,7 +508,7 @@ impl McCode {
                 Ok(mut t) => {
                     // Clear tokens first, then parse new tokens
                     *t = McSemTokens::new();
-                    t.parse(crate::ast::c_bindings::mcc_get_sem_tokens())
+                    t.parse(crate::ast::bindings::mcc_get_sem_tokens())
                 }
                 Err(e) => {
                     tracing::error!(target: "mcc::code", error = %e, "tokens mutex poisoned");
@@ -544,11 +544,11 @@ impl McCode {
         let fname = Path::new(&binding);
 
         unsafe {
-            crate::ast::c_bindings::mcc_reset(0);
+            crate::ast::bindings::mcc_reset(0);
         }
 
         let c_path = std::ffi::CString::new(binding.clone()).expect("Failed to create CString");
-        let fcontent_ptr = unsafe { crate::ast::c_bindings::mcc_load(c_path.as_ptr() as *mut i8) };
+        let fcontent_ptr = unsafe { crate::ast::bindings::mcc_load(c_path.as_ptr() as *mut i8) };
         if fcontent_ptr.is_null() {
             tracing::warn!(target: "mcc::code", file = ?fname, "mcc_load failed");
             return;
@@ -567,7 +567,7 @@ impl McCode {
         }
 
         unsafe {
-            crate::ast::c_bindings::mcc_reset(0);
+            crate::ast::bindings::mcc_reset(0);
 
             if let Ok(mut t) = self.tokens.lock() {
                 *t = McSemTokens::new();
@@ -579,9 +579,9 @@ impl McCode {
             // P2-7-XTAL: set file name for lexer debug
             let fname_cstr2 =
                 std::ffi::CString::new(fname.to_string_lossy().as_bytes()).unwrap_or_default();
-            crate::ast::c_bindings::mcc_set_lex_file(fname_cstr2.as_ptr());
-            crate::ast::c_bindings::mcc_lex(fcontent_ptr);
-            let ast = AstNode::new(crate::ast::c_bindings::mcc_parse());
+            crate::ast::bindings::mcc_set_lex_file(fname_cstr2.as_ptr());
+            crate::ast::bindings::mcc_lex(fcontent_ptr);
+            let ast = AstNode::new(crate::ast::bindings::mcc_parse());
             if !ast.is_null() {
                 self.ast = ast;
             }
@@ -595,7 +595,7 @@ impl McCode {
 
             // Collect error tokens from parser and create diagnostics
             if emit_diags {
-                let mut err_ptr = crate::ast::c_bindings::mcc_get_error_tokens();
+                let mut err_ptr = crate::ast::bindings::mcc_get_error_tokens();
                 while !err_ptr.is_null() {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
@@ -623,7 +623,7 @@ impl McCode {
             // Collect structured diagnostics from parser (mc_dlog_add)
             if emit_diags {
                 let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
-                let mut dlog_ptr = crate::ast::c_bindings::mcc_get_dlog_entries();
+                let mut dlog_ptr = crate::ast::bindings::mcc_get_dlog_entries();
                 while !dlog_ptr.is_null() {
                     let entry = &*dlog_ptr;
                     let msg = if entry.msg.is_null() {
@@ -694,10 +694,10 @@ impl McCode {
     /// token's source text for `//` or `#` comment markers, splits off the
     /// comment portion into a separate MCC_TK_COMMENT (type=16) token, and
     /// adjusts the original token's span.
-    fn extract_inline_comments(tokens: &mut Vec<crate::ast::ast_token::McSemToken>, content: &str) {
+    fn extract_inline_comments(tokens: &mut Vec<crate::ast::token::McSemToken>, content: &str) {
         let content_bytes = content.as_bytes();
         let content_len = content.len();
-        let mut new_tokens: Vec<crate::ast::ast_token::McSemToken> = Vec::new();
+        let mut new_tokens: Vec<crate::ast::token::McSemToken> = Vec::new();
 
         for token in tokens.iter() {
             let pos = token.position as usize;
@@ -741,7 +741,7 @@ impl McCode {
                     let nl_pos = comment_body.find('\n');
                     if let Some(nl) = nl_pos {
                         // Comment: from // to after newline
-                        new_tokens.push(crate::ast::ast_token::McSemToken {
+                        new_tokens.push(crate::ast::token::McSemToken {
                             type_: 16,
                             position: (pos + comment_start) as i32,
                             length: (nl + 1) as i32,
@@ -755,7 +755,7 @@ impl McCode {
                             let rest_content = &content[rest_start + ts..pos + len];
                             let actual_len = rest_content.trim_end().len();
                             if actual_len > 0 {
-                                new_tokens.push(crate::ast::ast_token::McSemToken {
+                                new_tokens.push(crate::ast::token::McSemToken {
                                     type_: token.type_,
                                     position: (rest_start + ts) as i32,
                                     length: actual_len as i32,
@@ -764,7 +764,7 @@ impl McCode {
                         }
                     } else {
                         // Entire token is just the comment
-                        new_tokens.push(crate::ast::ast_token::McSemToken {
+                        new_tokens.push(crate::ast::token::McSemToken {
                             type_: 16,
                             position: token.position,
                             length: token.length,
@@ -772,7 +772,7 @@ impl McCode {
                     }
                 } else {
                     // SUFFIX comment: `,     // inline2` — meaningful token is BEFORE the comment
-                    new_tokens.push(crate::ast::ast_token::McSemToken {
+                    new_tokens.push(crate::ast::token::McSemToken {
                         type_: token.type_,
                         position: token.position,
                         length: before_comment.len() as i32,
@@ -781,7 +781,7 @@ impl McCode {
                     let comment_src = &text[comment_start..];
                     let comment_end = comment_src.find('\n').map_or(comment_src.len(), |i| i + 1);
                     if comment_end > 0 {
-                        new_tokens.push(crate::ast::ast_token::McSemToken {
+                        new_tokens.push(crate::ast::token::McSemToken {
                             type_: 16,
                             position: (pos + comment_start) as i32,
                             length: comment_end as i32,
@@ -826,7 +826,7 @@ impl McCode {
         //   Clears any residual C parser state (g_token_head, etc.) from
         //   a previous parse that ran on the same OS thread.
         unsafe {
-            crate::ast::c_bindings::mcc_reset(0);
+            crate::ast::bindings::mcc_reset(0);
         }
 
         // Create line index from the content (mirrors parse_ast)
@@ -835,7 +835,7 @@ impl McCode {
 
         let c_content = std::ffi::CString::new(content).expect("Failed to create CString");
         let fcontent_ptr = unsafe {
-            crate::ast::c_bindings::mcc_load_from_string(
+            crate::ast::bindings::mcc_load_from_string(
                 c_content.as_ptr() as *const i8,
                 content.len(),
             )
@@ -849,7 +849,7 @@ impl McCode {
 
         unsafe {
             // ★ mcc_reset AFTER loading — mirrors parse_ast()'s second reset
-            crate::ast::c_bindings::mcc_reset(0);
+            crate::ast::bindings::mcc_reset(0);
 
             // Clear tokens and symbols, ensure no residual data
             if let Ok(mut t) = self.tokens.lock() {
@@ -861,10 +861,10 @@ impl McCode {
 
             // P2-7-XTAL: set file name for lexer debug
             let uri_cstr = std::ffi::CString::new(self.uri.as_bytes()).unwrap_or_default();
-            crate::ast::c_bindings::mcc_set_lex_file(uri_cstr.as_ptr());
-            crate::ast::c_bindings::mcc_lex(fcontent_ptr);
+            crate::ast::bindings::mcc_set_lex_file(uri_cstr.as_ptr());
+            crate::ast::bindings::mcc_lex(fcontent_ptr);
 
-            let ast = AstNode::new(crate::ast::c_bindings::mcc_parse());
+            let ast = AstNode::new(crate::ast::bindings::mcc_parse());
             if ast.is_null() {
                 tracing::warn!(target: "mcc::code", uri = %self.uri, "AST parse returned null");
             } else {
@@ -873,7 +873,7 @@ impl McCode {
                     && !crate::cli::config::is_trace_stdout_suppressed()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
-                    crate::ast::c_bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
+                    crate::ast::bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
                 }
                 self.ast = ast;
             }
@@ -889,7 +889,7 @@ impl McCode {
 
             // Collect error tokens from parser and create diagnostics
             {
-                let mut err_ptr = crate::ast::c_bindings::mcc_get_error_tokens();
+                let mut err_ptr = crate::ast::bindings::mcc_get_error_tokens();
                 while !err_ptr.is_null() {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
@@ -917,7 +917,7 @@ impl McCode {
             // Collect structured diagnostics from parser (mc_dlog_add)
             {
                 let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
-                let mut dlog_ptr = crate::ast::c_bindings::mcc_get_dlog_entries();
+                let mut dlog_ptr = crate::ast::bindings::mcc_get_dlog_entries();
                 while !dlog_ptr.is_null() {
                     let entry = &*dlog_ptr;
                     let msg = if entry.msg.is_null() {
@@ -981,7 +981,7 @@ impl McCode {
             match self.tokens.lock() {
                 Ok(mut t) => {
                     *t = McSemTokens::new();
-                    t.parse(crate::ast::c_bindings::mcc_get_sem_tokens());
+                    t.parse(crate::ast::bindings::mcc_get_sem_tokens());
                     Self::extract_inline_comments(&mut t.tokens, content);
                 }
                 Err(e) => {
@@ -2062,7 +2062,7 @@ impl McCode {
         let result = match self.symbols.lock() {
             Ok(sem) => match sem.global_table.lock() {
                 Ok(mut gt) => {
-                    let gt: &mut crate::ast::ast_semantic::GlobalSymbolTable = &mut gt;
+                    let gt: &mut crate::ast::sem::GlobalSymbolTable = &mut gt;
                     Some(gt.add_class(uri, class_name, span.clone()))
                 }
                 Err(e) => {
@@ -2298,8 +2298,8 @@ impl McCode {
         if !pin_names.contains(root) {
             return None;
         }
-        let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
-        let comp_id = crate::ast::ast_semantic::intern(&mut sem.container_table, comp_ident);
+        let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
+        let comp_id = crate::ast::sem::intern(&mut sem.container_table, comp_ident);
         // Prefer the exact dotted form (`VIN.Vin`), then the root (`VIN`).
         let mut target: &str = &full_name;
         loop {
@@ -2340,20 +2340,17 @@ impl McCode {
     /// class_id (`(class_id << 16) | value_idx`), so it is looked up in the def
     /// file's gt (`with_def_file_gt`). A miss returns "" — never a guess.
     fn def_name_for(
-        gt: &crate::ast::ast_semantic::GlobalSymbolTable,
-        local_names: &std::collections::HashMap<
-            (crate::ast::ast_semantic::SymbolKind, u32),
-            String,
-        >,
+        gt: &crate::ast::sem::GlobalSymbolTable,
+        local_names: &std::collections::HashMap<(crate::ast::sem::SymbolKind, u32), String>,
         def_uri: &str,
-        def_kind: crate::ast::ast_semantic::SymbolKind,
+        def_kind: crate::ast::sem::SymbolKind,
         decl_id: u32,
     ) -> String {
         let n = crate::refdef::matching::resolve_def_name(local_names, def_uri, def_kind, decl_id);
         if !n.is_empty() {
             return n;
         }
-        if def_kind == crate::ast::ast_semantic::SymbolKind::EnumValDef {
+        if def_kind == crate::ast::sem::SymbolKind::EnumValDef {
             return Self::enum_value_def_name(gt, def_uri, decl_id);
         }
         Self::class_def_name(gt, def_uri, def_kind, decl_id)
@@ -2368,7 +2365,7 @@ impl McCode {
     /// is mid-parse on that file.
     fn with_def_file_gt<R>(
         def_uri: &str,
-        f: impl Fn(&crate::ast::ast_semantic::GlobalSymbolTable) -> Option<R>,
+        f: impl Fn(&crate::ast::sem::GlobalSymbolTable) -> Option<R>,
     ) -> Option<R> {
         let mut result = None;
         if let Some(code) = crate::db::cmie::tables::WORKSPACE.mcodes.get(def_uri) {
@@ -2405,12 +2402,12 @@ impl McCode {
     /// would alias a different same-id class in the def file's own id space
     /// (e.g. `CAP` id=9 here vs `CAP.SAFETY` id=9 in cap.mc) — never guess.
     fn class_def_name(
-        gt: &crate::ast::ast_semantic::GlobalSymbolTable,
+        gt: &crate::ast::sem::GlobalSymbolTable,
         def_uri: &str,
-        def_kind: crate::ast::ast_semantic::SymbolKind,
+        def_kind: crate::ast::sem::SymbolKind,
         decl_id: u32,
     ) -> String {
-        let table = if def_kind == crate::ast::ast_semantic::SymbolKind::EnumDef {
+        let table = if def_kind == crate::ast::sem::SymbolKind::EnumDef {
             &gt.enum_class_name_to_id
         } else {
             &gt.class_name_to_id
@@ -2425,13 +2422,13 @@ impl McCode {
     /// Resolve an enum value def name from the AST-driven workspace/global enum
     /// tables. `value_id` packs (class_id << 16) | value_index (§refdef).
     fn enum_value_def_name(
-        gt: &crate::ast::ast_semantic::GlobalSymbolTable,
+        gt: &crate::ast::sem::GlobalSymbolTable,
         def_uri: &str,
         value_id: u32,
     ) -> String {
         let class_id = value_id >> 16;
         let idx = (value_id & 0xFFFF) as usize;
-        let lookup_ident = |g: &crate::ast::ast_semantic::GlobalSymbolTable| {
+        let lookup_ident = |g: &crate::ast::sem::GlobalSymbolTable| {
             g.enum_class_name_to_id
                 .iter()
                 .find(|((u, _n), c)| u == def_uri && u32::from(**c) == class_id)
@@ -2456,7 +2453,7 @@ impl McCode {
     /// Build RefDefMap from semantic tables.
     /// Runs after parse_pass1_modules() registers all symbols, before create_lapper().
     fn consolidate_ref_def_map(&mut self) {
-        use crate::ast::ast_semantic::{GlobalSymbolTable, RefDefEntry, RefDefMap, SymbolKind};
+        use crate::ast::sem::{GlobalSymbolTable, RefDefEntry, RefDefMap, SymbolKind};
 
         let mut map = RefDefMap::new();
 
@@ -2478,7 +2475,7 @@ impl McCode {
                 .name_to_declare_id
                 .iter()
                 .map(|((_fid, cid, fnid, _n), (did, _))| {
-                    let scope = crate::ast::ast_semantic::scope_from_ids(
+                    let scope = crate::ast::sem::scope_from_ids(
                         &sem.container_table,
                         &sem.func_table,
                         *cid,
@@ -2648,7 +2645,7 @@ impl McCode {
                             byte_end: *end as u32,
                         },
                         def_kind: SymbolKind::EnumValDef,
-                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                        cmie_kind: crate::ast::sem::CmieKind::UNKNOWN,
                         def_name: Self::def_name_for(
                             &gt,
                             &sem.def_names,
@@ -2713,7 +2710,7 @@ impl McCode {
                             byte_end: *end as u32,
                         },
                         def_kind: SymbolKind::EnumDef,
-                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                        cmie_kind: crate::ast::sem::CmieKind::UNKNOWN,
                         def_name: Self::def_name_for(
                             &gt,
                             &sem.def_names,
@@ -2732,7 +2729,7 @@ impl McCode {
         // Later insertions overwrite earlier ones, so lowest priority first.
         {
             // P5: mcode system library — register from global tables
-            use crate::ast::ast_semantic::CmieKind;
+            use crate::ast::sem::CmieKind;
             let mut add_p5 = |name: &str,
                               uri_str: &str,
                               span_start: usize,
@@ -2894,7 +2891,7 @@ impl McCode {
                                     byte_end: span.end as u32,
                                 },
                                 def_kind: SymbolKind::ClassDef,
-                                cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                                cmie_kind: crate::ast::sem::CmieKind::UNKNOWN,
                                 def_name: class_name.to_string(),
                             };
                             map.add_name_alias(&self.uri, &class_name.to_string(), entry);
@@ -2980,7 +2977,7 @@ impl McCode {
         // mcb_parse_all_modules rebuilds the lapper but name_to_declare_id is
         // shared via Arc, so old DeclareIds would pollute FuncRef scope searches.
         if let Ok(mut sem) = self.symbols.lock() {
-            let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, self.uri.as_str());
+            let file_id = crate::ast::sem::intern(&mut sem.file_table, self.uri.as_str());
             let _ = sem.local_table.name_to_declare_id.len();
             sem.local_table
                 .name_to_declare_id
@@ -3029,7 +3026,7 @@ impl McCode {
                 Self::lapper_component_defs_register(&self.uri, &mut sem, &mut symbol_lapper);
 
                 let decl_count_file_id =
-                    crate::ast::ast_semantic::intern(&mut sem.file_table, self.uri.as_str());
+                    crate::ast::sem::intern(&mut sem.file_table, self.uri.as_str());
                 let decl_count = sem
                     .local_table
                     .name_to_declare_id
@@ -3115,7 +3112,7 @@ impl McCode {
                     .name_to_declare_id
                     .iter()
                     .map(|((_fid, cid, fnid, _n), (_, loc))| {
-                        let scope = crate::ast::ast_semantic::scope_from_ids(
+                        let scope = crate::ast::sem::scope_from_ids(
                             &s.container_table,
                             &s.func_table,
                             *cid,
@@ -3158,7 +3155,7 @@ impl McCode {
     }
 
     /// ★ §3.5.4: Upgrade UnknownDef entries based on param type inference.
-    fn upgrade_unknown_defs(map: &mut crate::ast::ast_semantic::RefDefMap, uri: &McURI) {
+    fn upgrade_unknown_defs(map: &mut crate::ast::sem::RefDefMap, uri: &McURI) {
         use crate::refdef::types::SymbolKind;
         use crate::semantic::basic::mc_param_type::McParamTypeKind;
 
@@ -3295,7 +3292,7 @@ impl McCode {
     fn resolve_class_ref_at_span(
         ref_uri: &McURI,
         class_name: &McIds,
-        gt: &mut crate::ast::ast_semantic::GlobalSymbolTable,
+        gt: &mut crate::ast::sem::GlobalSymbolTable,
         sem: &McSemSymbols,
     ) -> Option<(DeclareId, McURI, std::ops::Range<usize>, u8)> {
         if class_name.segments.is_empty() {
@@ -3363,7 +3360,7 @@ impl McCode {
     fn lapper_global_classes(
         uri: &McURI,
         cross_file_targets: &mut Vec<(
-            crate::ast::ast_semantic::DeclareId,
+            crate::ast::sem::DeclareId,
             McURI,
             std::ops::Range<usize>,
             u8,
@@ -3373,7 +3370,7 @@ impl McCode {
     ) {
         match sem.global_table.lock() {
             Ok(mut gt) => {
-                let classes: Vec<(McURI, McIds, crate::ast::ast_semantic::DeclareId)> = gt
+                let classes: Vec<(McURI, McIds, crate::ast::sem::DeclareId)> = gt
                     .class_name_to_id
                     .iter()
                     .filter(|((u, _clsname), _clsid)| u == uri)
@@ -3391,11 +3388,10 @@ impl McCode {
                         // ★ Fix: register ClassDef in def_map so fill_refdef_layer2
                         // can resolve ClassRef → ClassDef lookups. Without this,
                         // ClassRef entries in ref_entries never find their def.
-                        let file_id =
-                            crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+                        let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
                         sem.def_map.insert(
                             (SymbolKind::ClassDef, id),
-                            crate::ast::ast_semantic::SourceLocation::new(
+                            crate::ast::sem::SourceLocation::new(
                                 file_id,
                                 0,
                                 span.start as u32,
@@ -3584,11 +3580,10 @@ impl McCode {
                         // (`def_map.get(&(EnumDef, class_id))`) hits. Same-name
                         // enum + component heads (e.g. `enum CAP` + `component
                         // CAP` in one file) stay distinct in the dump.
-                        let file_id =
-                            crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+                        let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
                         sem.def_map.insert(
                             (SymbolKind::EnumDef, id),
-                            crate::ast::ast_semantic::SourceLocation::new(
+                            crate::ast::sem::SourceLocation::new(
                                 file_id,
                                 0,
                                 span.start as u32,
@@ -3609,8 +3604,7 @@ impl McCode {
                         // only inserted into the lapper, so hover/find-refs on
                         // the value def site had no map entry (Layer 1e masked
                         // the miss by building its own table).
-                        let file_id =
-                            crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+                        let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
@@ -3618,7 +3612,7 @@ impl McCode {
                         });
                         sem.def_map.insert(
                             (SymbolKind::EnumValDef, u32::from(*value_id)),
-                            crate::ast::ast_semantic::SourceLocation::new(
+                            crate::ast::sem::SourceLocation::new(
                                 file_id,
                                 0,
                                 span.start as u32,
@@ -5057,9 +5051,8 @@ impl McCode {
                 // registered from another file id (cross-file/duplicate
                 // loads), so resolve directly against this file's pin defs:
                 // (file_id, container_id=comp, func_id=0, name).
-                let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
-                let comp_id =
-                    crate::ast::ast_semantic::intern(&mut sem.container_table, &comp_name);
+                let file_id = crate::ast::sem::intern(&mut sem.file_table, uri.as_str());
+                let comp_id = crate::ast::sem::intern(&mut sem.container_table, &comp_name);
                 let got = sem
                     .local_table
                     .name_to_declare_id
@@ -5093,7 +5086,7 @@ impl McCode {
         sem: &McSemSymbols,
         base_name: &str,
         ref_span: Option<(u32, u32)>,
-    ) -> Option<(McURI, crate::ast::ast_semantic::Span)> {
+    ) -> Option<(McURI, crate::ast::sem::Span)> {
         // P3: current file's own definition — exact key only. A name-only walk
         // of `enum_class_name_to_id` could hit a same-named class registered
         // from another file (§5.4.6 D1).
@@ -5114,7 +5107,7 @@ impl McCode {
         // reachable through this file's `use` chain — never by bare name.
         // Multiple reachable definitions of the same name are ambiguous and
         // must be reported (§5.4.6 D2), not silently resolved to the first.
-        let mut reachable: Vec<(McURI, crate::ast::ast_semantic::Span)> = Vec::new();
+        let mut reachable: Vec<(McURI, crate::ast::sem::Span)> = Vec::new();
         for (sn, def) in crate::definition_space().workspace_enums() {
             if sn.uri == uri.as_str() {
                 continue;
@@ -5170,7 +5163,7 @@ impl McCode {
         sem: &mut McSemSymbols,
         symbol_lapper: &mut DedupLapper,
     ) {
-        use crate::ast::ast_semantic::GlobalSymbolTable;
+        use crate::ast::sem::GlobalSymbolTable;
         use rust_lapper::Interval;
 
         let all_ast_nodes: Vec<AstNode> = {
@@ -5492,9 +5485,8 @@ impl McCode {
                             gt.add_enum_value(&def_uri, class_id, value_idx, value_span);
                         }
                     }
-                    let value_id = crate::ast::ast_semantic::GlobalSymbolTable::pack_enum_value_id(
-                        class_id, value_idx,
-                    );
+                    let value_id =
+                        crate::ast::sem::GlobalSymbolTable::pack_enum_value_id(class_id, value_idx);
 
                     let end = pos + node.get_len() as usize;
                     symbol_lapper.insert(Interval {
@@ -6107,8 +6099,8 @@ impl McCode {
 }
 
 fn extract_dot_pair(value_node: &AstNode) -> Option<(String, String, u32, u32, u32, u32)> {
-    use crate::ast::c_macros::{MCAST_ID, MCAST_IDS, MCAST_OPD_DOT};
-    let ids_node = if value_node.is_type(crate::ast::c_macros::MCAST_OPD) {
+    use crate::ast::macros::{MCAST_ID, MCAST_IDS, MCAST_OPD_DOT};
+    let ids_node = if value_node.is_type(crate::ast::macros::MCAST_OPD) {
         value_node.get_sub_node()?
     } else if value_node.is_type(MCAST_IDS) {
         value_node.clone()
@@ -6313,7 +6305,7 @@ module main
         let lt = &sem.local_table;
 
         // 1. Declarations present in name_to_declare_id.
-        let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table.clone(), uri.as_str());
+        let file_id = crate::ast::sem::intern(&mut sem.file_table.clone(), uri.as_str());
         let scope_id = lt.scope_index.get("main").copied();
         let (cid, fnid) = scope_id
             .map(|(_, c, f)| (c, f))

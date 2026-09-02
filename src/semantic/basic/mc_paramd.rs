@@ -6,7 +6,7 @@ use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::semantic::basic::mc_param_type::McParamType;
 use crate::semantic::basic::mc_uval::McUnitValueDeclare;
 use crate::McIds;
-use crate::{ast::ast_node::AstNode, ast::c_macros::*};
+use crate::{ast::macros::*, ast::node::AstNode};
 use std::collections::HashMap;
 use std::ops::Range;
 

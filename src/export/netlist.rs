@@ -2,8 +2,8 @@
 //! Netlist export
 
 use crate::export::NodeArena;
-use crate::instant::arena::arena_sub_modules;
-use crate::instant::net_store::NetTableStore;
+use crate::instant::inststore::{InstanceStore, TreeView};
+use crate::instant::nettab::NetTableStore;
 use crate::McModuleInst;
 use crate::NetPoint;
 use serde_json::{json, Value};
@@ -12,12 +12,13 @@ use std::collections::BTreeMap;
 pub fn build_netlist(
     tree: &McModuleInst,
     arena: &NodeArena,
+    inst_store: &InstanceStore,
     top: &str,
     format: u8,
     net_store: &NetTableStore,
 ) -> (String, Value, usize) {
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    collect_nets(tree, arena, net_store, &mut nets);
+    collect_nets(tree, arena, inst_store, net_store, &mut nets);
     let nets: BTreeMap<String, Vec<String>> = nets
         .into_iter()
         .filter(|(n, _)| {
@@ -52,9 +53,11 @@ pub fn build_netlist(
 pub fn collect_nets(
     inst: &McModuleInst,
     arena: &NodeArena,
+    inst_store: &InstanceStore,
     net_store: &NetTableStore,
     out: &mut BTreeMap<String, Vec<String>>,
 ) {
+    let view = TreeView::new(arena, inst_store);
     let mut walk = |_m: &McModuleInst, path: &str, out: &mut BTreeMap<String, Vec<String>>| {
         let Some(table) = net_store.get(path) else {
             return;
@@ -69,20 +72,20 @@ pub fn collect_nets(
             }
         }
     };
-    collect_nets_impl(inst, arena, &inst.name.clone(), &mut walk, out);
+    collect_nets_impl(inst, &view, &inst.name.clone(), &mut walk, out);
 }
 
 fn collect_nets_impl(
     inst: &McModuleInst,
-    arena: &NodeArena,
+    view: &TreeView,
     path: &str,
     f: &mut impl FnMut(&McModuleInst, &str, &mut BTreeMap<String, Vec<String>>),
     out: &mut BTreeMap<String, Vec<String>>,
 ) {
     f(inst, path, out);
-    for sub in arena_sub_modules(arena, inst) {
+    for sub in view.sub_modules(inst) {
         let sub_path = format!("{path}.{}", sub.name);
-        collect_nets_impl(sub, arena, &sub_path, f, out);
+        collect_nets_impl(sub, view, &sub_path, f, out);
     }
 }
 

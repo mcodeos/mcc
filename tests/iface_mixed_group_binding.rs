@@ -13,7 +13,7 @@ use std::sync::{Mutex, OnceLock};
 
 static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-fn build(lhs: &str) -> mcc::MccProjectTree {
+fn build(lhs: &str) -> (mcc::MccProjectTree, mcc::NodeArena, mcc::InstanceStore) {
     let source = format!(
         r#"
 interface DC(volt)
@@ -42,11 +42,13 @@ module main(ps GND)
 
     let uri: McURI = "/mcc/iface-mixed-group.mc".to_string();
     mcc::mcc_load_from_string(&uri, &source);
-    mcc::mcc_build(&McIds::from("main"), &uri).expect("build failed")
+    let result = mcc::mcc_build_with_arena(&McIds::from("main"), &uri).expect("build failed");
+    let (instance, arena, store, _net_store) = result;
+    (instance, arena, store)
 }
 
 fn assert_binding(lhs: &str, expected: &[(&str, &str)]) {
-    let instance = build(lhs);
+    let (instance, arena, store) = build(lhs);
 
     let diagnostics = mcc::mcc_diagnose_all();
     let e3111: Vec<_> = diagnostics
@@ -62,9 +64,9 @@ fn assert_binding(lhs: &str, expected: &[(&str, &str)]) {
             .collect::<Vec<_>>()
     );
 
-    let component = instance
-        .components
-        .iter()
+    let view = mcc::TreeView::new(&arena, &store);
+    let component = view
+        .components(&instance)
         .find(|component| component.name == "sock")
         .expect("CONN instance");
     for (pin, name) in expected {

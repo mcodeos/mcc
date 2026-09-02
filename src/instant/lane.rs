@@ -37,6 +37,7 @@
 use crate::db::member_ledger::DefMemberId;
 use crate::instant::arena::NodeArena;
 use crate::instant::identity::{IdentityRegistry, NodeId};
+use crate::instant::inststore::{InstanceStore, TreeView};
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_mod::McModuleInst;
 use crate::instant::mc_net::{ConnectionInst, NetPoint};
@@ -106,14 +107,20 @@ pub struct Trunk {
 }
 
 /// Collect the lane layer from a frozen tree: one [`Trunk`] per source
-/// connection statement, walking sub-modules through the arena children edges.
-pub fn collect_stmt_trunks(root: &McModuleInst, arena: &NodeArena) -> Vec<Trunk> {
+/// connection statement, walking sub-modules through the store-backed view
+/// (arena children edges + instance store, Phase C S3).
+pub fn collect_stmt_trunks(
+    root: &McModuleInst,
+    arena: &NodeArena,
+    store: &InstanceStore,
+) -> Vec<Trunk> {
+    let view = TreeView::new(arena, store);
     let mut trunks: Vec<Trunk> = Vec::new();
-    collect_module(root, arena, &mut trunks);
+    collect_module(root, &view, &mut trunks);
     trunks
 }
 
-fn collect_module(inst: &McModuleInst, arena: &NodeArena, out: &mut Vec<Trunk>) {
+fn collect_module(inst: &McModuleInst, view: &TreeView, out: &mut Vec<Trunk>) {
     // One trunk per source statement (contract: trunk count = statement
     // count): the engine may explode one statement into several connections
     // (chain pairs, vector broadcasts) that share the statement's source
@@ -130,10 +137,10 @@ fn collect_module(inst: &McModuleInst, arena: &NodeArena, out: &mut Vec<Trunk>) 
         }
     }
     for (span, conns) in groups {
-        out.push(trunk_from_connections(inst, span, conns, out.len()));
+        out.push(trunk_from_connections(inst, span, conns, out.len(), view));
     }
-    for sub in crate::instant::arena::arena_sub_modules(arena, inst) {
-        collect_module(sub, arena, out);
+    for sub in view.sub_modules(inst) {
+        collect_module(sub, view, out);
     }
 }
 
@@ -161,6 +168,7 @@ fn trunk_from_connections(
     span: Option<SourcePos>,
     conns: Vec<&ConnectionInst>,
     id: usize,
+    view: &TreeView,
 ) -> Trunk {
     let mut seen: HashSet<PointId> = HashSet::new();
     let mut points: Vec<(PointId, Option<String>)> = Vec::new();
@@ -180,12 +188,15 @@ fn trunk_from_connections(
     let mut slice_pairs: Vec<((NodeId, DefMemberId), (NodeId, DefMemberId))> = Vec::new();
 
     for conn in conns {
-        let resolved: Vec<Option<PointId>> =
-            conn.points.iter().map(|p| resolve_point(inst, p)).collect();
+        let resolved: Vec<Option<PointId>> = conn
+            .points
+            .iter()
+            .map(|p| resolve_point(inst, p, view))
+            .collect();
         let members: Vec<Option<(NodeId, DefMemberId)>> = conn
             .points
             .iter()
-            .map(|p| vector_member(inst, p).map(|(vn, pin, _)| (vn, pin)))
+            .map(|p| vector_member(inst, p, view).map(|(vn, pin, _)| (vn, pin)))
             .collect();
 
         // Resolvable physical points of the statement, written order, deduped
@@ -277,7 +288,7 @@ fn trunk_from_connections(
     for key in bundle_order {
         let acc = &bundles[&key];
         let (vec_node, pin) = key;
-        let members = order_members(inst, vec_node, &acc.members);
+        let members = order_members(inst, vec_node, &acc.members, view);
         let slice = PointGroup::Slice {
             base: PointId {
                 node: vec_node,
@@ -310,14 +321,14 @@ fn trunk_from_connections(
                 node: src_vec,
                 pin: src_pin,
             },
-            members: order_members(inst, src_vec, &bundles[&src_key].members),
+            members: order_members(inst, src_vec, &bundles[&src_key].members, view),
         };
         let tgt_slice = PointGroup::Slice {
             base: PointId {
                 node: tgt_vec,
                 pin: tgt_pin,
             },
-            members: order_members(inst, tgt_vec, &bundles[&tgt_key].members),
+            members: order_members(inst, tgt_vec, &bundles[&tgt_key].members, view),
         };
         lanes.push(Lane {
             source: src_slice,
@@ -346,7 +357,12 @@ fn bundle_entry<'a>(
 
 /// Reorder member points by the vector's declared member-set order (strict
 /// written order, never sorted — §11.2 ordering contract).
-fn order_members(inst: &McModuleInst, vec_node: NodeId, members: &[PointId]) -> Vec<PointId> {
+fn order_members(
+    inst: &McModuleInst,
+    vec_node: NodeId,
+    members: &[PointId],
+    view: &TreeView,
+) -> Vec<PointId> {
     let Some(vec) = inst.vectors.iter().find(|v| v.node_id == Some(vec_node)) else {
         return members.to_vec();
     };
@@ -357,7 +373,10 @@ fn order_members(inst: &McModuleInst, vec_node: NodeId, members: &[PointId]) -> 
     vec.member_ids
         .iter()
         .filter_map(|mid| {
-            let node = inst.components.iter().find(|c| c.name == *mid)?.node_id?;
+            let node = view
+                .components(inst)
+                .find(|c| c.name == mid.as_str())?
+                .node_id?;
             by_node.get(&node).copied()
         })
         .collect()
@@ -395,12 +414,12 @@ fn is_bundle_point(p: &NetPoint) -> bool {
 /// the derived net layer then merges a parent net with the sub-module's
 /// internal net through the port (the boundary is transparent to
 /// connectivity).
-fn resolve_point(inst: &McModuleInst, p: &NetPoint) -> Option<PointId> {
+fn resolve_point(inst: &McModuleInst, p: &NetPoint, view: &TreeView) -> Option<PointId> {
     match &p.owner {
         Some(owner) => {
-            if let Some(comp) = inst.components.iter().find(|c| c.name == *owner) {
+            if let Some(comp) = view.components(inst).find(|c| c.name == owner.as_str()) {
                 resolve_comp_pin(comp, p)
-            } else if let Some(sub) = inst.sub_modules.iter().find(|s| s.name == *owner) {
+            } else if let Some(sub) = view.sub_modules(inst).find(|s| s.name == owner.as_str()) {
                 let port_name = p.path.rsplit('.').next().unwrap_or(&p.path);
                 resolve_port_ordinal(sub, port_name)
             } else {
@@ -428,13 +447,17 @@ fn resolve_comp_pin(comp: &McComponentInst, p: &NetPoint) -> Option<PointId> {
 /// node, the shared member pin (all members of one vector share the same def
 /// pin table, so the pin ordinal is identical across members), and the
 /// member's own physical point.
-fn vector_member(inst: &McModuleInst, p: &NetPoint) -> Option<(NodeId, DefMemberId, PointId)> {
+fn vector_member(
+    inst: &McModuleInst,
+    p: &NetPoint,
+    view: &TreeView,
+) -> Option<(NodeId, DefMemberId, PointId)> {
     let owner = p.owner.as_deref()?;
     let vec = inst
         .vectors
         .iter()
         .find(|v| v.member_ids.iter().any(|m| m == owner))?;
-    let comp = inst.components.iter().find(|c| c.name == owner)?;
+    let comp = view.components(inst).find(|c| c.name == owner)?;
     let node = comp.node_id?;
     let pin_name = p.path.rsplit('.').next().unwrap_or(&p.path);
     let pin = comp.def.pins.ledger.id_of(pin_name)?;

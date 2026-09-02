@@ -4,7 +4,7 @@
 
 use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::{
-    ast::ast_node::AstNode,
+    ast::node::AstNode,
     semantic::{
         basic::mc_bus::McBus,
         basic::mc_endpoint::{McEndpoint, McInstanceRef},

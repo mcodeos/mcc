@@ -22,9 +22,17 @@ static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 const CAP_COMP: &str = "component CAP(cap::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
 
-/// Build `main` and return the module instance plus the Phase D frozen string
-/// net-table store (the tree never carries `NetPoint`).
-fn build_main(src: &str, uri: &str) -> (mcc::McModuleInst, mcc::NetTableStore) {
+/// Build `main` and return the module instance + arena + store plus the Phase D
+/// frozen string net-table store (the tree never carries `NetPoint`).
+fn build_main(
+    src: &str,
+    uri: &str,
+) -> (
+    mcc::McModuleInst,
+    mcc::NodeArena,
+    mcc::InstanceStore,
+    mcc::NetTableStore,
+) {
     let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     mcc::mcc_init_no_lib();
     mcc::mcc_set_system_root(std::path::Path::new(""));
@@ -77,14 +85,15 @@ fn find_vector<'a>(inst: &'a mcc::McModuleInst, base: &str) -> &'a mcc::McVector
 #[test]
 fn module_body_vector_declare_materializes_group() {
     let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\n");
-    let (inst, _) = build_main(&src, "/mcc/vinst-module-body.mc");
+    let (inst, arena, store, _) = build_main(&src, "/mcc/vinst-module-body.mc");
+    let view = mcc::TreeView::new(&arena, &store);
     let v = find_vector(&inst, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"], "ordered member set");
     assert_eq!(v.member_ids, vec!["c1", "c2"], "module-level physical ids");
     assert!(v.shape.is_none(), "no 2D shape for 1D vector");
     for m in ["c1", "c2"] {
         assert!(
-            inst.components.iter().any(|c| c.name == m),
+            view.components(&inst).any(|c| c.name == m),
             "member '{m}' materialized as component"
         );
     }
@@ -106,12 +115,13 @@ fn func_local_vector_declare_materializes_group() {
     let src = format!(
         "{CAP_COMP}module main {{\n    io VDD\n    io GND\n    func M() {{\n        CAP c[1:2](1)\n        c[1:2].Cap([VDD, GND])\n    }}\n}}\n"
     );
-    let (inst, _) = build_main(&src, "/mcc/vinst-func-local.mc");
+    let (inst, arena, store, _) = build_main(&src, "/mcc/vinst-func-local.mc");
+    let view = mcc::TreeView::new(&arena, &store);
     let v = find_vector(&inst, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"]);
     assert_eq!(v.member_ids, vec!["c1", "c2"]);
     for m in ["c1", "c2"] {
-        assert!(inst.components.iter().any(|c| c.name == m));
+        assert!(view.components(&inst).any(|c| c.name == m));
     }
 }
 
@@ -119,7 +129,7 @@ fn func_local_vector_declare_materializes_group() {
 #[test]
 fn name_first_vector_declare_materializes_group() {
     let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    c[1:2]::CAP(1)\n}}\n");
-    let (inst, _) = build_main(&src, "/mcc/vinst-name-first.mc");
+    let (inst, _, _, _) = build_main(&src, "/mcc/vinst-name-first.mc");
     let v = find_vector(&inst, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"]);
     assert_eq!(v.member_ids, vec!["c1", "c2"]);
@@ -131,18 +141,19 @@ fn name_first_vector_declare_materializes_group() {
 #[test]
 fn single_member_range_stays_scalar() {
     let src = format!("{CAP_COMP}module main {{\n    io VDD\n    io GND\n    CAP c[2](1)\n}}\n");
-    let (inst, _) = build_main(&src, "/mcc/vinst-single.mc");
+    let (inst, arena, store, _) = build_main(&src, "/mcc/vinst-single.mc");
+    let view = mcc::TreeView::new(&arena, &store);
     assert!(
         inst.vectors.iter().all(|v| v.base != "c"),
         "no vector group for single-member range; vectors={:?}",
         inst.vectors
     );
     assert!(
-        inst.components.iter().any(|c| c.name == "c2"),
+        view.components(&inst).any(|c| c.name == "c2"),
         "member c2 materialized as scalar component"
     );
     assert!(
-        !inst.components.iter().any(|c| c.name == "c1"),
+        !view.components(&inst).any(|c| c.name == "c1"),
         "no c1 for c[2]"
     );
 }
@@ -159,7 +170,7 @@ fn single_index_member_reference_stays_scalar() {
     let src = format!(
         "{res_comp}module main {{\n    io VDD\n    io GND\n    res[1:2]::RES(0)\n    res[2] -> GND\n}}\n"
     );
-    let (inst, net_store) = build_main(&src, "/mcc/vinst-single-index.mc");
+    let (inst, _, _, net_store) = build_main(&src, "/mcc/vinst-single-index.mc");
     let v = find_vector(&inst, "res");
     assert_eq!(v.member_names, vec!["res1", "res2"]);
     // The `res[2]` operand connects only res2's pin — no broadcast to res1.
@@ -190,12 +201,12 @@ fn submodule_vector_declare_materializes_group() {
     let src = format!(
         "{CAP_COMP}module SM {{\n    io VDD\n    io GND\n    CAP c[1:2](1)\n}}\nmodule main {{\n    io VDD\n    io GND\n    SM s1()\n}}\n"
     );
-    let (inst, _) = build_main(&src, "/mcc/vinst-submodule.mc");
-    let sm = inst
-        .sub_modules
-        .iter()
+    let (inst, arena, store, _) = build_main(&src, "/mcc/vinst-submodule.mc");
+    let view = mcc::TreeView::new(&arena, &store);
+    let sm = view
+        .sub_modules(&inst)
         .find(|m| m.name == "s1")
-        .unwrap_or_else(|| panic!("sub-module s1 not found; got {:?}", inst.sub_modules));
+        .unwrap_or_else(|| panic!("sub-module s1 not found"));
     let v = find_vector(sm, "c");
     assert_eq!(v.member_names, vec!["c1", "c2"]);
     assert_eq!(v.member_ids, vec!["c1", "c2"]);

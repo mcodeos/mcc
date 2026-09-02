@@ -25,7 +25,7 @@ path = "src/bin/mcviz.rs"
 
 [[bin]]
 name = "mcc-mcp"
-path = "src/bin/mcc_mcp.rs"
+path = "src/bin/mcp.rs"
 
 [dependencies]
 libc = "0.2"
