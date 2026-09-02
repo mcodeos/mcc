@@ -38,6 +38,24 @@ fn build_dianlu(src: &str) -> mcc::DianLu {
     mcc::mcc_build_dianlu(&ident, &uri, 1000).expect("mcc_build_dianlu")
 }
 
+/// T4 read-side: a component pin's stable member id. Prefers the registry
+/// ledger (the lane layer's authority); falls back to declaration order for
+/// defs that never reached the world registry (same fallback as `lane.rs`).
+fn pin_member_id(comp: &mcc::McComponentInst, name: &str) -> Option<mcc::DefMemberId> {
+    if !comp.def.uri.is_empty() {
+        let sn = mcc::McSpaceName::new(&comp.def.name, comp.def.uri.clone());
+        if let Some(id) = mcc::def_member_id_of(&sn, mcc::DefKind::Component, name) {
+            return Some(id);
+        }
+    }
+    comp.def
+        .pins
+        .decl_order
+        .iter()
+        .position(|pid| pid == name)
+        .map(|ord| mcc::DefMemberId(ord as u32))
+}
+
 /// Rebuild a `DianLu` directly from a frozen tree (identity-only view). Phase C
 /// S3 produces the companion arena + instance store during instantiation, so a
 /// direct rebuild must take the source build's arena + store (the callers
@@ -439,7 +457,7 @@ module main {
             assert_eq!(a.node, c1.node_id.unwrap(), "source node is c1");
             assert_eq!(b.node, c2.node_id.unwrap(), "target node is c2");
             assert_eq!(
-                c1.def.pins.ledger.id_of("1"),
+                pin_member_id(c1, "1"),
                 Some(a.pin),
                 "source pin is c1's pin 1"
             );
@@ -559,15 +577,15 @@ module main {
     let c3 = view.components(dl.tree()).find(|c| c.name == "c3").unwrap();
     let p1 = mcc::PointId {
         node: c1.node_id.unwrap(),
-        pin: c1.def.pins.ledger.id_of("1").unwrap(),
+        pin: pin_member_id(c1, "1").unwrap(),
     };
     let p2 = mcc::PointId {
         node: c2.node_id.unwrap(),
-        pin: c2.def.pins.ledger.id_of("1").unwrap(),
+        pin: pin_member_id(c2, "1").unwrap(),
     };
     let p3 = mcc::PointId {
         node: c3.node_id.unwrap(),
-        pin: c3.def.pins.ledger.id_of("1").unwrap(),
+        pin: pin_member_id(c3, "1").unwrap(),
     };
     assert_eq!(net.points, vec![p1, p2, p3], "first-seen written order");
 }
@@ -648,11 +666,11 @@ module main {
     let c2 = view.components(dl.tree()).find(|c| c.name == "c2").unwrap();
     let p_c1_2 = mcc::PointId {
         node: c1.node_id.unwrap(),
-        pin: c1.def.pins.ledger.id_of("2").unwrap(),
+        pin: pin_member_id(c1, "2").unwrap(),
     };
     let p_c2_2 = mcc::PointId {
         node: c2.node_id.unwrap(),
-        pin: c2.def.pins.ledger.id_of("2").unwrap(),
+        pin: pin_member_id(c2, "2").unwrap(),
     };
     let gnd_ord = dl
         .tree()
@@ -712,8 +730,8 @@ module main {
 
     let c1 = view.components(dl.tree()).find(|c| c.name == "c1").unwrap();
     let c2 = view.components(dl.tree()).find(|c| c.name == "c2").unwrap();
-    let pin1 = c1.def.pins.ledger.id_of("1").unwrap();
-    let pin2 = c1.def.pins.ledger.id_of("2").unwrap();
+    let pin1 = pin_member_id(c1, "1").unwrap();
+    let pin2 = pin_member_id(c1, "2").unwrap();
     let vdd_ord = dl
         .tree()
         .ports
@@ -847,8 +865,8 @@ module main {
 
     let c1 = view.components(dl.tree()).find(|c| c.name == "c1").unwrap();
     let c2 = view.components(dl.tree()).find(|c| c.name == "c2").unwrap();
-    let pin1 = c1.def.pins.ledger.id_of("1").unwrap();
-    let pin2 = c1.def.pins.ledger.id_of("2").unwrap();
+    let pin1 = pin_member_id(c1, "1").unwrap();
+    let pin2 = pin_member_id(c1, "2").unwrap();
     let vdd_ord = dl
         .tree()
         .ports
@@ -1053,17 +1071,17 @@ module main(ps GND) {
     let u2 = view.components(tree).find(|c| c.name == "U2").unwrap();
     let p_u2_sclk = mcc::PointId {
         node: u2.node_id.unwrap(),
-        pin: u2.def.pins.ledger.id_of("1").unwrap(),
+        pin: pin_member_id(u2, "1").unwrap(),
     };
     let g1 = view.components(tree).find(|c| c.name == "G1").unwrap();
     let p_g1_gpio1 = mcc::PointId {
         node: g1.node_id.unwrap(),
-        pin: g1.def.pins.ledger.id_of("1").unwrap(),
+        pin: pin_member_id(g1, "1").unwrap(),
     };
     let u1 = view.components(tree).find(|c| c.name == "U1").unwrap();
     let p_u1_tx = mcc::PointId {
         node: u1.node_id.unwrap(),
-        pin: u1.def.pins.ledger.id_of("1").unwrap(),
+        pin: pin_member_id(u1, "1").unwrap(),
     };
     let r = view.sub_modules(tree).find(|s| s.name == "r").unwrap();
     let vin_ord = r.ports.iter().position(|p| p.name == "VIN").unwrap();
@@ -1157,7 +1175,7 @@ module main {
     let a2 = view.components(dl.tree()).find(|c| c.name == "a2").unwrap();
     let b1 = view.components(dl.tree()).find(|c| c.name == "b1").unwrap();
     let b2 = view.components(dl.tree()).find(|c| c.name == "b2").unwrap();
-    let pin1 = a1.def.pins.ledger.id_of("1").unwrap();
+    let pin1 = pin_member_id(a1, "1").unwrap();
     let p_a1_1 = mcc::PointId {
         node: a1.node_id.unwrap(),
         pin: pin1,
@@ -1235,11 +1253,11 @@ module main {
     let c2 = view.components(tree).find(|c| c.name == "c2").unwrap();
     let p_c1_2 = mcc::PointId {
         node: c1.node_id.unwrap(),
-        pin: c1.def.pins.ledger.id_of("2").unwrap(),
+        pin: pin_member_id(c1, "2").unwrap(),
     };
     let p_c2_2 = mcc::PointId {
         node: c2.node_id.unwrap(),
-        pin: c2.def.pins.ledger.id_of("2").unwrap(),
+        pin: pin_member_id(c2, "2").unwrap(),
     };
     let gnd_ord = tree.ports.iter().position(|p| p.name == "GND").unwrap();
     let p_gnd = mcc::PointId {
@@ -1680,7 +1698,7 @@ fn world_diff_versions_reports_node_add_and_net_delta() {
         Some(c3_node),
         "the rebuilt c3 keeps its persistent node id"
     );
-    let pin1 = c3.def.pins.ledger.id_of("1").unwrap();
+    let pin1 = pin_member_id(c3, "1").unwrap();
     let vdd_delta = diff
         .nets
         .iter()
@@ -2085,8 +2103,8 @@ module main {
             .find(|c| c.name == name)
             .unwrap_or_else(|| panic!("instance {name} exists"))
     };
-    let p1 = find_comp("R101").def.pins.ledger.id_of("1").unwrap();
-    let p2 = find_comp("R101").def.pins.ledger.id_of("2").unwrap();
+    let p1 = pin_member_id(find_comp("R101"), "1").unwrap();
+    let p2 = pin_member_id(find_comp("R101"), "2").unwrap();
     let pt = |name: &str, pin| mcc::PointId {
         node: find_comp(name).node_id.unwrap(),
         pin,

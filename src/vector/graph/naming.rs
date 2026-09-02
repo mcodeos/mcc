@@ -73,29 +73,8 @@ const EXACT_RESET: &[&str] = &["RST", "NRST", "RESET", "RESETN"];
 const MAIN_CHIP_KEYWORDS: &[&str] = &["MCU", "CPU", "SOC", "FPGA", "DSP"];
 
 // ============================================================================
-// ★ P0-2: 2-pin class name list + alias normalization
+// ★ P0-2: class-name alias normalization (CMIE symbol lookup only)
 // ============================================================================
-
-/// **Fallback** 2-pin class-name list (including aliases / dotted form head segments).
-///
-/// Two-pin topology is decided def-driven by counting the class's real pins
-/// (`McComponent::two_pin_verdict` / `Mc2Component::resolved_pin_count`); this
-/// list only answers the residual parse-time case where a class *name* cannot
-/// yet be resolved to a definition (not-yet-loaded class, or a shorthand alias
-/// whose canonical form isn't registered as a resolvable root).
-///
-/// Names: `CAP / RES / IND / DIODE / DIO / LED / FUSE / ESD / ZENER / TVS /
-/// SCHOTTKY / VARISTOR / PULLUP / PULLDOWN / FERRITE / FB`. Dotted form
-/// (`DIO.ESD`) takes the first segment `DIO` for a hit.
-///
-/// This list is a different thing from `canonicalize_class_alias`:
-///   - `is_known_twopin_class`: residual **pin-topology** fallback
-///   - `canonicalize_class_alias`: **symbol lookup**, redirects `ESD(...)` to `DIO.ESD`'s
-///     CMIE table, so bare `ESD(...)` can also go through instantiate_component_construction
-const TWOPIN_CLASS_KEYWORDS: &[&str] = &[
-    "CAP", "RES", "IND", "DIODE", "DIO", "LED", "FUSE", "ESD", "ZENER", "TVS", "SCHOTTKY",
-    "VARISTOR", "PULLUP", "PULLDOWN", "FERRITE", "FB",
-];
 
 /// Class name shorthand -> canonical class name actually existing in CMIE
 ///
@@ -118,36 +97,6 @@ const CLASS_ALIAS_TO_CANONICAL: &[(&str, &str)] = &[
     ("FERRITE", "IND.FERRITE"),
     ("FB", "IND.FERRITE"),
 ];
-
-/// Whether this class *name* is on the known "2-pin class" list (including dotted
-/// head hit, case-insensitive).
-///
-/// **Fallback only.** Two-pin-ness is decided by counting the class's real
-/// pins (`McComponent::two_pin_verdict` / `Mc2Component::resolved_pin_count`,
-/// both in `semantic/component`); this list is kept for parse-time sites that
-/// hold only a class *name* and cannot resolve it to a definition yet
-/// (not-yet-loaded / shorthand aliases that don't resolve here).
-///
-/// ```ignore
-/// assert!(is_known_twopin_class("CAP"));
-/// assert!(is_known_twopin_class("res"));         // case-insensitive
-/// assert!(is_known_twopin_class("DIO.ESD"));     // dotted head hit
-/// assert!(is_known_twopin_class("IND.FERRITE"));
-/// assert!(!is_known_twopin_class("LPA"));
-/// assert!(!is_known_twopin_class("FLASH"));
-/// ```
-pub fn is_known_twopin_class(class_name: &str) -> bool {
-    let u = class_name.to_uppercase();
-    if TWOPIN_CLASS_KEYWORDS.contains(&u.as_str()) {
-        return true;
-    }
-    if let Some((head, _)) = u.split_once('.') {
-        if TWOPIN_CLASS_KEYWORDS.contains(&head) {
-            return true;
-        }
-    }
-    false
-}
 
 /// Normalize shorthand class name to the canonical name actually registered in CMIE,
 /// returns None if no match
@@ -209,11 +158,12 @@ pub fn canonicalize_class_alias_bare_call(class_name: &str) -> Option<String> {
 ///     count is decidable from the def;
 ///   - `None` when it can't be decided from a def — the name is unresolvable
 ///     (not yet loaded), resolves to a net/module (not a component), or its
-///     dynamic pins reference a param with no default. Callers fall back to
-///     [`is_known_twopin_class`].
+///     dynamic pins reference a param with no default.
 ///
-/// This is the def-driven replacement for the whitelist: it answers "is the
-/// class two pins?" from the definition's `pins`, not from a name list.
+/// Callers treat `None` as *not* two-pin (conservative, def-driven default):
+/// a class that can't be resolved to a definition at this point must not be
+/// special-cased as two-pin by name — the generic component/FuncCall path
+/// handles it, and a net/module name (e.g. `DC`/`GND`) is never a 2-pin part.
 pub fn two_pin_class_from_def(
     ctx: &impl NameResolver,
     class_name: &McIds,
@@ -554,51 +504,6 @@ mod tests {
     }
 
     // ── ★ P0-2 tests ──────────────────────────────────────────────────────
-
-    #[test]
-    fn twopin_class_exact_match() {
-        // Originally hard-coded in mc_phrase.rs's list
-        assert!(is_known_twopin_class("CAP"));
-        assert!(is_known_twopin_class("RES"));
-        assert!(is_known_twopin_class("IND"));
-        assert!(is_known_twopin_class("DIODE"));
-        assert!(is_known_twopin_class("LED"));
-        assert!(is_known_twopin_class("FUSE"));
-        // Aliases added in P0-2
-        assert!(is_known_twopin_class("DIO"));
-        assert!(is_known_twopin_class("ESD"));
-        assert!(is_known_twopin_class("ZENER"));
-        assert!(is_known_twopin_class("PULLUP"));
-        assert!(is_known_twopin_class("PULLDOWN"));
-    }
-
-    #[test]
-    fn twopin_class_case_insensitive() {
-        assert!(is_known_twopin_class("cap"));
-        assert!(is_known_twopin_class("Res"));
-        assert!(is_known_twopin_class("esd"));
-    }
-
-    #[test]
-    fn twopin_class_dotted_head() {
-        // In a typical project, when `DIO.ESD dio1` is registered, class.name == "DIO.ESD"
-        // mc_phrase's is_known_2pin_class should hit
-        assert!(is_known_twopin_class("DIO.ESD"));
-        assert!(is_known_twopin_class("DIO.ZENER"));
-        assert!(is_known_twopin_class("DIO.SCHOTTKY"));
-        assert!(is_known_twopin_class("IND.FERRITE"));
-    }
-
-    #[test]
-    fn twopin_class_negatives() {
-        // Multi-pin components must not be misjudged
-        assert!(!is_known_twopin_class("LPA"));
-        assert!(!is_known_twopin_class("FLASH"));
-        assert!(!is_known_twopin_class("SPEAKER"));
-        assert!(!is_known_twopin_class("US513"));
-        assert!(!is_known_twopin_class("LDO.SGM")); // SGM not in the table
-        assert!(!is_known_twopin_class(""));
-    }
 
     #[test]
     fn alias_resolves_to_canonical() {

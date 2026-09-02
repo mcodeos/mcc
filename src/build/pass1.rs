@@ -159,6 +159,13 @@ pub fn mcb_parse_all_modules() {
         }
     }
 
+    // T6-②: every load / edit round converges here (types were registered at
+    // add-time, modules above) — stamp one journal version when this round
+    // actually mutated the definition space (design §10: each load/change
+    // writes `(version, alive-set)`). A clean all-skip round mutates nothing
+    // and stays silent, so the journal only records real def-space changes.
+    crate::db::defregistry::checkpoint_if_changed();
+
     // ★ Validation: run PostParse checks after all modules parsed.
     //
     // diagnostic_log appends (no dedup), so a validator result may only be

@@ -52,6 +52,10 @@ pub fn mcb_add(uri: &McURI) {
             .sources
             .insert(canonical_uri.clone(), SourceDomain::Project);
     }
+    // T6-②: a single disk-file load round is self-contained (parse_pass1
+    // derives modules too) — stamp one journal version when it changed the
+    // definition space.
+    crate::db::defregistry::checkpoint_if_changed();
 }
 
 // === pub fn mcb_add_from_string(uri: &McURI, content: &str) { ===
@@ -421,6 +425,9 @@ pub fn mcb_remove(uri: &McURI) {
     for key in extra_keys {
         binding.remove(&key);
     }
+    // T6-②: file-remove round end — stamp one journal version when the
+    // removal tombstoned any definition (design §10: each load/change).
+    crate::db::defregistry::checkpoint_if_changed();
 }
 
 // === fn remove_defines(uri: &McURI) { ===

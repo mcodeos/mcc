@@ -31,6 +31,24 @@ fn build_dianlu(src: &str) -> mcc::DianLu {
     mcc::mcc_build_dianlu(&ident, &uri, 1000).expect("mcc_build_dianlu")
 }
 
+/// T4 read-side: a component pin's stable member id. Prefers the registry
+/// ledger (the lane layer's authority); falls back to declaration order for
+/// defs that never reached the world registry (same fallback as `lane.rs`).
+fn pin_member_id(comp: &mcc::McComponentInst, name: &str) -> Option<mcc::DefMemberId> {
+    if !comp.def.uri.is_empty() {
+        let sn = mcc::McSpaceName::new(&comp.def.name, comp.def.uri.clone());
+        if let Some(id) = mcc::def_member_id_of(&sn, mcc::DefKind::Component, name) {
+            return Some(id);
+        }
+    }
+    comp.def
+        .pins
+        .decl_order
+        .iter()
+        .position(|pid| pid == name)
+        .map(|ord| mcc::DefMemberId(ord as u32))
+}
+
 /// `point.net()` and `net.fanout(point)`: a broadcast
 /// `c[1:2].Cap([VDD, GND])` unions each member pin with its scalar endpoint.
 /// The VDD net holds VDD + c1.1 + c2.1; every one of those points resolves
@@ -60,7 +78,7 @@ module main {
     let view = mcc::TreeView::new(dl.arena(), dl.store());
     let c1 = view.components(tree).find(|c| c.name == "c1").unwrap();
     let c2 = view.components(tree).find(|c| c.name == "c2").unwrap();
-    let pin1 = c1.def.pins.ledger.id_of("1").unwrap();
+    let pin1 = pin_member_id(c1, "1").unwrap();
     let vdd_ord = tree.ports.iter().position(|p| p.name == "VDD").unwrap();
     let p_vdd = mcc::PointId {
         node: tree.node_id.unwrap(),

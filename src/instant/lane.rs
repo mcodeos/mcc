@@ -19,8 +19,12 @@
 //! trunk (contract: trunk count = statement count).
 //!
 //! Physical points are [`PointId`] = `(NodeId, DefMemberId)` (design §4, D1):
-//! component pins (device node + def pin ledger id) and module ports (module
-//! node + port ordinal, the port-ordinal convention). Interface members,
+//! component pins (device node + def member id) and module ports (module
+//! node + port member id). Module ports take their member id from the def's
+//! registry-owned ledger (T4) for child instances; the root module's io
+//! ports are the circuit boundary and stay positionally anchored, so a
+//! boundary rename is a label-only change (world-equivalence §10.3).
+//! Interface members,
 //! labels and bus members are not physical points — they resolve to `None`
 //! for now (interface members bind to their pin / port in the description
 //! layer, Phase G; net-anchored labels are a Phase G step), and the lane
@@ -35,13 +39,14 @@
 //! still emit no lanes.
 
 use crate::db::defmember::DefMemberId;
+use crate::db::defregistry::{self, DefKind};
 use crate::instant::arena::NodeArena;
 use crate::instant::identity::{IdentityRegistry, NodeId};
 use crate::instant::inststore::{InstanceStore, TreeView};
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_mod::McModuleInst;
 use crate::instant::mc_net::{ConnectionInst, NetPoint};
-use crate::semantic::common::SourcePos;
+use crate::semantic::common::{McSpaceName, SourcePos};
 use std::collections::{HashMap, HashSet};
 
 /// Global physical point: circuit node + stable pin ordinal (invariant C).
@@ -116,11 +121,14 @@ pub fn collect_stmt_trunks(
 ) -> Vec<Trunk> {
     let view = TreeView::new(arena, store);
     let mut trunks: Vec<Trunk> = Vec::new();
-    collect_module(root, &view, &mut trunks);
+    // The root module is the circuit's own boundary: its io ports are
+    // positionally anchored (see `resolve_port_ordinal`), every nested
+    // module is a child whose ports take ledger identities.
+    collect_module(root, &view, &mut trunks, true);
     trunks
 }
 
-fn collect_module(inst: &McModuleInst, view: &TreeView, out: &mut Vec<Trunk>) {
+fn collect_module(inst: &McModuleInst, view: &TreeView, out: &mut Vec<Trunk>, is_root: bool) {
     // One trunk per source statement (contract: trunk count = statement
     // count): the engine may explode one statement into several connections
     // (chain pairs, vector broadcasts) that share the statement's source
@@ -137,10 +145,17 @@ fn collect_module(inst: &McModuleInst, view: &TreeView, out: &mut Vec<Trunk>) {
         }
     }
     for (span, conns) in groups {
-        out.push(trunk_from_connections(inst, span, conns, out.len(), view));
+        out.push(trunk_from_connections(
+            inst,
+            span,
+            conns,
+            out.len(),
+            view,
+            is_root,
+        ));
     }
     for sub in view.sub_modules(inst) {
-        collect_module(sub, view, out);
+        collect_module(sub, view, out, false);
     }
 }
 
@@ -169,6 +184,7 @@ fn trunk_from_connections(
     conns: Vec<&ConnectionInst>,
     id: usize,
     view: &TreeView,
+    is_root: bool,
 ) -> Trunk {
     let mut seen: HashSet<PointId> = HashSet::new();
     let mut points: Vec<(PointId, Option<String>)> = Vec::new();
@@ -191,7 +207,7 @@ fn trunk_from_connections(
         let resolved: Vec<Option<PointId>> = conn
             .points
             .iter()
-            .map(|p| resolve_point(inst, p, view))
+            .map(|p| resolve_point(inst, p, view, is_root))
             .collect();
         let members: Vec<Option<(NodeId, DefMemberId)>> = conn
             .points
@@ -396,13 +412,17 @@ fn is_bundle_point(p: &NetPoint) -> bool {
 }
 
 /// Resolve one connection point to a physical point (design §4 / §9 D item
-/// ②, port-ordinal convention):
+/// ②):
 /// - a component pin in the statement's own module scope → `(component node,
 ///   def pin ledger id)` — this also covers interface / bus members: Pass2
 ///   normalizes `U2.SPI.SCLK`, `U1.UART0.TX` and idx aliases like `G1.GPIO1`
 ///   to the physical pin path (`U2.1` etc.), so the leaf is a ledger pin id;
-/// - the module's own port (`A`, owner-less) or a sub-module port
-///   (`sub1.clk`) → `(module node, port ordinal in the module's port table)`.
+/// - a sub-module port (`sub1.clk`) → `(child module node, port member id
+///   from the child def's ledger)`;
+/// - the scope module's own port (`A`, owner-less) → `(module node, port
+///   member id)` — for the root module the port ordinal is used directly
+///   (the circuit boundary anchors positionally, so a boundary rename is a
+///   label-only change; see [`resolve_port_ordinal`]).
 ///
 /// Returns `None` only for non-physical points: an owner-less path that is
 /// not a module port (a bare net label), an unknown owner, or an unresolvable
@@ -414,14 +434,21 @@ fn is_bundle_point(p: &NetPoint) -> bool {
 /// the derived net layer then merges a parent net with the sub-module's
 /// internal net through the port (the boundary is transparent to
 /// connectivity).
-fn resolve_point(inst: &McModuleInst, p: &NetPoint, view: &TreeView) -> Option<PointId> {
+fn resolve_point(
+    inst: &McModuleInst,
+    p: &NetPoint,
+    view: &TreeView,
+    is_root: bool,
+) -> Option<PointId> {
     match &p.owner {
         Some(owner) => {
             if let Some(comp) = view.components(inst).find(|c| c.name == owner.as_str()) {
                 resolve_comp_pin(comp, p)
             } else if let Some(sub) = view.sub_modules(inst).find(|s| s.name == owner.as_str()) {
                 let port_name = p.path.rsplit('.').next().unwrap_or(&p.path);
-                resolve_port_ordinal(sub, port_name)
+                // A referenced sub-module is always a child instance — its
+                // ports take ledger identities (never the circuit boundary).
+                resolve_port_ordinal(sub, port_name, false)
             } else {
                 None
             }
@@ -429,17 +456,42 @@ fn resolve_point(inst: &McModuleInst, p: &NetPoint, view: &TreeView) -> Option<P
         // Owner-less points: the module's own port (found in the port table)
         // or a bare net label that is not a port (left unresolved — a
         // net-anchored label needs the label's own physical anchor, a Phase G
-        // description-layer step).
-        None => resolve_port_ordinal(inst, &p.path),
+        // description-layer step). The scope module's own ports are the
+        // circuit boundary exactly when this scope is the root module.
+        None => resolve_port_ordinal(inst, &p.path, is_root),
     }
 }
 
-/// Component pin → `(device node, def pin ledger id)`.
+/// Component pin → `(device node, def member id)`. The id comes from the
+/// component def's registry-owned account ledger (T4) — stable across
+/// re-parses, so a mid-table pin insert across def edits never shifts later
+/// pins' `PointId`s (invariant C).
 fn resolve_comp_pin(comp: &McComponentInst, p: &NetPoint) -> Option<PointId> {
     let node = comp.node_id?;
     let pin_name = p.path.rsplit('.').next().unwrap_or(&p.path);
-    let pin = comp.def.pins.ledger.id_of(pin_name)?;
+    let pin = comp_pin_member_id(comp, pin_name)?;
     Some(PointId { node, pin })
+}
+
+/// The stable member id of a component pin: the def's registry-owned ledger
+/// first (T4; the ledger merges by name across re-parse), with a fallback to
+/// the parse artifact's declaration order for defs the registry does not
+/// hold — synthetic component defs and directly-constructed instances in
+/// tests never pass through `register`, so their ids follow the historical
+/// first-registration order (identical to a fresh ledger).
+fn comp_pin_member_id(comp: &McComponentInst, pin_name: &str) -> Option<DefMemberId> {
+    if !comp.def.uri.is_empty() {
+        let sn = McSpaceName::new(&comp.def.name, comp.def.uri.clone());
+        if let Some(id) = defregistry::def_member_id_of(&sn, DefKind::Component, pin_name) {
+            return Some(id);
+        }
+    }
+    comp.def
+        .pins
+        .decl_order
+        .iter()
+        .position(|pid| pid == pin_name)
+        .map(|ord| DefMemberId(ord as u32))
 }
 
 /// Whether a point is a member of a declared vector instance (plan §9 D item
@@ -460,21 +512,46 @@ fn vector_member(
     let comp = view.components(inst).find(|c| c.name == owner)?;
     let node = comp.node_id?;
     let pin_name = p.path.rsplit('.').next().unwrap_or(&p.path);
-    let pin = comp.def.pins.ledger.id_of(pin_name)?;
+    let pin = comp_pin_member_id(comp, pin_name)?;
     Some((vec.node_id?, pin, PointId { node, pin }))
 }
 
-/// Module port → `(module node, port ordinal)` — the port-ordinal
-/// convention: a module's own port is the module node plus the port's
-/// position in the module's port table. Ports are not def pins (no member
-/// ledger), so the ordinal doubles as the pin slot of the module node.
-fn resolve_port_ordinal(module: &McModuleInst, port_name: &str) -> Option<PointId> {
+/// Module port → `(module node, port member id)`. A module's own port is the
+/// module node plus the port's id in the module def's registry-owned port
+/// ledger (synced from the built port table at instantiation); ports are not
+/// def pins, but their ledger plays the same role — a port inserted
+/// mid-table across def edits no longer shifts the later ports' ids
+/// (invariant C). The root module instance is the exception: its io ports
+/// are the circuit's physical boundary, where a rename is a pure label
+/// change (world-equivalence §10.3), so they stay anchored by their
+/// positional ordinal in the built port table (`positional_boundary = true`).
+/// The positional ordinal is also the fallback when a child def is not a
+/// registered identity (func-expanded synthetic modules) or its ledger was
+/// never synced (defect/error paths) — on a fresh registration the ledger id
+/// equals that ordinal, so the fallback is behavior-neutral.
+fn resolve_port_ordinal(
+    module: &McModuleInst,
+    port_name: &str,
+    positional_boundary: bool,
+) -> Option<PointId> {
     let node = module.node_id?;
+    let pin = if positional_boundary {
+        port_ordinal_fallback(module, port_name)
+    } else if !module.def_uri.is_empty() {
+        let sn = McSpaceName::new(&module.def.name, module.def_uri.clone());
+        defregistry::def_member_id_of(&sn, DefKind::Module, port_name)
+            .or_else(|| port_ordinal_fallback(module, port_name))
+    } else {
+        port_ordinal_fallback(module, port_name)
+    }?;
+    Some(PointId { node, pin })
+}
+
+/// Historical positional port ordinal — `port_name`'s slot in the module's
+/// built port table (see [`resolve_port_ordinal`]).
+fn port_ordinal_fallback(module: &McModuleInst, port_name: &str) -> Option<DefMemberId> {
     let ord = module.ports.iter().position(|p| p.name == port_name)?;
-    Some(PointId {
-        node,
-        pin: DefMemberId(ord as u32),
-    })
+    Some(DefMemberId(ord as u32))
 }
 
 // ============================================================================

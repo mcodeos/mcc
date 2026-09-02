@@ -118,8 +118,8 @@ impl McComponent {
     ///
     /// Returns `Some(true/false)` when the def decides, or `None` when a
     /// dynamic range references a param that has no integer default — the
-    /// count is unknowable without an instance, and callers fall back to the
-    /// class-name list instead of guessing.
+    /// count is unknowable without an instance, and callers treat it as *not*
+    /// two-pin rather than guessing from the class name.
     pub(crate) fn two_pin_verdict(&self) -> Option<bool> {
         if !self.pins.has_dynamic_pins() {
             return Some(self.pins.count() == 2);
@@ -702,14 +702,13 @@ impl Mc2Component {
     /// (parameter-range) pins resolved against this instance's bound params.
     ///
     /// `None` when a dynamic range references a param that isn't bound to an
-    /// integer here — the count is unknowable at this stage and callers must
-    /// fall back conservatively rather than guessing from the class name.
+    /// integer here — the count is unknowable at this stage and callers treat
+    /// it as *not* two-pin rather than guessing from the class name.
     /// Conditional pin blocks are deliberately not folded in: a part whose
     /// *base* pin count is what decides two-pin topology here.
     ///
-    /// This is the def-driven replacement for the parse-time class-name
-    /// two-pin whitelist (`naming::is_known_twopin_class`): "is the class two
-    /// pins?" is answered by counting the class's real pins, not its name.
+    /// This is the def-driven "is the class two pins?" — answered by counting
+    /// the class's real pins, never from a class-name whitelist.
     pub(crate) fn resolved_pin_count(&self) -> Option<usize> {
         if !self.base.pins.has_dynamic_pins() {
             return Some(self.base.pins.count());

@@ -141,6 +141,13 @@ pub struct WorkspaceManager {
     // Phase 8 (D14): per-world def resolution edges (out + rev dependents),
     // recorded at the single resolution bridge.
     pub(crate) refgraph: crate::db::refgraph::DefRefGraph,
+    // Phase 5 (T3, defspace-id-core-plan): this world's definition registry —
+    // the whole definition identity layer (id counter, key→id index, entry
+    // arena, system name index, checkpoint journal). The free defregistry API
+    // serves the active (process-global) world's registry; every instance owns
+    // its own state, so world create / switch / unload drive the lifecycle
+    // (snapshot / tombstone / restore) on the instance that owns the world.
+    pub(crate) registry: crate::db::defregistry::RegistryState,
 }
 
 impl WorkspaceManager {
@@ -165,6 +172,7 @@ impl WorkspaceManager {
             blibs: DashMap::new(),
             visibility: DashMap::new(),
             refgraph: crate::db::refgraph::DefRefGraph::new(),
+            registry: crate::db::defregistry::RegistryState::default(),
         }
     }
 
@@ -236,15 +244,6 @@ impl WorkspaceManager {
     // Clear current active workspace
     // ================================================================
 
-    /// Is this the process-global active workspace? The definition registry is
-    /// process-global state tied to the single active workspace, so the
-    /// lifecycle sync (tombstone project defs / restore a snapshot) runs only
-    /// for the real [`WORKSPACE`] — tests that construct isolated
-    /// [`WorkspaceManager`]s must not touch it.
-    fn is_process_global(&self) -> bool {
-        std::ptr::eq(self, &*WORKSPACE)
-    }
-
     pub fn clear_active(&self) {
         self.mcodes.clear();
         self.modules.clear();
@@ -260,14 +259,16 @@ impl WorkspaceManager {
         self.blibs.clear();
         self.visibility.clear();
         self.refgraph.clear();
-        // The definition registry drops every identity — project and loaded
-        // system libs alike — as tombstones (Phase 5 makes the libs
-        // per-world): a later re-load revives them under the same DefId, and
-        // the "deleted vs never existed" distinction survives (design §9
-        // Phase B).
-        if self.is_process_global() {
-            crate::db::defregistry::mark_all_tombstones();
-        }
+        // This world's own definition registry drops every identity — project
+        // and loaded system libs alike — as tombstones (Phase 5 makes the
+        // libs per-world): a later re-load revives them under the same DefId,
+        // and the "deleted vs never existed" distinction survives (design §9
+        // Phase B). Each instance tombstones its own registry, so isolated
+        // test workspaces never touch the process-global one.
+        self.registry.mark_all_tombstones();
+        // T6-②: world clear / switch-away round end — the tombstone sweep
+        // changed the definition space; stamp it so the drop is diffable.
+        self.registry.checkpoint_if_changed();
     }
 
     // ================================================================
@@ -349,12 +350,9 @@ impl WorkspaceManager {
         let refgraph = self.refgraph.clone();
         self.refgraph.clear();
         // Phase 5: the registry's system-library segment follows the world.
-        // Captured before the registry is tombstoned by `clear_active`.
-        let system_defs = if self.is_process_global() {
-            crate::db::defregistry::snapshot_system()
-        } else {
-            Vec::new()
-        };
+        // Captured from this world's own registry before it is tombstoned by
+        // `clear_active`.
+        let system_defs = self.registry.snapshot_system();
         let diagnostics = self.diagnostics.lock().unwrap().take();
 
         let snap = WorkspaceSnapshot {
@@ -405,22 +403,24 @@ impl WorkspaceManager {
 
         *self.diagnostics.lock().unwrap() = snap.diagnostics;
 
-        // Re-register the restored definitions in the registry (project
-        // domain, no physical write — the tables above are already filled).
-        // Tombstoned identities revive under their original DefId; a system
-        // def shadowed by this workspace is taken over (workspace-first).
-        if self.is_process_global() {
-            crate::db::defregistry::restore_workspace(
-                &self.components,
-                &self.modules,
-                &self.interfaces,
-                &self.enums,
-                &self.defines,
-            );
-            // Phase 5: restore the world's system-library segment alongside
-            // its project defs.
-            crate::db::defregistry::restore_system(snap.system_defs);
-        }
+        // Re-register the restored definitions in this world's own registry
+        // (project domain, no physical write — the tables above are already
+        // filled). Tombstoned identities revive under their original DefId; a
+        // system def shadowed by this workspace is taken over
+        // (workspace-first).
+        self.registry.restore_workspace(
+            &self.components,
+            &self.modules,
+            &self.interfaces,
+            &self.enums,
+            &self.defines,
+        );
+        // Phase 5: restore the world's system-library segment alongside its
+        // project defs.
+        self.registry.restore_system(snap.system_defs);
+        // T6-②: world-restore round end — the restored defs revived in this
+        // world's registry; stamp one version capturing the switched-to world.
+        self.registry.checkpoint_if_changed();
     }
 }
 

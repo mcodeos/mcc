@@ -689,26 +689,22 @@ impl McFuncCall {
                                 if let Some(class_ids) =
                                     cls.get_sub_node().and_then(|cid| McIds::new(&cid))
                                 {
-                                    let fname = class_ids.to_string();
-                                    // Def-driven: read the resolved class's
-                                    // real pins; name list is only a fallback
-                                    // for names that don't resolve to a def yet.
+                                    // Def-driven: read the resolved class's real
+                                    // pins. A class that doesn't resolve to a
+                                    // component def (net type like DC/GND, not
+                                    // yet loaded) is *not* treated as two-pin by
+                                    // name — it falls to the generic path.
                                     let is_twopin =
                                         crate::vector::graph::naming::two_pin_class_from_def(
                                             &DB,
                                             &class_ids,
                                             context.uri(),
                                         )
-                                        .unwrap_or_else(
-                                            || {
-                                                crate::vector::graph::naming::is_known_twopin_class(
-                                                    &fname,
-                                                )
-                                            },
-                                        );
+                                        .unwrap_or(false);
                                     mcc_dbg!(
                                         "sem::fcall",
-                                        "[FCALL-CALLER-DBG] fname={fname} is_twopin={is_twopin}"
+                                        "[FCALL-CALLER-DBG] fname={} is_twopin={is_twopin}",
+                                        class_ids
                                     );
                                     if is_twopin {
                                         let mut params: Vec<McParamValue> = Vec::new();
@@ -1511,17 +1507,17 @@ impl McFuncCall {
         // anonymous components at parse time. Instead, preserve as FuncCall so that
         // the instantiation phase can properly auto-name and wire them.
         if caller.is_none() {
-            let func_name_str = func_name.to_string();
-            // Two-pin classes (real pins read from the resolved def, with the
-            // class-name list as fallback) keep the FuncCall form so Pass2 can
-            // auto-name/wire them; non-two-pin classes try the eager anonymous
-            // endpoint path below.
+            // Two-pin classes (real pins read from the resolved def) keep the
+            // FuncCall form so Pass2 can auto-name/wire them; non-two-pin
+            // classes try the eager anonymous endpoint path below. A class that
+            // doesn't resolve to a component def is *not* treated as two-pin by
+            // name.
             let is_twopin = crate::vector::graph::naming::two_pin_class_from_def(
                 &DB,
                 &func_name,
                 context.uri(),
             )
-            .unwrap_or_else(|| crate::vector::graph::naming::is_known_twopin_class(&func_name_str));
+            .unwrap_or(false);
             if !is_twopin {
                 if let Some(cmie) = resolve_cmie(&DB, &func_name, context.uri()) {
                     match cmie {
@@ -1951,11 +1947,11 @@ impl McFuncCall {
 
         let fname = func_name?;
         let fname_str = fname.to_string();
-        // Two-pin-ness is def-driven (resolved class's real pins); the class-
-        // name list is only a fallback when the name doesn't resolve to a def.
+        // Two-pin-ness is def-driven (resolved class's real pins); a class that
+        // doesn't resolve to a component def is *not* treated as two-pin by name.
         let is_twopin =
             crate::vector::graph::naming::two_pin_class_from_def(&DB, &fname, context.uri())
-                .unwrap_or_else(|| crate::vector::graph::naming::is_known_twopin_class(&fname_str));
+                .unwrap_or(false);
         if is_twopin {
             // ── Construction-arg bind check (two-pin path) ────────────────
             // `CAP(...).Cap(...)` bypasses the with_params creation points
