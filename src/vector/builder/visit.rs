@@ -1196,6 +1196,13 @@ impl<'a> McVecBuilder<'a> {
                             let right = trunk_end_from_id(self.inst_table, pairs[0].right, &base);
                             let mut trunk = Trunk::new(id, base.clone(), kind, left, right);
                             trunk.op = pairs.iter().find_map(|p| p.op);
+                            // Net-level approximation: a trunk's overall dir is its
+                            // first pair's (the source end of the chain). Since the
+                            // edge-granularity change every pair carries its own
+                            // edge-level dir, so a mixed-direction trunk (I1->I2<-I3)
+                            // keeps the first pair's dir here while each member lane
+                            // below takes the pair that produced it (§8.9.5 per-member
+                            // dir).
                             trunk.dir = pairs.first().map(|p| p.dir).unwrap_or(ConnDir::Undirected);
                             // §8.9.4: carry the standardized interface class
                             // (e.g. "UART.TTL") onto both trunk ends; Bus/List/

@@ -203,7 +203,9 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
     let mut net = if max_freq > 1 {
         build_star_topology(nid, net_name, pairs, &freq, max_freq)
     } else {
-        build_chain_topology(nid, net_name, pairs)
+        // `dir` (majority vote, :179 above) drives the chain start so directed
+        // nets render from the driver end.
+        build_chain_topology(nid, net_name, pairs, dir)
     };
 
     // ★ Fill NetShape for all non-lane branches
@@ -373,8 +375,36 @@ fn pick_chain_start(adj: &HashMap<i64, Vec<i64>>) -> Option<i64> {
         .min()
 }
 
-/// Order the chain along directed edges: start from the first left, walk left→right.
-fn order_by_direction(pairs: &[ConnPair], _dir: ConnDir) -> Option<Vec<i64>> {
+/// Degree-1 endpoint that is a flow **source**: it appears as some pair's
+/// `left` and never as any pair's `right`. `ConnPair.left/right` are always
+/// source-first (visit.rs builds them from source-first points for BOTH `->`
+/// and `<-`), so this endpoint is the driver end of a directed chain.
+/// Smallest id wins for determinism (same rationale as `pick_chain_start`).
+/// Returns `None` when the net is a directed ring or every degree-1 node is a
+/// sink — callers fall back to `pick_chain_start`.
+fn directed_chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair]) -> Option<i64> {
+    let lefts: std::collections::HashSet<i64> = pairs.iter().map(|p| p.left).collect();
+    let rights: std::collections::HashSet<i64> = pairs.iter().map(|p| p.right).collect();
+    adj.iter()
+        .filter(|(_, neighbors)| neighbors.len() == 1)
+        .map(|(&id, _)| id)
+        .filter(|id| lefts.contains(id) && !rights.contains(id))
+        .min()
+}
+
+/// Direction-aware chain start: for a directed net, prefer the driver end
+/// (`directed_chain_start`); undirected keeps the classic P7-4 smallest
+/// degree-1 (reproducibility unaffected by render direction).
+fn chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair], dir: ConnDir) -> Option<i64> {
+    if dir == ConnDir::Undirected {
+        pick_chain_start(adj)
+    } else {
+        directed_chain_start(adj, pairs).or_else(|| pick_chain_start(adj))
+    }
+}
+
+/// Order the chain along directed edges: start from the driver end, walk left→right.
+fn order_by_direction(pairs: &[ConnPair], dir: ConnDir) -> Option<Vec<i64>> {
     if pairs.is_empty() {
         return Some(vec![]);
     }
@@ -389,8 +419,9 @@ fn order_by_direction(pairs: &[ConnPair], _dir: ConnDir) -> Option<Vec<i64>> {
         adj.entry(pair.right).or_default().push(pair.left);
     }
 
-    // Find a degree-1 node to use as the start (smallest id; see pick_chain_start)
-    let start = pick_chain_start(&adj)?;
+    // Directed nets walk from the driver (source) end; undirected stays on the
+    // P7-4 smallest degree-1 start (see pick_chain_start).
+    let start = chain_start(&adj, pairs, dir)?;
 
     let mut chain = vec![start];
     let mut visited: std::collections::HashSet<i64> = std::collections::HashSet::new();
@@ -474,8 +505,8 @@ fn build_star_topology(
 /// A ── B ── C
 /// ```
 /// → `McVecNet { nets: [McVec([A]), McVec([B]), McVec([C])] }`
-fn build_chain_topology(nid: i64, net_name: String, pairs: &[ConnPair]) -> McVecNet {
-    let chain = order_chain(pairs);
+fn build_chain_topology(nid: i64, net_name: String, pairs: &[ConnPair], dir: ConnDir) -> McVecNet {
+    let chain = order_chain(pairs, dir);
     let vecs: Vec<McVec> = chain.into_iter().map(McVec::single).collect();
     McVecNet::new(nid, net_name, vecs)
 }
@@ -483,7 +514,7 @@ fn build_chain_topology(nid: i64, net_name: String, pairs: &[ConnPair]) -> McVec
 /// Order connection pairs into a sorted chain
 ///
 /// Input: `[(A,B), (B,C)]` (may be out of order) → Output: `[A, B, C]` (sorted)
-fn order_chain(pairs: &[ConnPair]) -> Vec<i64> {
+fn order_chain(pairs: &[ConnPair], dir: ConnDir) -> Vec<i64> {
     if pairs.is_empty() {
         return vec![];
     }
@@ -498,10 +529,12 @@ fn order_chain(pairs: &[ConnPair]) -> Vec<i64> {
         adj.entry(pair.right).or_default().push(pair.left);
     }
 
-    // Find degree-1 node (start of chain) — ★ P7-4 [DET]: the smallest id, so
-    // HashMap iteration order cannot decide chain direction (direction affects
-    // McVec.nets order → render order).
-    let start = pick_chain_start(&adj);
+    // Find the degree-1 start — ★ P7-4 [DET]: the smallest id, so HashMap
+    // iteration order cannot decide chain direction (direction affects
+    // McVec.nets order → render order). Directed nets additionally prefer the
+    // driver (source) end so a flow chain renders source→sink even when the
+    // sink's id is smaller; undirected keeps the plain P7-4 start.
+    let start = chain_start(&adj, pairs, dir);
 
     let start = match start {
         Some(s) => s,
@@ -650,5 +683,76 @@ mod tests {
         let shape = build_net_shape(ConnDir::LtoR, &pairs, &nets);
         assert_eq!(shape.groups, vec![GroupRole::Scalar, GroupRole::Scalar]);
         assert!(shape.is_bus_lane());
+    }
+
+    // ── Direction-aware ordering ─────────────────────────────────────────
+
+    /// A directed LtoR chain whose smallest degree-1 id is the SINK must start
+    /// from the DRIVER end: `[(5,3),(3,1)]` has degree-1 = {1,5}, min id = 1 =
+    /// sink, yet the flow source (left-not-right) is 5 → order `[5,3,1]`.
+    #[test]
+    fn directed_ltr_starts_from_driver_not_min_degree1() {
+        let pairs = vec![
+            ConnPair::plain_with_dir(5, 3, ConnDir::LtoR),
+            ConnPair::plain_with_dir(3, 1, ConnDir::LtoR),
+        ];
+        assert_eq!(
+            order_chain(&pairs, ConnDir::LtoR),
+            vec![5, 3, 1],
+            "directed chain must render source→sink"
+        );
+        assert_eq!(
+            order_chain(&pairs, ConnDir::Undirected),
+            vec![1, 3, 5],
+            "undirected keeps P7-4 smallest degree-1 start"
+        );
+    }
+
+    /// RtoL pairs are source-first too (visit.rs swaps), so the driver end is
+    /// still a left-not-right endpoint: `[(9,4),(4,2)]` → `[9,4,2]`.
+    #[test]
+    fn directed_rtl_starts_from_driver() {
+        let pairs = vec![
+            ConnPair::plain_with_dir(9, 4, ConnDir::RtoL),
+            ConnPair::plain_with_dir(4, 2, ConnDir::RtoL),
+        ];
+        assert_eq!(order_chain(&pairs, ConnDir::RtoL), vec![9, 4, 2]);
+    }
+
+    /// A directed ring has no degree-1 node: `directed_chain_start` and
+    /// `pick_chain_start` both return None → fall back to ordered collection
+    /// with no dropped points.
+    #[test]
+    fn directed_ring_falls_back_without_dropping() {
+        let pairs = vec![
+            ConnPair::plain_with_dir(1, 2, ConnDir::LtoR),
+            ConnPair::plain_with_dir(2, 3, ConnDir::LtoR),
+            ConnPair::plain_with_dir(3, 1, ConnDir::LtoR),
+        ];
+        let order = order_chain(&pairs, ConnDir::LtoR);
+        assert_eq!(order.len(), 3, "no dropped points on a directed ring");
+        for id in [1, 2, 3] {
+            assert!(order.contains(&id), "ring member {id} missing");
+        }
+    }
+
+    /// A multi-component directed group (same-name net merge, e.g. two `VCC`
+    /// chains) must keep every point: the primary component walks from its
+    /// driver, the second component is appended in first-appearance order.
+    #[test]
+    fn directed_multi_component_no_dropped_points() {
+        let pairs = vec![
+            ConnPair::plain_with_dir(5, 3, ConnDir::LtoR),
+            ConnPair::plain_with_dir(3, 1, ConnDir::LtoR),
+            ConnPair::plain_with_dir(8, 7, ConnDir::LtoR),
+        ];
+        let order = order_chain(&pairs, ConnDir::LtoR);
+        assert_eq!(order.len(), 5, "all points across both components kept");
+        assert_eq!(&order[..3], &[5, 3, 1], "first component source→sink");
+        assert_eq!(
+            &order[3..],
+            &[8, 7],
+            "second component source→sink appended"
+        );
     }
 }

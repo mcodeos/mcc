@@ -26,6 +26,7 @@
 //! now holds exactly one layouter. The scoring helpers (`compute_fidelity`,
 //! `compute_readability`) are kept and re-used by the gate.
 
+use crate::vector::graph::netdef::EndpointRef;
 use crate::vector::graph::McVecGraph;
 use crate::viz::idiom;
 use crate::viz::layout::normalize::renormalize;
@@ -335,6 +336,75 @@ fn compute_fidelity(
     graph: &McVecGraph,
     col: &crate::viz::route::audit::CollisionReport,
 ) -> FidelityReport {
+    // ── Tier 1 net-level honesty (★ M0-C) ───────────────────────────────────
+    // Builder-level dropped/partial counts (a net whose points resolved to <2
+    // in `merge_pairs_to_vecnet`) live in `vector/builder/report.rs` and are
+    // folded into the final FidelityReport by `MetricsAccumulator::finish`.
+    // A net that survived the builder reached this graph, so this render-phase
+    // function no longer fabricates 0s: it re-derives both counters from the
+    // post-route graph. The directional half is what the old M0-C note waited
+    // on — `NetShape.dir`/`order` now reach here, so driver/load extremes are
+    // read via `driver_load()` instead of guessed from merged point pairs.
+    //
+    // Classification (mirrors BuilderReport's whole-net vs partial-points split,
+    // and `snapshot_layer_truth`'s "drawable = ≥2 endpoints" rule):
+    //   dropped = drawable net with no usable route, or whose real endpoints
+    //             all failed to get an entry point
+    //   partial = drawable net with a usable route that still left a real
+    //             endpoint unreached; for a directed net this is specifically
+    //             the driver/load extreme loss (`driver_load`), for an
+    //             undirected net any lost terminal
+    // A layer whose nets were never routed here (root draws via block edges and
+    // skips the Phase 2 route stage) is not blamed: `route == None` is its
+    // expected state, not a drop. Healthy layers report 0/0 — now computed
+    // rather than hardcoded.
+    let routed_any = graph.nets.iter().any(|n| n.route.is_some());
+    let mut nets_dropped = 0usize;
+    let mut nets_partial = 0usize;
+    if routed_any {
+        let rendered = |e: &EndpointRef| -> bool {
+            graph
+                .boxes
+                .iter()
+                .find(|b| b.id == e.box_id)
+                .and_then(|b| b.find_entry(e.pin_id))
+                .is_some()
+        };
+        for net in &graph.nets {
+            if net.endpoint_count() < 2 {
+                continue; // isolated pin — nothing drawable to lose
+            }
+            let usable = net.route.as_ref().is_some_and(|r| !r.segments.is_empty());
+            let real: Vec<&EndpointRef> =
+                net.endpoints.iter().filter(|e| !e.is_synthetic()).collect();
+            let real_rendered = real.iter().filter(|e| rendered(e)).count();
+            if !usable || real_rendered == 0 {
+                nets_dropped += 1;
+                continue;
+            }
+            // Directional extreme loss: for a directed net, the arrow needs
+            // both extremes drawn. Only when both extremes are among THIS net's
+            // endpoints (a split segment carries no arrow of its own) and one
+            // of them has no entry point is the direction partly lost.
+            let lost_extreme = match &net.shape {
+                Some(shape) if shape.dir.is_directed() => {
+                    shape.driver_load().is_some_and(|(driver, load)| {
+                        [driver, load]
+                            .iter()
+                            .all(|id| real.iter().any(|e| e.pin_id == *id))
+                            && [driver, load]
+                                .iter()
+                                .any(|id| !real.iter().any(|e| e.pin_id == *id && rendered(e)))
+                    })
+                }
+                _ => false,
+            };
+            if real_rendered < real.len() || lost_extreme {
+                nets_partial += 1;
+            }
+        }
+    }
+
     let pins_total: usize = graph.boxes.iter().map(|b| b.pins.len()).sum();
     let pins_rendered: usize = graph
         .boxes
@@ -382,15 +452,9 @@ fn compute_fidelity(
 
     FidelityReport {
         nets_total: graph.nets.len(),
-        nets_rendered: graph.nets.len(),
-        // NOTE (PR-3): nets_dropped / nets_partial are still hardcoded to 0 here —
-        // the topology reconstruction that could drop a leaf lives upstream in
-        // connection.rs (`merge_pairs_to_vecnet`).
-        // ★ M0-C BLOCKED: once M0-A provides ConnDir, driver/load semantics can be
-        //   derived by majority vote over ConnPair.dir; real dropped/partial counts
-        //   can then be wired up.
-        nets_dropped: 0,
-        nets_partial: 0,
+        nets_rendered: graph.nets.len().saturating_sub(nets_dropped),
+        nets_dropped,
+        nets_partial,
         pins_total,
         pins_rendered,
         bus_bits_total,

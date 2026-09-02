@@ -55,7 +55,10 @@ impl IOType {
 ///
 /// Maps to mcrule.md §10.1:
 /// - `->` → [`ConnDir::LtoR`]
-/// - `<-` → [`ConnDir::RtoL`] (kept, not yet fully supported)
+/// - `<-` → [`ConnDir::RtoL`] — a first-class mirror of `LtoR`, not a
+///   placeholder: the parser swaps operands (`A <- B` → members `[B, A]`,
+///   source-first), so per-pair points and member order are source-first in
+///   both directions and `flipped()` recovers the render orientation.
 /// - `-` / `+` → [`ConnDir::Undirected`]
 ///
 /// §8.9.2: unified with the vector-layer `PairDir` in §8.9.7-F — the former
