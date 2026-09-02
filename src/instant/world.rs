@@ -542,7 +542,7 @@ mod tests {
                 .iter()
                 .map(|p| PointId {
                     node: NodeId(1),
-                    pin: crate::db::member_ledger::DefMemberId(*p),
+                    pin: crate::db::defmember::DefMemberId(*p),
                 })
                 .collect(),
         }
@@ -576,15 +576,15 @@ mod tests {
             points: vec![
                 PointId {
                     node: NodeId(1),
-                    pin: crate::db::member_ledger::DefMemberId(1),
+                    pin: crate::db::defmember::DefMemberId(1),
                 },
                 PointId {
                     node: NodeId(2),
-                    pin: crate::db::member_ledger::DefMemberId(1),
+                    pin: crate::db::defmember::DefMemberId(1),
                 },
                 PointId {
                     node: NodeId(3),
-                    pin: crate::db::member_ledger::DefMemberId(1),
+                    pin: crate::db::defmember::DefMemberId(1),
                 },
             ],
         }];
@@ -594,15 +594,15 @@ mod tests {
             points: vec![
                 PointId {
                     node: NodeId(2),
-                    pin: crate::db::member_ledger::DefMemberId(1),
+                    pin: crate::db::defmember::DefMemberId(1),
                 },
                 PointId {
                     node: NodeId(3),
-                    pin: crate::db::member_ledger::DefMemberId(1),
+                    pin: crate::db::defmember::DefMemberId(1),
                 },
                 PointId {
                     node: NodeId(4),
-                    pin: crate::db::member_ledger::DefMemberId(1),
+                    pin: crate::db::defmember::DefMemberId(1),
                 },
             ],
         }];

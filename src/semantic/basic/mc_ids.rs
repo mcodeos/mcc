@@ -119,6 +119,279 @@ impl From<McIda> for McIds {
     }
 }
 
+/// Parse a display string into the same segment tree the AST front end
+/// produces, so the pure-string ports (P3) have one shared text entry and no
+/// caller needs its own text re-parse.
+///
+/// The string is first split into curly-free text runs at `{...}` group
+/// boundaries (escape- and bracket-aware). Each run keeps the exact `McIda`
+/// text grammar — dots stay inline, squares and escapes parse exactly as
+/// `McIda::from` — and each curly group becomes a `Curly` segment whose
+/// members follow the AST `MCAST_OPD_CURLY` encoding: `,` / `|` separators,
+/// numeric slices (`1:3`, both sides i64) become `Slice`, bare numbers `Int`,
+/// names `Ida`. `member_set` (equivalent.rs) then expands the tree to the
+/// same ordered member list the old text post-pass (`split_curly_groups`)
+/// produced — the separation no longer has to be re-derived from text.
+///
+/// An empty curly body yields an empty `Curly` segment, whose zero-width
+/// expansion removes the whole member (matching the old text pass). Braces
+/// nested inside square-bracket content or a second top-level curly group are
+/// kept literal (non-corpus shapes; the AST never produces them either).
+pub(crate) fn parse_display(display: &str) -> McIds {
+    // Locate top-level curly groups first. Escapes hide the next byte, and
+    // square content is skipped whole so `{` inside brackets stays literal.
+    let mut groups: Vec<(usize, usize)> = Vec::new();
+    let bytes = display.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'[' => {
+                let mut depth = 1usize;
+                let mut j = i + 1;
+                while j < bytes.len() && depth > 0 {
+                    match bytes[j] {
+                        b'\\' => j += 2,
+                        b'[' => {
+                            depth += 1;
+                            j += 1;
+                        }
+                        b']' => {
+                            depth -= 1;
+                            j += 1;
+                        }
+                        _ => j += 1,
+                    }
+                }
+                i = j;
+            }
+            b'{' => {
+                let mut depth = 1usize;
+                let mut j = i + 1;
+                while j < bytes.len() && depth > 0 {
+                    match bytes[j] {
+                        b'\\' => j += 2,
+                        b'{' => {
+                            depth += 1;
+                            j += 1;
+                        }
+                        b'}' => {
+                            depth -= 1;
+                            j += 1;
+                        }
+                        _ => j += 1,
+                    }
+                }
+                if depth == 0 {
+                    groups.push((i, j - 1));
+                    i = j;
+                } else {
+                    // Unbalanced brace — keep scanning; it stays literal text.
+                    i += 1;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+
+    let mut segments: Vec<IdsSegment> = Vec::new();
+    let mut prev_end = 0usize;
+    for (open, close) in groups {
+        if open > prev_end {
+            if let Some(ida) = text_run_segment(&display[prev_end..open]) {
+                segments.push(ida);
+            }
+        }
+        segments.push(IdsSegment::Curly(curly_body_segments(
+            &display[open + 1..close],
+        )));
+        prev_end = close + 1;
+    }
+    if prev_end < display.len() {
+        if let Some(ida) = text_run_segment(&display[prev_end..]) {
+            segments.push(ida);
+        }
+    }
+    McIds { segments }
+}
+
+/// Parse a curly-free text run with the exact `McIda` text grammar (squares,
+/// escapes, dots inline) and wrap it as a single `Ida` segment.
+fn text_run_segment(run: &str) -> Option<IdsSegment> {
+    if run.is_empty() {
+        return None;
+    }
+    let ida = McIda::from(run);
+    if ida.segments.is_empty() {
+        None
+    } else {
+        Some(IdsSegment::Ida(Box::new(ida)))
+    }
+}
+
+/// Split a curly body (`...` between `{` and `}`) into ordered member
+/// segments. `,` / `|` split at top level only — an escaped separator
+/// (`\|`) stays inside its member, mirroring `McIda` escape handling.
+fn curly_body_segments(body: &str) -> Vec<IdsSegment> {
+    let mut segments: Vec<IdsSegment> = Vec::new();
+    let mut token = String::new();
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                if let Some(next) = chars.next() {
+                    token.push(next);
+                }
+            }
+            ',' | '|' => {
+                push_curly_token(&mut segments, &token);
+                token.clear();
+            }
+            _ => token.push(c),
+        }
+    }
+    push_curly_token(&mut segments, &token);
+    segments
+}
+
+/// Push one trimmed curly member token with the AST `MCAST_OPD_CURLY`
+/// encoding: numeric slice → `Slice`, bare number → `Int`, name → `Ida`.
+fn push_curly_token(segments: &mut Vec<IdsSegment>, token: &str) {
+    let tok = token.trim();
+    if tok.is_empty() {
+        return;
+    }
+    // R12: a numeric slice expands to its interval at expand time; a
+    // non-numeric colon token stays a literal member.
+    if let Some((from, to)) = tok.split_once(':') {
+        if let (Ok(f), Ok(t)) = (from.trim().parse::<i64>(), to.trim().parse::<i64>()) {
+            segments.push(IdsSegment::Slice {
+                from: Box::new(McInt::from(f.to_string().as_str())),
+                to: Box::new(McInt::from(t.to_string().as_str())),
+            });
+            return;
+        }
+    }
+    if let Ok(n) = tok.parse::<i64>() {
+        segments.push(IdsSegment::Int(Box::new(McInt::from(
+            n.to_string().as_str(),
+        ))));
+    } else {
+        segments.push(IdsSegment::Ida(Box::new(McIda::from(tok))));
+    }
+}
+
+/// Split `display` at its single trailing curly member group into the base
+/// text and the ordered raw member names.
+///
+/// Structural counterpart of the old `find('{')` + prefix-strip ports
+/// (`param_name_to_inst`, `this_ref_to_bus`, `group_members`): the base is
+/// the segment text before the group and the members come straight out of the
+/// trailing `Curly` segment (R12 slices expanded by their segment, no
+/// `base.member` path to strip). Returns `None` unless the display is a
+/// non-empty curly group with non-empty base text before it.
+pub(crate) fn curly_base_members(display: &str) -> Option<(String, Vec<String>)> {
+    let ids = parse_display(display);
+    let n = ids.segments.len();
+    match ids.segments.last() {
+        Some(IdsSegment::Curly(inner)) if !inner.is_empty() && n >= 2 => {
+            let base = ids.segments[..n - 1]
+                .iter()
+                .map(ToString::to_string)
+                .collect::<String>();
+            if base.is_empty() {
+                return None;
+            }
+            let members = curly_member_names(inner);
+            if members.is_empty() {
+                None
+            } else {
+                Some((base, members))
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Raw ordered member names of a curly group: expand the group alone and drop
+/// the `.` join prefix the base would normally carry.
+fn curly_member_names(inner: &[IdsSegment]) -> Vec<String> {
+    let only = McIds {
+        segments: vec![IdsSegment::Curly(inner.to_vec())],
+    };
+    only.expand()
+        .into_iter()
+        .map(|m| m.strip_prefix('.').unwrap_or(&m).to_string())
+        .filter(|m| !m.is_empty())
+        .collect()
+}
+
+/// Split a pure-string port key / member reference (module port side) into
+/// its base name and raw declared members through the shared `parse_display`
+/// segment tree (P3) — the caller never re-splits the display text and there
+/// is no parallel text grammar.
+///
+/// Recognized canonical shapes (module port declaration keys and the member
+/// references that match them):
+///
+/// - scalar `name`           -> ("name", [])
+/// - curly `name{A, B}`      -> ("name", ["A", "B"])  (group with base text)
+/// - bare curly `{A, B}`     -> ("", ["A", "B"])
+/// - square `[A, B]`         -> ("", ["A", "B"])
+/// - named square `p[A, B]`  -> ("p", ["A", "B"])     (square inside one Ida)
+///
+/// Members are raw text: an R12 `1:2` slice token stays a single `"1:2"`
+/// member. The Pass1/Pass2 module-port width readers (`module_port_elems`,
+/// `eval_port_elems`, points.rs `expand_port_lanes`) all treat a literal
+/// slice token as one lane — `member_set` on the segment tree is the only
+/// place slices expand. This is the key/ref counterpart of
+/// [`curly_base_members`], which expands slices (member-set semantics) and
+/// requires a non-empty base.
+pub(crate) fn display_base_members(display: &str) -> (String, Vec<String>) {
+    let ids = parse_display(display);
+    // 1. Trailing curly group: the base is the segment text before it. An
+    //    empty group (`name{}`) keeps the base and contributes no members.
+    if let Some(IdsSegment::Curly(inner)) = ids.segments.last() {
+        let base = ids.segments[..ids.segments.len() - 1]
+            .iter()
+            .map(ToString::to_string)
+            .collect::<String>();
+        if inner.is_empty() {
+            return (base, Vec::new());
+        }
+        let members: Vec<String> = inner.iter().map(ToString::to_string).collect();
+        return (base, members);
+    }
+    // 2. Square content inside a single text run (parse_display keeps a
+    //    square whole inside the `Ida`, mirroring `McIda`): the base is the
+    //    run's prefix and the members are the first square group's raw items.
+    if ids.segments.len() == 1 {
+        match &ids.segments[0] {
+            IdsSegment::Square(inner) => {
+                let members: Vec<String> = inner.iter().map(ToString::to_string).collect();
+                if !members.is_empty() {
+                    return (String::new(), members);
+                }
+            }
+            IdsSegment::Ida(ida) => {
+                let mut members: Vec<String> = Vec::new();
+                for seg in &ida.segments {
+                    if let IdaSegment::Square(items) = seg {
+                        members.extend(items.iter().map(ToString::to_string));
+                        break;
+                    }
+                }
+                if !members.is_empty() {
+                    return (ida.prefix().to_string(), members);
+                }
+            }
+            _ => {}
+        }
+    }
+    // 3. Scalar (or non-canonical) display: no members, whole text as base.
+    (display.to_string(), Vec::new())
+}
+
 impl McIds {
     pub fn new(node: &AstNode) -> Option<Self> {
         // 1. MCAST_IDS
@@ -1350,5 +1623,88 @@ impl std::fmt::Display for IdsSegment {
                 write!(f, "]")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_base_members_scalar() {
+        assert_eq!(
+            display_base_members("vin"),
+            ("vin".to_string(), Vec::<String>::new())
+        );
+        assert_eq!(
+            display_base_members("@0"),
+            ("@0".to_string(), Vec::<String>::new())
+        );
+    }
+
+    #[test]
+    fn display_base_members_curly_group() {
+        // Canonical module-port key forms: named curly bus / interface ports.
+        assert_eq!(
+            display_base_members("vin{POWER_SYS, GND}"),
+            (
+                "vin".to_string(),
+                vec!["POWER_SYS".to_string(), "GND".to_string()]
+            )
+        );
+        assert_eq!(
+            display_base_members("dc{VDD_3V3, GND}"),
+            (
+                "dc".to_string(),
+                vec!["VDD_3V3".to_string(), "GND".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn display_base_members_square_group() {
+        // Square-only module-port key / reference (`dcdc.[VDD_3V3, GND]`
+        // dotted member arrives here with an empty base).
+        assert_eq!(
+            display_base_members("[VDD_3V3, GND]"),
+            (
+                String::new(),
+                vec!["VDD_3V3".to_string(), "GND".to_string()]
+            )
+        );
+        // A named square keeps the base text and its members.
+        assert_eq!(
+            display_base_members("PWR_[VDD2, GND2]"),
+            (
+                "PWR_".to_string(),
+                vec!["VDD2".to_string(), "GND2".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn display_base_members_slice_token_is_single_member() {
+        // Raw member text: a `1:2` slice stays one lane (member_set is the
+        // only place slices expand).
+        assert_eq!(
+            display_base_members("[1:2]"),
+            (String::new(), vec!["1:2".to_string()])
+        );
+    }
+
+    #[test]
+    fn display_base_members_empty_group_keeps_base() {
+        assert_eq!(
+            display_base_members("vin{}"),
+            ("vin".to_string(), Vec::<String>::new())
+        );
+    }
+
+    #[test]
+    fn display_base_members_bare_curly() {
+        assert_eq!(
+            display_base_members("{A, B}"),
+            (String::new(), vec!["A".to_string(), "B".to_string()])
+        );
     }
 }

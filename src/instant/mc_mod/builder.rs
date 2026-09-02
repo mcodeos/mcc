@@ -803,7 +803,9 @@ impl InstantiationBuilder {
         self.auto_invoke_module_funcs();
 
         // 3.6 Post-processing (moved from instantiate_stmts_resilient to cover auto-invoked closures)
-        self.infer_bare_port_members_from_buses();
+        // ★ Authoritative declared-shape rule: NO usage auto-expansion. A port's member set
+        // comes only from its declaration (`io X{...}`/`X[...]`/typed). Body member/lane access
+        // on a scalar-declared port is an E3183 error caught in Pass1; netlist never re-widens it.
         self.validate_expanded_net_points();
         self.dedup_connections();
         self.check_unbound_param_ports();

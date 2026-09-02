@@ -411,31 +411,28 @@ impl InstantiationBuilder {
     /// - `this.xxx`   → `caller_inst_name.xxx`
     /// - `this{a, b}` → `caller_inst_name{a, b}` (curly member access, e.g. `this{1}`)
     ///
-    /// The curly split routes through the shared string front-end
-    /// (`equivalent::member_set_from_str`, §3.1 late binding): `|` pipes and
-    /// `,` separators expand uniformly, and numeric slices (`this{1:3}` → R12)
-    /// expand to their interval instead of a literal `"1:3"` member.
+    /// The curly split reads the shared text entry (`mc_ids::parse_display`,
+    /// §3.1 late binding) and takes base + members from the trailing `Curly`
+    /// segment — `|` pipes, `,` separators and numeric slices (`this{1:3}` →
+    /// R12) expand structurally, with no `strip_prefix("this.")`-style text
+    /// re-derivation of the member list.
     fn this_ref_to_bus(s: &str, ctx: &ExpansionContext) -> McBus {
         let this_name = ctx.instance.name.as_str();
-        if s == "this" {
-            return McBus::new(this_name);
-        }
+        // Dotted / plain labels rewrite the `this` token; the suffix is a
+        // literal bus name (it may carry its own group text later).
         if let Some(rest) = s.strip_prefix("this.") {
             return McBus::new(&format!("{this_name}.{rest}"));
         }
-        if s.strip_prefix("this{")
-            .and_then(|r| r.strip_suffix('}'))
-            .is_some()
-        {
-            if let Some(expanded) = crate::semantic::basic::equivalent::member_set_from_str(s) {
-                let members: Vec<String> = expanded
-                    .into_iter()
-                    .filter_map(|m| m.strip_prefix("this.").map(str::to_string))
-                    .collect();
-                if !members.is_empty() {
-                    return McBus::new_with_members(this_name, members);
-                }
+        if s == "this" {
+            return McBus::new(this_name);
+        }
+        // Curly member access `this{...}`: base is `this` (guaranteed after
+        // the dotted check above) and members come straight from the group.
+        if let Some((base, members)) = crate::semantic::basic::mc_ids::curly_base_members(s) {
+            if base == "this" {
+                return McBus::new_with_members(this_name, members);
             }
+            return McBus::new(s);
         }
         McBus::new(s)
     }

@@ -16,13 +16,10 @@ use super::{InstantiationBuilder, McModuleInst};
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{canonicalize_path, ConnectionInst, InstError, NetPoint, PortInst};
 use crate::instant::provenance::ExpansionKind;
-use crate::semantic::basic::mc_bus::McBus;
-use crate::semantic::basic::mc_endpoint::McEndpoint;
 use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_param_type::{McIoTy, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
-use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_inst::McInstance;
@@ -193,25 +190,14 @@ impl InstantiationBuilder {
 
             // 1. When creating PortInst, extract bus_members according to port form
             //    —— Iter-8: let N×1 bus ports expand according to declaration during endpoint resolution.
-            let mut bus_members = extract_port_bus_members(inst, port_name);
-            // ── §8.9.6.6 step 2: scalar → bus upgrade by usage (shape by use) ──
-            // A port declared as a single point (e.g. `out spi1`) is not shape-locked
-            // at the declaration site; when the module body uses it as a bus
-            // (`spi1{CS, SCLK, MOSI, MISO}` / `spi1.CS` / `spi1[1:4]`), upgrade it
-            // before instantiation so member labels are injected and body member
-            // access resolves to the port's lanes instead of a dangling dotted label.
-            let mut inject_inst = inst.clone();
-            if bus_members.is_empty() {
-                if let Some(members) = self.collect_port_usage_members(port_name) {
-                    if members.len() >= 2 {
-                        bus_members = members.clone();
-                        // Synthesize a Bus instance so inject_port_member_labels
-                        // registers bare + dotted member labels and the prefix bus
-                        // for the upgraded port.
-                        inject_inst = McInstance::Bus(McBus::new_with_members(port_name, members));
-                    }
-                }
-            }
+            //
+            //    ★ Authoritative declared shape (no usage auto-expansion): the
+            //    member set comes only from the port's own declaration — a bare
+            //    `io X` stays a scalar 1×1 port and body member access on it is a
+            //    Pass1 error (E3183). The old §8.9.6.6 step-2 "scalar → bus
+            //    upgrade by usage" is removed.
+            let bus_members = extract_port_bus_members(inst, port_name);
+            let inject_inst = inst.clone();
             // Phase C1: intern the port's canonical path before it enters the
             // module's port list (its node id lives in the circuit registry).
             let port_path = self.child_path(port_name);
@@ -1470,205 +1456,6 @@ impl InstantiationBuilder {
         // (flash's `flash.in ~ CAP_1.1` / `CAP_1.2 ~ flash.out` etc.)
         self.strip_host_iface_phantoms(inst_name, conn_start);
     }
-
-    /// ── P2: Bare port member inference ──────────────────────────────────────────
-    /// For ports with empty `bus_members`, if `self.buses` has accumulated a same-name bus with
-    /// >=2 members (from body usage like `PORT{a,b}` / `PORT.x`), project to the port's
-    /// declared members, so the parent module's reference to `<sub>.<port>` can expand
-    /// by member in expand_port_lanes.
-    ///
-    /// Example: mcu body `MIC{P,N} -> ...` makes buses["MIC"]=[P,N];
-    ///     after final projection PortInst("MIC").bus_members=[P,N];
-    ///     parent layer `mic.MIC -> mcu.MIC` both sides expand to [.P, .N] -> zip.
-    pub(super) fn infer_bare_port_members_from_buses(&mut self) {
-        let inferred: Vec<(usize, Vec<String>)> = self
-            .ports
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.bus_members.is_empty())
-            .filter_map(|(i, p)| {
-                self.buses
-                    .get(&p.name)
-                    .map(|b| b.members.clone())
-                    .filter(|m| m.len() >= 2)
-                    .map(|m| (i, m))
-            })
-            .collect();
-        for (i, members) in inferred {
-            self.ports[i].bus_members = members;
-        }
-    }
-
-    /// ── §8.9.6.6 step 2: pass1 usage-shape collection ───────────────────────
-    /// Scan the module body (declared connection stmts + user-func bodies) for
-    /// bus-like uses of `port_name` and return the member union. Called before
-    /// port instantiation so a scalar-declared port (e.g. `out spi1`) can be
-    /// upgraded to a bus when the body uses it as one.
-    ///
-    /// Trigger forms (§8.9.6.3):
-    ///   1. curly multi-member   `spi1{CS, SCLK, MOSI, MISO}` → `Bus(name, member)`
-    ///   2. dotted member access `spi1.CS`                     → `Bus("spi1.CS")`
-    ///   3. bracket list         `spi1[1:4]`                   → `List(name, member)`
-    ///   5. vector connection    `spi1 -> uC.SPI{CS, ...}`     → sibling operand
-    ///      is a >1-member vector; upgrade with the sibling's members.
-    /// (Interface binding is a cross-module shape, handled at the
-    /// argument-binding layer; `spi1::SPI()` inside a body already carries its
-    /// members through the Interface instance's own extraction path.)
-    ///
-    /// Members from multiple use sites are merged as a union (shape by use);
-    /// the port is only upgraded when at least two distinct members appear,
-    /// mirroring `extract_port_bus_members`'s >=2-member convention.
-    pub(super) fn collect_port_usage_members(&self, port_name: &str) -> Option<Vec<String>> {
-        let mut union: Vec<String> = Vec::new();
-        let collect = |phrase: &McPhrase, out: &mut Vec<String>| {
-            Self::collect_usage_members_in_phrase(phrase, port_name, out);
-        };
-        for stmt in self.def.stmts.iter() {
-            collect(stmt, &mut union);
-        }
-        for func in self.def.funcs.iter() {
-            for stmt in func.stmts.iter() {
-                collect(stmt, &mut union);
-            }
-        }
-        if union.len() >= 2 {
-            Some(union)
-        } else {
-            None
-        }
-    }
-
-    /// Recursive phrase walker used by `collect_port_usage_members`.
-    fn collect_usage_members_in_phrase(phrase: &McPhrase, port_name: &str, out: &mut Vec<String>) {
-        use McPhrase::*;
-        match phrase {
-            Endpoint(ep) => Self::collect_usage_members_in_endpoint(ep, port_name, out),
-            Series(items, _) | Parallel(items) | Multiple(items) => {
-                // §8.9.6.3 form 5: vector-connection trigger — the port is a
-                // plain scalar operand and a sibling operand is a >1-member
-                // vector (`spi1 -> uC.SPI{CS, SCLK, MOSI, MISO}`), so upgrade
-                // with the sibling's members.
-                Self::collect_vector_connection_members(items, port_name, out);
-                for p in items {
-                    Self::collect_usage_members_in_phrase(p, port_name, out);
-                }
-            }
-            Group(g) => {
-                for p in &g.opds {
-                    Self::collect_usage_members_in_phrase(p, port_name, out);
-                }
-            }
-            Transposed(p) | Member(p, _) => {
-                Self::collect_usage_members_in_phrase(p, port_name, out);
-            }
-            Closure(c) => {
-                for stmt in &c.body {
-                    Self::collect_usage_members_in_phrase(stmt, port_name, out);
-                }
-            }
-            FuncCall(fc) => {
-                if let Some(caller) = &fc.caller {
-                    Self::collect_usage_members_in_phrase(caller, port_name, out);
-                }
-            }
-            Lead => {}
-        }
-    }
-
-    /// §8.9.6.3 form 5: when `port_name` appears as a plain scalar operand of
-    /// a connection clause and a sibling operand is a bus/list with >=2
-    /// members, the port is upgraded with the sibling's members.
-    fn collect_vector_connection_members(
-        items: &[McPhrase],
-        port_name: &str,
-        out: &mut Vec<String>,
-    ) {
-        // 1. Gather members from sibling bus/list operands (not the port itself).
-        let mut sibling: Vec<String> = Vec::new();
-        for p in items {
-            if let McPhrase::Endpoint(McEndpoint::Single(ir)) = p {
-                match &ir.base {
-                    McInstance::Bus(bus) => {
-                        if bus.name != port_name && bus.member.len() >= 2 {
-                            for m in &bus.member {
-                                push_union_member(&mut sibling, m);
-                            }
-                        }
-                    }
-                    McInstance::List(list) => {
-                        if list.name != port_name && list.member.len() >= 2 {
-                            for m in &list.member {
-                                push_union_member(&mut sibling, m);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        if sibling.len() < 2 {
-            return;
-        }
-        // 2. Only upgrade when the port itself appears as a plain scalar
-        //    operand in the same clause.
-        let port_is_plain = items.iter().any(|p| {
-            matches!(p, McPhrase::Endpoint(McEndpoint::Single(ir))
-                if matches!(&ir.base, McInstance::Label(s) if s == port_name))
-        });
-        if port_is_plain {
-            for m in &sibling {
-                push_union_member(out, m);
-            }
-        }
-    }
-
-    /// Endpoint walker: extract bus/list member sets that reference `port_name`.
-    fn collect_usage_members_in_endpoint(ep: &McEndpoint, port_name: &str, out: &mut Vec<String>) {
-        match ep {
-            McEndpoint::Single(ir) => {
-                match &ir.base {
-                    McInstance::Bus(bus) => {
-                        if bus.name == port_name {
-                            // Curly form `spi1{CS, SCLK, ...}` — members directly.
-                            for m in &bus.member {
-                                push_union_member(out, m);
-                            }
-                        } else if let Some(member) = bus
-                            .name
-                            .strip_prefix(port_name)
-                            .and_then(|rest| rest.strip_prefix('.'))
-                        {
-                            // Dotted form `spi1.CS` → combined label Bus("spi1.CS").
-                            // Only a single-level member access upgrades the port;
-                            // deeper paths belong to component/sub-module pin access.
-                            if !member.is_empty() && !member.contains('.') {
-                                push_union_member(out, member);
-                            }
-                        }
-                    }
-                    McInstance::List(list) => {
-                        if list.name == port_name {
-                            // Bracket form `spi1[1:4]` — expanded index members.
-                            for m in &list.member {
-                                push_union_member(out, m);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            McEndpoint::Node { input, output } => {
-                for e in input.iter().chain(output.iter()) {
-                    Self::collect_usage_members_in_endpoint(e, port_name, out);
-                }
-            }
-            McEndpoint::List(eps) => {
-                for e in eps {
-                    Self::collect_usage_members_in_endpoint(e, port_name, out);
-                }
-            }
-        }
-    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1764,17 +1551,6 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
         }
 
         _ => Vec::new(),
-    }
-}
-
-/// Append `m` to the union vector if not already present (member order = first
-/// appearance order across all use sites).
-fn push_union_member(out: &mut Vec<String>, m: &str) {
-    if m.is_empty() {
-        return;
-    }
-    if !out.iter().any(|x| x == m) {
-        out.push(m.to_string());
     }
 }
 

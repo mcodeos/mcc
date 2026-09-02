@@ -265,6 +265,75 @@ pub trait HasFindInst {
         false
     }
 
+    /// Authoritative declared member set of a module io/out/in port named
+    /// `base`, or `None` when `base` is not such a port.
+    ///
+    /// `Some(vec![])`      = a scalar-declared port (no members) — any
+    ///                       member/lane access is E3183
+    ///                       (BUS_MEMBER_ON_SCALAR_PORT).
+    /// `Some(members)`     = a membered port (`io X{A, B}` / `io X[A, B]`);
+    ///                       a referenced member outside this set is E3181
+    ///                       (BUS_MEMBER_UNDECLARED).
+    /// `None`              = internal net, func param, component pin, module
+    ///                       instance, interface port, etc. — usage-defined
+    ///                       (shape by use), never gated.
+    ///
+    /// Default: `None`. `McModule` reads its own `insts` IOType table (a module
+    /// port carries a concrete `io`/`in`/`out` IOType); `FuncBodyContext`
+    /// delegates to its parent so func params stay shape-by-use.
+    fn declared_port_members(&self, _base: &str) -> Option<Vec<String>> {
+        None
+    }
+
+    /// Authoritative declared-shape gate (E3183 / E3181): when `base` is a
+    /// declared module io/out/in port, validate the member/lane access
+    /// `members` against its declaration and emit exactly one error — E3183
+    /// for a scalar-declared port, E3181 for an undeclared member on a
+    /// membered port. Returns `true` iff `base` is such a declared port, so the
+    /// caller can skip the usage auto-expansion (never widen a declared port).
+    fn enforce_declared_port_shape(
+        &self,
+        base: &str,
+        members: &[String],
+        access_text: &str,
+        node: &AstNode,
+    ) -> bool {
+        let Some(declared) = self.declared_port_members(base) else {
+            return false;
+        };
+        if declared.is_empty() {
+            crate::db::diagnostic::diagnostic::dlog_error(
+                crate::errcodes::BUS_MEMBER_ON_SCALAR_PORT,
+                node,
+                &crate::errcodes::format_msg(
+                    crate::errcodes::BUS_MEMBER_ON_SCALAR_PORT,
+                    &[&base, &access_text],
+                ),
+            );
+        } else {
+            let missing: Vec<&String> = members
+                .iter()
+                .filter(|m| !declared.iter().any(|d| d == *m))
+                .collect();
+            if !missing.is_empty() {
+                let missing_str = missing
+                    .iter()
+                    .map(|m| m.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                crate::db::diagnostic::diagnostic::dlog_error(
+                    crate::errcodes::BUS_MEMBER_UNDECLARED,
+                    node,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::BUS_MEMBER_UNDECLARED,
+                        &[&base, &missing_str, &format!("{:?}", declared)],
+                    ),
+                );
+            }
+        }
+        true
+    }
+
     /// Member names of an interface-class module parameter whose base name
     /// matches `name` (e.g. `dc{VDD_3V3, GND}::DC(3.3V)` → `["VDD_3V3", "GND"]`
     /// for `name = "dc"`). Interface-class params are registered in the module
@@ -436,6 +505,14 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
         // the same way scalar module ports do (the Pass2 param binding
         // resolves the actual member width).
         self.param_names.iter().any(|p| p == name) || self.parent.is_declared_port(name)
+    }
+
+    fn declared_port_members(&self, base: &str) -> Option<Vec<String>> {
+        // Deliberately NOT including func params: a param is bound at the call
+        // site and stays shape-by-use (member width resolved at instantiation),
+        // so it is never an authoritative declared port. Only a real module
+        // io/out/in port on the parent chain is gated.
+        self.parent.declared_port_members(base)
     }
 
     fn uri(&self) -> &crate::McURI {

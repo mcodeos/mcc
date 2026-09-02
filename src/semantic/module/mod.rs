@@ -848,6 +848,25 @@ impl HasFindInst for McModule {
             .is_some_and(|(io, _)| !matches!(io, IOType::None))
     }
 
+    fn declared_port_members(&self, base: &str) -> Option<Vec<String>> {
+        // The declaration is authoritative: the module port's member set is
+        // fixed at the `io`/`in`/`out` declaration site and must never be
+        // widened by body usage. Only member-capable port directions
+        // (io/in/out) carry a shape; `ps`/`analog`/`label`/component/module
+        // instances and internal nets (IOType::None) are usage-defined and are
+        // not gated here.
+        let (io, inst) = self.insts.get_with_iotype(base)?;
+        if !matches!(io, IOType::In | IOType::Out | IOType::InOut) {
+            return None;
+        }
+        match inst {
+            McInstance::Label(_) => Some(Vec::new()),
+            McInstance::Bus(b) => Some(b.member.clone()),
+            McInstance::List(l) => Some(l.member.clone()),
+            _ => None,
+        }
+    }
+
     fn interface_param_members(&self, name: &str) -> Option<Vec<String>> {
         // Interface-class module params (e.g. `dc{VDD_3V3, GND}::DC(3.3V)`)
         // are routed by parse_params into the param table only — never into
@@ -902,6 +921,24 @@ impl HasFindInst for McModule {
     }
 
     fn add_bus_member(&mut self, base: &str, member: String) -> Option<McPhrase> {
+        // A declared module port (`io`/`in`/`out`) is authoritative — never
+        // widen it here (that would be the banned usage auto-expansion).
+        // Diagnostics (E3183 for scalar, E3181 for an undeclared member) are
+        // emitted by the caller gate (`enforce_declared_port_shape`); this
+        // guard only stops the mutation and returns a plain member-ref lane.
+        if self.insts.get_with_iotype(base).is_some_and(|(io, inst)| {
+            matches!(io, IOType::In | IOType::Out | IOType::InOut)
+                && matches!(
+                    inst,
+                    McInstance::Label(_) | McInstance::Bus(_) | McInstance::List(_)
+                )
+        }) {
+            let member_ref = McBus::member_ref(base, member);
+            return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                McInstance::Bus(member_ref),
+            ))));
+        }
+
         let is_component_with_bus = self
             .insts
             .get(base)
@@ -1087,6 +1124,16 @@ impl HasFindInst for McModule {
     }
 
     fn upgrade_label_to_bus(&mut self, name: &str) -> bool {
+        // A declared scalar port (`io X`) is shape-locked — never promote it to
+        // a Bus here (that is the banned usage auto-expansion). Internal labels
+        // (IOType::None) keep the old shape-by-use upgrade.
+        if self
+            .insts
+            .get_with_iotype(name)
+            .is_some_and(|(io, _)| matches!(io, IOType::In | IOType::Out | IOType::InOut))
+        {
+            return false;
+        }
         if let Some(inst) = self.insts.get_mut(name) {
             if matches!(inst, McInstance::Label(_)) {
                 let new_bus = McBus::new(name);
