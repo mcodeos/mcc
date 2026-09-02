@@ -43,9 +43,7 @@ use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
 use super::{AutoNameKind, CurrentUriGuard, McModuleInst, McVectorInst};
-use crate::instant::arena::{
-    component_def_id, component_pins, module_def_id, Node, NodeArena, NodeKind,
-};
+use crate::instant::arena::{Node, NodeArena, NodeKind};
 use crate::instant::identity::{anchored_child_key, AutoAnchor, CircuitKey, IdentityRegistry};
 use crate::instant::inststore::{InstanceStore, NodeInstance, TreeView};
 use crate::instant::mc_bus::McBusInst;
@@ -346,9 +344,6 @@ impl InstantiationBuilder {
                     parent: None,
                     children: Vec::new(),
                     name: tree.name.clone(),
-                    def: module_def_id(&tree),
-                    pins: Vec::new(),
-                    shape: None,
                 });
             }
         }
@@ -580,9 +575,6 @@ impl InstantiationBuilder {
                     parent: Some(parent),
                     children: Vec::new(),
                     name: inst.name.clone(),
-                    def: component_def_id(&inst),
-                    pins: component_pins(&inst),
-                    shape: None,
                 });
             }
             arena.add_child_grouped(parent, node_id, NodeKind::Device);
@@ -631,9 +623,6 @@ impl InstantiationBuilder {
                     parent: Some(parent),
                     children: Vec::new(),
                     name: inst.name.clone(),
-                    def: module_def_id(&inst),
-                    pins: Vec::new(),
-                    shape: None,
                 });
             }
             arena.add_child_grouped(parent, node_id, NodeKind::Module);
@@ -661,9 +650,6 @@ impl InstantiationBuilder {
                 parent: Some(parent),
                 children: Vec::new(),
                 name: port.name.clone(),
-                def: None,
-                pins: Vec::new(),
-                shape: None,
             });
         }
         arena.add_child_grouped(parent, node_id, NodeKind::Port);
@@ -690,9 +676,6 @@ impl InstantiationBuilder {
                 parent: Some(parent),
                 children: Vec::new(),
                 name: vec.base.clone(),
-                def: None,
-                pins: Vec::new(),
-                shape: vec.shape.clone(),
             });
         }
         arena.add_child_grouped(parent, node_id, NodeKind::Vector);
