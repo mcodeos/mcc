@@ -159,6 +159,11 @@ impl McVecGraph {
                     Some(crate::semantic::common::ConnOp::Parallel) => "\"+\"",
                     None => "null",
                 };
+                let dir = match shape.dir {
+                    crate::semantic::common::ConnDir::LtoR => "\"->\"",
+                    crate::semantic::common::ConnDir::RtoL => "\"<-\"",
+                    crate::semantic::common::ConnDir::Undirected => "null",
+                };
                 let order = shape
                     .order
                     .iter()
@@ -166,7 +171,7 @@ impl McVecGraph {
                     .collect::<Vec<_>>()
                     .join(",");
                 out.push_str(&format!(
-                    "{s}\"shape\": {{\"op\": {op}{s}\"anchor\": {}{s}\"order\": [{order}]}}",
+                    "{s}\"shape\": {{\"op\": {op}{s}\"dir\": {dir}{s}\"anchor\": {}{s}\"order\": [{order}]}}",
                     json_opt_i64(&shape.anchor)
                 ));
             }
@@ -360,4 +365,53 @@ fn path_display(path: &[crate::vector::model::trunk::PathSegment]) -> String {
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
         .join(".")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::semantic::common::{ConnDir, ConnOp};
+    use crate::vector::graph::{EndpointRef, NetKind, NetRole, VizNet};
+    use crate::vector::model::netshape::NetShape;
+
+    /// Serialize a single-net graph whose net shape carries `dir`, returning the JSON.
+    fn shape_json(dir: ConnDir) -> String {
+        let mut graph = McVecGraph::new(1, "t".into());
+        let mut net = VizNet::new(
+            1,
+            "N1".into(),
+            NetKind::Signal,
+            NetRole::Signal,
+            vec![EndpointRef::new(9, 9, "B"), EndpointRef::new(2, 2, "A")],
+        );
+        net.shape = Some(NetShape {
+            dir,
+            op: Some(ConnOp::Series),
+            order: vec![9, 2],
+            ..Default::default()
+        });
+        graph.nets.push(net);
+        graph.to_json()
+    }
+
+    /// §8.9.2 fine-net shape now serializes `dir`, aligned with coarse
+    /// port_trunks and member lanes (which already emit it).
+    #[test]
+    fn fine_net_shape_serializes_dir() {
+        let rtl = shape_json(ConnDir::RtoL);
+        assert!(
+            rtl.contains("\"dir\": \"<-\""),
+            "RtoL shape must serialize its dir: {rtl}"
+        );
+        let ltr = shape_json(ConnDir::LtoR);
+        assert!(
+            ltr.contains("\"dir\": \"->\""),
+            "LtoR shape must serialize its dir: {ltr}"
+        );
+        let und = shape_json(ConnDir::Undirected);
+        assert!(
+            und.contains("\"dir\": null"),
+            "Undirected shape dir is null: {und}"
+        );
+    }
 }

@@ -50,7 +50,9 @@ use super::trunk::{TrunkCtx, TrunkKind};
 // the two enums were structurally identical and only linked by
 // `conn_dir_to_pair_dir`.
 // - `->` directed series -> [`ConnDir::LtoR`]
-// - `<-` reversed (marked as "reserved, not yet fully supported" in the rules doc) -> [`ConnDir::RtoL`]
+// - `<-` reversed -> [`ConnDir::RtoL`] — a first-class mirror of `LtoR`:
+//   the parser swaps operands so member/point order is source-first in both
+//   directions; `NetShape::ltr_view`/`driver_load` recover the LTR render view.
 // - `-` series / `+` parallel -> [`ConnDir::Undirected`]
 
 // ============================================================================
@@ -200,6 +202,39 @@ impl NetShape {
             || self.lane.is_some()
             || !self.series_chain.is_empty()
             || self.op.is_some()
+    }
+
+    /// Driver (source) and load (sink) endpoints of a **directed** net.
+    ///
+    /// `order` is source-first (the parser swapped `<-` operands and ConnPair
+    /// points are source-first in both directions), so the driver is always
+    /// `order[0]` and the load `order.last()`. Returns `None` for undirected
+    /// nets or chains with a single endpoint.
+    pub fn driver_load(&self) -> Option<(i64, i64)> {
+        if self.dir.is_directed() && self.order.len() >= 2 {
+            Some((self.order[0], *self.order.last().unwrap()))
+        } else {
+            None
+        }
+    }
+
+    /// Left-to-right **render** view of a directed net: `(leftmost, rightmost,
+    /// arrow-as-drawn)`.
+    ///
+    /// - `LtoR` already draws driver→load → `(driver, load, LtoR)`.
+    /// - `RtoL` is flipped to the LTR orientation → `(load, driver, LtoR)`; the
+    ///   operand/pair swap is exactly the case `ConnDir::flipped()` documents
+    ///   ("reverse direction (used when swapping a pair's left/right)").
+    /// - `Undirected` → `None`.
+    pub fn ltr_view(&self) -> Option<(i64, i64, ConnDir)> {
+        let (driver, load) = self.driver_load()?;
+        match self.dir {
+            ConnDir::LtoR => Some((driver, load, ConnDir::LtoR)),
+            // The pair-swap mirror: re-reading an RtoL pair left-to-right is
+            // exactly `ConnDir::flipped()`'s documented use.
+            ConnDir::RtoL => Some((load, driver, ConnDir::RtoL.flipped())),
+            ConnDir::Undirected => None,
+        }
     }
 }
 
@@ -397,6 +432,55 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(scalar.bus_width(), 1);
+    }
+
+    #[test]
+    fn directed_accessors_ltr() {
+        // LtoR: driver_load stays (order[0], order.last()); ltr_view unchanged.
+        let s = NetShape {
+            dir: ConnDir::LtoR,
+            order: vec![3, 1],
+            ..Default::default()
+        };
+        assert_eq!(s.driver_load(), Some((3, 1)));
+        assert_eq!(s.ltr_view(), Some((3, 1, ConnDir::LtoR)));
+    }
+
+    #[test]
+    fn directed_accessors_rtl() {
+        // RtoL: order is still source-first, so driver = order[0]; ltr_view
+        // flips to the pair-swap mirror `(load, driver, LtoR)` (the case
+        // `ConnDir::flipped()` documents).
+        let s = NetShape {
+            dir: ConnDir::RtoL,
+            order: vec![9, 2],
+            ..Default::default()
+        };
+        assert_eq!(s.driver_load(), Some((9, 2)));
+        assert_eq!(s.ltr_view(), Some((2, 9, ConnDir::LtoR)));
+    }
+
+    #[test]
+    fn directed_accessors_undirected_none() {
+        // Undirected has no driver/load; single-endpoint and empty orders are None too.
+        let u = NetShape {
+            dir: ConnDir::Undirected,
+            order: vec![1, 3, 5],
+            ..Default::default()
+        };
+        assert_eq!(u.driver_load(), None);
+        assert_eq!(u.ltr_view(), None);
+
+        let single = NetShape {
+            dir: ConnDir::LtoR,
+            order: vec![4],
+            ..Default::default()
+        };
+        assert_eq!(single.driver_load(), None);
+        assert_eq!(single.ltr_view(), None);
+
+        assert_eq!(NetShape::default().driver_load(), None);
+        assert_eq!(NetShape::default().ltr_view(), None);
     }
 
     #[test]

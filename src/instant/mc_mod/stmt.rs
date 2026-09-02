@@ -62,34 +62,41 @@ impl InstantiationBuilder {
         // to remain 0. Since auto_inst_map is keyed by member_key(f.id), all
         // FuncCalls shared key=0, overwriting each other's entries.
 
-        // ★ M-1'-A: extract direction from the source phrase before flattening
-        let dir = match &phrase {
-            McPhrase::Series(_, d) => *d,
-            _ => ConnDir::Undirected,
-        };
-
         let mut phrase = phrase.clone();
         Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
-        let members = self.phrase_to_members(&phrase);
+        // ★ M-1'-A (edge-level): `members` + `gaps` come from one gapped flatten.
+        // `gaps[i]` is the operator direction connecting `members[i]`~`members[i+1]`
+        // (nested-Series directions preserved; non-Series phrases are Undirected).
+        let (members, gaps) = self.phrase_to_members_gapped(&phrase);
         if members.is_empty() {
             return Ok(());
         }
+        debug_assert_eq!(
+            gaps.len(),
+            members.len() - 1,
+            "edge-level gap vector must align with member boundaries: {} members, {} gaps",
+            members.len(),
+            gaps.len()
+        );
 
         // unified-twopin-no-builtin v2.0 §2.4: no chain-shunt special-case. A
         // `.Cap([a, b])` member is an ordinary FuncCall whose connection face
         // comes from the library func's return; the normal member loop +
         // adjacent pairing wire the pass-through lanes. `[2×1] -> CAP(1×2) ->
         // [2×1]` is a shape error reported by the series-row check.
-        self.process_series_members(&members, dir)
+        self.process_series_members(&members, &gaps)
     }
 
     /// Process a flattened series' members: P2-5 expansion, normal member loop,
     /// lane-by-lane wiring, and adjacent pairing.
+    /// `gaps[i]` = operator direction connecting `members[i]`~`members[i+1]`
+    /// (edge-level; nested-Series directions already threaded by the gapped flatten).
     fn process_series_members(
         &mut self,
         members: &[McPhrase],
-        dir: ConnDir,
+        gaps: &[ConnDir],
     ) -> Result<(), InstError> {
+        debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
         // ── P2-5: Expand builtin twopin calls adjacent to multi-member buses ──
         // When a builtin twopin (Pullup/Pulldown) is on the RIGHT side of a Multiple
         // with N > 1 members, iterate the FuncCall N times to create N components.
@@ -175,10 +182,13 @@ impl InstantiationBuilder {
                             Self::substitute_bus_in_fc_params(fc_ref, &base_bus, &lane_name);
                         }
                     }
+                    // The Multiple~FuncCall pair sits at members[i]~members[i+1];
+                    // their boundary operator direction is `gaps[i]` (edge-level).
+                    let gap_dir = gaps[i];
                     let pair = if fc_is_left {
-                        McPhrase::Series(vec![fc_clone, item.clone()], dir)
+                        McPhrase::Series(vec![fc_clone, item.clone()], gap_dir)
                     } else {
-                        McPhrase::Series(vec![item.clone(), fc_clone], dir)
+                        McPhrase::Series(vec![item.clone(), fc_clone], gap_dir)
                     };
                     if let Err(e) = self.process_stmt(&pair) {
                         self.record_warning(
@@ -236,7 +246,7 @@ impl InstantiationBuilder {
                     .find_map(|m| self.extract_trunk_iface(m))
             });
             return self.with_trunk(trunk, trunk_kind, trunk_iface, |this| {
-                this.wire_chain_lane_by_lane(&members, dir)
+                this.wire_chain_lane_by_lane(&members, gaps)
             });
         }
 
@@ -249,7 +259,9 @@ impl InstantiationBuilder {
             let left_member = &members[i];
             let right_member = &members[i + 1];
 
-            if let Err(e) = self.try_connect_adjacent(left_member, right_member, dir) {
+            // Edge-level: this pair's operator is the gap at the left index.
+            let gap_dir = gaps[i];
+            if let Err(e) = self.try_connect_adjacent(left_member, right_member, gap_dir) {
                 self.record_warning(
                     crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
                     crate::errcodes::format_msg(
@@ -454,8 +466,9 @@ impl InstantiationBuilder {
     fn wire_chain_lane_by_lane(
         &mut self,
         members: &[McPhrase],
-        dir: ConnDir,
+        gaps: &[ConnDir],
     ) -> Result<(), InstError> {
+        debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
         let num_lanes = members
             .iter()
             .map(|m| self.member_lane_width(m))
@@ -532,19 +545,22 @@ impl InstantiationBuilder {
         }
 
         for lane in 0..num_lanes {
-            // Collect lane items: series elements and bridge pins in order.
+            // Collect lane items: series elements and bridge pins in order,
+            // each tagged with the member index that produced it (`origins`).
             let items = self.collect_lane_items(members, lane);
 
             // Extract series elements and their bridge pins.
             // bridges_at[i] = bridge pins to attach to the net between series[i] and series[i+1].
             let mut series_elems: Vec<&McPhrase> = Vec::new();
+            let mut series_origins: Vec<usize> = Vec::new();
             let mut bridges_at: Vec<Vec<NetPoint>> = Vec::new();
             let mut pending_bridges: Vec<NetPoint> = Vec::new();
 
-            for item in &items {
+            for (origin, item) in items {
                 match item {
                     LaneItem::Series(elem) => {
                         series_elems.push(elem);
+                        series_origins.push(origin);
                         // Bridge pins collected before this series element belong to
                         // the gap between the previous series element and this one.
                         bridges_at.push(std::mem::take(&mut pending_bridges));
@@ -554,6 +570,20 @@ impl InstantiationBuilder {
                     }
                 }
             }
+
+            // Edge-level dir for a member-boundary index `g`, clamped so uniform
+            // chains (every gap equal) reproduce the pre-fix single `dir` exactly
+            // (the phase-1 golden invariant). For interior element gaps this is
+            // the exact operator leaving `series_origins[i]`; for chain-head /
+            // chain-tail artifact nets (no real source-member boundary) it is the
+            // nearest real boundary — the documented approximation.
+            let lane_gap_dir = |g: usize| -> ConnDir {
+                if gaps.is_empty() {
+                    ConnDir::Undirected
+                } else {
+                    gaps[g.min(gaps.len() - 1)]
+                }
+            };
             // Trailing bridges (collected after the last series element) stay
             // in `pending_bridges`; §11 strict vector order: a chain-tail
             // bridge (`A -> CAP'`) is written after the last series element,
@@ -613,10 +643,13 @@ impl InstantiationBuilder {
                         all_pts.push(lp);
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
+                            // Chain-head artifact net: dir is the boundary entering
+                            // the first present element's member.
+                            let head_dir = lane_gap_dir(series_origins[0].saturating_sub(1));
                             self.add_connection(self.make_conn_with_provenance(
                                 id,
                                 all_pts,
-                                dir,
+                                head_dir,
                                 Some(lane as u16),
                             ));
                         }
@@ -648,6 +681,11 @@ impl InstantiationBuilder {
                     None => continue,
                 };
 
+                // Edge-level: this element gap is the operator leaving
+                // `series_origins[i]`'s member. (Adjacent members → exact gap;
+                // a member skipped on this lane (Lead / non-matching lane) is a
+                // passthrough, carrying the same boundary dir.)
+                let gap_dir = lane_gap_dir(series_origins[i]);
                 if !bridge_pins.is_empty() {
                     // §11 strict vector order: the bridge is a series element
                     // between the left and right elements, so its pins belong
@@ -661,11 +699,11 @@ impl InstantiationBuilder {
                     self.add_connection(self.make_conn_with_provenance(
                         id,
                         all_pts,
-                        dir,
+                        gap_dir,
                         Some(lane as u16),
                     ));
                 } else {
-                    self.create_connection(vec![lp], vec![rp], dir, Some(lane as u16))?;
+                    self.create_connection(vec![lp], vec![rp], gap_dir, Some(lane as u16))?;
                 }
             }
 
@@ -682,10 +720,17 @@ impl InstantiationBuilder {
                         all_pts.extend(pending_bridges.iter().cloned());
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
+                            // Chain-tail artifact net: dir is the boundary leaving
+                            // the last present element's member (clamped).
+                            let tail_dir = if let Some(&last_origin) = series_origins.last() {
+                                lane_gap_dir(last_origin)
+                            } else {
+                                ConnDir::Undirected
+                            };
                             self.add_connection(self.make_conn_with_provenance(
                                 id,
                                 all_pts,
-                                dir,
+                                tail_dir,
                                 Some(lane as u16),
                             ));
                         }
@@ -713,14 +758,18 @@ impl InstantiationBuilder {
     }
 
     // ── M11.4: collect lane items (series elements + bridge pins) preserving order ──
+    // Returns each item tagged with the **member index** that produced it, so
+    // the caller can map a lane element back to its member-boundary gap dir
+    // (a member may be skipped on a lane — e.g. a Lead `_` — so the element
+    // index within a lane is not the member index).
     fn collect_lane_items<'a>(
         &mut self,
         members: &'a [McPhrase],
         lane: usize,
-    ) -> Vec<LaneItem<'a>> {
-        let mut items: Vec<LaneItem<'a>> = Vec::new();
-        for member in members {
-            self.collect_one_lane_item(member, lane, &mut items);
+    ) -> Vec<(usize, LaneItem<'a>)> {
+        let mut items: Vec<(usize, LaneItem<'a>)> = Vec::new();
+        for (member_idx, member) in members.iter().enumerate() {
+            self.collect_one_lane_item(member, member_idx, lane, &mut items);
         }
         items
     }
@@ -728,15 +777,16 @@ impl InstantiationBuilder {
     fn collect_one_lane_item<'a>(
         &mut self,
         member: &'a McPhrase,
+        member_idx: usize,
         lane: usize,
-        items: &mut Vec<LaneItem<'a>>,
+        items: &mut Vec<(usize, LaneItem<'a>)>,
     ) {
         match member {
             McPhrase::Multiple(inner) => {
                 if lane < inner.len() {
                     let p = &inner[lane];
                     if !matches!(p, McPhrase::Lead) {
-                        items.push(LaneItem::Series(p));
+                        items.push((member_idx, LaneItem::Series(p)));
                     }
                 }
             }
@@ -747,13 +797,13 @@ impl InstantiationBuilder {
                             if lane < inner.len() {
                                 let p = &inner[lane];
                                 if !matches!(p, McPhrase::Lead) {
-                                    items.push(LaneItem::Series(p));
+                                    items.push((member_idx, LaneItem::Series(p)));
                                 }
                             }
                         }
                         McPhrase::Transposed(inner) => {
                             if let Some(pin) = self.get_transposed_lane_pin(stmt, lane) {
-                                items.push(LaneItem::Bridge(pin));
+                                items.push((member_idx, LaneItem::Bridge(pin)));
                             }
                             self.try_record_bridge_passive(inner);
                         }
@@ -764,7 +814,7 @@ impl InstantiationBuilder {
                             // all stmts, causing duplicate component creation and leaving
                             // other lanes without their assigned elements.
                             if lane == stmt_idx {
-                                items.push(LaneItem::Series(stmt));
+                                items.push((member_idx, LaneItem::Series(stmt)));
                             }
                         }
                     }
@@ -773,7 +823,7 @@ impl InstantiationBuilder {
             McPhrase::Transposed(inner) => {
                 // M11.4: standalone Transposed in chain acts as bridge passive
                 if let Some(pin) = self.get_transposed_lane_pin(member, lane) {
-                    items.push(LaneItem::Bridge(pin));
+                    items.push((member_idx, LaneItem::Bridge(pin)));
                 }
                 self.try_record_bridge_passive(inner);
             }
@@ -783,7 +833,7 @@ impl InstantiationBuilder {
                 // RES2 to lane 1). Lead (_) elements are skipped.
                 if let Some(p) = g.opds.get(lane) {
                     if !matches!(p, McPhrase::Lead) {
-                        items.push(LaneItem::Series(p));
+                        items.push((member_idx, LaneItem::Series(p)));
                     }
                 }
             }
@@ -796,12 +846,12 @@ impl InstantiationBuilder {
                 ..
             })) if !bus.member.is_empty() => {
                 if lane < bus.member.len() {
-                    items.push(LaneItem::Series(member));
+                    items.push((member_idx, LaneItem::Series(member)));
                 }
             }
             _ => {
                 if lane == 0 {
-                    items.push(LaneItem::Series(member));
+                    items.push((member_idx, LaneItem::Series(member)));
                 }
             }
         }
@@ -875,9 +925,24 @@ impl InstantiationBuilder {
         pids.iter().all(|(m, _)| m == first)
     }
 
-    /// Convert McPhrase to expanded McPhrase list
-    /// Series is recursively expanded to individual member McPhrases
+    /// Convert McPhrase to expanded McPhrase list (flat member projection).
+    /// Series is recursively expanded to individual member McPhrases.
+    /// Directions are dropped: this is the member-only view used by the
+    /// ~13 non-`process_stmt` call sites. Edge-level directions live in
+    /// `phrase_to_members_gapped` (Series arm).
     pub(super) fn phrase_to_members(&self, phrase: &McPhrase) -> Vec<McPhrase> {
+        self.phrase_to_members_gapped(phrase).0
+    }
+
+    /// Convert McPhrase to expanded McPhrase list **with edge-level directions**.
+    ///
+    /// Returns `(members, gaps)` where `gaps[i]` is the operator direction
+    /// connecting `members[i]`~`members[i+1]` (source-first member order; a
+    /// nested Series whose direction differs from its parent contributes its
+    /// own internal gaps, see the Series arm below). For any non-Series
+    /// phrase there is no serial operator direction, so members carry
+    /// `ConnDir::Undirected` gaps (single-member → empty).
+    fn phrase_to_members_gapped(&self, phrase: &McPhrase) -> (Vec<McPhrase>, Vec<ConnDir>) {
         let disc = std::mem::discriminant(phrase);
         mcc_dbg!(
             "inst::mod",
@@ -885,7 +950,7 @@ impl InstantiationBuilder {
             self.name
         );
         match phrase {
-            McPhrase::Series(phrases, _) => {
+            McPhrase::Series(phrases, d) => {
                 // ── P1-B ────────────────────────────────────────────────
                 // Don't flatten Multiple inside Series into chain — that would
                 // turn `MIC{P,N} -> cap[4:5] -> uC.ADC{P,N}` "both ends N-wide,
@@ -924,7 +989,17 @@ impl InstantiationBuilder {
                 // (e.g., inner is Series gets flattened), so use `flat_map`
                 // to collect — this is exactly what we want (flattened to several phrases sharing
                 // same Multiple wrapper).
+                // ── edge-level direction gaps ────────────────────────────
+                // `gaps[i]` is the operator direction connecting
+                // `result[i]`~`result[i+1]`. Each top-level child is one
+                // operand: the boundary between consecutive operands carries
+                // this Series' own direction `d`. A `Multiple` child counts as
+                // **one** member (no internal gap — its lanes are parallel, not
+                // serial, P1-B above). A nested `Series` child (parser invariant:
+                // only appears when its direction differs from `d`) contributes
+                // its own internal gaps through the gapped recursion.
                 let mut result = Vec::new();
+                let mut gaps: Vec<ConnDir> = Vec::new();
                 for p in phrases {
                     match p {
                         McPhrase::Multiple(inner) => {
@@ -932,9 +1007,21 @@ impl InstantiationBuilder {
                                 .iter()
                                 .flat_map(|ip| self.phrase_to_members(ip))
                                 .collect();
+                            if !result.is_empty() {
+                                gaps.push(*d);
+                            }
                             result.push(McPhrase::Multiple(transformed_inner));
                         }
-                        _ => result.extend(self.phrase_to_members(p)),
+                        _ => {
+                            let (sub, sub_gaps) = self.phrase_to_members_gapped(p);
+                            if !sub.is_empty() {
+                                if !result.is_empty() {
+                                    gaps.push(*d);
+                                }
+                                result.extend(sub);
+                                gaps.extend(sub_gaps);
+                            }
+                        }
                     }
                 }
 
@@ -985,31 +1072,26 @@ impl InstantiationBuilder {
                 // handling consistency (mc_phrase.rs:1462-1470). But parser chain involves
                 // upstream AST input and symbol table interaction, large change surface; doing fix-up
                 // at phrase_to_members layer is surgical and can be rolled back cost-free after parser fix.
-                Self::merge_adjacent_curly_split(&mut result);
+                Self::merge_adjacent_curly_split(&mut result, &mut gaps);
 
                 // ── M11.5: expand merged multi-member Buses to Multiple ──
                 // After merge_adjacent_curly_split, Buses like dc{VDD_3V3, GND}
                 // may have multiple members.  Expand them to Multiple so
                 // lane-by-lane wiring can handle each lane independently.
+                // Count-neutral (remove+insert one member), so gap indices stay aligned.
                 Self::expand_multi_member_buses(&mut result);
 
-                result
+                debug_assert_eq!(gaps.len(), result.len().saturating_sub(1));
+                (result, gaps)
             }
-            McPhrase::Parallel(phrases) => {
-                vec![McPhrase::Parallel(phrases.clone())]
-            }
-            McPhrase::Closure(c) => {
-                vec![McPhrase::Closure(c.clone())]
-            }
-            McPhrase::FuncCall(f) => {
-                vec![McPhrase::FuncCall(f.clone())]
-            }
-            McPhrase::Group(g) => {
-                vec![McPhrase::Group(g.clone())]
-            }
-            McPhrase::Transposed(inner) => {
-                vec![McPhrase::Transposed(Box::new((**inner).clone()))]
-            }
+            McPhrase::Parallel(phrases) => (vec![McPhrase::Parallel(phrases.clone())], Vec::new()),
+            McPhrase::Closure(c) => (vec![McPhrase::Closure(c.clone())], Vec::new()),
+            McPhrase::FuncCall(f) => (vec![McPhrase::FuncCall(f.clone())], Vec::new()),
+            McPhrase::Group(g) => (vec![McPhrase::Group(g.clone())], Vec::new()),
+            McPhrase::Transposed(inner) => (
+                vec![McPhrase::Transposed(Box::new((**inner).clone()))],
+                Vec::new(),
+            ),
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Component(c),
                 members,
@@ -1027,9 +1109,12 @@ impl InstantiationBuilder {
                 //   multi-pin → single-point Bus (fallback, pin handling delegated to FuncCall/declaration)
                 let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
                 if !expanded.is_empty() {
-                    return vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                        McInstance::Bus(McBus::new_with_members(&inst_name, expanded)),
-                    )))];
+                    return (
+                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McInstance::Bus(McBus::new_with_members(&inst_name, expanded)),
+                        )))],
+                        Vec::new(),
+                    );
                 }
 
                 // ── Iter-7.5b ────────────────────────────────────────────
@@ -1050,15 +1135,21 @@ impl InstantiationBuilder {
                     && (is_known_2pin_class || is_anon_inst);
 
                 match (static_count, dyn_two_pin) {
-                    (2, _) | (_, true) => vec![McPhrase::Endpoint(McEndpoint::Node {
-                        input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
-                            McBus::new(&format!("{inst_name}.1")),
-                        )))],
-                        output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
-                            McBus::new(&format!("{inst_name}.2")),
-                        )))],
-                    })],
-                    _ => vec![McPhrase::from(McInstance::Bus(McBus::new(&inst_name)))],
+                    (2, _) | (_, true) => (
+                        vec![McPhrase::Endpoint(McEndpoint::Node {
+                            input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                McBus::new(&format!("{inst_name}.1")),
+                            )))],
+                            output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                McBus::new(&format!("{inst_name}.2")),
+                            )))],
+                        })],
+                        Vec::new(),
+                    ),
+                    _ => (
+                        vec![McPhrase::from(McInstance::Bus(McBus::new(&inst_name)))],
+                        Vec::new(),
+                    ),
                 }
             }
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
@@ -1108,7 +1199,10 @@ impl InstantiationBuilder {
                             _ => input.push(ep),
                         }
                     }
-                    return vec![McPhrase::Endpoint(McEndpoint::Node { input, output })];
+                    return (
+                        vec![McPhrase::Endpoint(McEndpoint::Node { input, output })],
+                        Vec::new(),
+                    );
                 }
 
                 // ── P1-A2 ────────────────────────────────────────────────
@@ -1152,24 +1246,34 @@ impl InstantiationBuilder {
                     };
 
                 if left.is_empty() && right.is_empty() {
-                    vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                        McInstance::Bus(McBus::new(&inst_name)),
-                    )))]
+                    (
+                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McInstance::Bus(McBus::new(&inst_name)),
+                        )))],
+                        Vec::new(),
+                    )
                 } else {
-                    vec![McPhrase::Endpoint(McEndpoint::Node {
-                        input: left
-                            .iter()
-                            .map(|bus| {
-                                McEndpoint::Single(McInstanceRef::new(McInstance::Bus(bus.clone())))
-                            })
-                            .collect(),
-                        output: right
-                            .iter()
-                            .map(|bus| {
-                                McEndpoint::Single(McInstanceRef::new(McInstance::Bus(bus.clone())))
-                            })
-                            .collect(),
-                    })]
+                    (
+                        vec![McPhrase::Endpoint(McEndpoint::Node {
+                            input: left
+                                .iter()
+                                .map(|bus| {
+                                    McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                        bus.clone(),
+                                    )))
+                                })
+                                .collect(),
+                            output: right
+                                .iter()
+                                .map(|bus| {
+                                    McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                        bus.clone(),
+                                    )))
+                                })
+                                .collect(),
+                        })],
+                        Vec::new(),
+                    )
                 }
             }
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
@@ -1186,14 +1290,20 @@ impl InstantiationBuilder {
                 // Only expand when user **explicitly** uses `{m1, m2}` syntax to access certain members.
                 let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
                 if !expanded.is_empty() {
-                    return vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                        McInstance::Bus(McBus::new_with_members(&inst_name, expanded)),
-                    )))];
+                    return (
+                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McInstance::Bus(McBus::new_with_members(&inst_name, expanded)),
+                        )))],
+                        Vec::new(),
+                    );
                 }
 
-                vec![McPhrase::from(McInstance::Bus(McBus::new(&inst_name)))]
+                (
+                    vec![McPhrase::from(McInstance::Bus(McBus::new(&inst_name)))],
+                    Vec::new(),
+                )
             }
-            McPhrase::Lead => vec![McPhrase::Lead],
+            McPhrase::Lead => (vec![McPhrase::Lead], Vec::new()),
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Bus(ref data),
                 ..
@@ -1242,9 +1352,12 @@ impl InstantiationBuilder {
                     // routes it through expand_port_lanes, which collapses the
                     // group to a single logical point carrying the pads.
                     if self.is_same_name_component_group(&data.name) {
-                        return vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                            McInstance::Bus(McBus::new(&data.name)),
-                        )))];
+                        return (
+                            vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                McInstance::Bus(McBus::new(&data.name)),
+                            )))],
+                            Vec::new(),
+                        );
                     }
                     mcc_dbg!(
                         "inst::mod",
@@ -1269,11 +1382,14 @@ impl InstantiationBuilder {
                             )))
                         })
                         .collect();
-                    vec![McPhrase::Multiple(inner)]
+                    (vec![McPhrase::Multiple(inner)], Vec::new())
                 } else {
-                    vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                        McInstance::Bus(data.clone()),
-                    )))]
+                    (
+                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McInstance::Bus(data.clone()),
+                        )))],
+                        Vec::new(),
+                    )
                 }
             }
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
@@ -1306,7 +1422,7 @@ impl InstantiationBuilder {
                                     )))
                                 })
                                 .collect();
-                            return vec![McPhrase::Multiple(inner)];
+                            return (vec![McPhrase::Multiple(inner)], Vec::new());
                         }
                     }
                 }
@@ -1330,25 +1446,37 @@ impl InstantiationBuilder {
                             )))
                         })
                         .collect();
-                    vec![McPhrase::Multiple(inner)]
+                    (vec![McPhrase::Multiple(inner)], Vec::new())
                 } else {
-                    vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                        McInstance::Bus(McBus::new(label)),
-                    )))]
+                    (
+                        vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                            McInstance::Bus(McBus::new(label)),
+                        )))],
+                        Vec::new(),
+                    )
                 }
             }
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::List(list),
                 ..
-            })) => vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                McInstance::Bus(McBus::new_with_members(&list.name, list.member.clone())),
-            )))],
+            })) => (
+                vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                    McInstance::Bus(McBus::new_with_members(&list.name, list.member.clone())),
+                )))],
+                Vec::new(),
+            ),
             McPhrase::Multiple(inner) => {
+                // Top-level Multiple (not a Series child — those are handled by the
+                // Series arm as a single member): flatten to members. A bare
+                // Multiple statement has no serial operator, so every boundary is
+                // Undirected (matches the pre-fix chain-level default for a
+                // non-Series phrase).
                 let mut result = Vec::new();
                 for p in inner {
                     result.extend(self.phrase_to_members(p));
                 }
-                result
+                let gaps = vec![ConnDir::Undirected; result.len().saturating_sub(1)];
+                (result, gaps)
             }
             McPhrase::Endpoint(ref ep) => {
                 // ── §11.3 lane-structured List: N independent member lanes ──────
@@ -1362,7 +1490,7 @@ impl InstantiationBuilder {
                 // get_left/get_right_points List handlers consume the lanes
                 // structurally.
                 if matches!(ep, McEndpoint::List(_)) {
-                    return vec![McPhrase::Endpoint(ep.clone())];
+                    return (vec![McPhrase::Endpoint(ep.clone())], Vec::new());
                 }
                 mcc_dbg!("inst::mod",
                     "[P2-5-BUS-CATCHALL] module='{}' phrase_to_members Endpoint catch-all: ep={ep:?}",
@@ -1371,18 +1499,21 @@ impl InstantiationBuilder {
                 let left = ep.get_left();
                 let right = ep.get_right();
                 if left.is_empty() && right.is_empty() {
-                    vec![McPhrase::Endpoint(ep.clone())]
+                    (vec![McPhrase::Endpoint(ep.clone())], Vec::new())
                 } else if left.len() == 1 && right.len() == 1 {
-                    vec![McPhrase::Endpoint(McEndpoint::Node {
-                        input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
-                            left[0].clone(),
-                        )))],
-                        output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
-                            right[0].clone(),
-                        )))],
-                    })]
+                    (
+                        vec![McPhrase::Endpoint(McEndpoint::Node {
+                            input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                left[0].clone(),
+                            )))],
+                            output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                right[0].clone(),
+                            )))],
+                        })],
+                        Vec::new(),
+                    )
                 } else {
-                    vec![McPhrase::Endpoint(ep.clone())]
+                    (vec![McPhrase::Endpoint(ep.clone())], Vec::new())
                 }
             }
             McPhrase::Member(inner, member_ep) => {
@@ -1392,8 +1523,10 @@ impl InstantiationBuilder {
                 // `uC.XTAL` (Member(Endpoint(Component(uC)), "XTAL")) were stripped,
                 // losing the XTAL member name and causing all XTAL pins to merge
                 // into one net instead of lane-by-lane matching.
-                let result = vec![McPhrase::Member(inner.clone(), member_ep.clone())];
-                result
+                (
+                    vec![McPhrase::Member(inner.clone(), member_ep.clone())],
+                    Vec::new(),
+                )
             }
         }
     }
@@ -1412,7 +1545,15 @@ impl InstantiationBuilder {
     ///
     /// Behavior: merge curr_bus member into prev_bus, delete curr. Continue from same
     /// index position forward, achieving chain accumulation.
-    fn merge_adjacent_curly_split(members: &mut Vec<McPhrase>) {
+    ///
+    /// `gaps` (if present) is trimmed in lockstep: deleting `members[i]` removes
+    /// the boundary `gaps[i-1]` that connected it to `members[i-1]`, keeping the
+    /// gap vector index-aligned with the surviving members. The gapped Series
+    /// flatten (`series_members_gapped`) passes the real gaps; flat member-only
+    /// projections never call this with gap data of their own (the Series arm
+    /// is the single flattening source).
+    fn merge_adjacent_curly_split(members: &mut Vec<McPhrase>, gaps: &mut Vec<ConnDir>) {
+        debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
         if members.len() < 2 {
             return;
         }
@@ -1435,12 +1576,19 @@ impl InstantiationBuilder {
                     prev_bus_mut.full_members.extend(full);
                 }
                 members.remove(i);
+                // The merged-away boundary (members[i-1]~members[i]) is gone:
+                // drop its gap so indices stay aligned for the cascade below.
+                if !gaps.is_empty() {
+                    debug_assert!(i - 1 < gaps.len());
+                    gaps.remove(i - 1);
+                }
                 // Don't increment i, allow cascading merge (the new members[i]
                 // will be compared again with the extended members[i-1])
             } else {
                 i += 1;
             }
         }
+        debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
     }
 
     /// Pure check + data extraction part of `merge_adjacent_curly_split`.
