@@ -13,7 +13,6 @@
 //!   the standard Pass2 + viz pipeline can render the unit standalone.
 
 use crate::build::pass1::canonicalize_project_uri;
-use crate::db::cmie::tables as workspace;
 use crate::{McIds, McURI};
 use std::collections::HashSet;
 use std::error::Error;
@@ -121,17 +120,16 @@ fn canonical(uri: &McURI) -> String {
 
 /// Modules declared in `uri`, in source-declaration order.
 ///
-/// The workspace class tables are `DashMap`s (hash order, not registration
-/// order), so a raw `iter()` hands targets back in an arbitrary sequence and
-/// the combined multi-target viz view renders them out of source order. Sort
+/// The registry views are sorted by (uri, ident), not source order, so a raw
+/// read hands targets back in definition order only after a span sort. Sort
 /// by the definition's declaration span instead.
 pub fn modules_in_file(uri: &McURI) -> Vec<String> {
     let c = canonical(uri);
-    let mut defs: Vec<(usize, String)> = workspace::WORKSPACE
-        .modules
-        .iter()
-        .filter(|e| e.key().uri == c)
-        .map(|e| (e.value().span.start, e.key().ident.to_string()))
+    let mut defs: Vec<(usize, String)> = crate::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .filter(|(sn, _)| sn.uri.as_uri().as_ref() == c)
+        .map(|(sn, m)| (m.span.start, sn.ident.to_string()))
         .collect();
     defs.sort_by_key(|(pos, _)| *pos);
     defs.into_iter().map(|(_, name)| name).collect()
@@ -140,11 +138,11 @@ pub fn modules_in_file(uri: &McURI) -> Vec<String> {
 /// Components declared in `uri`, in source-declaration order.
 pub fn components_in_file(uri: &McURI) -> Vec<String> {
     let c = canonical(uri);
-    let mut defs: Vec<(usize, String)> = workspace::WORKSPACE
-        .components
-        .iter()
-        .filter(|e| e.key().uri == c)
-        .map(|e| (e.value().span.start, e.key().ident.to_string()))
+    let mut defs: Vec<(usize, String)> = crate::definition_space()
+        .workspace_components()
+        .into_iter()
+        .filter(|(sn, _)| sn.uri.as_uri().as_ref() == c)
+        .map(|(sn, comp)| (comp.span.start, sn.ident.to_string()))
         .collect();
     defs.sort_by_key(|(pos, _)| *pos);
     defs.into_iter().map(|(_, name)| name).collect()
@@ -153,11 +151,11 @@ pub fn components_in_file(uri: &McURI) -> Vec<String> {
 /// Interfaces declared in `uri`, in source-declaration order.
 pub fn interfaces_in_file(uri: &McURI) -> Vec<String> {
     let c = canonical(uri);
-    let mut defs: Vec<(usize, String)> = workspace::WORKSPACE
-        .interfaces
-        .iter()
-        .filter(|e| e.key().uri == c)
-        .map(|e| (e.value().span.start, e.key().ident.to_string()))
+    let mut defs: Vec<(usize, String)> = crate::definition_space()
+        .workspace_interfaces()
+        .into_iter()
+        .filter(|(sn, _)| sn.uri.as_uri().as_ref() == c)
+        .map(|(sn, iface)| (iface.span.start, sn.ident.to_string()))
         .collect();
     defs.sort_by_key(|(pos, _)| *pos);
     defs.into_iter().map(|(_, name)| name).collect()

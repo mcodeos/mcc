@@ -387,17 +387,32 @@ impl McParamDeclares {
     }
 
     /// Iterate all parameter ports with their spans (Category A only).
+    ///
+    /// The backing `port_spans` map is a `HashMap`, so iteration is sorted by
+    /// source position first to keep registration order (and the resulting
+    /// symbol ids) stable across runs.
     pub fn iter_ports_with_span(&self) -> impl Iterator<Item = (&str, Range<usize>)> + '_ {
-        self.port_spans
+        let mut items: Vec<(&str, Range<usize>)> = self
+            .port_spans
             .iter()
             .flat_map(|(name, spans)| spans.iter().map(move |span| (name.as_str(), span.clone())))
+            .collect();
+        items.sort_by(|a, b| (a.1.start, a.0).cmp(&(b.1.start, b.0)));
+        items.into_iter()
     }
 
     /// Iterate all parameter definition spans (any category, for goto-def).
+    ///
+    /// Sorted by source position for the same determinism reason as
+    /// [`Self::iter_ports_with_span`].
     pub fn iter_defs_with_span(&self) -> impl Iterator<Item = (&str, Range<usize>)> + '_ {
-        self.def_spans
+        let mut items: Vec<(&str, Range<usize>)> = self
+            .def_spans
             .iter()
             .flat_map(|(name, spans)| spans.iter().map(move |span| (name.as_str(), span.clone())))
+            .collect();
+        items.sort_by(|a, b| (a.1.start, a.0).cmp(&(b.1.start, b.0)));
+        items.into_iter()
     }
 
     /// Look up the first definition span by canonical name (any category).

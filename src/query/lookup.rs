@@ -4,7 +4,6 @@
 
 use crate::ast::sem::Span;
 use crate::db::cmie::cmie::mcb_get_cmie_with_uri;
-use crate::db::cmie::tables as workspace;
 use crate::semantic::module::McModule;
 use crate::semantic::scope::container_scope;
 use crate::{McCMIE, McIds, McSpaceName, McURI};
@@ -972,14 +971,14 @@ pub fn mcb_get_module_with_diagnostics(
     // 2. Fallback: controlled lookup by ident + URI (exact or suffix match),
     //    never a workspace-wide name-only scan (§5.4.5).
     let canonical_uri = canonicalize_project_uri(uri);
-    let fallback = workspace::WORKSPACE
-        .modules
-        .iter()
-        .find(|e| {
-            e.key().ident == *class_name
-                && uri_equivalent(&e.key().uri.as_uri(), uri.as_str(), &canonical_uri)
+    let fallback = crate::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .find(|(sn, _)| {
+            sn.ident == *class_name
+                && uri_equivalent(&sn.uri.as_uri(), uri.as_str(), &canonical_uri)
         })
-        .map(|e| e.value().clone());
+        .map(|(_, module)| module);
     if let Some(module) = fallback {
         diags.push(format!(
             "✅ fallback controlled module lookup success: stmts={}, symbols={}",

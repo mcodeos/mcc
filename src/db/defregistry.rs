@@ -877,12 +877,26 @@ fn live_entry_in(sn: &McSpaceName, kind: DefKind, filter: DomainFilter) -> Optio
 }
 
 /// Enumerate every live definition of `kind` under `filter`.
+///
+/// Sorted by (uri, ident) so the result is deterministic across runs:
+/// `ARENA` is a DashMap whose iteration order varies per process (each run
+/// seeds its own hash keys), which previously made the order of component /
+/// module / interface registration during lapper building — and therefore the
+/// order in which fresh symbol ids are allocated — nondeterministic.
 fn enumerate(kind: DefKind, filter: DomainFilter) -> Vec<(McSpaceName, DefValue)> {
-    ARENA
+    let mut keyed: Vec<((Arc<str>, String), (McSpaceName, DefValue))> = ARENA
         .iter()
         .filter(|e| e.kind == kind && e.data.is_some() && filter_matches(&e.domain, filter))
-        .map(|e| (e.sn.clone(), e.data.clone().unwrap()))
-        .collect()
+        .map(|e| {
+            let sn = e.sn.clone();
+            (
+                (sn.uri_string(), sn.ident.to_string()),
+                (sn, e.data.clone().unwrap()),
+            )
+        })
+        .collect();
+    keyed.sort_by(|a, b| a.0.cmp(&b.0));
+    keyed.into_iter().map(|(_, item)| item).collect()
 }
 
 fn peel_components(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McComponent>)> {

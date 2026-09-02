@@ -110,6 +110,29 @@ impl McComponent {
         self.pins.has_any_pins() || !self.cond_pins.is_empty()
     }
 
+    /// Two-pin verdict from the class *definition* alone, for parse-time
+    /// routing sites that only hold the class name. Dynamic ranges are
+    /// resolved against the class's declared defaults (the zero-argument
+    /// construction), so a genuinely dynamic part is classified by its default
+    /// shape. Def-driven counterpart of [`Mc2Component::resolved_pin_count`].
+    ///
+    /// Returns `Some(true/false)` when the def decides, or `None` when a
+    /// dynamic range references a param that has no integer default — the
+    /// count is unknowable without an instance, and callers fall back to the
+    /// class-name list instead of guessing.
+    pub(crate) fn two_pin_verdict(&self) -> Option<bool> {
+        if !self.pins.has_dynamic_pins() {
+            return Some(self.pins.count() == 2);
+        }
+        let bindings = McParamBindings::bind_quiet(&self.params, &[]).ok()?;
+        let integer_bindings = Mc2Component::integer_param_bindings(&bindings);
+        let mut count = self.pins.count();
+        for line in &self.pins.dynamic_pins {
+            count += line.dynamic_pin_count(&integer_bindings)?;
+        }
+        Some(count == 2)
+    }
+
     pub fn new(node: &AstNode, uri: &McURI) -> Option<Self> {
         // MCK_COMPONENT
         // |- MCAST_NAME - MCAST_PARAMS (option) - MCAST_BODY
@@ -610,7 +633,10 @@ impl Mc2Component {
         }
     }
 
-    fn integer_param_bindings(&self, bindings: &McParamBindings) -> Vec<(String, i64)> {
+    /// Extract the integer-valued param bindings usable by dynamic-pin
+    /// resolution (`resolve_dynamic_pins` / `expand_range`) from a full
+    /// binding set: explicit int args plus integer UValue defaults.
+    fn integer_param_bindings(bindings: &McParamBindings) -> Vec<(String, i64)> {
         let mut values = Vec::new();
 
         for binding in bindings.iter() {
@@ -650,7 +676,7 @@ impl Mc2Component {
         }
 
         let bindings = McParamBindings::bind_quiet(&self.base.params, &self.params).ok()?;
-        let integer_bindings = self.integer_param_bindings(&bindings);
+        let integer_bindings = Self::integer_param_bindings(&bindings);
         if Self::pins_contain(&self.base.pins, id, &integer_bindings) {
             return Some(id.to_string());
         }
@@ -670,6 +696,31 @@ impl Mc2Component {
         }
 
         None
+    }
+
+    /// Real pin count of this *instance*: static pins plus any dynamic
+    /// (parameter-range) pins resolved against this instance's bound params.
+    ///
+    /// `None` when a dynamic range references a param that isn't bound to an
+    /// integer here — the count is unknowable at this stage and callers must
+    /// fall back conservatively rather than guessing from the class name.
+    /// Conditional pin blocks are deliberately not folded in: a part whose
+    /// *base* pin count is what decides two-pin topology here.
+    ///
+    /// This is the def-driven replacement for the parse-time class-name
+    /// two-pin whitelist (`naming::is_known_twopin_class`): "is the class two
+    /// pins?" is answered by counting the class's real pins, not its name.
+    pub(crate) fn resolved_pin_count(&self) -> Option<usize> {
+        if !self.base.pins.has_dynamic_pins() {
+            return Some(self.base.pins.count());
+        }
+        let bindings = McParamBindings::bind_quiet(&self.base.params, &self.params).ok()?;
+        let integer_bindings = Self::integer_param_bindings(&bindings);
+        let mut count = self.base.pins.count();
+        for line in &self.base.pins.dynamic_pins {
+            count += line.dynamic_pin_count(&integer_bindings)?;
+        }
+        Some(count)
     }
 
     /// Find the externally-exposed interface named id

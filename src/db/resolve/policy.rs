@@ -19,7 +19,22 @@ use crate::db::infra::init::interface_lookup;
 use crate::semantic::common::{uri_intern, UriId};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use tracing::trace;
-/// URI-scoped member-set match in one kind's tables (workspace, then global).
+/// Policy kind code (0=component, 1=module, 2=interface, 3=enum) → the
+/// registry definition kind it resolves.
+fn def_kind_of_cmie(cmie_kind: u8) -> Option<DefKind> {
+    Some(match cmie_kind {
+        0 => DefKind::Component,
+        1 => DefKind::Module,
+        2 => DefKind::Interface,
+        3 => DefKind::Enum,
+        _ => return None,
+    })
+}
+
+/// URI-scoped member-set match in one kind's registry segments (project
+/// domain first, then the per-world system name index — the same two
+/// segments the physical workspace tables + system segment mirrored before
+/// the read-side migration).
 ///
 /// The exact-key lookups can miss when `name` was rebuilt from a string:
 /// `McIds::from(&str)` wraps the whole text in a single `Ida` segment, while
@@ -36,35 +51,36 @@ pub(crate) fn find_in_table_scoped(
     name_str: &str,
     uri_ok: impl Fn(&UriId) -> bool,
 ) -> Option<McCMIE> {
+    let Some(kind) = def_kind_of_cmie(cmie_kind) else {
+        return None;
+    };
     let query_ids = McIds::from(name_str);
     let eq = |ident: &McIds| crate::semantic::basic::equivalent::are_equivalent(ident, &query_ids);
-    match cmie_kind {
-        0 => workspace::WORKSPACE
-            .components
-            .iter()
-            .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
-            .map(|e| McCMIE::Component(e.value().clone()))
-            .or_else(|| find_in_system_scoped(DefKind::Component, name_str, &uri_ok)),
-        1 => workspace::WORKSPACE
-            .modules
-            .iter()
-            .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
-            .map(|e| McCMIE::Module(e.value().clone()))
-            .or_else(|| find_in_system_scoped(DefKind::Module, name_str, &uri_ok)),
-        2 => workspace::WORKSPACE
-            .interfaces
-            .iter()
-            .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
-            .map(|e| McCMIE::Interface(e.value().clone()))
-            .or_else(|| find_in_system_scoped(DefKind::Interface, name_str, &uri_ok)),
-        3 => workspace::WORKSPACE
-            .enums
-            .iter()
-            .find(|e| eq(&e.key().ident) && uri_ok(&e.key().uri))
-            .map(|e| McCMIE::Enum(e.value().clone()))
-            .or_else(|| find_in_system_scoped(DefKind::Enum, name_str, &uri_ok)),
+    let ds = crate::definition_space();
+    let project_hit: Option<McCMIE> = match kind {
+        DefKind::Component => ds
+            .workspace_components()
+            .into_iter()
+            .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
+            .map(|(_, c)| McCMIE::Component(c)),
+        DefKind::Module => ds
+            .workspace_modules()
+            .into_iter()
+            .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
+            .map(|(_, m)| McCMIE::Module(m)),
+        DefKind::Interface => ds
+            .workspace_interfaces()
+            .into_iter()
+            .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
+            .map(|(_, i)| McCMIE::Interface(i)),
+        DefKind::Enum => ds
+            .workspace_enums()
+            .into_iter()
+            .find(|(sn, _)| eq(&sn.ident) && uri_ok(&sn.uri))
+            .map(|(_, e)| McCMIE::Enum(e)),
         _ => None,
-    }
+    };
+    project_hit.or_else(|| find_in_system_scoped(kind, name_str, &uri_ok))
 }
 
 /// P5 system-library fallback of [`find_in_table_scoped`]: O(1) name-index
@@ -283,30 +299,18 @@ impl Resolver {
 
     /// P3 exact-key lookup: `name` defined in `from_uri` itself. Used as a
     /// fallback before the file's RefDefMap is consolidated (create_lapper).
+    /// Reads the registry's project domain by exact key — the same entries
+    /// the physical workspace tables mirrored for project defs (read-side
+    /// migration); system-lib defs are never P3 for a referencing file.
     fn resolve_own_file(from_uri: &McURI, name: &McIds) -> Option<McCMIE> {
         let space = McSpaceName::new(name, from_uri.clone());
-        let exact = workspace::WORKSPACE
-            .components
-            .get(&space)
-            .map(|c| McCMIE::Component(c.clone()))
-            .or_else(|| {
-                workspace::WORKSPACE
-                    .modules
-                    .get(&space)
-                    .map(|m| McCMIE::Module(m.clone()))
-            })
-            .or_else(|| {
-                workspace::WORKSPACE
-                    .interfaces
-                    .get(&space)
-                    .map(|i| McCMIE::Interface(i.clone()))
-            })
-            .or_else(|| {
-                workspace::WORKSPACE
-                    .enums
-                    .get(&space)
-                    .map(|e| McCMIE::Enum(e.clone()))
-            });
+        let ds = crate::definition_space();
+        let exact = ds
+            .get_workspace_component(&space)
+            .map(McCMIE::Component)
+            .or_else(|| ds.get_workspace_module(&space).map(McCMIE::Module))
+            .or_else(|| ds.get_workspace_interface(&space).map(McCMIE::Interface))
+            .or_else(|| ds.get_workspace_enum(&space).map(McCMIE::Enum));
         if let Some(cmie) = exact {
             return Some(cmie);
         }
