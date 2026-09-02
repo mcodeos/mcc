@@ -261,3 +261,62 @@ pub fn handle_lookup_all(params: Option<Value>) -> RpcResult {
         .collect();
     Ok(json!({ "items": items }))
 }
+
+// === defs.checkpoint / defs.diff (design §10; T6-② daemon/RPC exit) ===
+
+/// Capture the current definition-space version — the daemon/RPC baseline a
+/// consumer diffs against with `defs.diff`. The capture is unconditional
+/// (always a fresh version handle), and the payload is the serialized
+/// registry identity set: DefId + canonical key + domain + liveness +
+/// content fingerprint per entry ([`RegistryEntrySnapshot`]), never the def
+/// payloads. Re-baseline with this method when `defs.diff` reports that the
+/// journal window expired.
+pub fn handle_defs_checkpoint(_params: Option<Value>) -> RpcResult {
+    let cp = crate::db::defregistry::checkpoint();
+    Ok(serde_json::to_value(cp).expect("checkpoint serialization cannot fail"))
+}
+
+/// Diff the definition space since a previously captured version
+/// (`defs.checkpoint`) against the live state. Every changed def appears as
+/// `{id, kind: added|removed|modified, before, after}` where `before`/`after`
+/// are registry-entry snapshots (null when the side does not exist); `files`
+/// lists the touched uris. The query does not stamp a new version. When the
+/// requested baseline fell out of the sliding journal window the call fails
+/// with 32113 — re-baseline with `defs.checkpoint`.
+pub fn handle_defs_diff(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct DefsDiffParams {
+        #[serde(rename = "fromVersion")]
+        from_version: u64,
+    }
+    let p: DefsDiffParams = parse_strict(params)?;
+    let changes = crate::db::defregistry::diff_since(p.from_version).map_err(|e| {
+        JsonRpcError::custom(
+            32113,
+            &format!("defs.diff: {e}; re-baseline with defs.checkpoint"),
+        )
+    })?;
+    let files = crate::db::defregistry::changed_files(&changes);
+    let items: Vec<Value> = changes
+        .into_iter()
+        .map(|c| {
+            let kind = match c.kind {
+                crate::db::defregistry::DefChangeKind::Added => "added",
+                crate::db::defregistry::DefChangeKind::Removed => "removed",
+                crate::db::defregistry::DefChangeKind::Modified => "modified",
+            };
+            json!({
+                "id": c.id,
+                "kind": kind,
+                "before": c.before,
+                "after": c.after,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "fromVersion": p.from_version,
+        "count": items.len(),
+        "files": files,
+        "changes": items,
+    }))
+}

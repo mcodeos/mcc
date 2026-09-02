@@ -4,14 +4,23 @@
 
 //! MemberLedger — the DefMemberId account ledger (defspace D13 / invariant C).
 //!
-//! Every definition's member table (component pins, interface members) is an
-//! append-only ledger with tombstones. A [`DefMemberId`] is a stable
-//! generation index that is never reused: an instance-side `PointId` that
-//! references a def member stays valid across def edits, because inserting a
-//! member mid-table can no longer shift later members' identities.
+//! The two member kinds an instance `PointId` references by id — component
+//! pins and module io ports — are append-only ledgers with tombstones. A
+//! [`DefMemberId`] is a stable generation index that is never reused: an
+//! instance-side `PointId` that references a def member stays valid across
+//! def edits, because inserting a member mid-table can no longer shift later
+//! members' identities.
 //!
 //! The declaration "reorder the pins" must therefore be expressed as
 //! "tombstone + new pin" — that is the identity-safe form of a rename.
+//!
+//! Ownership (T4, defspace-id-core-plan M1): the ledgers live in the def
+//! registry keyed by the owning def's [`DefId`](crate::db::defregistry::DefId),
+//! not on the parse artifacts — a re-parse merges by name into the surviving
+//! ledger (same name reuses its id, new names append, vanished names are
+//! tombstoned) instead of re-deriving ids from scratch. Interface members,
+//! bus members and labels are content-addressed (declaration order only) and
+//! never enter a ledger — nothing references them by a stable member id.
 
 use std::collections::BTreeMap;
 

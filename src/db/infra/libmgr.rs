@@ -287,6 +287,10 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
         elapsed_ms = t0.elapsed().as_millis() as u64,
         "loaded"
     );
+    // T6-②: library load round end — the recursive add registered (or, for a
+    // use-only third-party lib, tombstoned) defs above; stamp one journal
+    // version when the round changed the definition space.
+    crate::db::defregistry::checkpoint_if_changed();
     true
 }
 
@@ -337,13 +341,17 @@ pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
         ClearScope::Full => {
             workspace::WORKSPACE.blibs.clear();
             workspace::WORKSPACE.clear_active();
-            // The definition registry is process-global state; a full reset
-            // starts its identity journal over with a clean slate.
+            // The definition registry is world-owned state on the active
+            // workspace; a full reset starts its identity journal over with a
+            // clean slate.
             crate::db::defregistry::clear_all();
         }
         ClearScope::Lib => {
             let uris = uris.expect("ClearScope::Lib requires the library uri set");
             crate::db::defregistry::remove_by_uris(uris);
+            // T6-②: library-unload round end — stamp one journal version when
+            // the sweep tombstoned any definition.
+            crate::db::defregistry::checkpoint_if_changed();
         }
     }
 }

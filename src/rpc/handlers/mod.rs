@@ -2883,6 +2883,14 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "cli",
     },
     MethodMeta {
+        name: "defs.checkpoint",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "defs.diff",
+        consumer: "admin",
+    },
+    MethodMeta {
         name: "export",
         consumer: "cli",
     },
@@ -3102,6 +3110,8 @@ pub fn register_all(
     // Defs
     builder = builder.register_method("defs.search", handle_defs_search);
     builder = builder.register_method("defs.query", handle_defs_query);
+    builder = builder.register_method("defs.checkpoint", handle_defs_checkpoint);
+    builder = builder.register_method("defs.diff", handle_defs_diff);
     builder = builder.register_method("export", handle_export);
     // LSP
     builder = builder.register_method("sem", handle_sem);

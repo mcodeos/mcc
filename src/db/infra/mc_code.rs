@@ -6309,6 +6309,22 @@ module main
 
         let uri: crate::McURI = "/mcc/declareb-inst.mc".to_string();
         let source = r#"
+component RES
+{
+    pins = [
+        1 = 1, "Term 1"
+        2 = 2, "Term 2"
+    ]
+}
+
+component CAP
+{
+    pins = [
+        1 = 1, "Term 1"
+        2 = 2, "Term 2"
+    ]
+}
+
 module main
 {
     UART0 - res[1:2]::RES(0Ω) - UART1
@@ -7043,5 +7059,176 @@ module main
                 .contains(&from),
             "rev edge records the referencing ref-point"
         );
+        // D15.3: a graph hit carries the registry DefId — who-uses answers
+        // through the id (one hop, def-level), never a text-keyed registry
+        // round trip on the caller's side (T5 acceptance).
+        let id = workspace::WORKSPACE
+            .refgraph
+            .def_id_of(&to)
+            .expect("a resolved def node carries a registry DefId");
+        assert!(
+            workspace::WORKSPACE
+                .refgraph
+                .dependents_of(id)
+                .contains(&from),
+            "who-uses answers through the def id"
+        );
+        assert!(
+            workspace::WORKSPACE.refgraph.has_dependents_of(id),
+            "the def-level who-uses predicate agrees"
+        );
+    }
+
+    /// T6 (G6) parse-level gold assertion: the def content fingerprint is
+    /// stable across real parses and only the edited def surfaces. The
+    /// re-parse flow mirrors the loader semantics — unload the file, then
+    /// reload the edited text (the reload revives the same `DefId`s). The
+    /// edit inserts one pin into V6LED's table *above* `module main`, so
+    /// every byte position in the rest of the file shifts: if spans leaked
+    /// into the fingerprint, the untouched module would report Modified too.
+    #[test]
+    fn parse_level_reparse_diff_reports_edited_def_only() {
+        use crate::db::defregistry::{checkpoint, diff_versions, DefChange, DefChangeKind};
+
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-t6-fp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("main.mc");
+        let uri =
+            crate::build::pass1::canonicalize_project_uri(&file.to_string_lossy().into_owned());
+
+        let v1 = "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n    ]\n}\n\nmodule main\n{\n    io A\n    io GND\n    V6LED led1\n}\n";
+        let v2 = "component V6LED\n{\n    pins = [\n        1 = A\n        2 = K\n        3 = N\n    ]\n}\n\nmodule main\n{\n    io A\n    io GND\n    V6LED led1\n}\n";
+        crate::mcc_load_from_string(&uri, v1);
+        let t1 = checkpoint();
+
+        // Loader edit flow: unload the file's defs, reload the edited text.
+        crate::mcc_remove(&uri);
+        crate::mcc_load_from_string(&uri, v2);
+        let t2 = checkpoint();
+
+        let diff = diff_versions(&t1, &t2);
+        let ident_of = |c: &DefChange| -> String {
+            c.before
+                .as_ref()
+                .map(|e| e.ident.clone())
+                .or_else(|| c.after.as_ref().map(|e| e.ident.clone()))
+                .unwrap_or_default()
+        };
+        let modified = |name: &str| {
+            diff.iter()
+                .filter(|c| matches!(c.kind, DefChangeKind::Modified) && ident_of(c) == name)
+                .count()
+        };
+        assert_eq!(
+            modified("V6LED"),
+            1,
+            "the edited def must be Modified: {:?}",
+            diff
+        );
+        assert_eq!(
+            modified("main"),
+            0,
+            "an untouched def must stay quiet even though every span below \
+             the edit shifted: {:?}",
+            diff
+        );
+
+        // The edit kept the identity — one live def on both sides, same id,
+        // only the content fingerprint changed.
+        let v6_edit = diff
+            .iter()
+            .find(|c| ident_of(c) == "V6LED" && matches!(c.kind, DefChangeKind::Modified))
+            .expect("V6LED edit is in the diff");
+        let before = v6_edit.before.as_ref().unwrap();
+        let after = v6_edit.after.as_ref().unwrap();
+        assert!(before.alive && after.alive);
+        assert_eq!(before.id, after.id, "identity survives the re-parse");
+        assert_ne!(
+            before.fingerprint, after.fingerprint,
+            "the content fingerprint moved with the pin-table edit"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// T4 (M1b) module-port ledger at instantiation level. Instantiating a
+    /// project syncs each instantiated module def's just-built port table
+    /// into its registry-owned ledger (`sync_module_ports`, phases.rs). A def
+    /// edit that inserts a port mid-declaration across a remove + reload must
+    /// never shift the surviving ports' member ids — the positional ordinal
+    /// would give A=1/B=2 after the insert, the ledger keeps A=0/B=1 and
+    /// appends the new port at the high-water mark. This is the module side
+    /// of invariant C (the component side is `component_pin_ledger_merges_by_name_across_reparse`).
+    #[test]
+    fn module_port_ledger_stable_across_mid_insert_reparse() {
+        use crate::db::defmember::DefMemberId;
+
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-t4-mports-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let uri = crate::build::pass1::canonicalize_project_uri(
+            &dir.join("t.mc").to_string_lossy().into_owned(),
+        );
+
+        // v1: ports A, B. v2 inserts X ahead of them — every later port moves
+        // one position down in the source, so only a name-keyed ledger (not a
+        // positional ordinal) keeps A/B's member ids stable.
+        let v1 = "module usub\n{\n    io A\n    io B\n}\n\nmodule main\n{\n    usub U\n}\n";
+        let v2 =
+            "module usub\n{\n    io X\n    io A\n    io B\n}\n\nmodule main\n{\n    usub U\n}\n";
+
+        let sn = crate::McSpaceName::new(&crate::McIds::from("usub"), uri.clone());
+        let member = |name: &str| crate::def_member_id_of(&sn, crate::DefKind::Module, name);
+
+        // Build v1: instantiating `main` instantiates `usub` and syncs its
+        // port table [A, B] into the ledger (ids 0, 1).
+        crate::mcc_load_from_string(&uri, v1);
+        crate::mcc_build_dianlu(&crate::McIds::from("main"), &uri, 1000)
+            .expect("build v1 syncs usub's ports");
+        assert_eq!(member("A"), Some(DefMemberId(0)), "v1 A first");
+        assert_eq!(member("B"), Some(DefMemberId(1)), "v1 B second");
+
+        // Loader edit flow, then build v2: the mid insert keeps the survivors.
+        crate::mcc_remove(&uri);
+        crate::mcc_load_from_string(&uri, v2);
+        crate::mcc_build_dianlu(&crate::McIds::from("main"), &uri, 1000)
+            .expect("build v2 syncs usub's edited ports");
+        assert_eq!(
+            member("A"),
+            Some(DefMemberId(0)),
+            "survivor A keeps its id across the mid insert"
+        );
+        assert_eq!(
+            member("B"),
+            Some(DefMemberId(1)),
+            "later port B is not shifted by the mid insert"
+        );
+        assert_eq!(
+            member("X"),
+            Some(DefMemberId(2)),
+            "the new port appends at the high-water mark"
+        );
+
+        // A third build dropping X retires it (tombstone), keeping A/B.
+        crate::mcc_remove(&uri);
+        crate::mcc_load_from_string(&uri, v1);
+        crate::mcc_build_dianlu(&crate::McIds::from("main"), &uri, 1000)
+            .expect("build v3 syncs the restored ports");
+        assert_eq!(member("A"), Some(DefMemberId(0)));
+        assert_eq!(member("B"), Some(DefMemberId(1)));
+        assert_eq!(member("X"), None, "the removed port retires");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

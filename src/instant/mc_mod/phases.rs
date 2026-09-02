@@ -287,6 +287,26 @@ impl InstantiationBuilder {
             }
         }
 
+        // T4 (defspace-id-core-plan M1b): merge the just-finalized port table
+        // into the module def's registry-owned port ledger — the port list is
+        // built here (module ports are an instantiation product, not a parse
+        // artifact), so this is the single point where the ledger learns the
+        // def's ports. The merge is by name (a re-parse that inserts a port
+        // mid-declaration never shifts the later ports' member ids); module
+        // trees whose def is not a registered identity (func-expanded
+        // synthetic modules, empty def uri) are skipped and keep the
+        // positional ordinal in the lane layer.
+        if !self.def_uri.is_empty() {
+            let ports: Vec<(String, String)> = self
+                .ports
+                .iter()
+                .map(|p| (p.name.clone(), format!("{:?}", p.iotype)))
+                .collect();
+            let sn =
+                crate::semantic::common::McSpaceName::new(&self.def.name, self.def_uri.clone());
+            crate::db::defregistry::sync_module_ports(&sn, &ports);
+        }
+
         Ok(())
     }
 

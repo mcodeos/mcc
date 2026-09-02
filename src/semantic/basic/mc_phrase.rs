@@ -1385,11 +1385,14 @@ impl McPhrase {
                 }
 
                 // ── R5a fix: `name[a:b]::TYPE(params)` in chain ──
-                // If TYPE is known 2-pin passive (RES/CAP/IND/DIO…, naming::is_known_twopin_class),
-                // monster falls to mc_inst.rs:1092 Label fallback → bare net short.
+                // If TYPE is a real 2-pin component class (its def resolves and
+                // its pin count == 2), monster falls to mc_inst.rs:1092 Label
+                // fallback → bare net short.
                 // Build FuncCall{TYPE,params} for each expanded name, same path as anonymous `CAP(...)` in chain.
-                // ★ Criterion must use is_known_twopin_class, not cmie.is_none():
-                //   Net types like DC/GND also cmie-None, would be mistakenly created as @?DC_n 2-pin component, breaking power nets.
+                // ★ Two-pin-ness is def-driven: only a resolved Component def
+                //   with real pin count 2 counts. Net types like DC/GND never
+                //   resolve to a Component → not two-pin → they must NOT be
+                //   created as @?DC_n 2-pin components, breaking power nets.
                 if let Some(sub) = node.get_sub_node() {
                     let mut class_node: Option<AstNode> = None;
                     let mut names: Vec<String> = Vec::new();
@@ -1449,16 +1452,15 @@ impl McPhrase {
                                 mcb_register_declare_class(context.uri(), &class_ids, class_span);
                             }
                             // Two-pin-ness is def-driven: read the resolved
-                            // class's real pins, fall back to the class-name
-                            // list when the name can't be resolved to a def yet.
+                            // class's real pins. A class that doesn't resolve to
+                            // a component def (net type like DC/GND, or not yet
+                            // loaded) is *not* treated as two-pin by name.
                             let is_twopin = crate::vector::graph::naming::two_pin_class_from_def(
                                 &DB,
                                 &class_ids,
                                 context.uri(),
                             )
-                            .unwrap_or_else(|| {
-                                crate::vector::graph::naming::is_known_twopin_class(&fname)
-                            });
+                            .unwrap_or(false);
                             // Keep the FuncCall path for 2-pin classes: Pass2 relies
                             // on it for transpose (`R442::RES(1MΩ)'`) and NC-param
                             // semantics. LSP classification of the declared names

@@ -1126,14 +1126,14 @@ impl InstantiationBuilder {
                 // Static count 2 is authoritative; a dynamic-pin class is
                 // two-pin only when it really resolves to 2 (this also stops
                 // forcing every @-anonymous dynamic instance into a 2-pin
-                // Node); when a dynamic count can't be bound here, fall back
-                // to the class-name list rather than guessing.
-                let class_name = c.base.name.to_string();
+                // Node); a dynamic count that can't be bound here is *not*
+                // guessed as two-pin by name — it falls to the single-point
+                // Bus, where the component's real pins are wired later.
                 let static_count = c.base.pins.count();
                 let two_pin = match c.resolved_pin_count() {
                     Some(2) => true,
                     Some(_) => false,
-                    None => crate::vector::graph::naming::is_known_twopin_class(&class_name),
+                    None => false,
                 };
 
                 match (static_count, two_pin) {

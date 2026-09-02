@@ -90,7 +90,12 @@ pub use builder::{
 
 // ── Instant / Net ──
 pub use db::defmember::DefMemberId;
-pub use db::defregistry::{def_id, kind_of, DefId, DefKind};
+// ── Definition-space checkpoint / diff (design §10; T6-② wiring) ──
+pub use db::defregistry::{
+    changed_files, checkpoint, checkpoint_if_changed, def_id, def_member_id_of, diff_since,
+    diff_versions, kind_of, latest_checkpoint, Checkpoint, DefChange, DefChangeKind, DefId,
+    DefKind, RegistryEntrySnapshot,
+};
 pub use instant::arena::NodeArena;
 pub use instant::descriptions::{
     BusGroup, DescriptionLayer, EnumRef, FuncGroup, IfaceBinding, LaneRef,
