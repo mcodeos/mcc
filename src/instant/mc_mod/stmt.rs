@@ -1117,24 +1117,26 @@ impl InstantiationBuilder {
                     );
                 }
 
-                // ── Iter-7.5b ────────────────────────────────────────────
-                // System library CAP/RES/IND/DIODE 2-pin classes use dynamic_pins to declare
-                // pins, class def c.base.pins static pins HashMap is empty,
-                // count() returns 0, but actually 2-pin.
-                // Tighten criteria: class name whitelist OR anonymous @ prefix, avoid false-hitting lpa/flash
-                // multi-pin dynamic components (they also satisfy has_dynamic_pins but aren't 2-pin).
-                //
-                // ── ★ P0-2: list moved to naming::is_known_twopin_class (single source of truth) ──
+                // ── Two-pin determination (def-driven) ───────────────────
+                // Decide from the class's *real* pin count — static pins plus
+                // any dynamic range resolved against this instance's bound
+                // params — instead of the old class-name whitelist / @-anon
+                // guess (system CAP/RES used to be dynamic-pin and needed the
+                // name list; they are static now and hit `(2, _)` directly).
+                // Static count 2 is authoritative; a dynamic-pin class is
+                // two-pin only when it really resolves to 2 (this also stops
+                // forcing every @-anonymous dynamic instance into a 2-pin
+                // Node); when a dynamic count can't be bound here, fall back
+                // to the class-name list rather than guessing.
                 let class_name = c.base.name.to_string();
-                let is_known_2pin_class =
-                    crate::vector::graph::naming::is_known_twopin_class(&class_name);
-                let is_anon_inst = inst_name.starts_with('@');
                 let static_count = c.base.pins.count();
-                let dyn_two_pin = static_count == 0
-                    && c.base.pins.has_dynamic_pins()
-                    && (is_known_2pin_class || is_anon_inst);
+                let two_pin = match c.resolved_pin_count() {
+                    Some(2) => true,
+                    Some(_) => false,
+                    None => crate::vector::graph::naming::is_known_twopin_class(&class_name),
+                };
 
-                match (static_count, dyn_two_pin) {
+                match (static_count, two_pin) {
                     (2, _) | (_, true) => (
                         vec![McPhrase::Endpoint(McEndpoint::Node {
                             input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(

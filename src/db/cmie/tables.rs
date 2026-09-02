@@ -192,13 +192,17 @@ impl WorkspaceManager {
     }
 
     /// Look up a component by its class name (ident string).
-    /// Checks workspace project tables first, then falls back to the per-world
-    /// system-library registry segment (Phase 5).
+    /// Checks the registry's project (workspace) view first, then falls back
+    /// to the per-world system-library name index (Phase 5) — the two
+    /// segments the physical workspace table + system index mirrored before
+    /// the read-side migration. The physical-table scan used to return an
+    /// arbitrary same-name winner; the sorted registry enumeration is
+    /// deterministic.
     /// Returns `None` if no component with that class name is registered.
     pub fn component_by_class(&self, class_name: &str) -> Option<Arc<McComponent>> {
-        for entry in self.components.iter() {
-            if entry.key().ident.to_string() == class_name {
-                return Some(entry.value().clone());
+        for (sn, comp) in crate::definition_space().workspace_components() {
+            if sn.ident.to_string() == class_name {
+                return Some(comp);
             }
         }
         // Fallback: per-world system-library components (registry segment) —

@@ -43,7 +43,10 @@ pub enum Symbol {
     Resistor,
     /// Ordinary capacitor (C)
     Capacitor,
-    /// Polarized capacitor (electrolytic / tantalum) - room left, P05 render distinguishes +/- poles
+    /// Polarized capacitor (electrolytic / tantalum) — renders the `+` polarity mark.
+    /// **Reserved**: never name-derived (`from_class_name` maps every `CAP.*` to
+    /// `Capacitor`); reachable only once a def-driven path reads the class's
+    /// `polarized` attribute.
     PolarCapacitor,
     /// Inductor (L)
     Inductor,
@@ -51,7 +54,9 @@ pub enum Symbol {
     Diode,
     /// Light-emitting diode (LED, DS)
     Led,
-    /// Zener / TVS / voltage regulator diode
+    /// Zener / TVS / voltage regulator diode — renders the bent-bar symbol.
+    /// **Reserved**: never name-derived (`from_class_name` maps every `DIO.*`
+    /// including `DIO.ZEN`/`DIO.TVS` to `Diode`); reachable only via a def-driven path.
     Zener,
 
     // ── Multi-pin components (BoxKind::MultiPin) ──
@@ -130,72 +135,50 @@ impl Symbol {
         matches!(self, Symbol::Ic)
     }
 
-    /// Recognize a two-pin component Symbol from `class_name` string
+    /// Recognize a two-pin component Symbol from the **canonical registered class name**
     ///
-    /// pass2's `InstEntry.class_name` is usually something like "RES" / "CAP" / "IND" / "DIODE".
-    /// Returns `None` if no match found, caller falls back to `Unknown`.
+    /// `InstEntry.class_name` is the resolved class-def name (`RES`, `CAP.ELEC`,
+    /// `DIO.ESD`, `LED.RGB`), never a source-string shorthand — aliases (`ESD`,
+    /// `ZENER`, `PULLUP`, …) have already been rewritten to canonical form by
+    /// `naming::canonicalize_class_alias` before an entry reaches the vector layer.
     ///
-    /// ★ M13.3: DOTTED class paths are matched too. CMIE registers a class as a
-    /// dotted path whose HEAD is the family — `naming::is_known_twopin_class`
-    /// documents exactly that rule ("`DIO.ESD` takes the first segment `DIO` for
-    /// a hit") and `canonicalize_class_alias` rewrites `ESD` to `DIO.ESD` — but
-    /// this function only ever compared the WHOLE string. So every registered
-    /// dotted class fell through to `Symbol::Unknown` and `render_box` drew a
-    /// bare rectangle: `mic`'s two `DIO.ESD` boxes came out as empty boxes with
-    /// their designators floating above them, which reads as "the diode was not
-    /// drawn". The full path is tried first (so `DIO.ZENER` stays a Zener and
-    /// does not decay to a plain Diode), then the head.
+    /// Matching takes the class **root token** (first dotted segment) and looks it
+    /// up in a small table of the real library families:
     ///
+    /// | root   | real registered classes                        | Symbol      |
+    /// |--------|-----------------------------------------------|-------------|
+    /// | `RES`  | `RES`, `RES.SMD`, `RES.THT`, `RES.POT`, …     | Resistor    |
+    /// | `CAP`  | `CAP`, `CAP.ELEC`, `CAP.TANT`, `CAP.SC`, …    | Capacitor   |
+    /// | `IND`  | `IND`, `IND.SMD`, `IND.FB`, `IND.CMC`, …      | Inductor    |
+    /// | `DIO`  | `DIO`, `DIO.ESD`, `DIO.ZEN`, `DIO.TVS`, …     | Diode       |
+    /// | `LED`  | `LED`, `LED.RGB`, `LED.IR`, `LED.HP`          | Led         |
+    /// | `TP`   | `TP`                                           | TestPoint   |
+    ///
+    /// Deliberately **not** matched here:
+    /// - single letters / shorthand aliases (`R`, `C`, `ESD`, `ZENER`, `FERRITE`) — these
+    ///   are call-site shorthands resolved by `naming::canonicalize_class_alias`, not class names;
+    /// - `_`/spelling variants (`RES_0603`, `ECAP`, `CAP_POL`, `TESTPOINT`) that never matched a
+    ///   registered library class;
+    /// - leaf-level subtypes that carry a distinct **rendered** symbol (polarized cap `+`,
+    ///   zener/tvs bent bar) — they split either on a class attribute (`CAP.ELEC` has
+    ///   `polarized=true`) or on the real dotted leaf (`DIO.ZEN`, `DIO.TVS`), so they must be
+    ///   derived from the class definition, not from the name. Until a def-driven path exists,
+    ///   root-token matching keeps them on the family shape (`CAP.ELEC` → Capacitor,
+    ///   `DIO.ZEN`/`DIO.TVS` → Diode).
+    ///
+    /// Returns `None` if no family matches; caller falls back to `Symbol::Unknown`.
     /// Case-insensitive.
     pub fn from_class_name(class_name: &str) -> Option<Symbol> {
         let u = class_name.to_uppercase();
-
-        if let Some(s) = Symbol::exact_class(&u) {
-            return Some(s);
-        }
-        // ★ M13.3: `DIO.ESD` → `DIO`, `CAP.X7R` → `CAP`, `RES.0402` → `RES`.
-        if let Some((head, _)) = u.split_once('.') {
-            if let Some(s) = Symbol::exact_class(head) {
-                return Some(s);
-            }
-        }
-
-        // Prefix heuristic (only allowed for these explicit prefixes, to avoid false hits)
-        for (pre, sym) in [
-            ("RES_", Symbol::Resistor),
-            ("CAP_", Symbol::Capacitor),
-            ("IND_", Symbol::Inductor),
-            ("DIODE_", Symbol::Diode),
-            ("LED_", Symbol::Led),
-        ] {
-            if u.starts_with(pre) {
-                return Some(sym);
-            }
-        }
-
-        None
-    }
-
-    /// ★ M13.3: one whole class token → a Symbol. The family aliases are the
-    /// ones `naming::TWOPIN_CLASSES` / `canonicalize_class_alias` already know
-    /// about, so the two lists cannot drift into disagreeing about what a
-    /// two-pin part is.
-    fn exact_class(u: &str) -> Option<Symbol> {
-        Some(match u {
-            "R" | "RES" | "RESISTOR" => Symbol::Resistor,
-            "C" | "CAP" | "CAPACITOR" => Symbol::Capacitor,
-            "C_POL" | "CAP_POL" | "CAP_POLAR" | "CAP_ELECTROLYTIC" | "ECAP" => {
-                Symbol::PolarCapacitor
-            }
-            "L" | "IND" | "INDUCTOR" => Symbol::Inductor,
-            // Specific families FIRST — `DIO.ZENER`'s head is `DIO`, and falling
-            // back to it would silently downgrade the symbol.
-            "DIO.LED" => Symbol::Led,
-            "DIO.ZENER" | "DIO.TVS" => Symbol::Zener,
-            "D" | "DIODE" | "DIO" | "ESD" | "SCHOTTKY" | "VARISTOR" => Symbol::Diode,
-            "LED" | "DS" => Symbol::Led,
-            "ZENER" | "TVS" | "ZD" => Symbol::Zener,
-            "TEST_POINT" | "TESTPOINT" | "TP" => Symbol::TestPoint,
+        // Canonical dotted class → root token: `CAP.ELEC` → `CAP`, scalar `RES` → `RES`.
+        let root = u.split('.').next().unwrap_or(&u);
+        Some(match root {
+            "RES" => Symbol::Resistor,
+            "CAP" => Symbol::Capacitor,
+            "IND" => Symbol::Inductor,
+            "DIO" => Symbol::Diode,
+            "LED" => Symbol::Led,
+            "TP" => Symbol::TestPoint,
             _ => return None,
         })
     }
@@ -261,43 +244,58 @@ mod tests {
     }
 
     #[test]
-    fn from_class_name_exact() {
-        assert_eq!(Symbol::from_class_name("R"), Some(Symbol::Resistor));
+    fn from_class_name_canonical_root() {
+        // Scalar library classes.
         assert_eq!(Symbol::from_class_name("RES"), Some(Symbol::Resistor));
-        assert_eq!(Symbol::from_class_name("Resistor"), Some(Symbol::Resistor));
-        assert_eq!(Symbol::from_class_name("C"), Some(Symbol::Capacitor));
         assert_eq!(Symbol::from_class_name("CAP"), Some(Symbol::Capacitor));
-        assert_eq!(Symbol::from_class_name("L"), Some(Symbol::Inductor));
-        assert_eq!(Symbol::from_class_name("D"), Some(Symbol::Diode));
-        // ★ M13.3: the dotted classes CMIE actually registers.
-        assert_eq!(Symbol::from_class_name("DIO.ESD"), Some(Symbol::Diode));
-        assert_eq!(Symbol::from_class_name("dio.esd"), Some(Symbol::Diode));
-        assert_eq!(Symbol::from_class_name("DIO.SCHOTTKY"), Some(Symbol::Diode));
-        assert_eq!(Symbol::from_class_name("DIO.ZENER"), Some(Symbol::Zener));
-        assert_eq!(Symbol::from_class_name("DIO.TVS"), Some(Symbol::Zener));
-        assert_eq!(Symbol::from_class_name("DIO.LED"), Some(Symbol::Led));
-        assert_eq!(Symbol::from_class_name("CAP.X7R"), Some(Symbol::Capacitor));
-        assert_eq!(Symbol::from_class_name("RES.0402"), Some(Symbol::Resistor));
-        // A dotted path whose head is unknown stays unknown.
-        assert_eq!(Symbol::from_class_name("MICROPHONE.SIP2"), None);
+        assert_eq!(Symbol::from_class_name("IND"), Some(Symbol::Inductor));
+        assert_eq!(Symbol::from_class_name("DIO"), Some(Symbol::Diode));
         assert_eq!(Symbol::from_class_name("LED"), Some(Symbol::Led));
-        assert_eq!(Symbol::from_class_name("ZENER"), Some(Symbol::Zener));
-        assert_eq!(
-            Symbol::from_class_name("CAP_POL"),
-            Some(Symbol::PolarCapacitor)
-        );
-        assert_eq!(
-            Symbol::from_class_name("ECAP"),
-            Some(Symbol::PolarCapacitor)
-        );
+        assert_eq!(Symbol::from_class_name("TP"), Some(Symbol::TestPoint));
+        // Case-insensitive.
+        assert_eq!(Symbol::from_class_name("res"), Some(Symbol::Resistor));
+        assert_eq!(Symbol::from_class_name("Led"), Some(Symbol::Led));
+        assert_eq!(Symbol::from_class_name("tp"), Some(Symbol::TestPoint));
     }
 
     #[test]
-    fn from_class_name_prefix() {
-        assert_eq!(Symbol::from_class_name("RES_0603"), Some(Symbol::Resistor));
-        assert_eq!(Symbol::from_class_name("CAP_0402"), Some(Symbol::Capacitor));
-        assert_eq!(Symbol::from_class_name("IND_4_7uH"), Some(Symbol::Inductor));
-        assert_eq!(Symbol::from_class_name("LED_RED"), Some(Symbol::Led));
+    fn from_class_name_dotted_root() {
+        // Real registered library classes take their root family.
+        assert_eq!(Symbol::from_class_name("RES.SMD"), Some(Symbol::Resistor));
+        assert_eq!(Symbol::from_class_name("RES.THT"), Some(Symbol::Resistor));
+        assert_eq!(Symbol::from_class_name("CAP.ELEC"), Some(Symbol::Capacitor));
+        assert_eq!(Symbol::from_class_name("CAP.TANT"), Some(Symbol::Capacitor));
+        assert_eq!(Symbol::from_class_name("IND.FB"), Some(Symbol::Inductor));
+        assert_eq!(Symbol::from_class_name("DIO.ESD"), Some(Symbol::Diode));
+        assert_eq!(Symbol::from_class_name("dio.esd"), Some(Symbol::Diode));
+        assert_eq!(Symbol::from_class_name("LED.RGB"), Some(Symbol::Led));
+        assert_eq!(Symbol::from_class_name("LED.IR"), Some(Symbol::Led));
+        // Leaf-level diode subtypes collapse to the family shape (see `from_class_name` doc):
+        // telling Zener/TVS apart needs the class definition, not the name.
+        assert_eq!(Symbol::from_class_name("DIO.ZEN"), Some(Symbol::Diode));
+        assert_eq!(Symbol::from_class_name("DIO.TVS"), Some(Symbol::Diode));
+        // A dotted path whose head is not a library family stays unknown.
+        assert_eq!(Symbol::from_class_name("MICROPHONE.SIP2"), None);
+        assert_eq!(Symbol::from_class_name("XTAL2"), None);
+    }
+
+    #[test]
+    fn from_class_name_no_alias_or_variant() {
+        // Single letters / shorthand aliases are resolved by
+        // `naming::canonicalize_class_alias` before flatten — they are not class names here.
+        assert_eq!(Symbol::from_class_name("R"), None);
+        assert_eq!(Symbol::from_class_name("C"), None);
+        assert_eq!(Symbol::from_class_name("L"), None);
+        assert_eq!(Symbol::from_class_name("D"), None);
+        assert_eq!(Symbol::from_class_name("ESD"), None);
+        assert_eq!(Symbol::from_class_name("ZENER"), None);
+        assert_eq!(Symbol::from_class_name("RESISTOR"), None);
+        // `_`-joined spelling variants never matched a registered class.
+        assert_eq!(Symbol::from_class_name("RES_0603"), None);
+        assert_eq!(Symbol::from_class_name("CAP_POL"), None);
+        assert_eq!(Symbol::from_class_name("ECAP"), None);
+        assert_eq!(Symbol::from_class_name("TEST_POINT"), None);
+        assert_eq!(Symbol::from_class_name("TESTPOINT"), None);
     }
 
     #[test]
@@ -306,21 +304,16 @@ mod tests {
         assert_eq!(Symbol::from_class_name("FPGA"), None);
         assert_eq!(Symbol::from_class_name(""), None);
         assert_eq!(Symbol::from_class_name("?"), None);
-        // Should not be false-matched by prefix
-        assert_eq!(Symbol::from_class_name("RESET"), None); // not RES_
-        assert_eq!(Symbol::from_class_name("DSP"), None); // not D, not DIODE
+        // Not false-matched by family prefix / spelling.
+        assert_eq!(Symbol::from_class_name("RESET"), None); // not RES
+        assert_eq!(Symbol::from_class_name("CAPACITOR"), None); // not CAP
+        assert_eq!(Symbol::from_class_name("INDUCTANCE"), None); // not IND
+        assert_eq!(Symbol::from_class_name("DSP"), None); // not DIO
+        assert_eq!(Symbol::from_class_name("LEDGER"), None); // not LED
     }
 
     #[test]
     fn from_class_name_testpoint() {
-        assert_eq!(
-            Symbol::from_class_name("TEST_POINT"),
-            Some(Symbol::TestPoint)
-        );
-        assert_eq!(
-            Symbol::from_class_name("TESTPOINT"),
-            Some(Symbol::TestPoint)
-        );
         assert_eq!(Symbol::from_class_name("TP"), Some(Symbol::TestPoint));
         assert_eq!(Symbol::TestPoint.expected_pins(), Some(1));
         assert!(!Symbol::TestPoint.is_two_pin_passive());

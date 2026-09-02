@@ -269,6 +269,20 @@ impl DynamicPinLine {
         results
     }
 
+    /// Number of pins this dynamic line materializes under `bindings`, or
+    /// `None` when its id range expression references a param that isn't bound
+    /// to an integer here — the count is unknowable at this stage.
+    ///
+    /// This is the *count* counterpart of [`Self::resolve`] (which returns an
+    /// empty Vec both for a legitimately empty range and for an unbound param,
+    /// so it can't answer "how many pins would this line create?").
+    pub fn dynamic_pin_count(&self, bindings: &[(String, i64)]) -> Option<usize> {
+        match &self.pin_id_expr {
+            Some(expr) => Some(expr.expand_range(bindings)?.len()),
+            None => Some(0),
+        }
+    }
+
     pub fn has_param_refs(&self) -> bool {
         self.pin_id_expr
             .as_ref()

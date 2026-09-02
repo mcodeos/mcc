@@ -2,7 +2,6 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::db::cmie::tables as workspace;
 use crate::db::infra::init::iter_interfaces;
 use crate::db::infra::init::mcb_canonicalize_uri;
 use crate::db::infra::init::uri_equivalent;
@@ -44,17 +43,19 @@ pub fn mcb_component_count() -> usize {
 // === pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> { ===
 /// Get all module names in a specific file (by URI)
 ///
-/// Key comparison uses [`uri_equivalent`] (not raw `==`): workspace keys are
-/// canonicalized (resolving `/tmp`→`/private/tmp` etc.), so a caller's raw
-/// path must be tested bidirectionally or real modules under a symlinked path
-/// would be reported as absent — misclassifying them as virtual targets.
+/// Reads the registry's project (workspace) module view — the definitions
+/// loaded into the active project. Key comparison uses [`uri_equivalent`]
+/// (not raw `==`): registry keys are canonicalized (resolving
+/// `/tmp`→`/private/tmp` etc.), so a caller's raw path must be tested
+/// bidirectionally or real modules under a symlinked path would be reported
+/// as absent — misclassifying them as virtual targets.
 pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> {
     let canonical = mcb_canonicalize_uri(uri);
-    workspace::WORKSPACE
-        .modules
-        .iter()
-        .filter(|entry| uri_equivalent(&entry.key().uri.as_uri(), uri.as_str(), &canonical))
-        .map(|entry| entry.key().ident.to_string())
+    crate::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .filter(|(sn, _)| uri_equivalent(&sn.uri.as_uri(), uri.as_str(), &canonical))
+        .map(|(sn, _)| sn.ident.to_string())
         .collect()
 }
 
@@ -68,24 +69,24 @@ pub fn mcb_interface_count() -> usize {
 // === pub fn mcb_iter_modules() -> Vec<(String, String)> { ===
 /// Iterate all registered project module definitions, return (name, uri) pairs.
 pub fn mcb_iter_modules() -> Vec<(String, String)> {
-    workspace::WORKSPACE
-        .modules
-        .iter()
-        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.to_string()))
+    crate::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .map(|(sn, _)| (sn.ident.to_string(), sn.uri.to_string()))
         .collect()
 }
 
 // === pub fn mcb_iter_modules_with_span() -> Vec<(String, String, [usize; 2])> { ===
 /// Like `mcb_iter_modules` but includes source span for LSP goto-def.
 pub fn mcb_iter_modules_with_span() -> Vec<(String, String, [usize; 2])> {
-    workspace::WORKSPACE
-        .modules
-        .iter()
-        .map(|entry| {
-            let span = &entry.value().span;
+    crate::definition_space()
+        .workspace_modules()
+        .into_iter()
+        .map(|(sn, module)| {
+            let span = &module.span;
             (
-                entry.key().ident.to_string(),
-                entry.key().uri.to_string(),
+                sn.ident.to_string(),
+                sn.uri.to_string(),
                 [span.start, span.end],
             )
         })

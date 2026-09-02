@@ -299,6 +299,11 @@ pub struct InstEntry {
     pub class_name: String,
     /// IO type (only meaningful for Port/Pin, otherwise IOType::None)
     pub io_type: IOType,
+    /// ★ Structural: real resolved pin count of a component instance, recorded at
+    /// flatten time (= `comp.pins.len()`: static + materialized dynamic pins).
+    /// Non-component entries stay 0. Lets vector consumers classify two-pin vs
+    /// multi-pin from the class's pin data instead of class-name heuristics.
+    pub pin_count: usize,
     /// Unified source position in the definition file (from NetPoint / AST)
     pub src_pos: Option<crate::semantic::common::SourcePos>,
     /// Coarse fallback position for diagnostics: where the entity was *declared*
@@ -596,6 +601,7 @@ impl InstTable {
             parent_id,
             class_name,
             io_type,
+            pin_count: 0,
             src_pos,
             fallback_pos: None,
             def_uri,
@@ -615,6 +621,14 @@ impl InstTable {
     pub fn set_member_info(&mut self, id: u32, member_info: MemberInfo) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.member_info = Some(member_info);
+        }
+    }
+
+    /// Record the real resolved pin count for a component entry (from
+    /// `comp.pins.len()` at flatten time). Non-component entries never set it.
+    pub fn set_pin_count(&mut self, id: u32, pin_count: usize) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.pin_count = pin_count;
         }
     }
 
@@ -1011,6 +1025,9 @@ impl InstTable {
                 None,
                 inst.def_uri.to_string(),
             );
+            // ★ Structural pin count: comp.pins (static + resolved dynamic) is
+            // exactly the set registered as Pin children below.
+            self.set_pin_count(comp_id, comp.pins.len());
 
             // ★ Declaration-site fallback for unwired instances
             // A fully-unconnected component never appears in a net, so no net
@@ -1151,6 +1168,8 @@ impl InstTable {
                 None,
                 inst.def_uri.to_string(),
             );
+            // ★ Structural pin count (same as pass-1): pins registered below.
+            self.set_pin_count(comp_id, comp.pins.len());
 
             // ★ Declaration-site fallback (same rationale as pass-1): anchor
             // net diagnostics for a never-wired func-created instance at the

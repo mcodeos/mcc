@@ -1887,29 +1887,43 @@ impl McCode {
     }
 
     fn extract_pin_name_spans(comp: &McComponent) -> Vec<(String, std::ops::Range<usize>)> {
-        comp.pins
+        // Backing map is a HashMap; sort by source position so registration
+        // order (and the resulting symbol ids) is stable across runs.
+        let mut items: Vec<(String, std::ops::Range<usize>)> = comp
+            .pins
             .pin_name_spans
             .iter()
             .map(|(n, s)| (n.clone(), s.clone()))
-            .collect()
+            .collect();
+        items.sort_by(|a, b| (a.1.start, a.0.as_str()).cmp(&(b.1.start, b.0.as_str())));
+        items
     }
 
     /// §3.2.2: Extract (pin_id, span) for pin ID definitions.
     fn extract_pin_id_spans(comp: &McComponent) -> Vec<(String, std::ops::Range<usize>)> {
-        comp.pins
+        // Backing map is a HashMap; sort by source position (see extract_pin_name_spans).
+        let mut items: Vec<(String, std::ops::Range<usize>)> = comp
+            .pins
             .pin_id_spans
             .iter()
             .map(|(n, s)| (n.clone(), s.clone()))
-            .collect()
+            .collect();
+        items.sort_by(|a, b| (a.1.start, a.0.as_str()).cmp(&(b.1.start, b.0.as_str())));
+        items
     }
 
     /// §3.2.2: Extract (iface_name, span) for pin interface definitions.
     fn extract_pin_iface_spans(comp: &McComponent) -> Vec<(String, std::ops::Range<usize>)> {
-        comp.pins
+        // Sort by source position to match the pin-name/pin-id extractors so
+        // cross-run registration order is stable.
+        let mut items: Vec<(String, std::ops::Range<usize>)> = comp
+            .pins
             .pin_iface_spans
             .iter()
             .map(|(n, s)| (n.clone(), s.clone()))
-            .collect()
+            .collect();
+        items.sort_by(|a, b| (a.1.start, a.0.as_str()).cmp(&(b.1.start, b.0.as_str())));
+        items
     }
 
     /// Extract (key_name, span) for spec-like attribute keys.
@@ -2578,36 +2592,44 @@ impl McCode {
             // 1e. enum_value_ref → def (§1.3: P3 > P4 > P5).
             // Collect all entries, then insert in priority order (P3 first).
             // Lower-priority entries are skipped if key already exists.
+            // NOTE: enum-value DeclareIds are not globally unique — the same
+            // value_id can be minted by different files — so identical keys
+            // collide in this shared map and the surviving entry depends on
+            // insertion order. Iterating WORKSPACE.mcodes/blibs directly is
+            // DashMap order (nondeterministic run-to-run); the cross-file
+            // entries are therefore sorted by (def_uri, span) so the winner is
+            // deterministic while the current file (P3) always stays first.
             let mut enum_val_entries: Vec<(u32, String, usize, usize)> = Vec::new();
-            let mut collect_ev = |gt: &GlobalSymbolTable| {
-                for (value_id, (def_uri, span)) in &gt.enum_value_id_to_span {
-                    enum_val_entries.push((
-                        u32::from(*value_id),
-                        def_uri.clone(),
-                        span.start,
-                        span.end,
-                    ));
-                }
-            };
-            // Gather from all sources
-            collect_ev(&gt); // P3: current file
+            let collect_ev =
+                |gt: &GlobalSymbolTable, sink: &mut Vec<(u32, String, usize, usize)>| {
+                    for (value_id, (def_uri, span)) in &gt.enum_value_id_to_span {
+                        sink.push((u32::from(*value_id), def_uri.clone(), span.start, span.end));
+                    }
+                };
+            // P3: current file (wins key collisions)
+            collect_ev(&gt, &mut enum_val_entries);
+            // P4/P5: other files — gather then sort for deterministic order
+            let mut cross_ev: Vec<(u32, String, usize, usize)> = Vec::new();
             for entry in workspace::WORKSPACE.mcodes.iter() {
                 if entry.key() == &self.uri {
                     continue;
                 }
                 if let Ok(ws_sym) = entry.value().symbols.lock() {
                     if let Ok(ws_gt) = ws_sym.global_table.lock() {
-                        collect_ev(&ws_gt);
+                        collect_ev(&ws_gt, &mut cross_ev);
                     }
                 }
             }
             for entry in workspace::WORKSPACE.blibs.iter() {
                 if let Ok(ws_sym) = entry.value().symbols.lock() {
                     if let Ok(ws_gt) = ws_sym.global_table.lock() {
-                        collect_ev(&ws_gt);
+                        collect_ev(&ws_gt, &mut cross_ev);
                     }
                 }
             }
+            cross_ev
+                .sort_by_key(|(value_id, def_uri, start, _)| (def_uri.clone(), *value_id, *start));
+            enum_val_entries.extend(cross_ev);
             // Insert in collection order: P3 first (wins), then P4, then P5.
             // Collection order is already P3→P4→P5; "already exists → skip"
             // ensures higher-priority entries are kept.
@@ -2648,36 +2670,40 @@ impl McCode {
 
             // 1f. enum class ref → enum class def (§1.3: P3 > P4 > P5).
             // Like Layer 1b: use DeclareId (class_id) as key, matching lapper EnumRef.
+            // Sorted the same way as 1e: the current file (P3) goes first, the
+            // cross-file candidates are sorted so colliding keys (enum class
+            // ids are not globally unique) resolve deterministically.
             let mut enum_cls_entries: Vec<(u32, String, usize, usize)> = Vec::new();
-            let mut collect_ec = |gt: &GlobalSymbolTable| {
-                for (class_id, (def_uri, span)) in &gt.enum_class_id_to_span {
-                    enum_cls_entries.push((
-                        u32::from(*class_id),
-                        def_uri.clone(),
-                        span.start,
-                        span.end,
-                    ));
-                }
-            };
-            // Gather P3→P4→P5, insert in collection order (P3 wins).
-            collect_ec(&gt);
+            let collect_ec =
+                |gt: &GlobalSymbolTable, sink: &mut Vec<(u32, String, usize, usize)>| {
+                    for (class_id, (def_uri, span)) in &gt.enum_class_id_to_span {
+                        sink.push((u32::from(*class_id), def_uri.clone(), span.start, span.end));
+                    }
+                };
+            // P3: current file (wins key collisions)
+            collect_ec(&gt, &mut enum_cls_entries);
+            // P4/P5: other files — gather then sort for deterministic order
+            let mut cross_ec: Vec<(u32, String, usize, usize)> = Vec::new();
             for entry in workspace::WORKSPACE.mcodes.iter() {
                 if entry.key() == &self.uri {
                     continue;
                 }
                 if let Ok(ws_sym) = entry.value().symbols.lock() {
                     if let Ok(ws_gt) = ws_sym.global_table.lock() {
-                        collect_ec(&ws_gt);
+                        collect_ec(&ws_gt, &mut cross_ec);
                     }
                 }
             }
             for entry in workspace::WORKSPACE.blibs.iter() {
                 if let Ok(ws_sym) = entry.value().symbols.lock() {
                     if let Ok(ws_gt) = ws_sym.global_table.lock() {
-                        collect_ec(&ws_gt);
+                        collect_ec(&ws_gt, &mut cross_ec);
                     }
                 }
             }
+            cross_ec
+                .sort_by_key(|(class_id, def_uri, start, _)| (def_uri.clone(), *class_id, *start));
+            enum_cls_entries.extend(cross_ec);
             // Insert in collection order: P3 first (wins), then P4, then P5.
             for (ref_id, def_uri, start, end) in &enum_cls_entries {
                 if map.entries.contains_key(&(SymbolKind::EnumRef, *ref_id)) {
@@ -3091,38 +3117,39 @@ impl McCode {
         self.consolidate_ref_def_map();
 
         // ★ Layer 2 — merge after Layer 1 so entries aren't overwritten.
-        let (scope_snapshot, def_map_snapshot, ref_entries_snapshot, def_names_snapshot) = self
+        let (
+            def_map_snapshot,
+            ref_entries_snapshot,
+            def_names_snapshot,
+            container_table,
+            func_table,
+        ) = self
             .symbols
             .lock()
             .ok()
             .map(|s| {
-                let scope_map: std::collections::HashMap<(usize, usize), String> = s
-                    .local_table
-                    .name_to_declare_id
-                    .iter()
-                    .map(|((_fid, cid, fnid, _n), (_, loc))| {
-                        let scope = crate::ast::sem::scope_from_ids(
-                            &s.container_table,
-                            &s.func_table,
-                            *cid,
-                            *fnid,
-                        );
-                        ((loc.byte_start as usize, loc.byte_end as usize), scope)
-                    })
-                    .collect();
+                // Layer 2 derives each def's container scope from its own
+                // def_map SourceLocation (container_id/func_id interned into
+                // this sem's tables by register_def). A byte-span-keyed probe
+                // is not usable here: instance-pin defs (`mic.1` in the using
+                // module) and the component's own pin defs (`1` in the class)
+                // share identical byte offsets, so a (file_id, start, end)
+                // key cannot tell which container the matched def lives in.
                 (
-                    scope_map,
                     s.def_map.clone(),
                     s.ref_entries.clone(),
                     s.def_names.clone(),
+                    s.container_table.clone(),
+                    s.func_table.clone(),
                 )
             })
             .unwrap_or_else(|| {
                 (
                     std::collections::HashMap::new(),
-                    std::collections::HashMap::new(),
                     Vec::new(),
                     std::collections::HashMap::new(),
+                    Vec::new(),
+                    Vec::new(),
                 )
             });
         if let Ok(mut sem) = self.symbols.lock() {
@@ -3130,12 +3157,13 @@ impl McCode {
             if let Some(ref mut map) = sem.ref_def_map {
                 crate::refdef::matching::fill_refdef_layer2(
                     map,
-                    &scope_snapshot,
                     &def_map_snapshot,
                     &def_names_snapshot,
                     &ref_entries_snapshot,
                     &self.uri,
                     &file_table,
+                    &container_table,
+                    &func_table,
                 );
                 // ★ §3.5.4: Upgrade UnknownDef → inferred type
                 Self::upgrade_unknown_defs(map, &self.uri);
@@ -4055,7 +4083,7 @@ impl McCode {
             // not covered by iter_ports_with_span (IOType::None members).
             // Skip Component/Module instances — they are already registered
             // as InstDef by lapper_instance_decls_and_refs above.
-            for (name, spans) in m.insts.port_spans() {
+            for (name, spans) in m.insts.iter_port_spans_sorted() {
                 // Skip if this name is a Component/Module instance
                 if let Some((_io, inst)) = m.insts.insts().get(name) {
                     if matches!(

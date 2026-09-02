@@ -119,27 +119,28 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
     // and the 4 capacitors + 1 resistor + VDD_3V3 label around it are all floating with no
     // connection -- a disaster.
     //
-    // Fix: as long as entry.kind == Component, even without registered pin children, emit a
-    // Component box. pin_count is estimated using a class_name heuristic -- only used to decide
-    // the shape (TwoPin vs MultiPin), the actual pin connection position is done by Phase 2 BFS
-    // mapping all `<chip>.<pin>` references to the chip id, unrelated to the estimated value here.
-    //
-    // Heuristic rules:
-    //   - Known 1-2 pin types (Crystal/Resonator/TestPoint/Speaker/Fuse/Diode/
-    //     LED/Zener, MICROPHONE.SIP2 such typed-2pin) -> pin_count = 2
-    //   - Others -> 5 (covers typical IC pin count lower bound, lets make_box_from_id go through
-    //     MultiPin branch)
+    // Structural fix: as long as entry.kind == Component, even without registered pin
+    // children, emit a Component box. pin_count is taken from `entry.pin_count` — the real
+    // resolved count recorded at flatten time (`comp.pins.len()`, see InstEntry::pin_count).
+    // A chip whose class declares no pins has count 0 here: the box is emitted without
+    // fabricated placeholder pins, and the P4 log below is the actionable "declare pins in
+    // this class" signal. If a component's pins were declared but their Pin children got
+    // lost in registration (dedup/label confusion), `entry.pin_count` recovers the true
+    // count where child-scanning found none. pin_count only decides the shape
+    // (TwoPin vs MultiPin); actual pin connection position is done by Phase 2 BFS
+    // mapping all `<chip>.<pin>` references to the chip id, unrelated to this value.
     if entry.kind == InstKind::Component {
-        let pin_count = guess_chip_pin_count(&entry.class_name);
+        let pin_count = entry.pin_count;
         // ★ P4 diagnostic: these chips' class definitions don't declare pins -> all
         //   `<chip>.<pin>` references collapse to chip id, pin labels show as chip name.
         //   Printing the class name is the list of classes needing pin declarations in lib.
         crate::velog!(
-            "[detect][P4] typed-chip '{}' (class='{}') has NO declared pins -> \
+            "[detect][P4] typed-chip '{}' (class='{}') has NO registered pins (count={}) -> \
              refs collapse to chip id, pin labels show as '{}'. \
              Declare pins in class '{}' to get real names + side placement.",
             name,
             entry.class_name,
+            pin_count,
             name,
             entry.class_name
         );
@@ -164,42 +165,6 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
     }
 
     DetectedKind::Skip
-}
-
-/// ── ★ Phase F.1 helper ───────────────────────────────────────────────────
-///
-/// Estimate pin count for "Component with no registered Pin children", only used for BoxKind
-/// classification (TwoPin <= 2 < MultiPin).
-///
-/// Doesn't need to be precise -- this is just a fallback for "draw the box first".
-fn guess_chip_pin_count(class_name: &str) -> usize {
-    if class_name.is_empty() {
-        return 2; // conservative: no class name, treat as 2-pin
-    }
-    let upper = class_name.to_ascii_uppercase();
-    // Known 1-2 pin "typed" components (can't discover pin count via normal child scanning)
-    let two_pin_prefixes: &[&str] = &[
-        "CRYSTAL", // Crystal2.sub etc. (2-terminal crystal)
-        "RESONATOR",
-        "TEST_POINT",
-        "TESTPOINT",
-        "TP", // TP1, TP2 labels
-        "FUSE",
-        "VARISTOR",
-        "LED",
-        "ZENER",
-        // typed 2-pin (note: `MICROPHONE.SIP2` is 2pin, `MICROPHONE.sub` is 3pin
-        // -- class_name containing `SIP2` such "model number ending in 2" is most likely 2-pin)
-        "MICROPHONE.SIP",
-        "SPEAKER.", // SPEAKER.sub such audio speakers are 2-terminal
-    ];
-    for p in two_pin_prefixes {
-        if upper.starts_with(p) {
-            return 2;
-        }
-    }
-    // Default: unknown component with no declared pins, use 0 (no placeholder pins)
-    0
 }
 
 // ============================================================================
@@ -288,7 +253,7 @@ use super::symbol::Symbol;
 /// - `PowerLabel` -> `Symbol::PowerRail { is_ground: ... }`
 /// - `SubModule`  -> `Symbol::Module`
 /// - `MultiPin`   -> `Symbol::Ic`
-/// - `TwoPin`     -> look at `class_name` matching R/C/L/D etc. via [`Symbol::from_class_name`];
+/// - `TwoPin`     -> match the canonical class root token via [`Symbol::from_class_name`];
 ///                  if no match, `Symbol::Unknown` (to avoid misjudgment)
 pub fn detect_symbol(table: &InstTable, id: u32, kind: &BoxKind) -> Symbol {
     let entry = match table.get_entry(id) {

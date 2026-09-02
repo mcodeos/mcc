@@ -94,10 +94,12 @@ fn build_box_pins(entries: &[&InstEntry], owner_class: &str) -> Vec<BoxPin> {
         .collect()
 }
 
-/// Typed chips (detect.rs Phase F.1) don't register pins as independent `Pin` children, only have
-/// `pin_count` estimated from class_name (`guess_chip_pin_count`). Here we synthesize "placeholder
-/// pins" based on the estimated count (common name uses the index, no description), letting these
-/// components with **no pin data** also display pins, rather than an empty square.
+/// Typed chips (detect.rs Phase F.1) don't register pins as independent `Pin` children;
+/// `pin_count` comes from the real recorded count (`InstEntry::pin_count`, see `detect_kind`).
+/// When a chip still has a declared/resolved count but its Pin children failed to register,
+/// we synthesize "placeholder pins" based on that count (common name uses the index, no
+/// description), letting these components also display pins rather than an empty square.
+/// Chips whose classes declare no pins have count 0 and get no fabricated pins.
 ///
 /// Placeholder pins use high-base ids, not conflicting with real InstTable ids. These chips don't
 /// have connections in this scenario, these ids won't be queried by router, even if duplicated
@@ -189,7 +191,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             let pins = table.get_pins_of(id);
             let io = compute_io(&pins);
             let mut box_pins = build_box_pins(&pins, &class_name);
-            // typed-chip (Phase F.1): no registered Pin children -> use estimated pin count to synthesize placeholder pins
+            // typed-chip (Phase F.1): no registered Pin children -> synthesize placeholder pins from the recorded count (if any)
             if box_pins.is_empty() && pin_count > 0 {
                 box_pins = placeholder_pins(id as i64, pin_count);
             }
@@ -376,7 +378,7 @@ fn build_mc_vec_graph_inner(
                 let pins = table.get_pins_of(id);
                 let io = compute_io(&pins);
                 let mut box_pins = build_box_pins(&pins, &class_name);
-                // typed-chip (Phase F.1): no registered Pin children -> use estimated pin count to synthesize placeholder pins
+                // typed-chip (Phase F.1): no registered Pin children -> synthesize placeholder pins from the recorded count (if any)
                 if box_pins.is_empty() && pin_count > 0 {
                     box_pins = placeholder_pins(id as i64, pin_count);
                 }

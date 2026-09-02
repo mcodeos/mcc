@@ -1448,8 +1448,17 @@ impl McPhrase {
                                         as usize);
                                 mcb_register_declare_class(context.uri(), &class_ids, class_span);
                             }
-                            let is_twopin =
-                                crate::vector::graph::naming::is_known_twopin_class(&fname);
+                            // Two-pin-ness is def-driven: read the resolved
+                            // class's real pins, fall back to the class-name
+                            // list when the name can't be resolved to a def yet.
+                            let is_twopin = crate::vector::graph::naming::two_pin_class_from_def(
+                                &DB,
+                                &class_ids,
+                                context.uri(),
+                            )
+                            .unwrap_or_else(|| {
+                                crate::vector::graph::naming::is_known_twopin_class(&fname)
+                            });
                             // Keep the FuncCall path for 2-pin classes: Pass2 relies
                             // on it for transpose (`R442::RES(1MΩ)'`) and NC-param
                             // semantics. LSP classification of the declared names
@@ -3053,30 +3062,32 @@ enum PinShapeKind {
 ///
 /// Dynamic pins with unknown class shape → defers to instantiation stage.
 fn shape_defaults(c: &Mc2Component) -> CompPinShape {
+    // Def-driven pin shape (eval.md §2): decide from the class's *real* pin
+    // count — static pins plus any dynamic range resolved against this
+    // instance's bound params — not from the old class-name two-pin whitelist.
+    //
+    // A dynamic-pin class can only be fully shaped at phrase stage when it is
+    // a plain two-pin part (.1/.2 is the whole device); anything else (0/1,
+    // multi-pin, or a range whose controlling param isn't bound here) defers
+    // to instantiation (Single), where its dynamic lanes materialize. Static
+    // classes keep the fixed 0/1-Single / 2-TwoPin / 3+-MultiPort split.
     let static_count = c.base.pins.count();
-    let has_dynamic = c.base.pins.has_dynamic_pins();
-    let class_name = c.base.name.to_string();
-    let is_known_2pin = crate::vector::graph::naming::is_known_twopin_class(&class_name);
-
-    let kind = match static_count {
-        // Rule 3: 0 static pins + dynamic + known 2-pin class → TwoPin
-        // (anonymous instances @CAP, @RES etc. also treated as TwoPin)
-        0 if has_dynamic && is_known_2pin => PinShapeKind::TwoPin,
-        // Rule 1: 0 or 1 static pin, no matching 2-pin class → Single
-        0 | 1 => PinShapeKind::Single,
-        // Rule 3: exactly 2 static pins → TwoPin
-        2 => PinShapeKind::TwoPin,
-        // Rule 4: 3+ static pins → MultiPort
-        _ => PinShapeKind::MultiPort,
-    };
-
-    // Dynamic pins with unknown shape (e.g. LPA/FLASH/SPEAKER):
-    // treat as Single at phrase stage, defer to instantiation stage
-    // for full shape determination.
-    let kind = if has_dynamic && !is_known_2pin {
-        PinShapeKind::Single
+    let kind = if c.base.pins.has_dynamic_pins() {
+        match c.resolved_pin_count() {
+            // Rule 3: resolved to exactly 2 pins → TwoPin
+            Some(2) => PinShapeKind::TwoPin,
+            // 0/1 / multi-pin, or count unknowable at phrase stage → defer
+            _ => PinShapeKind::Single,
+        }
     } else {
-        kind
+        match static_count {
+            // Rule 1: 0 or 1 static pin → Single
+            0 | 1 => PinShapeKind::Single,
+            // Rule 3: exactly 2 static pins → TwoPin
+            2 => PinShapeKind::TwoPin,
+            // Rule 4: 3+ static pins → MultiPort
+            _ => PinShapeKind::MultiPort,
+        }
     };
 
     CompPinShape { kind, static_count }

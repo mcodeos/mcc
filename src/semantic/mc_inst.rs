@@ -587,26 +587,48 @@ impl McInstances {
             })
     }
 
-    /// Iterate all labels (explicit and inline) with their spans.
+    /// Iterate all labels (explicit and inline) with their spans in
+    /// deterministic source order (span start, then name).
     /// Labels are instances with IOType::None that have stored port spans.
+    ///
+    /// `port_spans` is a HashMap; its iteration order varies run-to-run (each
+    /// process seeds its own RandomState). Registration loops that mint fresh
+    /// DeclareIds must not depend on that order, or symbol ids shuffle between
+    /// runs.
     pub fn iter_labels_with_span(
         &self,
     ) -> impl Iterator<Item = (&str, LabelKind, Range<usize>)> + '_ {
-        self.port_spans
-            .iter()
-            .filter(|(name, _spans)| {
-                // Only include entries that are Label instances (not ports/buses/components)
-                matches!(
-                    self.insts.get(*name).map(|(_, inst)| inst),
-                    Some(McInstance::Label(_))
-                )
-            })
-            .flat_map(|(name, spans)| {
+        let mut items: Vec<(&str, LabelKind, Range<usize>)> = Vec::new();
+        for (name, spans) in &self.port_spans {
+            // Only include entries that are Label instances (not ports/buses/components)
+            if matches!(
+                self.insts.get(name).map(|(_, inst)| inst),
+                Some(McInstance::Label(_))
+            ) {
                 let kind = self.get_label_kind(name);
-                spans
-                    .iter()
-                    .map(move |span| (name.as_str(), kind, span.clone()))
-            })
+                for span in spans {
+                    items.push((name.as_str(), kind, span.clone()));
+                }
+            }
+        }
+        items.sort_by(|a, b| (a.2.start, a.0).cmp(&(b.2.start, b.0)));
+        items.into_iter()
+    }
+
+    /// Iterate `port_spans` entries in deterministic source order (first span
+    /// start, then name). Registration loops that register defs per
+    /// port_spans key (e.g. lapper building) must iterate this instead of the
+    /// raw HashMap so DeclareId allocation order is stable across runs.
+    pub fn iter_port_spans_sorted(&self) -> impl Iterator<Item = (&str, &Vec<Range<usize>>)> + '_ {
+        let mut items: Vec<(&str, &Vec<Range<usize>>)> = self
+            .port_spans
+            .iter()
+            .map(|(name, spans)| (name.as_str(), spans))
+            .collect();
+        items.sort_by_key(|(name, spans)| {
+            (spans.first().map(|s| s.start).unwrap_or(usize::MAX), *name)
+        });
+        items.into_iter()
     }
 
     /// Record a net-line reference to a port definition (for LSP goto-definition)

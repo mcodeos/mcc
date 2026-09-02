@@ -37,18 +37,26 @@ pub fn resolve_def_name(
 /// Called at end of create_lapper() — no separate lapper re-scan.
 pub fn fill_refdef_layer2(
     map: &mut RefDefMap,
-    scope_map: &HashMap<(usize, usize), String>,
     def_map_src: &HashMap<(SymbolKind, u32), SourceLocation>,
     def_names: &HashMap<(SymbolKind, u32), String>,
     ref_entries: &[(SymbolKind, u32, usize, usize)],
     file_uri: &McURI,
     file_table: &[String],
+    container_table: &[String],
+    func_table: &[String],
 ) {
     // ★ Preserve original SourceLocation (including file_id for cross-file defs).
     // Old code mapped to (usize, usize) which dropped file_id and always used
     // file_uri — this broke cross-file FuncDef registered via register_def.
     let def_map: HashMap<(SymbolKind, u32), &SourceLocation> =
         def_map_src.iter().map(|(k, loc)| (*k, loc)).collect();
+    // Deterministic iteration order for the co-location maps below: def_map is
+    // a HashMap, and same-span defs (square-vec expansions, instance-pin vs
+    // component-pin defs) make the position maps' last-writer HashMap-order
+    // dependent. Sorting the key makes the winner well-defined across runs.
+    let mut defs_sorted: Vec<((SymbolKind, u32), &SourceLocation)> =
+        def_map.iter().map(|(k, loc)| (*k, *loc)).collect();
+    defs_sorted.sort_by_key(|(k, _)| (k.0 as u8, k.1));
 
     // ★ A3: Match refs from pre-collected ref_entries instead of scanning lapper
     for &(ref_kind, decl_id, ref_start, ref_stop) in ref_entries {
@@ -133,14 +141,19 @@ pub fn fill_refdef_layer2(
                 file_uri.clone()
             };
             let fid = map.intern_file(&McURI::from(def_uri_str.as_str()));
-            // Look up the scope by the DEF's position, not the ref's. The
-            // scope_map is keyed by def spans (built from name_to_declare_id
-            // source locations), so querying with (ref_start, ref_stop) always
-            // missed and left container_id at 0 for every Layer 2 entry.
-            let scope = scope_map
-                .get(&(def_start, def_stop))
-                .cloned()
-                .unwrap_or_default();
+            // Container scope comes from the matched def's own registration:
+            // def_map locations carry container_id/func_id interned into this
+            // sem's tables by register_def. Probing by byte span is ambiguous
+            // because instance-pin defs and the component's own pin defs share
+            // identical offsets (e.g. `mic.1` in the module vs `1` in the
+            // class both at the instance site), so the winning scope would
+            // depend on HashMap iteration order.
+            let scope = crate::ast::sem::scope_from_ids(
+                container_table,
+                func_table,
+                loc.container_id,
+                loc.func_id,
+            );
             let cid = map.intern_container(&scope);
             // Name from the AST-driven def_names table (local id space only).
             // Every Layer 2 def id is minted locally by register_def, so a
@@ -213,7 +226,7 @@ pub fn fill_refdef_layer2(
     {
         // Build pos→label mapping from LabelDef entries in def_map
         let mut pos_to_label: HashMap<(usize, usize), u32> = HashMap::new();
-        for ((kind, lid), loc) in def_map.iter() {
+        for ((kind, lid), loc) in &defs_sorted {
             if *kind == SymbolKind::LabelDef {
                 let ds = loc.byte_start as usize;
                 let de = loc.byte_end as usize;
@@ -221,7 +234,7 @@ pub fn fill_refdef_layer2(
             }
         }
         // Cross-reference PortDef at same position → LabelDef
-        for ((kind, pid), loc) in def_map.iter() {
+        for ((kind, pid), loc) in &defs_sorted {
             if *kind == SymbolKind::PortDef {
                 let ds = loc.byte_start as usize;
                 let de = loc.byte_end as usize;
@@ -270,14 +283,14 @@ pub fn fill_refdef_layer2(
     let mut port_to_bus: HashMap<u32, (u32, (usize, usize))> = HashMap::new();
     {
         let mut pos_to_bus: HashMap<(usize, usize), u32> = HashMap::new();
-        for ((kind, bid), loc) in def_map.iter() {
+        for ((kind, bid), loc) in &defs_sorted {
             if *kind == SymbolKind::BusDef {
                 let ds = loc.byte_start as usize;
                 let de = loc.byte_end as usize;
                 pos_to_bus.insert((ds, de), *bid);
             }
         }
-        for ((kind, pid), loc) in def_map.iter() {
+        for ((kind, pid), loc) in &defs_sorted {
             if *kind == SymbolKind::PortDef {
                 let ds = loc.byte_start as usize;
                 let de = loc.byte_end as usize;
@@ -326,14 +339,14 @@ pub fn fill_refdef_layer2(
     let mut label_to_bus: HashMap<u32, (u32, (usize, usize))> = HashMap::new();
     {
         let mut pos_to_bus: HashMap<(usize, usize), u32> = HashMap::new();
-        for ((kind, bid), loc) in def_map.iter() {
+        for ((kind, bid), loc) in &defs_sorted {
             if *kind == SymbolKind::BusDef {
                 let ds = loc.byte_start as usize;
                 let de = loc.byte_end as usize;
                 pos_to_bus.insert((ds, de), *bid);
             }
         }
-        for ((kind, lid), loc) in def_map.iter() {
+        for ((kind, lid), loc) in &defs_sorted {
             if *kind == SymbolKind::LabelDef {
                 let ds = loc.byte_start as usize;
                 let de = loc.byte_end as usize;

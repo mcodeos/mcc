@@ -18,6 +18,9 @@
 //! - `entry_points::classify_pin` -> `naming::pin_role`
 //! - `radial::find_hub`'s `mcu/cpu/soc/fpga` heuristic -> `naming::is_main_chip`
 
+use crate::semantic::context::{resolve_cmie, NameResolver};
+use crate::{McCMIE, McIds, McURI};
+
 use super::kinds::NetKind;
 
 // ============================================================================
@@ -73,19 +76,21 @@ const MAIN_CHIP_KEYWORDS: &[&str] = &["MCU", "CPU", "SOC", "FPGA", "DSP"];
 // ★ P0-2: 2-pin class name list + alias normalization
 // ============================================================================
 
-/// Known "system library 2-pin" class names (including aliases / dotted form head segments)
+/// **Fallback** 2-pin class-name list (including aliases / dotted form head segments).
 ///
-/// This table answers: "I see a dynamic-pins component instance with class name `XYZ`,
-/// should I treat it as a 2-pin component (returning `.1`/`.2`) or as multi-pin?"
+/// Two-pin topology is decided def-driven by counting the class's real pins
+/// (`McComponent::two_pin_verdict` / `Mc2Component::resolved_pin_count`); this
+/// list only answers the residual parse-time case where a class *name* cannot
+/// yet be resolved to a definition (not-yet-loaded class, or a shorthand alias
+/// whose canonical form isn't registered as a resolvable root).
 ///
-/// Added types: `CAP / RES / IND / DIODE / DIO / LED / FUSE / ESD / ZENER /
-/// TVS / SCHOTTKY / VARISTOR / PULLUP / PULLDOWN / FERRITE / FB`. Dotted form
+/// Names: `CAP / RES / IND / DIODE / DIO / LED / FUSE / ESD / ZENER / TVS /
+/// SCHOTTKY / VARISTOR / PULLUP / PULLDOWN / FERRITE / FB`. Dotted form
 /// (`DIO.ESD`) takes the first segment `DIO` for a hit.
 ///
-/// Two different things from `canonicalize_class_alias`:
-///   - `is_known_twopin_class`: determines **pin topology** (2 pin vs multi pin), affects mc_phrase's
-///     `get_left/get_right` pin resolution
-///   - `canonicalize_class_alias`: determines **symbol lookup**, redirects `ESD(...)` to `DIO.ESD`'s
+/// This list is a different thing from `canonicalize_class_alias`:
+///   - `is_known_twopin_class`: residual **pin-topology** fallback
+///   - `canonicalize_class_alias`: **symbol lookup**, redirects `ESD(...)` to `DIO.ESD`'s
 ///     CMIE table, so bare `ESD(...)` can also go through instantiate_component_construction
 const TWOPIN_CLASS_KEYWORDS: &[&str] = &[
     "CAP", "RES", "IND", "DIODE", "DIO", "LED", "FUSE", "ESD", "ZENER", "TVS", "SCHOTTKY",
@@ -114,7 +119,14 @@ const CLASS_ALIAS_TO_CANONICAL: &[(&str, &str)] = &[
     ("FB", "IND.FERRITE"),
 ];
 
-/// Whether this class name is a known "2-pin class" (including dotted head hit, case-insensitive)
+/// Whether this class *name* is on the known "2-pin class" list (including dotted
+/// head hit, case-insensitive).
+///
+/// **Fallback only.** Two-pin-ness is decided by counting the class's real
+/// pins (`McComponent::two_pin_verdict` / `Mc2Component::resolved_pin_count`,
+/// both in `semantic/component`); this list is kept for parse-time sites that
+/// hold only a class *name* and cannot resolve it to a definition yet
+/// (not-yet-loaded / shorthand aliases that don't resolve here).
 ///
 /// ```ignore
 /// assert!(is_known_twopin_class("CAP"));
@@ -186,6 +198,43 @@ pub fn canonicalize_class_alias_bare_call(class_name: &str) -> Option<String> {
         "PULLUP" | "PULLDOWN" => Some("RES".to_string()),
         _ => None,
     }
+}
+
+/// Def-driven "is this class a 2-pin component", for parse-time routing sites
+/// that only hold the class *name*.
+///
+/// Resolves the (canonicalized) class name to its component definition and
+/// reads the def's real pins (`crate::semantic::component::McComponent::two_pin_verdict`):
+///   - `Some(true/false)` when the class resolves to a component and its pin
+///     count is decidable from the def;
+///   - `None` when it can't be decided from a def — the name is unresolvable
+///     (not yet loaded), resolves to a net/module (not a component), or its
+///     dynamic pins reference a param with no default. Callers fall back to
+///     [`is_known_twopin_class`].
+///
+/// This is the def-driven replacement for the whitelist: it answers "is the
+/// class two pins?" from the definition's `pins`, not from a name list.
+pub fn two_pin_class_from_def(
+    ctx: &impl NameResolver,
+    class_name: &McIds,
+    from_uri: &McURI,
+) -> Option<bool> {
+    let raw = class_name.to_string();
+    let mut candidates = Vec::with_capacity(3);
+    candidates.push(raw.clone());
+    if let Some(c) = canonicalize_class_alias(&raw) {
+        candidates.push(c);
+    }
+    if let Some(c) = canonicalize_class_alias_bare_call(&raw) {
+        candidates.push(c);
+    }
+    for cand in candidates {
+        let ids = McIds::from(cand.as_str());
+        if let Some(McCMIE::Component(def)) = resolve_cmie(ctx, &ids, from_uri) {
+            return def.two_pin_verdict();
+        }
+    }
+    None
 }
 
 // ============================================================================

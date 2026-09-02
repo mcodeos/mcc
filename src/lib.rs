@@ -671,6 +671,22 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
     let file_uri = uri.as_str();
     use crate::ast::sem::SymbolKind;
 
+    /// F12 lines are one-line diagnostics: a bogus byte range must never
+    /// embed a whole file body into the dump, so names are clamped to their
+    /// first line and bounded length.
+    fn one_line(s: &str) -> &str {
+        let line = s.split('\n').next().unwrap_or("");
+        let line = line.trim_end_matches('\r');
+        if line.chars().count() > 120 {
+            &line[..line.floor_char_boundary(120)]
+        } else {
+            line
+        }
+    }
+    fn name_or_placeholder(s: Option<&str>) -> &str {
+        s.map(one_line).filter(|l| !l.is_empty()).unwrap_or("?")
+    }
+
     let mut out = String::new();
 
     // ── 1. LAPPER entries ──────────────────────────────────────────────────
@@ -691,6 +707,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         } else {
             "?"
         };
+        let name = name_or_placeholder(Some(name));
         out.push_str(&format!(
             "F12_DIAG LAPPER_{tag:3}: kind={kind_name:14}({kind_u8:2}) id={id:5} span=[{start:5},{stop:5}] name='{name}' file={file}\n",
             start = interval.start,
@@ -707,7 +724,22 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         out.push_str("  (none)\n");
     }
     let mut declares: Vec<_> = sym.local_table.name_to_declare_id.iter().collect();
-    declares.sort_by_key(|((fid, _, _, _), (_, loc))| (*fid, loc.byte_start));
+    declares.sort_by(
+        |((fid, cid, fnid, name), (_, loc)), ((fid2, cid2, fnid2, name2), (_, loc2))| {
+            // Total order: many declares share one byte range (square-vec members,
+            // dot-scoped chain members all anchored at the same pin), and the
+            // backing map is a HashMap, so equal-range rows need deterministic
+            // scope/name tie-breakers or the dump shuffles across runs.
+            (fid, loc.byte_start, loc.byte_end, cid, fnid, name.as_str()).cmp(&(
+                fid2,
+                loc2.byte_start,
+                loc2.byte_end,
+                cid2,
+                fnid2,
+                name2.as_str(),
+            ))
+        },
+    );
     for ((fid, cid, fnid, name), (decl_id, loc)) in &declares {
         let scope =
             crate::ast::sem::scope_from_ids(&sym.container_table, &sym.func_table, *cid, *fnid);
@@ -735,7 +767,11 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         out.push_str("  (none)\n");
     }
     let mut refs: Vec<_> = sym.local_table.inst_id_to_span.iter().collect();
-    refs.sort_by_key(|(_, span)| span.start);
+    refs.sort_by(|(id, span), (id2, span2)| {
+        // HashMap-backed: tie-break on end + ref id so equal-start rows are
+        // emitted in a fixed order across runs.
+        (span.start, span.end, id.raw()).cmp(&(span2.start, span2.end, id2.raw()))
+    });
     for (ref_id, span) in &refs {
         let declare_id = sym
             .local_table
@@ -747,6 +783,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         } else {
             "?"
         };
+        let name = name_or_placeholder(Some(name));
         out.push_str(&format!(
             "F12_DIAG REFERENCE: id={id:5} span=[{start:5},{end:5}] declare_id={did:?} name='{name}' file={file}\n",
             id = ref_id.raw(),
@@ -798,6 +835,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         } else {
             "?"
         };
+        let name = name_or_placeholder(Some(name));
         out.push_str(&format!(
             "F12_DIAG REF_ENTRY: kind={kind:14}({ku:2}) decl_id={did:5} span=[{start:5},{end:5}] name='{name}'\n",
             kind = ref_kind.kind_name(),
@@ -827,7 +865,11 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
                     .collect::<std::collections::HashSet<_>>()
                     .len()
             ));
-            out.push_str(&format!("  containers:{:?}\n", map.containers));
+            // The container table grows in interning order (HashMap-driven in
+            // places), so sort the printed view for a run-stable dump.
+            let mut containers_sorted: Vec<&String> = map.containers.iter().collect();
+            containers_sorted.sort();
+            out.push_str(&format!("  containers:{:?}\n", containers_sorted));
             let kind_names: Vec<&str> = (0u8..=29)
                 .map(|i| {
                     let k: SymbolKind = unsafe { std::mem::transmute(i) };
@@ -868,6 +910,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
                         let de = entry.def_loc.byte_end as usize;
                         def_content.get(ds..de).map(|s| s.to_string())
                     })
+                    .map(|s| name_or_placeholder(Some(&s)).to_string())
                     .unwrap_or_else(|| "?".to_string());
                 out.push_str(&format!(
                     "F12_DIAG MAP: Ref({ref_kind}/{ref_ku}, id={ref_id:5}, name='{ref_name}') => Def({def_kind}/{def_ku}, span=[{start:5},{end:5}], file={def_file}, def_name='{def_name}', cmie_kind={cmie_kind})\n",
