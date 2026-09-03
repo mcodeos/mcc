@@ -13,10 +13,11 @@
 //! separate layer ([`derive_nets`]).
 //!
 //! One source statement can explode into several `ConnectionInst`s — a chain
-//! (`A -> B -> C`) splits into per-pair connections and a vector broadcast
-//! (`c[1:2].Cap([VDD, GND])`) into per-member wirings — so the collector
-//! groups connections by their statement span back into the one statement
-//! trunk (contract: trunk count = statement count).
+//! (`A -> B -> C`) splits into per-pair connections and a vector-receiver
+//! func call (`c[1:2].Cap([VDD, GND])`) into per-member wirings (vec-dianlu
+//! §7.6 per-member dispatch, read as a group of independent statements) — so
+//! the collector groups connections by their statement span back into the one
+//! statement trunk (contract: trunk count = statement count).
 //!
 //! Physical points are [`PointId`] = `(NodeId, DefMemberId)` (design §4, D1):
 //! component pins (device node + def member id) and module ports (module
@@ -31,9 +32,11 @@
 //! list stays informational: an unresolvable endpoint simply skips its lane.
 //!
 //! Honest boundary of the collector: scalar chain statements plus vector
-//! slices. A vector broadcast keeps its bundle — member endpoints of the
+//! rows. A per-member dispatch keeps its bundle — member endpoints of the
 //! same (vector node, member pin) collapse into a [`PointGroup::Slice`] lane
-//! (design §4, keep-bundle), and a both-sides-member alignment
+//! (design §4, keep-bundle), a row-aligned member column vs an equal number
+//! of distinct scalar endpoints (`c[1:2] -> [VDD, GND]`) emits per-index
+//! `One -> One` lanes (§5.2 row zip), and a both-sides-member alignment
 //! (`c[1:2].1 -> d[1:2].1`) emits one `Slice -> Slice` lane that `derive_nets`
 //! zips positionally. Same-name pad groups / quarantined bracket literals
 //! still emit no lanes.
@@ -70,10 +73,11 @@ pub enum PointGroup {
     /// Scalar point.
     One(PointId),
     /// Vector slice — the bundle is preserved, not exploded member-by-member
-    /// (design §4). Produced by a vector broadcast (`c[1:2].Cap([VDD, GND])`,
-    /// scalar member against a preserved bundle) and by both-sides member
-    /// alignment (`c[1:2].1 -> d[1:2].1`, one `Slice -> Slice` lane that
-    /// `derive_nets` zips positionally).
+    /// (design §4). Produced by a per-member dispatch
+    /// (`c[1:2].Cap([VDD, GND])` runs every member against the shared scalar
+    /// net, vec-dianlu §7.6) and by both-sides member alignment
+    /// (`c[1:2].1 -> d[1:2].1`, one `Slice -> Slice` lane that `derive_nets`
+    /// zips positionally).
     Slice {
         base: PointId,
         members: Vec<PointId>,
@@ -102,8 +106,8 @@ pub struct Trunk {
     /// the connection that first referenced it (`ConnectionInst::net_name` —
     /// the first label/port owner of that connection). Per-point labels
     /// matter because one statement can explode into connections with
-    /// different net names (a broadcast `c[1:2].Cap([VDD, GND])` wires
-    /// members to VDD and GND). Points include the resolvable side of a
+    /// different net names (a per-member dispatch `c[1:2].Cap([VDD, GND])`
+    /// wires members to VDD and GND). Points include the resolvable side of a
     /// skipped lane, so a `GND -> c1.2` statement still names the net that
     /// `c1.2` joins.
     pub points: Vec<(PointId, Option<String>)>,
@@ -131,8 +135,9 @@ pub fn collect_stmt_trunks(
 fn collect_module(inst: &McModuleInst, view: &TreeView, out: &mut Vec<Trunk>, is_root: bool) {
     // One trunk per source statement (contract: trunk count = statement
     // count): the engine may explode one statement into several connections
-    // (chain pairs, vector broadcasts) that share the statement's source
-    // span — they re-collapse here. Span-less engine-generated connections
+    // (chain pairs, per-member dispatch wirings) that share the statement's
+    // source span — they re-collapse here. Span-less engine-generated
+    // connections
     // (projection trunks) carry no statement and stay per-connection.
     let mut groups: Vec<(Option<SourcePos>, Vec<&ConnectionInst>)> = Vec::new();
     for conn in &inst.connections {
@@ -190,10 +195,11 @@ fn trunk_from_connections(
     let mut points: Vec<(PointId, Option<String>)> = Vec::new();
     let mut lanes: Vec<Lane> = Vec::new();
 
-    // Vector-slice aggregation (design §4 / §11.3 ③, plan §9 D item ①):
+    // Vector-row aggregation (design §4 / §11.3 ③, plan §9 D item ①):
     // member endpoints of the same (vector node, member pin) collapse into
-    // one `Slice` lane at statement end, so a broadcast / parallel member
-    // wiring stays a bundle instead of exploding member-by-member.
+    // one `Slice` lane at statement end, so a per-member dispatch (or a
+    // member column genuinely sharing a net) stays a bundle instead of
+    // exploding member-by-member.
     let mut bundles: HashMap<(NodeId, DefMemberId), BundleAcc> = HashMap::new();
     let mut bundle_order: Vec<(NodeId, DefMemberId)> = Vec::new();
     // Both-sides-member alignment (`c[1:2].1 -> d[1:2].1`): each connection
@@ -218,7 +224,7 @@ fn trunk_from_connections(
         // Resolvable physical points of the statement, written order, deduped
         // — interned by the net layer even when the lane is skipped (see
         // [`Trunk::points`]). The label candidate is this connection's net
-        // name, so a broadcast statement keeps per-member naming.
+        // name, so a per-member dispatch statement keeps per-member naming.
         for pid in resolved.iter().flatten() {
             if seen.insert(*pid) {
                 points.push((*pid, conn.net_name.clone()));
@@ -305,25 +311,56 @@ fn trunk_from_connections(
         let acc = &bundles[&key];
         let (vec_node, pin) = key;
         let members = order_members(inst, vec_node, &acc.members, view);
-        let slice = PointGroup::Slice {
+        let make_slice = |members: Vec<PointId>| PointGroup::Slice {
             base: PointId {
                 node: vec_node,
                 pin,
             },
             members,
         };
-        for src in &acc.sources {
-            lanes.push(Lane {
-                source: PointGroup::One(*src),
-                target: slice.clone(),
-            });
-        }
-        for tgt in &acc.targets {
-            lanes.push(Lane {
-                source: slice.clone(),
-                target: PointGroup::One(*tgt),
-            });
-        }
+        // ── Row-aligned member column vs equal-count distinct endpoints ──
+        // A member bundle whose other-side endpoints are as many DISTINCT
+        // scalars as there are members is a positional row zip
+        // (`c[1:2] -> [VDD, GND]` → c1.2↔VDD, c2.2↔GND, vec-dianlu §5.2):
+        // the members share nothing, so a `Slice -> One`/`One -> Slice` fan
+        // would falsely short them (the slice merges every member onto every
+        // endpoint in `derive_nets`). Emit per-index `One -> One` lanes.
+        // When endpoints are FEWER than members, the members genuinely share
+        // them (the §7.6 per-member dispatch fan, e.g. `c[1:2].Cap([VDD,GND])`
+        // runs each member onto the same scalar net) — keep the Slice fan.
+        let mut one_side_lanes =
+            |members: Vec<PointId>, scalars: &[PointId], member_on_source: bool| {
+                if scalars.len() == members.len() {
+                    // Positional 1:1 alignment.
+                    for (m, s) in members.iter().zip(scalars.iter()) {
+                        let (a, b) = if member_on_source {
+                            (PointGroup::One(*m), PointGroup::One(*s))
+                        } else {
+                            (PointGroup::One(*s), PointGroup::One(*m))
+                        };
+                        lanes.push(Lane {
+                            source: a,
+                            target: b,
+                        });
+                    }
+                } else {
+                    // Fan: slice carries every member to each shared endpoint.
+                    let slice = make_slice(members);
+                    for s in scalars {
+                        let (a, b) = if member_on_source {
+                            (slice.clone(), PointGroup::One(*s))
+                        } else {
+                            (PointGroup::One(*s), slice.clone())
+                        };
+                        lanes.push(Lane {
+                            source: a,
+                            target: b,
+                        });
+                    }
+                }
+            };
+        one_side_lanes(members.clone(), &acc.targets, true);
+        one_side_lanes(members.clone(), &acc.sources, false);
     }
 
     // Both-sides-member alignment: one `Slice -> Slice` lane per bundle pair.
@@ -427,8 +464,8 @@ fn is_bundle_point(p: &NetPoint) -> bool {
 /// Returns `None` only for non-physical points: an owner-less path that is
 /// not a module port (a bare net label), an unknown owner, or an unresolvable
 /// pin leaf. Statements whose endpoints were rejected upstream (bracket
-/// literals, `[A,B][1]`-style group subscripts, whole-slice broadcasts —
-/// §10.4 / name-equivalence R-family) never reach this point. A `PortInst`
+/// literals, `[A,B][1]`-style group subscripts, an unequal row count that the
+/// §5.3.1/§5.3.3 gate already rejected) never reach this point. A `PortInst`
 /// is a module boundary point, so both the parent-side reference (`sub1.clk`)
 /// and the sub-module's own reference (`clk`) land on the SAME `PointId` —
 /// the derived net layer then merges a parent net with the sub-module's

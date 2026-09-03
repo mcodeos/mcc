@@ -29,9 +29,15 @@ impl InstantiationBuilder {
     /// ```text
     /// cx[1:2].Cap(XTAL.X<1:2>, gnd)
     /// → cx1.Cap(XTAL.X<1:2>, gnd) + cx2.Cap(XTAL.X<1:2>, gnd)
-    /// → each member receives the full arg list, broadcast unchanged (§5 item 17);
-    ///   creates two independent CAP component instances
     /// ```
+    ///
+    /// Per-member dispatch (vec-dianlu §7.6): the receiver vector is expanded
+    /// into one independent call per member, read as a group of independent
+    /// phrase statements. A scalar arg (`gnd` above) is **shared unchanged**
+    /// by every member — each member lands on the same multi-terminal net,
+    /// never a §5.3.1 single-point broadcast. A vector-slice arg
+    /// (`XTAL.X<1:2>`) is row-aligned: at index i it collapses to its i-th
+    /// member, one-to-one with the receiver member count.
     ///
     /// # Return value
     /// - `Some(result)` — iterated call, expanded
@@ -109,14 +115,15 @@ impl InstantiationBuilder {
             return Ok(Some(FuncCallInst::PassThrough));
         }
 
-        // ── §11.4 GAP1: member-set alignment, before the broadcast ──────
+        // ── §11.4 GAP1: member-set alignment, per-member dispatch ────────
         // Compare the iterated receiver's member count against each
         // multi-member slice lane in the arg list (`cap[1:2].Cap([XTAL.X[1:2], gnd])`:
-        // {cap1,cap2} vs {XTAL.X1,XTAL.X2} — one-to-one correspondence needs
-        // equal widths). Fires once per mismatched slice; scalar lanes
-        // broadcast (§5 item 17) and the arg-list-vs-formals lane-count
-        // mismatch stays with the existing E4180 downstream. The zip itself
-        // clamps to the receiver width so GAP1 is the single report.
+        // {cap1,cap2} vs {XTAL.X1,XTAL.X2} — one-to-one row alignment needs
+        // equal widths). Fires once per mismatched slice; scalar lanes are
+        // shared unchanged by every member (vec-dianlu §7.6, not §5.3.1
+        // broadcast) and the arg-list-vs-formals lane-count mismatch stays
+        // with the existing E4180 downstream. The zip itself clamps to the
+        // receiver width so GAP1 is the single report.
         self.emit_gap1_member_set_mismatch(params, count);
 
         // ── Expansion provenance: Iterated (covers the per-item loop,
@@ -162,8 +169,9 @@ impl InstantiationBuilder {
             // than feeding `instantiate_funccall` — a bare-call alias
             // (PULLUP/PULLDOWN→RES) would otherwise hijack the per-item call
             // and construct a phantom `r[1:2]` RES (§2.6 Table A, E3179).
-            // `resolved_params` is already broadcast (every member gets the
-            // full arg list, §5 item 17).
+            // `resolved_params` already resolved per-member slice rows and
+            // leaves scalar arg nets shared unchanged with every member
+            // (vec-dianlu §7.6).
             let func_name_str = func_name.to_string();
             if let Some(inst_name) = Self::iterated_item_inst_name(item) {
                 let member_func = self
@@ -278,16 +286,18 @@ impl InstantiationBuilder {
 
     /// Resolve index-related values in parameters
     ///
-    /// Every scalar parameter value is **broadcast unchanged** to every
-    /// iterated member (§5 item 17: `res[1:2].Pullup([net,vcc])` → res1, res2
-    /// each get one `net - RES - vcc`). A **multi-member slice lane** in an
-    /// arg list (`cap[1:2].Cap([XTAL.X[1:2], gnd])`) zips positionally
-    /// against the receiver's members — at index i the slice collapses to its
-    /// i-th member (c1↔XTAL.X1, c2↔XTAL.X2). The member set comes from
-    /// `McIds::expand` (pipeline-③ producer); a slice shorter than the
-    /// receiver clamps to its last member — the width mismatch is reported by
-    /// GAP1 ([`Self::emit_gap1_member_set_mismatch`]) at the call level, so
-    /// the downstream E4180 (arg-list lane count vs formals) stays quiet.
+    /// Every scalar parameter value is **shared unchanged** with every
+    /// iterated member (vec-dianlu §7.6: `res[1:2].Pullup([net,vcc])` →
+    /// res1, res2 each run the body once with the same `net`/`vcc` nets — each
+    /// member lands on the shared multi-terminal net, never a §5.3.1 single-
+    /// point broadcast). A **multi-member slice lane** in an arg list
+    /// (`cap[1:2].Cap([XTAL.X[1:2], gnd])`) zips row-aligned against the
+    /// receiver's members — at index i the slice collapses to its i-th member
+    /// (c1↔XTAL.X1, c2↔XTAL.X2). The member set comes from `McIds::expand`
+    /// (pipeline-③ producer); a slice shorter than the receiver clamps to its
+    /// last member — the width mismatch is reported by GAP1
+    /// ([`Self::emit_gap1_member_set_mismatch`]) at the call level, so the
+    /// downstream E4180 (arg-list lane count vs formals) stays quiet.
     ///
     /// # Parameters
     /// - `params` — the original parameter list
@@ -310,7 +320,8 @@ impl InstantiationBuilder {
     /// multi-member `Opd(Id)` / `Ids` lane whose slice width is ≥ 2 becomes
     /// its `index`-th expanded member. Clamps to the last member when the
     /// slice is narrower than the receiver (GAP1 already reported the width
-    /// mismatch). Scalar lanes pass through unchanged (broadcast).
+    /// mismatch). Scalar lanes pass through unchanged — shared with every
+    /// member (§7.6), not a §5.3.1 broadcast.
     fn zip_param_lane(param: &McParamValue, index: usize, total: usize) -> McParamValue {
         match param {
             McParamValue::Set(values) => McParamValue::Set(
@@ -330,7 +341,8 @@ impl InstantiationBuilder {
     }
 
     /// Member of a slice at `index`, or `None` when the id is not a
-    /// multi-member vector slice (scalar → broadcast unchanged).
+    /// multi-member vector slice (scalar → shared unchanged with every
+    /// member, §7.6).
     fn zip_slice_member(ids: &McIds, index: usize, total: usize) -> Option<String> {
         if total < 2 {
             return None;
@@ -347,8 +359,8 @@ impl InstantiationBuilder {
     /// `cap[1:2].Cap([XTAL.X[1:3], gnd])` — receiver {cap1,cap2} (2) against
     /// the slice {XTAL.X1,XTAL.X2,XTAL.X3} (3): one-to-one correspondence
     /// needs equal widths. Fires once per distinct mismatched slice; scalar
-    /// lanes (broadcast) and aligned slices stay quiet. Span from the current
-    /// statement when available.
+    /// lanes (shared unchanged, §7.6) and aligned slices stay quiet. Span
+    /// from the current statement when available.
     fn emit_gap1_member_set_mismatch(&self, params: &[McParamValue], receiver_count: usize) {
         if receiver_count < 2 {
             return;

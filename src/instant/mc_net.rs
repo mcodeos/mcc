@@ -955,6 +955,13 @@ impl NetTable {
     ///     "broadcast": when paired with a scalar endpoint on the other side,
     ///     all members inside the bracket should **not** be unioned with each
     ///     other (otherwise VDD_3V3 and GND would share a root).
+    ///
+    ///     Note on the scalar case: a whole bracket column vs a 1-row scalar is
+    ///     the §5.3.1-abolished single-point broadcast — the series gate
+    ///     rejects it (E4007) before any connection reaches this layer. What
+    ///     legitimately reaches here as "one scalar against N members" is only
+    ///     the DC-bus / interface role-aligned expansion (§5.3.2) or a group
+    ///     fan-in/out from `(,)` (vec-dianlu §7.3), never a raw `X -> [A,B]`.
     ///   - the example project's top level has `dcdc.[VDD_3V3, GND] ~ V3V3` + `dcdc.[VCC_1V2, GND] ~ V1V2`
     ///     two connections sharing `dcdc.GND`, after expansion → all 5 main
     ///     rails unioned to the same root, the entire top half of the graph

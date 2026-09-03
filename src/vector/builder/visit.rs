@@ -545,9 +545,13 @@ impl<'a> McVecBuilder<'a> {
             //     non-bracket point ids.len() == 1, members[0] == None
             //     bracket point    ids.len() == N, members[k] == Some("VDD_3V3"/"GND"/...)
             //   - Determine "symmetric bracket connection": all points have width either max_w
-            //     or 1 (the latter as broadcast). In this case **split by position into max_w
-            //     independent sub-nets**, each using bracket member name as sub-net name
-            //     (e.g. split into separate "V3V3" net and "GND" net, mutually uncontaminated).
+            //     or 1 (a scalar shared into every sub-net — a post-hoc read-model
+            //     description of a legal fan from group/same-name-pad/DC-bus role
+            //     alignment, NOT a §5.3.1 single-point broadcast, which E4007-rejects
+            //     before any connection is built). In this case **split by position into
+            //     max_w independent sub-nets**, each using bracket member name as sub-net
+            //     name (e.g. split into separate "V3V3" net and "GND" net, mutually
+            //     uncontaminated).
             //   - Other cases (pure scalar chain / heterogeneous mix) still use the original
             //     windows(2) behavior, preserving chain semantics for the example project.
             //
@@ -747,7 +751,9 @@ impl<'a> McVecBuilder<'a> {
 
             // ── Pairing strategy selection ─────────────────────────────────────────────────
             // Bracket mode: at least one point is bracket-expanded, and **all non-empty points**
-            // have width either equal to max_w (= that bracket's bit width), or 1 (scalar broadcast).
+            // have width either equal to max_w (= that bracket's bit width), or 1 (a scalar
+            // shared into every member — a legal fan that reached this layer post-gate, never
+            // a §5.3.1 single-point broadcast).
             let widths: Vec<usize> = per_point.iter().map(|pr| pr.ids.len()).collect();
             let max_w = widths.iter().copied().max().unwrap_or(0);
             let any_bracket = per_point.iter().any(|pr| pr.is_bracket);
@@ -784,7 +790,9 @@ impl<'a> McVecBuilder<'a> {
 
                     // Collect id chain at this position:
                     //   - width == max_w point: take ids[k]
-                    //   - width == 1 scalar point: broadcast to every sub-net
+                    //   - width == 1 scalar point: shared into every sub-net (legal
+                    //     fan from group/same-name/DC-bus expansion — the §5.3.1
+                    //     single-point broadcast is rejected upstream, never here)
                     //   - width == 0: skip
                     let mut chain_ids: Vec<i64> = Vec::with_capacity(per_point.len());
                     for pr in &per_point {
@@ -1007,9 +1015,10 @@ impl<'a> McVecBuilder<'a> {
             //
             // Side effect: top-level `V3V3` `V1V2` Port ids (1001/1002) are InstKind::Port,
             // now also don't trigger merge. This avoids the first version's problem of incorrectly merging
-            // bracket-broadcast shorts (created upstream by bracket-mode) into GND — those shorts are
-            // upstream bugs, we no longer "help wrongly" here, letting symptoms surface in the net list
-            // for the author to fix source or for later smarter bracket-broadcast detection to handle.
+            // bracket-broadcast shorts (a historical upstream artifact of the now-abolished §5.3.1
+            // single-point broadcast, today E4007-rejected with no connection) into GND — those shorts
+            // were upstream bugs, we no longer "help wrongly" here, letting symptoms surface in the net
+            // list for the author to fix source or for later smarter detection to handle.
             let mut ep_to_first_group: HashMap<i64, usize> = HashMap::new();
             for (gid, (_name, pairs)) in groups_vec.iter().enumerate() {
                 let mut ep_in_this_group: std::collections::HashSet<i64> =

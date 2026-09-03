@@ -7,7 +7,12 @@
 //!
 //! `McVec`s within the same `McVecNet` are connected positionally:
 //! - The i-th ID in `nets[0]` is connected to the i-th ID in `nets[1]`
-//! - If one side has only 1 element, it broadcasts to all elements on the other side
+//! - If one side has only 1 element, it reaches every member on the other side.
+//!   This layer is a **post-hoc drawing/read model**: a one-to-many shape here
+//!   only ever reflects a legal fan from `(,)` group expansion, same-name-pad /
+//!   DC-bus role alignment, or several merged 1:1 pairs (vec-dianlu §5.3.2 /
+//!   §7.3) — never the §5.3.1-abolished single-point broadcast (`X -> [A,B]`,
+//!   rejected with E4007, zero connection generated).
 
 use std::fmt;
 
@@ -52,7 +57,10 @@ pub enum ConnectionType {
     OneToOne,
     /// n:n correspondence connection (bus type, two groups equal length)
     NtoN(usize),
-    /// 1:n broadcast connection (power distribution type)
+    /// One-to-many fan (power-distribution drawing shape). A shape like this in
+    /// the read model only arises from legal group expansion / same-name-pad /
+    /// DC-bus role alignment (vec-dianlu §5.3.2 / §7.3), not from a §5.3.1
+    /// single-point broadcast — that is rejected (E4007) with no connection.
     Broadcast(usize),
     /// Multiple-group mixed topology
     Complex,

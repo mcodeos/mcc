@@ -436,8 +436,10 @@ impl InstantiationBuilder {
             McPhrase::Group(ref g) => {
                 // Group left endpoint handling
                 // 1. recursively collect all branch left endpoints
-                // 2. if left_match=true, all branches same shape, safe to broadcast
-                // 3. if left_match=false, shapes differ, need warning
+                // 2. if left_match=true, all branches same shape, one legal `(,)`
+                //    group fan onto the shared right side (vec-dianlu §7.3)
+                // 3. if left_match=false, shapes differ across branches — per-statement
+                //    expansion reports the mismatch (E4007), never a broadcast
 
                 if !g.left_match && g.opds.len() > 1 {
                     mcc_dbg!(
@@ -585,9 +587,37 @@ impl InstantiationBuilder {
             }
             // ── P2-1: McEndpoint::List → register bus + expand ──────────────
             // Symmetric to get_right_points McEndpoint::List handler.
+            //
+            // ── §5.2/§5.3: whole declared array / component list operand ──
+            // Each Single(Component) member contributes its junction-pin column
+            // `[cap4.1, cap5.1]` via the component's left pin (mirror of the
+            // right-side handler); non-component members keep the common-prefix
+            // resolve path.
             McPhrase::Endpoint(McEndpoint::List(ref items)) => {
-                let left_elems: Vec<McBus> = items.iter().flat_map(|e| e.get_left()).collect();
-                self.resolve_curly_mn_points(&left_elems, &[], true)
+                let mut points: Vec<NetPoint> = Vec::new();
+                let mut left_elems: Vec<McBus> = Vec::new();
+                for item in items {
+                    let mut routed = false;
+                    if let McEndpoint::Single(iref) = item {
+                        if matches!(iref.base, McInstance::Component(_)) {
+                            let bus = iref.to_bus();
+                            if let Some(comp) = self.find_component(&bus.name) {
+                                if let Some(pin) = comp.get_left_pin() {
+                                    points.push(pin);
+                                    routed = true;
+                                }
+                            }
+                        }
+                    }
+                    if !routed {
+                        left_elems.extend(item.get_left());
+                    }
+                }
+                if left_elems.is_empty() {
+                    return Ok(points);
+                }
+                points.extend(self.resolve_curly_mn_points(&left_elems, &[], true)?);
+                Ok(points)
             }
             McPhrase::Multiple(inner) => {
                 let mut points = Vec::new();
@@ -970,8 +1000,10 @@ impl InstantiationBuilder {
             McPhrase::Group(ref g) => {
                 // Group right endpoint handling
                 // 1. recursively collect all branch right endpoints
-                // 2. if right_match=true, all branches same shape, safe to broadcast
-                // 3. if right_match=false, shapes differ, need warning
+                // 2. if right_match=true, all branches same shape, one legal `(,)`
+                //    group fan off the shared left side (vec-dianlu §7.3)
+                // 3. if right_match=false, shapes differ across branches — per-statement
+                //    expansion reports the mismatch (E4007), never a broadcast
 
                 if !g.right_match && g.opds.len() > 1 {
                     mcc_dbg!(
@@ -1102,9 +1134,41 @@ impl InstantiationBuilder {
             // e.g., [SPI.SCLK, SPI.MOSI, SPI.CSN, SPI.MISO] on the right side
             // of a connection. Each element is a dotted label; common prefix
             // becomes the bus name, suffixes become members.
+            //
+            // ── §5.2/§5.3: whole declared array / component list operand ──
+            // `cap[4:5]` reaches here as a List whose items are Single(Component)
+            // members. Each member must contribute its junction-pin column
+            // `[cap4.2, cap5.2]` — the same right pin as the Single(Component)
+            // arm above. The old path ran members through endpoint `to_bus()`
+            // → resolve_curly_mn_points and dropped the pin, leaving bare instance
+            // names that the removed array re-link collapsed onto one rail (the
+            // abolished 1:N single-point broadcast). Non-component members (dotted
+            // label buses such as SPI.SCLK, io labels) keep the common-prefix path.
             McPhrase::Endpoint(McEndpoint::List(ref items)) => {
-                let right_elems: Vec<McBus> = items.iter().flat_map(|e| e.get_right()).collect();
-                self.resolve_curly_mn_points(&[], &right_elems, false)
+                let mut points: Vec<NetPoint> = Vec::new();
+                let mut right_elems: Vec<McBus> = Vec::new();
+                for item in items {
+                    let mut routed = false;
+                    if let McEndpoint::Single(iref) = item {
+                        if matches!(iref.base, McInstance::Component(_)) {
+                            let bus = iref.to_bus();
+                            if let Some(comp) = self.find_component(&bus.name) {
+                                if let Some(pin) = comp.get_right_pin() {
+                                    points.push(pin);
+                                    routed = true;
+                                }
+                            }
+                        }
+                    }
+                    if !routed {
+                        right_elems.extend(item.get_right());
+                    }
+                }
+                if right_elems.is_empty() {
+                    return Ok(points);
+                }
+                points.extend(self.resolve_curly_mn_points(&[], &right_elems, false)?);
+                Ok(points)
             }
             McPhrase::Endpoint(ref ep) => {
                 let right = ep.get_right();

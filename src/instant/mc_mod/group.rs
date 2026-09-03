@@ -6,7 +6,7 @@
 //!
 //! - `get_group_branch_count` / `check_group_broadcast`
 //! - `connect_to_group`             —— Connection strategy between Group and external points
-//! - `create_connection`            —— Generic N×M connection generation (1:1 / 1:N / N:1 / truncation)
+//! - `create_connection`            —— Generic connection generation (1:1 / 1:N / N:1 / N:M)
 
 use super::expand::expand_match;
 use super::InstantiationBuilder;
@@ -102,8 +102,11 @@ impl InstantiationBuilder {
             // Point counts match exactly, connect one-to-one
             self.create_connection(external_points, group_points, dir, None)?;
         } else {
-            // ★ Degraded to warning: connect as much as possible, truncate by min
-            self.record_warning(
+            // Genuine group/external shape mismatch (vec-dianlu.md §5.3.3):
+            // report E4007 and generate NO connection. The old fallback
+            // truncated both sides by min and connected the survivors — a
+            // partial pairing recovery that §5.3.3 abolishes for illegal rows.
+            self.record_error(
                 crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
                 crate::errcodes::format_msg(
                     crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
@@ -114,10 +117,6 @@ impl InstantiationBuilder {
                     ],
                 ),
             );
-            let min_size = external_size.min(group_size);
-            let ext_trunc: Vec<NetPoint> = external_points.into_iter().take(min_size).collect();
-            let grp_trunc: Vec<NetPoint> = group_points.into_iter().take(min_size).collect();
-            self.create_connection(ext_trunc, grp_trunc, dir, None)?;
         }
 
         Ok(())
@@ -127,7 +126,13 @@ impl InstantiationBuilder {
     // Generic connection generation
     // ========================================================================
 
-    /// Generic connection generation (1:1 / 1:N / N:1 / N:N + truncation)
+    /// Generic connection generation (1:1 / 1:N / N:1 / N:N).
+    ///
+    /// Legal paths only: equal-row 1:1 pairing (by-name / sorted zip),
+    /// the role-aligned 1↔bus DC-rail / interface expansion (NOT §5.3.1
+    /// broadcast), and the §7.3 group fan. A genuine N:M row mismatch
+    /// (N, M ≥ 2) is E4007 with no connection — never truncated into a
+    /// partial pair-by-min pairing (vec-dianlu.md §5.3.3).
     pub(super) fn create_connection(
         &mut self,
         left_points: Vec<NetPoint>,
@@ -141,12 +146,14 @@ impl InstantiationBuilder {
             return Ok(());
         }
 
-        // ── §3 shape-match check (eval.md) ────────────────────────────────
+        // ── §5.3 shape-match check (vec-dianlu.md) ───────────────────────
         // Endpoint-layer shape is N×1 (one NetPoint per row). Same row count
-        // → §3 allows 1:1 pairing (by-name / sorted zip); different row count
-        // → §3 rejects, handled by the recovery branch below: 1:N broadcast
-        // (group / DC bus / interface expansion semantics) or
-        // N:M truncation (genuine misalignment → E4007 diagnostic).
+        // → legal 1:1 pairing (by-name / sorted zip). Different row count is
+        // handled below: a single point against a bus reaches only the legal
+        // role-aligned DC-rail / member-passthrough / interface-expansion
+        // semantics; every other unequal-row pair (including N:M with both
+        // sides ≥ 2) is E4007 and generates NO connection — no broadcast, no
+        // truncation, no pair-by-min recovery (§5.3.1/§5.3.3).
 
         // ★ P9-A2: compute source_span and trunk once for this connection
         // Decision A (§7.1): source_span carries a **byte offset**, not a line
@@ -546,12 +553,12 @@ impl InstantiationBuilder {
                 }
             }
         } else {
-            // §3 row count mismatch (N×1 vs M×1, N, M ≥ 2): a genuine vector
-            // alignment error. Pass1 checks the phrase-layer shape, but dynamic
-            // pins / FuncCall returns / interface expansion can still surface a
-            // mismatch here — upgraded from a truncation warning to E4007
-            // (vec-dianlu.md §5.1 left-alignment). Still paired by min so the
-            // netlist stays buildable.
+            // §5.3.3 row count mismatch (N×1 vs M×1, N, M ≥ 2): a genuine
+            // vector alignment error. Pass1 checks the phrase-layer shape, but
+            // dynamic pins / FuncCall returns / interface expansion can still
+            // surface a mismatch here. Report E4007 and generate NO connection
+            // — the row mismatch is not truncated into a partial pair-by-min
+            // pairing (vec-dianlu.md §5.3.3: illegal ⇒ error + no recovery).
             self.record_error(
                 crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
                 crate::errcodes::format_msg(crate::errcodes::CONN_SERIES_SHAPE_MISMATCH, &[]),
@@ -561,7 +568,8 @@ impl InstantiationBuilder {
             // bus-member expansion problem: implicit auto-expansion is
             // forbidden, so a named N×1 vs M×1 pair needs an explicit `*`
             // expansion list or `_` placeholders. Attach the P5.4 fix
-            // suggestion to the message.
+            // suggestion to the message. Informational only — no connection
+            // is generated regardless.
             if left_points
                 .iter()
                 .chain(right_points.iter())
@@ -580,15 +588,6 @@ impl InstantiationBuilder {
                         ],
                     ),
                 );
-            }
-            let min_size = left_size.min(right_size);
-            for (l, r) in left_points
-                .into_iter()
-                .zip(right_points.into_iter())
-                .take(min_size)
-            {
-                let conn = mk_conn(self.next_conn_id(), vec![l, r], dir, lane);
-                self.add_connection(conn);
             }
         }
 
