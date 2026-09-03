@@ -12,6 +12,11 @@
 //! 3. `def_ercode__emitted_codes_are_registered` — codes actually emitted by real parse /
 //!    build runs over representative snippets are all registered (no hardcoded
 //!    stray codes reaching the output).
+//! 4. `def_ercode__parser_{errors,warnings}_reachable` — the C grammar's reachable
+//!    PARSER codes (2081/2082/2083 + 2111/2112/2115/2116) each have a positive
+//!    fixture asserting the dedicated code fires (reorg-doc §9.3 G3). 2086 is
+//!    structurally unreachable (its `mc_phrase`-root guard never sees a literal
+//!    leaf) and so is deliberately not asserted here.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).
@@ -185,6 +190,14 @@ fn def_ercode__emitted_codes_are_registered() {
         "emitted codes missing from registry: {stray:?}\n(emitted: {emitted:?})"
     );
     assert!(!emitted.is_empty(), "no diagnostics were emitted at all?");
+    // E6006 (VARIANT_SPEC_UNSET) is registered but by design never emitted (the
+    // materialized variant keeps the base's `spec.*` leaves, so the unset state
+    // is only ever read by a BOM/consumer — see its const doc in errcodes.rs).
+    // Pin that the standard battery never surfaces it.
+    assert!(
+        !emitted.contains(&mcc::errcodes::VARIANT_SPEC_UNSET),
+        "E6006 is by-design never emitted; emitted: {emitted:?}"
+    );
 }
 
 /// E2902 (SHAPE_TRANSPOSE_LIMIT): transpose operand shape guard (eval.md §5.5).
@@ -440,6 +453,94 @@ fn def_ercode__undeclared_bus_member_reference_fires_e3181() {
             "E3181 must carry a file:line location; row={} uri={}",
             d.loc.row,
             d.loc.uri
+        );
+    }
+}
+
+/// Reorg-doc §9.3 G3: the C grammar's reachable PARSER *error* codes each need
+/// a positive fixture. The recovery arms in mca.y surface a dedicated code per
+/// construct: `mc_top` error → 2081, `mc_clause` error → 2082, `mc_pins_line`
+/// error → 2083. (2086 NET_NOT_PORT is *not* reachable: it guards the bare
+/// `mc_phrase` net arm for a root of literal type, but every `mc_phrase`
+/// production wraps into an operator/list/declare node — there is no bare-leaf
+/// alias — so its guard never fires. Same class as the 2113/2114 literal-LHS
+/// guards.)
+#[test]
+fn def_ercode__parser_errors_reachable() {
+    let _lock = common::lock();
+
+    let cases: &[(&str, &str, u32)] = &[
+        // mc_top error arm: two bare identifiers before `module` are not a
+        // legal top-level declaration.
+        (
+            "top",
+            "zzz qqq\nmodule main { io VDD }",
+            mcc::errcodes::PARSER_TOP_INVALID,
+        ),
+        // mc_clause error arm: a dangling `->` cannot close a net clause.
+        (
+            "clause",
+            "module main { io VDD\nVDD -> }",
+            mcc::errcodes::PARSER_CLAUSE_INVALID,
+        ),
+        // mc_pins_line error arm: a `1` with no `= name` pair is not a legal
+        // pin line.
+        (
+            "pin",
+            "component C { pins = [ 1 ] }\nmodule main { io VDD }",
+            mcc::errcodes::PARSER_PIN_INVALID,
+        ),
+    ];
+    for (name, src, want) in cases {
+        common::reset();
+        let uri = format!("/mcc/parser-err-{name}.mc");
+        mcc::mcc_load_from_string(&uri, src);
+        let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+        let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+        assert!(
+            codes.contains(want),
+            "PARSER error {want} ({name}) not emitted for {src:?}; got codes: {codes:?}"
+        );
+    }
+}
+
+/// Reorg-doc §9.3 G3: the reachable PARSER *warning* codes each need a positive
+/// fixture. 2115/2116 guard empty bodies / empty pin lists; 2111/2112 warn when
+/// a single `|` / `±` is used as a binary operator outside its pin / tolerance
+/// context (here inside a legal component `if/else` cond_attr).
+#[test]
+fn def_ercode__parser_warnings_reachable() {
+    let _lock = common::lock();
+
+    let cond_attr = "component C(pn::INT)\n{\n    if (pn | 1) package = \"A\"\n    else package = \"B\"\n    pins = [ 1 = A ]\n}\nmodule main { io VDD }";
+    let cond_attr_pm = cond_attr.replace("pn | 1", "pn ± 1");
+    let cases: &[(&str, &str, u32)] = &[
+        // Empty module body.
+        (
+            "empty-body",
+            "module main { }",
+            mcc::errcodes::PARSER_EMPTY_BODY,
+        ),
+        // Empty pins list.
+        (
+            "empty-pins",
+            "component C { pins = [ ] }\nmodule main { io VDD }",
+            mcc::errcodes::PARSER_EMPTY_PINS,
+        ),
+        // Single `|` used as a cond operator outside a pin context.
+        ("single-or", cond_attr, mcc::errcodes::PARSER_SINGLE_OR),
+        // `±` used as a cond operator outside a tolerance context.
+        ("plusminus", &cond_attr_pm, mcc::errcodes::PARSER_PLUSMINUS),
+    ];
+    for (name, src, want) in cases {
+        common::reset();
+        let uri = format!("/mcc/parser-warn-{name}.mc");
+        mcc::mcc_load_from_string(&uri, src);
+        let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+        let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+        assert!(
+            codes.contains(want),
+            "PARSER warning {want} ({name}) not emitted for {src:?}; got codes: {codes:?}"
         );
     }
 }
