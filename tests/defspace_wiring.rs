@@ -12,24 +12,18 @@
 //! binary (own process, serialized by `TEST_LOCK`) is where the global path is
 //! exercised end to end.
 
-use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-/// Reset the mcc_* workspace for one test. The caller must hold `TEST_LOCK`.
-fn reset_workspace() {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(Path::new(""));
-    mcc::mcc_clear_workspace();
-}
+mod common;
 
 /// A project file loaded through the loader chain is recorded in the manifest
 /// as a project source and is visible through the definition space.
 #[test]
-fn loaded_project_source_is_in_the_manifest() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn def_defspace__loaded_project_source_is_in_the_manifest() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri = "/mcc/defspace-wiring.mc".to_string();
     let src = "module main {\n    io A\n    io GND\n    A -> GND\n}";
@@ -61,9 +55,9 @@ fn loaded_project_source_is_in_the_manifest() {
 /// Clearing the workspace wipes the source manifest along with the definition
 /// tables — nothing is left behind for the next load.
 #[test]
-fn clear_workspace_wipes_the_manifest() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn def_defspace__clear_workspace_wipes_the_manifest() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri = "/mcc/defspace-wiring-clear.mc".to_string();
     mcc::mcc_load_from_string(&uri, "module main {\n    io A\n}");

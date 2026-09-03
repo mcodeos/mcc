@@ -6,11 +6,13 @@
 //! the global tables, which breaks the P5 system lookup for `CAP(...).Cap(_)`
 //! and produces E3071.
 #![allow(dead_code)]
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
+mod common;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
-
-static REPRO_LOCK: Mutex<()> = Mutex::new(());
 
 fn server_data_root() -> PathBuf {
     // Runtime-resolved system root (MCC_SYSTEM_ROOT env or ~/.mcode default).
@@ -26,8 +28,8 @@ fn count_bad() -> Vec<String> {
 }
 
 #[test]
-fn system_lib_reload_keeps_global_tables() {
-    let _lock = REPRO_LOCK.lock().unwrap();
+fn def_sysreload__reload_keeps_global_tables() {
+    let _lock = common::lock();
     let _guard = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
         .with_writer(std::io::stderr)

@@ -11,21 +11,20 @@
 // `TTL.NNNN` collapsed to `TTL`, so the first registered and the rest fired
 // E1002 "Duplicate component" / E1051 "Definition already exists".
 
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
 
 fn setup(uri: &str, source: &str) {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     mcc::mcc_load_from_string(&uri.to_string(), source);
 }
 
 #[test]
-fn dotted_int_component_names_register_fully() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn def_dotname__int_component_names_register_fully() {
+    let _lock = common::lock();
 
     let uri = "/mcc/dotted-int-comp.mc";
     let source = r#"
@@ -57,13 +56,11 @@ component A.2
     let mut comps = mcc::mcc_get_components_in_file(&uri.to_string());
     comps.sort();
     assert_eq!(comps, vec!["A.1".to_string(), "A.2".to_string()]);
-
-    drop(lock);
 }
 
 #[test]
-fn dotted_ident_component_names_still_register_fully() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn def_dotname__ident_component_names_still_register_fully() {
+    let _lock = common::lock();
 
     let uri = "/mcc/dotted-id-comp.mc";
     let source = r#"
@@ -77,6 +74,4 @@ component USB.MINI_B
     let mut comps = mcc::mcc_get_components_in_file(&uri.to_string());
     comps.sort();
     assert_eq!(comps, vec!["USB.MINI_B".to_string()]);
-
-    drop(lock);
 }

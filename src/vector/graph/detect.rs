@@ -371,7 +371,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn designator_basic() {
+    fn vec_detect__designator_basic() {
         assert_eq!(extract_designator("R1"), Some("R1".into()));
         assert_eq!(extract_designator("R123"), Some("R123".into()));
         assert_eq!(extract_designator("C5"), Some("C5".into()));
@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn designator_negative() {
+    fn vec_detect__designator_negative() {
         assert_eq!(extract_designator(""), None);
         assert_eq!(extract_designator("R"), None); // no number
         assert_eq!(extract_designator("RX"), None); // RX is not a number
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_number_basic() {
+    fn vec_detect__pin_number_basic() {
         assert_eq!(parse_pin_number("1"), Some(1));
         assert_eq!(parse_pin_number("14"), Some(14));
         assert_eq!(parse_pin_number("100"), Some(100));
@@ -405,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn translate_iotype_basic() {
+    fn vec_detect__translate_iotype_basic() {
         assert_eq!(translate_io_type(&IOType::In), IoDirection::Input);
         assert_eq!(translate_io_type(&IOType::Out), IoDirection::Output);
         assert_eq!(translate_io_type(&IOType::Power), IoDirection::Power);
@@ -415,7 +415,7 @@ mod tests {
     // ── M0: compute_scope_chain ──
 
     #[test]
-    fn scope_chain_nested_module() {
+    fn vec_detect__scope_chain_nested_module() {
         assert_eq!(
             compute_scope_chain("main.modldo.ldo"),
             vec!["main".to_string(), "main.modldo".to_string()]
@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn scope_chain_deep_pin() {
+    fn vec_detect__scope_chain_deep_pin() {
         assert_eq!(
             compute_scope_chain("main.flash.R10k_cs.1"),
             vec![
@@ -435,12 +435,12 @@ mod tests {
     }
 
     #[test]
-    fn scope_chain_root_module() {
+    fn vec_detect__scope_chain_root_module() {
         assert_eq!(compute_scope_chain("main"), Vec::<String>::new());
     }
 
     #[test]
-    fn scope_chain_direct_child() {
+    fn vec_detect__scope_chain_direct_child() {
         assert_eq!(
             compute_scope_chain("main.speaker"),
             vec!["main".to_string()]

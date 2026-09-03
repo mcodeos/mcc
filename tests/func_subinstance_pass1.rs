@@ -25,15 +25,17 @@
 //! Fixtures must be loaded with the mcode system lib (`mcc_init`) so the real
 //! `XTAL2` / `XTAL` / `UV.*` / `DC` defs resolve.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests sharing mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 /// All diagnostic codes after loading `src` under `uri` and building `main`.
 fn codes(src: &str, uri: &str) -> Vec<u32> {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
     mcc::mcc_clear_workspace();
     let root = mcc::cli::datadir::data_root();
     mcc::mcc_set_system_root(&root);
@@ -83,7 +85,7 @@ fn host_with_func(body: &str) -> String {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn anonymous_minus_in_component_func_body_is_clean() {
+fn sem_funcsub__anonymous_minus_in_component_func_body_is_clean() {
     // mcp7940m.mc:48 — the design §5 item 2 regression target. Anonymous
     // receiver `XTAL2(...)` must name itself (@XTAL2{n}) via
     // `McComponent::gen_anon_name` (component/mod.rs), become an Endpoint via
@@ -95,7 +97,7 @@ fn anonymous_minus_in_component_func_body_is_clean() {
 }
 
 #[test]
-fn named_minus_in_component_func_body_is_clean() {
+fn sem_funcsub__named_minus_in_component_func_body_is_clean() {
     // Named receiver `XTAL2 y(...)`: Part 1 registers `y` into the component's
     // insts (set-difference via McComponent::parse_declare), so the receiver
     // endpoint resolves; Part 2 fills the return face before the opcheck.
@@ -109,7 +111,7 @@ fn named_minus_in_component_func_body_is_clean() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn plus_in_component_func_body_is_clean() {
+fn sem_funcsub__plus_in_component_func_body_is_clean() {
     // `+` is Parallel — both arms are connection faces, so Part 2 fills both
     // opd1 and opd2 (doc §3.2).
     let src = host_with_func("XTAL2(32.768kHz, 10nF).Setup(VSS) + XTAL");
@@ -122,7 +124,7 @@ fn plus_in_component_func_body_is_clean() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn leftarrow_in_component_func_body_is_clean() {
+fn sem_funcsub__leftarrow_in_component_func_body_is_clean() {
     // Data flow is opd2 -> opd1, so Part 2 fills the ORIGINAL opd1 (the left
     // operand) before the opd2/opd1 swap in the `<-` handler (doc §3.2).
     let src = host_with_func("XTAL2(32.768kHz, 10nF).Setup(VSS) <- XTAL");
@@ -135,7 +137,7 @@ fn leftarrow_in_component_func_body_is_clean() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn sibling_func_resolves_registered_subinstance() {
+fn sem_funcsub__sibling_func_resolves_registered_subinstance() {
     // `y` is registered by Part 1 when `Xtal()` parses; a sibling func's
     // `find_inst("y")` must resolve it and its bus members (`y.XTAL.X1`) —
     // no E3182. Pre-Part 1, `y` resolved nowhere in the component scope.

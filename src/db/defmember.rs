@@ -110,7 +110,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ledger_is_append_only_with_stable_ids() {
+    fn def_member__ledger_is_append_only_with_stable_ids() {
         let mut l = MemberLedger::default();
         let a = l.register("A", "In");
         let b = l.register("B", "Out");
@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn mid_insert_does_not_shift_existing_ids() {
+    fn def_member__mid_insert_does_not_shift_existing_ids() {
         // The core D13 guarantee: a member inserted before an existing one
         // must not change the existing member's id — instance PointIds stay
         // valid across def edits.

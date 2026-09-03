@@ -20,20 +20,17 @@
 //! single-column by declaration) and the point arm (a 1-pin component →
 //! `Point`) are exercised below.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+mod common;
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+use mcc::{McIds, McURI};
 
 const RES2: &str = "component RES2 {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n";
 const RES1: &str = "component RES1 {\n    pins = [\n        1 = 1\n    ]\n}\n";
 
 /// Build `top` from `src` and return the emitted diagnostic codes (sorted).
 fn build_codes(src: &str) -> Vec<u32> {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let uri: McURI = "/mcc/r4-column-width.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build(&McIds::from("top"), &uri);

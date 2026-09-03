@@ -6276,7 +6276,7 @@ mod tests {
     /// + revive, D11) and are addressed through the host→func edge — funcs
     /// of different hosts are isolated even when they share a name.
     #[test]
-    fn func_entries_mirror_host_funcs_across_reload() {
+    fn def_mccode__func_entries_mirror_host_funcs_across_reload() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -6489,7 +6489,7 @@ module main
     /// regression. (A former `P MIC`/`P ADC` stand-in class `P` was removed:
     /// it resolved to no loaded class — E3157/E5256 — and is unnecessary.)
     #[test]
-    fn declareb_inline_inst_registers_lsp_declaration() {
+    fn def_mccode__declareb_inline_inst_registers_lsp_declaration() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -6581,7 +6581,7 @@ module main
     /// found no interval. This test asserts each chain ref is present in the
     /// lapper and maps (via ref_def_map) to the pin in the component.
     #[test]
-    fn module_member_chain_refs_resolve_in_lapper() {
+    fn def_mccode__module_member_chain_refs_resolve_in_lapper() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -6678,7 +6678,7 @@ module main
     /// roots were recorded, so `uC.i2c(0x36).I2C0` fell through to plain
     /// scoped net refs and `.I2C0` resolved to the module port I2C0.
     #[test]
-    fn fcall_chain_member_resolves_to_instance_pin() {
+    fn def_mccode__fcall_chain_member_resolves_to_instance_pin() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -6766,7 +6766,7 @@ module main
     /// RefDefMap exact path; a position with no registered interval returns
     /// None — never a name-based guess (which would misattribute the def).
     #[test]
-    fn position_hover_resolves_same_name_enum_and_component() {
+    fn def_mccode__position_hover_resolves_same_name_enum_and_component() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -6837,7 +6837,7 @@ module main
     /// the component head; a position with no registered interval returns None
     /// — never a name-based guess at the same-named enum/component.
     #[test]
-    fn position_goto_def_resolves_same_name_enum_and_component() {
+    fn def_mccode__position_goto_def_resolves_same_name_enum_and_component() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -6893,7 +6893,7 @@ module main
     /// kinds (`enum CAP` + `component CAP` in the project) instead of letting
     /// the project scan swallow one of them by name-only dedup.
     #[test]
-    fn completion_keeps_same_name_enum_and_component_candidates() {
+    fn def_mccode__completion_keeps_same_name_enum_and_component_candidates() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -6961,7 +6961,7 @@ module main
     /// loading path — virtual cross-file `use` of in-memory files cannot be
     /// loaded from disk.
     #[test]
-    fn ref_def_map_entries_carry_ast_def_names() {
+    fn def_mccode__ref_def_map_entries_carry_ast_def_names() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         // Standard startup: mcc_init() auto-loads the mcode system library from the
         // data root (~/.mcode by default).
@@ -7072,7 +7072,7 @@ module main
     /// 3. named import (`[V6LED]`): only the listed symbol is visible;
     /// 4. shadowing: an own-file declaration overwrites an imported symbol.
     #[test]
-    fn visibility_table_matches_import_forms() {
+    fn def_mccode__visibility_table_matches_import_forms() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -7192,7 +7192,7 @@ module main
     /// who-uses / invalidation answer. A cross-file reference from a.mc to a
     /// component defined in b.mc must produce both edges.
     #[test]
-    fn refgraph_records_cross_file_resolution_edges() {
+    fn def_mccode__refgraph_records_cross_file_resolution_edges() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -7278,7 +7278,7 @@ module main
     /// every byte position in the rest of the file shifts: if spans leaked
     /// into the fingerprint, the untouched module would report Modified too.
     #[test]
-    fn parse_level_reparse_diff_reports_edited_def_only() {
+    fn def_mccode__parse_level_reparse_diff_reports_edited_def_only() {
         use crate::db::defregistry::{checkpoint, diff_versions, DefChange, DefChangeKind};
 
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
@@ -7357,7 +7357,7 @@ module main
     /// appends the new port at the high-water mark. This is the module side
     /// of invariant C (the component side is `component_pin_ledger_merges_by_name_across_reparse`).
     #[test]
-    fn module_port_ledger_stable_across_mid_insert_reparse() {
+    fn def_mccode__module_port_ledger_stable_across_mid_insert_reparse() {
         use crate::db::defmember::DefMemberId;
 
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
@@ -7430,7 +7430,7 @@ module main
     /// first-CMIE module), the hidden original name must stay absent from the
     /// importer's index, and the second CMIE keeps its own bucket.
     #[test]
-    fn alias_p4_name_index_and_gotodef_agree_with_phase6() {
+    fn def_mccode__alias_p4_name_index_and_gotodef_agree_with_phase6() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));

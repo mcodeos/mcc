@@ -6,18 +6,20 @@
 //!
 //! These tests guard against the registry drifting out of sync with reality:
 //!
-//! 1. `no_duplicate_codes` — every code in the central registry is unique.
-//! 2. `every_declared_const_is_registered` — every `pub const` declared in
+//! 1. `def_ercode__no_duplicate_codes` — every code in the central registry is unique.
+//! 2. `def_ercode__every_declared_const_is_registered` — every `pub const` declared in
 //!    `errcodes.rs` is present in `all_codes()` under the same name.
-//! 3. `emitted_codes_are_registered` — codes actually emitted by real parse /
+//! 3. `def_ercode__emitted_codes_are_registered` — codes actually emitted by real parse /
 //!    build runs over representative snippets are all registered (no hardcoded
 //!    stray codes reaching the output).
 
-use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use std::collections::HashSet;
 
 /// Parse `errcodes.rs` and return the declared `(name, value)` pairs of every
 /// `pub const NAME: u32 = N;`.
@@ -51,7 +53,7 @@ fn declared_consts() -> Vec<(String, u32)> {
 }
 
 #[test]
-fn no_duplicate_codes() {
+fn def_ercode__no_duplicate_codes() {
     let codes: Vec<u32> = mcc::errcodes::all_codes().iter().map(|e| e.code).collect();
     let unique: HashSet<u32> = codes.iter().copied().collect();
     assert_eq!(
@@ -66,7 +68,7 @@ fn no_duplicate_codes() {
 /// Every registered code carries a non-empty canonical message template, and
 /// `format_msg` renders `{i}` placeholders with the supplied arguments.
 #[test]
-fn format_msg_renders_message_templates() {
+fn def_ercode__format_msg_renders_message_templates() {
     for info in mcc::errcodes::all_codes() {
         assert!(
             !info.message.is_empty(),
@@ -102,7 +104,7 @@ fn format_msg_renders_message_templates() {
 }
 
 #[test]
-fn every_declared_const_is_registered() {
+fn def_ercode__every_declared_const_is_registered() {
     let declared = declared_consts();
     assert!(!declared.is_empty(), "no `pub const` found in errcodes.rs?");
     let registered: HashSet<(String, u32)> = mcc::errcodes::all_codes()
@@ -126,8 +128,8 @@ fn every_declared_const_is_registered() {
 /// Collect every code emitted while building a battery of broken snippets;
 /// each must be registered in the central catalog.
 #[test]
-fn emitted_codes_are_registered() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn def_ercode__emitted_codes_are_registered() {
+    let _lock = common::lock();
 
     let registered: HashSet<u32> = mcc::errcodes::all_codes().iter().map(|e| e.code).collect();
     let mut emitted: HashSet<u32> = HashSet::new();
@@ -164,9 +166,7 @@ fn emitted_codes_are_registered() {
     ];
 
     for (_name, source) in cases {
-        mcc::mcc_init_no_lib();
-        mcc::mcc_set_system_root(std::path::Path::new(""));
-        mcc::mcc_clear_workspace();
+        common::reset();
         let uri = "/mcc/errcodes-test.mc".to_string();
         mcc::mcc_load_from_string(&uri, source);
         let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -185,24 +185,20 @@ fn emitted_codes_are_registered() {
         "emitted codes missing from registry: {stray:?}\n(emitted: {emitted:?})"
     );
     assert!(!emitted.is_empty(), "no diagnostics were emitted at all?");
-
-    drop(lock);
 }
 
 /// E2902 (SHAPE_TRANSPOSE_LIMIT): transpose operand shape guard (eval.md §5.5).
 /// A 3+ row operand (e.g. `([A, B, C] - X)'`) must be rejected, while legal
 /// transposes (component `CAP C1'`, series `(A - B)'`) must stay clean.
 #[test]
-fn transpose_shape_limit_emitted_and_legal_transposes_pass() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn def_ercode__transpose_shape_limit_emitted_and_legal_transposes_pass() {
+    let _lock = common::lock();
 
     // Bad: a legal series of 3-row column vectors cannot be transposed.
     // (`[A, B, C] - X` would be an illegal `3*1 -> 1*1` broadcast and be
     // rejected earlier with E4007, so the transpose is never reached.)
     let bad = "module main { ([A, B, C] - [D, E, F])' }";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/transpose-bad.mc".to_string();
     mcc::mcc_load_from_string(&uri, bad);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -214,9 +210,7 @@ fn transpose_shape_limit_emitted_and_legal_transposes_pass() {
 
     // Good: component and series transposes stay legal.
     let good = "module main { (A - B)'\nCAP C1' }";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/transpose-good.mc".to_string();
     mcc::mcc_load_from_string(&uri, good);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -225,8 +219,6 @@ fn transpose_shape_limit_emitted_and_legal_transposes_pass() {
         !codes.contains(&mcc::errcodes::SHAPE_TRANSPOSE_LIMIT),
         "E2902 false positive on legal transposes; got codes: {codes:?}"
     );
-
-    drop(lock);
 }
 
 /// List-literal transpose (`[A,B]'`) now parses and connects as a node whose
@@ -234,17 +226,15 @@ fn transpose_shape_limit_emitted_and_legal_transposes_pass() {
 /// `STRING_SQ` lexer rule that used to swallow `]'` into a single-quoted
 /// string, breaking `[[A,B]',[C,D]']`.
 #[test]
-fn list_literal_transpose_node_connects() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn def_ercode__list_literal_transpose_node_connects() {
+    let _lock = common::lock();
 
     // Legal: the same list-of-transposed-rows node on both sides of `->`.
     // Each inner `[A,B]'` is a 2-by-1 column transposed to a 1-by-2 row; the
     // outer list groups two rows. The connection must parse (no E2082) and
     // shape-match (no E2902 / E4007).
     let rr = "module main {\n    [[A,B]',[C,D]'] -> [[E,F]',[G,H]']\n}";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/transpose-rr.mc".to_string();
     mcc::mcc_load_from_string(&uri, rr);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -263,9 +253,7 @@ fn list_literal_transpose_node_connects() {
     // Illegal: a 3-by-1 column transposed to a 1-by-3 row has no left/right
     // face to connect, so the shape layer reports E2902.
     let wide = "module main {\n    [A,B,C]'\n}";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/transpose-wide.mc".to_string();
     mcc::mcc_load_from_string(&uri, wide);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -274,21 +262,17 @@ fn list_literal_transpose_node_connects() {
         codes.contains(&mcc::errcodes::SHAPE_TRANSPOSE_LIMIT),
         "E2902 not emitted for a 3-row list-literal transpose; got codes: {codes:?}"
     );
-
-    drop(lock);
 }
 
 /// E2903 (SHAPE_REVERSE_NOOP): reverse `^` on a vector operand is a hint
 /// (eval.md §9 / examples L180). Parallel operands carry no order to reverse.
 #[test]
-fn reverse_noop_hint_on_parallel_operand() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn def_ercode__reverse_noop_hint_on_parallel_operand() {
+    let _lock = common::lock();
 
     // Reverse on a parallel vector is a no-op → hint.
     let src = "module main { (A + B)^ }";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/reverse-noop.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -300,9 +284,7 @@ fn reverse_noop_hint_on_parallel_operand() {
 
     // Reverse on a series chain is a meaningful order flip → no hint.
     let good = "module main { (A - B)^ }";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/reverse-series.mc".to_string();
     mcc::mcc_load_from_string(&uri, good);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -311,21 +293,17 @@ fn reverse_noop_hint_on_parallel_operand() {
         !codes.contains(&mcc::errcodes::SHAPE_REVERSE_NOOP),
         "E2903 false positive on series reverse; got codes: {codes:?}"
     );
-
-    drop(lock);
 }
 
 /// E2905 (SHAPE_INST_3PIN_PLUSMINUS): an instance with 3+ pins cannot directly
 /// participate in `+` / `-` (veccircuit.md inst constraint).
 #[test]
-fn inst_3pin_plusminus_rejected_with_dedicated_code() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn def_ercode__inst_3pin_plusminus_rejected_with_dedicated_code() {
+    let _lock = common::lock();
 
     // 3-pin instance directly participating in `+`.
     let src = "component _M()\n{\n    pins = [\n        1 = P1\n        2 = P2\n        3 = P3\n    ]\n}\nmodule main\n{\n    _M U1 + GND\n}";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/inst-plusminus.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -337,9 +315,7 @@ fn inst_3pin_plusminus_rejected_with_dedicated_code() {
 
     // 3-pin instance directly participating in `-`.
     let src2 = "component _M()\n{\n    pins = [\n        1 = P1\n        2 = P2\n        3 = P3\n    ]\n}\nmodule main\n{\n    _M U1 - GND\n}";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/inst-minus.mc".to_string();
     mcc::mcc_load_from_string(&uri, src2);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -348,8 +324,6 @@ fn inst_3pin_plusminus_rejected_with_dedicated_code() {
         codes.contains(&mcc::errcodes::SHAPE_INST_3PIN_PLUSMINUS),
         "E2905 not emitted for 3+ pin instance in `-`; got codes: {codes:?}"
     );
-
-    drop(lock);
 }
 
 /// E2904 (SHAPE_EXPAND_DIM_MISMATCH): the Pass2 recovery branch attaches the
@@ -357,7 +331,7 @@ fn inst_3pin_plusminus_rejected_with_dedicated_code() {
 /// generator itself is unit-tested in netshape.rs; here we verify the
 /// generator output flows into the rendered E2904 message.
 #[test]
-fn expand_dim_mismatch_reported_with_suggestion() {
+fn def_ercode__expand_dim_mismatch_reported_with_suggestion() {
     // 3×1 vs 2×1 named members: a fix suggestion exists and is interpolated.
     let fix = mcc::vector::model::netshape::suggest_shape_fix(3, 2)
         .expect("3x1 vs 2x1 mismatch must produce a suggestion");
@@ -384,13 +358,11 @@ fn expand_dim_mismatch_reported_with_suggestion() {
 /// 2-pin component) triggers CONN_SERIES_SHAPE_MISMATCH (E4007) through the
 /// §5 transpose-bridge check in stmt.rs:692.
 #[test]
-fn record_error_surfaces_as_located_error_diagnostic() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn def_ercode__record_error_surfaces_as_located_error_diagnostic() {
+    let _lock = common::lock();
 
     let src = "component _R\n{\n    pins = [\n        1 = X\n        2 = Y\n    ]\n}\nmodule main\n{\n    _R r1\n    _R r2\n    r1 -> r2'\n}";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/record-error-e4007.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -418,8 +390,6 @@ fn record_error_surfaces_as_located_error_diagnostic() {
             d.loc.uri
         );
     }
-
-    drop(lock);
 }
 
 /// P1 (regression): an undeclared bus-member reference on a typed interface
@@ -435,13 +405,11 @@ fn record_error_surfaces_as_located_error_diagnostic() {
 /// `vout.VCC -> vout.VCC1V2` would be merged into `vout{VCC, VCC1V2}` before
 /// the member check runs (a pre-existing gap, tracked separately).
 #[test]
-fn undeclared_bus_member_reference_fires_e3181() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn def_ercode__undeclared_bus_member_reference_fires_e3181() {
+    let _lock = common::lock();
 
     let src = "interface DC(volt)\n{\n    pins = [\n        1 = VCC\n        2 = GND\n    ]\n}\ncomponent _LDO\n{\n    pins = [\n        1 = VOUT.Vout\n        2 = VOUT.GND\n    ]\n}\nmodule main\n{\n    out vout::DC(3.3V)\n    _LDO ldo\n    ldo.VOUT.Vout -> vout.VCC1V2\n}";
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/undeclared-bus-member-e3181.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -474,6 +442,4 @@ fn undeclared_bus_member_reference_fires_e3181() {
             d.loc.uri
         );
     }
-
-    drop(lock);
 }

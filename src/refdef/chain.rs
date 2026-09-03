@@ -1194,7 +1194,7 @@ mod tests {
     }
 
     #[test]
-    fn split_segments_basic() {
+    fn svc_chain__split_segments_basic() {
         assert_eq!(
             split_segments("MIC.P"),
             vec!["MIC".to_string(), "P".to_string()]
@@ -1213,7 +1213,7 @@ mod tests {
     /// `,` and `|` separators expand to the bare member list, and `[k:m]`
     /// slices stay numeric. Comma / curly / range forms keep their shapes.
     #[test]
-    fn group_members_shared_member_split() {
+    fn svc_chain__group_members_shared_member_split() {
         fn gm(seg: &str) -> Option<(String, Vec<String>)> {
             group_members(seg)
         }
@@ -1249,7 +1249,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_whole_bus() {
+    fn svc_chain__resolve_whole_bus() {
         let (insts, params) = make_insts();
         let hit = resolve_member_chain(&"t.mc".to_string(), "MIC", &insts, &params).unwrap();
         assert_eq!(hit.name, "MIC");
@@ -1258,7 +1258,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_whole_bus_curly() {
+    fn svc_chain__resolve_whole_bus_curly() {
         let (insts, params) = make_insts();
         let hit = resolve_member_chain(&"t.mc".to_string(), "MIC{P,N}", &insts, &params).unwrap();
         assert_eq!(hit.name, "MIC");
@@ -1267,7 +1267,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_bus_member() {
+    fn svc_chain__resolve_bus_member() {
         let (insts, params) = make_insts();
         let hit = resolve_member_chain(&"t.mc".to_string(), "MIC.P", &insts, &params).unwrap();
         assert_eq!(hit.name, "MIC.P");
@@ -1276,7 +1276,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_bus_member_curly_single() {
+    fn svc_chain__resolve_bus_member_curly_single() {
         let (insts, params) = make_insts();
         let hit = resolve_member_chain(&"t.mc".to_string(), "MIC{N}", &insts, &params).unwrap();
         assert_eq!(hit.name, "MIC.N");
@@ -1285,7 +1285,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_label() {
+    fn svc_chain__resolve_label() {
         let (insts, params) = make_insts();
         let hit = resolve_member_chain(&"t.mc".to_string(), "V3V3", &insts, &params).unwrap();
         assert_eq!(hit.name, "V3V3");
@@ -1294,7 +1294,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_list_whole() {
+    fn svc_chain__resolve_list_whole() {
         let (insts, params) = make_insts();
         let hit = resolve_member_chain(&"t.mc".to_string(), "GPIO[1:2]", &insts, &params).unwrap();
         assert_eq!(hit.name, "GPIO[1:2]");
@@ -1303,7 +1303,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_list_member() {
+    fn svc_chain__resolve_list_member() {
         let (insts, params) = make_insts();
         let hit = resolve_member_chain(&"t.mc".to_string(), "GPIO[1]", &insts, &params).unwrap();
         assert_eq!(hit.name, "GPIO[1]");
@@ -1311,7 +1311,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_list_member_digit_form() {
+    fn svc_chain__resolve_list_member_digit_form() {
         let (insts, params) = make_insts();
         // `GPIO1` → idx-aware resolution to the `GPIO[1:2]` list, member `1`.
         let hit = resolve_member_chain(&"t.mc".to_string(), "GPIO1", &insts, &params).unwrap();
@@ -1320,7 +1320,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_param_terminal() {
+    fn svc_chain__resolve_param_terminal() {
         let (insts, params) = make_insts();
         let hit = resolve_member_chain(&"t.mc".to_string(), "VCC_1V2", &insts, &params).unwrap();
         assert_eq!(hit.name, "VCC_1V2");
@@ -1329,7 +1329,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_returns_none() {
+    fn svc_chain__unknown_returns_none() {
         let (insts, params) = make_insts();
         assert!(resolve_member_chain(&"t.mc".to_string(), "NOPE", &insts, &params).is_none());
         // Member not in the bus.
@@ -1397,7 +1397,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_cross_component_member() {
+    fn svc_chain__resolve_cross_component_member() {
         // `uC.I2C0` — member hop into the component class definition.
         let (insts, params) = make_cross_insts();
         let hit = resolve_member_chain(&"main.mc".to_string(), "uC.I2C0", &insts, &params).unwrap();
@@ -1408,7 +1408,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_cross_component_bus() {
+    fn svc_chain__resolve_cross_component_bus() {
         // `uC.ADC{P,N}` — whole grouped reference resolves to the bus pin.
         let (insts, params) = make_cross_insts();
         let hit =
@@ -1420,7 +1420,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_cross_component_list() {
+    fn svc_chain__resolve_cross_component_list() {
         // `uC.GPIO[1:2]` — whole grouped reference to the list pin.
         let (insts, params) = make_cross_insts();
         let hit =
@@ -1432,7 +1432,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_cross_missing_member() {
+    fn svc_chain__resolve_cross_missing_member() {
         // Unknown member in the component class → None.
         let (insts, params) = make_cross_insts();
         assert!(resolve_member_chain(&"main.mc".to_string(), "uC.NOPE", &insts, &params).is_none());
@@ -1445,7 +1445,7 @@ mod tests {
     // ── class_hit: `ContainerRef` → `ClassDef` mapping (P3-P5 base fallback) ──
 
     #[test]
-    fn class_hit_maps_component_def() {
+    fn svc_chain__class_hit_maps_component_def() {
         let comp = Arc::new(McComponent {
             name: McIds::from("RES"),
             params: McParamDeclares::new(),
@@ -1476,7 +1476,7 @@ mod tests {
     }
 
     #[test]
-    fn class_hit_maps_enum_def() {
+    fn svc_chain__class_hit_maps_enum_def() {
         let e = Arc::new(McEnumDef {
             name: McIds::from("PKG"),
             span: [20, 23],
@@ -1491,7 +1491,7 @@ mod tests {
     }
 
     #[test]
-    fn class_hit_maps_module_def() {
+    fn svc_chain__class_hit_maps_module_def() {
         let m = Arc::new(McModule::test_stub("PWR"));
         let hit = class_hit(&ContainerRef::Module(m)).unwrap();
         assert_eq!(hit.name, "PWR");

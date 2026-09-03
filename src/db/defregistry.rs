@@ -2713,7 +2713,7 @@ mod tests {
     /// here (or a removal) is a member-boundary drift and must fail loudly
     /// instead of silently widening the ledger scope.
     #[test]
-    fn registry_holds_exactly_seven_def_kinds() {
+    fn def_registry__registry_holds_exactly_seven_def_kinds() {
         // Shape assertion only — no registry mutation, so no parse lock. An
         // exhaustive match (no wildcard) is the regression lock: adding or
         // removing a `DefKind` variant stops compiling here until the
@@ -2741,7 +2741,7 @@ mod tests {
     /// and def-member links stay comparable), and it is the contract callers
     /// must feed deterministically ordered sequences into.
     #[test]
-    fn def_id_allocation_is_deterministic_in_registration_order() {
+    fn def_registry__def_id_allocation_is_deterministic_in_registration_order() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
 
         /// Replay one op sequence against a fresh registry and return the
@@ -2862,7 +2862,7 @@ mod tests {
     /// checkpoint, then a re-parse tombstone + revive of the same key keeps
     /// the id while the content changes; a byte-identical revive stays quiet.
     #[test]
-    fn diff_reports_same_id_content_edit_as_modified() {
+    fn def_registry__diff_reports_same_id_content_edit_as_modified() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         const NAME: &str = "T6_FP_GOLD";
         const URI: &str = "/sys/t6_fp_gold.mc";
@@ -2952,7 +2952,7 @@ mod tests {
     /// removal falls back to it. Uses a unique name/uri so parallel lib tests
     /// are never disturbed.
     #[test]
-    fn system_name_index_tracks_live_system_entries() {
+    fn def_registry__system_name_index_tracks_live_system_entries() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         const NAME: &str = "SYS_INDEX_GOLD";
         const URI: &str = "/sys/index.mc";
@@ -3036,7 +3036,7 @@ mod tests {
     /// enumeration) must still resolve it from the registry. If a future
     /// change re-points a reader at the physical tables, this test fails.
     #[test]
-    fn registry_is_the_read_authority_not_the_physical_mirror() {
+    fn def_registry__registry_is_the_read_authority_not_the_physical_mirror() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         const NAME: &str = "T2_READ_AUTHORITY_GOLD";
         const URI: &str = "/t2/read_authority.mc";
@@ -3086,7 +3086,7 @@ mod tests {
     /// row survives a tombstone/revive round under its original id (D11),
     /// and same-named members of different hosts are isolated rows.
     #[test]
-    fn func_members_are_host_anchored_not_text_keyed() {
+    fn def_registry__func_members_are_host_anchored_not_text_keyed() {
         let reg = RegistryState::default();
         const URI: &str = "/mcc/t9_funcs.mc";
         let (esn, edef) = sys_enum("T9_HOST", URI);
@@ -3189,7 +3189,7 @@ mod tests {
     /// survivors keep their id across a remove + revive cycle. The second
     /// payload mirrors a def edit between two builds.
     #[test]
-    fn component_pin_ledger_merges_by_name_across_reparse() {
+    fn def_registry__component_pin_ledger_merges_by_name_across_reparse() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         const URI: &str = "/t4/pin_ledger_gold.mc";
         const NAME: &str = "T4_PIN_LEDGER_GOLD";
@@ -3316,7 +3316,7 @@ mod tests {
     /// must be answerable. Assertions filter by this test's uri because lib
     /// tests run in parallel and share the registry.
     #[test]
-    fn checkpoint_diff_reports_add_remove_modify() {
+    fn def_registry__checkpoint_diff_reports_add_remove_modify() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         const NAME: &str = "CP_DIFF_GOLD";
         const URI: &str = "/cp/diff_gold.mc";
@@ -3412,7 +3412,7 @@ mod tests {
     /// real disk file (daemon/RPC persistence); the restored copy is
     /// identical — the process-restart DefId alignment surface (§5 D11).
     #[test]
-    fn checkpoint_serializes_to_json_and_disk() {
+    fn def_registry__checkpoint_serializes_to_json_and_disk() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
         const NAME: &str = "CP_SERDE_GOLD";
         const URI: &str = "/cp/serde_gold.mc";

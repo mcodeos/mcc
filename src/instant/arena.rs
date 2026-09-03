@@ -305,7 +305,7 @@ mod tests {
     /// ports → vectors → devices → sub-modules, parent / children edges
     /// round-trip, and the root is the module node with no parent.
     #[test]
-    fn arena_direct_build_structure() {
+    fn dlu_arena__direct_build_structure() {
         let arena = sample_arena();
 
         // 1 root + 1 port + 1 vector + 1 device + 1 sub (1 port + 1 device) = 7.
@@ -387,7 +387,7 @@ mod tests {
     /// the children list unchanged (the construction-time sub-module re-entry /
     /// resume path relies on this).
     #[test]
-    fn arena_add_child_grouped_is_idempotent() {
+    fn dlu_arena__add_child_grouped_is_idempotent() {
         let mut arena = sample_arena();
         let root_id = arena.root();
         let before = arena.children(root_id).unwrap().to_vec();

@@ -14,11 +14,14 @@
 //! serialized by a mutex because they share mcc's global state with each
 //! other.
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
+mod common;
+
 use mcc::db::resolve::{is_visible, Resolver};
 use mcc::{McCMIE, McIds, McSpaceName, McURI};
-use std::sync::{Mutex, OnceLock};
-
-static RESOLVE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 const IFS_SOURCE: &str = r#"
 interface DC(volt)
@@ -29,13 +32,6 @@ interface DC(volt)
     ]
 }
 "#;
-
-/// Reset global state to a clean, library-free workspace.
-fn reset() {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
-}
 
 /// Load a source string into the workspace, returning its URI.
 fn load(uri: &str, source: &str) -> McURI {
@@ -56,9 +52,9 @@ fn def_uri(cmie: &McCMIE) -> String {
 
 /// A def defined in a file resolves from that same file (P3).
 #[test]
-fn own_file_def_resolves_through_p3() {
-    let _lock = RESOLVE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset();
+fn svc_resolvepol__own_file_def_resolves_through_p3() {
+    let _lock = common::lock();
+    common::reset();
 
     let a = load("/mcc/resolve/ifs.mc", IFS_SOURCE);
     let hit = Resolver::resolve_class(&a, &McIds::from("DC")).expect("DC defined in own file");
@@ -73,9 +69,9 @@ fn own_file_def_resolves_through_p3() {
 /// the referencing file has no `use` (§5.4.5): regression for the case where
 /// `net1.basic.mc` resolved `interface DC` to `c3.defs.mc` without a use.
 #[test]
-fn unused_cross_file_same_name_does_not_resolve() {
-    let _lock = RESOLVE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset();
+fn svc_resolvepol__unused_cross_file_same_name_does_not_resolve() {
+    let _lock = common::lock();
+    common::reset();
 
     let a = load("/mcc/resolve/c3.defs.mc", IFS_SOURCE);
     let b = load(
@@ -99,9 +95,9 @@ module main
 
 /// A `use` statement makes the target file's classes reachable (P4).
 #[test]
-fn use_chain_resolves_to_target_def() {
-    let _lock = RESOLVE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset();
+fn svc_resolvepol__use_chain_resolves_to_target_def() {
+    let _lock = common::lock();
+    common::reset();
 
     // Real on-disk files: string-loaded virtual files cannot exercise the
     // use-chain canonicalization (`update_abs_path` re-appends ".mc" only when
@@ -142,9 +138,9 @@ module main
 
 /// `is_visible` implements V(F) = P3 ∪ P4 ∪ P5.
 #[test]
-fn is_visible_filters_visibility_set() {
-    let _lock = RESOLVE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset();
+fn svc_resolvepol__is_visible_filters_visibility_set() {
+    let _lock = common::lock();
+    common::reset();
 
     let a = load("/mcc/resolve/ifs.mc", IFS_SOURCE);
     let b = load(
@@ -188,12 +184,12 @@ module main
 /// sees: the alias resolves to the first CMIE's module, the hidden original
 /// name no longer resolves from the importer, and the second CMIE still does.
 #[test]
-fn alias_re_exposes_first_cmie_and_hides_original_name_post_consolidation() {
-    let _lock = RESOLVE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset();
+fn svc_resolvepol__alias_re_exposes_first_cmie_and_hides_original_name_post_consolidation() {
+    let _lock = common::lock();
+    common::reset();
 
     // Real on-disk files (string-loaded virtual files cannot exercise the
-    // use-chain canonicalization — see `use_chain_resolves_to_target_def`).
+    // use-chain canonicalization — see `svc_resolvepol__use_chain_resolves_to_target_def`).
     let dir = std::env::temp_dir().join(format!("mcc-resolve-alias-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("create fixture directory");
     // `target` sorts before `zeta`, so the alias `tgt` binds to `target`.

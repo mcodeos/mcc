@@ -336,7 +336,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_power_exact() {
+    fn vec_naming__is_power_exact() {
         assert!(is_power("VCC"));
         assert!(is_power("VDD"));
         assert!(is_power("VBUS"));
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn is_power_prefix() {
+    fn vec_naming__is_power_prefix() {
         assert!(is_power("VCC_CORE"));
         assert!(is_power("VDD_IO"));
         assert!(is_power("V3V3"));
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn is_power_voltage_pattern() {
+    fn vec_naming__is_power_voltage_pattern() {
         // digit-V-digit
         assert!(is_power("3V3"));
         assert!(is_power("5V0"));
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn is_power_negatives() {
+    fn vec_naming__is_power_negatives() {
         assert!(!is_power("GND"));
         assert!(!is_power("VSS"));
         assert!(!is_power("RX"));
@@ -380,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn is_ground_basic() {
+    fn vec_naming__is_ground_basic() {
         assert!(is_ground("GND"));
         assert!(is_ground("VSS"));
         assert!(is_ground("AGND"));
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn is_ground_local_groups() {
+    fn vec_naming__is_ground_local_groups() {
         // Legacy local ground groups keep their system ground as the base.
         assert!(is_ground("GND@109"));
         assert!(is_ground("GND@c3"));
@@ -411,14 +411,14 @@ mod tests {
     }
 
     #[test]
-    fn is_power_rail_includes_both() {
+    fn vec_naming__is_power_rail_includes_both() {
         assert!(is_power_rail("VCC"));
         assert!(is_power_rail("GND"));
         assert!(!is_power_rail("RX"));
     }
 
     #[test]
-    fn pin_role_power_ground() {
+    fn vec_naming__pin_role_power_ground() {
         assert_eq!(pin_role("VCC"), NameRole::Power);
         assert_eq!(pin_role("VDD"), NameRole::Power);
         assert_eq!(pin_role("V3V3"), NameRole::Power);
@@ -432,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_role_io() {
+    fn vec_naming__pin_role_io() {
         assert_eq!(pin_role("MOSI"), NameRole::Input);
         assert_eq!(pin_role("MISO"), NameRole::Output);
         assert_eq!(pin_role("RX"), NameRole::Input);
@@ -445,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_role_clock_reset() {
+    fn vec_naming__pin_role_clock_reset() {
         assert_eq!(pin_role("CLK"), NameRole::Clock);
         assert_eq!(pin_role("SCK"), NameRole::Clock);
         assert_eq!(pin_role("SCLK"), NameRole::Clock);
@@ -458,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_role_generic() {
+    fn vec_naming__pin_role_generic() {
         // Pure digits
         assert_eq!(pin_role("1"), NameRole::Generic);
         assert_eq!(pin_role("14"), NameRole::Generic);
@@ -468,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn signal_like() {
+    fn vec_naming__signal_like() {
         assert!(is_signal_like("VCC"));
         assert!(is_signal_like("RX"));
         assert!(is_signal_like("DATA_IN"));
@@ -481,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    fn main_chip() {
+    fn vec_naming__main_chip() {
         assert!(is_main_chip("mcu513"));
         assert!(is_main_chip("STM32_CPU"));
         assert!(is_main_chip("FPGA_top"));
@@ -494,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_net_dispatch() {
+    fn vec_naming__classify_net_dispatch() {
         assert_eq!(classify_net("VCC"), NetKind::Power);
         assert_eq!(classify_net("V3V3"), NetKind::Power);
         assert_eq!(classify_net("GND"), NetKind::Ground);
@@ -506,7 +506,7 @@ mod tests {
     // ── ★ P0-2 tests ──────────────────────────────────────────────────────
 
     #[test]
-    fn alias_resolves_to_canonical() {
+    fn vec_naming__alias_resolves_to_canonical() {
         assert_eq!(canonicalize_class_alias("ESD"), Some("DIO.ESD".to_string()));
         assert_eq!(canonicalize_class_alias("esd"), Some("DIO.ESD".to_string()));
         assert_eq!(
@@ -521,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_names_are_unchanged() {
+    fn vec_naming__canonical_names_are_unchanged() {
         // Canonical names (already in CMIE) should not be redirected again
         assert_eq!(canonicalize_class_alias("CAP"), None);
         assert_eq!(canonicalize_class_alias("RES"), None);

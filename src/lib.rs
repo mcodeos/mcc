@@ -2,6 +2,11 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+// Stage-3 unit-test family naming (`{family}_{theme}__{essence}`, matrix §1
+// taxonomy) deliberately doubles the underscore; allow non_snake_case only
+// under cfg(test) so production builds keep the lint.
+#![cfg_attr(test, allow(non_snake_case))]
+
 // Many internal functions are used across files within the crate but the
 // compiler cannot track cross-file usage (e.g., RPC handlers registered
 // via register_all(), phrase ID assignment in instantiation pipeline).

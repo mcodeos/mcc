@@ -1631,7 +1631,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_base_members_scalar() {
+    fn sem_mcids__display_base_members_scalar() {
         assert_eq!(
             display_base_members("vin"),
             ("vin".to_string(), Vec::<String>::new())
@@ -1643,7 +1643,7 @@ mod tests {
     }
 
     #[test]
-    fn display_base_members_curly_group() {
+    fn sem_mcids__display_base_members_curly_group() {
         // Canonical module-port key forms: named curly bus / interface ports.
         assert_eq!(
             display_base_members("vin{POWER_SYS, GND}"),
@@ -1662,7 +1662,7 @@ mod tests {
     }
 
     #[test]
-    fn display_base_members_square_group() {
+    fn sem_mcids__display_base_members_square_group() {
         // Square-only module-port key / reference (`dcdc.[VDD_3V3, GND]`
         // dotted member arrives here with an empty base).
         assert_eq!(
@@ -1683,7 +1683,7 @@ mod tests {
     }
 
     #[test]
-    fn display_base_members_slice_token_is_single_member() {
+    fn sem_mcids__display_base_members_slice_token_is_single_member() {
         // Raw member text: a `1:2` slice stays one lane (member_set is the
         // only place slices expand).
         assert_eq!(
@@ -1693,7 +1693,7 @@ mod tests {
     }
 
     #[test]
-    fn display_base_members_empty_group_keeps_base() {
+    fn sem_mcids__display_base_members_empty_group_keeps_base() {
         assert_eq!(
             display_base_members("vin{}"),
             ("vin".to_string(), Vec::<String>::new())
@@ -1701,7 +1701,7 @@ mod tests {
     }
 
     #[test]
-    fn display_base_members_bare_curly() {
+    fn sem_mcids__display_base_members_bare_curly() {
         assert_eq!(
             display_base_members("{A, B}"),
             (String::new(), vec!["A".to_string(), "B".to_string()])

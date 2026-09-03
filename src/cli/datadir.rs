@@ -274,7 +274,7 @@ pub mod tests {
     }
 
     #[test]
-    fn env_override_absolute() {
+    fn cli_datadir__env_override_absolute() {
         let _lock = ENV_LOCK.lock().unwrap();
         let prev = std::env::var(MCC_SYSTEM_ENV).ok();
         let unique = scratch_dir("test-env");
@@ -287,7 +287,7 @@ pub mod tests {
     }
 
     #[test]
-    fn pid_always_at_home_mcode() {
+    fn cli_datadir__pid_always_at_home_mcode() {
         let _lock = ENV_LOCK.lock().unwrap();
         let prev = std::env::var(MCC_SYSTEM_ENV).ok();
         let unique = scratch_dir("somewhere-else");
@@ -308,20 +308,20 @@ pub mod tests {
     }
 
     #[test]
-    fn parse_name_version_ok() {
+    fn cli_datadir__parse_name_version_ok() {
         assert_eq!(parse_name_version("ti.mcu@1.0"), Some(("ti.mcu", "1.0")));
         assert_eq!(parse_name_version("stm32@2.0"), Some(("stm32", "2.0")));
     }
 
     #[test]
-    fn parse_name_version_invalid() {
+    fn cli_datadir__parse_name_version_invalid() {
         assert_eq!(parse_name_version("mcode"), None);
         assert_eq!(parse_name_version("@1.0"), None);
         assert_eq!(parse_name_version("name@"), None);
     }
 
     #[test]
-    fn sub_dirs_under_data_root() {
+    fn cli_datadir__sub_dirs_under_data_root() {
         let _lock = ENV_LOCK.lock().unwrap();
         let prev = std::env::var(MCC_SYSTEM_ENV).ok();
         let unique = scratch_dir("data-dir");

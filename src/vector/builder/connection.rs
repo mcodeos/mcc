@@ -595,7 +595,7 @@ mod tests {
     /// carried through ConnPair → NetShape.op, and the source-order endpoint
     /// sequence must land in NetShape.order.
     #[test]
-    fn series_shape_carries_op_and_order() {
+    fn vec_conn__series_shape_carries_op_and_order() {
         let pairs = vec![
             ConnPair::plain_with_dir(1, 2, ConnDir::LtoR).with_op(ConnOp::Series),
             ConnPair::plain_with_dir(2, 3, ConnDir::LtoR).with_op(ConnOp::Series),
@@ -612,7 +612,7 @@ mod tests {
     /// order (the anchor `10` appears once, deduplicated at the front) and the
     /// left-main anchor (`10`).
     #[test]
-    fn parallel_shape_keeps_op() {
+    fn vec_conn__parallel_shape_keeps_op() {
         let pairs = vec![
             ConnPair::plain_with_dir(10, 11, ConnDir::Undirected).with_op(ConnOp::Parallel),
             ConnPair::plain_with_dir(10, 12, ConnDir::Undirected).with_op(ConnOp::Parallel),
@@ -630,7 +630,7 @@ mod tests {
     /// degree 2 (the old guess → star); the source operator must win: one
     /// scalar McVec per distinct endpoint, all-Scalar groups, `Parallel` op.
     #[test]
-    fn parallel_net_builds_flat_from_source_op() {
+    fn vec_conn__parallel_net_builds_flat_from_source_op() {
         let pairs = vec![
             ConnPair::plain_with_dir(1, 2, ConnDir::Undirected).with_op(ConnOp::Parallel),
             ConnPair::plain_with_dir(2, 3, ConnDir::Undirected).with_op(ConnOp::Parallel),
@@ -653,7 +653,7 @@ mod tests {
     /// builds a star — the source shape is a 1→N broadcast, not a parallel
     /// merge, so the freq path is the correct topology here.
     #[test]
-    fn series_broadcast_still_builds_star() {
+    fn vec_conn__series_broadcast_still_builds_star() {
         let pairs = vec![
             ConnPair::plain_with_dir(7, 8, ConnDir::LtoR).with_op(ConnOp::Series),
             ConnPair::plain_with_dir(7, 9, ConnDir::LtoR).with_op(ConnOp::Series),
@@ -672,7 +672,7 @@ mod tests {
     /// even when the merged vec happens to be multi-point in the mixed-lane
     /// fallback — never re-derive a Broadcast width off the vec length.
     #[test]
-    fn lane_net_groups_are_scalar_not_vec_length_projection() {
+    fn vec_conn__lane_net_groups_are_scalar_not_vec_length_projection() {
         let pairs = vec![ConnPair::laned(
             5,
             6,
@@ -691,7 +691,7 @@ mod tests {
     /// from the DRIVER end: `[(5,3),(3,1)]` has degree-1 = {1,5}, min id = 1 =
     /// sink, yet the flow source (left-not-right) is 5 → order `[5,3,1]`.
     #[test]
-    fn directed_ltr_starts_from_driver_not_min_degree1() {
+    fn vec_conn__directed_ltr_starts_from_driver_not_min_degree1() {
         let pairs = vec![
             ConnPair::plain_with_dir(5, 3, ConnDir::LtoR),
             ConnPair::plain_with_dir(3, 1, ConnDir::LtoR),
@@ -711,7 +711,7 @@ mod tests {
     /// RtoL pairs are source-first too (visit.rs swaps), so the driver end is
     /// still a left-not-right endpoint: `[(9,4),(4,2)]` → `[9,4,2]`.
     #[test]
-    fn directed_rtl_starts_from_driver() {
+    fn vec_conn__directed_rtl_starts_from_driver() {
         let pairs = vec![
             ConnPair::plain_with_dir(9, 4, ConnDir::RtoL),
             ConnPair::plain_with_dir(4, 2, ConnDir::RtoL),
@@ -723,7 +723,7 @@ mod tests {
     /// `pick_chain_start` both return None → fall back to ordered collection
     /// with no dropped points.
     #[test]
-    fn directed_ring_falls_back_without_dropping() {
+    fn vec_conn__directed_ring_falls_back_without_dropping() {
         let pairs = vec![
             ConnPair::plain_with_dir(1, 2, ConnDir::LtoR),
             ConnPair::plain_with_dir(2, 3, ConnDir::LtoR),
@@ -740,7 +740,7 @@ mod tests {
     /// chains) must keep every point: the primary component walks from its
     /// driver, the second component is appended in first-appearance order.
     #[test]
-    fn directed_multi_component_no_dropped_points() {
+    fn vec_conn__directed_multi_component_no_dropped_points() {
         let pairs = vec![
             ConnPair::plain_with_dir(5, 3, ConnDir::LtoR),
             ConnPair::plain_with_dir(3, 1, ConnDir::LtoR),

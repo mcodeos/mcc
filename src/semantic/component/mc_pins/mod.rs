@@ -3090,7 +3090,7 @@ mod subname_tests {
     /// Before regression (Cartesian) produced `["XTAL.X1.X1","XTAL.X1.X2","XTAL.X2.X1","XTAL.X2.X2"],
     /// first pin was registered as "XTAL.X1.X1", completely wrong.
     #[test]
-    fn bus_form_xtal_regression() {
+    fn sem_mcpins__bus_form_xtal_regression() {
         let inst = bus_ids("XTAL", &["X1", "X2"]);
         let iface_pins = vec!["X1".to_string(), "X2".to_string()];
         let got = derive_interface_subnames(&inst, &iface_pins);
@@ -3099,7 +3099,7 @@ mod subname_tests {
 
     /// case10: `DC2{VDD,GND}::DC()`
     #[test]
-    fn bus_form_dc2() {
+    fn sem_mcpins__bus_form_dc2() {
         let inst = bus_ids("DC2", &["VDD", "GND"]);
         let iface_pins = vec!["VDD".to_string(), "GND".to_string()];
         let got = derive_interface_subnames(&inst, &iface_pins);
@@ -3108,7 +3108,7 @@ mod subname_tests {
 
     /// case9: `[VDD, GND]::DC()` —— square bracket form, no instance prefix
     #[test]
-    fn list_form_no_prefix() {
+    fn sem_mcpins__list_form_no_prefix() {
         let inst = list_ids("_", &["VDD", "GND"]);
         let iface_pins = vec!["VDD".to_string(), "GND".to_string()];
         let got = derive_interface_subnames(&inst, &iface_pins);
@@ -3117,7 +3117,7 @@ mod subname_tests {
 
     /// case8: `DC1::DC()` —— plain form, expand per interface prototype
     #[test]
-    fn plain_form_crosses_with_iface_pins() {
+    fn sem_mcpins__plain_form_crosses_with_iface_pins() {
         let inst = plain_ids("DC1");
         let iface_pins = vec!["VDD".to_string(), "GND".to_string()];
         let got = derive_interface_subnames(&inst, &iface_pins);
@@ -3126,7 +3126,7 @@ mod subname_tests {
 
     /// Edge case: plain name + empty interface pin list — expect empty list, not panic.
     #[test]
-    fn plain_form_empty_iface_pins() {
+    fn sem_mcpins__plain_form_empty_iface_pins() {
         let inst = plain_ids("DC1");
         let got = derive_interface_subnames(&inst, &[]);
         assert!(got.is_empty());
@@ -3135,7 +3135,7 @@ mod subname_tests {
     /// §2.1: `GPIO[5, 6]` tokenized as a single IDA by the C parser
     /// (embedded square) is still List form → prefix + member: GPIO5, GPIO6.
     #[test]
-    fn embedded_square_gpio_interface() {
+    fn sem_mcpins__embedded_square_gpio_interface() {
         let inst = McIds::from("GPIO[5, 6]");
         assert!(inst.embedded_square_members().is_some());
         let iface_pins = vec!["1".to_string(), "2".to_string()]; // GPIO(count=2) dynamic pins

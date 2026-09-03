@@ -11,11 +11,13 @@
 //
 // NOTE: These tests share global mcc state, so a mutex serializes them.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 const E3183: u32 = mcc::errcodes::BUS_MEMBER_ON_SCALAR_PORT;
 const E3181: u32 = mcc::errcodes::BUS_MEMBER_UNDECLARED;
@@ -23,11 +25,8 @@ const E3181: u32 = mcc::errcodes::BUS_MEMBER_UNDECLARED;
 /// Acquire lock, load + build `src`, return emitted codes (3181/3183 detail
 /// printed on assertion failure via the returned code list).
 fn codes_of(source: &str) -> Vec<u32> {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/port-member-declared.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
@@ -47,7 +46,7 @@ fn count3183(codes: &[u32]) -> usize {
 // us513 regression shape: bare `io MIC` + body `MIC{P,N}`.
 
 #[test]
-fn curly_member_on_scalar_io_port_errors_once() {
+fn sem_portshape__curly_member_on_scalar_io_port_errors_once() {
     let codes = codes_of(
         r#"
 module main
@@ -66,7 +65,7 @@ module main
 }
 
 #[test]
-fn curly_member_on_scalar_out_port_errors() {
+fn sem_portshape__curly_member_on_scalar_out_port_errors() {
     let codes = codes_of(
         r#"
 module main
@@ -87,7 +86,7 @@ module main
 // ── (b) scalar-declared port + dotted member access → E3183 ────────────────
 
 #[test]
-fn dotted_member_on_scalar_io_port_errors_once() {
+fn sem_portshape__dotted_member_on_scalar_io_port_errors_once() {
     let codes = codes_of(
         r#"
 module main
@@ -108,7 +107,7 @@ module main
 // ── Membered/typed ports validate against their declared member set ────────
 
 #[test]
-fn declared_member_on_membered_port_is_clean() {
+fn sem_portshape__declared_member_on_membered_port_is_clean() {
     let codes = codes_of(
         r#"
 module main
@@ -128,7 +127,7 @@ module main
 }
 
 #[test]
-fn whole_port_use_on_membered_declaration_is_clean() {
+fn sem_portshape__whole_port_use_on_membered_declaration_is_clean() {
     // hbl1 us513 MIC regression shape, inverted: MIC is declared `{P,N}`, so
     // the whole-port `MIC{P,N}` use is legal and must not report E3183.
     let codes = codes_of(
@@ -149,7 +148,7 @@ module main
 }
 
 #[test]
-fn undeclared_member_on_membered_port_reports_e3181_not_e3183() {
+fn sem_portshape__undeclared_member_reports_e3181_not_e3183() {
     let codes = codes_of(
         r#"
 module main
@@ -174,7 +173,7 @@ module main
 // ── Negative: whole-port scalar ↔ scalar stays legal (no E3183) ────────────
 
 #[test]
-fn whole_scalar_port_to_scalar_net_is_clean() {
+fn sem_portshape__whole_scalar_port_to_scalar_net_is_clean() {
     let codes = codes_of(
         r#"
 module main
@@ -195,7 +194,7 @@ module main
 // ── Positive: internal undeclared nets are never gated ─────────────────────
 
 #[test]
-fn undeclared_net_member_reference_is_not_gated() {
+fn sem_portshape__undeclared_net_member_reference_is_not_gated() {
     // `phantom` is an internal net (declared nowhere, usage-defined): member
     // access on it is not a declared-port violation, so no E3183 may fire.
     let codes = codes_of(

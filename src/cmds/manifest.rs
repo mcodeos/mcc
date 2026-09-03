@@ -374,7 +374,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_project_toml() {
+    fn cli_manifest__parse_project_toml() {
         let toml = r#"
 [project]
 name = "hbl"
@@ -395,7 +395,7 @@ infineon = "2.1.0"
     }
 
     #[test]
-    fn generate_default_manifest() {
+    fn cli_manifest__generate_default_manifest() {
         let s = Manifest::generate_default("test_proj", "src/main.mc");
         assert!(s.contains("name = \"test_proj\""));
         assert!(s.contains("entry = \"src/main.mc\""));
@@ -412,7 +412,7 @@ infineon = "2.1.0"
     }
 
     #[test]
-    fn select_browse_entry_unique() {
+    fn cli_manifest__select_browse_entry_unique() {
         let root = temp_browse_root("unique");
         std::fs::write(root.join("main.mc"), "module main {}\n").unwrap();
         std::fs::write(root.join("lib.mc"), "component A(rs::UV.OHM) {}\n").unwrap();
@@ -423,7 +423,7 @@ infineon = "2.1.0"
     }
 
     #[test]
-    fn select_browse_entry_ambiguous() {
+    fn cli_manifest__select_browse_entry_ambiguous() {
         let root = temp_browse_root("ambiguous");
         std::fs::write(root.join("a.mc"), "module main {}\n").unwrap();
         std::fs::write(root.join("b.mc"), "module main {}\n").unwrap();
@@ -435,7 +435,7 @@ infineon = "2.1.0"
     }
 
     #[test]
-    fn select_browse_entry_no_module_main() {
+    fn cli_manifest__select_browse_entry_no_module_main() {
         let root = temp_browse_root("none");
         std::fs::write(root.join("lib.mc"), "component A(rs::UV.OHM) {}\n").unwrap();
 
@@ -449,7 +449,7 @@ infineon = "2.1.0"
     }
 
     #[test]
-    fn select_browse_entry_explicit_entry() {
+    fn cli_manifest__select_browse_entry_explicit_entry() {
         let root = temp_browse_root("explicit");
         std::fs::write(root.join("main.mc"), "module main {}\n").unwrap();
         std::fs::write(root.join("other.mc"), "module main {}\n").unwrap();
@@ -468,7 +468,7 @@ infineon = "2.1.0"
     }
 
     #[test]
-    fn file_declares_module_main_edge_cases() {
+    fn cli_manifest__file_declares_module_main_edge_cases() {
         let root = temp_browse_root("edge");
         let cases = [
             (

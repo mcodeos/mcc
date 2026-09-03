@@ -8,11 +8,13 @@
 //!
 //! NOTE: These tests share global mcc state, so a mutex serializes them.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 const SOURCE: &str = r#"
 interface DC(volt)
@@ -30,12 +32,9 @@ module main([VDD_3V3,GND]::DC(3.3V))
 "#;
 
 #[test]
-fn module_port_interface_binding_registers_class_ref() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn svc_portiface__binding_registers_class_ref() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/module-port-interface-ref.mc".to_string();
     mcc::mcc_load_from_string(&uri, SOURCE);
@@ -93,12 +92,9 @@ fn extract_span(line: &str) -> Option<(usize, usize)> {
 }
 
 #[test]
-fn named_square_iface_port_is_single_instance() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn svc_portiface__named_square_iface_port_is_single_instance() {
+    let _lock = common::lock();
+    common::reset();
 
     // A named square-vec instance binding (`PWR_[VDD2, GND2]::DC(5V)`) is ONE
     // interface port named `PWR_`; it must not be treated as an array to

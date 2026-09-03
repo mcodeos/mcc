@@ -36,9 +36,11 @@ impl InstantiationBuilder {
         }
     }
 
-    /// Check whether a Group can safely perform broadcast connections
+    /// Check whether a Group can safely fan an external single point onto each
+    /// branch (scalar→group / group→scalar, §7.3).
     ///
-    /// Returns (left_broadcastable, right_broadcastable)
+    /// Returns (left_allow, right_allow) — whether the branch shapes agree on
+    /// that side so a single external point may join them.
     fn check_group_broadcast(member: &McPhrase) -> (bool, bool) {
         match member {
             McPhrase::Group(ref g) => (g.left_match, g.right_match),
@@ -49,7 +51,8 @@ impl InstantiationBuilder {
     /// Handle connections between a Group and external elements
     ///
     /// Scenario examples:
-    /// - `VCC -> (a, b, c)`: broadcast VCC to each branch's left port
+    /// - `VCC -> (a, b, c)`: fan-out — one shared net VCC joins each branch's
+    ///   left port (§7.3 per-branch 1:1)
     /// - `(a, b, c) -> GND`: all branches' right ports connect to GND
     /// - `[x, y, z] -> (a, b, c)`: per-branch corresponding connection (requires matching count)
     pub(super) fn connect_to_group(
@@ -75,7 +78,8 @@ impl InstantiationBuilder {
 
         // Check whether connection can be made
         if external_size == 1 {
-            // Single point broadcasts to all branches
+            // Single point fans out to every branch (§7.3): one shared
+            // multi-terminal net.
             self.create_connection(external_points, group_points, dir, None)?;
         } else if external_size == branch_count {
             // External point count equals branch count, per-branch connection
@@ -103,9 +107,10 @@ impl InstantiationBuilder {
             self.create_connection(external_points, group_points, dir, None)?;
         } else {
             // Genuine group/external shape mismatch (vec-dianlu.md §5.3.3):
-            // report E4007 and generate NO connection. The old fallback
-            // truncated both sides by min and connected the survivors — a
-            // partial pairing recovery that §5.3.3 abolishes for illegal rows.
+            // report E4166 (CONN_GROUP_SHAPE_MISMATCH) and generate NO
+            // connection. The old fallback truncated both sides by min and
+            // connected the survivors — a partial pairing recovery that §5.3.3
+            // abolishes for illegal rows.
             self.record_error(
                 crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
                 crate::errcodes::format_msg(
@@ -272,8 +277,8 @@ impl InstantiationBuilder {
         // `[P1, P2] -> [G, G]` produces the distinct pairs (P1, G) and (P2, G)
         // and is legitimate (multiple pins merging onto one net) — do not flag it.
         {
-            // Pair model mirrors the connections created below: 1:N broadcast,
-            // N:1 broadcast, N:M zip.
+            // Pair model mirrors the connections created below: scalar→N
+            // member fan (1:N), N member→scalar fan (N:1), N:M zip.
             let pairs: Vec<(&NetPoint, &NetPoint)> = match (left_size, right_size) {
                 (1, _) => left_points
                     .iter()
@@ -728,7 +733,7 @@ impl InstantiationBuilder {
     /// Sole target scenario: `mic.MIC -> mcu.MIC` (main.mc:38). The left `mic.MIC` has been
     /// expanded per mic's `out MIC{P,N}` into `[mic.P, mic.N]`; the right `mcu.MIC` keeps
     /// scalar because the MIC chain inside mcu (main.mc:155) never emits → port `bus_members`
-    /// is still empty, so it gets broadcast to both P/N and **shorts the differential pair**.
+    /// is still empty, so it stays scalar against both P/N and **shorts the differential pair**.
     /// Here we expand `mcu.MIC` into `mcu.MIC.P` / `mcu.MIC.N` and zip with the left,
     /// so the boundary nets become the expected `mic.MIC.P ~ mcu.MIC.P` /
     /// `mic.MIC.N ~ mcu.MIC.N`.
@@ -738,8 +743,8 @@ impl InstantiationBuilder {
     /// (1-vs-1), DC bus (power/ground guard), or component pins. The only relaxation is on
     /// "peer-lane segment count" — accepting both `owner.member` (2 segments) and
     /// `owner.port.member` (3 segments, e.g. `mic.MIC.P`); any multi-hit case is still a
-    /// "multi-lane port vs bare port on both sides" scenario which **should** zip, so replacing
-    /// broadcast with zip is a fix, not a regression.
+    /// "multi-lane port vs bare port on both sides" scenario which **should** zip, so the
+    /// per-member zip here is a fix, not a regression.
     ///
     /// ── S1 Bug A extension (2026-06) ─────────────────────────────────────
     /// Additionally supports scalar boundary formals inside a submodule's **internal body**
@@ -747,7 +752,7 @@ impl InstantiationBuilder {
     /// formal, treated as a bare label (1 point) in the submodule's Phase A body; the peer
     /// `uC.SPI` expands into 4 lanes (uC.8..11). The current implementation only recognizes
     /// the `sub.port` (2-segment) form, so bare `spi` (1 segment, a label) misses → falls
-    /// back to broadcast → all 4 uC SPI pins get shorted into the same net (S1 body side).
+    /// back to scalar fan-out → all 4 uC SPI pins get shorted into the same net (S1 body side).
     ///
     /// Fix: when scalar.path contains no '.', treat scalar as a "boundary formal of the
     /// current submodule", look up self.ports for one with the same name and a non-empty
@@ -1038,7 +1043,8 @@ fn is_power_rail_name(s: &str) -> bool {
 }
 
 /// Whether a set of endpoints constitutes a DC power bus (containing both power-rail members and ground members).
-/// Used by create_connection to determine whether broadcasting would short power to ground.
+/// Used by create_connection to determine whether role-aligning a power/ground endpoint onto such a
+/// bus would short power to ground.
 fn is_dc_power_bus_points(points: &[NetPoint]) -> bool {
     // Prefer member_name (interface member points carry it; e.g. ldo.VIN member
     // "Vin"/"GND") and fall back to the path's last segment for plain labels.

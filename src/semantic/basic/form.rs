@@ -256,13 +256,13 @@ mod tests {
     }
 
     #[test]
-    fn bare_single_identifiers() {
+    fn sem_form__bare_single_identifiers() {
         assert_eq!(classify(&McIds::from("GPIO")), Form::Bare);
         assert_eq!(classify(&McIds::from("VCC")), Form::Bare);
     }
 
     #[test]
-    fn dotted_dot_chains() {
+    fn sem_form__dotted_dot_chains() {
         assert_eq!(
             classify(&ids(vec![
                 IdsSegment::Ida(ida("A")),
@@ -289,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn list_pure_and_embedded_square() {
+    fn sem_form__list_pure_and_embedded_square() {
         // Pure outer square [A, B] — no prefix.
         assert_eq!(
             classify(&ids(vec![square(vec![
@@ -303,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn array_prefix_range() {
+    fn sem_form__array_prefix_range() {
         assert_eq!(
             classify(&ids(vec![
                 IdsSegment::Ida(ida("GPIO")),
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn indexed_prefix_single() {
+    fn sem_form__indexed_prefix_single() {
         assert_eq!(
             classify(&ids(vec![
                 IdsSegment::Ida(ida("res")),
@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn curly_bus_and_component_member() {
+    fn sem_form__curly_bus_and_component_member() {
         assert_eq!(
             classify(&ids(vec![
                 IdsSegment::Ida(ida("DC2")),
@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_matrices_and_combos() {
+    fn sem_form__mixed_matrices_and_combos() {
         // Matrix declaration — two embedded squares.
         assert_eq!(classify(&McIds::from("R[1:2]C[1:3]")), Form::Mixed);
         // Outer matrix — two square-bearing segments.
@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn reference_parts_base_and_member() {
+    fn sem_form__reference_parts_base_and_member() {
         let dotted = ids(vec![
             IdsSegment::Ida(ida("uC")),
             IdsSegment::DotIda(ida("ADC")),
@@ -412,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn from_dot_pair_roundtrips_text() {
+    fn sem_form__from_dot_pair_roundtrips_text() {
         let pair = McIds::from_dot_pair("MISSING", "PIN");
         assert_eq!(classify(&pair), Form::Dotted);
         assert_eq!(pair.to_string(), "MISSING.PIN");

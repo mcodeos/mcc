@@ -2,6 +2,10 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
 //! P0.3 — single-member range `res[4]` resolves to a scalar member (`res4`),
 //! not a vector group (architecture doc §11.3, contract E).
 //!
@@ -12,6 +16,8 @@
 //!   - no E3179 (COMPONENT_PIN_NOT_FOUND) phantom
 //!   - exactly one member — no sibling probing to res5
 //!
+//! matrix §2 row 21 (member_scalar family).
+//!
 //! KNOWN-FAILURE AT v0.7.11 (Phase 0 baseline): the current code creates a
 //! literal `res[4]` instance (`main.res[4]`, pins `main.res[4].1/.2`) — the
 //! `>= 2` guard at mc_inst.rs makes `should_expand` false for a single member,
@@ -20,20 +26,16 @@
 //! target (step 3 len==1 → `Endpoint(Single)` + scalar materialization); it
 //! flips green when the vector pipeline lands (Phase 1.2 / step 3, contract E).
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+mod common;
 
-/// Global mutex to serialize tests sharing mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+use mcc::{McIds, McURI};
 
 const RES_COMP: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([net1, net2]) {\n        net1 - this - net2\n        return [net1, net2]\n    }\n}\n";
 
 /// Build `main` from `src`, returning (paths, nets, diagnostic codes).
 fn build(src: &str, uri: &str) -> (Vec<String>, Vec<String>, Vec<u32>) {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let u = McURI::from(uri);
     mcc::mcc_load_from_string(&u, src);
     let (_, table) = mcc::mcc_build_flat(&McIds::from("main"), &u, 1000).expect("flat build");
@@ -67,7 +69,7 @@ fn assert_no_path_containing(paths: &[String], fragment: &str, what: &str) {
 }
 
 #[test]
-fn single_member_range_res4_is_scalar() {
+fn member_scalar__res4_range_is_scalar() {
     let src = format!(
         "{RES_COMP}module main {{\n    io VDD\n    io NET\n    io VCC\n    func M() {{\n        res[4]::RES(0)\n        res[4].Pullup([NET, VCC])\n    }}\n}}\n"
     );
@@ -92,7 +94,7 @@ fn single_member_range_res4_is_scalar() {
         "no E3179; got {codes:?}"
     );
 
-    // res4 pins land on the real NET/VCC nets (scalar broadcast, one member).
+    // res4 pins land on the real NET/VCC nets (single member, no group expansion).
     let n1 = nets
         .iter()
         .find(|n| n.contains("main.NET"))

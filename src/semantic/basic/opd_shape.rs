@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn point_is_single_sided() {
+    fn sem_opdshape__point_is_single_sided() {
         let p = OpdShape::Point(bus("A"));
         assert_eq!(p.size_left(), 1);
         assert_eq!(p.size_right(), 1);
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn row_splits_left_and_right() {
+    fn sem_opdshape__row_splits_left_and_right() {
         let r = OpdShape::Row(bus("R.1"), bus("R.2"));
         assert_eq!(r.size_left(), 1);
         assert_eq!(r.size_right(), 1);
@@ -186,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn column_exposes_all_on_both_sides() {
+    fn sem_opdshape__column_exposes_all_on_both_sides() {
         let c = OpdShape::Column(vec![bus("TX"), bus("RX"), bus("GND")]);
         assert_eq!(c.size_left(), 3);
         assert_eq!(c.size_right(), 3);
@@ -196,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn node_splits_asymmetric_columns() {
+    fn sem_opdshape__node_splits_asymmetric_columns() {
         let n = OpdShape::Node(vec![bus("VDD"), bus("GND")], vec![bus("VCC")]);
         assert_eq!(n.size_left(), 2);
         assert_eq!(n.size_right(), 1);
@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_is_empty_wildcard() {
+    fn sem_opdshape__unknown_is_empty_wildcard() {
         let u = OpdShape::Unknown;
         assert_eq!(u.size_left(), 0);
         assert_eq!(u.size_right(), 0);
@@ -216,32 +216,32 @@ mod tests {
     }
 
     #[test]
-    fn from_sides_classifies_unknown() {
+    fn sem_opdshape__from_sides_classifies_unknown() {
         let s = OpdShape::from_sides(vec![], vec![]);
         assert_eq!(s, OpdShape::Unknown);
     }
 
     #[test]
-    fn from_sides_classifies_point() {
+    fn sem_opdshape__from_sides_classifies_point() {
         let s = OpdShape::from_sides(vec![bus("A")], vec![bus("A")]);
         assert_eq!(s, OpdShape::Point(bus("A")));
     }
 
     #[test]
-    fn from_sides_classifies_column() {
+    fn sem_opdshape__from_sides_classifies_column() {
         let s = OpdShape::from_sides(vec![bus("TX"), bus("RX")], vec![bus("TX"), bus("RX")]);
         assert_eq!(s, OpdShape::Column(vec![bus("TX"), bus("RX")]));
     }
 
     #[test]
-    fn from_sides_classifies_row() {
+    fn sem_opdshape__from_sides_classifies_row() {
         // Two distinct single-element ports (a two-pin device).
         let s = OpdShape::from_sides(vec![bus("R.1")], vec![bus("R.2")]);
         assert_eq!(s, OpdShape::Row(bus("R.1"), bus("R.2")));
     }
 
     #[test]
-    fn from_sides_classifies_asymmetric_node() {
+    fn sem_opdshape__from_sides_classifies_asymmetric_node() {
         let s = OpdShape::from_sides(vec![bus("VDD"), bus("GND")], vec![bus("VCC")]);
         assert_eq!(
             s,
@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn from_sides_left_empty_is_node() {
+    fn sem_opdshape__from_sides_left_empty_is_node() {
         // `return <expr>` FuncCall: no left contact, right = return value.
         let s = OpdShape::from_sides(vec![], vec![bus("OUT")]);
         assert_eq!(s, OpdShape::Node(vec![], vec![bus("OUT")]));
@@ -261,13 +261,13 @@ mod tests {
     // ---- transpose / reverse (vec-arch.md §5.2 / §6.2 / §6.3) ----
 
     #[test]
-    fn transpose_point_is_identity() {
+    fn sem_opdshape__transpose_point_is_identity() {
         let p = OpdShape::Point(bus("A"));
         assert_eq!(p.transpose(), Ok(p));
     }
 
     #[test]
-    fn transpose_row_to_column() {
+    fn sem_opdshape__transpose_row_to_column() {
         // 1*2 row vector -> 2*1 column vector (the 2-pin bridge CAP').
         let r = OpdShape::Row(bus("R.1"), bus("R.2"));
         assert_eq!(
@@ -277,21 +277,21 @@ mod tests {
     }
 
     #[test]
-    fn transpose_column_two_to_row() {
+    fn sem_opdshape__transpose_column_two_to_row() {
         // 2*1 column vector -> 1*2 row vector (the newly-added math transpose).
         let c = OpdShape::Column(vec![bus("A"), bus("B")]);
         assert_eq!(c.transpose(), Ok(OpdShape::Row(bus("A"), bus("B"))));
     }
 
     #[test]
-    fn transpose_column_wide_is_error() {
+    fn sem_opdshape__transpose_column_wide_is_error() {
         // 3*1 column vector has no connectable transpose -> E2902.
         let c = OpdShape::Column(vec![bus("A"), bus("B"), bus("C")]);
         assert_eq!(c.transpose(), Err(3));
     }
 
     #[test]
-    fn transpose_node_connectable() {
+    fn sem_opdshape__transpose_node_connectable() {
         // A node whose sides are each <= 2 rows transposes to connectable row
         // vectors.
         let n = OpdShape::Node(vec![bus("VDD"), bus("GND")], vec![bus("VCC")]);
@@ -299,26 +299,26 @@ mod tests {
     }
 
     #[test]
-    fn transpose_node_wide_is_error() {
+    fn sem_opdshape__transpose_node_wide_is_error() {
         // A node side wider than 2 rows has no connectable transpose -> E2902.
         let n = OpdShape::Node(vec![bus("A"), bus("B"), bus("C")], vec![bus("D")]);
         assert_eq!(n.transpose(), Err(3));
     }
 
     #[test]
-    fn transpose_unknown_is_identity() {
+    fn sem_opdshape__transpose_unknown_is_identity() {
         assert_eq!(OpdShape::Unknown.transpose(), Ok(OpdShape::Unknown));
     }
 
     #[test]
-    fn reverse_row_swaps_pins() {
+    fn sem_opdshape__reverse_row_swaps_pins() {
         // R101^ -> R101{2,1}: a two-pin device reverses pin 1 / pin 2.
         let r = OpdShape::Row(bus("R101.1"), bus("R101.2"));
         assert_eq!(r.reverse(), OpdShape::Row(bus("R101.2"), bus("R101.1")));
     }
 
     #[test]
-    fn reverse_node_swaps_sides() {
+    fn sem_opdshape__reverse_node_swaps_sides() {
         let n = OpdShape::Node(vec![bus("VDD"), bus("GND")], vec![bus("VCC")]);
         assert_eq!(
             n.reverse(),
@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn reverse_point_column_unknown_identity() {
+    fn sem_opdshape__reverse_point_column_unknown_identity() {
         assert_eq!(
             OpdShape::Point(bus("A")).reverse(),
             OpdShape::Point(bus("A"))

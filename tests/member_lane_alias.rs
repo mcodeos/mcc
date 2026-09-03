@@ -9,11 +9,9 @@
 // equals the resolved pin leaf; a member written in canonical form (a named
 // member like "SCLK") is not an alias.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+mod common;
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+use mcc::{McIds, McURI};
 
 const IDX_ALIAS_SOURCE: &str = r#"
 component GPIO_DEV
@@ -50,11 +48,8 @@ module main(ps GND)
 "#;
 
 fn build_block(source: &str) -> mcc::vector::model::McVecBlock {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/member-lane-alias.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
@@ -66,7 +61,6 @@ fn build_block(source: &str) -> mcc::vector::model::McVecBlock {
         mcc::mcc_build_flat_with_arena(&entry.ident, &uri, 1).expect("pass2_flat failed");
     let block = mcc::vector::builder::visit::build_mc_vec(&inst, &table, &arena, &store);
 
-    drop(lock);
     block
 }
 

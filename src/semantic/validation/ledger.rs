@@ -428,7 +428,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn report_has_complete_kind_form_map() {
+    fn sem_vledger__report_has_complete_kind_form_map() {
         // Use a local instance — the global LEDGER is shared by parallel tests.
         let mut ledger = Ledger::default();
         ledger.record(
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn detail_rows_carry_span_and_refs() {
+    fn sem_vledger__detail_rows_carry_span_and_refs() {
         let mut ledger = Ledger::default();
         ledger.record(
             LedgerEntry::new(LedgerKind::Wire, "RAIL", "BOARD")
@@ -489,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn uri_less_entries_omit_location_fields() {
+    fn sem_vledger__uri_less_entries_omit_location_fields() {
         let mut ledger = Ledger::default();
         ledger.record(LedgerEntry::new(LedgerKind::Phantom, "x[1]", "net-point"));
         let r = ledger.build_report(LedgerMode::Detail);
@@ -500,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn record_dedupes_identical_span_but_keeps_distinct_sites() {
+    fn sem_vledger__record_dedupes_identical_span_but_keeps_distinct_sites() {
         // Same failure re-fired by a whole-workspace re-parse collapses to one
         // row (virtual-build VIRT_<T> install re-runs mcb_parse_all_modules).
         let mut ledger = Ledger::default();
@@ -529,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn audit_mode_includes_deferred_and_resolved_many_rows() {
+    fn sem_vledger__audit_mode_includes_deferred_and_resolved_many_rows() {
         // §7.1-4: Deferred/ResolvedMany are successful resolutions — summary
         // always counts them, `--ledger` detail excludes their rows, and only
         // `--ledger=audit` lists them.
@@ -574,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn from_flag_maps_cli_values() {
+    fn sem_vledger__from_flag_maps_cli_values() {
         assert_eq!(LedgerMode::from_flag(None), LedgerMode::Summary);
         assert_eq!(LedgerMode::from_flag(Some("detail")), LedgerMode::Detail);
         assert_eq!(LedgerMode::from_flag(Some("")), LedgerMode::Detail);

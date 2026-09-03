@@ -1,3 +1,7 @@
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
 use serde_json::Value;
 use std::process::Command;
 
@@ -50,7 +54,7 @@ fn has_code(value: &Value, code: u64) -> bool {
 }
 
 #[test]
-fn valid_labels_members_and_module_ports_are_quiet() {
+fn sem_falsediag__valid_labels_members_and_module_ports_are_quiet() {
     let source = r#"component SIMPLE_LED
 {
     name = "LED"
@@ -88,7 +92,7 @@ module main
 }
 
 #[test]
-fn attribute_condition_chain_keeps_final_else_without_empty_pin_block() {
+fn sem_falsediag__attr_cond_chain_keeps_final_else_without_empty_pin_block() {
     let source = r#"component CONFIG(kind::STRING)
 {
     name = "Config"
@@ -129,7 +133,7 @@ module main
 }
 
 #[test]
-fn parameterless_component_without_parentheses_has_no_empty_parens_hint() {
+fn sem_falsediag__parameterless_component_no_empty_parens_hint() {
     let source = r#"component WITHOUT_PARENS
 {
     name = "No parens"
@@ -151,7 +155,7 @@ module main
 }
 
 #[test]
-fn invalid_component_member_still_reports_member_error() {
+fn sem_falsediag__invalid_component_member_still_reports_member_error() {
     let source = r#"component SIMPLE_LED
 {
     name = "LED"
@@ -173,7 +177,7 @@ module main
 }
 
 #[test]
-fn constructor_mismatch_names_the_component_class() {
+fn sem_falsediag__constructor_mismatch_names_the_component_class() {
     let source = r#"component PARAMETERIZED(value::STRING)
 {
     name = "Parameterized"
@@ -196,7 +200,7 @@ module main
 }
 
 #[test]
-fn real_scalar_type_mismatch_still_reports_type_error() {
+fn sem_falsediag__real_scalar_type_mismatch_still_reports_type_error() {
     let source = r#"component INTEGER_PART(count::INT)
 {
     name = "Integer part"
@@ -217,7 +221,7 @@ module main
 }
 
 #[test]
-fn method_calls_do_not_become_port_or_reference_warnings() {
+fn sem_falsediag__method_calls_do_not_become_port_or_reference_warnings() {
     let source = r#"component INDICATOR
 {
     name = "Indicator"
@@ -244,7 +248,7 @@ module main
 }
 
 #[test]
-fn named_inline_constructor_keeps_unit_arguments() {
+fn sem_falsediag__named_inline_constructor_keeps_unit_arguments() {
     let source = r#"component FILTER_CAP(value::UV.CAP, rating::UV.VOLT)
 {
     name = "Filter capacitor"
@@ -271,7 +275,7 @@ module main
 }
 
 #[test]
-fn literal_default_is_constant_and_makes_parameter_optional() {
+fn sem_falsediag__literal_default_is_constant_makes_param_optional() {
     let source = r#"component VARIANT(partno::STRING = "SMALL")
 {
     name = "Variant"
@@ -289,7 +293,7 @@ module main
 }
 
 #[test]
-fn positional_interface_aliases_satisfy_complete_binding() {
+fn sem_falsediag__positional_interface_aliases_satisfy_complete_binding() {
     let source = r#"interface DIFFERENTIAL(role)
 {
     pins = [
@@ -323,7 +327,7 @@ module main
 }
 
 #[test]
-fn embedded_square_interface_binding_has_no_pin_count_false_positive() {
+fn sem_falsediag__embedded_square_interface_binding_no_pin_count_false_positive() {
     // `io [3,4] = I2C[SDA,SCL]::I2C()` is the embedded-square list form: the
     // single IDA `I2C[SDA,SCL]` registers its pins as `I2CSDA`/`I2CSCL`
     // (prefix + member, see derive_interface_subnames). The E5262 interface
@@ -354,7 +358,7 @@ module main
 }
 
 #[test]
-fn role_peer_multi_role_list_matches_defined_roles() {
+fn sem_falsediag__role_peer_multi_role_list_matches_defined_roles() {
     // `peer = [Master, Slave]` refers to multiple roles, each defined earlier
     // in the same interface. The check must compare each member individually,
     // not the whole bracket-list text (which never equals a single role name).
@@ -384,7 +388,7 @@ module main
 }
 
 #[test]
-fn role_peer_list_missing_member_still_reports() {
+fn sem_falsediag__role_peer_list_missing_member_still_reports() {
     // A peer list with a genuinely undefined member must still be flagged.
     let source = r#"interface UART.RS485
 {
@@ -412,7 +416,7 @@ module main
 // genuine single-character / shadowing names are still flagged.
 
 #[test]
-fn real_module_single_char_instance_still_reports() {
+fn sem_falsediag__real_module_single_char_instance_still_reports() {
     let source = r#"interface ADC.DIFF(role)
 {
     pins = [
@@ -431,7 +435,7 @@ module main
 }
 
 #[test]
-fn real_module_shadowing_instance_still_reports() {
+fn sem_falsediag__real_module_shadowing_instance_still_reports() {
     let source = r#"interface LIN(role)
 {
     pins = [
@@ -450,7 +454,7 @@ module main
 }
 
 #[test]
-fn real_module_shadowing_param_still_reports() {
+fn sem_falsediag__real_module_shadowing_param_still_reports() {
     let source = r#"interface LIN(role)
 {
     pins = [

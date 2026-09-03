@@ -62,7 +62,7 @@ mod tests {
 
     /// Verify that a mock resolver can be used without global state.
     #[test]
-    fn mock_resolver_no_global_state() {
+    fn sem_ctx__mock_resolver_no_global_state() {
         struct MockResolver;
         impl NameResolver for MockResolver {
             fn resolve(&self, _: &McIds, _: &McURI) -> Option<(McCMIE, McURI)> {

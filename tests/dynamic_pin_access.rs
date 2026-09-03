@@ -1,16 +1,15 @@
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state
-/// (same pattern as `tests/dynamic_pin_expansion.rs`).
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 #[test]
-fn conditional_pin_alias_resolves_to_physical_pin() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn svc_dynpin__conditional_pin_alias_resolves_to_physical_pin() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/dynamic-pin-access.mc".to_string();
     let source = r#"
@@ -76,11 +75,9 @@ module main
 /// are linked in reverse source order by mc_declare_b, so the span must come
 /// directly from the parsed instance node.
 #[test]
-fn declare_io_label_span_is_the_instance_name() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn svc_dynpin__declare_io_label_span_is_the_instance_name() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/pin-name-span.mc".to_string();
     let source = r#"
@@ -245,11 +242,9 @@ module main
 /// not at the component class name. The precise binding span is available via
 /// `McPins::pin_name_spans` (same key as `names_to_id`).
 #[test]
-fn iface_pins_not_all_bound_reported_at_binding() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn svc_dynpin__iface_pins_not_all_bound_reported_at_binding() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/iface-bound-span.mc".to_string();
     let source = r#"
@@ -305,11 +300,9 @@ module main
 /// recorded span was previously one byte short and the hover/tooltip showed
 /// `uC.ADC{P,N` truncated.
 #[test]
-fn module_body_chain_span_includes_closing_brace() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn svc_dynpin__module_body_chain_span_includes_closing_brace() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/chain-span.mc".to_string();
     let source = r#"

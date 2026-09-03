@@ -10,27 +10,19 @@
 //
 // NOTE: These tests share global mcc state, so a mutex serializes them.
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
+mod common;
+
 use mcc::errcodes::{FLOATING_PLACEHOLDER, LEAD_PREFIX_ID_AS_WIRE};
 use mcc::{McDiagnostic, McIds, McModuleInst, McURI};
-use std::sync::{Mutex, OnceLock};
-
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-/// Acquire the global test lock.
-fn lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-}
 
 /// Load source, build module `top`, return the module instance.
 fn build(source: &str) -> McModuleInst {
-    let _lock = lock();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/lead-classification.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
@@ -39,10 +31,8 @@ fn build(source: &str) -> McModuleInst {
 
 /// Load source, build module `top`, return all diagnostics (build errors tolerated).
 fn build_diags(source: &str) -> Vec<McDiagnostic> {
-    let _lock = lock();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/lead-classification.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
@@ -83,7 +73,7 @@ fn lead_point(got: &[(String, String)]) -> Option<String> {
 // ── PrefixId: `_OPEN` used as a standalone operand → E4058 ────────────────
 
 #[test]
-fn prefix_id_as_wire_warns_on_first_use() {
+fn sem_wirecls__prefix_id_as_wire_warns_on_first_use() {
     // `_OPEN` is a member-name style prefix identifier (like `M[1:4][_OPEN,...]`),
     // not the wire `_`. Using it as a standalone operand must warn.
     let diags = build_diags(
@@ -102,7 +92,7 @@ module top
 }
 
 #[test]
-fn prefix_id_in_ida_index_members_does_not_warn() {
+fn sem_wirecls__prefix_id_in_ida_index_members_does_not_warn() {
     // `_LEFT` / `_RIGHT` are legit member names inside `[1:4][_LEFT,_RIGHT]`
     // IDA indexes — no E4058 (the auto-created member labels are legal).
     let diags = build_diags(
@@ -125,7 +115,7 @@ module top
 }
 
 #[test]
-fn declared_prefix_id_label_does_not_warn() {
+fn sem_wirecls__declared_prefix_id_label_does_not_warn() {
     // Once `_CLR` exists as a declared label, using it as an endpoint is legal.
     let diags = build_diags(
         r#"
@@ -146,7 +136,7 @@ module top
 // ── Passthrough: `VEXT - _ - GND` bridges a series chain ──────────────────
 
 #[test]
-fn passthrough_lead_bridges_series_net() {
+fn sem_wirecls__passthrough_lead_bridges_series_net() {
     // `_` as a standalone operand is a passthrough: the series chain becomes
     // VEXT ~ (lead)_x and (lead)_x ~ GND (the CLI merges these into a single
     // 3-point net view), with no floating-placeholder (E4054) and no
@@ -172,7 +162,7 @@ module top
 // ── Placeholder: `[_, ...]` vector member ─────────────────────────────────
 
 #[test]
-fn placeholder_lead_in_vector_does_not_warn() {
+fn sem_wirecls__placeholder_lead_in_vector_does_not_warn() {
     // `_` inside `[...]` is a placeholder, not a wire — no E4058 and no
     // E4054 even when the surrounding net is valid.
     let diags = build_diags(

@@ -8,10 +8,13 @@
 // present, leaving only one group `[5,6,7]` and raising E3111 (declares 2
 // pins but 1 group given).
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 fn build(lhs: &str) -> (mcc::MccProjectTree, mcc::NodeArena, mcc::InstanceStore) {
     let source = format!(
@@ -79,11 +82,9 @@ fn assert_binding(lhs: &str, expected: &[(&str, &str)]) {
 }
 
 #[test]
-fn scalar_then_group_binds_positionally() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn mat_ifacebind__scalar_then_group_binds_positionally() {
+    let _lock = common::lock();
+    common::reset();
 
     assert_binding(
         "[1, [5,6,7]]",
@@ -92,11 +93,9 @@ fn scalar_then_group_binds_positionally() {
 }
 
 #[test]
-fn group_then_scalar_preserves_source_order() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn mat_ifacebind__group_then_scalar_preserves_source_order() {
+    let _lock = common::lock();
+    common::reset();
 
     assert_binding(
         "[[5,6,7], 1]",

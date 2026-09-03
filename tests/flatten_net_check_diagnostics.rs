@@ -16,18 +16,19 @@
 //! This file intentionally duplicates `gap2_materialization.rs`'s pattern:
 //! a global lock serializes tests because the diagnostic manager is global.
 
-use mcc::McIds;
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::McIds;
 
 /// Build `main` and flatten to the InstTable; return the full ordered
 /// diagnostic sequence as (code, pos, uri, message) tuples.
 fn build_flat_diags(src: &str) -> Vec<(u32, u32, String, String)> {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let uri = "/mcc/flat-diag.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
@@ -46,7 +47,7 @@ const BUF: &str = "component BUF {\n    pins = [\n        in 1 = A\n        out 
 /// checks, two 4116 partial-wiring checks. Order is the `run_net_checks`
 /// pass order, positions are byte offsets into the fixture text.
 #[test]
-fn driver_conflict_sequence_is_locked() {
+fn dlu_flatchk__driver_conflict_sequence_locked() {
     let src = format!("{BUF}module main {{\n    BUF b1\n    BUF b2\n    b1.Y -> b2.Y\n}}");
     let diags = build_flat_diags(&src);
     let expected = [
@@ -100,7 +101,7 @@ fn driver_conflict_sequence_is_locked() {
 /// The resistor chain is clean; the unused `GND` io port produces the
 /// port-unused (5642) and bidirectional-port-unconnected (4117) pair.
 #[test]
-fn unused_io_port_sequence_is_locked() {
+fn dlu_flatchk__unused_io_port_sequence_locked() {
     let src = "component R {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\nmodule main {\n    io VDD\n    io GND\n    R r1\n    R r2\n    r1.1 -> VDD\n    r1.2 -> r2.1\n    r2.2 -> VDD\n}";
     let diags = build_flat_diags(src);
     let expected = [
@@ -125,7 +126,7 @@ fn unused_io_port_sequence_is_locked() {
 /// 4108 floating input, 4110 output drives nothing, 4112 no pins connected,
 /// 4114 module-port checks, 4116 0-of-2 partial wiring.
 #[test]
-fn unwired_instance_sequence_is_locked() {
+fn dlu_flatchk__unwired_instance_sequence_locked() {
     let src = format!("{BUF}module main {{\n    BUF b1\n    b1.A -> b1.A\n}}");
     let diags = build_flat_diags(&src);
     let expected = [
@@ -175,7 +176,7 @@ fn unwired_instance_sequence_is_locked() {
 /// port's declaration in the sub-module body (`io I2C0`) — not at offset 0
 /// (file:1:1).
 #[test]
-fn submodule_unconnected_bidir_port_anchors_at_declaration() {
+fn dlu_flatchk__submodule_unconnected_bidir_port_anchors_declaration() {
     let src = "component R {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\nmodule SUB {\n    io I2C0\n}\nmodule main {\n    SUB sub1\n}";
     let diags = build_flat_diags(src);
     let expected = [
@@ -203,11 +204,9 @@ fn submodule_unconnected_bidir_port_anchors_at_declaration() {
 /// written to a temp dir and loaded by canonical path (the same pattern the
 /// `circuit_deps_record_entry_and_class_resolutions` cross-file test uses).
 #[test]
-fn cross_file_submodule_port_anchors_at_def_declaration() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn dlu_flatchk__cross_file_submodule_port_anchors_def_declaration() {
+    let _lock = common::lock();
+    common::reset();
 
     let dir = std::env::temp_dir().join(format!("mcc-flat-cross-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -266,7 +265,7 @@ fn cross_file_submodule_port_anchors_at_def_declaration() {
 /// (`VDD_3V3` inside the bracket) instead of file:1:1. The empty US513 body
 /// also emits 2115; only the 4117 entries are asserted here.
 #[test]
-fn bracket_signature_port_anchors_at_declaration() {
+fn dlu_flatchk__bracket_signature_port_anchors_declaration() {
     let src = "module US513([VDD_3V3,GND]::DC(3.3V)) {\n}\nmodule main {\n    US513 UC\n}\n";
     let diags = build_flat_diags(src);
     let bidir: Vec<(u32, u32, String, String)> =
@@ -300,7 +299,7 @@ fn bracket_signature_port_anchors_at_declaration() {
 /// (`N` / `P`). Every unconnected shape must anchor at the `io MIC{P,N}`
 /// declaration (pos 20) instead of file:1:1.
 #[test]
-fn curly_bus_port_members_anchor_at_declaration() {
+fn dlu_flatchk__curly_bus_port_members_anchor_declaration() {
     let src = "module SUB {\n    io MIC{P,N}\n}\nmodule main {\n    SUB s1\n}\n";
     let diags = build_flat_diags(src);
     let expected = [

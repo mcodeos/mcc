@@ -730,7 +730,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_port_classification() {
+    fn sem_paramtype__port_classification() {
         // Category A → ports
         assert!(McParamType {
             kind: McParamTypeKind::Label,
@@ -790,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_default() {
+    fn sem_paramtype__has_default() {
         assert!(McParamType {
             kind: McParamTypeKind::BasicInt {
                 default_val: Some("5".into())
@@ -814,7 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn test_arity_validation() {
+    fn sem_paramtype__arity_validation() {
         let arity = McParamArity {
             total: 3,
             required: 2,

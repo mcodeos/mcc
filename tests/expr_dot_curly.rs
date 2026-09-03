@@ -15,16 +15,16 @@
 //       DOT/CURLY branch keeps dot (`a.b`) and curly (`a{b,c}`) accesses from
 //       silently failing in expression / parameter / attribute contexts.
 
-use mcc::McIds;
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::McIds;
 
 fn setup(uri: &str, source: &str) {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     mcc::mcc_load_from_string(&uri.to_string(), source);
 }
 
@@ -33,8 +33,8 @@ fn has_code(code: u32) -> bool {
 }
 
 #[test]
-fn connection_line_arithmetic_reports_unsupported() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn sem_exprform__line_arithmetic_reports_unsupported() {
+    let _lock = common::lock();
 
     let uri = "/mcc/arith-line.mc";
     let source = r#"
@@ -59,13 +59,11 @@ module main
         "expected operator-specific E4008, got: {:?}",
         diags.iter().filter(|d| d.code == 4008).collect::<Vec<_>>()
     );
-
-    drop(lock);
 }
 
 #[test]
-fn dot_in_param_value_is_parsed() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn sem_exprform__dot_in_param_value_is_parsed() {
+    let _lock = common::lock();
 
     let uri = "/mcc/dot-param.mc";
     let source = r#"
@@ -108,13 +106,11 @@ module main
             .filter(|d| d.code == 4008)
             .collect::<Vec<_>>()
     );
-
-    drop(lock);
 }
 
 #[test]
-fn dot_in_attr_value_is_parsed() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn sem_exprform__dot_in_attr_value_is_parsed() {
+    let _lock = common::lock();
 
     let uri = "/mcc/dot-attr.mc";
     let source = r#"
@@ -147,13 +143,11 @@ module main
         1,
         "attribute 'note' must be registered (dot value must not silently drop)"
     );
-
-    drop(lock);
 }
 
 #[test]
-fn dot_in_condition_is_parsed() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+fn sem_exprform__dot_in_condition_is_parsed() {
+    let _lock = common::lock();
 
     let uri = "/mcc/dot-cond.mc";
     let source = r#"
@@ -184,6 +178,4 @@ module main
         !comp.cond_pins.is_empty(),
         "conditional pins must survive a dot access in the condition"
     );
-
-    drop(lock);
 }

@@ -112,7 +112,7 @@ mod tests {
 
     /// Test `has_member` behavior
     #[test]
-    fn test_has_member() {
+    fn dlu_bus__has_member() {
         let bus = McBusInst::new("power", vec!["VCC".into(), "GND".into()]);
         assert!(bus.has_member("VCC"));
         assert!(bus.has_member("GND"));
@@ -125,7 +125,7 @@ mod tests {
 
     /// Test `merge_members` behavior
     #[test]
-    fn test_merge_appends_new_members_in_order() {
+    fn dlu_bus__merge_appends_new_members_in_order() {
         let mut bus = McBusInst::new("uC", vec!["XTAL".into()]);
 
         let added = bus.merge_members(&["UART0".into()]);
@@ -139,7 +139,7 @@ mod tests {
 
     /// Test `merge_members` behavior
     #[test]
-    fn test_merge_skips_duplicates_noop() {
+    fn dlu_bus__merge_skips_duplicates_noop() {
         let mut bus = McBusInst::new("MIC", vec!["P".into(), "N".into()]);
         let added = bus.merge_members(&["N".into()]);
         assert_eq!(added, 0, "redundant access should add nothing");
@@ -148,7 +148,7 @@ mod tests {
 
     /// Test `merge_members` behavior
     #[test]
-    fn test_merge_partial_overlap() {
+    fn dlu_bus__merge_partial_overlap() {
         let mut bus = McBusInst::new("b", vec!["A".into(), "B".into()]);
         let added = bus.merge_members(&["B".into(), "C".into(), "A".into(), "D".into()]);
         assert_eq!(added, 2, "only C and D are new");
@@ -157,7 +157,7 @@ mod tests {
 
     /// Test `merge_members` behavior
     #[test]
-    fn test_merge_dedupes_within_incoming() {
+    fn dlu_bus__merge_dedupes_within_incoming() {
         let mut bus = McBusInst::new("b", vec![]);
         let added = bus.merge_members(&["X".into(), "Y".into(), "X".into()]);
         assert_eq!(added, 2);
@@ -166,7 +166,7 @@ mod tests {
 
     /// Test `merge_members` behavior
     #[test]
-    fn test_merge_empty_incoming() {
+    fn dlu_bus__merge_empty_incoming() {
         let mut bus = McBusInst::new("b", vec!["A".into()]);
         let added = bus.merge_members(&[]);
         assert_eq!(added, 0);
@@ -175,7 +175,7 @@ mod tests {
 
     /// Test `merge_members` behavior
     #[test]
-    fn test_merge_into_empty_bus() {
+    fn dlu_bus__merge_into_empty_bus() {
         let mut bus = McBusInst::new("b", vec![]);
         let added = bus.merge_members(&["A".into(), "B".into()]);
         assert_eq!(added, 2);

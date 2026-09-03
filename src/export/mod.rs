@@ -195,23 +195,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn csv_escape_plain() {
+    fn cli_export__csv_escape_plain() {
         assert_eq!(csv_escape("RES"), "RES");
         assert_eq!(csv_escape(""), "");
     }
 
     #[test]
-    fn csv_escape_comma() {
+    fn cli_export__csv_escape_comma() {
         assert_eq!(csv_escape("a,b"), "\"a,b\"");
     }
 
     #[test]
-    fn csv_escape_quote() {
+    fn cli_export__csv_escape_quote() {
         assert_eq!(csv_escape("a\"b"), "\"a\"\"b\"");
     }
 
     #[test]
-    fn csv_escape_newline() {
+    fn cli_export__csv_escape_newline() {
         assert_eq!(csv_escape("a\nb"), "\"a\nb\"");
     }
 }

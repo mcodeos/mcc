@@ -1411,7 +1411,7 @@ mod tests {
     use super::resist_multiplier;
 
     #[test]
-    fn resist_suffixes_symbol_and_r() {
+    fn sem_uval__resist_suffixes_symbol_and_r() {
         assert_eq!(resist_multiplier("R"), Some(1.0));
         assert_eq!(resist_multiplier("Ω"), Some(1.0));
         assert_eq!(resist_multiplier("mΩ"), Some(1e-3));
@@ -1425,7 +1425,7 @@ mod tests {
     }
 
     #[test]
-    fn resist_suffixes_spelled() {
+    fn sem_uval__resist_suffixes_spelled() {
         assert_eq!(resist_multiplier("ohm"), Some(1.0));
         assert_eq!(resist_multiplier("Ohm"), Some(1.0));
         assert_eq!(resist_multiplier("mohm"), Some(1e-3));
@@ -1444,7 +1444,7 @@ mod tests {
     }
 
     #[test]
-    fn resist_suffixes_unknown() {
+    fn sem_uval__resist_suffixes_unknown() {
         assert_eq!(resist_multiplier("ohms"), None);
         assert_eq!(resist_multiplier(""), None);
         assert_eq!(resist_multiplier("H"), None);

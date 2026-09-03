@@ -11,15 +11,17 @@
 // can be resolved. mcode loads from the standard data root (~/.mcode) unless
 // MCC_SYSTEM_ROOT is set to a different system root.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 /// Helper: acquire lock, load source from string, build module, return instance + arena + store.
 fn build(source: &str) -> (mcc::McModuleInst, mcc::NodeArena, mcc::InstanceStore) {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _lock = common::lock();
 
     // Runtime-resolved system root (MCC_SYSTEM_ROOT env or ~/.mcode default).
     let system_root = mcc::cli::datadir::data_root();
@@ -33,7 +35,6 @@ fn build(source: &str) -> (mcc::McModuleInst, mcc::NodeArena, mcc::InstanceStore
     let result = mcc::mcc_build_with_arena(&McIds::from("main"), &uri);
     let (inst, arena, store, _net_store) = result.expect("build failed");
 
-    drop(lock);
     (inst, arena, store)
 }
 
@@ -89,7 +90,7 @@ fn find_funccall<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McFunc
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn fcall_return_this_preserves_caller_shape_for_chaining() {
+fn sem_fcallret__return_this_preserves_caller_shape_for_chaining() {
     let (inst, arena, store) = build(
         r#"
 component CHAIN_TEST
@@ -150,7 +151,7 @@ module main
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn fcall_implicit_return_preserves_caller_shape() {
+fn sem_fcallret__implicit_return_preserves_caller_shape() {
     let (inst, arena, store) = build(
         r#"
 component LED_DRIVER
@@ -193,7 +194,7 @@ module main
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn fcall_return_this_multiple_independent_calls() {
+fn sem_fcallret__return_this_multiple_independent_calls() {
     let (inst, arena, store) = build(
         r#"
 component PASSTHROUGH
@@ -243,7 +244,7 @@ module main
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn fcall_on_twopin_component_with_return_this() {
+fn sem_fcallret__twopin_component_with_return_this() {
     let (inst, arena, store) = build(
         r#"
 component LED
@@ -295,7 +296,7 @@ module main
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn fcall_complex_chain_with_passives() {
+fn sem_fcallret__complex_chain_with_passives() {
     let (inst, arena, store) = build(
         r#"
 component FILTER_BLOCK
@@ -343,7 +344,7 @@ module main
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn fcall_twopin_instantiation_via_method_chain() {
+fn sem_fcallret__twopin_instantiation_via_method_chain() {
     let (inst, arena, store) = build(
         r#"
 component REGULATOR
@@ -389,7 +390,7 @@ module main
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn fcall_label_return_resolves_to_zero_left_n_right() {
+fn sem_fcallret__label_return_resolves_to_zero_left_n_right() {
     let (inst, arena, store) = build(
         r#"
 component BUS_SRC

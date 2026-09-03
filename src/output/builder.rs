@@ -223,7 +223,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_finish_has_zero_counts_and_some_elapsed() {
+    fn cli_outbuilder__empty_finish_has_zero_counts_and_some_elapsed() {
         let r = ResultBuilder::start("mcc test").finish();
         assert_eq!(r.command, "mcc test");
         assert_eq!(r.summary.errors, 0);
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn pass2_instance_count_walks_subtree() {
+    fn cli_outbuilder__pass2_instance_count_walks_subtree() {
         let n = InstanceNode {
             name: "main".into(),
             kind: "module".into(),
@@ -268,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn pass2_synthetic_wrapper_counts_as_zero() {
+    fn cli_outbuilder__pass2_synthetic_wrapper_counts_as_zero() {
         // A synthetic VIRT_<T> wrapper is fabricated so a standalone component
         // or interface file can be built; it is not a real instance, so its
         // whole tree must be excluded from the count.

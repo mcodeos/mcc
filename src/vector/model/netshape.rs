@@ -187,7 +187,7 @@ impl NetShape {
     }
 
     /// Bus width (widest of all groups); returns 1 for scalars
-    pub fn bus_width(&self) -> usize {
+    pub fn vec_netshape__bus_width(&self) -> usize {
         self.groups.iter().map(|g| g.width()).max().unwrap_or(1)
     }
 
@@ -329,7 +329,7 @@ impl ShapeStats {
     ///
     /// §8.9.6.7: the structured group kind (`trunk.kind != Plain`) is the
     /// authority for bus classification; the width heuristic
-    /// (`is_bus_lane()` / `bus_width() >= 2`) only applies when no group
+    /// (`is_bus_lane()` / `vec_netshape__bus_width() >= 2`) only applies when no group
     /// context is available. A net without a shape but with a bus group
     /// identity is still counted as a bus (not left "uncovered").
     pub fn observe(&mut self, name: &str, shape: Option<&NetShape>, group: Option<&TrunkCtx>) {
@@ -344,11 +344,11 @@ impl ShapeStats {
                 }
                 let is_bus = match group {
                     Some(g) => g.kind != TrunkKind::Plain,
-                    None => s.is_bus_lane() || s.bus_width() >= 2,
+                    None => s.is_bus_lane() || s.vec_netshape__bus_width() >= 2,
                 };
                 if is_bus {
                     self.bus_nets += 1;
-                    self.max_bus_width = self.max_bus_width.max(s.bus_width());
+                    self.max_bus_width = self.max_bus_width.max(s.vec_netshape__bus_width());
                 }
             }
             None => {
@@ -409,7 +409,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dir_flip() {
+    fn vec_netshape__dir_flip() {
         assert_eq!(ConnDir::LtoR.flipped(), ConnDir::RtoL);
         assert_eq!(ConnDir::Undirected.flipped(), ConnDir::Undirected);
         assert!(ConnDir::LtoR.is_directed());
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_shape_is_not_informative() {
+    fn vec_netshape__empty_shape_is_not_informative() {
         // A fully empty shape should be stored as None; don't create an intermediate state of "has a shape but no information"
         assert!(!NetShape::default().is_informative());
         let s = NetShape {
@@ -428,22 +428,22 @@ mod tests {
     }
 
     #[test]
-    fn bus_width() {
+    fn vec_netshape__bus_width() {
         let s = NetShape {
             groups: vec![GroupRole::Broadcast(2), GroupRole::Broadcast(2)],
             ..Default::default()
         };
-        assert_eq!(s.bus_width(), 2);
+        assert_eq!(s.vec_netshape__bus_width(), 2);
 
         let scalar = NetShape {
             groups: vec![GroupRole::Scalar, GroupRole::Scalar],
             ..Default::default()
         };
-        assert_eq!(scalar.bus_width(), 1);
+        assert_eq!(scalar.vec_netshape__bus_width(), 1);
     }
 
     #[test]
-    fn directed_accessors_ltr() {
+    fn vec_netshape__directed_accessors_ltr() {
         // LtoR: driver_load stays (order[0], order.last()); ltr_view unchanged.
         let s = NetShape {
             dir: ConnDir::LtoR,
@@ -455,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn directed_accessors_rtl() {
+    fn vec_netshape__directed_accessors_rtl() {
         // RtoL: order is still source-first, so driver = order[0]; ltr_view
         // flips to the pair-swap mirror `(load, driver, LtoR)` (the case
         // `ConnDir::flipped()` documents).
@@ -469,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn directed_accessors_undirected_none() {
+    fn vec_netshape__directed_accessors_undirected_none() {
         // Undirected has no driver/load; single-endpoint and empty orders are None too.
         let u = NetShape {
             dir: ConnDir::Undirected,
@@ -492,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn stats_coverage() {
+    fn vec_netshape__stats_coverage() {
         let mut st = ShapeStats::default();
         let s = NetShape {
             dir: ConnDir::LtoR,
@@ -508,13 +508,13 @@ mod tests {
     // ── P5.4: shape fix suggestions ──
 
     #[test]
-    fn suggest_fix_none_when_counts_agree() {
+    fn vec_netshape__suggest_fix_none_when_counts_agree() {
         assert_eq!(suggest_shape_fix(2, 2), None);
         assert_eq!(suggest_shape_fix(1, 1), None);
     }
 
     #[test]
-    fn suggest_fix_expand_scalar_to_vector() {
+    fn vec_netshape__suggest_fix_expand_scalar_to_vector() {
         let s = suggest_shape_fix(1, 3).expect("scalar vs vector should suggest");
         assert!(s.contains("[GND, GND]"), "got: {s}");
         let s = suggest_shape_fix(4, 1).expect("vector vs scalar should suggest");
@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn suggest_fix_explicit_star_for_named_vectors() {
+    fn vec_netshape__suggest_fix_explicit_star_for_named_vectors() {
         let s = suggest_shape_fix(3, 2).expect("N vs M should suggest");
         assert!(
             s.contains("`*`"),

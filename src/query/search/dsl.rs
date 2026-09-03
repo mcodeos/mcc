@@ -927,7 +927,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_simple_eq() {
+    fn svc_dsl__parse_simple_eq() {
         let q = compile("name=RES").unwrap();
         assert!(matches!(
             q,
@@ -940,7 +940,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_and_or_not_parens() {
+    fn svc_dsl__parse_and_or_not_parens() {
         let q = compile("(kind=component OR kind=module) AND NOT name=RES*").unwrap();
         // Top level: And
         match q {
@@ -955,20 +955,20 @@ mod tests {
     }
 
     #[test]
-    fn parse_legacy_comma_as_and() {
+    fn svc_dsl__parse_legacy_comma_as_and() {
         let q = compile("name=R*,kind=component").unwrap();
         assert!(matches!(q, Expr::And(_, _)));
     }
 
     #[test]
-    fn parse_keywords_case_insensitive() {
+    fn svc_dsl__parse_keywords_case_insensitive() {
         compile("kind=component and name=RES").unwrap();
         compile("NOT kind=enum").unwrap();
         compile("kind=component Or kind=module").unwrap();
     }
 
     #[test]
-    fn parse_attr() {
+    fn svc_dsl__parse_attr() {
         let q = compile("attr(value)>100").unwrap();
         match q {
             Expr::Predicate(Predicate::Comparison(c)) => {
@@ -980,7 +980,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_attr_exists() {
+    fn svc_dsl__parse_attr_exists() {
         let q = compile("attr(missing)").unwrap();
         assert!(matches!(
             q,
@@ -989,7 +989,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_regex() {
+    fn svc_dsl__parse_regex() {
         let q = compile(r#"attr(description)~="USB""#).unwrap();
         assert!(matches!(
             q,
@@ -1001,31 +1001,31 @@ mod tests {
     }
 
     #[test]
-    fn parse_bare_tilde_errors_with_hint() {
+    fn svc_dsl__parse_bare_tilde_errors_with_hint() {
         let err = compile("name~RES").unwrap_err().to_string();
         assert!(err.contains("~="), "err was: {}", err);
     }
 
     #[test]
-    fn parse_invalid_regex_errors() {
+    fn svc_dsl__parse_invalid_regex_errors() {
         let err = compile(r#"attr(d)~="[unclosed""#).unwrap_err().to_string();
         assert!(err.contains("regex") || err.contains("query"));
     }
 
     #[test]
-    fn parse_unknown_field_errors() {
+    fn svc_dsl__parse_unknown_field_errors() {
         let err = compile("foo=bar").unwrap_err().to_string();
         assert!(err.contains("unknown field"));
     }
 
     #[test]
-    fn parse_reserved_bareword_errors() {
+    fn svc_dsl__parse_reserved_bareword_errors() {
         let err = compile("name=AND").unwrap_err().to_string();
         assert!(err.contains("reserved"));
     }
 
     #[test]
-    fn si_suffix_multipliers() {
+    fn svc_dsl__si_suffix_multipliers() {
         // 1k = 1000, 1M = 1e6, 1m = 1e-3, 1u = 1e-6
         let v = |s: &str| match compile(&format!("attr(x)>{s}")).unwrap() {
             Expr::Predicate(Predicate::Comparison(c)) => match c.value {
@@ -1043,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn si_m_vs_m_distinct() {
+    fn svc_dsl__si_m_vs_m_distinct() {
         // M (mega) vs m (milli)
         let v = |s: &str| match compile(&format!("attr(x)>{s}")).unwrap() {
             Expr::Predicate(Predicate::Comparison(c)) => match c.value {
@@ -1057,7 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_name_exact_and_glob() {
+    fn svc_dsl__eval_name_exact_and_glob() {
         let q = compile("name=RES").unwrap();
         assert!(matches_definition(
             &q,
@@ -1099,7 +1099,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_ne() {
+    fn svc_dsl__eval_ne() {
         let q = compile("name!=RES").unwrap();
         assert!(!matches_definition(
             &q,
@@ -1120,7 +1120,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_or_and_not_no_short_circuit() {
+    fn svc_dsl__eval_or_and_not_no_short_circuit() {
         // Both branches evaluated (no short-circuit)
         let q = compile("NOT kind=enum").unwrap();
         assert!(matches_definition(
@@ -1134,7 +1134,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_class_is_always_false_on_top_level() {
+    fn svc_dsl__eval_class_is_always_false_on_top_level() {
         // class is always None on top-level defs → class=... always false
         let q = compile("class=RES").unwrap();
         assert!(!matches_definition(
@@ -1147,7 +1147,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_attr_on_module_enum_false() {
+    fn svc_dsl__eval_attr_on_module_enum_false() {
         let q = compile("attr(value)>100").unwrap();
         assert!(!matches_definition_with_attrs(
             &q,
@@ -1168,7 +1168,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_attr_numeric() {
+    fn svc_dsl__eval_attr_numeric() {
         let q = compile("attr(maxdistance)>100").unwrap();
         // "1200m" cannot be parsed as f64 → false
         assert!(!matches_definition_with_attrs(
@@ -1199,7 +1199,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_attr_exists() {
+    fn svc_dsl__eval_attr_exists() {
         let q = compile("attr(missing)").unwrap();
         assert!(matches_definition_with_attrs(
             &q,
@@ -1220,7 +1220,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_regex() {
+    fn svc_dsl__eval_regex() {
         let q = compile(r#"attr(description)~="USB""#).unwrap();
         assert!(matches_definition_with_attrs(
             &q,
@@ -1241,7 +1241,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_allowed_fields_rejects_unknown() {
+    fn svc_dsl__validate_allowed_fields_rejects_unknown() {
         // `kind=component` is a valid AST; allowed_keys excludes `kind` → error
         let q = compile("kind=component").unwrap();
         let err = validate_allowed_fields(&q, &["name"]).unwrap_err();
@@ -1253,7 +1253,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_recurses_into_compound() {
+    fn svc_dsl__validate_recurses_into_compound() {
         // `kind=component AND class=foo` is parseable; allowed set excludes `class` → error
         let q = compile("kind=component AND class=foo").unwrap();
         let err = validate_allowed_fields(&q, &["name", "kind"]).unwrap_err();
@@ -1261,7 +1261,7 @@ mod tests {
     }
 
     #[test]
-    fn needs_attrs_detects_attr_references() {
+    fn svc_dsl__needs_attrs_detects_attr_references() {
         let q = compile("kind=component").unwrap();
         assert!(!needs_attrs(&q));
         let q = compile("attr(x)>1").unwrap();
@@ -1271,7 +1271,7 @@ mod tests {
     }
 
     #[test]
-    fn json_record_resolves_attrs_via_closure() {
+    fn svc_dsl__json_record_resolves_attrs_via_closure() {
         let q = compile("attr(x)>100").unwrap();
         let item = serde_json::json!({"name": "R1", "uri": "u", "kind": "component"});
         // Closure returns attrs
@@ -1285,7 +1285,7 @@ mod tests {
     }
 
     #[test]
-    fn json_record_skips_resolver_when_not_needed() {
+    fn svc_dsl__json_record_skips_resolver_when_not_needed() {
         let q = compile("kind=component").unwrap();
         let item = serde_json::json!({"name": "R1", "uri": "u", "kind": "component"});
         // No resolver needed; passes even with empty closure
@@ -1293,7 +1293,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_quoted_strings_with_escapes() {
+    fn svc_dsl__parse_quoted_strings_with_escapes() {
         let q = compile(r#"name="USB \"3.0\"""#).unwrap();
         match q {
             Expr::Predicate(Predicate::Comparison(c)) => match c.value {

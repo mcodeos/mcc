@@ -11,11 +11,13 @@
 // mcode/cap.mc) triggered the duplicate-name error even though the design doc
 // (same-name-enum-component.md §2.3) allows enum+component namespace merging.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 /// Extract the `(start, end)` span from an `F12_DIAG` line.
 fn extract_span(line: &str) -> Option<(usize, usize)> {
@@ -85,12 +87,9 @@ module main
 "#;
 
 #[test]
-fn enum_and_component_same_name_coexist() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn def_enumname__enum_and_component_same_name_coexist() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/same-name-cap.mc".to_string();
     mcc::mcc_load_from_string(&uri, SOURCE);
@@ -109,17 +108,12 @@ fn enum_and_component_same_name_coexist() {
         matches!(comp, mcc::McCMIE::Component(_)),
         "get_component_def must return the component"
     );
-
-    drop(lock);
 }
 
 #[test]
-fn component_component_same_name_still_errors() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn def_enumname__component_component_same_name_still_errors() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/dup-component.mc".to_string();
     // Two components with the same name must still trigger DEF_ALREADY_EXISTS (1051).
@@ -140,8 +134,6 @@ module main
         has_501,
         "duplicate component definitions must be reported as DEF_ALREADY_EXISTS"
     );
-
-    drop(lock);
 }
 
 /// `diel = X7R` (bare enum value inside the component attr) must register an
@@ -149,12 +141,9 @@ module main
 /// exact `X7R` row inside `enum CAP` — the class id, not a name-only scan,
 /// locates the value definition.
 #[test]
-fn scoped_enum_value_ref_lands_on_enum_value_def() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn def_enumname__scoped_enum_value_ref_lands_on_enum_value_def() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/same-name-cap.mc".to_string();
     mcc::mcc_load_from_string(&uri, SOURCE);
@@ -186,8 +175,6 @@ fn scoped_enum_value_ref_lands_on_enum_value_def() {
         Some("X7R"),
         "class-id-based value id must resolve to the X7R value, not a same-named row elsewhere"
     );
-
-    drop(lock);
 }
 
 /// A DOT attr value whose base class resolves but whose member does not exist
@@ -199,12 +186,9 @@ fn scoped_enum_value_ref_lands_on_enum_value_def() {
 /// `PKG` gets an EnumRef even when `DSO` is missing, and `DSO` gets no
 /// EnumValRef. A valid member (`PKG.DIP8`) keeps both refs.
 #[test]
-fn dot_attr_missing_member_names_class() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn def_enumname__dot_attr_missing_member_names_class() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/dot-attr-missing-member.mc".to_string();
     let source = r#"
@@ -289,6 +273,4 @@ module main
         ref_interval(&dump, "EnumValRef", ok_ref.1).is_some(),
         "valid member ref must register the EnumValRef"
     );
-
-    drop(lock);
 }

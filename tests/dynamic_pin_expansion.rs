@@ -11,26 +11,24 @@
 // NOTE: These tests share global mcc state, so a mutex serializes them.
 // Run with `cargo test --test dynamic_pin_expansion` (no special flags needed).
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 /// Helper: acquire lock, load source, build module, return instance + arena + store.
 fn build(source: &str) -> (mcc::McModuleInst, mcc::NodeArena, mcc::InstanceStore) {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/dynamic-pin-expansion.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
     let result = mcc::mcc_build_with_arena(&McIds::from("main"), &uri);
     let (inst, arena, store, _net_store) = result.expect("build failed");
 
-    drop(lock);
     (inst, arena, store)
 }
 
@@ -50,7 +48,7 @@ fn find_component<'a>(
 // ── §2.20.1: Parameter reference form ──────────────────────────────────────
 
 #[test]
-fn dynamic_pin_parameter_reference_expands() {
+fn mat_dynpin__parameter_reference_expands() {
     let (inst, arena, store) = build(
         r#"
 component HDR_SINGLE(cols::INT)
@@ -79,7 +77,7 @@ module main
 // ── §2.20.5: Static degenerate form ────────────────────────────────────────
 
 #[test]
-fn static_nested_range_expands() {
+fn mat_dynpin__static_nested_range_expands() {
     let (inst, arena, store) = build(
         r#"
 component HDR_2x3()
@@ -112,7 +110,7 @@ module main
 // ── §2.20.2 + §2.20.3: Expression evaluation + nested range ───────────────
 
 #[test]
-fn dynamic_pin_expression_and_nested_range_expands() {
+fn mat_dynpin__expression_and_nested_range_expands() {
     let (inst, arena, store) = build(
         r#"
 component HDR_MULTI(rows::INT, cols::INT)
@@ -146,7 +144,7 @@ module main
 }
 
 #[test]
-fn dynamic_pin_expression_different_dimensions() {
+fn mat_dynpin__expression_different_dimensions() {
     let (inst, arena, store) = build(
         r#"
 component HDR_MULTI(rows::INT, cols::INT)
@@ -180,7 +178,7 @@ module main
 // ─- §2.20.1: Parameter reference with different values ─────────────────────
 
 #[test]
-fn dynamic_pin_parameter_reference_single_pin() {
+fn mat_dynpin__parameter_reference_single_pin() {
     let (inst, arena, store) = build(
         r#"
 component HDR_SINGLE(cols::INT)
@@ -204,7 +202,7 @@ module main
 }
 
 #[test]
-fn dynamic_pin_parameter_reference_large() {
+fn mat_dynpin__parameter_reference_large() {
     let (inst, arena, store) = build(
         r#"
 component HDR_SINGLE(cols::INT)
@@ -233,11 +231,8 @@ module main
 
 /// Helper: build module, flatten to InstTable, run pin checks.
 fn build_and_check_pins(source: &str) -> Vec<mcc::check::pins::PinCheckResult> {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/dynamic-pin-check.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
@@ -251,12 +246,11 @@ fn build_and_check_pins(source: &str) -> Vec<mcc::check::pins::PinCheckResult> {
     let (_tree, table) = mcc::mcb_pass2_flat(&entry, 1).expect("pass2_flat failed");
 
     let results = mcc::check::pins::run_pin_checks(&table);
-    drop(lock);
     results
 }
 
 #[test]
-fn pin_check_detects_unused_dynamic_pins() {
+fn mat_dynpin__check_detects_unused_dynamic_pins() {
     let results = build_and_check_pins(
         r#"
 component HDR_SINGLE(cols::INT)
@@ -303,7 +297,7 @@ module main
 }
 
 #[test]
-fn pin_check_no_false_positives_when_all_connected() {
+fn mat_dynpin__check_no_false_positives_when_all_connected() {
     let results = build_and_check_pins(
         r#"
 component HDR_MULTI(rows::INT, cols::INT)
@@ -330,7 +324,7 @@ module main
 }
 
 #[test]
-fn pin_check_detects_unused_static_nested_range() {
+fn mat_dynpin__check_detects_unused_static_nested_range() {
     let results = build_and_check_pins(
         r#"
 component HDR_2x3()
@@ -377,12 +371,9 @@ module main
 // definition declared a usable default.
 
 #[test]
-fn interface_dynamic_pins_resolve_with_default_param() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn mat_dynpin__interface_default_param_resolves() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/iface-default-dynamic-pins.mc".to_string();
     mcc::mcc_load_from_string(
@@ -443,5 +434,4 @@ module main
         "pin 1 should be registered, got pins: {:?}",
         comp.pins.pins.keys().collect::<Vec<_>>()
     );
-    drop(lock);
 }

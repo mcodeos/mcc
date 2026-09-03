@@ -348,7 +348,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lev_le_2_basic() {
+    fn svc_qsearch__lev_le_2_basic() {
         assert!(lev_le_2("RES", "RES"));
         assert!(lev_le_2("RES", "RES1")); // 1 insertion
         assert!(lev_le_2("RES", "RESS")); // 1 insertion
@@ -358,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn walk_defs_substring_no_libs() {
+    fn svc_qsearch__walk_defs_substring_no_libs() {
         let inputs = SearchInputs {
             pattern: "zz_no_such_thing_zz".into(),
             kind: None,

@@ -7,35 +7,26 @@
 //! becomes a one-shot dangling net label. If it is referenced exactly once and
 //! only as a net endpoint, the compiler warns.
 
-use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use std::collections::HashSet;
 
 /// Build `src` in a fresh workspace and return the emitted diagnostic codes.
 fn build_codes(src: &str) -> HashSet<u32> {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/floating-label-test.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
     mcc::mcc_diagnose_all().iter().map(|d| d.code).collect()
 }
 
-/// Acquire the shared test lock, recovering from a prior test's panic (a
-/// panicked assert poisons the mutex while unwinding).
-fn lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-}
-
 #[test]
-fn dangling_net_endpoint_warns() {
-    let lock = lock();
+fn sem_flabel__dangling_net_endpoint_warns() {
+    let _lock = common::lock();
 
     // `DC` is used once, resolves to nothing declared → floating label.
     let src = "component FLT(pwr)\n{\n    func F(pwr)\n    {\n        pwr -> DC\n    }\n}\nmodule main { io VDD }";
@@ -44,13 +35,11 @@ fn dangling_net_endpoint_warns() {
         codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
         "E3136 not emitted for a dangling net endpoint; got codes: {codes:?}"
     );
-
-    drop(lock);
 }
 
 #[test]
-fn declared_pins_params_and_func_local_insts_do_not_warn() {
-    let lock = lock();
+fn sem_flabel__declared_pins_params_func_local_do_not_warn() {
+    let _lock = common::lock();
 
     // `pwr` is a param, `VIN` is a pin, `R1`/`R2` are func-local declares →
     // every bare name resolves to something declared.
@@ -60,13 +49,11 @@ fn declared_pins_params_and_func_local_insts_do_not_warn() {
         !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
         "E3136 false positive on declared names; got codes: {codes:?}"
     );
-
-    drop(lock);
 }
 
 #[test]
-fn shared_net_across_funcs_does_not_warn() {
-    let lock = lock();
+fn sem_flabel__shared_net_across_funcs_does_not_warn() {
+    let _lock = common::lock();
 
     // `VSW` is a label referenced twice (once in each func) — a shared rail,
     // the exact pattern tle7368's LDO2/LDO3 use. Not a dangling label.
@@ -76,13 +63,11 @@ fn shared_net_across_funcs_does_not_warn() {
         !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
         "E3136 false positive on a shared net; got codes: {codes:?}"
     );
-
-    drop(lock);
 }
 
 #[test]
-fn call_receiver_does_not_warn() {
-    let lock = lock();
+fn sem_flabel__call_receiver_does_not_warn() {
+    let _lock = common::lock();
 
     // `ld` is only ever a method-call receiver (`ld.ldrop(...)`) — an inline
     // constructed instance, not a wire. E3136 must not flag it. (VA/VB are
@@ -93,6 +78,4 @@ fn call_receiver_does_not_warn() {
         !codes.contains(&mcc::errcodes::FUNC_FLOATING_LABEL),
         "E3136 false positive on a call receiver; got codes: {codes:?}"
     );
-
-    drop(lock);
 }

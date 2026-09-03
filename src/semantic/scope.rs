@@ -821,7 +821,7 @@ mod tests {
     /// §3.1/§6.4: first-hit wins — a later scope with the same name is never
     /// consulted (no `try_next` penetration); a full miss returns `None`.
     #[test]
-    fn chain_first_hit_wins_no_penetration() {
+    fn sem_scope__chain_first_hit_wins_no_penetration() {
         let chain = ScopeChain::new(vec![
             Box::new(ProbeScope("P1", Some("VDD"))),
             Box::new(ProbeScope("P2", Some("VDD"))), // same name, must lose
@@ -834,7 +834,7 @@ mod tests {
     /// §6.4: P3 shadows P5 — when two levels would both hit, the earlier one
     /// (file-level) wins over the later one (system library).
     #[test]
-    fn chain_ordering_shadows_lower_priority() {
+    fn sem_scope__chain_ordering_shadows_lower_priority() {
         let chain = ScopeChain::new(vec![
             Box::new(ProbeScope("P3-file", Some("CAP"))),
             Box::new(ProbeScope("P5-system", Some("CAP"))),
@@ -848,7 +848,7 @@ mod tests {
     /// expanded member names. Conservative bound: dotted/curly members do not
     /// canonicalize, so a genuine miss stays a miss rather than guessing.
     #[test]
-    fn chain_canonical_single_fallback_resolves_member_spelling() {
+    fn sem_scope__chain_canonical_single_fallback_resolves_member_spelling() {
         let chain = ScopeChain::new(vec![Box::new(ProbeScope("P1", Some("res4")))]);
         // Structured spelling of the same member resolves through the fallback.
         assert_eq!(chain.resolve("res[4]"), Some("P1"));
@@ -864,7 +864,7 @@ mod tests {
 
     /// P1 func-params scope: containment match, span is always `None`.
     #[test]
-    fn func_params_scope_matches_and_misses() {
+    fn sem_scope__func_params_scope_matches_and_misses() {
         let params = vec!["a".to_string(), "b".to_string()];
         let scope = FuncParamsScope::new(&params);
         let hit = scope.resolve("a").unwrap();
@@ -876,7 +876,7 @@ mod tests {
     /// Instances scope reads the semantic table directly (no text re-parsing):
     /// the stored port span is returned unchanged.
     #[test]
-    fn insts_scope_reads_semantic_table() {
+    fn sem_scope__insts_scope_reads_semantic_table() {
         let mut insts = McInstances::new();
         insts.create_inst("VDD", McInstance::Label("VDD".to_string()));
         insts.store_port_span("VDD", 10..14);
@@ -901,7 +901,7 @@ mod tests {
 
     /// Enum category chain resolves an enum value from the semantic table.
     #[test]
-    fn enum_scope_resolves_value() {
+    fn sem_scope__enum_scope_resolves_value() {
         let def = probe_enum_def();
         let hit = enum_scope(&def).resolve("A").unwrap();
         assert!(matches!(hit.inst, McInstance::EnumVal { .. }));
@@ -912,7 +912,7 @@ mod tests {
     /// §6.4 P1 shadows P2: a func param with the same name as a parent member
     /// wins through the instance chain (`McEnumDef` plays the parent role).
     #[test]
-    fn instance_chain_param_shadows_parent() {
+    fn sem_scope__instance_chain_param_shadows_parent() {
         let def = probe_enum_def();
         let params = vec!["A".to_string()];
 
@@ -960,7 +960,7 @@ mod tests {
 
     /// ParamsScope: component params resolve from the semantic table.
     #[test]
-    fn params_scope_resolves_defs() {
+    fn sem_scope__params_scope_resolves_defs() {
         let params = param_declares_with("VDD", 5..8);
         let hit = ParamsScope::new(&params).resolve("VDD").unwrap();
         assert!(matches!(hit.inst, McInstance::Label(ref n) if n == "VDD"));
@@ -970,7 +970,7 @@ mod tests {
 
     /// ParamPortsScope: module param ports resolve with their port spans.
     #[test]
-    fn param_ports_scope_resolves_ports() {
+    fn sem_scope__param_ports_scope_resolves_ports() {
         let params = param_declares_with("vin", 3..6);
         let hit = ParamPortsScope::new(&params).resolve("vin").unwrap();
         assert!(matches!(hit.inst, McInstance::Label(ref n) if n == "vin"));
@@ -980,7 +980,7 @@ mod tests {
 
     /// AttrsScope: first attribute value + key span.
     #[test]
-    fn attrs_scope_resolves_attr_value() {
+    fn sem_scope__attrs_scope_resolves_attr_value() {
         let mut attrs = McAttributes::new();
         attrs.push(McAttribute {
             no: 0,
@@ -997,7 +997,7 @@ mod tests {
     /// PinNamesScope: whole pin names → single/multi pins carry the declared
     /// name; bus/list/interface pins keep their typed instance.
     #[test]
-    fn pin_names_scope_resolves_pin() {
+    fn sem_scope__pin_names_scope_resolves_pin() {
         let pins = pins_with(
             vec![("VDD", McPinPort::Single("1".to_string()))],
             vec![("VDD", 10..13)],
@@ -1012,7 +1012,7 @@ mod tests {
 
     /// PinNamesExpandedScope: any expanded pin name hits.
     #[test]
-    fn pin_names_expanded_scope_resolves_alias() {
+    fn sem_scope__pin_names_expanded_scope_resolves_alias() {
         let pins = pins_with(
             vec![],
             vec![("VDD", 10..13)],
@@ -1027,7 +1027,7 @@ mod tests {
 
     /// PinIdsScope: pin ID key match → PinId + stored ID span.
     #[test]
-    fn pin_ids_scope_resolves_pin_id() {
+    fn sem_scope__pin_ids_scope_resolves_pin_id() {
         let pins = pins_with(vec![], vec![], vec![("1", vec!["VDD"])], vec![("1", 0..1)]);
         let hit = PinIdsScope::new(&pins).resolve("1").unwrap();
         assert!(matches!(hit.inst, McInstance::PinId(ref n) if n == "1"));
@@ -1037,7 +1037,7 @@ mod tests {
 
     /// PortsScope: concrete-IO-type instances resolve; plain labels do not.
     #[test]
-    fn ports_scope_resolves_typed_ports_only() {
+    fn sem_scope__ports_scope_resolves_typed_ports_only() {
         let mut insts = McInstances::new();
         insts.create("VDD", IOType::Power, McInstance::Label("VDD".to_string()));
         insts.store_port_span("VDD", 10..13);
@@ -1050,7 +1050,7 @@ mod tests {
 
     /// LabelsScope: module labels resolve with their stored spans.
     #[test]
-    fn labels_scope_resolves_label() {
+    fn sem_scope__labels_scope_resolves_label() {
         let mut insts = McInstances::new();
         insts.create("sig", IOType::None, McInstance::Label("sig".to_string()));
         insts.store_port_span("sig", 5..8);
@@ -1063,7 +1063,7 @@ mod tests {
     /// NonPortInstsScope: non-port, non-label instances resolve; ports and
     /// labels do not (module P5 uniformly covers Bus/List/Interface/Component).
     #[test]
-    fn non_port_insts_scope_resolves_bus_like() {
+    fn sem_scope__non_port_insts_scope_resolves_bus_like() {
         let mut insts = McInstances::new();
         insts.create(
             "U1",
@@ -1082,7 +1082,7 @@ mod tests {
 
     /// InterfacePinNamesScope: interface pin names resolve with stored spans.
     #[test]
-    fn interface_pin_names_scope_resolves_pin() {
+    fn sem_scope__interface_pin_names_scope_resolves_pin() {
         let pins = pins_with(vec![], vec![("SCLK", 3..7)], vec![], vec![]);
         let hit = InterfacePinNamesScope::new(&pins).resolve("SCLK").unwrap();
         assert!(matches!(hit.inst, McInstance::Label(ref n) if n == "SCLK"));
@@ -1092,7 +1092,7 @@ mod tests {
 
     /// DelegatedScope: forwards the miss/hit to the parent container's chain.
     #[test]
-    fn delegated_scope_forwards_to_parent() {
+    fn sem_scope__delegated_scope_forwards_to_parent() {
         let def = probe_enum_def();
         let scope = DelegatedScope { parent: &def };
         let hit = scope.resolve("A").unwrap();
@@ -1102,7 +1102,7 @@ mod tests {
 
     /// container_scope: dispatches on the container kind (enum branch).
     #[test]
-    fn container_scope_dispatches_by_kind() {
+    fn sem_scope__container_scope_dispatches_by_kind() {
         let def = Arc::new(probe_enum_def());
         let hit = container_scope(&ContainerRef::Enum(def.clone()))
             .resolve("A")
@@ -1118,7 +1118,7 @@ mod tests {
     /// single-member curly group keeps its Bus form, and non-curly names stay
     /// labels (no behavior change for bare/dotted params).
     #[test]
-    fn param_name_to_inst_curly_members() {
+    fn sem_scope__param_name_to_inst_curly_members() {
         fn bus_members(inst: &McInstance) -> Option<(&str, &[String])> {
             match inst {
                 McInstance::Bus(b) => Some((&b.name, &b.member[..])),

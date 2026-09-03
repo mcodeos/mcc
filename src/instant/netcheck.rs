@@ -1595,7 +1595,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn leaf_works() {
+    fn dlu_netcheck__leaf_works() {
         assert_eq!(leaf("main.mic.MIC/P"), "P");
         assert_eq!(leaf("main.modldo.ldo.1"), "1");
         assert_eq!(leaf("GND"), "GND");
@@ -1603,14 +1603,14 @@ mod tests {
     }
 
     #[test]
-    fn owner_path_works() {
+    fn dlu_netcheck__owner_path_works() {
         assert_eq!(owner_path("main.modldo.ldo.1"), Some("main.modldo.ldo"));
         assert_eq!(owner_path("main.mic.MIC/P"), Some("main.mic.MIC"));
         assert_eq!(owner_path("GND"), None);
     }
 
     #[test]
-    fn rail_names() {
+    fn dlu_netcheck__rail_names() {
         assert!(is_ground_name("GND"));
         assert!(is_ground_name("main.x.VSS"));
         assert!(!is_ground_name("VDD"));
@@ -1628,7 +1628,7 @@ mod tests {
     }
 
     #[test]
-    fn rail_identity_keeps_owner_path() {
+    fn dlu_netcheck__rail_identity_keeps_owner_path() {
         // Strict DC rail identity: the owner path is preserved so different
         // rails (`va.GND` vs `vb.GND`) are distinct identities. Only the leaf
         // case is normalized.
@@ -1641,7 +1641,7 @@ mod tests {
     }
 
     #[test]
-    fn common_prefix() {
+    fn dlu_netcheck__common_prefix() {
         assert_eq!(
             common_module_prefix(&["main.modldo", "main.moddcdc"]),
             "main"

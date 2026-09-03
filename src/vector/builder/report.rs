@@ -267,7 +267,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_report_is_clean() {
+    fn vec_report__empty_report_is_clean() {
         let r = BuilderReport::new();
         assert!(r.is_clean());
         assert_eq!(r.warn_count(), 0);
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn dropped_net_not_clean() {
+    fn vec_report__dropped_net_not_clean() {
         let mut r = BuilderReport::new();
         r.dropped_nets.push(DroppedNet {
             module_path: "main".into(),
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_net_counts_each_failed_point() {
+    fn vec_report__partial_net_counts_each_failed_point() {
         let mut r = BuilderReport::new();
         r.partial_nets.push(PartialNet {
             module_path: "main".into(),
@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn success_rate_calc() {
+    fn vec_report__success_rate_calc() {
         let mut r = BuilderReport::new();
         for _ in 0..7 {
             r.resolutions.push(ResolutionRecord {
@@ -322,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn builder_error_carries_report() {
+    fn vec_report__builder_error_carries_report() {
         let mut r = BuilderReport::new();
         r.dropped_nets.push(DroppedNet {
             module_path: "m".into(),

@@ -28,25 +28,13 @@
 //! P0.3 (method dispatch) is already locked by `tablea_dispatch_regression.rs`;
 //! P0.6 is the baseline ledger recorded by the full regression run.
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
-
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn lock() -> std::sync::MutexGuard<'static, ()> {
-    // A panicked test poisons the shared lock; later tests must still run.
-    TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-}
-
-/// Reset the mcc_* workspace for one test. The caller must hold `TEST_LOCK`.
-fn reset_workspace() {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(Path::new(""));
-    mcc::mcc_clear_workspace();
-}
 
 /// Component source with pins numbered 1..=len.
 fn component_src(name: &str, pins: &[&str]) -> String {
@@ -90,9 +78,9 @@ fn canon(path: &Path) -> String {
 /// only the global (system-lib) table; the unified all_* enumeration keeps
 /// both entries (two-table coexistence).
 #[test]
-fn p01_two_table_coexistence_and_identity_addressing() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p01_two_table_coexistence_and_identity_addressing() {
+    let _lock = common::lock();
+    common::reset();
 
     // Self-contained mcode library on disk: GOLD_LED with 1 pin.
     let root = temp_lib_root("p01", "mcode", "GOLD_LED", &["A"]);
@@ -153,9 +141,9 @@ fn p01_two_table_coexistence_and_identity_addressing() {
 /// lands in the WORKSPACE tables (invisible to the system view, visible to
 /// the unified view, `SourceDomain::Project`).
 #[test]
-fn p02_mcbase_split_system_lib_to_global_project_to_workspace() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p02_mcbase_split_system_lib_to_global_project_to_workspace() {
+    let _lock = common::lock();
+    common::reset();
 
     let root = temp_lib_root("p02", "mcode", "GOLD_LED", &["A"]);
     mcc::mcc_set_system_root(&root);
@@ -205,9 +193,9 @@ fn p02_mcbase_split_system_lib_to_global_project_to_workspace() {
 /// load (use-only visibility) while the lib boundary + symbol ledger stay
 /// recorded; unload drops the boundary and the blib entry.
 #[test]
-fn p04_lib_load_unload_symbol_visibility() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p04_lib_load_unload_symbol_visibility() {
+    let _lock = common::lock();
+    common::reset();
 
     // mcode: global auto-visibility.
     let mcode_root = temp_lib_root("p04-mcode", "mcode", "GOLD_LED", &["A"]);
@@ -259,9 +247,9 @@ fn p04_lib_load_unload_symbol_visibility() {
 /// from the use table and survives a re-parse of the used file, so the LSP
 /// dirty-file propagation can find the affected files.
 #[test]
-fn p05_reverse_deps_tracks_who_uses_me() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p05_reverse_deps_tracks_who_uses_me() {
+    let _lock = common::lock();
+    common::reset();
 
     // Real files on disk: `use` resolution requires the target on disk.
     let dir = std::env::temp_dir().join(format!("mcc-defspace-golden-p05-{}", std::process::id()));
@@ -304,9 +292,9 @@ fn p05_reverse_deps_tracks_who_uses_me() {
 /// invisible in world B, and switching back to A must restore its defs —
 /// A-world lib changes never pollute B (the stale-server root cause).
 #[test]
-fn p06_dual_world_lib_isolation() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p06_dual_world_lib_isolation() {
+    let _lock = common::lock();
+    common::reset();
 
     // World "default": load an mcode-like library with GOLD_LED.
     let root_a = temp_lib_root("p06-a", "mcode", "GOLD_LED", &["A"]);
@@ -373,9 +361,9 @@ fn p06_dual_world_lib_isolation() {
 /// `load_libs_rpc`, which auto-includes mcode like the CLI's `collect_libs`.
 /// Locked through the real E3157 resolution path (lapper enum refs).
 #[test]
-fn p07_world_reset_reloads_mcode() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p07_world_reset_reloads_mcode() {
+    let _lock = common::lock();
+    common::reset();
 
     // Self-contained mcode library: entry file aggregates an enum file
     // (mirrors the real mcode lib where mcode.mc pub-uses package.mc).
@@ -439,8 +427,8 @@ fn p07_world_reset_reloads_mcode() {
 /// shifted ids and the dump depends on parse history (the historical
 /// run-to-run shuffle, lapper-improvement-plan P2.4).
 #[test]
-fn p08_f12_dump_deterministic_across_clean_loads() {
-    let _lock = lock();
+fn def_defspace__p08_f12_dump_deterministic_across_clean_loads() {
+    let _lock = common::lock();
 
     let root = temp_lib_root("p08", "mcode", "GOLD_DET", &["A", "K"]);
     let uri: mcc::McURI = "/virtual/p08_det_use.mc".to_string();
@@ -450,7 +438,7 @@ fn p08_f12_dump_deterministic_across_clean_loads() {
     let src = "module main\n{\n    GOLD_DET u1\n}\n";
 
     // Round 1 (run 1).
-    reset_workspace();
+    common::reset();
     mcc::mcc_set_system_root(&root);
     assert!(
         mcc::mcb_load_lib("mcode", &root.join("mcode")),
@@ -460,7 +448,7 @@ fn p08_f12_dump_deterministic_across_clean_loads() {
     let dump1 = mcc::dump_symbols_f12_text(&uri).expect("f12 dump (round 1)");
 
     // Round 2 (an independent second run): full reset, same inputs.
-    reset_workspace();
+    common::reset();
     mcc::mcc_set_system_root(&root);
     assert!(
         mcc::mcb_load_lib("mcode", &root.join("mcode")),
@@ -485,9 +473,9 @@ fn p08_f12_dump_deterministic_across_clean_loads() {
 /// capability body clause outside the allowed set (signal decls + funcs) is a
 /// §3.1 body violation, reported at the load.
 #[test]
-fn p09_capability_container_registers_and_rejects_foreign_body_clauses() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p09_capability_container_registers_and_rejects_foreign_body_clauses() {
+    let _lock = common::lock();
+    common::reset();
 
     let good_uri = "/virtual/p09_good_cap.mc".to_string();
     let good = r#"
@@ -623,9 +611,9 @@ fn any_code<'a, T: 'a>(
 }
 
 #[test]
-fn p10_adoption_consistency_and_func_ambiguity() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p10_adoption_consistency_and_func_ambiguity() {
+    let _lock = common::lock();
+    common::reset();
 
     // ── Conformant adopter: every capability-declared signal is realized by
     //    an adopter member with a compatible direction, so no §4.2/§5 error.
@@ -900,9 +888,9 @@ component TwinOpen :: GuardC, GuardD
 /// the host member (a net touching both `REF` and `U1`); without it the call
 /// finds no method and produces no such product.
 #[test]
-fn p11_adopted_capability_func_dispatches_on_host_instance() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p11_adopted_capability_func_dispatches_on_host_instance() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri = mcc::McURI::from("/virtual/p11_adopt_dispatch.mc");
     let src = r#"
@@ -964,13 +952,13 @@ module main
 /// only — abstract defs may legally carry a reference partno (spec §6), so no
 /// `partno` sentinel gates the warning (no-hardcoding).
 #[test]
-fn p12_abstract_instance_unselected_erc() {
-    let _lock = lock();
+fn def_defspace__p12_abstract_instance_unselected_erc() {
+    let _lock = common::lock();
 
     // ── Abstract + concrete side by side: the abstract row is unselected and
     //    warns; the concrete row is clean. Both pins wired so the only
     //    abstract-variant signal in the mix is the unselected W.
-    reset_workspace();
+    common::reset();
     let mix_uri = "/virtual/p12_abstract_mix.mc".to_string();
     let mix_src = r#"
 component Buf
@@ -1039,7 +1027,7 @@ module main
     );
 
     // ── Concrete-only module: nothing is unselected and no warning fires.
-    reset_workspace();
+    common::reset();
     let conc_uri = "/virtual/p12_concrete_only.mc".to_string();
     let conc_src = r#"
 component Buf
@@ -1088,9 +1076,9 @@ module main
 /// false`, not `unselected`. The parse-time data locks and the
 /// `VARIANT_BASE_NON_ABSTRACT` link error are asserted on the same shapes.
 #[test]
-fn p13_variant_materializes_from_abstract_base() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p13_variant_materializes_from_abstract_base() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri = "/virtual/p13_variant.mc".to_string();
     let src = r#"
@@ -1224,7 +1212,7 @@ module main
 
     // ── Parse-time data locks (0.2/§7.2): writing pins/params/funcs on a
     //    variant, `abstract` + `:` together, and `:` + `::` together.
-    reset_workspace();
+    common::reset();
     let bad1 = "/virtual/p13_lock_pins.mc".to_string();
     mcc::mcc_load_from_string(
         &bad1,
@@ -1239,7 +1227,7 @@ module main
         "a variant that writes pins reports VARIANT_REDECLARES_PINS_PARAMS_FUNCS"
     );
 
-    reset_workspace();
+    common::reset();
     let bad2 = "/virtual/p13_lock_abstract.mc".to_string();
     let src2 = r#"
 abstract component ABase
@@ -1263,7 +1251,7 @@ abstract component CBad2 : ABase
         "`abstract` + `:` reports ABSTRACT_DERIVES_ABSTRACT"
     );
 
-    reset_workspace();
+    common::reset();
     let bad3 = "/virtual/p13_lock_both.mc".to_string();
     let src3 = r#"
 capability SomeCap
@@ -1288,7 +1276,7 @@ component CBad3 : ABase :: SomeCap
     );
 
     // ── VARIANT_BASE_NON_ABSTRACT: `: Concrete` (and the hint fires).
-    reset_workspace();
+    common::reset();
     let bad4 = "/virtual/p13_base_concrete.mc".to_string();
     let src4 = r#"
 component RealR
@@ -1330,9 +1318,9 @@ component WVariant : RealR
 /// abstract base + a materialized variant and an abstract capability host, so
 /// every reverse edge has a live answer.
 #[test]
-fn p14_variant_and_adoption_relation_queries() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p14_variant_and_adoption_relation_queries() {
+    let _lock = common::lock();
+    common::reset();
     let uri = "/virtual/p14_relations.mc".to_string();
     let src = r#"
 capability Pwr
@@ -1469,9 +1457,9 @@ abstract component CapHost :: Pwr
 /// the declared child shell ([`declared_variants`] ledger), never the previous
 /// round's base clone, or a stale `package` would re-clobber the new base.
 #[test]
-fn p15_base_edit_propagates_to_materialized_variant() {
-    let _lock = lock();
-    reset_workspace();
+fn def_defspace__p15_base_edit_propagates_to_materialized_variant() {
+    let _lock = common::lock();
+    common::reset();
 
     // Two real files so a re-parse of the base file alone leaves the variant's
     // file untouched (the cross-file stale-overlay case p13 cannot reach).

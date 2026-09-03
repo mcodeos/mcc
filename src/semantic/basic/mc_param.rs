@@ -1189,7 +1189,7 @@ mod tests {
     /// NC is a modifier, not a positional argument. It must be stripped
     /// before arity checking and NOT count toward call_count.
     #[test]
-    fn test_nc_stripped_from_instance_method_arity() {
+    fn sem_mcparam__nc_stripped_from_instance_method_arity() {
         use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 
         // Simulate func setup(GND) — 1 param, no default, no unit type
@@ -1222,7 +1222,7 @@ mod tests {
     /// when NC is in params, and instantiate_declarations_resilient uses
     /// with_nc (skipping binding). NC must not cause TooManyArguments.
     #[test]
-    fn test_nc_named_array_does_not_trigger_too_many_args() {
+    fn sem_mcparam__nc_named_array_does_not_trigger_too_many_args() {
         use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 
         // Simulate DIO.ESD(partno::STRING, rating::STRING) — 2 string params
@@ -1270,7 +1270,7 @@ mod tests {
     /// Same as t2 — anonymous inline path now also checks for NC and uses
     /// with_nc, converging with the named array path.
     #[test]
-    fn test_nc_anonymous_inline_same_as_named_array() {
+    fn sem_mcparam__nc_anonymous_inline_same_as_named_array() {
         use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 
         // Same declares as t2
@@ -1348,7 +1348,7 @@ mod tests {
 
     /// t4: `{ cap = 10; volt = 25 }` binds by name, case-insensitively.
     #[test]
-    fn test_named_args_bind_by_name_case_insensitive() {
+    fn sem_mcparam__named_args_bind_by_name_case_insensitive() {
         let mut declares = McParamDeclares::new();
         declares.push(single_declare("cap"));
         declares.push(single_declare("volt"));
@@ -1369,7 +1369,7 @@ mod tests {
 
     /// t5: named args in reversed written order still claim the correct slots.
     #[test]
-    fn test_named_args_out_of_order_bind_by_name() {
+    fn sem_mcparam__named_args_out_of_order_bind_by_name() {
         let mut declares = McParamDeclares::new();
         declares.push(single_declare("cap"));
         declares.push(single_declare("volt"));
@@ -1389,7 +1389,7 @@ mod tests {
 
     /// t6: a named argument whose name matches no formal parameter is a hard error.
     #[test]
-    fn test_orphan_named_arg_is_error() {
+    fn sem_mcparam__orphan_named_arg_is_error() {
         let mut declares = McParamDeclares::new();
         declares.push(single_declare("cap"));
 
@@ -1403,7 +1403,7 @@ mod tests {
 
     /// t7: named args claim their slot; remaining positional args fill the rest.
     #[test]
-    fn test_named_arg_plus_positional_fill_remaining() {
+    fn sem_mcparam__named_arg_plus_positional_fill_remaining() {
         let mut declares = McParamDeclares::new();
         declares.push(single_declare("cap"));
         declares.push(single_declare("volt"));
@@ -1424,7 +1424,7 @@ mod tests {
 
     /// t8: named args occupying slots can push positional args over the limit.
     #[test]
-    fn test_named_claim_causing_positional_overflow() {
+    fn sem_mcparam__named_claim_causing_positional_overflow() {
         let mut declares = McParamDeclares::new();
         declares.push(single_declare("cap"));
         declares.push(single_declare("volt"));
@@ -1481,7 +1481,7 @@ mod tests {
 
     /// t9: a bare enum member `X7R` claims the enum-class slot `diel::CAP`.
     #[test]
-    fn test_bare_enum_member_claims_enum_class_slot() {
+    fn sem_mcparam__bare_enum_member_claims_enum_class_slot() {
         register_test_enum();
         let mut declares = McParamDeclares::new();
         declares.push(McParamDeclare {
@@ -1502,7 +1502,7 @@ mod tests {
 
     /// t10: a dotted `CAP.X7R` (Opd form) claims the enum-class slot.
     #[test]
-    fn test_dotted_enum_member_opd_claims_enum_class_slot() {
+    fn sem_mcparam__dotted_enum_member_opd_claims_enum_class_slot() {
         register_test_enum();
         let mut declares = McParamDeclares::new();
         declares.push(McParamDeclare {
@@ -1523,7 +1523,7 @@ mod tests {
 
     /// t11: an enum member with no enum-class slot is a hard error.
     #[test]
-    fn test_enum_member_without_enum_slot_is_error() {
+    fn sem_mcparam__enum_member_without_enum_slot_is_error() {
         register_test_enum();
         let mut declares = McParamDeclares::new();
         declares.push(single_declare("volt"));
@@ -1538,7 +1538,7 @@ mod tests {
 
     /// t12: an enum member bound to the wrong enum class is a hard error.
     #[test]
-    fn test_invalid_enum_member_value_is_error() {
+    fn sem_mcparam__invalid_enum_member_value_is_error() {
         register_test_enum();
         let mut declares = McParamDeclares::new();
         declares.push(McParamDeclare {
@@ -1560,7 +1560,7 @@ mod tests {
 
     /// t13: a dotted interface member `DC.IVCC5` claims the interface-class slot.
     #[test]
-    fn test_interface_member_claims_interface_slot() {
+    fn sem_mcparam__interface_member_claims_interface_slot() {
         let mut declares = McParamDeclares::new();
         declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("dc24v")),
@@ -1583,7 +1583,7 @@ mod tests {
     /// t14: a dotted net reference (`uC.I2C0`) is not enum/interface typed and
     /// falls through to positional binding.
     #[test]
-    fn test_dotted_net_ref_falls_through_to_positional() {
+    fn sem_mcparam__dotted_net_ref_falls_through_to_positional() {
         let mut declares = McParamDeclares::new();
         declares.push(single_declare("bus"));
 

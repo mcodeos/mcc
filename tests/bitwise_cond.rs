@@ -11,11 +11,13 @@
 // (e.g. mcd/mclibs/others/pca9555.mc) lost the whole branch without a
 // diagnostic.
 
-use mcc::{McCondOperand, McCondition, McConds, McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McCondOperand, McCondition, McConds, McIds, McURI};
 
 const SOURCE: &str = r#"
 component PCA9555T (partno)
@@ -37,12 +39,9 @@ module main
 "#;
 
 #[test]
-fn bitwise_and_cond_is_parsed_not_dropped() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn sem_bitcond__and_parsed_not_dropped() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/bitwise-cond.mc".to_string();
     mcc::mcc_load_from_string(&uri, SOURCE);
@@ -67,12 +66,10 @@ fn bitwise_and_cond_is_parsed_not_dropped() {
         McCondition::BitAnd { .. } => {}
         other => panic!("expected BitAnd condition, got {other:?}"),
     }
-
-    drop(lock);
 }
 
 #[test]
-fn bitwise_cond_evaluation_uses_nonzero_result() {
+fn sem_bitcond__eval_uses_nonzero_result() {
     // `0x36 & 0x01 == 0` -> false; `0x37 & 0x01 != 0` -> true
     let left = McCondOperand::Ident(McIds::from("address"));
 

@@ -1375,18 +1375,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_canonicalize_duplicate_suffix() {
+    fn dlu_net__canonicalize_duplicate_suffix() {
         assert_eq!(canonicalize_path("VCC_1V2.VCC_1V2"), "VCC_1V2");
         assert_eq!(canonicalize_path("AVDD09_CAP.AVDD09_CAP"), "AVDD09_CAP");
     }
 
     #[test]
-    fn test_canonicalize_double_pin_number() {
+    fn dlu_net__canonicalize_double_pin_number() {
         assert_eq!(canonicalize_path("uC.21.21"), "uC.21");
     }
 
     #[test]
-    fn test_canonicalize_curly_brace_repeat() {
+    fn dlu_net__canonicalize_curly_brace_repeat() {
         assert_eq!(
             canonicalize_path("dc{VDD_3V3, GND}.dc{VDD_3V3, GND}"),
             "dc{VDD_3V3, GND}"
@@ -1395,7 +1395,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_arrow_residual() {
+    fn dlu_net__canonicalize_arrow_residual() {
         assert_eq!(
             canonicalize_path("dc{VDD_3V3} -> wm7121{VCC}.dc{VDD_3V3} -> wm7121{VCC}"),
             "wm7121{VCC}"
@@ -1403,7 +1403,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_no_change() {
+    fn dlu_net__canonicalize_no_change() {
         // Normal paths should not be modified
         assert_eq!(canonicalize_path("lp322dcdc.FB"), "lp322dcdc.FB");
         assert_eq!(canonicalize_path("MIC.P"), "MIC.P");
@@ -1413,7 +1413,7 @@ mod tests {
     }
 
     #[test]
-    fn test_batch_union_merges_shared_nodes() {
+    fn dlu_net__batch_union_merges_shared_nodes() {
         let mut table = NetTable::new();
 
         // Simulate moddcdc's FB node scenario:
@@ -1455,7 +1455,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_merges_duplicate_suffix_paths() {
+    fn dlu_net__canonicalize_merges_duplicate_suffix_paths() {
         let mut table = NetTable::new();
 
         // Simulate: one connection uses "VCC_1V2", another uses "VCC_1V2.VCC_1V2"

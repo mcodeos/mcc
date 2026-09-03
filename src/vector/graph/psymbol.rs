@@ -619,7 +619,7 @@ mod tests {
     }
 
     #[test]
-    fn valid_project_symbol_loads_as_fragment() {
+    fn vec_psymbol__valid_project_symbol_loads_as_fragment() {
         let project = TempProject::new();
         project.write(
             "symbols/manifest.toml",
@@ -649,7 +649,7 @@ file = "usb-mini-b.svg"
     }
 
     #[test]
-    fn active_content_and_external_references_are_rejected() {
+    fn vec_psymbol__active_content_and_external_references_are_rejected() {
         for (name, svg) in [
             (
                 "script",
@@ -670,7 +670,7 @@ file = "usb-mini-b.svg"
     }
 
     #[test]
-    fn symbol_path_cannot_escape_project_directory() {
+    fn vec_psymbol__symbol_path_cannot_escape_project_directory() {
         let project = TempProject::new();
         project.write(
             "symbols/manifest.toml",
@@ -695,7 +695,7 @@ file = "../outside.svg"
 
     #[cfg(unix)]
     #[test]
-    fn symbol_symlink_cannot_escape_symbol_directory() {
+    fn vec_psymbol__symbol_symlink_cannot_escape_symbol_directory() {
         use std::os::unix::fs::symlink;
 
         let project = TempProject::new();
@@ -727,7 +727,7 @@ file = "linked.svg"
 
     #[cfg(unix)]
     #[test]
-    fn manifest_symlink_is_rejected() {
+    fn vec_psymbol__manifest_symlink_is_rejected() {
         use std::os::unix::fs::symlink;
 
         let project = TempProject::new();
@@ -746,7 +746,7 @@ file = "linked.svg"
     }
 
     #[test]
-    fn missing_manifest_is_a_clean_fallback() {
+    fn vec_psymbol__missing_manifest_is_a_clean_fallback() {
         let project = TempProject::new();
         let canonical = fs::canonicalize(&project.root).unwrap();
         let (symbols, report) = read_project_symbols(&canonical);

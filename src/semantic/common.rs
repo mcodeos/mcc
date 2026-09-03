@@ -820,7 +820,7 @@ mod shape_tests {
     // ---- Shape helper predicates ----
 
     #[test]
-    fn shape_classifiers() {
+    fn sem_common__shape_classifiers() {
         assert!(Shape::node().is_row());
         assert!(!Shape::vvec(4).is_row());
         assert!(Shape::vvec(4).is_multi_row());
@@ -840,7 +840,7 @@ mod shape_tests {
     /// - `+` (Parallel) → op1; the main of `VEXT + power.v1v3` is VEXT;
     /// - `<-` (Series + RtoL) → op1; the target net of `DC.PVCC24 <- Diode(...)` is DC.PVCC24.
     #[test]
-    fn representative_rule() {
+    fn sem_common__representative_rule() {
         let lhs = Shape::node(); // 1*1
         let rhs = Shape::vvec(2); // 2*1, distinct from lhs
                                   // `->` (Series + LtoR): result takes operand 2
@@ -861,7 +861,7 @@ mod shape_tests {
 
     /// §4 representative rule for equal single ports (1*1 +- 1*1): both sides agree, no shape difference.
     #[test]
-    fn representative_equal_single_ports() {
+    fn sem_common__representative_equal_single_ports() {
         let lhs = Shape::node();
         let rhs = Shape::node();
         for op in [ConnOp::Series, ConnOp::Parallel] {
@@ -876,7 +876,7 @@ mod shape_tests {
 
     /// `classify_lead`: a bare `_` is a wire, classified as placeholder/passthrough by position; `_FOO` is a prefix identifier.
     #[test]
-    fn classify_lead_wire_vs_prefix_id() {
+    fn sem_common__classify_lead_wire_vs_prefix_id() {
         // Wire `_`: inside a vector → placeholder
         assert_eq!(classify_lead("_", true), LeadKind::Placeholder);
         // Wire `_`: independent operand → passthrough
@@ -889,14 +889,14 @@ mod shape_tests {
 
     /// `classify_phrase_leads`: `_` inside the `[_, R101]` vector → placeholder.
     #[test]
-    fn phrase_placeholder_in_vector() {
+    fn sem_common__phrase_placeholder_in_vector() {
         let phrase = McPhrase::Multiple(vec![McPhrase::Lead, McPhrase::label("R101".into())]);
         assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Placeholder]);
     }
 
     /// `classify_phrase_leads`: independent operand `a1.gnd + _ + GND` → passthrough.
     #[test]
-    fn phrase_passthrough_operand() {
+    fn sem_common__phrase_passthrough_operand() {
         let phrase = McPhrase::Parallel(vec![
             McPhrase::label("a1.gnd".into()),
             McPhrase::Lead,
@@ -907,7 +907,7 @@ mod shape_tests {
 
     /// `classify_phrase_leads`: `_` in a Series chain → passthrough (`VEXT - _ - GND`).
     #[test]
-    fn phrase_passthrough_in_series() {
+    fn sem_common__phrase_passthrough_in_series() {
         let phrase = McPhrase::Series(
             vec![
                 McPhrase::label("VEXT".into()),
@@ -922,7 +922,7 @@ mod shape_tests {
     /// `classify_phrase_leads`: in the nested expression `[a1.gnd + _ + GND, R101]`,
     /// only a direct member `_` is a placeholder; a `_` inside the nested Parallel is a passthrough.
     #[test]
-    fn phrase_nested_expression_keeps_passthrough() {
+    fn sem_common__phrase_nested_expression_keeps_passthrough() {
         let nested = McPhrase::Parallel(vec![
             McPhrase::label("a1.gnd".into()),
             McPhrase::Lead,
@@ -934,7 +934,7 @@ mod shape_tests {
 
     /// `classify_phrase_leads`: `_` in a Group operand → passthrough (`(a, b, c) - _`).
     #[test]
-    fn phrase_passthrough_in_group() {
+    fn sem_common__phrase_passthrough_in_group() {
         let group = McGroup {
             opds: vec![
                 McPhrase::label("a".into()),
@@ -950,7 +950,7 @@ mod shape_tests {
 
     /// `classify_phrase_leads`: a phrase without `_` → empty list.
     #[test]
-    fn phrase_no_lead_empty() {
+    fn sem_common__phrase_no_lead_empty() {
         let phrase = McPhrase::Series(
             vec![McPhrase::label("A".into()), McPhrase::label("B".into())],
             ConnDir::LtoR,

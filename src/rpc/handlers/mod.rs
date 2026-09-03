@@ -3151,7 +3151,7 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn find_project_root_prefers_configured_root() {
+    fn cli_rpc__find_project_root_prefers_configured_root() {
         // Save and restore the global project root so this test does not leak
         // state into other tests running in the same process.
         let saved = crate::db::infra::init::mcb_get_project_root();
@@ -3177,7 +3177,7 @@ mod tests {
     }
 
     #[test]
-    fn find_project_root_detects_project_manifest() {
+    fn cli_rpc__find_project_root_detects_project_manifest() {
         let saved = crate::db::infra::init::mcb_get_project_root();
         crate::db::infra::init::mcb_set_project_root(std::path::Path::new(""));
 
@@ -3199,7 +3199,7 @@ mod tests {
     /// IDs first in numeric order, then non-numeric IDs with embedded digit
     /// runs compared numerically.
     #[test]
-    fn pin_id_cmp_orders_numeric_then_natural() {
+    fn cli_rpc__pin_id_cmp_orders_numeric_then_natural() {
         let mut ids = vec![
             "10", "2", "1", "12", "11", "3", "4", "9", "5", "6", "7", "8",
         ];
