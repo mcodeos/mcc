@@ -179,3 +179,87 @@ module main
     };
     assert!(!is_visible(&b, &mcode_dc));
 }
+
+/// T11 (N3): `use X as A` re-exposes the target's alphabetically-first CMIE
+/// under the bare alias and hides that CMIE's original name; the target's
+/// remaining CMIEs keep their own names. After consolidation the name_index
+/// must mirror the phase-6 `spacenames`, so post-consolidation (map-based)
+/// lookups agree with the pre-consolidation visibility that module parsing
+/// sees: the alias resolves to the first CMIE's module, the hidden original
+/// name no longer resolves from the importer, and the second CMIE still does.
+#[test]
+fn alias_re_exposes_first_cmie_and_hides_original_name_post_consolidation() {
+    let _lock = RESOLVE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    reset();
+
+    // Real on-disk files (string-loaded virtual files cannot exercise the
+    // use-chain canonicalization — see `use_chain_resolves_to_target_def`).
+    let dir = std::env::temp_dir().join(format!("mcc-resolve-alias-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create fixture directory");
+    // `target` sorts before `zeta`, so the alias `tgt` binds to `target`.
+    let tgt_path = dir.join("alias_target.mc");
+    std::fs::write(
+        &tgt_path,
+        r#"
+module target {
+    func init() {
+    }
+}
+
+module zeta {
+    func init() {
+    }
+}
+"#,
+    )
+    .expect("write alias_target.mc");
+    let user_path = dir.join("alias_user.mc");
+    std::fs::write(
+        &user_path,
+        r#"
+use ./alias_target.mc as tgt
+
+module main {
+}
+"#,
+    )
+    .expect("write alias_user.mc");
+
+    mcc::mcc_set_project_root(&dir);
+    let user_canon = std::fs::canonicalize(&user_path).expect("canonicalize alias_user.mc");
+    let user = McURI::from(user_canon.to_string_lossy().to_string());
+    let tgt_canon = std::fs::canonicalize(&tgt_path).expect("canonicalize alias_target.mc");
+    let tgt_uri = tgt_canon.to_string_lossy().to_string();
+    mcc::mcc_load_project(&user);
+
+    // The alias denotes the target's alphabetically-first CMIE (module target).
+    let hit = Resolver::resolve_class(&user, &McIds::from("tgt")).expect("alias resolves");
+    match &hit {
+        McCMIE::Module(m) => {
+            assert_eq!(m.name.to_string(), "target", "alias names the first CMIE");
+        }
+        other => {
+            panic!("alias must resolve to a module, got {}", def_uri(other));
+        }
+    }
+    assert_eq!(def_uri(&hit), tgt_uri, "alias def lives in the target file");
+
+    // The first CMIE's original name is hidden from the importer: it must
+    // neither resolve nor be visible (no mcode library loaded).
+    assert!(
+        Resolver::resolve_class(&user, &McIds::from("target")).is_none(),
+        "original first-CMIE name must stay hidden behind the alias"
+    );
+    let hidden = McSpaceName {
+        ident: McIds::from("target"),
+        uri: mcc::uri_intern(&tgt_uri),
+    };
+    assert!(
+        !is_visible(&user, &hidden),
+        "hidden original name must not be visible from the importer"
+    );
+
+    // The remaining CMIEs keep their original names.
+    let second = Resolver::resolve_class(&user, &McIds::from("zeta")).expect("second CMIE");
+    assert_eq!(def_uri(&second), tgt_uri, "second CMIE keeps its own name");
+}

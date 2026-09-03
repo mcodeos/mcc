@@ -279,37 +279,38 @@ impl McParamDeclares {
         self.declares.get(index)
     }
 
+    /// Find the formal parameter whose declared name forms cover `name`.
+    ///
+    /// Name forms include the canonical form (`dc{VDD_3V3, GND}`), expanded
+    /// member names (`dc.VDD_3V3`), and the base name of a bus/list formal
+    /// (`dc`). Base-name matching is structural: the base alias left
+    /// `def_spans` (T7, G8), so goto-def for a chain base such as `dc` in
+    /// `dc.GND` must still land on the whole parameter declaration instead of
+    /// falling through to a synthetic instance def.
+    pub fn find_form(&self, name: &str) -> Option<&McParamDeclare> {
+        self.declares
+            .iter()
+            .find(|d| d.all_name_forms().iter().any(|f| f == name))
+    }
+
     /// Store definition span for a parameter (called for ALL params during parse).
     /// Writes to both `def_spans` (never filtered, used for goto-def from any reference)
     /// and `port_spans` (filtered later for net connectivity only).
     ///
-    /// When `name` contains bus notation (e.g. `"rs485{A,B}"`), both the full
-    /// form and the base name (`"rs485"`) are stored, so lookups by base name
-    /// (e.g. from `find_unused_params`) don't need a suffix-stripping fallback.
+    /// T7 (G8): the two projections carry different keys. `def_spans` keeps
+    /// the whole declared form (e.g. `rs485{A,B}`) for goto-def; `port_spans`
+    /// keeps only the port identity — the base name of a curly-bus form — so
+    /// a bus parameter is one Category-A port, never registered twice.
     pub(crate) fn store_def_span(&mut self, name: &str, span: Range<usize>) {
         self.def_spans
             .entry(name.to_string())
             .or_default()
             .push(span.clone());
+        let port_key = name.split('{').next().unwrap_or(name);
         self.port_spans
-            .entry(name.to_string())
+            .entry(port_key.to_string())
             .or_default()
-            .push(span.clone());
-        // Also register base name (strip "{...}" suffix) to avoid
-        // suffix-stripping fallback in finalize().
-        if let Some(brace) = name.find('{') {
-            let base = &name[..brace];
-            if base != name {
-                self.def_spans
-                    .entry(base.to_string())
-                    .or_default()
-                    .push(span.clone());
-                self.port_spans
-                    .entry(base.to_string())
-                    .or_default()
-                    .push(span.clone());
-            }
-        }
+            .push(span);
     }
 
     /// ★ §3.4.3: store each member of a typed square-vec param with its precise

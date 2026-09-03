@@ -2891,6 +2891,10 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "admin",
     },
     MethodMeta {
+        name: "defs.dependents",
+        consumer: "admin",
+    },
+    MethodMeta {
         name: "export",
         consumer: "cli",
     },
@@ -3112,6 +3116,7 @@ pub fn register_all(
     builder = builder.register_method("defs.query", handle_defs_query);
     builder = builder.register_method("defs.checkpoint", handle_defs_checkpoint);
     builder = builder.register_method("defs.diff", handle_defs_diff);
+    builder = builder.register_method("defs.dependents", handle_defs_dependents);
     builder = builder.register_method("export", handle_export);
     // LSP
     builder = builder.register_method("sem", handle_sem);

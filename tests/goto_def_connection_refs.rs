@@ -518,7 +518,25 @@ fn twopin_declareb_names_classified_as_instances() {
     // (CAP/RES) makes the declared name an instance, so the lapper must
     // register InstDef at the declaration span and InstRef for the use
     // (declaration = use point, self-mapping) — not LabelDef/PortRef.
+    // Two-pin-ness is def-driven (real pin counts), so the classes are
+    // defined below and resolve through the file's own definitions.
     const SRC: &str = r#"
+component CAP
+{
+    pins = [
+        1 = 1, "terminal one"
+        2 = 2, "terminal two"
+    ]
+}
+
+component RES
+{
+    pins = [
+        1 = 1, "terminal one"
+        2 = 2, "terminal two"
+    ]
+}
+
 module main
 {
     VIN -> R1::RES(1kOhm) -> GND
@@ -678,7 +696,17 @@ fn bare_idx_upgraded_by_later_declareb() {
     // the typed declaration is authoritative: it is the single InstDef and
     // the earlier bare occurrence becomes an InstRef that resolves to it —
     // it must NOT mint a second def (a stray LabelDef overlapping the ref).
+    // CAP is defined below so the def-driven classification sees a 2-pin
+    // component class and upgrades the typed occurrence to InstDef.
     const SRC: &str = r#"
+component CAP
+{
+    pins = [
+        1 = 1, "terminal one"
+        2 = 2, "terminal two"
+    ]
+}
+
 module main
 {
     VIN -> C4 -> GND

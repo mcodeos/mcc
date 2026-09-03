@@ -88,6 +88,10 @@ fn check_param_inst_overlap(mod_name: &str, m: &crate::McModule, acc: &mut Check
 }
 
 /// Try to get a span for a name in a module (port_spans first, then def_spans).
+///
+/// T7 (G8): resolution is structural, never substring fuzz. Exact display /
+/// member keys first, then the declaring formal parameter (`match_name`
+/// covers base names and list/bus member forms of a single declare).
 fn span_for(m: &crate::McModule, name: &str) -> Option<std::ops::Range<usize>> {
     // Try port_spans
     if let Some(spans) = m.insts.port_spans().get(name) {
@@ -95,13 +99,15 @@ fn span_for(m: &crate::McModule, name: &str) -> Option<std::ops::Range<usize>> {
             return Some(s.clone());
         }
     }
-    // Try def_spans (for params)
-    for (k, s) in m.params.iter_defs_with_span() {
-        if k == name || k.contains(name) || name.contains(k) {
-            return Some(s);
-        }
+    // Exact definition span (display name or independently stored member).
+    if let Some(s) = m.params.get_def_span(name) {
+        return Some(s);
     }
-    None
+    // The name matches one formal parameter structurally (base / member /
+    // vector form) — anchor at that parameter's declaration span.
+    m.params
+        .find(name)
+        .and_then(|decl| m.params.get_def_span(&decl.display_name()))
 }
 
 /// D1: Two instances with the same name in one module

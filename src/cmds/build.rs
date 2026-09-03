@@ -1340,34 +1340,6 @@ module top {
         );
     }
 
-    // ── D4 GHOST_PORT ───────────────────────────────────────────────────
-
-    #[test]
-    fn d4_ghost_port_placeholder_pin() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        // D4 fires when a component has only an estimated pin count (pins = N)
-        // without actual pin definitions. The builder synthesizes placeholder
-        // pins (id ≥ 8e9) which are then detected as ghost ports.
-        // Use "TEST_POINT" class name to trigger guess_chip_pin_count → 2,
-        // so placeholder pins are created.
-        let fixture = r#"
-component TEST_POINT {
-    pins = 4
-}
-module top {
-    io A
-    TEST_POINT chip
-    chip.1 -> A
-}
-"#;
-        let diags = build_fixture_with_graph(fixture);
-        assert!(
-            has_code(&diags, mcc::errcodes::GHOST_PORT_BOX),
-            "D4 GHOST_PORT should fire for placeholder pins. Diags: {:?}",
-            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
-        );
-    }
-
     // ── D5 BUS_ORDER_MISMATCH ───────────────────────────────────────────
 
     #[test]

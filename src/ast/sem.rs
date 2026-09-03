@@ -122,6 +122,18 @@ pub struct LocalSymbolTable {
 /// Global sequential DeclareId counter — simple, collision-free u32.
 static GLOBAL_DECLARE_ID: AtomicU32 = AtomicU32::new(1);
 
+/// Reset the global declare-id counter to its boot value. A full state
+/// reset (`clear_state(ClearScope::Full)`) rebuilds every symbol table that
+/// references these ids, so the counter must follow: without the reset, a
+/// second clean load inside one process allocates shifted ids (a file's
+/// `dump_symbols_f12_text` id= values then depend on how much was parsed
+/// before it in the process — the historical run-to-run shuffle). With the
+/// reset, a full reset reproduces boot-state numbering exactly, so two
+/// independent runs of the same inputs dump byte-identically.
+pub(crate) fn reset_declare_id_counter() {
+    GLOBAL_DECLARE_ID.store(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 impl LocalSymbolTable {
     pub fn new() -> Self {
         LocalSymbolTable {

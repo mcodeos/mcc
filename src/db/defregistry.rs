@@ -8,10 +8,11 @@
 //! entry for the definition tables, and the registry below is the single
 //! definition identity table: a persistent integer [`DefId`] per canonical
 //! key `(uri, ident)` (the [`McSpaceName`]), append-only with tombstones.
-//! Phase 3 keeps the physical workspace tables as a compatibility
-//! materialization for the remaining direct readers (system-lib visibility
-//! gates, the lib ledger, the workspace lifecycle) — the definition-space
-//! read views (`defspace.rs`) now read this registry instead.
+//! The physical workspace def tables survive only as workspace-lifecycle
+//! state (snapshot / switch / restore / clear transport); every resolution,
+//! visibility, and ledger read goes through the registry-backed
+//! definition-space read views (`defspace.rs`) — T2 read-side migration is
+//! complete, so the tables are never a read source.
 //!
 //! D11 semantics (design §5 / §9 Phase B):
 //! - Identity is stable across loads: re-parsing a file reuses the same
@@ -34,9 +35,9 @@
 //! remaining Phase-5 step — see the T3 honest boundary in
 //! `mcd/doc/plan/defspace-id-core-plan.md`.
 //!
-//! Routing to the physical workspace tables (a compatibility materialization
-//! for the direct workspace-table readers) is faithful to the pre-refactor
-//! behavior:
+//! Routing to the physical workspace tables (workspace-lifecycle state
+//! only — snapshot/switch/restore transport, never a read source) is
+//! faithful to the pre-refactor behavior:
 //! - Module defs always land in the workspace module table — module parsing
 //!   runs over `WORKSPACE.mcodes` regardless of the source domain.
 //! - Component / Interface / Enum / Define defs land in the workspace table
@@ -90,12 +91,16 @@ pub enum DefKind {
 
 /// A function template's addressing entry (design §12.1 / §13.6 delta 1).
 ///
-/// The `McFunction` itself stays embedded in the host def's `funcs` table —
-/// the AST parse form is unchanged — and this entry gives it a stable
-/// [`DefId`] plus a host link so dispatch, goto-def and diff can address it.
+/// A func is a logical member of its host container (component / module), so
+/// its identity is the structured `(host [`DefId`], func name)` pair — T9
+/// (N1) dismantled the flattened `(uri, "HOST.NAME")` text key: func rows
+/// never enter `key_to_id`, they live under the host→func member index
+/// ([`RegistryState::host_funcs`]). The `McFunction` itself stays embedded
+/// in the host def's `funcs` table — the AST parse form is unchanged — and
+/// this entry gives the member a stable [`DefId`] plus a host link so
+/// dispatch, goto-def and diff can address it through the host→func edge.
 /// Registered automatically by [`insert`] for every method / module func of a
-/// component / module def, keyed by the qualified name `"HOST.NAME"` in the
-/// host's file.
+/// component / module def.
 #[derive(Clone)]
 pub struct FuncDef {
     /// [`DefId`] of the host component / module def.
@@ -187,7 +192,11 @@ pub(crate) struct RegistryState {
     /// an identity survives load/unload cycles ("deleted vs never existed" is
     /// decidable). A key maps to a small vector because one `(uri, ident)` may
     /// legally hold several kinds — a same-named component and interface in
-    /// one file coexist exactly as the per-kind physical tables allowed.
+    /// one file coexist exactly as the per-kind physical tables allowed — and,
+    /// under T8 (M2) layered coexist, also several domains: a project def
+    /// **shadows** a live same-key system-lib def as a second, layered
+    /// identity instead of destroying it (the reverse — a system lib
+    /// displacing a live project def — is a duplicate).
     key_to_id: DashMap<McSpaceName, Vec<DefId>>,
     /// [`DefId`] → entry data. The arena holds the current data per identity;
     /// data is re-materialized on re-parse while the identity stays stable
@@ -195,7 +204,8 @@ pub(crate) struct RegistryState {
     arena: DashMap<DefId, DefEntry>,
     /// Display-form name → live system-library identities. Kept exactly in
     /// sync with the registry's live system segment by the mutation points
-    /// (domain transitions in `register`, tombstones, world reset); gives the
+    /// (fresh system inserts / tombstone revives in `register`, tombstones,
+    /// world reset); gives the
     /// P5 name-only lookups (`resolve_system`, `find_in_table_scoped`, the
     /// enum helpers, `component_by_class`) O(1) instead of a full registry
     /// scan on every class reference. Function-template entries are host
@@ -216,9 +226,20 @@ pub(crate) struct RegistryState {
     /// member. Tombstoning a def keeps its ledger so a revive reuses the ids;
     /// only a full registry reset (`clear_all`) drops them.
     member_ledgers: DashMap<DefId, MemberLedger>,
+    /// Host→func member index (T9, design §12.1): a function-template
+    /// member's identity is its `(host [`DefId`], func name)` pair — never a
+    /// flattened `"HOST.NAME"` text key in `key_to_id`. The value is the
+    /// member's arena row id. Append-only (like `key_to_id`): entries are
+    /// never removed, only their rows are tombstoned, so a func keeps its id
+    /// across host re-derives and reloads (D11) without depending on the
+    /// host's name spelling, and same-named funcs of different hosts are
+    /// isolated by construction (a host rename re-keys the host def, not its
+    /// func members).
+    host_funcs: DashMap<(DefId, String), DefId>,
     /// T6-②: whether a def-space mutation landed since the last checkpoint was
-    /// captured. Set on every real write (fresh insert, revive, project
-    /// override, module re-derive, live→tombstone); cleared by any capture.
+    /// captured. Set on every real write (fresh insert, same-layer revive, T8
+    /// project shadow append, module re-derive, live→tombstone); cleared by
+    /// any capture.
     /// The loader seams call [`RegistryState::checkpoint_if_changed`], so a
     /// no-op re-parse (nothing changed) never stamps a version (O1), while
     /// every edit / load / remove / world switch round ends exactly one.
@@ -235,6 +256,7 @@ impl Default for RegistryState {
             next_version: AtomicU64::new(1),
             journal: Mutex::new(Vec::new()),
             member_ledgers: DashMap::new(),
+            host_funcs: DashMap::new(),
             mutated: AtomicBool::new(false),
         }
     }
@@ -281,112 +303,104 @@ impl RegistryState {
     /// in the free [`insert`] wrapper (it needs the workspace tables).
     fn insert(&self, sn: &McSpaceName, domain: &LoadDomain, def: &DefValue) -> InsertOutcome {
         let kind = def.kind();
-        let outcome = self.register(sn, kind, domain, def);
-        if outcome == InsertOutcome::Inserted {
-            // Function templates derive from the host's `funcs` table:
-            // register the addressing entries (design §12.1) for a fresh
-            // host. Kept in sync by `register_host_funcs` — stale entries
-            // are tombstoned first.
-            if kind == DefKind::Component || kind == DefKind::Module {
-                if let Some(host_id) = self.def_id(sn, kind) {
+        // The host-func addressing entries attach to the identity THIS call
+        // touched. Never re-resolve the host through `def_id` afterwards:
+        // under T8's layered coexist a re-resolve would see the shadowing
+        // layer and rewire the wrong host's funcs (a live system host whose
+        // key a project def shadows still keeps its own func entries).
+        match self.register(sn, kind, domain, def) {
+            Some(host_id) => {
+                if kind == DefKind::Component || kind == DefKind::Module {
                     self.register_host_funcs(sn, host_id, def, domain);
                 }
+                InsertOutcome::Inserted
             }
+            None => InsertOutcome::Duplicate,
         }
-        outcome
     }
 
-    /// Register the identity + data (Phase 3 identity layer).
+    /// Register the identity + data (Phase 3 identity layer). Returns the
+    /// [`DefId`] of the identity this call registered or revived, or `None`
+    /// when the key is already taken by an entry this registration may not
+    /// displace (the caller turns that into the DUP diagnostic).
     ///
-    /// Precedence rules for an occupied live `(key, kind)`:
-    /// - A project def **overrides** a same-key system-lib def. The mcode lib
-    ///   loads first, then a project file re-declares the identity; the
-    ///   workspace def must shadow the system def (workspace-first, P0.1). The
-    ///   reverse (system lib displacing a project def) is a duplicate, and so
-    ///   is any same-domain re-insert (the caller turns it into the DUP
-    ///   diagnostic).
-    /// - A module re-derive always replaces this file's prior entry.
-    /// - A tombstone is revived with the new data under the same [`DefId`]
-    ///   (D11).
+    /// T8 (M2): precedence rules for an occupied `(key, kind)` slot:
+    /// - A same-domain tombstone revives in place under its original
+    ///   [`DefId`] (D11), and a module re-derive replaces its own same-domain
+    ///   live slot in place (parse rounds never tombstone between derives) —
+    ///   identity and member ids stay stable across re-parses and world
+    ///   restores. A same-domain live non-module re-insert stays a duplicate.
+    /// - A project def **shadows** a live same-key system-lib def — it does
+    ///   not destroy it. The system entry keeps its id, its data, and its P5
+    ///   name-index hit; the project def becomes a second, layered identity
+    ///   under the same key. Reads resolve workspace-first (project layer
+    ///   wins); tombstoning the project layer falls back to the intact system
+    ///   def without reloading mcode.
+    /// - The reverse (a system lib displacing a live project def) is a
+    ///   duplicate, and so is any other live cross-layer collision.
     fn register(
         &self,
         sn: &McSpaceName,
         kind: DefKind,
         domain: &LoadDomain,
         def: &DefValue,
-    ) -> InsertOutcome {
+    ) -> Option<DefId> {
         // T4: the component def's member sequence for the registry-owned
         // account ledger, captured before any mutation below — every path
         // that writes fresh data syncs the ledger from it (merge-by-name, so
         // a revive under the same key reuses the surviving member ids).
         let member_seq = Self::component_member_seq(def);
         let mut ids = self.key_to_id.entry(sn.clone()).or_default();
+        let name = sn.ident.to_string();
+
+        // Pass 1 — in-place reuse of THIS layer's slot. Layers never rewrite
+        // each other's entries: a same-domain tombstone revives, a module
+        // re-derive replaces its own live slot, and a live same-domain
+        // non-module re-insert is the historic duplicate.
         for &id in ids.iter() {
-            let mut entry = self
-                .arena
-                .get_mut(&id)
-                .expect("arena holds every registered id");
-            if entry.kind != kind {
+            let Some(mut entry) = self.arena.get_mut(&id) else {
+                continue;
+            };
+            if entry.kind != kind || entry.domain != *domain {
                 continue;
             }
-            // Capture the live-system state before the mutation so the system
-            // name index can follow the domain transition below.
-            let was_live_system =
-                entry.data.is_some() && matches!(entry.domain, LoadDomain::SystemLib(_));
-            if kind == DefKind::Module {
+            let was_live = entry.data.is_some();
+            let was_live_system = was_live && matches!(entry.domain, LoadDomain::SystemLib(_));
+            if !was_live || kind == DefKind::Module {
                 entry.data = Some(def.clone());
-                entry.domain = domain.clone();
                 entry.fingerprint = content_fingerprint(def);
                 self.mutated.store(true, Ordering::Relaxed);
-                self.sync_system_index(
-                    &sn.ident.to_string(),
-                    kind,
-                    id,
-                    was_live_system,
-                    &entry.domain,
-                );
-                return InsertOutcome::Inserted;
-            }
-            match &entry.data {
-                None => {
-                    entry.data = Some(def.clone());
-                    entry.domain = domain.clone();
-                    entry.fingerprint = content_fingerprint(def);
-                    self.mutated.store(true, Ordering::Relaxed);
-                    self.sync_system_index(
-                        &sn.ident.to_string(),
-                        kind,
-                        id,
-                        was_live_system,
-                        &entry.domain,
-                    );
-                    if !member_seq.is_empty() {
-                        self.sync_member_ledger(id, &member_seq);
-                    }
-                    return InsertOutcome::Inserted;
+                self.sync_system_index(&name, kind, id, was_live_system, &entry.domain);
+                if !member_seq.is_empty() {
+                    self.sync_member_ledger(id, &member_seq);
                 }
-                Some(_) => {
-                    if was_live_system && matches!(domain, LoadDomain::Project) {
-                        entry.data = Some(def.clone());
-                        entry.domain = LoadDomain::Project;
-                        entry.fingerprint = content_fingerprint(def);
-                        self.mutated.store(true, Ordering::Relaxed);
-                        self.sync_system_index(
-                            &sn.ident.to_string(),
-                            kind,
-                            id,
-                            true,
-                            &entry.domain,
-                        );
-                        if !member_seq.is_empty() {
-                            self.sync_member_ledger(id, &member_seq);
-                        }
-                        return InsertOutcome::Inserted;
-                    }
-                    return InsertOutcome::Duplicate;
-                }
+                return Some(id);
             }
+            return None;
         }
+
+        // Pass 2 — layered coexist: a live system-lib entry under this key
+        // may be shadowed by a project entry (T8); any other live collision
+        // (a system lib displacing a live project def) is a duplicate.
+        let any_live_same_kind = ids.iter().any(|id| {
+            self.arena
+                .get(id)
+                .is_some_and(|e| e.kind == kind && e.data.is_some())
+        });
+        let shadow_allowed = matches!(domain, LoadDomain::Project)
+            && ids.iter().any(|id| {
+                self.arena.get(id).is_some_and(|e| {
+                    e.kind == kind
+                        && e.data.is_some()
+                        && matches!(e.domain, LoadDomain::SystemLib(_))
+                })
+            });
+        if any_live_same_kind && !shadow_allowed {
+            return None;
+        }
+
+        // Fresh append: a brand-new identity, or the project layer that
+        // shadows a still-live system def (T8).
         let id = self.next_def_id.fetch_add(1, Ordering::Relaxed);
         ids.push(id);
         self.mutated.store(true, Ordering::Relaxed);
@@ -402,12 +416,12 @@ impl RegistryState {
             },
         );
         if matches!(domain, LoadDomain::SystemLib(_)) && kind != DefKind::Func {
-            self.system_index_add(&sn.ident.to_string(), kind, id);
+            self.system_index_add(&name, kind, id);
         }
         if !member_seq.is_empty() {
             self.sync_member_ledger(id, &member_seq);
         }
-        InsertOutcome::Inserted
+        Some(id)
     }
 
     /// T4 (defspace-id-core-plan M1): the member sequence of a fresh def
@@ -482,12 +496,14 @@ impl RegistryState {
         }
     }
 
-    /// Tombstone this host's previously-registered function entries, then
-    /// register the current ones from the host's `funcs` table — keeps the
-    /// addressing entries exactly in sync with the host across re-derive
-    /// rounds (modules) and reloads (components, whose uri-level tombstone
-    /// already cleared the funcs). Removed funcs stay tombstoned; survivors
-    /// revive under the same [`DefId`] (D11).
+    /// Re-sync this host's function-template members with its current `funcs`
+    /// table (T9, design §12.1): stale members — registered for this host id
+    /// in earlier rounds but absent from the current table — are tombstoned,
+    /// then each current func is registered under the structured `(host id,
+    /// func name)` identity. Keeps the members exactly in sync with the host
+    /// across re-derive rounds (modules) and reloads (components, whose
+    /// uri-level tombstone already cleared the members). Removed funcs stay
+    /// tombstoned; survivors revive under their original [`DefId`] (D11).
     fn register_host_funcs(
         &self,
         sn: &McSpaceName,
@@ -496,61 +512,117 @@ impl RegistryState {
         domain: &LoadDomain,
     ) {
         let stale: Vec<DefId> = self
-            .arena
+            .host_funcs
             .iter()
-            .filter_map(|e| match &e.data {
-                Some(DefValue::Func(f)) if f.host == host_id => Some(*e.key()),
-                _ => None,
-            })
+            .filter(|e| e.key().0 == host_id)
+            .map(|e| *e.value())
             .collect();
         for id in stale {
             if let Some(mut e) = self.arena.get_mut(&id) {
-                e.data = None;
+                if e.data.is_some() {
+                    e.data = None;
+                }
             }
         }
-        let host_name = sn.ident.to_string();
         match host {
             DefValue::Component(comp) => {
                 for f in comp.funcs.iter() {
-                    self.register_func_entry(sn, &host_name, &f.name.to_string(), host_id, domain);
+                    self.register_func_member(sn, host_id, &f.name.to_string(), domain);
                 }
             }
             DefValue::Module(module) => {
                 for f in module.funcs.iter() {
-                    self.register_func_entry(sn, &host_name, &f.name.to_string(), host_id, domain);
+                    self.register_func_member(sn, host_id, &f.name.to_string(), domain);
                 }
             }
             _ => {}
         }
     }
 
-    fn register_func_entry(
+    /// Register one function-template member of a host def (T9, design
+    /// §12.1). The member's identity is its `(host [`DefId`], func name)`
+    /// pair in [`RegistryState::host_funcs`] — it never enters `key_to_id`,
+    /// so no `format!("{host}.{func}")` text key is ever built (the
+    /// qualified display name below is only a label on the arena row, for
+    /// dumps and checkpoints). A member registered before (live or
+    /// tombstoned) is re-registered in place under its original [`DefId`]
+    /// (D11); a brand-new `(host, name)` pair appends a fresh row. Members
+    /// are host-scoped, so same-named funcs of different hosts are isolated
+    /// by construction, and the system name index (class names only) never
+    /// sees them.
+    fn register_func_member(
         &self,
-        sn: &McSpaceName,
-        host_name: &str,
-        func_name: &str,
+        host_sn: &McSpaceName,
         host_id: DefId,
+        func_name: &str,
         domain: &LoadDomain,
     ) {
-        let fsn = McSpaceName {
-            ident: crate::McIds::from(format!("{host_name}.{func_name}")),
-            uri: sn.uri.clone(),
+        let def = DefValue::Func(FuncDef {
+            host: host_id,
+            name: func_name.to_string(),
+        });
+        let member_key = (host_id, func_name.to_string());
+        if let Some(id) = self.host_funcs.get(&member_key).map(|e| *e) {
+            // Already-registered member (live or tombstoned): refresh it in
+            // place under its original row id (D11) — never a fresh row. The
+            // `host_funcs` read guard is released by the `.map` copy before
+            // the arena write below, so a re-derive never self-deadlocks.
+            if let Some(mut e) = self.arena.get_mut(&id) {
+                let was_live = e.data.is_some();
+                e.data = Some(def);
+                e.fingerprint = content_fingerprint(e.data.as_ref().unwrap());
+                if !was_live {
+                    self.mutated.store(true, Ordering::Relaxed);
+                }
+            }
+            return;
+        }
+        let id = self.next_def_id.fetch_add(1, Ordering::Relaxed);
+        self.host_funcs.insert(member_key, id);
+        self.mutated.store(true, Ordering::Relaxed);
+        let fingerprint = content_fingerprint(&def);
+        // Display label only — never a resolution key.
+        let label = McSpaceName {
+            ident: crate::McIds::from(format!("{}.{func_name}", host_sn.ident.to_string())),
+            uri: host_sn.uri.clone(),
         };
-        self.register(
-            &fsn,
-            DefKind::Func,
-            domain,
-            &DefValue::Func(FuncDef {
-                host: host_id,
-                name: func_name.to_string(),
-            }),
+        self.arena.insert(
+            id,
+            DefEntry {
+                id,
+                kind: DefKind::Func,
+                sn: label,
+                domain: domain.clone(),
+                data: Some(def),
+                fingerprint,
+            },
         );
     }
 
     /// Registry side of [`remove_by_uri`]: tombstone every definition of any
-    /// kind whose defining file matches `uri` (the physical-table sweep stays
-    /// in the free wrapper).
+    /// kind whose defining file matches `uri`, across every domain (the
+    /// physical-table sweep stays in the free wrapper). The domain-scoped
+    /// variants below are the T8 (M2) removal surfaces: a project source-file
+    /// removal tombstones only the project layer so a shadowed system def
+    /// survives as the read fallback, and a lib unload tombstones only the
+    /// system layer.
     fn remove_by_uri(&self, uri: &str) {
+        self.remove_by_uri_in(uri, DomainFilter::Any);
+    }
+
+    /// Project-layer removal: a project source file was deleted / re-parsed.
+    fn remove_project_by_uri(&self, uri: &str) {
+        self.remove_by_uri_in(uri, DomainFilter::Project);
+    }
+
+    /// Registry side of [`remove_by_uris`] (system-lib unload sweep): only
+    /// the system layer under those uris is tombstoned — a live project layer
+    /// sharing a key (the workspace-first shadow, T8) survives an unload.
+    fn remove_by_uris(&self, uris: &HashSet<String>) {
+        self.remove_by_uris_in(uris, DomainFilter::System);
+    }
+
+    fn remove_by_uri_in(&self, uri: &str, scope: DomainFilter) {
         let keys: Vec<McSpaceName> = self
             .key_to_id
             .iter()
@@ -558,12 +630,14 @@ impl RegistryState {
             .map(|e| e.key().clone())
             .collect();
         for key in keys {
-            self.tombstone_key(&key);
+            self.tombstone_key(&key, scope);
         }
+        // Func rows live under the host→func member index, not `key_to_id`;
+        // bring down the members of the hosts this sweep just tombstoned.
+        self.sweep_orphan_funcs(scope);
     }
 
-    /// Registry side of [`remove_by_uris`] (third-party-lib unload sweep).
-    fn remove_by_uris(&self, uris: &HashSet<String>) {
+    fn remove_by_uris_in(&self, uris: &HashSet<String>, scope: DomainFilter) {
         let keys: Vec<McSpaceName> = self
             .key_to_id
             .iter()
@@ -571,27 +645,73 @@ impl RegistryState {
             .map(|e| e.key().clone())
             .collect();
         for key in keys {
-            self.tombstone_key(&key);
+            self.tombstone_key(&key, scope);
+        }
+        self.sweep_orphan_funcs(scope);
+    }
+
+    /// Tombstone every live function-template member whose host def is dead
+    /// — the host→func edge enforced on the removal surfaces (uri sweeps and
+    /// the world-wide tombstone), since func rows live under the host member
+    /// index, not `key_to_id`. Only hosts whose domain matches `scope` are
+    /// considered (a shadowed live host of another layer keeps its funcs).
+    /// Rows are tombstoned, never dropped: [`RegistryState::host_funcs`]
+    /// keeps the `(host, name)` pair, so a later host revive re-registers
+    /// its funcs under the original ids (D11).
+    fn sweep_orphan_funcs(&self, scope: DomainFilter) {
+        let orphan_hosts: HashSet<DefId> = self
+            .arena
+            .iter()
+            .filter(|e| {
+                matches!(e.kind, DefKind::Component | DefKind::Module)
+                    && filter_matches(&e.domain, scope)
+                    && e.data.is_none()
+            })
+            .map(|e| *e.key())
+            .collect();
+        if orphan_hosts.is_empty() {
+            return;
+        }
+        let member_ids: Vec<DefId> = self
+            .host_funcs
+            .iter()
+            .filter(|e| orphan_hosts.contains(&e.key().0))
+            .map(|e| *e.value())
+            .collect();
+        for id in member_ids {
+            if let Some(mut e) = self.arena.get_mut(&id) {
+                let had_data = e.data.is_some();
+                if had_data {
+                    e.data = None;
+                    e.fingerprint = 0;
+                    self.mutated.store(true, Ordering::Relaxed);
+                }
+            }
         }
     }
 
-    fn tombstone_key(&self, key: &McSpaceName) {
+    /// Tombstone the identities of `key` whose domain matches `scope`.
+    fn tombstone_key(&self, key: &McSpaceName, scope: DomainFilter) {
         if let Some(ids) = self.key_to_id.get(key) {
             for id in ids.iter() {
-                if let Some(mut e) = self.arena.get_mut(id) {
-                    let was_live_system =
-                        e.data.is_some() && matches!(e.domain, LoadDomain::SystemLib(_));
-                    let had_data = e.data.is_some();
-                    e.data = None;
-                    e.fingerprint = 0;
-                    if had_data {
-                        // A live identity became a tombstone — a def-space
-                        // change the next checkpoint must record.
-                        self.mutated.store(true, Ordering::Relaxed);
-                    }
-                    if was_live_system {
-                        self.system_index_remove(&key.ident.to_string(), e.kind, *id);
-                    }
+                let Some(mut e) = self.arena.get_mut(id) else {
+                    continue;
+                };
+                if !filter_matches(&e.domain, scope) {
+                    continue;
+                }
+                let was_live_system =
+                    e.data.is_some() && matches!(e.domain, LoadDomain::SystemLib(_));
+                let had_data = e.data.is_some();
+                e.data = None;
+                e.fingerprint = 0;
+                if had_data {
+                    // A live identity became a tombstone — a def-space
+                    // change the next checkpoint must record.
+                    self.mutated.store(true, Ordering::Relaxed);
+                }
+                if was_live_system {
+                    self.system_index_remove(&key.ident.to_string(), e.kind, *id);
                 }
             }
         }
@@ -606,6 +726,7 @@ impl RegistryState {
         self.arena.clear();
         self.system_name_index.clear();
         self.member_ledgers.clear();
+        self.host_funcs.clear();
         self.next_def_id.store(0, Ordering::Relaxed);
         self.journal.lock().unwrap().clear();
         self.next_version.store(1, Ordering::Relaxed);
@@ -621,8 +742,11 @@ impl RegistryState {
     pub(crate) fn mark_all_tombstones(&self) {
         let keys: Vec<McSpaceName> = self.key_to_id.iter().map(|e| e.key().clone()).collect();
         for key in keys {
-            self.tombstone_key(&key);
+            self.tombstone_key(&key, DomainFilter::Any);
         }
+        // Function-template members are not in `key_to_id`; every host is
+        // dead after the key sweep, so bring their members down too.
+        self.sweep_orphan_funcs(DomainFilter::Any);
     }
 
     /// Build one versioned snapshot of the whole registry — every registered
@@ -738,21 +862,21 @@ impl RegistryState {
 
     /// Re-register a captured system-library segment (world restore). Host
     /// defs revive under their original [`DefId`] (D11 tombstone revival) and
-    /// their func entries are re-derived, mirroring
+    /// their func entries are re-derived from the identity this call revived
+    /// — never from a `def_id` re-resolve, which under T8's layered coexist
+    /// could see a shadowing layer. Mirrors
     /// [`RegistryState::restore_workspace`]. Called from
     /// `WorkspaceManager::restore_snapshot`.
     pub(crate) fn restore_system(&self, entries: Vec<SystemDefSnapshot>) {
         for e in entries {
+            let Some(host_id) = self.register(&e.sn, e.kind, &e.domain, &e.def) else {
+                continue;
+            };
             match &e.def {
                 DefValue::Component(_) | DefValue::Module(_) => {
-                    self.register(&e.sn, e.kind, &e.domain, &e.def);
-                    if let Some(host_id) = self.def_id(&e.sn, e.kind) {
-                        self.register_host_funcs(&e.sn, host_id, &e.def, &e.domain);
-                    }
+                    self.register_host_funcs(&e.sn, host_id, &e.def, &e.domain);
                 }
-                _ => {
-                    self.register(&e.sn, e.kind, &e.domain, &e.def);
-                }
+                _ => {}
             }
         }
     }
@@ -774,13 +898,12 @@ impl RegistryState {
         defines: &DashMap<McSpaceName, Arc<McDefineDef>>,
     ) {
         for e in components.iter() {
-            self.register(
+            if let Some(host_id) = self.register(
                 e.key(),
                 DefKind::Component,
                 &LoadDomain::Project,
                 &DefValue::Component(e.value().clone()),
-            );
-            if let Some(host_id) = self.def_id(e.key(), DefKind::Component) {
+            ) {
                 self.register_host_funcs(
                     e.key(),
                     host_id,
@@ -790,13 +913,12 @@ impl RegistryState {
             }
         }
         for e in modules.iter() {
-            self.register(
+            if let Some(host_id) = self.register(
                 e.key(),
                 DefKind::Module,
                 &LoadDomain::Project,
                 &DefValue::Module(e.value().clone()),
-            );
-            if let Some(host_id) = self.def_id(e.key(), DefKind::Module) {
+            ) {
                 self.register_host_funcs(
                     e.key(),
                     host_id,
@@ -806,7 +928,7 @@ impl RegistryState {
             }
         }
         for e in interfaces.iter() {
-            self.register(
+            let _ = self.register(
                 e.key(),
                 DefKind::Interface,
                 &LoadDomain::Project,
@@ -814,7 +936,7 @@ impl RegistryState {
             );
         }
         for e in enums.iter() {
-            self.register(
+            let _ = self.register(
                 e.key(),
                 DefKind::Enum,
                 &LoadDomain::Project,
@@ -822,7 +944,7 @@ impl RegistryState {
             );
         }
         for e in defines.iter() {
-            self.register(
+            let _ = self.register(
                 e.key(),
                 DefKind::Define,
                 &LoadDomain::Project,
@@ -856,9 +978,13 @@ impl RegistryState {
         }
     }
 
-    /// Re-sync the system name index after a registry entry's live domain
+    /// Re-sync the system name index after a registry entry's live state
     /// changes. `was_live_system` is the entry's live-system state BEFORE the
-    /// mutation; `now_domain` is its domain AFTER.
+    /// mutation; `now_domain` is its domain AFTER. Under T8's layered coexist
+    /// `register` never flips an entry's domain (the project shadow is a
+    /// separate identity), so only the add-on-revive branch fires today: a
+    /// tombstoned system entry revived in place re-enters the index; the
+    /// removal branch mirrors the tombstone flow in [`RegistryState::tombstone_key`].
     fn sync_system_index(
         &self,
         name: &str,
@@ -903,7 +1029,38 @@ fn filter_matches(domain: &LoadDomain, filter: DomainFilter) -> bool {
 }
 
 impl RegistryState {
-    /// The live value of one `(key, kind)` identity, any domain.
+    /// The live `DefId`s of one `(key, kind)` identity in read-preference
+    /// order. Under T8's layered coexist a key may hold a live system-lib
+    /// def AND a shadowing live project def; every-domain read resolves
+    /// workspace-first — the project layer comes before the system layer —
+    /// while inside each domain registration order is kept (a stable sort, so
+    /// lookups never depend on arena iteration order).
+    fn live_ids_of(&self, sn: &McSpaceName, kind: DefKind) -> Vec<DefId> {
+        let Some(ids) = self.key_to_id.get(sn) else {
+            return Vec::new();
+        };
+        let mut live: Vec<DefId> = ids
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.arena
+                    .get(id)
+                    .is_some_and(|e| e.kind == kind && e.data.is_some())
+            })
+            .collect();
+        live.sort_by_key(|id| {
+            let is_project = self
+                .arena
+                .get(id)
+                .is_some_and(|e| matches!(e.domain, LoadDomain::Project));
+            std::cmp::Reverse(is_project)
+        });
+        live
+    }
+
+    /// The live value of one `(key, kind)` identity, any domain. A live
+    /// project layer shadows a live same-key system-lib def (workspace-first,
+    /// T8) — the system layer stays addressable via the system-only views.
     fn live_entry(&self, sn: &McSpaceName, kind: DefKind) -> Option<DefValue> {
         self.live_entry_in(sn, kind, DomainFilter::Any)
     }
@@ -915,10 +1072,9 @@ impl RegistryState {
         kind: DefKind,
         filter: DomainFilter,
     ) -> Option<DefValue> {
-        let ids = self.key_to_id.get(sn)?;
-        for id in ids.iter() {
-            if let Some(e) = self.arena.get(id) {
-                if e.kind == kind && filter_matches(&e.domain, filter) {
+        for id in self.live_ids_of(sn, kind) {
+            if let Some(e) = self.arena.get(&id) {
+                if filter_matches(&e.domain, filter) {
                     return e.data.clone();
                 }
             }
@@ -934,35 +1090,53 @@ impl RegistryState {
     /// component / module / interface registration during lapper building —
     /// and therefore the order in which fresh symbol ids are allocated —
     /// nondeterministic.
+    ///
+    /// The any-domain (unified) view keeps the "one identity per `(uri,
+    /// ident)`" invariant under T8's layered coexist: a live project layer
+    /// shadows a live same-key system-lib def, so the shadowed system entry
+    /// is dropped from this view (the system-only view still lists it).
     fn enumerate(&self, kind: DefKind, filter: DomainFilter) -> Vec<(McSpaceName, DefValue)> {
-        let mut keyed: Vec<((Arc<str>, String), (McSpaceName, DefValue))> = self
-            .arena
-            .iter()
-            .filter(|e| e.kind == kind && e.data.is_some() && filter_matches(&e.domain, filter))
-            .map(|e| {
-                let sn = e.sn.clone();
-                (
-                    (sn.uri_string(), sn.ident.to_string()),
-                    (sn, e.data.clone().unwrap()),
-                )
-            })
-            .collect();
+        let mut keyed: Vec<((Arc<str>, String), (McSpaceName, DefValue))> = Vec::new();
+        // T8: keys whose project layer is live (so their system layer must
+        // not surface in the unified any-domain view).
+        let shadowed: HashSet<(Arc<str>, String)> = if filter == DomainFilter::Any {
+            self.arena
+                .iter()
+                .filter(|e| {
+                    e.kind == kind && e.data.is_some() && matches!(e.domain, LoadDomain::Project)
+                })
+                .map(|e| (e.sn.uri_string(), e.sn.ident.to_string()))
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        for e in self.arena.iter() {
+            if e.kind != kind || e.data.is_none() {
+                continue;
+            }
+            if !filter_matches(&e.domain, filter) {
+                continue;
+            }
+            if matches!(e.domain, LoadDomain::SystemLib(_))
+                && shadowed.contains(&(e.sn.uri_string(), e.sn.ident.to_string()))
+            {
+                continue;
+            }
+            let sn = e.sn.clone();
+            keyed.push((
+                (sn.uri_string(), sn.ident.to_string()),
+                (sn, e.data.clone().unwrap()),
+            ));
+        }
         keyed.sort_by(|a, b| a.0.cmp(&b.0));
         keyed.into_iter().map(|(_, item)| item).collect()
     }
 
-    /// The [`DefId`] of a live `(key, kind)` identity, any domain. Needed by
-    /// callers that address a def by id (host links of function templates).
+    /// The [`DefId`] of a live `(key, kind)` identity, any domain —
+    /// workspace-first under layered coexist (T8). Needed by callers that
+    /// address a def by id (host links of function templates).
     fn def_id(&self, sn: &McSpaceName, kind: DefKind) -> Option<DefId> {
-        let ids = self.key_to_id.get(sn)?;
-        for id in ids.iter() {
-            if let Some(e) = self.arena.get(id) {
-                if e.kind == kind && e.data.is_some() {
-                    return Some(*id);
-                }
-            }
-        }
-        None
+        self.live_ids_of(sn, kind).first().copied()
     }
 
     /// Look up a component by its `McSpaceName` (any domain).
@@ -1005,33 +1179,44 @@ impl RegistryState {
         }
     }
 
-    /// Look up a function-template addressing entry by its qualified key
-    /// `(uri, "HOST.NAME")` (design §12.1). The func-addressing surface of
-    /// Phase 4: exercised by the `func_entries_mirror_host_funcs_across_reload`
-    /// test today; Phase 7/9 diff work reads it.
-    fn get_func(&self, sn: &McSpaceName) -> Option<FuncDef> {
-        match self.live_entry(sn, DefKind::Func)? {
-            DefValue::Func(f) => Some(f),
+    /// Look up one live function-template member of a host def by its
+    /// structured `(host, name)` identity (T9, design §12.1): the host is
+    /// resolved by its class key, then the member by name — no qualified
+    /// text key is involved, so the result never depends on host-name
+    /// spelling.
+    fn func_of_host(&self, sn: &McSpaceName, host_kind: DefKind, name: &str) -> Option<FuncDef> {
+        let host_id = self.def_id(sn, host_kind)?;
+        let id = *self.host_funcs.get(&(host_id, name.to_string()))?;
+        match self.arena.get(&id)?.data.clone()? {
+            DefValue::Func(f) if f.host == host_id && f.name == name => Some(f),
             _ => None,
         }
     }
 
-    /// Every live function-template entry of a host def (design §12.1
+    /// Every live function-template member of a host def (design §12.1
     /// addressing) — mirrors the host's own `funcs` table, so callers can
-    /// assert consistency between the two. Same consumers as [`insert`]'s host
-    /// func registration.
+    /// assert consistency between the two. Sorted by member label so the
+    /// result never depends on map iteration order. Same consumers as
+    /// [`insert`]'s host func registration.
     fn funcs_of_host(&self, sn: &McSpaceName, host_kind: DefKind) -> Vec<(McSpaceName, FuncDef)> {
         let Some(host_id) = self.def_id(sn, host_kind) else {
             return Vec::new();
         };
-        let mut out = Vec::new();
-        for e in self.arena.iter() {
-            if let Some(DefValue::Func(f)) = &e.data {
-                if f.host == host_id {
-                    out.push((e.sn.clone(), f.clone()));
+        let mut out: Vec<(McSpaceName, FuncDef)> = self
+            .host_funcs
+            .iter()
+            .filter(|e| e.key().0 == host_id)
+            .filter_map(|e| {
+                let entry = self.arena.get(e.value())?;
+                match &entry.data {
+                    Some(DefValue::Func(f)) if f.host == host_id => {
+                        Some((entry.sn.clone(), f.clone()))
+                    }
+                    _ => None,
                 }
-            }
-        }
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.ident.to_string().cmp(&b.0.ident.to_string()));
         out
     }
 
@@ -1129,30 +1314,28 @@ impl RegistryState {
     /// Phase 6 visibility-table hit path resolves through here, and a miss
     /// keeps the caller's scope-chain fallback intact.
     fn cmie_by_identity(&self, sn: &McSpaceName) -> Option<McCMIE> {
-        let ids = self.key_to_id.get(sn)?;
         for kind in [
             DefKind::Component,
             DefKind::Module,
             DefKind::Interface,
             DefKind::Enum,
         ] {
-            for id in ids.iter() {
-                let Some(entry) = self.arena.get(id) else {
-                    continue;
-                };
-                if entry.kind != kind {
-                    continue;
-                }
-                let Some(def) = &entry.data else {
-                    continue;
-                };
-                match def {
-                    DefValue::Component(c) => return Some(McCMIE::Component(c.clone())),
-                    DefValue::Module(m) => return Some(McCMIE::Module(m.clone())),
-                    DefValue::Interface(i) => return Some(McCMIE::Interface(i.clone())),
-                    DefValue::Enum(e) => return Some(McCMIE::Enum(e.clone())),
-                    _ => {}
-                }
+            // Read-preference order (workspace-first under T8), first live id.
+            let Some(id) = self.live_ids_of(sn, kind).first().copied() else {
+                continue;
+            };
+            let Some(entry) = self.arena.get(&id) else {
+                continue;
+            };
+            let Some(def) = entry.data.as_ref() else {
+                continue;
+            };
+            match def {
+                DefValue::Component(c) => return Some(McCMIE::Component(c.clone())),
+                DefValue::Module(m) => return Some(McCMIE::Module(m.clone())),
+                DefValue::Interface(i) => return Some(McCMIE::Interface(i.clone())),
+                DefValue::Enum(e) => return Some(McCMIE::Enum(e.clone())),
+                _ => {}
             }
         }
         None
@@ -1397,21 +1580,28 @@ fn declaration_lines(def: &DefValue) -> Vec<String> {
 /// module parsing runs as a re-derive across parse rounds and replaces this
 /// file's prior entry instead of firing a spurious DUP_MODULE (the file-local
 /// duplicate check lives in `parse_pass1_modules`). A tombstoned key is
-/// revived with the new data under the same [`DefId`] (D11).
+/// revived with the new data under the same [`DefId`] (D11), and — under T8
+/// (M2) — a project def **shadows** a live same-key system-lib def as a
+/// second layered identity instead of destroying it (reads are
+/// workspace-first).
 ///
-/// The physical workspace/global tables are written in parallel as a
-/// compatibility materialization: the remaining direct readers of the global
-/// system tables (visibility gates, lib ledger) still read them, and the
-/// workspace lifecycle (snapshot / switch / clear) still owns them.
+/// The physical workspace/global tables are written in parallel as
+/// workspace-lifecycle state (snapshot / switch / clear / restore transport):
+/// no resolution path reads them anymore — the registry is the single read
+/// authority (T2 read-side migration).
 pub fn insert(sn: &McSpaceName, domain: LoadDomain, def: DefValue) -> InsertOutcome {
     let outcome = active().insert(sn, &domain, &def);
     write_physical(sn, &domain, def);
     outcome
 }
 
-/// Remove every definition of any kind whose defining file matches `uri`.
-/// The registry keeps each identity as a tombstone (deleted ≠ never existed);
-/// the physical tables drop the entries.
+/// Remove every definition of any kind whose defining file matches `uri`,
+/// across every domain. The registry keeps each identity as a tombstone
+/// (deleted ≠ never existed); the physical tables drop the entries. Used by
+/// the tests and generic cleanup; the loader's project-file removal and the
+/// lib-unload sweep use the domain-scoped entry points
+/// ([`remove_project_by_uri`] / [`remove_by_uris`]) so a shadowed layer
+/// survives as the read fallback (T8).
 pub fn remove_by_uri(uri: &str) {
     active().remove_by_uri(uri);
     remove_by_uri_from(&workspace::WORKSPACE.components, uri);
@@ -1421,8 +1611,23 @@ pub fn remove_by_uri(uri: &str) {
     remove_by_uri_from(&workspace::WORKSPACE.defines, uri);
 }
 
-/// Remove every definition whose defining file is one of `uris`
-/// (third-party-lib unload sweep).
+/// Remove the project-domain definitions of a deleted / re-parsed project
+/// source file. T8 (M2): only the project layer is tombstoned, so a live
+/// same-key system-lib def the project was shadowing survives as the read
+/// fallback — no mcode reload needed.
+pub(crate) fn remove_project_by_uri(uri: &str) {
+    active().remove_project_by_uri(uri);
+    remove_by_uri_from(&workspace::WORKSPACE.components, uri);
+    remove_by_uri_from(&workspace::WORKSPACE.modules, uri);
+    remove_by_uri_from(&workspace::WORKSPACE.interfaces, uri);
+    remove_by_uri_from(&workspace::WORKSPACE.enums, uri);
+    remove_by_uri_from(&workspace::WORKSPACE.defines, uri);
+}
+
+/// Remove every system-domain definition whose defining file is one of
+/// `uris` (system-lib unload sweep). T8 (M2): only the lib's own layer is
+/// tombstoned — a live project layer sharing a key (the workspace-first
+/// shadow) survives the unload.
 pub fn remove_by_uris(uris: &HashSet<String>) {
     active().remove_by_uris(uris);
     remove_by_uris_from(&workspace::WORKSPACE.components, uris);
@@ -1519,14 +1724,15 @@ pub(crate) fn sync_module_ports(sn: &McSpaceName, ports: &[(String, String)]) {
     active().sync_module_ports(sn, ports);
 }
 
-/// Look up a function-template addressing entry by its qualified key
-/// `(uri, "HOST.NAME")` (design §12.1).
+/// Look up one live function-template member of a host def by its structured
+/// `(host, name)` identity (design §12.1 / T9).
 #[allow(dead_code)]
-pub fn get_func(sn: &McSpaceName) -> Option<FuncDef> {
-    active().get_func(sn)
+pub fn func_of_host(sn: &McSpaceName, host_kind: DefKind, name: &str) -> Option<FuncDef> {
+    active().func_of_host(sn, host_kind, name)
 }
 
-/// Every live function-template entry of a host def (design §12.1 addressing).
+/// Every live function-template member of a host def (design §12.1
+/// addressing), sorted by member label.
 #[allow(dead_code)]
 pub fn funcs_of_host(sn: &McSpaceName, host_kind: DefKind) -> Vec<(McSpaceName, FuncDef)> {
     active().funcs_of_host(sn, host_kind)
@@ -1913,10 +2119,14 @@ pub struct SystemDefSnapshot {
 // Physical-table helpers (compatibility materialization)
 // ============================================================================
 
-/// Compatibility write into the physical workspace tables. Phase 5 keeps the
-/// system-library defs registry-only (see the module doc), so only project
-/// defs land here — plus modules from any domain, because module parsing runs
-/// over `WORKSPACE.mcodes` regardless of source domain (the module table is a
+/// Compatibility write into the physical workspace tables, kept purely as
+/// workspace-lifecycle transport (snapshot / switch / restore / clear) —
+/// no resolution, visibility, or ledger path reads these tables anymore
+/// (T2 read-side migration); they exist so a world switch can rebuild its
+/// registry from the snapshot's tables. Phase 5 keeps the system-library
+/// defs registry-only (see the module doc), so only project defs land here —
+/// plus modules from any domain, because module parsing runs over
+/// `WORKSPACE.mcodes` regardless of source domain (the module table is a
 /// per-world table, so this is still world-local). A lib's "use-only" sweep
 /// in `mcb_load_lib` tombstones its registry entries instead. Duplicates keep
 /// the existing value (occupied entry); modules always overwrite (re-derive).
@@ -2034,6 +2244,153 @@ mod tests {
         }))
     }
 
+    /// T12 (§2.5 member-boundary audit): the registry identity set is exactly
+    /// the six AST top-level class templates — component, module, interface,
+    /// enum, define, func. Labels and bus members are declaration structure
+    /// plus symbol-layer naming, never registry entries, so a seventh variant
+    /// here (or a removal) is a member-boundary drift and must fail loudly
+    /// instead of silently widening the ledger scope.
+    #[test]
+    fn registry_holds_exactly_six_def_kinds() {
+        // Shape assertion only — no registry mutation, so no parse lock. An
+        // exhaustive match (no wildcard) is the regression lock: adding or
+        // removing a `DefKind` variant stops compiling here until the
+        // §2.5 member-boundary audit is revisited explicitly.
+        let tag = |k: DefKind| match k {
+            DefKind::Component => "component",
+            DefKind::Module => "module",
+            DefKind::Interface => "interface",
+            DefKind::Enum => "enum",
+            DefKind::Define => "define",
+            DefKind::Func => "func",
+        };
+        assert_eq!(tag(DefKind::Func), "func");
+    }
+
+    /// T1 (G1 / D15.1): [`DefId`] allocation is a pure function of the
+    /// registration sequence — a fresh registry fed the same op sequence
+    /// assigns the same ids, ids advance contiguously in insertion order, and
+    /// no op (a duplicate, a tombstone, a world-wide tombstone round) makes
+    /// the numbering depend on map iteration order or skip/reuse an id. This
+    /// is what makes a world that reloads the same inputs in the same order
+    /// reproduce the same identity numbering across runs (checkpoint diffs
+    /// and def-member links stay comparable), and it is the contract callers
+    /// must feed deterministically ordered sequences into.
+    #[test]
+    fn def_id_allocation_is_deterministic_in_registration_order() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+
+        /// Replay one op sequence against a fresh registry and return the
+        /// resulting canonical-key → id-vector map (sorted for comparison).
+        fn replay(
+            ops: &[(McSpaceName, LoadDomain, DefValue)],
+        ) -> (Vec<(String, String, Vec<DefId>)>, RegistryState) {
+            let reg = RegistryState::default();
+            let mut outcome_log = Vec::new();
+            for (sn, domain, def) in ops {
+                outcome_log.push(reg.insert(sn, domain, def));
+            }
+            let mut keyed: Vec<(String, String, Vec<DefId>)> = reg
+                .key_to_id
+                .iter()
+                .map(|e| {
+                    (
+                        e.key().uri.to_string(),
+                        e.key().ident.to_string(),
+                        e.value().clone(),
+                    )
+                })
+                .collect();
+            keyed.sort();
+            (keyed, reg)
+        }
+
+        fn sn(name: &str, uri: &str) -> McSpaceName {
+            McSpaceName {
+                ident: crate::McIds::from(name),
+                uri: crate::semantic::common::uri_intern(uri),
+            }
+        }
+
+        let a = sn("T1_A", "/sys/t1_a.mc");
+        let b = sn("T1_B", "/sys/t1_b.mc");
+        let c = sn("T1_C", "/sys/t1_c.mc");
+        let d = sn("T1_D", "/sys/t1_d.mc");
+        let sys = LoadDomain::SystemLib("mcode".to_string());
+
+        // Replay the same op sequence on a fresh registry: identical
+        // (key → id-vector) numbering, with ids 0..n in insertion order. The
+        // duplicate of A in the sequence is rejected without consuming an id.
+        let replay_seq: Vec<(McSpaceName, LoadDomain, DefValue)> = vec![
+            (a.clone(), sys.clone(), sys_enum("T1_A", "/sys/t1_a.mc").1),
+            (b.clone(), sys.clone(), sys_enum("T1_B", "/sys/t1_b.mc").1),
+            (c.clone(), sys.clone(), sys_enum("T1_C", "/sys/t1_c.mc").1),
+            (d.clone(), sys.clone(), sys_enum("T1_D", "/sys/t1_d.mc").1),
+            // duplicate of A: rejected, no id consumed
+            (a.clone(), sys.clone(), sys_enum("T1_A", "/sys/t1_a.mc").1),
+        ];
+        let (keyed, reg) = replay(&replay_seq);
+        let ids: Vec<Vec<DefId>> = keyed.iter().map(|(_, _, ids)| ids.clone()).collect();
+        assert_eq!(ids, vec![vec![0], vec![1], vec![2], vec![3]]);
+        let (keyed2, _) = replay(&replay_seq);
+        assert_eq!(keyed, keyed2, "same sequence -> same id numbering");
+        assert_eq!(
+            reg.next_def_id.load(Ordering::Relaxed),
+            4,
+            "a duplicate consumes no id"
+        );
+
+        // Tombstone key A and revive it: the original id is reused (D11), the
+        // counter does not move, and fresh keys keep numbering without holes.
+        reg.remove_by_uri("/sys/t1_a.mc");
+        assert_eq!(
+            reg.insert(&a, &sys, &sys_enum("T1_A", "/sys/t1_a.mc").1),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(reg.key_to_id.get(&a).unwrap().value(), &vec![0]);
+        assert_eq!(
+            reg.next_def_id.load(Ordering::Relaxed),
+            4,
+            "a revive must reuse the id, not consume a new one"
+        );
+
+        // A world-wide tombstone round (mark_all_tombstones) followed by a
+        // restore in the same order revives every id in place (D11): no id
+        // moves, no counter advance — the numbering a fresh world reproduces
+        // is exactly the original one.
+        reg.mark_all_tombstones();
+        let before = reg.next_def_id.load(Ordering::Relaxed);
+        for (sn_k, dom, def) in [
+            (a.clone(), sys.clone(), sys_enum("T1_A", "/sys/t1_a.mc").1),
+            (b.clone(), sys.clone(), sys_enum("T1_B", "/sys/t1_b.mc").1),
+            (c.clone(), sys.clone(), sys_enum("T1_C", "/sys/t1_c.mc").1),
+            (d.clone(), sys.clone(), sys_enum("T1_D", "/sys/t1_d.mc").1),
+        ] {
+            assert_eq!(reg.insert(&sn_k, &dom, &def), InsertOutcome::Inserted);
+        }
+        assert_eq!(
+            reg.next_def_id.load(Ordering::Relaxed),
+            before,
+            "restores revive, never allocate"
+        );
+        let mut restored: Vec<(String, String, Vec<DefId>)> = reg
+            .key_to_id
+            .iter()
+            .map(|e| {
+                (
+                    e.key().uri.to_string(),
+                    e.key().ident.to_string(),
+                    e.value().clone(),
+                )
+            })
+            .collect();
+        restored.sort();
+        assert_eq!(
+            restored, keyed,
+            "world-restore numbering equals the original"
+        );
+    }
+
     /// T6 (G6) gold assertion: a same-`DefId` content edit is reported as
     /// `Modified` — the fingerprint closes the M4 content-blind gap (kind /
     /// key / domain alone cannot tell a re-parse with an edited body apart
@@ -2125,9 +2482,11 @@ mod tests {
 
     /// The system name index must stay exactly in sync with the registry's
     /// live system segment across the mutation points: fresh insert, tombstone
-    /// (lib unload sweep), tombstone revival (re-load), and the workspace-first
-    /// project shadow. Uses a unique name/uri so parallel lib tests are never
-    /// disturbed.
+    /// (lib unload sweep), tombstone revival (re-load), and the T8 (M2)
+    /// project shadow — a shadow layers a second identity without destroying
+    /// the system entry, so the index keeps the system hit and a project-layer
+    /// removal falls back to it. Uses a unique name/uri so parallel lib tests
+    /// are never disturbed.
     #[test]
     fn system_name_index_tracks_live_system_entries() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
@@ -2167,20 +2526,189 @@ mod tests {
             "revived system def re-indexed"
         );
 
-        // 4. A project def shadows the system def (workspace-first): the
-        // identity leaves the system segment and the index with it.
+        // 4. A project def shadows the system def (T8): the system entry
+        // stays live and indexed — the shadow is read-side precedence, not
+        // destruction.
+        assert_eq!(
+            insert(&sn, LoadDomain::Project, def.clone()),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            system_name_hits(NAME).len(),
+            1,
+            "shadowing keeps the system hit (only the read side is workspace-first)"
+        );
+        assert!(system_contains(&sn), "the system def survives the shadow");
+
+        // 5. Deleting the project source file (project-layer removal) falls
+        // back to the intact system def: the system hit never left the index.
+        active().remove_project_by_uri(URI);
+        assert_eq!(
+            system_name_hits(NAME).len(),
+            1,
+            "system layer survives the project-layer removal"
+        );
+        assert!(
+            system_contains(&sn),
+            "identity falls back to the system def"
+        );
+
+        // 6. Re-adding the project def revives the shadow under its original
+        // project-layer id; the system layer is untouched throughout.
+        assert_eq!(
+            insert(&sn, LoadDomain::Project, def.clone()),
+            InsertOutcome::Inserted
+        );
+        active().remove_project_by_uri(URI);
+        assert!(system_contains(&sn), "still the system def after cleanup");
+
+        // Leave no residue for parallel tests.
+        remove_by_uri(URI);
+    }
+
+    /// T2 (G2) read-authority regression: the physical workspace tables are
+    /// lifecycle transport only — no read path consults them. Drop the mirror
+    /// row of a live project def and every read (typed view + registry
+    /// enumeration) must still resolve it from the registry. If a future
+    /// change re-points a reader at the physical tables, this test fails.
+    #[test]
+    fn registry_is_the_read_authority_not_the_physical_mirror() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        const NAME: &str = "T2_READ_AUTHORITY_GOLD";
+        const URI: &str = "/t2/read_authority.mc";
+        let (sn, def) = sys_enum(NAME, URI);
+
+        // Project def: mirrored into the workspace table AND registered.
         assert_eq!(
             insert(&sn, LoadDomain::Project, def.clone()),
             InsertOutcome::Inserted
         );
         assert!(
-            system_name_hits(NAME).is_empty(),
-            "project shadowing evicts the system hit"
+            workspace::WORKSPACE.enums.contains_key(&sn),
+            "precondition: the project def is mirrored into the workspace table"
         );
-        assert!(!system_contains(&sn), "the identity is a project def now");
+
+        // Simulate the mirror being stale / absent (a world whose lifecycle
+        // transport never saw this row): drop the physical row only.
+        workspace::WORKSPACE.enums.remove(&sn);
+
+        // The registry is the read authority: every read still resolves.
+        assert!(
+            crate::definition_space().get_enum(&sn).is_some(),
+            "typed view resolves from the registry without the physical row"
+        );
+        assert!(
+            workspace_enums().iter().any(|(k, _)| k == &sn),
+            "workspace enumeration is registry-backed, not table-backed"
+        );
+        assert!(
+            crate::definition_space()
+                .all_enums()
+                .iter()
+                .any(|(k, _)| k == &sn),
+            "unified enumeration is registry-backed, not table-backed"
+        );
 
         // Leave no residue for parallel tests.
         remove_by_uri(URI);
+    }
+
+    /// T9 (N1): function-template members are host-anchored — their identity
+    /// is the structured `(host DefId, func name)` pair in `host_funcs`, not
+    /// a flattened `(uri, "HOST.NAME")` text key in `key_to_id`. A member
+    /// row survives a tombstone/revive round under its original id (D11),
+    /// and same-named members of different hosts are isolated rows.
+    #[test]
+    fn func_members_are_host_anchored_not_text_keyed() {
+        let reg = RegistryState::default();
+        const URI: &str = "/mcc/t9_funcs.mc";
+        let (esn, edef) = sys_enum("T9_HOST", URI);
+        let sys = LoadDomain::SystemLib("mcode".to_string());
+        let host_sn = McSpaceName {
+            ident: crate::McIds::from("T9_HOST"),
+            uri: esn.uri.clone(),
+        };
+
+        // One real (non-func) identity so `key_to_id` is non-empty, then func
+        // members for two host ids (the host rows are irrelevant to member
+        // identity — a member only needs the host DefId).
+        let host_id = reg.register(&esn, DefKind::Enum, &sys, &edef).unwrap();
+        let other_id = host_id + 1;
+        reg.register_func_member(&host_sn, host_id, "Cap", &sys);
+        reg.register_func_member(&host_sn, host_id, "Extra", &sys);
+        reg.register_func_member(&host_sn, other_id, "Cap", &sys);
+
+        // Func members never entered `key_to_id`: registering them added no
+        // text-qualified "HOST.NAME" keys.
+        assert_eq!(
+            reg.key_to_id.len(),
+            1,
+            "func members add no key_to_id entries"
+        );
+        assert_eq!(
+            reg.host_funcs.len(),
+            3,
+            "one structured (host, name) member per registered func"
+        );
+
+        // Same-named members of different hosts are isolated rows.
+        let cap_a = *reg.host_funcs.get(&(host_id, "Cap".to_string())).unwrap();
+        let extra_a = *reg.host_funcs.get(&(host_id, "Extra".to_string())).unwrap();
+        let cap_b = *reg.host_funcs.get(&(other_id, "Cap".to_string())).unwrap();
+        assert_ne!(cap_a, extra_a, "distinct members get distinct rows");
+        assert_ne!(
+            cap_a, cap_b,
+            "same-named members of different hosts are isolated"
+        );
+
+        // Scoped inspection of one member row: the row carries a FuncDef
+        // whose host link and name are the structured identity, plus a
+        // qualified display label. The scope ends the arena read guard
+        // before the tombstone/revive round below writes back into the same
+        // map (a held read guard would self-deadlock the later `get_mut`).
+        {
+            let row = reg.arena.get(&cap_a).unwrap();
+            assert_eq!(row.kind, DefKind::Func);
+            assert_eq!(
+                row.sn.ident.to_string(),
+                "T9_HOST.Cap",
+                "display label only"
+            );
+            match row.data.as_ref().unwrap() {
+                DefValue::Func(f) => {
+                    assert_eq!(f.host, host_id);
+                    assert_eq!(f.name, "Cap");
+                }
+                _ => panic!("a func member row carries a FuncDef"),
+            }
+        }
+
+        // A func-drop round (host re-derive): the stale sweep tombstones the
+        // whole host's member rows (the removed member stays dead), then the
+        // survivor is re-registered in place under its original row id (D11)
+        // — the same flow `register_host_funcs` drives on every host insert /
+        // restore. The other host's same-named member is untouched.
+        reg.arena.get_mut(&extra_a).unwrap().data = None;
+        reg.arena.get_mut(&cap_a).unwrap().data = None;
+        reg.register_func_member(&host_sn, host_id, "Cap", &sys);
+        assert_eq!(
+            *reg.host_funcs.get(&(host_id, "Cap".to_string())).unwrap(),
+            cap_a,
+            "survivor revives under its original member id (D11)"
+        );
+        assert!(
+            reg.arena.get(&cap_a).unwrap().data.is_some(),
+            "the revived member is live again"
+        );
+        assert!(
+            reg.arena.get(&extra_a).unwrap().data.is_none(),
+            "the removed member stays tombstoned"
+        );
+        assert_eq!(
+            *reg.host_funcs.get(&(other_id, "Cap".to_string())).unwrap(),
+            cap_b,
+            "the other host's same-named member is untouched"
+        );
     }
 
     /// Monotonic suffix so parallel test threads never collide on a temp file
@@ -2310,11 +2838,13 @@ mod tests {
         remove_by_uri(URI);
     }
 
-    /// Phase 9 golden diff: a def appearing (Added), shadowing across worlds
-    /// (Modified), disappearing (Removed) and reviving (Added) must be
-    /// reported per stable [`DefId`], and the touched files must be
-    /// answerable. Assertions filter by this test's uri because lib tests run
-    /// in parallel and share the registry.
+    /// Phase 9 golden diff under T8 (M2) layered coexist: a def appearing
+    /// (Added), a project layer shadowing a live system def (Added, second
+    /// layered identity), the project layer disappearing again (Removed —
+    /// the system def never left the diff's "live" side), and the project
+    /// layer reviving (Added) — all per stable [`DefId`]. The touched files
+    /// must be answerable. Assertions filter by this test's uri because lib
+    /// tests run in parallel and share the registry.
     #[test]
     fn checkpoint_diff_reports_add_remove_modify() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
@@ -2342,19 +2872,22 @@ mod tests {
         );
         let t2 = checkpoint();
 
-        // A project def shadows the same identity (workspace-first): the same
-        // DefId stays live but its world changes -> Modified.
+        // A project def shadows the same identity (T8): the system def keeps
+        // its own identity untouched, and a NEW project-layer identity is
+        // added under the key — not a Modified domain flip.
         assert_eq!(
             insert(&sn, LoadDomain::Project, def.clone()),
             InsertOutcome::Inserted
         );
         let t3 = checkpoint();
 
-        // Unload sweep tombstones it: live -> dead -> Removed.
-        remove_by_uri(URI);
+        // Deleting the project source file (project-layer removal) tombstones
+        // only the project layer: the system def stays live.
+        active().remove_project_by_uri(URI);
         let t4 = checkpoint();
 
-        // Re-load revives it under the same key: dead -> live -> Added.
+        // Re-adding the project file revives the project layer under its
+        // original id: dead -> live -> Added.
         assert_eq!(
             insert(&sn, LoadDomain::Project, def.clone()),
             InsertOutcome::Inserted
@@ -2371,22 +2904,28 @@ mod tests {
         assert!(d1[0].before.is_none());
 
         let d2 = ours(diff_versions(&t2, &t3));
-        assert_eq!(d2.len(), 1, "one def modified");
-        assert_eq!(d2[0].kind, DefChangeKind::Modified);
-        assert_eq!(d2[0].id, d1[0].id, "the same DefId across checkpoints");
-        assert_eq!(d2[0].before.as_ref().unwrap().domain, system);
+        assert_eq!(d2.len(), 1, "one def added");
+        assert_eq!(d2[0].kind, DefChangeKind::Added);
+        assert_ne!(
+            d2[0].id, d1[0].id,
+            "the project layer is a second, layered identity — the system def is untouched"
+        );
+        assert!(d2[0].before.is_none());
         assert_eq!(d2[0].after.as_ref().unwrap().domain, LoadDomain::Project);
 
         let d3 = ours(diff_versions(&t3, &t4));
         assert_eq!(d3.len(), 1, "one def removed");
         assert_eq!(d3[0].kind, DefChangeKind::Removed);
-        assert_eq!(d3[0].id, d1[0].id, "the same DefId stayed a tombstone");
+        assert_eq!(d3[0].id, d2[0].id, "only the project layer was tombstoned");
         assert_eq!(d3[0].after.as_ref().unwrap().alive, false);
+        // The system layer under the same key is still alive on both sides,
+        // so it does not appear in the diff at all.
+        assert!(t4.entries.iter().any(|e| e.id == d1[0].id && e.alive));
 
         let d4 = ours(diff_versions(&t4, &t5));
         assert_eq!(d4.len(), 1, "one def revived");
         assert_eq!(d4[0].kind, DefChangeKind::Added);
-        assert_eq!(d4[0].id, d1[0].id, "revival reuses the stable DefId");
+        assert_eq!(d4[0].id, d2[0].id, "revival reuses the stable DefId");
 
         // "Which files changed" is answerable from the diff.
         assert_eq!(changed_files(&d4), vec![URI.to_string()]);

@@ -45,6 +45,7 @@ use crate::db::diagnostic::diagnostic::{
 };
 use crate::db::diagnostic::errcodes;
 use crate::db::infra::mc_use::{McUse, McUsePrefix};
+use crate::semantic::common::uri_intern;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::{ast::macros::*, ast::node::AstNode};
@@ -2741,7 +2742,10 @@ impl McCode {
         // Layer 2 (shared DeclareId matching) now built inline at end of create_lapper.
 
         // ── Name index (Use table §5): P5 → P4 → P3 order ──
-        // Later insertions overwrite earlier ones, so lowest priority first.
+        // Every same-name def is kept as a layered candidate (never a silent
+        // overwrite); reads pick the deterministic winner by layer and kind
+        // (see RefDefMap::get_by_name). Exact duplicates are skipped so a
+        // system name re-exported through a use chain is not double-listed.
         {
             // P5: mcode system library — register from global tables
             use crate::ast::sem::CmieKind;
@@ -2768,8 +2772,12 @@ impl McCode {
                     cmie_kind,
                     def_name: name.to_string(),
                 };
-                map.name_index
-                    .insert((self.uri.to_string(), name.to_string()), entry);
+                map.add_name_candidate(
+                    &self.uri,
+                    name,
+                    crate::refdef::types::NameLayer::System,
+                    entry,
+                );
             };
             for (sn, c) in crate::db::defregistry::system_components() {
                 let name = sn.ident.to_string();
@@ -2821,9 +2829,22 @@ impl McCode {
             }
 
             // P4: use chain (medium priority, overwrites P5)
-            // ★ Fix: target_map entry indices point into target_map.entries,
-            // not self.entries. We must copy the entry data (re-interning file/container)
-            // and register the new index in self's name_index.
+            // ★ T11 (N3): materialize the P4 layer by mirroring the finished
+            // phase-6 `spacenames` (derived in parse_nsp from `uselist` +
+            // `as_id` / `impt_ids`). Every import form's shadowing is already
+            // applied there, so the visible-key set below is exactly what
+            // pre-consolidation resolution sees:
+            //   - `use X as A` re-exposes the target's own CMIEs — the
+            //     alphabetically-first one under the bare alias `A` (its
+            //     original name stays hidden), the rest under their original
+            //     names — and never cascades the target's imports;
+            //   - named imports expose only the listed symbols;
+            //   - default imports cascade the dependency's visible set.
+            // Registering the whole target bucket set (as the previous code
+            // did) leaked names phase-6 keeps hidden (an aliased first
+            // CMIE's original name, unlisted symbols, shadowed imports) and
+            // never registered the bare alias key, so the consolidated
+            // name_index disagreed with pre-consolidation visibility.
             for mc_use in &self.uselist {
                 let target_uri = crate::build::pass1::canonicalize_project_uri(&mc_use.uri);
                 // ★ §7.6: Register reverse dependency — "self uses target"
@@ -2834,60 +2855,98 @@ impl McCode {
                 if !deps.contains(&self.uri) {
                     deps.push(self.uri.clone());
                 }
-                if let Some(target_file) = workspace::WORKSPACE.mcodes.get(&target_uri) {
-                    if let Ok(target_sym) = target_file.symbols.lock() {
-                        if let Some(ref target_map) = target_sym.ref_def_map {
-                            for ((_target_uri, name), src_entry) in &target_map.name_index {
-                                let src_uri = crate::semantic::common::uri_of_file_id(
-                                    src_entry.def_loc.file_id,
-                                );
-                                let src_container = if src_entry.def_loc.container_id != u32::MAX {
-                                    target_map
-                                        .containers
-                                        .get(src_entry.def_loc.container_id as usize)
-                                        .map(|c| c.as_str())
-                                        .unwrap_or("")
-                                } else {
-                                    ""
-                                };
-                                let new_fid = if src_uri.is_empty() {
-                                    map.intern_file(&self.uri)
-                                } else {
-                                    map.intern_file(&McURI::from(src_uri.as_ref()))
-                                };
-                                let new_cid = map.intern_container(src_container);
-                                let entry = RefDefEntry {
-                                    ref_kind: src_entry.ref_kind,
-                                    ref_id: src_entry.ref_id,
-                                    def_loc: SourceLocation {
-                                        file_id: new_fid,
-                                        container_id: new_cid,
-                                        func_id: 0,
-                                        byte_start: src_entry.def_loc.byte_start,
-                                        byte_end: src_entry.def_loc.byte_end,
-                                    },
-                                    def_kind: src_entry.def_kind,
-                                    cmie_kind: src_entry.cmie_kind,
-                                    def_name: src_entry.def_name.clone(),
-                                };
-                                // Register original name (P4)
-                                map.name_index.insert(
-                                    (self.uri.to_string(), name.to_string()),
-                                    entry.clone(),
-                                );
-                                // ★ §5.1 use as alias: e.g. `use ./helper as h`
-                                if let Some(ref alias) = mc_use.as_id {
-                                    let aliased = format!("{alias}.{name}");
-                                    map.name_index
-                                        .insert((self.uri.to_string(), aliased), entry);
-                                }
-                            }
-                        }
-                    }
+            }
+
+            // P4 candidates: every imported key of this file's spacenames,
+            // carrying the def identity its owner file resolves that name to
+            // (the def's file/span/kind are copied with re-interned ids).
+            let self_uri_str = crate::build::pass1::canonicalize_project_uri(&self.uri);
+            let self_id = uri_intern(&self_uri_str);
+            for (key, sn) in &self.spacenames {
+                // Own-file names are registered by the P3 section below;
+                // only imports (the def lives in another file) enter P4.
+                if sn.uri == self_id {
+                    continue;
+                }
+                let owner_uri = sn.uri.as_uri();
+                let Some(owner_file) = workspace::WORKSPACE.mcodes.get(owner_uri.as_ref()) else {
+                    continue;
+                };
+                // The def's own name, its owner container and byte span are
+                // copied out of the owner map inside this scope so the symbol
+                // guard is dropped before the (borrowed) owner_file is.
+                let copied: Option<(u32, String, u32, u32, u8, SymbolKind, String)> = {
+                    let Ok(owner_sym) = owner_file.symbols.lock() else {
+                        continue;
+                    };
+                    let Some(ref owner_map) = owner_sym.ref_def_map else {
+                        continue;
+                    };
+                    let ident = sn.ident.to_string();
+                    let Some(src_entry) = owner_map.get_by_name(owner_uri.as_ref(), &ident) else {
+                        continue;
+                    };
+                    let src_container = if src_entry.def_loc.container_id != u32::MAX {
+                        owner_map
+                            .containers
+                            .get(src_entry.def_loc.container_id as usize)
+                            .map(|c| c.as_str())
+                            .unwrap_or("")
+                    } else {
+                        ""
+                    };
+                    Some((
+                        src_entry.def_loc.file_id,
+                        src_container.to_string(),
+                        src_entry.def_loc.byte_start,
+                        src_entry.def_loc.byte_end,
+                        src_entry.cmie_kind,
+                        src_entry.def_kind,
+                        src_entry.def_name.clone(),
+                    ))
+                };
+                if let Some((
+                    src_fid,
+                    src_container,
+                    byte_start,
+                    byte_end,
+                    cmie_kind,
+                    def_kind,
+                    def_name,
+                )) = copied
+                {
+                    let src_uri = crate::semantic::common::uri_of_file_id(src_fid);
+                    let new_fid = if src_uri.is_empty() {
+                        map.intern_file(&self.uri)
+                    } else {
+                        map.intern_file(&McURI::from(src_uri.as_ref()))
+                    };
+                    let new_cid = map.intern_container(&src_container);
+                    let entry = RefDefEntry {
+                        ref_kind: SymbolKind::ClassDef,
+                        ref_id: 0,
+                        def_loc: SourceLocation {
+                            file_id: new_fid,
+                            container_id: new_cid,
+                            func_id: 0,
+                            byte_start,
+                            byte_end,
+                        },
+                        def_kind,
+                        cmie_kind,
+                        def_name,
+                    };
+                    map.add_name_candidate(
+                        &self.uri,
+                        &key.to_string(),
+                        crate::refdef::types::NameLayer::Use,
+                        entry,
+                    );
                 }
             }
 
-            // P3: own file CMIE defs (highest priority, overwrites P4+P5)
+            // P3: own file CMIE defs (highest priority — layer Own outranks the
+            // P4/P5 candidates already accumulated in each bucket)
             // Need to re-acquire GlobalSymbolTable lock to read class defs
             if let Ok(sem) = self.symbols.lock() {
                 if let Ok(gt) = sem.global_table.lock() {
@@ -2909,7 +2968,12 @@ impl McCode {
                                 cmie_kind: crate::ast::sem::CmieKind::UNKNOWN,
                                 def_name: class_name.to_string(),
                             };
-                            map.add_name_alias(&self.uri, &class_name.to_string(), entry);
+                            map.add_name_candidate(
+                                &self.uri,
+                                &class_name.to_string(),
+                                crate::refdef::types::NameLayer::Own,
+                                entry,
+                            );
                         }
                     }
                     for ((def_uri, class_name), class_id) in &gt.enum_class_name_to_id {
@@ -2932,7 +2996,12 @@ impl McCode {
                                 cmie_kind: CmieKind::Enum as u8,
                                 def_name: class_name.to_string(),
                             };
-                            map.add_name_alias(&self.uri, &class_name.to_string(), entry);
+                            map.add_name_candidate(
+                                &self.uri,
+                                &class_name.to_string(),
+                                crate::refdef::types::NameLayer::Own,
+                                entry,
+                            );
                         }
                     }
                 }
@@ -6169,11 +6238,12 @@ mod tests {
     use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
 
     /// Phase 4 (defspace §12.1 / §13.6 delta 1): component methods and module
-    /// funcs register as function-template addressing entries — a stable
-    /// [`DefId`] plus a host link — while the `McFunction` stays embedded in
-    /// the host's `funcs` table (dispatch keeps using `host.funcs.find`).
-    /// The entries mirror the host's funcs across reloads (tombstone +
-    /// revive, D11) and key by the qualified name `"HOST.NAME"`.
+    /// funcs register as function-template members — a stable [`DefId`] plus
+    /// a host link — while the `McFunction` stays embedded in the host's
+    /// `funcs` table (dispatch keeps using `host.funcs.find`).
+    /// T9 (N1): the members mirror the host's funcs across reloads (tombstone
+    /// + revive, D11) and are addressed through the host→func edge — funcs
+    /// of different hosts are isolated even when they share a name.
     #[test]
     fn func_entries_mirror_host_funcs_across_reload() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
@@ -6197,10 +6267,21 @@ component CAP(cap::INT) {
     }
 }
 
+component CAP2(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([a, b]) {
+        a - this - b
+    }
+}
+
 module main
 {
     io VDD
     CAP U1
+    CAP2 U2
 }
 "#;
         crate::mcc_load_from_string(&uri, v1);
@@ -6210,11 +6291,18 @@ module main
             ident: McIds::from("CAP"),
             uri: uri_id,
         };
+        let cap2_sn = McSpaceName {
+            ident: McIds::from("CAP2"),
+            uri: uri_id,
+        };
         let host_id =
             crate::db::defregistry::def_id(&cap_sn, crate::db::defregistry::DefKind::Component)
                 .expect("host component has a DefId");
+        let host_id2 =
+            crate::db::defregistry::def_id(&cap2_sn, crate::db::defregistry::DefKind::Component)
+                .expect("second host component has a DefId");
 
-        // 1. Entries mirror the host's funcs: qualified keys, host links.
+        // 1. Members mirror the host's funcs and link to the host DefId.
         let funcs = crate::db::defregistry::funcs_of_host(
             &cap_sn,
             crate::db::defregistry::DefKind::Component,
@@ -6226,23 +6314,58 @@ module main
             vec!["Cap".to_string(), "Extra".to_string()],
             "func entries mirror the host's funcs table"
         );
-        for (fsn, f) in &funcs {
+        for (_, f) in &funcs {
             assert_eq!(f.host, host_id, "every entry links to the host DefId");
-            assert_eq!(
-                fsn.ident.to_string(),
-                format!("CAP.{}", f.name),
-                "entries key by the qualified name HOST.NAME"
-            );
         }
-        let cap_cap_sn = McSpaceName {
-            ident: McIds::from("CAP.Cap"),
-            uri: uri_id,
-        };
-        let cap_entry = crate::db::defregistry::get_func(&cap_cap_sn)
-            .expect("qualified func key resolves by name");
 
-        // 2. Reload with one method removed: the stale entry is tombstoned
-        //    and the survivor revives under its original DefId.
+        // 2. Same-named funcs of different hosts are isolated: CAP's Cap and
+        //    CAP2's Cap are distinct members addressed through their own
+        //    host→func edge, never a shared "HOST.NAME" text key.
+        let funcs2 = crate::db::defregistry::funcs_of_host(
+            &cap2_sn,
+            crate::db::defregistry::DefKind::Component,
+        );
+        assert_eq!(
+            funcs2
+                .iter()
+                .map(|(_, f)| f.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Cap"],
+            "CAP2 has its own Cap member"
+        );
+        assert!(
+            funcs2.iter().all(|(_, f)| f.host == host_id2),
+            "CAP2's funcs link to the CAP2 host DefId, not CAP's"
+        );
+
+        let cap_entry = crate::db::defregistry::func_of_host(
+            &cap_sn,
+            crate::db::defregistry::DefKind::Component,
+            "Cap",
+        )
+        .expect("structured (host, name) lookup resolves CAP.Cap");
+        assert_eq!(cap_entry.name, "Cap");
+        assert_eq!(cap_entry.host, host_id);
+        let cap2_entry = crate::db::defregistry::func_of_host(
+            &cap2_sn,
+            crate::db::defregistry::DefKind::Component,
+            "Cap",
+        )
+        .expect("structured (host, name) lookup resolves CAP2.Cap");
+        assert_eq!(cap2_entry.host, host_id2, "CAP2.Cap belongs to CAP2");
+        assert_eq!(
+            crate::db::defregistry::func_of_host(
+                &cap_sn,
+                crate::db::defregistry::DefKind::Component,
+                "Extra",
+            )
+            .map(|f| f.name),
+            Some("Extra".to_string()),
+            "Extra resolves under CAP before the reload"
+        );
+
+        // 3. Reload with one method removed: the stale entry is tombstoned
+        //    and the survivor revives under its original host DefId.
         let v2 = r#"
 component CAP(cap::INT) {
     pins = [
@@ -6255,10 +6378,21 @@ component CAP(cap::INT) {
     }
 }
 
+component CAP2(cap::INT) {
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+    func Cap([a, b]) {
+        a - this - b
+    }
+}
+
 module main
 {
     io VDD
     CAP U1
+    CAP2 U2
 }
 "#;
         crate::mcc_load_from_string(&uri, v2);
@@ -6275,11 +6409,34 @@ module main
             vec!["Cap"],
             "the removed func's entry is tombstoned; the survivor stays live"
         );
-        let cap_entry2 =
-            crate::db::defregistry::get_func(&cap_cap_sn).expect("surviving func entry revives");
+        let cap_entry2 = crate::db::defregistry::func_of_host(
+            &cap_sn,
+            crate::db::defregistry::DefKind::Component,
+            "Cap",
+        )
+        .expect("surviving func member revives after the reload");
         assert_eq!(
             cap_entry.host, cap_entry2.host,
             "the surviving func keeps its host DefId across the reload (D11)"
+        );
+        assert!(
+            crate::db::defregistry::func_of_host(
+                &cap_sn,
+                crate::db::defregistry::DefKind::Component,
+                "Extra",
+            )
+            .is_none(),
+            "the removed func member stays tombstoned"
+        );
+        let cap2_entry2 = crate::db::defregistry::func_of_host(
+            &cap2_sn,
+            crate::db::defregistry::DefKind::Component,
+            "Cap",
+        )
+        .expect("CAP2's Cap member revives too");
+        assert_eq!(
+            cap2_entry.host, cap2_entry2.host,
+            "CAP2 keeps its host DefId across the reload"
         );
     }
 
@@ -6630,14 +6787,17 @@ module main
         let h = crate::lsp::hover::hover("CAP", &uri, Some(enum_ref));
         assert!(h.is_none(), "unresolved position must not fall back: {h:?}");
 
-        // Name-based path (no position) is inherently ambiguous for same-name
-        // defs — its result depends on name_index registration order. It
-        // exists only for legacy callers; the position-aware path is the
-        // authoritative one.
+        // Name-based path (no position): the name_index bucket keeps both
+        // same-name defs as candidates and picks the deterministic winner —
+        // the enum-kind def outranks the same-named class (family rule,
+        // preserving the historical single-slot result where the enum owned
+        // the name), so the bare name resolves to the enum regardless of
+        // declaration order. The position-aware path remains the
+        // authoritative one for precise spans.
         let h = crate::lsp::hover::hover("CAP", &uri, None).expect("hover without position");
-        assert!(
-            h["kind"] == "component" || h["kind"] == "enum",
-            "name-based must return a same-name kind: {h}"
+        assert_eq!(
+            h["kind"], "enum",
+            "name-based winner must be the enum-kind def: {h}"
         );
     }
 
@@ -7228,6 +7388,111 @@ module main
         assert_eq!(member("A"), Some(DefMemberId(0)));
         assert_eq!(member("B"), Some(DefMemberId(1)));
         assert_eq!(member("X"), None, "the removed port retires");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// T11 (N3): the consolidated P4 layer mirrors the phase-6 `spacenames`,
+    /// so the post-consolidation name_index and the LSP goto-def path resolve
+    /// a `use X as A` alias exactly like pre-consolidation module parsing did.
+    /// The alias bucket entry must carry the def's real declared name (the
+    /// first-CMIE module), the hidden original name must stay absent from the
+    /// importer's index, and the second CMIE keeps its own bucket.
+    #[test]
+    fn alias_p4_name_index_and_gotodef_agree_with_phase6() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-t11-alias-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // `target` sorts before `zeta`, so the alias `tgt` binds to `target`.
+        let tgt_path = dir.join("alias_target.mc");
+        std::fs::write(
+            &tgt_path,
+            "module target {\n    func init() {\n    }\n}\n\nmodule zeta {\n    func init() {\n    }\n}\n",
+        )
+        .unwrap();
+        let user_path = dir.join("alias_user.mc");
+        std::fs::write(
+            &user_path,
+            "use ./alias_target.mc as tgt\n\nmodule main {\n}\n",
+        )
+        .unwrap();
+
+        crate::mcc_set_project_root(&dir);
+        let user = crate::McURI::from(
+            std::fs::canonicalize(&user_path)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let tgt_uri = std::fs::canonicalize(&tgt_path)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        crate::mcc_load_project(&user);
+
+        // The importer's name_index carries the alias key only (mirror of the
+        // phase-6 spacenames): `tgt` → the def named `target` in the target
+        // file; the hidden original name is absent.
+        let user_file = workspace::WORKSPACE.mcodes.get(&user).expect("user loaded");
+        let (alias_name, alias_file) = {
+            let sem = user_file.symbols.lock().expect("symbols lock");
+            let map = sem.ref_def_map.as_ref().expect("consolidated map");
+            let alias = map
+                .get_by_name(&user, "tgt")
+                .expect("alias key present in the importer's name_index");
+            let alias_file =
+                crate::semantic::common::uri_of_file_id(alias.def_loc.file_id).to_string();
+            (alias.def_name.clone(), alias_file)
+        };
+        assert_eq!(
+            alias_name, "target",
+            "alias entry carries the real def name"
+        );
+        assert_eq!(alias_file, tgt_uri, "alias entry points at the target file");
+        assert!(
+            user_file
+                .symbols
+                .lock()
+                .expect("symbols lock 2")
+                .ref_def_map
+                .as_ref()
+                .expect("consolidated map 2")
+                .get_by_name(&user, "target")
+                .is_none(),
+            "the first CMIE's original name stays hidden from the importer"
+        );
+
+        // The post-consolidation read path (map) resolves the alias to the
+        // first CMIE's module, and LSP name lookup follows the same view.
+        let resolved =
+            crate::db::resolve::Resolver::resolve_class(&user, &crate::McIds::from("tgt"))
+                .expect("alias resolves post-consolidation");
+        assert!(
+            matches!(resolved, crate::McCMIE::Module(m) if m.name.to_string() == "target"),
+            "alias must resolve to module target"
+        );
+        // The hidden original name must not resolve from the importer either:
+        // the consolidated map is authoritative for a loaded file, so the
+        // reachability-based use-chain walk must not resurrect it.
+        assert!(
+            crate::db::resolve::Resolver::resolve_class(&user, &crate::McIds::from("target"))
+                .is_none(),
+            "the original first-CMIE name must not resolve from the importer"
+        );
+
+        let (cmie, uri) = crate::lsp::gotodef::find_def_by_name_in_file("tgt", &user)
+            .expect("goto-def finds the aliased def");
+        assert!(matches!(cmie, crate::McCMIE::Module(_)));
+        assert_eq!(uri, tgt_uri, "goto-def jumps to the real def file");
+        assert!(
+            crate::lsp::gotodef::find_def_by_name_in_file("target", &user).is_none(),
+            "goto-def must not surface the hidden original name"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

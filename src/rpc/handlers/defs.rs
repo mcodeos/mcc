@@ -320,3 +320,50 @@ pub fn handle_defs_diff(params: Option<Value>) -> RpcResult {
         "changes": items,
     }))
 }
+
+// === defs.dependents (design D14; T5 who-uses over the DefRefGraph) ===
+
+/// Def-scoped who-uses: which ref-points `(referenced-name, referencing-file)`
+/// resolved to the named definition. The answer comes from the per-world
+/// DefRefGraph rev side in one hop (`def_id_of` + `dependents_of`) — consumers
+/// hold the def id, never a text-keyed registry round trip (D15.3). Position
+/// granularity stays in the symbol layer (RefDefMap); this is the def-level
+/// dependents question ("what references this def"), the invalidation-domain
+/// primitive. An unknown / tombstoned def answers an empty list, never an
+/// error.
+pub fn handle_defs_dependents(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct DefsDependentsParams {
+        name: String,
+        uri: String,
+    }
+    let p: DefsDependentsParams = parse_strict(params)?;
+    let graph = &crate::db::cmie::tables::WORKSPACE.refgraph;
+    let sn = crate::McSpaceName::new(
+        &crate::McIds::from(p.name.as_str()),
+        crate::McURI::from(p.uri.as_str()),
+    );
+    let def_id = graph.def_id_of(&sn);
+    let dependents: Vec<Value> = match def_id {
+        Some(id) => graph
+            .dependents_of(id)
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "name": r.ident.to_string(),
+                    "uri": r.uri_string().to_string(),
+                })
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+    let has_dependents = def_id.is_some_and(|id| graph.has_dependents_of(id));
+    Ok(json!({
+        "name": p.name,
+        "uri": p.uri,
+        "defId": def_id,
+        "hasDependents": has_dependents,
+        "count": dependents.len(),
+        "dependents": dependents,
+    }))
+}

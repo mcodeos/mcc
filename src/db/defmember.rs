@@ -102,15 +102,6 @@ impl MemberLedger {
     pub fn live_members(&self) -> impl Iterator<Item = &DefMember> {
         self.entries.iter().filter_map(|m| m.as_ref())
     }
-
-    /// Total allocated member ids (live + tombstoned) — the ledger's high-water mark.
-    pub fn next_id(&self) -> DefMemberId {
-        DefMemberId(self.next_id)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.name_to_id.is_empty()
-    }
 }
 
 #[cfg(test)]
