@@ -27,13 +27,19 @@
 //! [`WorkspaceManager`](crate::db::cmie::tables::WorkspaceManager) carries as
 //! a field — system-lib defs live in the owning world's registry and follow
 //! world create / switch / unload. The free-function surface of this module
-//! reads/writes the **active world's** registry (the process-global
+//! serves the **active world's** registry (the process-global
 //! [`WORKSPACE`](crate::db::cmie::tables::WORKSPACE)) via [`active`], so the
 //! caller files keep their process-wide semantics unchanged; workspace
 //! lifecycle (snapshot / tombstone / restore) runs through each instance's own
-//! `RegistryState`. Full per-world isolation of the caller surface is the
-//! remaining Phase-5 step — see the T3 honest boundary in
-//! `mcd/doc/plan/defspace-id-core-plan.md`.
+//! `RegistryState`. Per-world isolation of the **read surface** is complete
+//! (T3 bounded close-out, 2026-09-03): every definition view reads the world
+//! it was built over, [`RegistryState::insert`] is the world-scoped registry
+//! write entry (the free [`insert`] adds the physical-table mirror on top),
+//! and an isolation regression proves two workspaces never leak into each
+//! other or into the process-global world. World-scoped plumbing of the
+//! loader / pass1 write path (the remaining Phase-5 step) is deferred to the
+//! window that also world-izes the instance layer — see the T3 honest
+//! boundary in `mcd/doc/plan/defspace-id-core-plan.md`.
 //!
 //! Routing to the physical workspace tables (workspace-lifecycle state
 //! only — snapshot/switch/restore transport, never a read source) is
@@ -268,7 +274,7 @@ impl Default for RegistryState {
 /// the caller files were written against; per-instance lifecycle goes through
 /// `WorkspaceManager::registry`.
 fn active() -> &'static RegistryState {
-    &workspace::WORKSPACE.registry
+    workspace::WORKSPACE.registry()
 }
 
 /// One live system-library identity registered under a display-form name in
@@ -301,7 +307,17 @@ impl RegistryState {
     /// Registry-only side of [`insert`]: register the identity + data and
     /// re-derive the host's function entries. The physical-table write stays
     /// in the free [`insert`] wrapper (it needs the workspace tables).
-    fn insert(&self, sn: &McSpaceName, domain: &LoadDomain, def: &DefValue) -> InsertOutcome {
+    ///
+    /// World-scoped write entry (T3 bounded close-out): call this on an
+    /// isolated world's own registry to exercise per-world registration
+    /// without touching the process-global tables — the loader's real loads
+    /// keep going through the free [`insert`] (active world).
+    pub(crate) fn insert(
+        &self,
+        sn: &McSpaceName,
+        domain: &LoadDomain,
+        def: &DefValue,
+    ) -> InsertOutcome {
         let kind = def.kind();
         // The host-func addressing entries attach to the identity THIS call
         // touched. Never re-resolve the host through `def_id` afterwards:
@@ -1011,7 +1027,7 @@ impl RegistryState {
 
 /// Domain filter for whole-table enumeration.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum DomainFilter {
+pub(crate) enum DomainFilter {
     /// Every domain (unified view).
     Any,
     /// Project (workspace) definitions only.
@@ -1095,7 +1111,11 @@ impl RegistryState {
     /// ident)`" invariant under T8's layered coexist: a live project layer
     /// shadows a live same-key system-lib def, so the shadowed system entry
     /// is dropped from this view (the system-only view still lists it).
-    fn enumerate(&self, kind: DefKind, filter: DomainFilter) -> Vec<(McSpaceName, DefValue)> {
+    pub(crate) fn enumerate(
+        &self,
+        kind: DefKind,
+        filter: DomainFilter,
+    ) -> Vec<(McSpaceName, DefValue)> {
         let mut keyed: Vec<((Arc<str>, String), (McSpaceName, DefValue))> = Vec::new();
         // T8: keys whose project layer is live (so their system layer must
         // not surface in the unified any-domain view).
@@ -1140,7 +1160,7 @@ impl RegistryState {
     }
 
     /// Look up a component by its `McSpaceName` (any domain).
-    fn get_component(&self, sn: &McSpaceName) -> Option<Arc<McComponent>> {
+    pub(crate) fn get_component(&self, sn: &McSpaceName) -> Option<Arc<McComponent>> {
         match self.live_entry(sn, DefKind::Component)? {
             DefValue::Component(c) => Some(c),
             _ => None,
@@ -1148,7 +1168,7 @@ impl RegistryState {
     }
 
     /// Look up a module by its `McSpaceName` (any domain).
-    fn get_module(&self, sn: &McSpaceName) -> Option<Arc<McModule>> {
+    pub(crate) fn get_module(&self, sn: &McSpaceName) -> Option<Arc<McModule>> {
         match self.live_entry(sn, DefKind::Module)? {
             DefValue::Module(m) => Some(m),
             _ => None,
@@ -1156,7 +1176,7 @@ impl RegistryState {
     }
 
     /// Look up an interface by its `McSpaceName` (any domain).
-    fn get_interface(&self, sn: &McSpaceName) -> Option<Arc<McInterface>> {
+    pub(crate) fn get_interface(&self, sn: &McSpaceName) -> Option<Arc<McInterface>> {
         match self.live_entry(sn, DefKind::Interface)? {
             DefValue::Interface(i) => Some(i),
             _ => None,
@@ -1164,7 +1184,7 @@ impl RegistryState {
     }
 
     /// Look up an enum by its `McSpaceName` (any domain).
-    fn get_enum(&self, sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
+    pub(crate) fn get_enum(&self, sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
         match self.live_entry(sn, DefKind::Enum)? {
             DefValue::Enum(e) => Some(e),
             _ => None,
@@ -1172,7 +1192,7 @@ impl RegistryState {
     }
 
     /// Look up a define by its `McSpaceName` (any domain).
-    fn get_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
+    pub(crate) fn get_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
         match self.live_entry(sn, DefKind::Define)? {
             DefValue::Define(d) => Some(d),
             _ => None,
@@ -1222,7 +1242,7 @@ impl RegistryState {
 
     /// Look up a component by its `McSpaceName` in the project (workspace)
     /// domain.
-    fn get_workspace_component(&self, sn: &McSpaceName) -> Option<Arc<McComponent>> {
+    pub(crate) fn get_workspace_component(&self, sn: &McSpaceName) -> Option<Arc<McComponent>> {
         match self.live_entry_in(sn, DefKind::Component, DomainFilter::Project)? {
             DefValue::Component(c) => Some(c),
             _ => None,
@@ -1231,7 +1251,7 @@ impl RegistryState {
 
     /// Look up a module by its `McSpaceName` in the project (workspace)
     /// domain.
-    fn get_workspace_module(&self, sn: &McSpaceName) -> Option<Arc<McModule>> {
+    pub(crate) fn get_workspace_module(&self, sn: &McSpaceName) -> Option<Arc<McModule>> {
         match self.live_entry_in(sn, DefKind::Module, DomainFilter::Project)? {
             DefValue::Module(m) => Some(m),
             _ => None,
@@ -1240,7 +1260,7 @@ impl RegistryState {
 
     /// Look up an interface by its `McSpaceName` in the project (workspace)
     /// domain.
-    fn get_workspace_interface(&self, sn: &McSpaceName) -> Option<Arc<McInterface>> {
+    pub(crate) fn get_workspace_interface(&self, sn: &McSpaceName) -> Option<Arc<McInterface>> {
         match self.live_entry_in(sn, DefKind::Interface, DomainFilter::Project)? {
             DefValue::Interface(i) => Some(i),
             _ => None,
@@ -1248,7 +1268,7 @@ impl RegistryState {
     }
 
     /// Look up an enum by its `McSpaceName` in the project (workspace) domain.
-    fn get_workspace_enum(&self, sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
+    pub(crate) fn get_workspace_enum(&self, sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
         match self.live_entry_in(sn, DefKind::Enum, DomainFilter::Project)? {
             DefValue::Enum(e) => Some(e),
             _ => None,
@@ -1257,7 +1277,7 @@ impl RegistryState {
 
     /// Look up a define by its `McSpaceName` in the project (workspace)
     /// domain.
-    fn get_workspace_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
+    pub(crate) fn get_workspace_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
         match self.live_entry_in(sn, DefKind::Define, DomainFilter::Project)? {
             DefValue::Define(d) => Some(d),
             _ => None,
@@ -1343,7 +1363,7 @@ impl RegistryState {
 
     /// Does the system library (not the workspace) define this identity, as
     /// any class kind (component / module / interface / enum)?
-    fn system_contains(&self, sn: &McSpaceName) -> bool {
+    pub(crate) fn system_contains(&self, sn: &McSpaceName) -> bool {
         let Some(ids) = self.key_to_id.get(sn) else {
             return false;
         };
@@ -1875,7 +1895,9 @@ pub fn spacenames_by_uri_prefix(prefix: &str) -> Vec<McSpaceName> {
     active().spacenames_by_uri_prefix(prefix)
 }
 
-fn peel_components(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McComponent>)> {
+pub(crate) fn peel_components(
+    items: Vec<(McSpaceName, DefValue)>,
+) -> Vec<(McSpaceName, Arc<McComponent>)> {
     items
         .into_iter()
         .filter_map(|(sn, d)| match d {
@@ -1885,7 +1907,9 @@ fn peel_components(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc
         .collect()
 }
 
-fn peel_modules(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McModule>)> {
+pub(crate) fn peel_modules(
+    items: Vec<(McSpaceName, DefValue)>,
+) -> Vec<(McSpaceName, Arc<McModule>)> {
     items
         .into_iter()
         .filter_map(|(sn, d)| match d {
@@ -1895,7 +1919,9 @@ fn peel_modules(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<Mc
         .collect()
 }
 
-fn peel_interfaces(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McInterface>)> {
+pub(crate) fn peel_interfaces(
+    items: Vec<(McSpaceName, DefValue)>,
+) -> Vec<(McSpaceName, Arc<McInterface>)> {
     items
         .into_iter()
         .filter_map(|(sn, d)| match d {
@@ -1905,7 +1931,9 @@ fn peel_interfaces(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc
         .collect()
 }
 
-fn peel_enums(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McEnumDef>)> {
+pub(crate) fn peel_enums(
+    items: Vec<(McSpaceName, DefValue)>,
+) -> Vec<(McSpaceName, Arc<McEnumDef>)> {
     items
         .into_iter()
         .filter_map(|(sn, d)| match d {
@@ -1915,7 +1943,9 @@ fn peel_enums(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McEn
         .collect()
 }
 
-fn peel_defines(items: Vec<(McSpaceName, DefValue)>) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
+pub(crate) fn peel_defines(
+    items: Vec<(McSpaceName, DefValue)>,
+) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
     items
         .into_iter()
         .filter_map(|(sn, d)| match d {

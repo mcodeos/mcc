@@ -20,6 +20,9 @@
 //! `DefinitionSpace → (instantiation rules) → DianLu`.
 
 use super::cmie::tables::WorkspaceManager;
+use crate::db::defregistry::{
+    peel_components, peel_defines, peel_enums, peel_interfaces, peel_modules, DefKind, DomainFilter,
+};
 use crate::db::infra::mc_code::McCode;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_define::McDefineDef;
@@ -134,33 +137,38 @@ impl<'a> DefinitionSpace<'a> {
     }
 
     // ── Unified definition view (any domain, one registry) ──
+    //
+    // T3 (bounded close-out): every definition read below goes through the
+    // registry of the world this `DefinitionSpace` was built over — never the
+    // process-global one — so an isolated workspace's view cannot leak into
+    // another world (regression: `isolated_worlds_do_not_leak_definitions`).
 
     /// Look up a component by its `McSpaceName`. Precedence is
     /// registry-internal (design §12.4 rule 1): the workspace def shadows a
     /// same-key system-lib def (workspace-first, P0.1 — the mcode lib loads
     /// first, then a project file re-declares the identity and wins).
     pub fn get_component(&self, sn: &McSpaceName) -> Option<Arc<McComponent>> {
-        crate::db::defregistry::get_component(sn)
+        self.ws.registry().get_component(sn)
     }
 
     /// Look up a module by its `McSpaceName`.
     pub fn get_module(&self, sn: &McSpaceName) -> Option<Arc<McModule>> {
-        crate::db::defregistry::get_module(sn)
+        self.ws.registry().get_module(sn)
     }
 
     /// Look up an interface by its `McSpaceName`.
     pub fn get_interface(&self, sn: &McSpaceName) -> Option<Arc<McInterface>> {
-        crate::db::defregistry::get_interface(sn)
+        self.ws.registry().get_interface(sn)
     }
 
     /// Look up an enum by its `McSpaceName`.
     pub fn get_enum(&self, sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
-        crate::db::defregistry::get_enum(sn)
+        self.ws.registry().get_enum(sn)
     }
 
     /// Look up a define by its `McSpaceName`.
     pub fn get_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
-        crate::db::defregistry::get_define(sn)
+        self.ws.registry().get_define(sn)
     }
 
     // ── Unified definition view: whole-table enumeration ──
@@ -168,27 +176,47 @@ impl<'a> DefinitionSpace<'a> {
     /// Enumerate every live component definition (any domain). The single
     /// registry holds one identity per `(uri, ident)`, so no dedup is needed.
     pub fn all_components(&self) -> Vec<(McSpaceName, Arc<McComponent>)> {
-        crate::db::defregistry::all_components()
+        peel_components(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Component, DomainFilter::Any),
+        )
     }
 
     /// Enumerate every live module definition (any domain).
     pub fn all_modules(&self) -> Vec<(McSpaceName, Arc<McModule>)> {
-        crate::db::defregistry::all_modules()
+        peel_modules(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Module, DomainFilter::Any),
+        )
     }
 
     /// Enumerate every live interface definition (any domain).
     pub fn all_interfaces(&self) -> Vec<(McSpaceName, Arc<McInterface>)> {
-        crate::db::defregistry::all_interfaces()
+        peel_interfaces(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Interface, DomainFilter::Any),
+        )
     }
 
     /// Enumerate every live enum definition (any domain).
     pub fn all_enums(&self) -> Vec<(McSpaceName, Arc<McEnumDef>)> {
-        crate::db::defregistry::all_enums()
+        peel_enums(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Enum, DomainFilter::Any),
+        )
     }
 
     /// Enumerate every live define definition (any domain).
     pub fn all_defines(&self) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
-        crate::db::defregistry::all_defines()
+        peel_defines(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Define, DomainFilter::Any),
+        )
     }
 
     // ── Workspace-only definition view ──
@@ -203,52 +231,72 @@ impl<'a> DefinitionSpace<'a> {
 
     /// Look up a component by its `McSpaceName` in the project domain only.
     pub fn get_workspace_component(&self, sn: &McSpaceName) -> Option<Arc<McComponent>> {
-        crate::db::defregistry::get_workspace_component(sn)
+        self.ws.registry().get_workspace_component(sn)
     }
 
     /// Look up a module by its `McSpaceName` in the project domain only.
     pub fn get_workspace_module(&self, sn: &McSpaceName) -> Option<Arc<McModule>> {
-        crate::db::defregistry::get_workspace_module(sn)
+        self.ws.registry().get_workspace_module(sn)
     }
 
     /// Look up an interface by its `McSpaceName` in the project domain only.
     pub fn get_workspace_interface(&self, sn: &McSpaceName) -> Option<Arc<McInterface>> {
-        crate::db::defregistry::get_workspace_interface(sn)
+        self.ws.registry().get_workspace_interface(sn)
     }
 
     /// Look up an enum by its `McSpaceName` in the project domain only.
     pub fn get_workspace_enum(&self, sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
-        crate::db::defregistry::get_workspace_enum(sn)
+        self.ws.registry().get_workspace_enum(sn)
     }
 
     /// Look up a define by its `McSpaceName` in the project domain only.
     pub fn get_workspace_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
-        crate::db::defregistry::get_workspace_define(sn)
+        self.ws.registry().get_workspace_define(sn)
     }
 
     /// Enumerate every project (workspace) component definition.
     pub fn workspace_components(&self) -> Vec<(McSpaceName, Arc<McComponent>)> {
-        crate::db::defregistry::workspace_components()
+        peel_components(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Component, DomainFilter::Project),
+        )
     }
 
     /// Enumerate every project (workspace) module definition.
     pub fn workspace_modules(&self) -> Vec<(McSpaceName, Arc<McModule>)> {
-        crate::db::defregistry::workspace_modules()
+        peel_modules(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Module, DomainFilter::Project),
+        )
     }
 
     /// Enumerate every project (workspace) interface definition.
     pub fn workspace_interfaces(&self) -> Vec<(McSpaceName, Arc<McInterface>)> {
-        crate::db::defregistry::workspace_interfaces()
+        peel_interfaces(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Interface, DomainFilter::Project),
+        )
     }
 
     /// Enumerate every project (workspace) enum definition.
     pub fn workspace_enums(&self) -> Vec<(McSpaceName, Arc<McEnumDef>)> {
-        crate::db::defregistry::workspace_enums()
+        peel_enums(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Enum, DomainFilter::Project),
+        )
     }
 
     /// Enumerate every project (workspace) define definition.
     pub fn workspace_defines(&self) -> Vec<(McSpaceName, Arc<McDefineDef>)> {
-        crate::db::defregistry::workspace_defines()
+        peel_defines(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Define, DomainFilter::Project),
+        )
     }
 
     // ── System-library-only view (P5 visibility) ──
@@ -263,27 +311,43 @@ impl<'a> DefinitionSpace<'a> {
     /// Does the loaded system library (not the workspace) define this identity,
     /// as any class kind?
     pub fn system_contains(&self, sn: &McSpaceName) -> bool {
-        crate::db::defregistry::system_contains(sn)
+        self.ws.registry().system_contains(sn)
     }
 
     /// Enumerate every *system-library* component definition (P5).
     pub fn system_components(&self) -> Vec<(McSpaceName, Arc<McComponent>)> {
-        crate::db::defregistry::system_components()
+        peel_components(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Component, DomainFilter::System),
+        )
     }
 
     /// Enumerate every *system-library* module definition (P5).
     pub fn system_modules(&self) -> Vec<(McSpaceName, Arc<McModule>)> {
-        crate::db::defregistry::system_modules()
+        peel_modules(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Module, DomainFilter::System),
+        )
     }
 
     /// Enumerate every *system-library* interface definition (P5).
     pub fn system_interfaces(&self) -> Vec<(McSpaceName, Arc<McInterface>)> {
-        crate::db::defregistry::system_interfaces()
+        peel_interfaces(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Interface, DomainFilter::System),
+        )
     }
 
     /// Enumerate every *system-library* enum definition (P5).
     pub fn system_enums(&self) -> Vec<(McSpaceName, Arc<McEnumDef>)> {
-        crate::db::defregistry::system_enums()
+        peel_enums(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Enum, DomainFilter::System),
+        )
     }
 }
 
@@ -355,7 +419,12 @@ mod tests {
     /// workspace) lives in `tests/defspace_wiring.rs`, a separate test binary —
     /// the lib unit tests here must NOT mutate the process-global `WORKSPACE`
     /// (the parallel mc_code/buildcmd tests share it). These tests construct an
-    /// isolated [`WorkspaceManager`] instead.
+    /// isolated [`WorkspaceManager`] instead — each owns its own registry
+    /// (`workspace.registry()`), and reads through the view never touch the
+    /// process-global one. The one deliberate exception is
+    /// `unified_get_component_is_workspace_first_then_global` below, which pins
+    /// the active-world (production) path: it runs under `MCC_TEST_PARSE_LOCK`
+    /// and removes its dedicated key on drop.
     #[test]
     fn manifest_accessors_read_a_definition_space() {
         let wm = WorkspaceManager::new();
@@ -435,13 +504,18 @@ mod tests {
     }
 
     /// P0.1 golden sample (defspace-refactor-implementation.md Phase 0): the
-    /// unified `get_*` lookup reads the WORKSPACE table first, falling back to
-    /// the system-lib (global) tables only on a miss — the precedence the
-    /// Phase 3 single-table merge must preserve. The registry is the
-    /// process-global single table, so this test writes through the single
-    /// write entry (defregistry.rs) on a dedicated key and removes it on drop
-    /// (the process-global state is shared with the parallel mc_code /
-    /// buildcmd tests, so no residue may remain).
+    /// unified `get_*` lookup resolves a key's project layer first, falling
+    /// back to the intact same-key system-lib layer only on a project miss —
+    /// the workspace-first precedence the Phase 3 single-table merge must
+    /// preserve. This pins the *active-world* (production) path on purpose:
+    /// the free defregistry write/remove entries serve the process-global
+    /// `WORKSPACE`, so the reads bind to that same world through
+    /// `definition_space()` — the one call surface the T3 bounded close-out
+    /// leaves process-global by design. Reads over a constructed world go to
+    /// that world's own registry (`isolated_worlds_do_not_leak_definitions`).
+    /// The key is dedicated and removed on drop: the process-global state is
+    /// shared with the parallel mc_code / buildcmd tests, so no residue may
+    /// remain.
     #[test]
     fn unified_get_component_is_workspace_first_then_global() {
         use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
@@ -491,8 +565,10 @@ mod tests {
             "project def layers over the same-key system-lib def (workspace-first read)"
         );
 
-        let wm = WorkspaceManager::new();
-        let ds = DefinitionSpace::of(&wm);
+        // Bind the reads to the process-global world the free write/remove
+        // entries above serve — a fresh constructed world owns an empty
+        // registry and would see nothing.
+        let ds = crate::definition_space();
         let hit = ds.get_component(&sn).expect("identity resolves");
         assert_eq!(
             hit.pins.pins.len(),
@@ -569,6 +645,133 @@ mod tests {
         assert!(
             !ds.system_components().iter().any(|(k, _)| k == &sn),
             "the system-only view is empty after the full cleanup"
+        );
+    }
+
+    /// T3 (bounded close-out) regression: a `DefinitionSpace` view reads the
+    /// registry of the world it was built over — never the process-global
+    /// one. Two constructed worlds register the *same identity* with
+    /// different content and in different domains; each world's view must
+    /// return exactly its own def, keep its own domain segmentation, and
+    /// never see the other world's defs. Before the close-out the view
+    /// methods fell through to the free defregistry API (the process-global
+    /// active world), which makes these asserts fail deterministically: the
+    /// worlds hold unique keys the process-global registry never contains.
+    #[test]
+    fn isolated_worlds_do_not_leak_definitions() {
+        let wm_a = WorkspaceManager::new();
+        let wm_b = WorkspaceManager::new();
+
+        // The same identity X in both worlds — different content (pin count)
+        // and different domains: project in A, system lib in B.
+        let sn_x = McSpaceName::new(&McIds::from("ISO_LEAK_X"), uri("/iso/x.mc"));
+        // Identities registered in exactly one world.
+        let sn_a_only = McSpaceName::new(&McIds::from("ISO_LEAK_A_ONLY"), uri("/iso/a.mc"));
+        let sn_b_only = McSpaceName::new(&McIds::from("ISO_LEAK_B_ONLY"), uri("/iso/b.mc"));
+
+        use crate::db::defregistry::{DefValue, InsertOutcome, LoadDomain};
+        assert_eq!(
+            wm_a.registry().insert(
+                &sn_x,
+                &LoadDomain::Project,
+                &DefValue::Component(gold_component("ISO_LEAK_X", "/iso/x.mc", 2)),
+            ),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            wm_a.registry().insert(
+                &sn_a_only,
+                &LoadDomain::Project,
+                &DefValue::Component(gold_component("ISO_LEAK_A_ONLY", "/iso/a.mc", 1)),
+            ),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            wm_b.registry().insert(
+                &sn_x,
+                &LoadDomain::SystemLib("acme".to_string()),
+                &DefValue::Component(gold_component("ISO_LEAK_X", "/iso/x.mc", 7)),
+            ),
+            InsertOutcome::Inserted
+        );
+        assert_eq!(
+            wm_b.registry().insert(
+                &sn_b_only,
+                &LoadDomain::SystemLib("acme".to_string()),
+                &DefValue::Component(gold_component("ISO_LEAK_B_ONLY", "/iso/b.mc", 1)),
+            ),
+            InsertOutcome::Inserted
+        );
+
+        let ds_a = DefinitionSpace::of(&wm_a);
+        let ds_b = DefinitionSpace::of(&wm_b);
+
+        // Same key, per-world content: each view resolves its own world's def.
+        assert_eq!(
+            ds_a.get_component(&sn_x).map(|c| c.pins.pins.len()),
+            Some(2),
+            "world A's view resolves A's own project def of X"
+        );
+        assert_eq!(
+            ds_b.get_component(&sn_x).map(|c| c.pins.pins.len()),
+            Some(7),
+            "world B's view resolves B's own system def of X — the shared key never crosses worlds"
+        );
+
+        // A def registered in one world is invisible in the other, through
+        // every view (typed lookup, whole-table enumeration).
+        assert!(ds_a.get_component(&sn_b_only).is_none());
+        assert!(ds_b.get_component(&sn_a_only).is_none());
+        assert!(
+            !ds_a.all_components().iter().any(|(k, _)| k == &sn_b_only),
+            "A's enumeration never sees B's def"
+        );
+        assert!(
+            !ds_b.all_components().iter().any(|(k, _)| k == &sn_a_only),
+            "B's enumeration never sees A's def"
+        );
+        assert_eq!(
+            ds_a.all_components().len(),
+            2,
+            "A holds exactly its two defs"
+        );
+        assert_eq!(
+            ds_b.all_components().len(),
+            2,
+            "B holds exactly its two defs"
+        );
+
+        // Domain segmentation is per world: X is a project def in A and a
+        // system-lib def in B; each world's domain views agree with its own
+        // registration only.
+        assert_eq!(
+            ds_a.workspace_components()
+                .iter()
+                .filter(|(k, _)| k == &sn_x)
+                .count(),
+            1,
+            "A's project view holds its project layer of X"
+        );
+        assert!(
+            ds_b.workspace_components().iter().all(|(k, _)| k != &sn_x),
+            "B registered X as a system def — B's project view is empty for X"
+        );
+        assert!(
+            ds_a.system_components().iter().all(|(k, _)| k != &sn_x),
+            "A registered X as a project def — A's system view is empty for X"
+        );
+        assert_eq!(
+            ds_b.system_components()
+                .iter()
+                .filter(|(k, _)| k == &sn_x)
+                .count(),
+            1,
+            "B's system view holds its system layer of X"
+        );
+        assert!(!ds_a.system_contains(&sn_x), "A's registry has no system X");
+        assert!(
+            ds_b.system_contains(&sn_x),
+            "B's registry owns the system X"
         );
     }
 }

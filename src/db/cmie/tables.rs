@@ -143,11 +143,13 @@ pub struct WorkspaceManager {
     pub(crate) refgraph: crate::db::refgraph::DefRefGraph,
     // Phase 5 (T3, defspace-id-core-plan): this world's definition registry —
     // the whole definition identity layer (id counter, key→id index, entry
-    // arena, system name index, checkpoint journal). The free defregistry API
-    // serves the active (process-global) world's registry; every instance owns
-    // its own state, so world create / switch / unload drive the lifecycle
-    // (snapshot / tombstone / restore) on the instance that owns the world.
-    pub(crate) registry: crate::db::defregistry::RegistryState,
+    // arena, system name index, member ledgers, checkpoint journal). The free
+    // defregistry API serves the active (process-global) world's registry;
+    // every instance owns its own state, so world create / switch / unload
+    // drive the lifecycle (snapshot / tombstone / restore) on the instance
+    // that owns the world. World-scoped reads and writes reach it through
+    // [`WorkspaceManager::registry`].
+    registry: crate::db::defregistry::RegistryState,
 }
 
 impl WorkspaceManager {
@@ -174,6 +176,13 @@ impl WorkspaceManager {
             refgraph: crate::db::refgraph::DefRefGraph::new(),
             registry: crate::db::defregistry::RegistryState::default(),
         }
+    }
+
+    /// This world's definition registry (T3). World-scoped reads and the
+    /// world-scoped write entry ([`RegistryState::insert`]) go through here;
+    /// the process-global free defregistry API serves the active world.
+    pub(crate) fn registry(&self) -> &crate::db::defregistry::RegistryState {
+        &self.registry
     }
 
     // ================================================================
