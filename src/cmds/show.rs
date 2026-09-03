@@ -698,10 +698,7 @@ fn show_defs(args: &ShowArgs) -> Result<()> {
             let groups = groups_of(*scope);
             if groups.is_empty() {
                 if args.scope.is_some() {
-                    lines.push(format!(
-                        "-- {} -- (no definitions)",
-                        scope_name(*scope)
-                    ));
+                    lines.push(format!("-- {} -- (no definitions)", scope_name(*scope)));
                 }
                 continue;
             }
@@ -1019,6 +1016,9 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         mcc::hierarchy::render_hierarchy_text(&mut htext, &hierarchy);
         lines.push(htext.trim_end().to_string());
         lines.push(String::new());
+        // `--ids` also annotates each pin/port with its lane-layer physical
+        // point `N<n>:<m>` (the instance node/def-id tags come along for
+        // free, since the point carries its owning node id).
         render_dianlu_section(&inst, &top, &view, &net_store, &mut lines, args.ids);
         let rendered = lines.join("\n");
         if let Some(path) = &mcc::cli::globals().output {
@@ -1055,11 +1055,38 @@ fn dianlu_id_tag(node: Option<u32>, def: Option<u32>) -> String {
     format!("[{n} {d}]")
 }
 
+/// The stable `DefMemberId` (raw value) of one live def member under the def
+/// `(name, uri)` of `kind`, from the def registry's append-only member
+/// ledger (invariant C / D13) — the def-space half of a lane physical point,
+/// keyed the way `instant/lane.rs` builds its lookups. `None` when the def is
+/// not registered or the member is not a live ledger entry (dynamic /
+/// interface-derived pins stay off-ledger).
+fn registry_member_id(
+    name: &mcc::McIds,
+    uri: &mcc::McURI,
+    kind: mcc::DefKind,
+    member: &str,
+) -> Option<u32> {
+    mcc::def_member_id_of(&mcc::McSpaceName::new(name, uri.clone()), kind, member).map(|m| m.0)
+}
+
+/// Lane-layer physical-point string `N<n>:<m>` of one pin/port (shown under
+/// `--ids`): the owning instance node `NodeId` plus the pin's stable
+/// def-member id (`PointId`, design §4 D1). `-` marks a part that is absent
+/// (node missing / member off-ledger).
+fn point_tag(node: Option<u32>, member: Option<u32>) -> String {
+    let n = node.map_or_else(|| "N-".to_string(), |v| format!("N{v}"));
+    let m = member.map_or_else(|| "-".to_string(), |v| v.to_string());
+    format!("{n}:{m}")
+}
+
 /// Render one module section (text): instances then connections, recursing
 /// into sub-modules as their own sections below. With `ids`, the section
 /// header and every instance line carry a `[N<n> D<d>]` identity tag: the
 /// node `NodeId` in the dianlu space plus the `DefId` of the def that the
 /// instance instantiates in the definition space (`-` when either is absent).
+/// `ids` also annotates each instance pin/port with its lane-layer physical
+/// point `N<n>:<m>` (node + def-member id).
 fn render_dianlu_section(
     inst: &mcc::McModuleInst,
     path: &str,
@@ -1085,22 +1112,28 @@ fn render_dianlu_section(
                 " {}",
                 dianlu_id_tag(
                     comp.node_id.map(|n| n.0),
-                    registry_def_id(
-                        &comp.def.name,
-                        &comp.def.uri,
-                        mcc::DefKind::Component,
-                    ),
+                    registry_def_id(&comp.def.name, &comp.def.uri, mcc::DefKind::Component,),
                 )
             )
         } else {
             String::new()
+        };
+        let pins = if ids {
+            comp_pin_points(comp)
+                .into_iter()
+                .map(|(_, label, member)| {
+                    format!("{label}@{}", point_tag(comp.node_id.map(|n| n.0), member))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            comp_pin_labels(comp)
         };
         lines.push(format!(
             "  [C]{} {}: {} [pins: {}]",
             tag,
             comp.name,
             comp.def.name,
-            comp_pin_labels(comp).join(", ")
+            pins.join(", ")
         ));
     }
     let subs: Vec<&mcc::McModuleInst> = view.sub_modules(inst).collect();
@@ -1116,7 +1149,19 @@ fn render_dianlu_section(
         } else {
             String::new()
         };
-        lines.push(format!("  [M]{} {}: {}", tag, sub.name, sub.def.name));
+        let mut line = format!("  [M]{} {}: {}", tag, sub.name, sub.def.name);
+        if ids {
+            let ports = module_port_points(sub)
+                .into_iter()
+                .map(|(label, member)| {
+                    format!("{label}@{}", point_tag(sub.node_id.map(|n| n.0), member))
+                })
+                .collect::<Vec<_>>();
+            if !ports.is_empty() {
+                line.push_str(&format!(" [ports: {}]", ports.join(", ")));
+            }
+        }
+        lines.push(line);
     }
 
     let mut labels: Vec<&String> = store.labels_of(path).keys().collect();
@@ -1189,7 +1234,9 @@ fn render_dianlu_section(
 /// Build the structured (JSON/YAML) representation: one section object per
 /// module, in the same order as the text renderer. With `ids`, the section
 /// and its instance entries carry `node_id` (dianlu space) / `def_id`
-/// (definition space) identity keys, mirroring the text `[N… D…]` tags.
+/// (definition space) identity keys, mirroring the text `[N… D…]` tags;
+/// component entries also gain a `points` map and sub-module entries a
+/// `ports` map: pin/port name → lane-layer physical point `N<n>:<m>`.
 fn dianlu_sections(
     inst: &mcc::McModuleInst,
     path: &str,
@@ -1204,25 +1251,31 @@ fn dianlu_sections(
         "components": view.components(inst).map(|c| comp_json(c, ids)).collect::<Vec<_>>(),
         "connections": Vec::<Value>::new(),
     });
-    section["sub_modules"] = json!(
-        subs.iter()
-            .map(|s| {
-                let mut v = json!({
-                    "name": s.name,
-                    "class": s.def.name.to_string(),
-                });
-                if ids {
-                    v["node_id"] = json!(s.node_id.map(|n| n.0));
-                    v["def_id"] = json!(registry_def_id(
-                        &s.def.name,
-                        &s.def_uri,
-                        mcc::DefKind::Module,
-                    ));
+    section["sub_modules"] = json!(subs
+        .iter()
+        .map(|s| {
+            let mut v = json!({
+                "name": s.name,
+                "class": s.def.name.to_string(),
+            });
+            if ids {
+                v["node_id"] = json!(s.node_id.map(|n| n.0));
+                v["def_id"] = json!(registry_def_id(
+                    &s.def.name,
+                    &s.def_uri,
+                    mcc::DefKind::Module,
+                ));
+                let ports: std::collections::BTreeMap<String, String> = module_port_points(s)
+                    .into_iter()
+                    .map(|(label, member)| (label, point_tag(s.node_id.map(|n| n.0), member)))
+                    .collect();
+                if !ports.is_empty() {
+                    v["ports"] = json!(ports);
                 }
-                v
-            })
-            .collect::<Vec<_>>()
-    );
+            }
+            v
+        })
+        .collect::<Vec<_>>());
     if ids {
         section["node_id"] = json!(inst.node_id.map(|n| n.0));
         section["def_id"] = json!(registry_def_id(
@@ -1304,8 +1357,9 @@ fn dianlu_sections(
 }
 
 /// Component instance as JSON: name, class, and sorted pin labels. With
-/// `ids`, the entry also carries its node `NodeId` (`node_id`) and the
-/// `DefId` of the class it instantiates (`def_id`).
+/// `ids`, the entry also carries its node `NodeId` (`node_id`), the `DefId`
+/// of the class it instantiates (`def_id`), and a `points` map adding each
+/// pin's lane-layer physical point `N<n>:<m>`.
 fn comp_json(comp: &mcc::McComponentInst, ids: bool) -> Value {
     let mut v = json!({
         "name": comp.name,
@@ -1319,14 +1373,21 @@ fn comp_json(comp: &mcc::McComponentInst, ids: bool) -> Value {
             &comp.def.uri,
             mcc::DefKind::Component,
         ));
+        let pts: std::collections::BTreeMap<String, String> = comp_pin_points(comp)
+            .into_iter()
+            .map(|(raw, _, member)| (raw, point_tag(comp.node_id.map(|n| n.0), member)))
+            .collect();
+        v["points"] = json!(pts);
     }
     v
 }
 
-/// Preferred user-facing label per connected pin (physical id, longest alias
-/// in parentheses when a readable name exists), sorted by pin id.
-fn comp_pin_labels(comp: &mcc::McComponentInst) -> Vec<String> {
-    let mut pins: Vec<String> = comp
+/// The `(raw pin key, display label)` rows of one component instance's pins,
+/// in display order: numeric pin ids first, then named pins (deterministic).
+/// The label shows the physical id, with the longest readable alias in
+/// parentheses when one exists.
+fn comp_pin_rows(comp: &mcc::McComponentInst) -> Vec<(String, String)> {
+    let mut rows: Vec<(String, String)> = comp
         .pins
         .keys()
         .map(|pid| {
@@ -1342,18 +1403,55 @@ fn comp_pin_labels(comp: &mcc::McComponentInst) -> Vec<String> {
                         .and_then(|names| names.iter().max_by_key(|n| n.len()).cloned())
                 });
             match alias {
-                Some(n) if n.as_str() != pid.as_str() => format!("{pid}({n})"),
-                _ => pid.clone(),
+                Some(n) if n.as_str() != pid.as_str() => (pid.clone(), format!("{pid}({n})")),
+                _ => (pid.clone(), pid.clone()),
             }
         })
         .collect();
-    pins.sort_by_key(|p| {
-        p.split('(')
+    rows.sort_by_key(|(raw, _)| {
+        let numeric = raw
+            .split('(')
             .next()
             .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(i64::MAX)
+            .unwrap_or(i64::MAX);
+        (numeric, raw.clone())
     });
-    pins
+    rows
+}
+
+/// Preferred user-facing label per connected pin, sorted by pin id.
+fn comp_pin_labels(comp: &mcc::McComponentInst) -> Vec<String> {
+    comp_pin_rows(comp)
+        .into_iter()
+        .map(|(_, label)| label)
+        .collect()
+}
+
+/// Rows of one component instance's pins under `--ids`: raw pin key, display
+/// label, and the pin's stable def-member id (lane-layer physical point
+/// `N<n>:<m>`), when the pin is a live ledger member of the instantiated def.
+fn comp_pin_points(comp: &mcc::McComponentInst) -> Vec<(String, String, Option<u32>)> {
+    comp_pin_rows(comp)
+        .into_iter()
+        .map(|(raw, label)| {
+            let member =
+                registry_member_id(&comp.def.name, &comp.def.uri, mcc::DefKind::Component, &raw);
+            (raw, label, member)
+        })
+        .collect()
+}
+
+/// Rows of one sub-module instance's io ports under `--ids`: port name plus
+/// its stable def-member id (lane-layer physical point on the module node).
+fn module_port_points(sub: &mcc::McModuleInst) -> Vec<(String, Option<u32>)> {
+    sub.ports
+        .iter()
+        .map(|p| {
+            let member =
+                registry_member_id(&sub.def.name, &sub.def_uri, mcc::DefKind::Module, &p.name);
+            (p.name.clone(), member)
+        })
+        .collect()
 }
 
 /// Resolve an interface class annotation for a bus that projects a component

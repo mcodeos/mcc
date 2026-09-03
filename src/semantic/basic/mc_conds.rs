@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::semantic::basic::mc_literal::strip_string_quotes;
 use crate::{
     ast::{macros::*, node::AstNode},
     semantic::basic::mc_phrase::McPhrase,
@@ -352,12 +353,7 @@ impl McConds {
                         // Guarded accessor: the C parser can emit a NULL/small .data.
                         if let Ok(str_value) = child.data_as_cstr()?.to_str() {
                             let val = str_value.to_string();
-                            let clean_val =
-                                if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
-                                    val[1..val.len() - 1].to_string()
-                                } else {
-                                    val
-                                };
+                            let clean_val = strip_string_quotes(&val).to_string();
                             operands.push(McCondOperand::Literal(clean_val));
                         }
                     }
@@ -385,14 +381,7 @@ impl McConds {
                                     // Guarded accessor: the C parser can emit a NULL/small .data.
                                     if let Ok(str_value) = item.data_as_cstr()?.to_str() {
                                         let val = str_value.to_string();
-                                        let clean_val = if val.starts_with('"')
-                                            && val.ends_with('"')
-                                            && val.len() >= 2
-                                        {
-                                            val[1..val.len() - 1].to_string()
-                                        } else {
-                                            val
-                                        };
+                                        let clean_val = strip_string_quotes(&val).to_string();
                                         values.push(clean_val);
                                     }
                                 }
@@ -467,12 +456,7 @@ impl McConds {
                         // Guarded accessor: the C parser can emit a NULL/small .data.
                         if let Some(str_value) = item.data_as_cstr().and_then(|c| c.to_str().ok()) {
                             let val = str_value.to_string();
-                            let clean_val =
-                                if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
-                                    val[1..val.len() - 1].to_string()
-                                } else {
-                                    val
-                                };
+                            let clean_val = strip_string_quotes(&val).to_string();
                             values.push(clean_val);
                         }
                     }
