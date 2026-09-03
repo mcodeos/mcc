@@ -407,30 +407,37 @@ impl McModule {
                     .insts
                     .port_spans()
                     .get(port_name)
-                    .and_then(|s| s.first().cloned())
-                    .unwrap_or(0..1);
-                // Fallback for IDX members stored individually without span:
-                // try base name (strip trailing digits) in port_spans.
-                if span.start == 0 && span.end == 1 {
-                    // Try sibling labels with same base (GPIO2 → find GPIO1's span)
-                    if let Some(base) = McInstances::strip_trailing_digits(port_name) {
-                        for other in self.insts.iter_port_names() {
-                            if other == port_name {
-                                continue;
-                            }
-                            if let Some(other_base) = McInstances::strip_trailing_digits(other) {
-                                if other_base == base {
-                                    if let Some(s) =
-                                        self.insts.port_spans().get(other).and_then(|v| v.first())
-                                    {
-                                        span = s.clone();
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    .and_then(|s| s.first().cloned());
+                // T7 (G8): never borrow a sibling's span. When an IDX/list
+                // member key has no span of its own, derive the span from its
+                // declaring structure — the structural key whose name forms
+                // cover this port (e.g. member `GPIO1` -> list `GPIO[1:2]`),
+                // then the formal-parameter declaration as a last resort.
+                if span.is_none() || span.as_ref().is_some_and(|s| s.is_empty()) {
+                    span = self
+                        .insts
+                        .iter_instance_names()
+                        .filter(|k| *k != port_name)
+                        .find(|k| {
+                            self.insts
+                                .all_name_forms_for(k)
+                                .contains(&port_name.to_string())
+                        })
+                        .and_then(|k| {
+                            self.insts
+                                .port_spans()
+                                .get(k)
+                                .and_then(|v| v.first())
+                                .cloned()
+                        });
                 }
+                if span.is_none() {
+                    span = self
+                        .params
+                        .find(port_name)
+                        .and_then(|declare| self.params.get_def_span(&declare.display_name()));
+                }
+                let span = span.unwrap_or(0..1);
                 let has_recorded_ref = self
                     .insts
                     .iter_net_refs()

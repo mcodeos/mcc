@@ -65,11 +65,17 @@ pub fn is_visible(from_uri: &McURI, def: &McSpaceName) -> bool {
     if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(from_uri) {
         if let Ok(sym) = mcfile.symbols.lock() {
             if let Some(ref map) = sym.ref_def_map {
-                if let Some(entry) = map.get_by_name(from_uri, &def.ident.to_string()) {
-                    let entry_uri = crate::semantic::common::uri_of_file_id(entry.def_loc.file_id);
-                    if entry_uri.as_ref() == def.uri.as_uri().as_ref() {
-                        return true;
-                    }
+                // T10: a same-named def of another kind/layer may outrank the
+                // queried def in the bucket — visibility is "any candidate
+                // maps to def.uri", not "the winner maps to def.uri".
+                let ident = def.ident.to_string();
+                let target_uri = def.uri.as_uri();
+                let visible = map.name_candidates(from_uri, &ident).iter().any(|c| {
+                    crate::semantic::common::uri_of_file_id(c.entry.def_loc.file_id).as_ref()
+                        == target_uri.as_ref()
+                });
+                if visible {
+                    return true;
                 }
             }
         }

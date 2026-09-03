@@ -321,6 +321,85 @@ pub struct RefDefEntry {
     pub def_name: String,
 }
 
+// ── Name-index candidates ──
+
+/// The visibility layer through which a name became visible from a lookup
+/// file (resolve-unification policy P3/P4/P5, design §5.4).
+///
+/// Each same-name candidate in [`RefDefMap::name_index`] keeps its layer so a
+/// bucket can order itself deterministically: P3 (defined in the lookup file)
+/// beats P4 (reached through its `use` chain), which beats P5 (a loaded
+/// system library) — the precedence the old "later write overwrites" rule
+/// implemented, but independent of map iteration order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameLayer {
+    /// P3 — the def is declared in the lookup file itself.
+    Own,
+    /// P4 — the def is visible through the lookup file's `use` chain.
+    Use,
+    /// P5 — the def lives in a loaded system library.
+    System,
+}
+
+impl NameLayer {
+    /// Smaller rank wins the same-name resolution (Own < Use < System).
+    fn rank(self) -> u8 {
+        match self {
+            NameLayer::Own => 0,
+            NameLayer::Use => 1,
+            NameLayer::System => 2,
+        }
+    }
+}
+
+/// One visible candidate for a `(lookup file, name)` key in
+/// [`RefDefMap::name_index`]: the def entry plus the layer that made the name
+/// visible. A bucket keeps every same-name def — resolution never drops a
+/// candidate to a single overwrite; reads pick the deterministic winner
+/// ([`RefDefMap::get_by_name`]) or scan the whole bucket
+/// ([`RefDefMap::name_candidates`]).
+#[derive(Debug, Clone)]
+pub struct NameIndexCandidate {
+    pub layer: NameLayer,
+    pub entry: RefDefEntry,
+}
+
+impl NameIndexCandidate {
+    /// Deterministic policy key — smaller wins. Layer first (P3 > P4 > P5),
+    /// then the kind-family preference, then def-location tiebreaks. Never
+    /// registration-order or map-iteration dependent.
+    ///
+    /// The family preference reproduces the historical winner of the old
+    /// single-slot name_index: `consolidate_ref_def_map` registered class
+    /// rows (components/modules/interfaces) and enum rows under the same
+    /// `(lookup file, name)` key, enums after classes, so a same-named enum
+    /// ended up owning the slot (last write wins). Preserving that choice
+    /// keeps kind-blind consumers (`get_def`) returning the enum for a
+    /// coexisting `component CAP` + `enum CAP`, which the coexistence
+    /// regression (`tests/enum_component_same_name.rs`) pins down.
+    fn policy_key(&self) -> (u8, u8, u32, u32, u32) {
+        let family = match self.entry.def_kind {
+            SymbolKind::EnumDef | SymbolKind::EnumRef => 0,
+            SymbolKind::ClassDef | SymbolKind::ClassRef => 1,
+            _ => 2,
+        };
+        (
+            self.layer.rank(),
+            family,
+            self.entry.def_loc.file_id,
+            self.entry.def_loc.byte_start,
+            self.entry.def_loc.byte_end,
+        )
+    }
+
+    /// True when this candidate is the def at `(file_id, span)`.
+    fn is_def_at(&self, file_id: u32, byte_start: u32, byte_end: u32) -> bool {
+        self.entry.def_loc.file_id == file_id
+            && self.entry.def_loc.byte_start == byte_start
+            && self.entry.def_loc.byte_end == byte_end
+    }
+}
+
 // ── RefDefMap ──
 
 /// Unified symbol resolution table — built once at pass1 completion.
@@ -329,8 +408,14 @@ pub struct RefDefMap {
     /// (ref_kind, ref_id) → entry. Single-layer O(1) ID-based lookup.
     pub entries: HashMap<(SymbolKind, u32), RefDefEntry>,
     pub containers: Vec<String>,
-    /// ★ Use table: (file_uri, class_name) → entry for name-based P3/P4/P5 lookup.
-    pub name_index: HashMap<(String, String), RefDefEntry>,
+    /// ★ Use table (T10 / N2): (lookup_file_uri, class_name) → every def with
+    /// that name visible from the lookup file, each tagged with its visibility
+    /// layer (P3/P4/P5). A bucket holds all same-name candidates instead of
+    /// one overwrite, so a name is never silently dropped and resolution never
+    /// depends on map iteration or registration order — reads pick the
+    /// deterministic winner ([`Self::get_by_name`]) or scan the bucket
+    /// ([`Self::name_candidates`]).
+    pub name_index: HashMap<(String, String), Vec<NameIndexCandidate>>,
     /// ★ §15.2: Reverse index — (def_kind, file_id, byte_start, byte_end) → [(ref_kind, ref_id)].
     /// Built alongside entries for O(1) find-all-references and rename.
     pub def_to_refs: HashMap<(SymbolKind, u32, u32, u32), Vec<(SymbolKind, u32)>>,
@@ -358,7 +443,8 @@ impl RefDefMap {
         self.entries.insert((kind, ref_id), entry);
     }
 
-    /// Insert with name-based index for Use-table lookup.
+    /// Insert with name-based index for Use-table lookup. Legacy API kept for
+    /// callers that register a defining file's own name (P3).
     pub fn insert_with_name(
         &mut self,
         kind: SymbolKind,
@@ -381,24 +467,73 @@ impl RefDefMap {
             .or_default()
             .push((kind, ref_id));
         self.entries.insert((kind, ref_id), entry.clone());
-        self.name_index
-            .insert((lookup_file_uri.to_string(), class_name.to_string()), entry);
+        self.add_name_candidate(lookup_file_uri, class_name, NameLayer::Own, entry);
     }
 
     pub fn get(&self, kind: SymbolKind, ref_id: u32) -> Option<&RefDefEntry> {
         self.entries.get(&(kind, ref_id))
     }
 
-    /// Add a name-index entry for a class definition under an alias.
-    pub fn add_name_alias(&mut self, file_uri: &McURI, class_name: &str, entry: RefDefEntry) {
-        self.name_index
-            .insert((file_uri.to_string(), class_name.to_string()), entry);
+    /// Record one visible def name from the lookup file's viewpoint (T10).
+    /// Same-name candidates accumulate — never overwrite — and an exact
+    /// duplicate (same def file + span, any layer) is skipped, so a system
+    /// name re-exported through a `use` chain does not duplicate its direct
+    /// P5 copy. Buckets are intentionally unordered; reads go through the
+    /// deterministic policy ([`Self::name_winner`]) or the bucket scan
+    /// ([`Self::name_candidates`]).
+    pub fn add_name_candidate(
+        &mut self,
+        lookup_file_uri: &McURI,
+        class_name: &str,
+        layer: NameLayer,
+        entry: RefDefEntry,
+    ) {
+        let bucket = self
+            .name_index
+            .entry((lookup_file_uri.to_string(), class_name.to_string()))
+            .or_default();
+        let dup = bucket.iter().any(|c| {
+            c.is_def_at(
+                entry.def_loc.file_id,
+                entry.def_loc.byte_start,
+                entry.def_loc.byte_end,
+            )
+        });
+        if !dup {
+            bucket.push(NameIndexCandidate { layer, entry });
+        }
     }
 
-    /// Lookup by name in the Use table (P3/P4/P5).
-    pub fn get_by_name(&self, file_uri: &str, class_name: &str) -> Option<&RefDefEntry> {
+    /// Deterministic name-policy winner among the candidates visible under
+    /// `(file_uri, class_name)` — P3 > P4 > P5, then the enum-family
+    /// preference, then def-location tiebreaks. Never registration-order or
+    /// map-iteration dependent. `None` when the name is not visible.
+    pub fn name_winner(&self, file_uri: &McURI, class_name: &str) -> Option<&RefDefEntry> {
         self.name_index
             .get(&(file_uri.to_string(), class_name.to_string()))
+            .and_then(|bucket| {
+                bucket
+                    .iter()
+                    .min_by_key(|c| c.policy_key())
+                    .map(|c| &c.entry)
+            })
+    }
+
+    /// Lookup by name in the Use table (P3/P4/P5): the deterministic winner
+    /// among all visible candidates (see [`Self::name_winner`]).
+    pub fn get_by_name(&self, file_uri: &str, class_name: &str) -> Option<&RefDefEntry> {
+        self.name_winner(&McURI::from(file_uri), class_name)
+    }
+
+    /// Every visible candidate under `(file_uri, class_name)` — the full
+    /// bucket, unordered. Visibility of a specific def must be checked against
+    /// the whole bucket, because the deterministic winner may be a different
+    /// same-named def (e.g. a class whose same-named enum outranks it).
+    pub fn name_candidates(&self, file_uri: &McURI, class_name: &str) -> &[NameIndexCandidate] {
+        self.name_index
+            .get(&(file_uri.to_string(), class_name.to_string()))
+            .map(|bucket| bucket.as_slice())
+            .unwrap_or(&[])
     }
 
     /// ★ §15.2: Look up all refs for a given def.
@@ -434,5 +569,177 @@ impl RefDefMap {
             self.containers.push(name.to_string());
             id
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(def_kind: SymbolKind, file_id: u32, start: u32, end: u32) -> RefDefEntry {
+        RefDefEntry {
+            ref_kind: SymbolKind::ClassDef,
+            ref_id: 0,
+            def_loc: SourceLocation {
+                file_id,
+                container_id: 0,
+                func_id: 0,
+                byte_start: start,
+                byte_end: end,
+            },
+            def_kind,
+            cmie_kind: if def_kind == SymbolKind::EnumDef {
+                3
+            } else {
+                0
+            },
+            def_name: String::new(),
+        }
+    }
+
+    fn uri(s: &str) -> McURI {
+        McURI::from(s)
+    }
+
+    /// T10 (N2): the name_index bucket keeps every same-name candidate — a
+    /// name is never silently dropped by a later write — and the winner is a
+    /// deterministic policy (P3 > P4 > P5, enum family before class,
+    /// def-location tiebreaks), never registration order.
+    #[test]
+    fn name_index_keeps_all_candidates_and_winner_is_deterministic() {
+        let mut map = RefDefMap::new();
+        let f = uri("/mcc/t10.mc");
+
+        // Component CAP (own file) and enum CAP (own file) with the same name.
+        map.add_name_candidate(
+            &f,
+            "CAP",
+            NameLayer::Own,
+            entry(SymbolKind::ClassDef, 1, 100, 120),
+        );
+        map.add_name_candidate(
+            &f,
+            "CAP",
+            NameLayer::Own,
+            entry(SymbolKind::EnumDef, 1, 10, 30),
+        );
+
+        // Both survive; the bare-name winner is the enum, not the class —
+        // reproducing the historical single-slot result (consolidate listed
+        // class rows before enum rows, so the enum owned the slot) and
+        // matching the coexistence regression
+        // (tests/enum_component_same_name.rs) — regardless of write order.
+        let bucket = map.name_candidates(&f, "CAP");
+        assert_eq!(bucket.len(), 2, "both same-name defs stay visible");
+        let winner = map.get_by_name(f.as_str(), "CAP").expect("winner");
+        assert_eq!(
+            winner.def_kind,
+            SymbolKind::EnumDef,
+            "bare-name resolution prefers the enum-kind def"
+        );
+        assert_eq!(winner.def_loc.byte_start, 10);
+
+        // A same-name system candidate never displaces the own-file one: the
+        // own-file (P3) candidate outranks the system (P5) candidate.
+        map.add_name_candidate(
+            &f,
+            "CAP",
+            NameLayer::System,
+            entry(SymbolKind::ClassDef, 50, 500, 520),
+        );
+        let bucket = map.name_candidates(&f, "CAP");
+        assert_eq!(
+            bucket.len(),
+            3,
+            "the system candidate is an extra layer, not a drop"
+        );
+        let winner = map.get_by_name(f.as_str(), "CAP").expect("winner");
+        assert_eq!(
+            winner.def_loc.file_id, 1,
+            "P3 outranks P5 for the same name"
+        );
+
+        // An exact duplicate (same def file + span) re-added through a use
+        // chain is skipped — a system name re-exported by an import does not
+        // double-list.
+        map.add_name_candidate(
+            &f,
+            "CAP",
+            NameLayer::Use,
+            entry(SymbolKind::ClassDef, 50, 500, 520),
+        );
+        assert_eq!(
+            map.name_candidates(&f, "CAP").len(),
+            3,
+            "re-export of the same system def dedupes"
+        );
+
+        // Two genuinely different P4 imports of the same name stay two
+        // candidates and resolve by the deterministic def-location tiebreak.
+        map.add_name_candidate(
+            &f,
+            "CAP",
+            NameLayer::Use,
+            entry(SymbolKind::ClassDef, 60, 700, 720),
+        );
+        let bucket = map.name_candidates(&f, "CAP");
+        assert_eq!(bucket.len(), 4);
+        assert_eq!(
+            map.name_winner(&f, "CAP").unwrap().def_loc.file_id,
+            1,
+            "P3 winner is unaffected by imported candidates"
+        );
+        // Winner recomputed from the P4-only bucket (no own-file def) is
+        // deterministic across the two imports.
+        let mut p4_only = RefDefMap::new();
+        p4_only.add_name_candidate(
+            &f,
+            "CAP",
+            NameLayer::Use,
+            entry(SymbolKind::ClassDef, 60, 700, 720),
+        );
+        p4_only.add_name_candidate(
+            &f,
+            "CAP",
+            NameLayer::Use,
+            entry(SymbolKind::ClassDef, 55, 600, 620),
+        );
+        let w1 = p4_only
+            .get_by_name(f.as_str(), "CAP")
+            .unwrap()
+            .def_loc
+            .file_id;
+        // And re-adding in the reverse order gives the same winner.
+        let mut p4_rev = RefDefMap::new();
+        p4_rev.add_name_candidate(
+            &f,
+            "CAP",
+            NameLayer::Use,
+            entry(SymbolKind::ClassDef, 55, 600, 620),
+        );
+        p4_rev.add_name_candidate(
+            &f,
+            "CAP",
+            NameLayer::Use,
+            entry(SymbolKind::ClassDef, 60, 700, 720),
+        );
+        assert_eq!(
+            p4_rev
+                .get_by_name(f.as_str(), "CAP")
+                .unwrap()
+                .def_loc
+                .file_id,
+            w1,
+            "winner is insertion-order independent"
+        );
+        assert!(
+            p4_rev
+                .get_by_name(f.as_str(), "CAP")
+                .unwrap()
+                .def_loc
+                .file_id
+                == 55,
+            "def-location tiebreak picks the lexicographically first def file"
+        );
     }
 }

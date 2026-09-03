@@ -80,8 +80,8 @@ impl DefRefGraph {
     /// The registry [`DefId`] of a resolved def node (D15.3: a graph hit
     /// carries the def id — consumers hold ids, never text). One hop through
     /// the registry's canonical-key index; `None` when the def was removed
-    /// (the graph may outlive a `remove_by_uri`).
-    #[allow(dead_code)] // D14 query API; wired by goto-def / who-uses in a later phase
+    /// (the graph may outlive a `remove_by_uri`). Consumed by the def-level
+    /// who-uses RPC (`defs.dependents`, T5).
     pub fn def_id_of(&self, to: &McSpaceName) -> Option<DefId> {
         let kind = kind_of(to)?;
         registry_def_id(to, kind)
@@ -91,7 +91,7 @@ impl DefRefGraph {
     /// identified by `id`. `live_entry_by_id` maps the id back to the def's
     /// canonical key, then the rev side answers — one id → dependents
     /// without a text-keyed registry round trip on the caller's side.
-    #[allow(dead_code)] // D14 query API; wired by who-uses in a later phase
+    /// Consumed by the def-level who-uses RPC (`defs.dependents`, T5).
     pub fn dependents_of(&self, id: DefId) -> Vec<McSpaceName> {
         let Some((sn, _)) = live_entry_by_id(id) else {
             return Vec::new();
@@ -101,7 +101,7 @@ impl DefRefGraph {
 
     /// Def-scoped who-uses predicate — whether the def `id` has dependents
     /// (def-level invalidation domain: "does anything reference this def").
-    #[allow(dead_code)] // D14 query API; wired by invalidation in a later phase
+    /// Consumed by the def-level who-uses RPC (`defs.dependents`, T5).
     pub fn has_dependents_of(&self, id: DefId) -> bool {
         let Some((sn, _)) = live_entry_by_id(id) else {
             return false;

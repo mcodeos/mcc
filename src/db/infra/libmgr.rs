@@ -345,6 +345,11 @@ pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
             // workspace; a full reset starts its identity journal over with a
             // clean slate.
             crate::db::defregistry::clear_all();
+            // The symbol layer's global declare-id counter follows the full
+            // reset: every table referencing those ids is rebuilt, so the
+            // counter must return to its boot value or a second clean load
+            // in this process would allocate shifted ids (T1 determinism).
+            crate::ast::sem::reset_declare_id_counter();
         }
         ClearScope::Lib => {
             let uris = uris.expect("ClearScope::Lib requires the library uri set");

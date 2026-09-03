@@ -4,7 +4,9 @@
 
 //! §5.4.3 resolution policy: class name → CMIE definition.
 //!
-//!   ① RefDefMap name_index[(F, name)] — P3 (own file) + P4 (use chain), use-aware
+//!   ① RefDefMap name_index bucket under `(F, name)` — P3 (own file) + P4
+//!      (use chain); the deterministic winner resolves, every candidate stays
+//!      queryable for visibility checks, use-aware
 //!   ② registry system segment name-only lookup — P5 (per-world system lib)
 //!
 //! There is deliberately NO workspace-wide name-only scan: a definition in a
@@ -193,15 +195,27 @@ impl Resolver {
         // name-only scan (§5.4.5).
         let canonical = crate::build::pass1::canonicalize_project_uri(from_uri);
         let from_uri = &McURI::from(canonical.as_str());
-        if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(from_uri) {
-            if let Ok(sym) = mcfile.symbols.lock() {
-                if let Some(cmie) = Self::resolve_class_locked(from_uri, name, &sym) {
-                    return Some(cmie);
+        match workspace::WORKSPACE.mcodes.get(from_uri) {
+            // Loaded file: the consolidated RefDefMap is authoritative for
+            // P3/P4 (§5.4.3 ①). A miss means the name is not visible from F —
+            // including names an alias hides — so only P5 remains. The
+            // use-chain walk below must not run here: it is reachability
+            // based and cannot see the alias/named-import shadowing that the
+            // map (and the phase-6 visibility table) already applied.
+            Some(mcfile) => {
+                if let Ok(sym) = mcfile.symbols.lock() {
+                    if let Some(cmie) = Self::resolve_class_locked(from_uri, name, &sym) {
+                        return Some(cmie);
+                    }
+                    return Self::resolve_system(name);
                 }
+                // Poisoned lock — treat as unloaded below.
             }
+            None => {}
         }
-        // The referencing file is not loaded (or its symbols lock is
-        // poisoned): fall through to P3/P4/P5.
+        // The referencing file is not loaded (e.g. mid-parse, when it is
+        // removed from `mcodes`) or its symbols lock is poisoned: fall
+        // through to P3/P4/P5.
         Self::resolve_own_file(from_uri, name)
             .or_else(|| Self::resolve_visibility(from_uri, name))
             .or_else(|| Self::resolve_use_chain(from_uri, name))
@@ -252,11 +266,21 @@ impl Resolver {
                 // interned file URIs can carry the raw path form (e.g. /tmp vs
                 // /private/tmp on macOS) while workspace keys are canonical, so
                 // canonicalize the def URI before the exact-key lookup.
+                // T11 (N3): the bucket key is the name visible in F (an alias
+                // such as `use tgt as t`), while the def's registry key is its
+                // real declared name (`entry.def_name`, e.g. the target's first
+                // CMIE). Look the live def up by its real name so an aliased
+                // class resolves to its module/component/interface/enum.
+                let def_ident: &McIds = if entry.def_name.is_empty() {
+                    name
+                } else {
+                    &crate::McIds::from(entry.def_name.as_str())
+                };
                 let space_name = if def_uri.is_empty() {
-                    McSpaceName::new(name, def_uri.clone())
+                    McSpaceName::new(def_ident, def_uri.clone())
                 } else {
                     McSpaceName::new(
-                        name,
+                        def_ident,
                         crate::build::pass1::canonicalize_project_uri(&def_uri),
                     )
                 };

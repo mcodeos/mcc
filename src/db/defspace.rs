@@ -459,8 +459,11 @@ mod tests {
         let _cleanup = Cleanup(sn.clone());
 
         // Production order: the mcode lib loads first (SystemLib), then the
-        // project file re-declares the identity (Project). The project def
-        // must shadow the system def — workspace-first precedence.
+        // project file re-declares the identity (Project). Under T8 (M2)
+        // layered coexist the project def does NOT destroy the system def —
+        // both layers stay live under one key, and reads resolve the project
+        // layer first (workspace-first precedence), falling back to the
+        // intact system layer when the project file goes away.
         assert_eq!(
             crate::db::defregistry::insert(
                 &sn,
@@ -485,7 +488,7 @@ mod tests {
                 )),
             ),
             crate::db::defregistry::InsertOutcome::Inserted,
-            "project def takes over the same-key system-lib def (workspace-first)"
+            "project def layers over the same-key system-lib def (workspace-first read)"
         );
 
         let wm = WorkspaceManager::new();
@@ -494,19 +497,19 @@ mod tests {
         assert_eq!(
             hit.pins.pins.len(),
             2,
-            "workspace (project) def wins over the global (system-lib) def"
+            "the project (workspace) layer wins the unified read"
         );
         assert_eq!(
             ds.get_workspace_component(&sn).map(|c| c.pins.pins.len()),
             Some(2),
-            "the project view sees the project def"
+            "the project view sees the project layer"
         );
         assert!(
-            !ds.system_components().iter().any(|(k, _)| k == &sn),
-            "the identity is no longer a system def after the takeover"
+            ds.system_components().iter().any(|(k, _)| k == &sn),
+            "T8: the system layer survives the project shadow (layered, not overwritten)"
         );
 
-        // A same-key re-insert cannot displace the project def: same-domain
+        // A same-key re-insert cannot displace the project layer: same-domain
         // (project) and reverse-domain (system lib) re-inserts are duplicates.
         assert_eq!(
             crate::db::defregistry::insert(
@@ -519,7 +522,7 @@ mod tests {
                 )),
             ),
             crate::db::defregistry::InsertOutcome::Duplicate,
-            "a project re-insert is a duplicate (first project def stays)"
+            "a project re-insert is a duplicate (first project layer stays)"
         );
         assert_eq!(
             crate::db::defregistry::insert(
@@ -532,7 +535,7 @@ mod tests {
                 )),
             ),
             crate::db::defregistry::InsertOutcome::Duplicate,
-            "a system lib cannot displace a project def"
+            "a system lib cannot displace a live project layer"
         );
 
         // The precedence is per-key, not per-kind: other kinds stay a miss.
@@ -541,11 +544,31 @@ mod tests {
         assert!(ds.get_enum(&sn).is_none());
         assert!(ds.get_define(&sn).is_none());
 
-        // Dropping the entry removes it entirely: the identity is gone.
+        // Removing the project file's layer alone falls back to the intact
+        // system def — the T8 fallback read, no mcode reload required.
+        crate::db::defregistry::remove_project_by_uri("/mcc/prio.mc");
+        let fallback = ds
+            .get_component(&sn)
+            .expect("system layer survives the shadow");
+        assert_eq!(
+            fallback.pins.pins.len(),
+            1,
+            "removing the project layer falls back to the system def"
+        );
+        assert!(
+            ds.get_workspace_component(&sn).is_none(),
+            "the project view is empty once the project layer is gone"
+        );
+
+        // Full cleanup removes the remaining system layer too.
         drop(_cleanup);
         assert!(
             ds.get_component(&sn).is_none(),
-            "the identity is removed with the cleanup"
+            "the identity is gone after removing the last layer"
+        );
+        assert!(
+            !ds.system_components().iter().any(|(k, _)| k == &sn),
+            "the system-only view is empty after the full cleanup"
         );
     }
 }

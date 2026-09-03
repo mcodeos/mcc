@@ -833,6 +833,22 @@ pub fn resolve_base_hit(
             return Some(hit);
         }
     }
+    // ★ Structural formal-parameter match (T7, G8): the base alias no longer
+    // lives in `def_spans`, so a chain base must also match a formal by name
+    // form. The base `dc` of a curly-bus formal `dc{VDD_3V3, GND}` matches its
+    // base-name form and resolves to the ParamDef anchored at the whole
+    // declared form — never the synthetic insts bus def at the base text.
+    if let Some(declare) = params.find_form(base) {
+        let name = declare.display_name();
+        if let Some(span) = params.get_def_span(&name) {
+            return Some(ChainHit {
+                name,
+                def_kind: SymbolKind::ParamDef,
+                span,
+                uri: uri.clone(),
+            });
+        }
+    }
     let hop = first_hop(insts, params, base, uri)?;
     finalize_hit(uri, hop, insts, params)
 }

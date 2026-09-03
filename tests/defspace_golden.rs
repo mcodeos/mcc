@@ -428,3 +428,50 @@ fn p07_world_reset_reloads_mcode() {
         "reloading mcode after the reset restores PKG resolution"
     );
 }
+
+/// T1 (G1) determinism regression: `dump_symbols_f12_text` is a pure
+/// function of the file + library inputs — two clean runs of the same
+/// inputs must produce byte-identical output, symbol `id=` values and
+/// section order included. The symbol layer's global declare-id counter is a
+/// process-run allocator (boot value 1), so an in-process second run is
+/// simulated with a full reset (`mcc_init_no_lib`, ClearScope::Full), which
+/// now also rewinds that counter — otherwise the second load allocates
+/// shifted ids and the dump depends on parse history (the historical
+/// run-to-run shuffle, lapper-improvement-plan P2.4).
+#[test]
+fn p08_f12_dump_deterministic_across_clean_loads() {
+    let _lock = lock();
+
+    let root = temp_lib_root("p08", "mcode", "GOLD_DET", &["A", "K"]);
+    let uri: mcc::McURI = "/virtual/p08_det_use.mc".to_string();
+    // Project module instantiating the lib component: the body drives
+    // class-name REF registration into the file's lapper, so the dump covers
+    // local defs and system-lib resolution alike.
+    let src = "module main\n{\n    GOLD_DET u1\n}\n";
+
+    // Round 1 (run 1).
+    reset_workspace();
+    mcc::mcc_set_system_root(&root);
+    assert!(
+        mcc::mcb_load_lib("mcode", &root.join("mcode")),
+        "mcode lib loads in the boot world"
+    );
+    mcc::mcc_load_from_string(&uri, src);
+    let dump1 = mcc::dump_symbols_f12_text(&uri).expect("f12 dump (round 1)");
+
+    // Round 2 (an independent second run): full reset, same inputs.
+    reset_workspace();
+    mcc::mcc_set_system_root(&root);
+    assert!(
+        mcc::mcb_load_lib("mcode", &root.join("mcode")),
+        "mcode lib loads in the fresh run"
+    );
+    mcc::mcc_load_from_string(&uri, src);
+    let dump2 = mcc::dump_symbols_f12_text(&uri).expect("f12 dump (round 2)");
+
+    assert_eq!(
+        dump1, dump2,
+        "two clean runs of the same inputs must produce byte-identical F12 \
+         symbol dumps (id= values and section order included)"
+    );
+}

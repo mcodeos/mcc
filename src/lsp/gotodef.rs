@@ -14,7 +14,10 @@ use serde_json::{json, Value};
 
 /// Fast path: search RefDefMap name_index across all loaded files (§7.4).
 /// Returns (def_uri_str, def_kind_name) if found, None otherwise.
-fn find_def_in_refdefmap(name: &str) -> Option<(String, String)> {
+/// T11 (N3): also returns the def's real declared name — a `use X as A`
+/// alias exposes the def under a bucket key different from its registry name,
+/// and the `get_def` call below must use the registry name, not the alias.
+fn find_def_in_refdefmap(name: &str) -> Option<(String, String, String)> {
     for mcfile in crate::definition_space().source_files() {
         if let Ok(sym) = mcfile.symbols.lock() {
             if let Some(ref map) = sym.ref_def_map {
@@ -23,7 +26,12 @@ fn find_def_in_refdefmap(name: &str) -> Option<(String, String)> {
                         crate::semantic::common::uri_of_file_id(def_entry.def_loc.file_id)
                             .to_string();
                     let def_kind = def_entry.def_kind.kind_name().to_string();
-                    return Some((def_uri, def_kind));
+                    let def_name = if def_entry.def_name.is_empty() {
+                        name.to_string()
+                    } else {
+                        def_entry.def_name.clone()
+                    };
+                    return Some((def_uri, def_kind, def_name));
                 }
             }
         }
@@ -38,8 +46,8 @@ fn find_def_in_refdefmap(name: &str) -> Option<(String, String)> {
 /// Tries RefDefMap fast path first (§7.4), falls back to O(n) project table scan.
 pub fn find_def_by_name_raw(name: &str) -> Option<(McCMIE, String)> {
     // ★ Fast path: RefDefMap lookup (§7.4)
-    if let Some((def_uri, _def_kind)) = find_def_in_refdefmap(name) {
-        let ident = McIds::from(name);
+    if let Some((def_uri, _def_kind, def_name)) = find_def_in_refdefmap(name) {
+        let ident = McIds::from(def_name.as_str());
         let uri_obj = McURI::from(def_uri.as_str());
         if let Some(cmie) = crate::get_def(&ident, &uri_obj) {
             return Some((cmie, def_uri));
@@ -75,24 +83,32 @@ pub fn find_def_by_name_in_file(name: &str, from_uri: &str) -> Option<(McCMIE, S
     // The file's symbols lock is released before `get_def`: class resolution
     // (Resolver) re-locks the same file's symbols, and std Mutex is not
     // reentrant — holding it across the call would self-deadlock.
-    let def_uri = {
+    let (def_uri, def_name) = {
         let ds = crate::definition_space();
         let mcfile = ds.source_file(&from_uri_obj);
         let mut def_uri = String::new();
+        let mut def_name = String::new();
         if let Some(mcfile) = mcfile {
             if let Ok(sym) = mcfile.symbols.lock() {
                 if let Some(ref map) = sym.ref_def_map {
                     if let Some(entry) = map.get_by_name(&from_uri_obj, name) {
                         def_uri = crate::semantic::common::uri_of_file_id(entry.def_loc.file_id)
                             .to_string();
+                        // T11 (N3): an alias bucket key differs from the def's
+                        // registry name — resolve the def by its real name.
+                        def_name = if entry.def_name.is_empty() {
+                            name.to_string()
+                        } else {
+                            entry.def_name.clone()
+                        };
                     }
                 }
             }
         }
-        def_uri
+        (def_uri, def_name)
     };
     if !def_uri.is_empty() {
-        let ident = McIds::from(name);
+        let ident = McIds::from(def_name.as_str());
         if let Some(cmie) = crate::get_def(&ident, &McURI::from(def_uri.as_str())) {
             return Some((cmie, def_uri));
         }

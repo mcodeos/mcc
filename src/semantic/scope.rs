@@ -665,9 +665,8 @@ impl ResolveScope<ContainerRef> for UseChainScope<'_> {
         let mcfile = workspace::WORKSPACE.mcodes.get(self.uri)?;
         let sym = mcfile.symbols.lock().ok()?;
         let map = sym.ref_def_map.as_ref()?;
-        let entry = map
-            .name_index
-            .get(&(self.uri.as_str().to_string(), name.to_string()))?;
+        // P4 winner among the visible candidates (see RefDefMap::get_by_name).
+        let entry = map.get_by_name(self.uri.as_str(), name)?;
         let def_uri = crate::semantic::common::uri_of_file_id(entry.def_loc.file_id);
         let space_name = McSpaceName::new(&McIds::from(name), McURI::from(def_uri.as_ref()));
         cmie_by_kind(entry.cmie_kind, &space_name).and_then(cmie_to_container_ref)

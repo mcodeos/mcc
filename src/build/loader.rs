@@ -431,8 +431,11 @@ pub fn mcb_remove(uri: &McURI) {
 }
 
 // === fn remove_defines(uri: &McURI) { ===
-/// Remove every definition this file registered, from both physical tables —
-/// delegated to the single write entry (defregistry.rs).
+/// Remove every definition this project file registered, from both physical
+/// tables and the registry's project layer — delegated to the single write
+/// entry (defregistry.rs). T8 (M2): the project layer is tombstoned while a
+/// live same-key system-lib def the file was shadowing survives as the read
+/// fallback (deleting a project source file never destroys mcode data).
 pub(crate) fn remove_defines(uri: &McURI) {
-    crate::db::defregistry::remove_by_uri(uri.as_str());
+    crate::db::defregistry::remove_project_by_uri(uri.as_str());
 }

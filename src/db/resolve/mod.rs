@@ -12,7 +12,10 @@
 //! goto-def / hover / find-references) resolve through [`Resolver`] so the
 //! policy is enforced identically everywhere:
 //!
-//!   ① `RefDefMap.name_index[(F, name)]` — P3 (own file) + P4 (use chain)
+//!   ① `RefDefMap` name_index bucket under `(F, name)` — P3 (own file) + P4
+//!      (use chain); the deterministic winner (`get_by_name`) resolves, while
+//!      the whole bucket (every same-name candidate with its layer) stays
+//!      queryable for visibility checks
 //!   ② per-world system-lib registry lookup — P5 (mcode system library,
 //!      visible inside the world that loaded it)
 //!
