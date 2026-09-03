@@ -18,13 +18,11 @@
 //!
 //! matrix §2 row 21 (member_scalar family).
 //!
-//! KNOWN-FAILURE AT v0.7.11 (Phase 0 baseline): the current code creates a
-//! literal `res[4]` instance (`main.res[4]`, pins `main.res[4].1/.2`) — the
-//! `>= 2` guard at mc_inst.rs makes `should_expand` false for a single member,
-//! so `names_to_create = ["res[4]"]` (literal bracket name leaks through
-//! flatten, violating invariant B). This test asserts the Phase 1 pipeline
-//! target (step 3 len==1 → `Endpoint(Single)` + scalar materialization); it
-//! flips green when the vector pipeline lands (Phase 1.2 / step 3, contract E).
+//! RESOLVED (2026-09-04): a KNOWN-FAILURE marker was recorded here at v0.7.11
+//! (single-member range materialized as a literal `res[4]` path, the `>= 2`
+//! guard at mc_inst.rs leaving `should_expand` false). The vector pipeline
+//! (contract E / step-3 scalar materialization) landed in 6fdd455 and this
+//! test now passes — the marker is kept only as the historical record.
 
 mod common;
 

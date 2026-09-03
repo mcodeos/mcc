@@ -126,9 +126,6 @@ pub const DUP_CAPABILITY: u32 = 1006;
 /// Definition already exists.
 pub const DEF_ALREADY_EXISTS: u32 = 1051;
 
-/// The declaration is a define or an unexpected type and cannot be loaded as a CMIE.
-pub const CMIE_LOAD_REJECTED: u32 = 1052;
-
 /// Missing subnode in an instance declaration.
 pub const INST_MISSING_SUBNODE: u32 = 1053;
 
@@ -149,9 +146,6 @@ pub const ENUM_MISSING_VALUES: u32 = 1058;
 
 /// Malformed IO type node in a pin/port declaration.
 pub const MALFORMED_IOTYPE: u32 = 1059;
-
-/// The name is a define; a define cannot be loaded as a CMIE.
-pub const CMIE_IS_DEFINE: u32 = 1060;
 
 // ============================================================================
 // Pass1b: use statements (2000-2049)
@@ -646,9 +640,6 @@ pub const CONN_TRANSPOSE_SIZE_MISMATCH: u32 = 4001;
 /// Shape mismatch in a <- connection.
 pub const CONN_LEFT_ARROW_SHAPE_MISMATCH: u32 = 4002;
 
-/// The transpose operator is not allowed at this position.
-pub const CONN_CANNOT_TRANSPOSE: u32 = 4003;
-
 /// Shape mismatch in a parallel connection.
 pub const CONN_PARALLEL_SHAPE_MISMATCH: u32 = 4005;
 
@@ -661,53 +652,8 @@ pub const CONN_OPERATOR_UNSUPPORTED: u32 = 4008;
 /// Unexpected AST node type in a phrase.
 pub const PHRASE_AST_TYPE_UNEXPECTED: u32 = 4009;
 
-/// No ports found in the component.
-pub const CONN_NO_PORTS_COMPONENT: u32 = 4010;
-
-/// No ports found in the module.
-pub const CONN_NO_PORTS_MODULE: u32 = 4011;
-
-/// No ports found in the interface.
-pub const CONN_NO_PORTS_INTERFACE: u32 = 4012;
-
-/// Dot operator does not apply to a Series.
-pub const CONN_DOT_SERIES: u32 = 4013;
-
-/// Dot operator does not apply to a Node.
-pub const CONN_DOT_NODE: u32 = 4014;
-
-/// Dot operator does not apply to a Transposed.
-pub const CONN_DOT_TRANSPOSED: u32 = 4015;
-
-/// Dot operator does not apply to a Lead.
-pub const CONN_DOT_LEAD: u32 = 4016;
-
-/// Dot operator does not apply to a Group.
-pub const CONN_DOT_GROUP: u32 = 4017;
-
-/// Dot operator does not apply to an Endpoint.
-pub const CONN_DOT_ENDPOINT: u32 = 4018;
-
-/// Dot operator already applied to a Member.
-pub const CONN_DOT_MEMBER: u32 = 4019;
-
-/// Closure has no output interface to access.
-pub const CLOSURE_NO_OUTPUT_IFACE: u32 = 4020;
-
-/// FuncCall has no return interface to access.
-pub const FUNCCALL_NO_RETURN_IFACE: u32 = 4021;
-
 /// Member not found in the interface.
 pub const PHRASE_IFACE_MEMBER_NOT_FOUND: u32 = 4022;
-
-/// Curly-member construction: left member list is empty.
-pub const CURLY_LEFT_EMPTY: u32 = 4023;
-
-/// Curly-member construction: right member list is empty.
-pub const CURLY_RIGHT_EMPTY: u32 = 4024;
-
-/// Cannot convert the curly-member result to a bus.
-pub const CURLY_NOT_BUS: u32 = 4025;
 
 // ============================================================================
 // Pass2: netlist heuristics (D-series / layout) (4050-4099)
@@ -901,9 +847,6 @@ pub const INST_MEMBER_PROCESS_FAILED: u32 = 4158;
 /// Connection between adjacent members of a series failed.
 pub const INST_ADJACENT_CONNECT_FAILED: u32 = 4159;
 
-/// A `.Cap(_)` shunt member failed to process.
-pub const INST_SHUNT_PROCESS_FAILED: u32 = 4160;
-
 /// A module-level function body statement failed.
 pub const INST_FUNC_BODY_STMT_FAILED: u32 = 4161;
 
@@ -915,21 +858,6 @@ pub const INST_LANE_TRANSPOSED_FAILED: u32 = 4163;
 
 /// Group connection shape mismatch; the operation generates no connection.
 pub const CONN_GROUP_SHAPE_MISMATCH: u32 = 4166;
-
-/// Component input pin count mismatch in a function call.
-pub const INST_INPUT_PIN_COUNT_MISMATCH: u32 = 4167;
-
-/// Component output pin count mismatch in a function call.
-pub const INST_OUTPUT_PIN_COUNT_MISMATCH: u32 = 4168;
-
-/// Inline module instantiation failed.
-pub const INST_INLINE_MODULE_FAILED: u32 = 4169;
-
-/// Module input port count mismatch in a function call.
-pub const INST_INPUT_PORT_COUNT_MISMATCH: u32 = 4170;
-
-/// Module output port count mismatch in a function call.
-pub const INST_OUTPUT_PORT_COUNT_MISMATCH: u32 = 4171;
 
 /// Sub-module DC power port is never connected (missing power argument?).
 pub const INST_POWER_PORT_UNBOUND: u32 = 4172;
@@ -1265,9 +1193,6 @@ pub const COND_DUPLICATE: u32 = 5460;
 // Pass3: hardware checks (5500-5549)
 // ============================================================================
 
-/// Too many power pins.
-pub const HW_POWER_PINS_EXCESS: u32 = 5501;
-
 /// Pin numbers have gaps.
 pub const HW_PIN_NUMBER_GAP: u32 = 5502;
 
@@ -1276,9 +1201,6 @@ pub const HW_PIN_COUNT_HIGH: u32 = 5503;
 
 /// Component has zero pins but parameter attributes.
 pub const HW_ZERO_PINS_WITH_PARAMS: u32 = 5504;
-
-/// Consecutive NC pins.
-pub const HW_NC_PINS_CONTIGUOUS: u32 = 5505;
 
 /// Interface role is never bound.
 pub const HW_IFACE_ROLE_UNBOUND: u32 = 5506;
@@ -1349,7 +1271,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DUP_CAPABILITY, "A capability with the same name already exists in this file.", "Duplicate capability"),
     // ---- section ----
     entry!(DEF_ALREADY_EXISTS, "Definition already exists.", "Definition already exists"),
-    entry!(CMIE_LOAD_REJECTED, "The declaration is a define or an unexpected type and cannot be loaded as a CMIE.", "Unexpected declaration type {0} for CMIE load"),
     entry!(INST_MISSING_SUBNODE, "Missing subnode in an instance declaration.", "Missing subnode in an instance declaration."),
     entry!(PINS_MISSING_SUBNODE, "Missing subnode in a pins declaration.", "Missing subnode in a pins declaration."),
     entry!(ENUM_MISSING_SUBNODES, "Enum definition is missing its subnodes.", "Missing subnodes for enum"),
@@ -1357,7 +1278,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ENUM_MISSING_NAME_IDS, "Enum definition is missing its name ids.", "Missing name ids for enum"),
     entry!(ENUM_MISSING_VALUES, "Enum definition is missing its values.", "Missing values for enum"),
     entry!(MALFORMED_IOTYPE, "Malformed IO type node in a pin/port declaration.", "Malformed IOTYPE node"),
-    entry!(CMIE_IS_DEFINE, "The name is a define; a define cannot be loaded as a CMIE.", "'{0}' is a define; not loadable as a CMIE"),
     // ---- section ----
     entry!(USE_PATH_INVALID, "Invalid path in a use statement.", "Invalid path in USE"),
     entry!(USE_URI_PREFIX_INVALID, "Unrecognized URI prefix — expected $, /, ./, or ../.", "Unrecognized URI prefix — expected $, /, ./, or ../"),
@@ -1499,27 +1419,11 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
-    entry!(CONN_CANNOT_TRANSPOSE, "The transpose operator is not allowed at this position.", "Cannot transpose"),
     entry!(CONN_PARALLEL_SHAPE_MISMATCH, "Shape mismatch in a parallel connection.", "Shape mismatch in parallel connection"),
     entry!(CONN_SERIES_SHAPE_MISMATCH, "Shape mismatch in a -> connection.", "Shape mismatch in -> connection"),
     entry!(CONN_OPERATOR_UNSUPPORTED, "The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for series.", "Operator '{1}' is not supported in connection statements; use '+' for parallel, '-' / '->' for series"),
     entry!(PHRASE_AST_TYPE_UNEXPECTED, "Unexpected AST node type in a phrase.", "Unexpected AST node type {1} in McPhrase::new"),
-    entry!(CONN_NO_PORTS_COMPONENT, "No ports found in the component.", "No ports found in the component."),
-    entry!(CONN_NO_PORTS_MODULE, "No ports found in the module.", "No ports found in the module."),
-    entry!(CONN_NO_PORTS_INTERFACE, "No ports found in the interface.", "No ports found in the interface."),
-    entry!(CONN_DOT_SERIES, "Dot operator does not apply to a Series.", "Dot operator does not apply to a Series."),
-    entry!(CONN_DOT_NODE, "Dot operator does not apply to a Node.", "Dot operator does not apply to a Node."),
-    entry!(CONN_DOT_TRANSPOSED, "Dot operator does not apply to a Transposed.", "Dot operator does not apply to a Transposed."),
-    entry!(CONN_DOT_LEAD, "Dot operator does not apply to a Lead.", "Dot operator does not apply to a Lead."),
-    entry!(CONN_DOT_GROUP, "Dot operator does not apply to a Group.", "Dot operator does not apply to a Group."),
-    entry!(CONN_DOT_ENDPOINT, "Dot operator does not apply to an Endpoint.", "Dot operator does not apply to an Endpoint."),
-    entry!(CONN_DOT_MEMBER, "Dot operator already applied to a Member.", "Dot operator already applied to a Member."),
-    entry!(CLOSURE_NO_OUTPUT_IFACE, "Closure has no output interface to access.", "Closure has no output interface to access."),
-    entry!(FUNCCALL_NO_RETURN_IFACE, "FuncCall has no return interface to access.", "FuncCall has no return interface to access."),
     entry!(PHRASE_IFACE_MEMBER_NOT_FOUND, "Member not found in the interface.", "Member '{0}' not found in interface"),
-    entry!(CURLY_LEFT_EMPTY, "Curly-member construction: left member list is empty.", "Curly-member construction: left member list is empty."),
-    entry!(CURLY_RIGHT_EMPTY, "Curly-member construction: right member list is empty.", "Curly-member construction: right member list is empty."),
-    entry!(CURLY_NOT_BUS, "Cannot convert the curly-member result to a bus.", "Cannot convert the curly-member result to a bus."),
     // ---- section ----
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),
@@ -1582,7 +1486,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_BUILTIN_TWOPIN_EXPAND_FAILED, "Expanded builtin two-pin pair failed.", "Expanded builtin twopin pair failed: {0}"),
     entry!(INST_MEMBER_PROCESS_FAILED, "A member of a connection statement failed to process.", "Member processing failed: {0}"),
     entry!(INST_ADJACENT_CONNECT_FAILED, "Connection between adjacent members of a series failed.", "Connection between members #{0} and #{1} failed: {2}"),
-    entry!(INST_SHUNT_PROCESS_FAILED, "A `.Cap(_)` shunt member failed to process.", "`.Cap(_)` shunt: {0}"),
     entry!(INST_FUNC_BODY_STMT_FAILED, "A module-level function body statement failed.", "Module-level function '{0}' body statement failed: {1}"),
     entry!(INST_LANE_FUNCCALL_FAILED, "Failed to instantiate a FuncCall during lane-by-lane wiring.", "Failed to instantiate FuncCall in lane-by-lane wiring: {0}"),
     entry!(INST_LANE_TRANSPOSED_FAILED, "Failed to instantiate a Transposed member during lane-by-lane wiring.", "Failed to instantiate Transposed in lane-by-lane: {0}"),
@@ -1593,11 +1496,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SHAPE_INCOMPLETE, "NetShape missing; fell back to the deprecated connection_type() inference (stage 3).", "SHAPE_INCOMPLETE: net '{0}' has no NetShape provenance; fell back to connection_type() inference."),
     entry!(SHAPE_COLUMN_WIDTH_MIXED, "Column-width mix in a `[...]` list (vec-arch.md §4.1.1 R4): a single-column element among two-pin/node elements silently spans both columns.", "Column-width mix in a list: '{0}' spans both columns (single-column element among two-pin/node elements, e.g. `[A, R101]`). All elements must be single-column or all two-pin/node; use '_' to inherit the sibling column width."),
     entry!(CONN_GROUP_SHAPE_MISMATCH, "Group connection shape mismatch; no connection generated.", "Group shape mismatch: {0} external points vs {1} group points ({2} branches); no connection generated"),
-    entry!(INST_INPUT_PIN_COUNT_MISMATCH, "Component input pin count mismatch in a function call.", "Component '{0}' ({1}) input pin count mismatch: {2} connections vs {3} input pins"),
-    entry!(INST_OUTPUT_PIN_COUNT_MISMATCH, "Component output pin count mismatch in a function call.", "Component '{0}' ({1}) output pin count mismatch: {2} connections vs {3} output pins"),
-    entry!(INST_INLINE_MODULE_FAILED, "Inline module instantiation failed.", "Inline module '{0}' ({1}) instantiation failed: {2}"),
-    entry!(INST_INPUT_PORT_COUNT_MISMATCH, "Module input port count mismatch in a function call.", "Module '{0}' ({1}) input port count mismatch: {2} connections vs {3} input ports"),
-    entry!(INST_OUTPUT_PORT_COUNT_MISMATCH, "Module output port count mismatch in a function call.", "Module '{0}' ({1}) output port count mismatch: {2} connections vs {3} output ports"),
     entry!(INST_POWER_PORT_UNBOUND, "Sub-module DC power port is never connected (missing power argument?).", "Sub-module instance '{0}' DC power port '{1}' is never connected (missing power argument?)"),
     entry!(INST_CTOR_BODY_STMT_FAILED, "A constructor function body statement failed.", "Constructor '{0}' body statement failed: {1}"),
     entry!(INST_CTOR_PARAM_BIND_FAILED, "Constructor parameter binding failed.", "Constructor '{0}' on '{1}' param bind: {2}"),
@@ -1700,11 +1598,9 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(MODULE_STUB, "Module is a stub.", "Module is a stub."),
     entry!(COND_DUPLICATE, "Duplicate condition in if/else-if chain.", "A later if/else-if branch duplicates an earlier branch's condition, so it can never be selected."),
     // ---- section ----
-    entry!(HW_POWER_PINS_EXCESS, "Too many power pins.", "Too many power pins."),
     entry!(HW_PIN_NUMBER_GAP, "Pin numbers have gaps.", "Pin numbers have gaps."),
     entry!(HW_PIN_COUNT_HIGH, "Pin count is unusually high.", "Pin count is unusually high."),
     entry!(HW_ZERO_PINS_WITH_PARAMS, "Component has zero pins but parameter attributes.", "Component has zero pins but parameter attributes."),
-    entry!(HW_NC_PINS_CONTIGUOUS, "Consecutive NC pins.", "Consecutive NC pins."),
     entry!(HW_IFACE_ROLE_UNBOUND, "Interface role is never bound.", "Interface role is never bound."),
     entry!(HW_ALL_SAME_IO_TYPE, "All pins have the same IO type.", "All pins have the same IO type."),
 
