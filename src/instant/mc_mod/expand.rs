@@ -470,7 +470,8 @@ pub struct ExpandMatch {
 /// 3. **Explicit expansion `*`**: when the count structures differ, implicit
 ///    auto-expansion is **forbidden** (the §7 explicit `*` rule:
 ///    `[*cannon.UART[1:2,6], ...]` must be expanded as an explicit list) —
-///    returns `None`, leaving broadcast / truncation recovery to the caller.
+///    returns `None`; the caller reports the shape mismatch (vec-dianlu §5.3.3:
+///    illegal ⇒ E4007, **no** broadcast / pair-by-min truncation recovery).
 ///
 /// The N:N pairing path of `create_connection` in group.rs. Replaces the
 /// P2-4/P4.2 sorted-zip implementation (eval.md §11).

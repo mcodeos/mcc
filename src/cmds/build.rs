@@ -1524,9 +1524,12 @@ module top {
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
 
-        // The bracket-form reference must land both array members on the
-        // other side's bus net (cap4.2 / cap5.2 on PWR.VCC), proving the
-        // re-link produced real connections instead of a phantom drop.
+        // The bracket-form reference must resolve the array members to real
+        // row-aligned connections instead of a phantom drop: the 2-row array
+        // node column (cap4.2, cap5.2) zips against the 2-member rail column
+        // (PWR.VCC, PWR.GND) per vec-dianlu §5.2 — cap4.2 on PWR.VCC and
+        // cap5.2 on PWR.GND. (The old per-member re-link landed BOTH members
+        // on PWR.VCC — the abolished 1:N single-point broadcast; §5.3.1.)
         mcc::mcc_init_no_lib();
         mcc::mcc_set_system_root(std::path::Path::new(""));
         let uri = "/mcc/snippet.mc".to_string();
@@ -1535,19 +1538,24 @@ module top {
         let ident = McIds::from("top");
         let (_inst, _, _, net_store) = mcc::mcc_build_with_nets(&ident, &uri).expect("mcc_build");
         let root_nets = net_store.get("top").map(|t| t.to_vec()).unwrap_or_default();
-        let vcc = root_nets
-            .iter()
-            .find(|(name, _)| name == "PWR.VCC")
-            .map(|(_, pts)| pts);
+        let net_paths = |name: &str| -> Vec<&str> {
+            root_nets
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, pts)| pts.iter().map(|p| p.path.as_str()).collect())
+                .unwrap_or_default()
+        };
+        let vcc = net_paths("PWR.VCC");
+        let gnd = net_paths("PWR.GND");
         assert!(
-            vcc.is_some(),
-            "D8 PWR.VCC net missing. Nets: {:?}",
-            root_nets.iter().map(|(n, _)| n).collect::<Vec<_>>()
+            vcc.contains(&"cap4.2") && gnd.contains(&"cap5.2"),
+            "D8 row zip must place cap4.2 on PWR.VCC and cap5.2 on PWR.GND. \
+             PWR.VCC: {vcc:?}  PWR.GND: {gnd:?}"
         );
-        let paths: Vec<&str> = vcc.unwrap().iter().map(|p| p.path.as_str()).collect();
         assert!(
-            paths.contains(&"cap4.2") && paths.contains(&"cap5.2"),
-            "D8 both array instances must connect to PWR.VCC. PWR.VCC points: {paths:?}"
+            !vcc.contains(&"cap5.2"),
+            "D8 broadcast abolished (§5.3.1): cap5.2 must NOT land on PWR.VCC. \
+             PWR.VCC: {vcc:?}"
         );
     }
 }

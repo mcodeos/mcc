@@ -136,11 +136,12 @@ pub struct McModuleInst {
 /// §11.2: a declared vector instance — modeling-layer grouping node.
 ///
 /// Physical member instances are ordinary `McComponentInst` in `components`;
-/// this node groups them under the vector base name so lane broadcast /
-/// member-set alignment (Phase 2 GAP1) and flatten projection (Phase 1.7
-/// `vector_info`) can operate on the ordered member set. Contract E: only
-/// multi-member ranges (`expanded.len() >= 2`) produce a node; single-member
-/// ranges are scalars and stay out of `vectors`.
+/// this node groups them under the vector base name so lane-structured
+/// per-member dispatch (vec-dianlu §7.6) / member-set alignment (Phase 2
+/// GAP1) and flatten projection (Phase 1.7 `vector_info`) can operate on the
+/// ordered member set. Contract E: only multi-member ranges
+/// (`expanded.len() >= 2`) produce a node; single-member ranges are scalars
+/// and stay out of `vectors`.
 #[derive(Debug, Clone)]
 pub struct McVectorInst {
     /// Vector base name — `"c"` for `c[1:2]` (declaration scope, no dotted prefix).

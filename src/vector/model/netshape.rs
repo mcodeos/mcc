@@ -104,8 +104,11 @@ impl fmt::Display for LaneRef {
 pub enum GroupRole {
     /// Single point: `GND`, `R1.1`
     Scalar,
-    /// Broadcast source: 1 point to N points ("1-to-N broadcast" in `mcrule.md §10.4`),
-    /// or an N-member bus group (`MIC{P,N}`, `[VDD_3V3, GND]`) — width is N.
+    /// One-to-many fan: 1 source point reaching N points, or an N-member bus
+    /// group (`MIC{P,N}`, `[VDD_3V3, GND]`) — width is N. **Post-hoc drawing
+    /// role**: in the current model a scalar-vs-N fan is only ever the legal
+    /// group/same-name-pad/DC-bus fan-out (vec-dianlu §5.3.2 / §7.3); the
+    /// §5.3.1 single-point broadcast is abolished and never produces a net.
     Broadcast(usize),
 }
 
@@ -268,20 +271,25 @@ impl fmt::Display for NetShape {
 
 /// Generate a fix suggestion for a vector shape mismatch (eval.md §3 / §7).
 ///
-/// Enriches diagnostics: when `create_connection` recovers from a row-count
-/// mismatch by truncation, the suggestion tells the user how to make the two
-/// sides pair 1:1 instead (expand a scalar into a vector / explicit `*`).
-/// Returns `None` when the row counts already agree (no mismatch to fix).
+/// Enriches diagnostics on the E4007 / E2904 path. A row-count mismatch is an
+/// **error with no connection generated** (vec-dianlu §5.3.3: illegal ⇒ E4007,
+/// no truncation / pair-by-min recovery) — the shape gate never "recovers by
+/// truncation" anymore. This suggestion only guides the author toward a legal
+/// equal-row form (write an explicit N-row list / group, or align widths with
+/// `*` / `_`). Returns `None` when the row counts already agree (no mismatch
+/// to fix).
 pub fn suggest_shape_fix(lhs_rows: usize, rhs_rows: usize) -> Option<String> {
     if lhs_rows == rhs_rows {
         return None;
     }
     match (lhs_rows, rhs_rows) {
         (1, n) => Some(format!(
-            "expand the left scalar into a {n}-row vector to pair 1:1, e.g. [GND, GND]"
+            "the scalar would have to reach {n} members; write it as an explicit equal-width \
+             list (vec-dianlu §7.3), e.g. [GND, GND]"
         )),
         (n, 1) => Some(format!(
-            "expand the right scalar into a {n}-row vector to pair 1:1, e.g. [GND, GND]"
+            "the scalar would have to reach {n} members; write it as an explicit equal-width \
+             list (vec-dianlu §7.3), e.g. [GND, GND]"
         )),
         (l, r) => Some(format!(
             "row counts differ ({l}x1 vs {r}x1); use an explicit `*` expansion list \
