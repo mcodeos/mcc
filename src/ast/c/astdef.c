@@ -537,9 +537,10 @@ void check_to_print_endl(mc_value* value)
         value->type == MCAST_MODULE ||            
         value->type == MCAST_INTERFACE ||         
         value->type == MCAST_FUNCTION ||          
-        value->type == MCAST_ENUM ||              
-        value->type == MCAST_DEFINE ||              
-        value->type == MCAST_BODY ||              
+        value->type == MCAST_ENUM ||
+        value->type == MCAST_DEFINE ||
+        value->type == MCAST_CAPABILITY ||
+        value->type == MCAST_BODY ||
         value->type == MCAST_NET ||               
         value->type == MCAST_ATTRIBUTE ||         
         value->type == MCAST_ATTRIBUTE_PIN ||     
@@ -564,7 +565,8 @@ void mc_visit(mc_value* value)
 
         if (value->type == MCAST_COMPONENT ||
             value->type == MCAST_MODULE ||
-            value->type == MCAST_INTERFACE)
+            value->type == MCAST_INTERFACE ||
+            value->type == MCAST_CAPABILITY)
         mprintf(MCC_LOG_VISIT, "\n\n");
 
         if (value->data != NULL)
