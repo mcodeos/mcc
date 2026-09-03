@@ -321,6 +321,140 @@ pub fn handle_defs_diff(params: Option<Value>) -> RpcResult {
     }))
 }
 
+// === defs.relations (abstract-variant-capability plan §8.1/§8.3; P4c) ===
+
+/// One related def's identity for the relations reply.
+fn def_ref_json(id: crate::db::defregistry::DefId) -> Option<Value> {
+    let (sn, _) = crate::db::defregistry::live_entry_by_id(id)?;
+    Some(json!({
+        "name": sn.ident.to_string(),
+        "uri": sn.uri_string().to_string(),
+        "defId": id,
+    }))
+}
+
+/// The derivation / adoption relations of one def (§8.1/§8.3 reverse
+/// lookups, served from the registry ledgers):
+///
+/// - a *component* that is a variant reports `declaredBase` (its own
+///   `: Base` clause) and, when the base resolved to a live abstract
+///   component and materialized, `variantBase` (the base identity);
+/// - an *abstract* component reports `cluster` — every materialized
+///   variant that derived from it;
+/// - a component that adopts capabilities reports `declaredAdopts`
+///   (the `:: Cap…` clause names) and `adoptedCapabilities` (the resolved
+///   capability identities, declaration order);
+/// - a *capability* reports `adopters` — every host component whose
+///   `::` list resolves to it.
+///
+/// `name` + `uri` pin one identity; when the name+uri holds a def of more
+/// than one kind the optional `kind` (component|capability|module|interface|
+/// enum|define) disambiguates, defaulting to component then capability. An
+/// unknown / tombstoned def answers `defId: null` and empty sets, never an
+/// error (mirrors `defs.dependents`).
+pub fn handle_defs_relations(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct RelParams {
+        name: String,
+        uri: String,
+        #[serde(default)]
+        kind: Option<String>,
+    }
+    let p: RelParams = parse_strict(params)?;
+    use crate::db::defregistry::{def_id, DefId, DefKind};
+    let sn = crate::McSpaceName::new(
+        &crate::McIds::from(p.name.as_str()),
+        crate::McURI::from(p.uri.as_str()),
+    );
+    let kind_of = |k: &str| match k {
+        "component" => Some(DefKind::Component),
+        "capability" => Some(DefKind::Capability),
+        "module" => Some(DefKind::Module),
+        "interface" => Some(DefKind::Interface),
+        "enum" => Some(DefKind::Enum),
+        "define" => Some(DefKind::Define),
+        _ => None,
+    };
+    let id_kind: Option<(DefId, &str)> = match &p.kind {
+        Some(k) => {
+            let Some(kd) = kind_of(k) else {
+                return Err(JsonRpcError::custom(
+                    -32602,
+                    &format!(
+                        "defs.relations: unknown kind '{}', expected one of \
+                         component|capability|module|interface|enum|define",
+                        k
+                    ),
+                ));
+            };
+            def_id(&sn, kd).map(|i| (i, k.as_str()))
+        }
+        None => {
+            // Component first (variant / cluster / adoption relations all live
+            // on component defs), then capability (adopters).
+            let mut hit = def_id(&sn, DefKind::Component).map(|i| (i, "component"));
+            if hit.is_none() {
+                hit = def_id(&sn, DefKind::Capability).map(|i| (i, "capability"));
+            }
+            hit
+        }
+    };
+    let Some((id, kind)) = id_kind else {
+        return Ok(json!({
+            "name": p.name, "uri": p.uri, "defId": null,
+            "kind": p.kind, "relations": { },
+        }));
+    };
+
+    use crate::db::defregistry::{
+        adopted_capabilities_of, adopters_of, cluster_of, variant_base_of,
+    };
+    let mut relations = serde_json::Map::new();
+    if kind == "capability" {
+        let adopters: Vec<Value> = adopters_of(id)
+            .into_iter()
+            .filter_map(def_ref_json)
+            .collect();
+        relations.insert("adopters".into(), json!(adopters));
+    } else {
+        // Live component value (the materialized def for a variant).
+        if let Some((_, crate::db::defregistry::DefValue::Component(comp))) =
+            crate::db::defregistry::live_entry_by_id(id)
+        {
+            relations.insert("isAbstract".into(), json!(comp.is_abstract));
+            if let Some(base_name) = &comp.variant_base {
+                relations.insert("declaredBase".into(), json!(base_name.to_string()));
+            }
+            relations.insert(
+                "declaredAdopts".into(),
+                json!(comp
+                    .adopts
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()),
+            );
+        }
+        if let Some(base_id) = variant_base_of(id) {
+            relations.insert("variantBase".into(), json!(def_ref_json(base_id)));
+        }
+        let caps: Vec<Value> = adopted_capabilities_of(id)
+            .into_iter()
+            .filter_map(def_ref_json)
+            .collect();
+        relations.insert("adoptedCapabilities".into(), json!(caps));
+        // cluster is meaningful for an abstract base; empty otherwise.
+        let cluster: Vec<Value> = cluster_of(id)
+            .into_iter()
+            .filter_map(def_ref_json)
+            .collect();
+        relations.insert("cluster".into(), json!(cluster));
+    }
+    Ok(json!({
+        "name": p.name, "uri": p.uri, "defId": id, "kind": kind,
+        "relations": relations,
+    }))
+}
+
 // === defs.dependents (design D14; T5 who-uses over the DefRefGraph) ===
 
 /// Def-scoped who-uses: which ref-points `(referenced-name, referencing-file)`

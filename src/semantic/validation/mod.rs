@@ -133,6 +133,7 @@ impl CheckRegistry {
         r.register(Box::new(body::BodyCheck));
         r.register(Box::new(hw::HwCheck));
         r.register(Box::new(types::TypesCheck));
+        r.register(Box::new(adopt::AdoptionCheck));
         r
     }
 
@@ -155,6 +156,7 @@ impl CheckRegistry {
 // Sub-modules
 // ============================================================================
 
+pub mod adopt;
 pub mod attrs;
 pub mod body;
 pub mod conds;

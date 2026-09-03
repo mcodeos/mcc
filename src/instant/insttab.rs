@@ -323,6 +323,12 @@ pub struct InstEntry {
     pub vector_info: Option<VectorMemberInfo>,
     /// ★ M0-B-D: not-fitted marker (from McComponentInst.nc)
     pub not_fitted: bool,
+    /// ★ abstract-variant plan §6.1/§3.2: unselected marker — set when the
+    /// instance's def is an `abstract component` placed without a materialized
+    /// variant (`component Y : X`), so a BOM tool must still pick a part.
+    /// Pure def-marker (`McComponent.is_abstract`); never inferred from a
+    /// `partno` sentinel (abstract defs may legally carry a reference partno).
+    pub unselected: bool,
     /// ★ M0-B-E: instance origin (declaration vs funcall)
     pub origin: InstOrigin,
     /// ★ virtual: true when this entry belongs to a synthetic wrapper module
@@ -608,6 +614,7 @@ impl InstTable {
             member_info: None,
             vector_info: None,
             not_fitted: false,
+            unselected: false,
             origin: InstOrigin::Declared,
             synthetic: false,
         };
@@ -1053,6 +1060,14 @@ impl InstTable {
                     entry.not_fitted = true;
                 }
             }
+            // ★ abstract-variant §6.1/§3.2: an instance of an abstract def is
+            // unselected — no variant materialized it, so a BOM tool must pick
+            // a part. Marker is the def's `is_abstract` only (no partno rule).
+            if comp.def.is_abstract {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.unselected = true;
+                }
+            }
             // ★ M0-B-E: pass through origin
             if let Some(entry) = self.entries.get_mut(&comp_id) {
                 entry.origin = comp.origin.clone();
@@ -1188,6 +1203,12 @@ impl InstTable {
             if comp.nc {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
                     entry.not_fitted = true;
+                }
+            }
+            // ★ abstract-variant §6.1/§3.2: unselected marker (same as pass-1)
+            if comp.def.is_abstract {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.unselected = true;
                 }
             }
             if let Some(entry) = self.entries.get_mut(&comp_id) {

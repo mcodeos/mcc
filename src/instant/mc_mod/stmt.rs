@@ -2847,10 +2847,11 @@ impl InstantiationBuilder {
                     if let Some(inst_name) = inst_name {
                         let func_name_str = fc.func_name.to_string();
 
-                        // Component instance method
-                        let comp_func = self
-                            .find_component(&inst_name)
-                            .and_then(|c| c.def.funcs.find(&func_name_str).cloned());
+                        // Component instance method (§5 effective method set:
+                        // own func, else adopted-capability func).
+                        let comp_func = self.find_component(&inst_name).and_then(|c| {
+                            crate::db::defregistry::effective_method(&c.def, &func_name_str)
+                        });
                         if let Some(func_def) = comp_func {
                             // arity guard: only dispatch when formals and
                             // actuals agree (mirrors the dotted-chain guard
@@ -2909,14 +2910,17 @@ impl InstantiationBuilder {
                                 if let Some(sub) = self.find_submodule(segs[0]) {
                                     let inner_comp_func =
                                         self.component_in(&sub, segs[1]).and_then(|c| {
-                                            let f = c.def.funcs.find(&func_name_str)?;
+                                            let f = crate::db::defregistry::effective_method(
+                                                &c.def,
+                                                &func_name_str,
+                                            )?;
                                             // arity guard
                                             let func_arity = f.params.iter().count();
                                             let call_arity = fc.params.len();
                                             if func_arity > 0 && call_arity > 0
                                                 || func_arity == 0 && call_arity == 0
                                             {
-                                                Some(f.clone())
+                                                Some(f)
                                             } else {
                                                 None
                                             }

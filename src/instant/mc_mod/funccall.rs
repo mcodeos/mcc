@@ -460,8 +460,8 @@ impl InstantiationBuilder {
         // components and can't dispatch methods, so an exact dotted-name match
         // never shadows a pin-name caller.
         if let Some(comp) = self.find_component(&caller_path) {
-            if let Some(func) = comp.def.funcs.find(name_str) {
-                let func_clone = func.clone();
+            if let Some(func) = crate::db::defregistry::effective_method(&comp.def, name_str) {
+                let func_clone = func;
                 let full_scope = caller_path;
                 crate::db::diagnostic::diagnostic::dlog_trace(
                     944,
@@ -542,9 +542,10 @@ impl InstantiationBuilder {
                 }
             }
             InstEntry::Component(comp) => {
-                // Component method (e.g. uC.power(...), mcu.uC.i2c(...))
-                if let Some(func) = comp.def.funcs.find(name_str) {
-                    let func_clone = func.clone();
+                // Component method (e.g. uC.power(...), mcu.uC.i2c(...)) —
+                // §5 effective method set: own func, else adopted-capability func.
+                if let Some(func) = crate::db::defregistry::effective_method(&comp.def, name_str) {
+                    let func_clone = func;
                     crate::db::diagnostic::diagnostic::dlog_trace(
                         944,
                         &format!(

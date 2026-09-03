@@ -53,7 +53,7 @@ pub struct CondAttrs {
     pub span: Range<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct McComponent {
     pub name: McIds,
     pub params: McParamDeclares,
@@ -76,6 +76,16 @@ pub struct McComponent {
     /// (`XTAL2(...).Setup(VSS)`) name their receiver here (§3.1). pass2 never
     /// materializes comp.base.insts, so these names stay dormant until Part 3.
     pub anon_counter: usize,
+    /// `abstract` prefix present (`abstract component X`): placeable but
+    /// unselected (BOM picks a variant). Marker-derived, never a `partno`
+    /// sentinel (no-hardcoding).
+    pub is_abstract: bool,
+    /// Declared variant base name (`component X : Base`, MCAST_VARIANT).
+    /// Resolved + materialized at link time; the registry records `variant_of`.
+    pub variant_base: Option<McIds>,
+    /// Declared capability names adopted via `::` (MCAST_ADOPTS), in declaration
+    /// order. Resolved to capability defs at link time (registry `adopts` ledger).
+    pub adopts: Vec<McIds>,
 }
 
 impl McComponent {
@@ -135,8 +145,35 @@ impl McComponent {
 
     pub fn new(node: &AstNode, uri: &McURI) -> Option<Self> {
         // MCK_COMPONENT
-        // |- MCAST_NAME - MCAST_PARAMS (option) - MCAST_BODY
+        // |- MCAST_ABSTRACT? - MCAST_NAME - MCAST_PARAMS? - MCAST_VARIANT? - MCAST_ADOPTS? - MCAST_BODY
         let subnodes = node.get_sub_node()?;
+
+        // 0. header derivation metadata (abstract-variant-capability plan §0.1):
+        //    `abstract` marker, `: Base` (MCAST_VARIANT), `:: Cap…` (MCAST_ADOPTS).
+        //    Each is a sibling of NAME/PARAMS/BODY, so name/body finding is unchanged.
+        let has_abstract = subnodes.iter().any(|x| x.is_type(MCAST_ABSTRACT));
+        let variant_base = subnodes
+            .iter()
+            .find(|x| x.is_type(MCAST_VARIANT))
+            .and_then(|v| v.get_sub_node())
+            .and_then(|ids| McIds::new_with_dot(&ids));
+        // MCAST_ADOPTS wraps the adopt list as a sibling chain of name nodes
+        // under its `.sub` (each `MCAST_IDS`/`MCAST_ID`/`MCAST_IDA` one
+        // capability; `:: GuardA, GuardB` → two sibling IDs nodes). `.iter()`
+        // on the wrapper would walk its OWN `.next` siblings (the body), so the
+        // list must be read from the wrapper's first child forward.
+        let adopts: Vec<McIds> = subnodes
+            .iter()
+            .find(|x| x.is_type(MCAST_ADOPTS))
+            .and_then(|a| a.get_sub_node())
+            .map(|first| {
+                first
+                    .iter()
+                    .filter(|n| n.is_type(MCAST_IDS) || n.is_type(MCAST_ID) || n.is_type(MCAST_IDA))
+                    .filter_map(|ids| McIds::new(&ids))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         //1. new with name
         let comp_name = McIds::new_with_dot(
@@ -164,6 +201,9 @@ impl McComponent {
             cond_attrs: Vec::new(),
             span: crate::ast::sem::Span { start, end },
             anon_counter: 1,
+            is_abstract: has_abstract,
+            variant_base: variant_base.clone(),
+            adopts: adopts.clone(),
         };
 
         //2. param
@@ -235,6 +275,50 @@ impl McComponent {
                 for d in &diags {
                     crate::mcc_log_global_diag(d);
                 }
+            }
+        }
+
+        // 0.2 parse-time header constraints (abstract-variant-capability plan
+        //    §2.4/§7.2). Target-kind checks (`:` base abstract, `::` capability)
+        //    are deferred to the link pass — the target may load later.
+        let is_variant = variant_base.is_some();
+        if has_abstract && is_variant {
+            let msg = crate::errcodes::format_msg(crate::errcodes::ABSTRACT_DERIVES_ABSTRACT, &[]);
+            crate::db::diagnostic::diagnostic::dlog_error(
+                crate::errcodes::ABSTRACT_DERIVES_ABSTRACT,
+                &node,
+                &msg,
+            );
+        }
+        if is_variant && !adopts.is_empty() {
+            let msg = crate::errcodes::format_msg(crate::errcodes::VARIANT_ADOPTS, &[]);
+            crate::db::diagnostic::diagnostic::dlog_error(
+                crate::errcodes::VARIANT_ADOPTS,
+                &node,
+                &msg,
+            );
+        }
+        if is_variant {
+            let mut written: Vec<&str> = Vec::new();
+            if !new_comp.params.is_empty() {
+                written.push("construction params");
+            }
+            if new_comp.has_pin_defs() {
+                written.push("pins");
+            }
+            if !new_comp.funcs.is_empty() {
+                written.push("funcs");
+            }
+            if !written.is_empty() {
+                let msg = crate::errcodes::format_msg(
+                    crate::errcodes::VARIANT_REDECLARES_PINS_PARAMS_FUNCS,
+                    &[&comp_name.to_string()],
+                );
+                crate::db::diagnostic::diagnostic::dlog_error(
+                    crate::errcodes::VARIANT_REDECLARES_PINS_PARAMS_FUNCS,
+                    &node,
+                    &msg,
+                );
             }
         }
 

@@ -36,6 +36,7 @@ pub fn run_net_checks(table: &InstTable) -> Vec<NetCheckResult> {
     check_unused_module_ports(table, &mut results); // C4
     check_single_point_nets(table, &mut results); // self-loop
     check_pin_count_mismatch(table, &mut results); // pin count vs definition
+    check_unselected_abstract(table, &mut results); // abstract-variant §6.1 (P3)
     check_floating_outputs(table, &mut results); // output variant of P5
     check_pullup_degenerate(table, &mut results); // D7 (network-level)
     results
@@ -856,6 +857,40 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
                 });
             }
         }
+    }
+}
+
+// ── Abstract placed unselected (abstract-variant plan §6.1) ────────────────
+/// An instance whose def is an `abstract component` carries the `unselected`
+/// marker set at flatten time (never inferred here from a `partno` sentinel —
+/// abstract defs may legally hold a reference partno). Placement is legal and
+/// the netlist is produced, but a BOM tool must still pick a variant: ERC W.
+fn check_unselected_abstract(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (_, entry) in table.iter() {
+        // Same synthetic-wrapper carve-out as E4112/E4116: a virtually-
+        // instantiated component (VIRT view) is never BOM-selected, so the
+        // unselected warning is not the normal shape of that view.
+        if !matches!(entry.kind, crate::instant::insttab::InstKind::Component)
+            || entry.class_name.is_empty()
+            || entry.synthetic
+            || !entry.unselected
+        {
+            continue;
+        }
+        let (pos, uri) = entry_pos(entry);
+        results.push(NetCheckResult {
+            check: "abstract-unselected",
+            severity: "warning",
+            message: format!(
+                "abstract component instance '{}' is unselected (no partno); \
+                 BOM must pick a variant",
+                entry.path
+            ),
+            net_name: entry.path.clone(),
+            code: crate::errcodes::ABSTRACT_PART_UNSELECTED,
+            pos,
+            uri,
+        });
     }
 }
 

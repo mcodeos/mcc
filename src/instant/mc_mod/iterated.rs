@@ -168,7 +168,7 @@ impl InstantiationBuilder {
             if let Some(inst_name) = Self::iterated_item_inst_name(item) {
                 let member_func = self
                     .find_component(&inst_name)
-                    .and_then(|c| c.def.funcs.find(&func_name_str).cloned())
+                    .and_then(|c| crate::db::defregistry::effective_method(&c.def, &func_name_str))
                     .or_else(|| {
                         self.find_submodule(&inst_name)
                             .and_then(|m| m.def.funcs.find(&func_name_str).cloned())

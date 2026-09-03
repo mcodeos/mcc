@@ -3117,6 +3117,7 @@ pub fn register_all(
     builder = builder.register_method("defs.checkpoint", handle_defs_checkpoint);
     builder = builder.register_method("defs.diff", handle_defs_diff);
     builder = builder.register_method("defs.dependents", handle_defs_dependents);
+    builder = builder.register_method("defs.relations", handle_defs_relations);
     builder = builder.register_method("export", handle_export);
     // LSP
     builder = builder.register_method("sem", handle_sem);

@@ -1360,6 +1360,9 @@ mod tests {
             cond_attrs: vec![],
             span: 0..4,
             anon_counter: 1,
+            is_abstract: false,
+            variant_base: None,
+            adopts: Vec::new(),
         };
         // Pin I2C0 — a plain single pin.
         comp.pins
@@ -1461,6 +1464,9 @@ mod tests {
             cond_attrs: vec![],
             span: 10..13,
             anon_counter: 1,
+            is_abstract: false,
+            variant_base: None,
+            adopts: Vec::new(),
         });
         let hit = class_hit(&ContainerRef::Component(comp)).unwrap();
         assert_eq!(hit.name, "RES");

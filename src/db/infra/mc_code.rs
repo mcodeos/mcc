@@ -1479,6 +1479,7 @@ impl McCode {
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
                 || node.is_type(MCAST_DEFINE)
+                || node.is_type(MCAST_CAPABILITY)
             {
                 let decl_type = node.get_type();
                 let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
@@ -1725,6 +1726,35 @@ impl McCode {
                         }
                     }
                 }
+                MCAST_CAPABILITY => {
+                    // Capability is a declaration-only container (signal
+                    // declarations + role funcs): registered as its own def
+                    // kind, but NOT as a class kind — no add_global_class, not
+                    // instantiable. It is a duplicate-catch member of the file's
+                    // name set (component X vs capability X → DEF_ALREADY_EXISTS
+                    // via parse_cmie_names), so a re-insert here is a cross-file
+                    // DUP_CAPABILITY.
+                    if let Some(cap) =
+                        crate::semantic::capability::McCapability::new(&node, &self.uri)
+                    {
+                        let space_name = McSpaceName {
+                            ident: cap.name.clone(),
+                            uri: crate::semantic::common::uri_intern(&self.uri),
+                        };
+                        if crate::db::defregistry::insert(
+                            &space_name,
+                            domain.clone(),
+                            DefValue::Capability(Arc::new(cap)),
+                        ) == InsertOutcome::Duplicate
+                        {
+                            dlog_error(
+                                crate::errcodes::DUP_CAPABILITY,
+                                &node,
+                                &crate::errcodes::format_msg(crate::errcodes::DUP_CAPABILITY, &[]),
+                            );
+                        }
+                    }
+                }
                 _ => {} // MCAST_MODULE handled in the second phase
             }
         }
@@ -1736,6 +1766,7 @@ impl McCode {
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
                 || node.is_type(MCAST_DEFINE)
+                || node.is_type(MCAST_CAPABILITY)
             {
                 if let Some(subnodes) = node.get_sub_node() {
                     if let Some(name_node) = subnodes.iter().find(|x| x.is_type(MCAST_NAME)) {

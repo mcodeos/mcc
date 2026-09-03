@@ -555,12 +555,13 @@ struct DefsRow {
 
 /// Def kinds in display order: the two hosts that carry func members first,
 /// then the smaller definition kinds.
-const DEF_KINDS: [mcc::DefKind; 5] = [
+const DEF_KINDS: [mcc::DefKind; 6] = [
     mcc::DefKind::Module,
     mcc::DefKind::Component,
     mcc::DefKind::Interface,
     mcc::DefKind::Enum,
     mcc::DefKind::Define,
+    mcc::DefKind::Capability,
 ];
 
 /// Every live def of the current definition space, one [`DefsRow`] per def.
@@ -612,6 +613,15 @@ fn defs_rows() -> Vec<DefsRow> {
             funcs: Vec::new(),
         });
     }
+    for (sn, def) in ds.all_capabilities() {
+        rows.push(DefsRow {
+            id: mcc::def_id(&sn, mcc::DefKind::Capability),
+            kind: mcc::DefKind::Capability,
+            name: sn.ident.to_string(),
+            uri: mcc::uri_resolve(sn.uri).to_string(),
+            funcs: def.funcs.iter().map(|f| f.name.to_string()).collect(),
+        });
+    }
     rows
 }
 
@@ -624,6 +634,7 @@ fn def_kind_group(kind: mcc::DefKind) -> &'static str {
         mcc::DefKind::Enum => "enums",
         mcc::DefKind::Define => "defines",
         mcc::DefKind::Func => "funcs",
+        mcc::DefKind::Capability => "capabilities",
     }
 }
 

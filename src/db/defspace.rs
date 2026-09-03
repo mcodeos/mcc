@@ -21,9 +21,11 @@
 
 use super::cmie::tables::WorkspaceManager;
 use crate::db::defregistry::{
-    peel_components, peel_defines, peel_enums, peel_interfaces, peel_modules, DefKind, DomainFilter,
+    peel_capabilities, peel_components, peel_defines, peel_enums, peel_interfaces, peel_modules,
+    DefKind, DomainFilter,
 };
 use crate::db::infra::mc_code::McCode;
+use crate::semantic::capability::McCapability;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
@@ -171,6 +173,13 @@ impl<'a> DefinitionSpace<'a> {
         self.ws.registry().get_define(sn)
     }
 
+    /// Look up a capability by its `McSpaceName`. Capability is not a class
+    /// kind (never in the system name index); this typed registry read is the
+    /// link-time resolution path (`::` adoption, P2).
+    pub fn get_capability(&self, sn: &McSpaceName) -> Option<Arc<McCapability>> {
+        self.ws.registry().get_capability(sn)
+    }
+
     // ── Unified definition view: whole-table enumeration ──
 
     /// Enumerate every live component definition (any domain). The single
@@ -219,6 +228,15 @@ impl<'a> DefinitionSpace<'a> {
         )
     }
 
+    /// Enumerate every live capability definition (any domain).
+    pub fn all_capabilities(&self) -> Vec<(McSpaceName, Arc<McCapability>)> {
+        peel_capabilities(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Capability, DomainFilter::Any),
+        )
+    }
+
     // ── Workspace-only definition view ──
     //
     // Several consumers read the project definitions deliberately WITHOUT the
@@ -252,6 +270,11 @@ impl<'a> DefinitionSpace<'a> {
     /// Look up a define by its `McSpaceName` in the project domain only.
     pub fn get_workspace_define(&self, sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
         self.ws.registry().get_workspace_define(sn)
+    }
+
+    /// Look up a capability by its `McSpaceName` in the project domain only.
+    pub fn get_workspace_capability(&self, sn: &McSpaceName) -> Option<Arc<McCapability>> {
+        self.ws.registry().get_workspace_capability(sn)
     }
 
     /// Enumerate every project (workspace) component definition.
@@ -296,6 +319,15 @@ impl<'a> DefinitionSpace<'a> {
             self.ws
                 .registry()
                 .enumerate(DefKind::Define, DomainFilter::Project),
+        )
+    }
+
+    /// Enumerate every project (workspace) capability definition.
+    pub fn workspace_capabilities(&self) -> Vec<(McSpaceName, Arc<McCapability>)> {
+        peel_capabilities(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Capability, DomainFilter::Project),
         )
     }
 
@@ -347,6 +379,15 @@ impl<'a> DefinitionSpace<'a> {
             self.ws
                 .registry()
                 .enumerate(DefKind::Enum, DomainFilter::System),
+        )
+    }
+
+    /// Enumerate every *system-library* capability definition (P5).
+    pub fn system_capabilities(&self) -> Vec<(McSpaceName, Arc<McCapability>)> {
+        peel_capabilities(
+            self.ws
+                .registry()
+                .enumerate(DefKind::Capability, DomainFilter::System),
         )
     }
 }
@@ -412,6 +453,9 @@ mod tests {
             cond_attrs: vec![],
             span: 0..0,
             anon_counter: 0,
+            is_abstract: false,
+            variant_base: None,
+            adopts: Vec::new(),
         })
     }
 
