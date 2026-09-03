@@ -6,6 +6,9 @@
 //!
 //! Targets:
 //!   * overview : `all` (layered by origin, `--scope`; -F anchors the file layer)
+//!              : `defs` (whole current definition space: `DefId` per live def,
+//!                layered by origin with `--scope`; the def-space twin of
+//!                `dianlu` for cross-checking `show dianlu --ids` `D<id>` tags)
 //!   * entity   : `component` / `module` / `interface` / `enum` (<name> required)
 //!   * drill    : `pins` / `ports` / `labels` / `instances` / `nets` / `attrs`
 //!                / `funcs` / `params` / `roles` / `values` / `net` (<name> = owning
@@ -57,9 +60,10 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
     }
     match args.target {
         // ── overview ───────────────────────────────────────────────────────
-        // show.all is local-only: the RPC handler has no --scope / -F concept
-        // and would bypass the layered (file/use/system) filtering.
-        ShowTarget::All => None,
+        // show.all / show.defs are local-only: the RPC handler has no
+        // --scope / -F concept and would bypass the layered (file/use/system)
+        // filtering.
+        ShowTarget::All | ShowTarget::Defs => None,
         ShowTarget::Lapper | ShowTarget::Ast => {
             // local-only: read file, call internal sem, dump lapper / AST tree
             return None;
@@ -135,6 +139,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
     match args.target {
         // ── overview / debug ───────────────────────────────────────────────
         ShowTarget::All => show_all(args),
+        ShowTarget::Defs => show_defs(args),
         ShowTarget::Lapper => show_lapper(args),
         ShowTarget::Ast => show_ast(args),
 
@@ -232,7 +237,7 @@ fn target_path(args: &ShowArgs) -> Option<&str> {
         return args.file.as_deref();
     }
     match args.target {
-        ShowTarget::All | ShowTarget::Dianlu => args.name.as_deref(),
+        ShowTarget::All | ShowTarget::Defs | ShowTarget::Dianlu => args.name.as_deref(),
         _ => None,
     }
 }
@@ -527,6 +532,239 @@ fn is_system_uri(uri: &str) -> bool {
     mcc::mcb_loaded_libs()
         .iter()
         .any(|name| mcc::resolve_lib_root(name).is_some_and(|root| path.starts_with(&root)))
+}
+
+// ============================================================================
+// defs: the current definition space, in registry form
+// ============================================================================
+
+/// One live def of the current definition space as a registry display row.
+///
+/// Gathered from the unified definition view ([`mcc::definition_space`]) —
+/// one row per live def, workspace-first under layered coexist — with the
+/// def's registry `DefId` resolved by its `(name, uri)` key, exactly the key
+/// `show dianlu --ids` annotates instances with. Func members are host
+/// members (design §12.1) and list under their module / component host.
+struct DefsRow {
+    id: Option<u32>,
+    kind: mcc::DefKind,
+    name: String,
+    uri: String,
+    funcs: Vec<String>,
+}
+
+/// Def kinds in display order: the two hosts that carry func members first,
+/// then the smaller definition kinds.
+const DEF_KINDS: [mcc::DefKind; 5] = [
+    mcc::DefKind::Module,
+    mcc::DefKind::Component,
+    mcc::DefKind::Interface,
+    mcc::DefKind::Enum,
+    mcc::DefKind::Define,
+];
+
+/// Every live def of the current definition space, one [`DefsRow`] per def.
+fn defs_rows() -> Vec<DefsRow> {
+    let ds = mcc::definition_space();
+    let mut rows = Vec::new();
+    for (sn, def) in ds.all_modules() {
+        rows.push(DefsRow {
+            id: mcc::def_id(&sn, mcc::DefKind::Module),
+            kind: mcc::DefKind::Module,
+            name: sn.ident.to_string(),
+            uri: mcc::uri_resolve(sn.uri).to_string(),
+            funcs: def.funcs.iter().map(|f| f.name.to_string()).collect(),
+        });
+    }
+    for (sn, def) in ds.all_components() {
+        rows.push(DefsRow {
+            id: mcc::def_id(&sn, mcc::DefKind::Component),
+            kind: mcc::DefKind::Component,
+            name: sn.ident.to_string(),
+            uri: mcc::uri_resolve(sn.uri).to_string(),
+            funcs: def.funcs.iter().map(|f| f.name.to_string()).collect(),
+        });
+    }
+    for (sn, _) in ds.all_interfaces() {
+        rows.push(DefsRow {
+            id: mcc::def_id(&sn, mcc::DefKind::Interface),
+            kind: mcc::DefKind::Interface,
+            name: sn.ident.to_string(),
+            uri: mcc::uri_resolve(sn.uri).to_string(),
+            funcs: Vec::new(),
+        });
+    }
+    for (sn, _) in ds.all_enums() {
+        rows.push(DefsRow {
+            id: mcc::def_id(&sn, mcc::DefKind::Enum),
+            kind: mcc::DefKind::Enum,
+            name: sn.ident.to_string(),
+            uri: mcc::uri_resolve(sn.uri).to_string(),
+            funcs: Vec::new(),
+        });
+    }
+    for (sn, _) in ds.all_defines() {
+        rows.push(DefsRow {
+            id: mcc::def_id(&sn, mcc::DefKind::Define),
+            kind: mcc::DefKind::Define,
+            name: sn.ident.to_string(),
+            uri: mcc::uri_resolve(sn.uri).to_string(),
+            funcs: Vec::new(),
+        });
+    }
+    rows
+}
+
+/// Plural group label of one def kind (registry table grouping).
+fn def_kind_group(kind: mcc::DefKind) -> &'static str {
+    match kind {
+        mcc::DefKind::Module => "modules",
+        mcc::DefKind::Component => "components",
+        mcc::DefKind::Interface => "interfaces",
+        mcc::DefKind::Enum => "enums",
+        mcc::DefKind::Define => "defines",
+        mcc::DefKind::Func => "funcs",
+    }
+}
+
+/// Resolved layers for `show defs`. Unlike `show all` there is no implicit
+/// file-layer default: the whole current definition space is shown unless
+/// `--scope` narrows it, so any `D<id>` printed by `show dianlu --ids` —
+/// including system-lib defs — resolves here.
+fn defs_scopes(scope: Option<ShowScope>) -> Vec<ShowScope> {
+    match scope {
+        None | Some(ShowScope::All) => vec![ShowScope::File, ShowScope::Use, ShowScope::System],
+        Some(s) => vec![s],
+    }
+}
+
+/// The rows of one `(scope, kind)` group, ordered by `DefId` then name.
+fn gather_rows<'a>(
+    rows: &'a [DefsRow],
+    layer_of: &[ShowScope],
+    scope: ShowScope,
+    kind: mcc::DefKind,
+) -> Vec<&'a DefsRow> {
+    let mut out: Vec<&DefsRow> = rows
+        .iter()
+        .zip(layer_of)
+        .filter(|(r, l)| r.kind == kind && **l == scope)
+        .map(|(r, _)| r)
+        .collect();
+    out.sort_by(|a, b| {
+        a.id.unwrap_or(u32::MAX)
+            .cmp(&b.id.unwrap_or(u32::MAX))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    out
+}
+
+/// `show defs [target]`: the current definition space in registry form —
+/// every live def with its `DefId`, kind, name and declaring file, grouped by
+/// origin layer (file / use / system) and ordered by `DefId` within each
+/// kind. Text prints aligned `D<id>` rows; structured output nests layers
+/// then kinds. The def-space twin of `show dianlu` — instance `D<id>` tags
+/// resolve to their rows here.
+fn show_defs(args: &ShowArgs) -> Result<()> {
+    let target = target_path(args).map(resolve_file);
+    let scopes = defs_scopes(args.scope);
+    let rows = defs_rows();
+    if rows.is_empty() {
+        let data = json!({ "type": "defs" });
+        if matches!(mcc::cli::globals().format, OutputFormat::Text) {
+            println!("===== defs =====\n(no definitions loaded)");
+            return Ok(());
+        }
+        return output(&data, args.span);
+    }
+
+    let layer_of: Vec<ShowScope> = rows
+        .iter()
+        .map(|r| classify_def_scope(&r.uri, target.as_deref()))
+        .collect();
+    // Non-empty kind groups per scope. Empty layers are skipped by default;
+    // an explicitly requested --scope that matches nothing still reports.
+    let groups_of = |scope: ShowScope| -> Vec<(mcc::DefKind, Vec<&DefsRow>)> {
+        DEF_KINDS
+            .iter()
+            .map(|kind| (*kind, gather_rows(&rows, &layer_of, scope, *kind)))
+            .filter(|(_, g)| !g.is_empty())
+            .collect()
+    };
+
+    if matches!(mcc::cli::globals().format, OutputFormat::Text) {
+        let mut lines = vec!["===== defs =====".to_string()];
+        for scope in &scopes {
+            let groups = groups_of(*scope);
+            if groups.is_empty() {
+                if args.scope.is_some() {
+                    lines.push(format!(
+                        "-- {} -- (no definitions)",
+                        scope_name(*scope)
+                    ));
+                }
+                continue;
+            }
+            lines.push(format!("-- {} --", scope_name(*scope)));
+            for (kind, rows_of) in groups {
+                lines.push(format!("  {} ({}):", def_kind_group(kind), rows_of.len()));
+                for r in rows_of {
+                    let id = match r.id {
+                        Some(v) => format!("D{v}"),
+                        None => "D-".to_string(),
+                    };
+                    lines.push(format!("    {id:<6} {:<26} {}", r.name, r.uri));
+                    if !r.funcs.is_empty() {
+                        lines.push(format!("      funcs: {}", r.funcs.join(", ")));
+                    }
+                }
+            }
+        }
+        let rendered = lines.join("\n");
+        if let Some(path) = &mcc::cli::globals().output {
+            std::fs::write(path, rendered)?;
+        } else {
+            println!("{rendered}");
+        }
+        return Ok(());
+    }
+
+    // Structured output: layers → kinds → def rows.
+    let mut data = serde_json::Map::new();
+    data.insert("type".to_string(), json!("defs"));
+    for scope in &scopes {
+        let groups = groups_of(*scope);
+        if groups.is_empty() && args.scope.is_none() {
+            continue;
+        }
+        let mut kinds = serde_json::Map::new();
+        for (kind, rows_of) in groups {
+            kinds.insert(
+                def_kind_group(kind).to_string(),
+                json!(rows_of.into_iter().map(def_row_json).collect::<Vec<_>>()),
+            );
+        }
+        data.insert(scope_name(*scope).to_string(), json!(kinds));
+    }
+    if let Some(t) = &target {
+        data.insert("target_file".to_string(), json!(t));
+    }
+    output(&json!(data), args.span)
+}
+
+/// One registry row as JSON: `id` (null when the def carries no registry id),
+/// the definition name and its declaring file; func members, when present,
+/// list by name under their host row.
+fn def_row_json(r: &DefsRow) -> Value {
+    let mut v = json!({
+        "id": r.id,
+        "name": r.name,
+        "uri": r.uri,
+    });
+    if !r.funcs.is_empty() {
+        v["funcs"] = json!(r.funcs);
+    }
+    v
 }
 
 fn show_ast(args: &ShowArgs) -> Result<()> {
