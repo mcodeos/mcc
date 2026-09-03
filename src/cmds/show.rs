@@ -1186,9 +1186,11 @@ fn render_dianlu_section(
     }
 
     lines.push("Connections:".to_string());
-    // §8.9.5 layered display: bus/interface connections (carrying a
-    // `trunk`) render as coarse trunk lines with indented per-member
-    // pin2pin lines underneath; plain connections render flat as before.
+    // §8.9.5 layered display (vocabulary trunk / lane / wire, shared with
+    // `verify`): bus/interface member lanes that mate the same two ends
+    // render as `[trunk] left <-> right` headers with numbered lane lines
+    // underneath; everything else (independent connections) renders as
+    // single `[wire]` lines.
     let views: Vec<crate::cmds::common::ConnView> = inst
         .connections
         .iter()
@@ -1210,8 +1212,8 @@ fn render_dianlu_section(
                 net,
                 points,
                 dir: format!("{:?}", conn.dir),
-                // §8.9.6: structured group context (name/member/kind), None
-                // for plain connections.
+                // §8.9.6: structured group context (name/member/kind); lanes
+                // without a group context render as wire lines.
                 trunk: conn.trunk.clone(),
             })
         })
