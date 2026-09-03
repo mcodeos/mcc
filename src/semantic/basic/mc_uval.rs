@@ -3,6 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::semantic::basic::mc_literal::strip_string_quotes;
 use crate::{
     ast::{macros::*, node::AstNode},
     McIds,
@@ -111,13 +112,7 @@ impl McUnitValueDeclare {
             MCAST_STRING => {
                 // Guarded accessor: the C parser can emit a NULL/small .data.
                 if let Some(str_value) = node.data_as_cstr().and_then(|c| c.to_str().ok()) {
-                    if str_value.starts_with('"')
-                        && str_value.ends_with('"')
-                        && str_value.len() >= 2
-                    {
-                        return str_value[1..str_value.len() - 1].to_string();
-                    }
-                    return str_value.to_string();
+                    return strip_string_quotes(str_value).to_string();
                 }
                 String::new()
             }

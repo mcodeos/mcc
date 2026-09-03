@@ -155,6 +155,20 @@ impl From<&str> for McFloat {
     }
 }
 
+/// Strip one matching surrounding quote pair from a raw string-literal lexeme
+/// (`"..."` double-quoted or `'...'` single-quoted), so an empty `""` / `''`
+/// both yield an empty value. A lone or mismatched quote is left verbatim.
+pub(crate) fn strip_string_quotes(s: &str) -> &str {
+    let b = s.as_bytes();
+    if b.len() >= 2 {
+        let q = b[0];
+        if (q == b'"' || q == b'\'') && b[b.len() - 1] == q {
+            return &s[1..s.len() - 1];
+        }
+    }
+    s
+}
+
 #[derive(Debug, Clone)]
 pub struct McString {
     pub value: String,
@@ -166,15 +180,9 @@ impl McString {
             MCAST_STRING => {
                 // Guarded accessor: the C parser can emit a NULL/small .data.
                 if let Ok(str_value) = node.data_as_cstr()?.to_str() {
-                    // Strip surrounding quotes if present
-                    let value = if str_value.starts_with('"')
-                        && str_value.ends_with('"')
-                        && str_value.len() >= 2
-                    {
-                        str_value[1..str_value.len() - 1].to_string()
-                    } else {
-                        str_value.to_string()
-                    };
+                    // Strip a matching surrounding quote pair (`"..."` or
+                    // `'...'`) so `""` and `''` both yield an empty value.
+                    let value = strip_string_quotes(str_value).to_string();
                     Some(Self { value })
                 } else {
                     None

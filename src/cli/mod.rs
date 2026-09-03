@@ -425,7 +425,13 @@ pub struct ShowArgs {
 
     /// Annotate `show dianlu` with dianlu-space identity ids: every instance
     /// line / module section carries its node `NodeId` plus the `DefId` of
-    /// the def it instantiates (text and JSON).
+    /// the def it instantiates; every pin/port of an instance row carries
+    /// its lane-layer physical point `N<n>:<m>` — the owning instance node
+    /// `NodeId` plus the pin's stable `DefMemberId` from the def registry
+    /// member ledger (design §4 D1). Text renders `name@N<n>:<m>` beside
+    /// each pin; structured output adds a `"points": {pin: "N<n>:<m>"}` map
+    /// (component pins) / `"ports"` map (sub-module io ports) alongside the
+    /// plain pin-name list (text and JSON).
     #[arg(long)]
     pub ids: bool,
 
