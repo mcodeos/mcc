@@ -1693,33 +1693,6 @@ pub fn diff_since(from_version: u64) -> Result<Vec<DefChange>, String> {
     active().diff_since(from_version)
 }
 
-// ── Unified definition view (any domain, one registry) ──
-
-/// Look up a component by its `McSpaceName` (any domain).
-pub fn get_component(sn: &McSpaceName) -> Option<Arc<McComponent>> {
-    active().get_component(sn)
-}
-
-/// Look up a module by its `McSpaceName` (any domain).
-pub fn get_module(sn: &McSpaceName) -> Option<Arc<McModule>> {
-    active().get_module(sn)
-}
-
-/// Look up an interface by its `McSpaceName` (any domain).
-pub fn get_interface(sn: &McSpaceName) -> Option<Arc<McInterface>> {
-    active().get_interface(sn)
-}
-
-/// Look up an enum by its `McSpaceName` (any domain).
-pub fn get_enum(sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
-    active().get_enum(sn)
-}
-
-/// Look up a define by its `McSpaceName` (any domain).
-pub fn get_define(sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
-    active().get_define(sn)
-}
-
 /// The [`DefId`] of a live `(key, kind)` identity, any domain. Needed by
 /// callers that address a def by id (host links of function templates).
 pub fn def_id(sn: &McSpaceName, kind: DefKind) -> Option<DefId> {
@@ -1756,83 +1729,6 @@ pub fn func_of_host(sn: &McSpaceName, host_kind: DefKind, name: &str) -> Option<
 #[allow(dead_code)]
 pub fn funcs_of_host(sn: &McSpaceName, host_kind: DefKind) -> Vec<(McSpaceName, FuncDef)> {
     active().funcs_of_host(sn, host_kind)
-}
-
-/// Enumerate every live component definition (any domain).
-pub fn all_components() -> Vec<(McSpaceName, Arc<McComponent>)> {
-    peel_components(active().enumerate(DefKind::Component, DomainFilter::Any))
-}
-
-/// Enumerate every live module definition (any domain).
-pub fn all_modules() -> Vec<(McSpaceName, Arc<McModule>)> {
-    peel_modules(active().enumerate(DefKind::Module, DomainFilter::Any))
-}
-
-/// Enumerate every live interface definition (any domain).
-pub fn all_interfaces() -> Vec<(McSpaceName, Arc<McInterface>)> {
-    peel_interfaces(active().enumerate(DefKind::Interface, DomainFilter::Any))
-}
-
-/// Enumerate every live enum definition (any domain).
-pub fn all_enums() -> Vec<(McSpaceName, Arc<McEnumDef>)> {
-    peel_enums(active().enumerate(DefKind::Enum, DomainFilter::Any))
-}
-
-/// Enumerate every live define definition (any domain).
-pub fn all_defines() -> Vec<(McSpaceName, Arc<McDefineDef>)> {
-    peel_defines(active().enumerate(DefKind::Define, DomainFilter::Any))
-}
-
-// ── Workspace-only view ──
-
-/// Look up a component by its `McSpaceName` in the project (workspace) domain.
-pub fn get_workspace_component(sn: &McSpaceName) -> Option<Arc<McComponent>> {
-    active().get_workspace_component(sn)
-}
-
-/// Look up a module by its `McSpaceName` in the project (workspace) domain.
-pub fn get_workspace_module(sn: &McSpaceName) -> Option<Arc<McModule>> {
-    active().get_workspace_module(sn)
-}
-
-/// Look up an interface by its `McSpaceName` in the project (workspace) domain.
-pub fn get_workspace_interface(sn: &McSpaceName) -> Option<Arc<McInterface>> {
-    active().get_workspace_interface(sn)
-}
-
-/// Look up an enum by its `McSpaceName` in the project (workspace) domain.
-pub fn get_workspace_enum(sn: &McSpaceName) -> Option<Arc<McEnumDef>> {
-    active().get_workspace_enum(sn)
-}
-
-/// Look up a define by its `McSpaceName` in the project (workspace) domain.
-pub fn get_workspace_define(sn: &McSpaceName) -> Option<Arc<McDefineDef>> {
-    active().get_workspace_define(sn)
-}
-
-/// Enumerate every project (workspace) component definition.
-pub fn workspace_components() -> Vec<(McSpaceName, Arc<McComponent>)> {
-    peel_components(active().enumerate(DefKind::Component, DomainFilter::Project))
-}
-
-/// Enumerate every project (workspace) module definition.
-pub fn workspace_modules() -> Vec<(McSpaceName, Arc<McModule>)> {
-    peel_modules(active().enumerate(DefKind::Module, DomainFilter::Project))
-}
-
-/// Enumerate every project (workspace) interface definition.
-pub fn workspace_interfaces() -> Vec<(McSpaceName, Arc<McInterface>)> {
-    peel_interfaces(active().enumerate(DefKind::Interface, DomainFilter::Project))
-}
-
-/// Enumerate every project (workspace) enum definition.
-pub fn workspace_enums() -> Vec<(McSpaceName, Arc<McEnumDef>)> {
-    peel_enums(active().enumerate(DefKind::Enum, DomainFilter::Project))
-}
-
-/// Enumerate every project (workspace) define definition.
-pub fn workspace_defines() -> Vec<(McSpaceName, Arc<McDefineDef>)> {
-    peel_defines(active().enumerate(DefKind::Define, DomainFilter::Project))
 }
 
 // ── System-library-only view (P5 visibility) ──
@@ -2628,7 +2524,10 @@ mod tests {
             "typed view resolves from the registry without the physical row"
         );
         assert!(
-            workspace_enums().iter().any(|(k, _)| k == &sn),
+            crate::definition_space()
+                .workspace_enums()
+                .iter()
+                .any(|(k, _)| k == &sn),
             "workspace enumeration is registry-backed, not table-backed"
         );
         assert!(
