@@ -430,7 +430,8 @@ pub struct ShowArgs {
     pub ids: bool,
 
     /// Definition layers to show: file (default) | use | system | all.
-    /// `file` anchors on the -F target; without a file every loaded layer is shown.
+    /// `file` anchors on the -F target; without a file every loaded layer is
+    /// shown. `show defs` defaults to every loaded layer (all) instead.
     #[arg(long, value_enum)]
     pub scope: Option<ShowScope>,
 }
@@ -454,6 +455,12 @@ pub enum ShowTarget {
     // Overview of all definitions in scope, layered by origin
     // (file/use/system, select with --scope; -F anchors the file layer)
     All,
+    // The whole current definition space in registry form: every live def
+    // with its `DefId`, kind and declaring file, in DefId order per kind.
+    // The def-space twin of `dianlu`: instance `D<id>` tags printed by
+    // `show dianlu --ids` resolve to their def here. Defaults to every
+    // loaded layer (file/use/system); narrow with --scope.
+    Defs,
     // One component's details (pins table)
     Component,
     // One module's details (summary + sub-instances)
