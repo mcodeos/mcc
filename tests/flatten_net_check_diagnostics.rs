@@ -355,6 +355,186 @@ fn dlu_flatchk__curly_bus_port_members_anchor_declaration() {
     assert_lock(diags, &expected, "curly bus member anchor changed");
 }
 
+/// ── Lock: coverage-gap net D-family positive locks (reorg doc §8.3/§8.5) ───
+/// Positive locks for the remaining net-D-family checks that did not yet have a
+/// firing test: 4103 (no driver), 4109 (NC connected), 4111 (backfeed),
+/// 4113 (outputs without input), 4118 (power-net count). Each fixture is
+/// chosen so the target code is the *only* semantically meaningful diagnostic;
+/// the co-emitted 5454 (power pin with no voltage attribute) is intrinsic to a
+/// bare `ps` pin and is kept in the golden. 4105 (NET_VOLTAGE_MISMATCH) needs
+/// the DC interface library (`interface DC(volt::UV.VOLT, …)` in a project
+/// lib) that the test harness does not load, and 4115 (NET_DANGLING_ENDPOINT)
+/// needs a single-point net that flatten never produces from top-level wiring
+/// (self-loops collapse, unwired io ports are dropped) — both are recorded as
+/// context-gated in the reorg doc §8.3 rather than forced fixtures.
+
+/// Two-input receiver (4103: two in-pins joined with no driver).
+const TWIN: &str = "component TW {\n    pins = [\n        in 1 = A\n        in 2 = B\n    ]\n}\n";
+
+/// 4103 NET_NO_DRIVER: `c1.A -> c2.A` merges two `In` pins onto one net with
+/// no output or power supply driving it. The `B` inputs of both instances
+/// float, adding the usual 4108/4114/4116 trio per instance.
+#[test]
+fn dlu_flatchk__no_driver_net_locked() {
+    let src = format!("{TWIN}module main {{\n    TW c1\n    TW c2\n    c1.A -> c2.A\n}}");
+    let diags = build_flat_diags(&src);
+    let expected = [
+        (
+            4103,
+            108,
+            "/mcc/flat-diag.mc",
+            "Net '_net0' has inputs but no output/power driver.",
+        ),
+        (
+            4108,
+            56,
+            "/mcc/flat-diag.mc",
+            "Input 'main.c1.2' is not connected to any net.",
+        ),
+        (
+            4108,
+            56,
+            "/mcc/flat-diag.mc",
+            "Input 'main.c2.2' is not connected to any net.",
+        ),
+        (
+            4114,
+            56,
+            "/mcc/flat-diag.mc",
+            "Module port 'main.c1.2' (In) is not connected to any net.",
+        ),
+        (
+            4114,
+            56,
+            "/mcc/flat-diag.mc",
+            "Module port 'main.c2.2' (In) is not connected to any net.",
+        ),
+        (
+            4116,
+            91,
+            "/mcc/flat-diag.mc",
+            "'main.c1' has 1 of 2 pins connected.",
+        ),
+        (
+            4116,
+            101,
+            "/mcc/flat-diag.mc",
+            "'main.c2' has 1 of 2 pins connected.",
+        ),
+    ];
+    assert_lock(diags, &expected, "flatten diagnostic sequence changed");
+}
+
+/// 4109 NET_NC_CONNECTED: a no-connect pin wired into a net. The pin is named
+/// `NC`, which collides with the `nc` iotype keyword, so it cannot be reached
+/// by `c1.NC` (that spells a clause and dies at parse, E2082); it is reached
+/// by its numeric pin id `c1.2`.
+#[test]
+fn dlu_flatchk__nc_connected_by_pin_id_locked() {
+    let src = "component TW {\n    pins = [\n        in 1 = A\n        nc 2 = NC\n    ]\n}\nmodule main {\n    io VDD\n    TW c1\n    c1.A -> VDD\n    c1.2 -> VDD\n}";
+    let diags = build_flat_diags(&src);
+    let expected = [(
+        4109,
+        126,
+        "/mcc/flat-diag.mc",
+        "NC port 'main.c1.2' is connected to net 'VDD'.",
+    )];
+    assert_lock(diags, &expected, "flatten diagnostic sequence changed");
+}
+
+/// One-output driver + power-supply component for the 4111/4113 fixtures.
+const DRV: &str = "component D {\n    pins = [\n        out 1 = Y\n    ]\n}\n";
+const PSU: &str = "component PSU {\n    pins = [\n        ps 1 = P\n    ]\n}\n";
+
+/// 4111 NET_BACKFEED_RISK: `d1.Y -> ps1.P` puts an output and a power supply
+/// on the same net. The bare `ps` pin emits its intrinsic 5454 first.
+#[test]
+fn dlu_flatchk__output_tied_to_power_net_locked() {
+    let src = format!("{DRV}{PSU}module main {{\n    D d1\n    PSU ps1\n    d1.Y -> ps1.P\n}}");
+    let diags = build_flat_diags(&src);
+    let expected = [
+        (
+            5454,
+            93,
+            "/mcc/flat-diag.mc",
+            "Component 'PSU': power pin 'P' (1) has no associated voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
+        ),
+        (
+            4111,
+            146,
+            "/mcc/flat-diag.mc",
+            "Net '_net0' has both output and power supply. Backfeed risk.",
+        ),
+    ];
+    assert_lock(diags, &expected, "flatten diagnostic sequence changed");
+}
+
+/// 4113 NET_OUTPUTS_NO_INPUT: two outputs plus a power supply on one net and
+/// still no input — 4101 (two drivers) and 4111 (backfeed) are the earlier
+/// checks in the same pass and precede 4113.
+#[test]
+fn dlu_flatchk__outputs_power_no_input_locked() {
+    let src = format!("{DRV}{PSU}module main {{\n    D d1\n    D d2\n    PSU ps1\n    d1.Y -> ps1.P\n    d2.Y -> ps1.P\n}}");
+    let diags = build_flat_diags(&src);
+    let expected = [
+        (
+            5454,
+            93,
+            "/mcc/flat-diag.mc",
+            "Component 'PSU': power pin 'P' (1) has no associated voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
+        ),
+        (
+            4101,
+            155,
+            "/mcc/flat-diag.mc",
+            "Net '_net0' has 2 drivers: main.d1.1, main.d2.1. Possible short circuit.",
+        ),
+        (
+            4111,
+            155,
+            "/mcc/flat-diag.mc",
+            "Net '_net0' has both output and power supply. Backfeed risk.",
+        ),
+        (
+            4113,
+            155,
+            "/mcc/flat-diag.mc",
+            "Net '_net0' has 2 outputs and power but no input.",
+        ),
+    ];
+    assert_lock(diags, &expected, "flatten diagnostic sequence changed");
+}
+
+/// 4118 NET_POWER_NET_COUNT: twelve `ps` pins on twelve separate io rails
+/// exceed the power-net consolidation threshold. The 4118 diagnostic anchors
+/// at file offset 0 (design scope, no single site).
+#[test]
+fn dlu_flatchk__power_net_count_threshold_locked() {
+    let mut src =
+        String::from("component PSU {\n    pins = [\n        ps 1 = P\n    ]\n}\nmodule main {\n");
+    for i in 1..=12 {
+        src.push_str(&format!("    io R{i}\n"));
+    }
+    for i in 1..=12 {
+        src.push_str(&format!("    PSU ps{i}\n"));
+    }
+    for i in 1..=12 {
+        src.push_str(&format!("    ps{i}.P -> R{i}\n"));
+    }
+    src.push_str("}\n");
+    let diags = build_flat_diags(&src);
+    let expected = [
+        (
+            5454,
+            40,
+            "/mcc/flat-diag.mc",
+            "Component 'PSU': power pin 'P' (1) has no associated voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
+        ),
+        (4118, 0, "/mcc/flat-diag.mc", "Design has 12 power nets. Review for consolidation."),
+    ];
+    assert_lock(diags, &expected, "flatten diagnostic sequence changed");
+}
+
 /// Assert the actual ordered diagnostic sequence equals the expected golden
 /// sequence of (code, pos, uri, message) tuples — order-sensitive.
 fn assert_lock(
