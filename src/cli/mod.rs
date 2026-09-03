@@ -423,6 +423,12 @@ pub struct ShowArgs {
     #[arg(long)]
     pub span: bool,
 
+    /// Annotate `show dianlu` with dianlu-space identity ids: every instance
+    /// line / module section carries its node `NodeId` plus the `DefId` of
+    /// the def it instantiates (text and JSON).
+    #[arg(long)]
+    pub ids: bool,
+
     /// Definition layers to show: file (default) | use | system | all.
     /// `file` anchors on the -F target; without a file every loaded layer is shown.
     #[arg(long, value_enum)]

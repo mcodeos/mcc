@@ -781,7 +781,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         mcc::hierarchy::render_hierarchy_text(&mut htext, &hierarchy);
         lines.push(htext.trim_end().to_string());
         lines.push(String::new());
-        render_dianlu_section(&inst, &top, &view, &net_store, &mut lines);
+        render_dianlu_section(&inst, &top, &view, &net_store, &mut lines, args.ids);
         let rendered = lines.join("\n");
         if let Some(path) = &mcc::cli::globals().output {
             std::fs::write(path, rendered)?;
@@ -795,26 +795,71 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         "type": "dianlu",
         "top": top,
         "hierarchy": hierarchy,
-        "sections": dianlu_sections(&inst, &top, &view, &net_store),
+        "sections": dianlu_sections(&inst, &top, &view, &net_store, args.ids),
     });
     output(&data, args.span)
 }
 
+/// The registry `DefId` of the def that `(name, uri)` names — the def-space
+/// half of an instance identity, keyed exactly the way `instant/lane.rs`
+/// builds its lookups. `None` when the def is not registered in the active
+/// workspace (stub / degraded instance).
+fn registry_def_id(name: &mcc::McIds, uri: &mcc::McURI, kind: mcc::DefKind) -> Option<u32> {
+    mcc::def_id(&mcc::McSpaceName::new(name, uri.clone()), kind)
+}
+
+/// `--ids` tag for one instance: its node `NodeId` and the `DefId` of the def
+/// it instantiates; `-` marks an id that is absent (node not added to the
+/// tree / def not registered).
+fn dianlu_id_tag(node: Option<u32>, def: Option<u32>) -> String {
+    let n = node.map_or_else(|| "N-".to_string(), |v| format!("N{v}"));
+    let d = def.map_or_else(|| "D-".to_string(), |v| format!("D{v}"));
+    format!("[{n} {d}]")
+}
+
 /// Render one module section (text): instances then connections, recursing
-/// into sub-modules as their own sections below.
+/// into sub-modules as their own sections below. With `ids`, the section
+/// header and every instance line carry a `[N<n> D<d>]` identity tag: the
+/// node `NodeId` in the dianlu space plus the `DefId` of the def that the
+/// instance instantiates in the definition space (`-` when either is absent).
 fn render_dianlu_section(
     inst: &mcc::McModuleInst,
     path: &str,
     view: &TreeView,
     store: &mcc::NetTableStore,
     lines: &mut Vec<String>,
+    ids: bool,
 ) {
-    lines.push(format!("===== Section: {path} (module) ====="));
+    let mut header = format!("===== Section: {path} (module) =====");
+    if ids {
+        header.push(' ');
+        header.push_str(&dianlu_id_tag(
+            inst.node_id.map(|n| n.0),
+            registry_def_id(&inst.def.name, &inst.def_uri, mcc::DefKind::Module),
+        ));
+    }
+    lines.push(header);
     lines.push("Instances:".to_string());
 
     for comp in view.components(inst) {
+        let tag = if ids {
+            format!(
+                " {}",
+                dianlu_id_tag(
+                    comp.node_id.map(|n| n.0),
+                    registry_def_id(
+                        &comp.def.name,
+                        &comp.def.uri,
+                        mcc::DefKind::Component,
+                    ),
+                )
+            )
+        } else {
+            String::new()
+        };
         lines.push(format!(
-            "  [C] {}: {} [pins: {}]",
+            "  [C]{} {}: {} [pins: {}]",
+            tag,
             comp.name,
             comp.def.name,
             comp_pin_labels(comp).join(", ")
@@ -822,7 +867,18 @@ fn render_dianlu_section(
     }
     let subs: Vec<&mcc::McModuleInst> = view.sub_modules(inst).collect();
     for sub in &subs {
-        lines.push(format!("  [M] {}: {}", sub.name, sub.def.name));
+        let tag = if ids {
+            format!(
+                " {}",
+                dianlu_id_tag(
+                    sub.node_id.map(|n| n.0),
+                    registry_def_id(&sub.def.name, &sub.def_uri, mcc::DefKind::Module),
+                )
+            )
+        } else {
+            String::new()
+        };
+        lines.push(format!("  [M]{} {}: {}", tag, sub.name, sub.def.name));
     }
 
     let mut labels: Vec<&String> = store.labels_of(path).keys().collect();
@@ -881,29 +937,62 @@ fn render_dianlu_section(
 
     for sub in subs {
         lines.push(String::new());
-        render_dianlu_section(sub, &format!("{path}.{}", sub.name), view, store, lines);
+        render_dianlu_section(
+            sub,
+            &format!("{path}.{}", sub.name),
+            view,
+            store,
+            lines,
+            ids,
+        );
     }
 }
 
 /// Build the structured (JSON/YAML) representation: one section object per
-/// module, in the same order as the text renderer.
+/// module, in the same order as the text renderer. With `ids`, the section
+/// and its instance entries carry `node_id` (dianlu space) / `def_id`
+/// (definition space) identity keys, mirroring the text `[N… D…]` tags.
 fn dianlu_sections(
     inst: &mcc::McModuleInst,
     path: &str,
     view: &TreeView,
     store: &mcc::NetTableStore,
+    ids: bool,
 ) -> Vec<Value> {
     let subs: Vec<&mcc::McModuleInst> = view.sub_modules(inst).collect();
     let mut section = json!({
         "module": path,
         "uri": inst.def_uri.to_string(),
-        "components": view.components(inst).map(comp_json).collect::<Vec<_>>(),
-        "sub_modules": subs.iter().map(|s| json!({
-            "name": s.name,
-            "class": s.def.name.to_string(),
-        })).collect::<Vec<_>>(),
+        "components": view.components(inst).map(|c| comp_json(c, ids)).collect::<Vec<_>>(),
         "connections": Vec::<Value>::new(),
     });
+    section["sub_modules"] = json!(
+        subs.iter()
+            .map(|s| {
+                let mut v = json!({
+                    "name": s.name,
+                    "class": s.def.name.to_string(),
+                });
+                if ids {
+                    v["node_id"] = json!(s.node_id.map(|n| n.0));
+                    v["def_id"] = json!(registry_def_id(
+                        &s.def.name,
+                        &s.def_uri,
+                        mcc::DefKind::Module,
+                    ));
+                }
+                v
+            })
+            .collect::<Vec<_>>()
+    );
+    if ids {
+        section["node_id"] = json!(inst.node_id.map(|n| n.0));
+        section["def_id"] = json!(registry_def_id(
+            &inst.def.name,
+            &inst.def_uri,
+            mcc::DefKind::Module,
+        ));
+    }
 
     let mut labels: Vec<&String> = store.labels_of(path).keys().collect();
     labels.sort();
@@ -970,18 +1059,30 @@ fn dianlu_sections(
             &format!("{path}.{}", sub.name),
             view,
             store,
+            ids,
         ));
     }
     sections
 }
 
-/// Component instance as JSON: name, class, and sorted pin labels.
-fn comp_json(comp: &mcc::McComponentInst) -> Value {
-    json!({
+/// Component instance as JSON: name, class, and sorted pin labels. With
+/// `ids`, the entry also carries its node `NodeId` (`node_id`) and the
+/// `DefId` of the class it instantiates (`def_id`).
+fn comp_json(comp: &mcc::McComponentInst, ids: bool) -> Value {
+    let mut v = json!({
         "name": comp.name,
         "class": comp.def.name.to_string(),
         "pins": comp_pin_labels(comp),
-    })
+    });
+    if ids {
+        v["node_id"] = json!(comp.node_id.map(|n| n.0));
+        v["def_id"] = json!(registry_def_id(
+            &comp.def.name,
+            &comp.def.uri,
+            mcc::DefKind::Component,
+        ));
+    }
+    v
 }
 
 /// Preferred user-facing label per connected pin (physical id, longest alias
