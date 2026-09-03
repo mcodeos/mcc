@@ -127,8 +127,10 @@ pub fn build_pass2_with_arena(
 /// One connection row for layered rendering. `dir` is the source direction
 /// tag (`"LtoR"` / `"RtoL"` / anything else = undirected, the `{:?}` form of
 /// `ConnDir`); `trunk` is the structured group context (§8.9.6) decided
-/// at the AST layer — `None` (or `kind == Plain`) for plain connections,
-/// `Some` with a member name for bus/interface member lanes.
+/// at the AST layer — `None` (or `kind == Plain`) means the connection is an
+/// independent **wire**, `Some` with a member name marks a bus/interface
+/// member lane (a **trunk** candidate that only renders as a trunk when it
+/// converges with sibling lanes to one two-end mate).
 pub struct ConnView {
     pub net: String,
     pub points: Vec<String>,
@@ -147,51 +149,190 @@ fn join_conn_points(points: &[String], dir: &str) -> String {
     points.join(sep)
 }
 
-/// §8.9.5 layered connection rendering.
+/// §8.9.5 layered connection rendering (shared by `show dianlu` and `verify`).
 ///
-/// Bus/interface member lanes carry a structured group context with
-/// `kind != Plain` and a resolved `member` (§8.9.6) and are grouped into
-/// coarse trunks by the group `name`: each trunk renders one header line
-/// (`[bus] SPI0`) followed by one indented member line per member lane.
-/// Connections without a group context (scalar labels / plain pins like
-/// `V3V3`, `GND`, `1`) render as single lines, preserving the flat view.
-/// `indent` prefixes every trunk / plain line (member lines get one level
-/// more).
+/// Connections render in two tiers (vocabulary: trunk / lane / wire):
+///
+/// - **trunk** (aggregate layer): bus/interface/list member lanes that mate
+///   the same two ends. Renders as one `[trunk] left{member, ...} <-> right`
+///   header line (the member set is spelled out on the left end; anonymous
+///   lists use the bare member set as their left end) followed by one
+///   indented numbered lane line per member (`SCLK#0 : mcu513.SPI.SCLK ->
+///   flash.6`). All coarse kinds land here; an interface class, when
+///   present, is annotated `:: class` on the header.
+/// - **wire** (independent connection): every single line that is not part
+///   of a two-end mate — scalar/plain connections plus bus member lanes
+///   that do not converge. Renders as one `[wire] net : points` line.
+///
+/// A member lane is promoted to a trunk only when at least two lanes share
+/// the same group name and, after stripping the leaf segment off each lane's
+/// two outermost endpoints, all lanes converge to one distinct left end and
+/// one distinct right end. Non-converging groups decompose into wire lines
+/// instead of faking a bus header. `indent` prefixes every trunk / wire
+/// line (lane lines get one level more).
 pub fn render_layered_conns(conns: &[ConnView], indent: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
-    // First-seen ordered trunks: (name, kind, [(member, points, dir)])
-    let mut trunks: Vec<(String, TrunkKind, Vec<(String, Vec<String>, String)>)> = Vec::new();
+    // First-seen ordered lane groups: (net, member, points, dir, iface_class)
+    let mut groups: Vec<(
+        String,
+        Vec<(String, String, Vec<String>, String, Option<String>)>,
+    )> = Vec::new();
     for c in conns {
         match &c.trunk {
             Some(pg) if pg.kind != TrunkKind::Plain && pg.member.is_some() => {
                 let base = pg.name.clone().unwrap_or_else(|| c.net.clone());
                 let member = pg.member.clone().unwrap_or_else(|| c.net.clone());
-                match trunks.iter_mut().find(|(b, _, _)| *b == base) {
-                    Some((_, _, members)) => {
-                        members.push((member, c.points.clone(), c.dir.clone()));
-                    }
-                    None => trunks.push((
+                match groups.iter_mut().find(|(b, _)| *b == base) {
+                    Some((_, members)) => members.push((
+                        c.net.clone(),
+                        member,
+                        c.points.clone(),
+                        c.dir.clone(),
+                        pg.iface_class.clone(),
+                    )),
+                    None => groups.push((
                         base,
-                        pg.kind,
-                        vec![(member, c.points.clone(), c.dir.clone())],
+                        vec![(
+                            c.net.clone(),
+                            member,
+                            c.points.clone(),
+                            c.dir.clone(),
+                            pg.iface_class.clone(),
+                        )],
                     )),
                 }
             }
             _ => lines.push(format!(
-                "{indent}{} : {}",
+                "{indent}[wire] {} : {}",
                 c.net,
                 join_conn_points(&c.points, &c.dir)
             )),
         }
     }
-    for (base, kind, members) in trunks {
-        lines.push(format!("{indent}[{}] {base}", kind.label()));
-        for (member, points, dir) in members {
-            lines.push(format!(
-                "{indent}  {member:<8} : {}",
-                join_conn_points(&points, &dir)
-            ));
+    for (_, members) in groups {
+        match two_end_trunk(&members) {
+            // Converged two-end mate -> one trunk header with numbered lanes.
+            // The header spells the whole member set out on the left end
+            // (`modldo.vout{VCC, GND}`); anonymous lists have no name, so
+            // their left end is just the member set itself (`{VCC, GND}`).
+            Some((left, right, iface)) => {
+                let mut left_label = left;
+                let leaves = member_leaves_ordered(&members);
+                if !leaves.is_empty() {
+                    if left_label.is_empty() {
+                        left_label = format!("{{{}}}", leaves.join(", "));
+                    } else {
+                        left_label.push_str(&format!("{{{}}}", leaves.join(", ")));
+                    }
+                }
+                let mut header = format!("{indent}[trunk] {left_label} <-> {right}");
+                if let Some(cls) = iface {
+                    header.push_str(&format!(" :: {cls}"));
+                }
+                lines.push(header);
+                // Lane labels show the member leaf (`SPI.SCLK` -> `SCLK`),
+                // numbered in appearance order within the trunk.
+                let labels: Vec<String> = members
+                    .iter()
+                    .enumerate()
+                    .map(|(k, (_, member, _, _, _))| format!("{}#{k}", member_leaf(member)))
+                    .collect();
+                let width = labels.iter().map(|l| l.len()).max().unwrap_or(0);
+                for (label, (_, _, points, dir, _)) in labels.iter().zip(&members) {
+                    lines.push(format!(
+                        "{indent}  {label:<width$} : {}",
+                        join_conn_points(points, dir),
+                        width = width
+                    ));
+                }
+            }
+            // No unique two ends -> every lane is an independent wire.
+            None => {
+                for (net, _, points, dir, _) in members {
+                    lines.push(format!(
+                        "{indent}[wire] {} : {}",
+                        net,
+                        join_conn_points(&points, &dir)
+                    ));
+                }
+            }
         }
     }
     lines
+}
+
+/// The last dotted segment of a member path (`SPI.SCLK` -> `SCLK`, `VCC` ->
+/// `VCC`), the leaf name of a bus member lane.
+fn member_leaf(member: &str) -> &str {
+    match member.rfind('.') {
+        Some(d) if d + 1 < member.len() => &member[d + 1..],
+        _ => member,
+    }
+}
+
+/// The ordered, de-duplicated member leaves of a lane group, used for the
+/// `{...}` member set on a trunk header.
+fn member_leaves_ordered(
+    members: &[(String, String, Vec<String>, String, Option<String>)],
+) -> Vec<String> {
+    let mut leaves: Vec<String> = Vec::new();
+    for (_, member, _, _, _) in members {
+        let leaf = member_leaf(member).to_string();
+        if !leaves.contains(&leaf) {
+            leaves.push(leaf);
+        }
+    }
+    leaves
+}
+
+/// Strip the leaf segment off an endpoint path (`mcu513.SPI.SCLK` ->
+/// `mcu513.SPI`, `flash.6` -> `flash`), leaving the owning port object.
+/// Leaf-only paths stay whole.
+fn endpoint_port(p: &str) -> &str {
+    match p.rfind('.') {
+        Some(d) if d > 0 => &p[..d],
+        _ => p,
+    }
+}
+
+/// Promote a member-lane group to a two-end trunk: at least two lanes whose
+/// two outermost endpoints, with the leaf segment stripped, converge to one
+/// distinct left end and one distinct right end. Returns the two ends and
+/// the interface class (when every lane agrees on one). `None` means the
+/// group is not a trunk and its lanes render as wires.
+fn two_end_trunk(
+    members: &[(String, String, Vec<String>, String, Option<String>)],
+) -> Option<(String, String, Option<String>)> {
+    if members.len() < 2 {
+        return None;
+    }
+    let mut left: Option<String> = None;
+    let mut right: Option<String> = None;
+    let mut iface: Option<String> = None;
+    for (_, _, points, _, pg_iface) in members {
+        if points.len() != 2 {
+            return None;
+        }
+        let l = endpoint_port(&points[0]).to_string();
+        let r = endpoint_port(&points[1]).to_string();
+        match &left {
+            Some(prev) if prev != &l => return None,
+            None => left = Some(l),
+            _ => {}
+        }
+        match &right {
+            Some(prev) if prev != &r => return None,
+            None => right = Some(r),
+            _ => {}
+        }
+        if pg_iface.is_some() {
+            iface = pg_iface.clone();
+        }
+    }
+    let left = left?;
+    let right = right?;
+    if left == right {
+        return None;
+    }
+    Some((left, right, iface))
 }

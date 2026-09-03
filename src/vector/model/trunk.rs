@@ -285,7 +285,7 @@ pub struct TrunkCtx {
     /// `V3V3`. `None` for anonymous groups.
     pub name: Option<String>,
     /// Member name of this lane, e.g. `CS` / `TX`. `None` for non-member
-    /// (scalar label / plain pin) connections.
+    /// (independent wire) connections.
     pub member: Option<String>,
     /// Coarse kind of the trunk (`Bus` / `Interface` / `List` / `Plain`).
     pub kind: TrunkKind,

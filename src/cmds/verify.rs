@@ -56,7 +56,8 @@ struct ConnEntry {
     /// (`->` for LtoR, `<-` for RtoL, `-` for undirected).
     dir: String,
     /// §8.9.6 structured group context (name/member/kind), decided at the
-    /// AST layer; None for plain connections.
+    /// AST layer; None (or Plain) means the connection is an independent
+    /// **wire** line, Some with a member marks a trunk/lane candidate.
     trunk: Option<mcc::vector::model::trunk::TrunkCtx>,
 }
 
@@ -1165,8 +1166,9 @@ fn render_branches(out: &mut String, prefix: &str, branches: &[Branch]) {
                     }
                 }
                 if let Some(conns) = node["connections"].as_array() {
-                    // §8.9.5 layered rendering (trunks for bus/interface
-                    // groups, flat lines otherwise).
+                    // §8.9.5 layered rendering (vocabulary trunk / lane /
+                    // wire: converged two-end mates become [trunk] headers
+                    // with numbered lanes, everything else [wire] lines).
                     let views: Vec<common::ConnView> = conns.iter().map(conn_view).collect();
                     for t in common::render_layered_conns(&views, "") {
                         children.push(Branch::Leaf(t));
@@ -1356,8 +1358,7 @@ fn render_module_text(out: &mut String, m: &Value) {
                 continue;
             }
             if let Some(conns) = line["connections"].as_array() {
-                // §8.9.5 layered rendering (trunks for bus/interface groups,
-                // flat lines otherwise).
+                // §8.9.5 layered rendering (trunk / lane / wire tiers).
                 let views: Vec<common::ConnView> = conns.iter().map(conn_view).collect();
                 for text in common::render_layered_conns(&views, "           ") {
                     let _ = writeln!(out, "{text}");
