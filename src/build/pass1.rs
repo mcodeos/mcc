@@ -38,6 +38,17 @@ use crate::db::infra::init::*;
 /// reverse-dependents dirty), so the clean/dirty decision must be made per
 /// file at loop time, in topo order (deps first), not pre-computed.
 pub fn mcb_parse_all_modules() {
+    // P2/P4 derivation seam (§0.4 of the abstract-variant-capability plan):
+    // rebuild the registry's declaration-relation ledgers (`adopts` here;
+    // variant materialization joins it in P4) from the live defs. Every load /
+    // edit round converges here after `mcb_add_recursive` has (re)registered
+    // all project defs and populated each file's visibility table, and before
+    // the module parse below — a module may instantiate a host def, so its
+    // effective method set must already be cached. Idempotent: cleared and
+    // recomputed from current state; silent: the link diagnostics land in the
+    // post-parse ValidationCheck over re-derived files below, not here.
+    crate::db::defregistry::sync_derivation_edges();
+
     // 1. Collect all URIs and their dependencies
     let mut uri_deps: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();

@@ -49,10 +49,6 @@ pub struct MemberLedger {
 }
 
 impl MemberLedger {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Register a member under `name`, returning its stable id. A repeated
     /// name reuses the original id (identity preserved across re-declaration),
     /// only refreshing the iotype label.
@@ -93,7 +89,12 @@ impl MemberLedger {
         self.name_to_id.get(name).copied()
     }
 
-    /// The member at a stable id (tombstones read as `None`).
+    /// The member at a stable id (tombstones read as `None`). Currently
+    /// exercised only by the ledger's unit tests to probe the stable-id
+    /// contract (tombstone → `None`, refresh-in-place); production reads
+    /// resolve by name (`id_of`) or iterate live members. Drop this
+    /// `#[cfg(test)]` once a production reader of a single stable id lands.
+    #[cfg(test)]
     pub fn member(&self, id: DefMemberId) -> Option<&DefMember> {
         self.entries.get(id.0 as usize).and_then(|m| m.as_ref())
     }
@@ -110,7 +111,7 @@ mod tests {
 
     #[test]
     fn ledger_is_append_only_with_stable_ids() {
-        let mut l = MemberLedger::new();
+        let mut l = MemberLedger::default();
         let a = l.register("A", "In");
         let b = l.register("B", "Out");
         assert_eq!(a.0, 0);
@@ -138,7 +139,7 @@ mod tests {
         // The core D13 guarantee: a member inserted before an existing one
         // must not change the existing member's id — instance PointIds stay
         // valid across def edits.
-        let mut l = MemberLedger::new();
+        let mut l = MemberLedger::default();
         l.register("1", "In");
         l.register("2", "In");
         l.register("3", "Out");

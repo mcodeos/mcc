@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+pub(crate) mod adoption;
 pub(crate) mod cmie;
 pub(crate) mod context;
 pub(crate) mod defmember;

@@ -31,13 +31,29 @@ fn main() {
     // 2. generate macros from header file
     generate_macros_from_header();
 
-    // 3. check cp.sh script exists and add warning message
-    let cp_path = PathBuf::from("mc/mcode/cp.sh");
-    if cp_path.exists() {
-        println!("cargo:warning=Please run 'bash mc/mcode/cp.sh' manually to copy mcode files to your user directory.");
-        println!("cargo:warning=This step is required for the MCODE system to function correctly.");
+    // 3. locate the mcode install script (cp.sh) and remind the developer to
+    // run it after mcode library edits. The reminder must not nag on every
+    // no-op build: it prints as regular (verbose-only) build output while the
+    // script is present, and only rises to a `cargo:warning` when the script
+    // genuinely cannot be found in any layout we know of.
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let cp_candidates = [
+        manifest.join("mc/mcode/cp.sh"), // original monorepo layout
+        manifest.join("../mcode/cp.sh"), // sibling checkout: mcc next to mcode
+    ];
+    if let Some(cp) = cp_candidates.iter().find(|p| p.exists()) {
+        println!(
+            "mcc: mcode install script present at {} — run it manually to copy \
+             mcode files to your user directory after mcode library edits.",
+            cp.display()
+        );
     } else {
-        println!("cargo:warning=cp.sh script not found. Please ensure it exists at mc/mcode/cp.sh");
+        let looked = cp_candidates
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("cargo:warning=cp.sh script not found (looked at: {looked}). Please run it after mcode edits — required for the MCODE system to function correctly.");
     }
 }
 
@@ -79,13 +95,22 @@ fn generate_macros_from_header() {
         }
     }
 
-    // write generated Rust file
+    // Write the generated Rust file only when the content actually changed.
+    // A no-op regeneration (identical output) must not churn the file's
+    // mtime nor nag "remember to commit" on every single build — the warning
+    // is meant to fire exactly when a real header change needs committing.
     let out_path = PathBuf::from("src/ast/macros.rs");
+    let unchanged = fs::read_to_string(&out_path)
+        .map(|existing| existing.trim_end() == rust_code.trim_end())
+        .unwrap_or(false);
+    if unchanged {
+        return;
+    }
     if let Err(e) = fs::write(&out_path, rust_code) {
         eprintln!("Error writing macros.rs: {}", e);
     } else {
         println!(
-            "cargo:warning=Generated {} - remember to commit this file!",
+            "cargo:warning=Regenerated {} changed - remember to commit this file!",
             out_path.display()
         );
     }

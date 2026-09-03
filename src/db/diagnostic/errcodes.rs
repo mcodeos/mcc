@@ -116,6 +116,9 @@ pub const DUP_MODULE: u32 = 1004;
 /// A define with the same name already exists in this file.
 pub const DUP_DEFINE: u32 = 1005;
 
+/// A capability with the same name already exists in this file.
+pub const DUP_CAPABILITY: u32 = 1006;
+
 // ============================================================================
 // Pass1a: definition structure / CMIE load (1050-1099)
 // ============================================================================
@@ -1000,6 +1003,40 @@ pub const NAME_PORT_INST_SHADOWS_CMIE: u32 = 5056;
 pub const NAME_PARAM_SHADOWS_CMIE: u32 = 5057;
 
 // ============================================================================
+// capability / variant (abstract-variant-capability plan) (5058-5066)
+// ============================================================================
+
+/// capability body may only contain signal declarations and funcs.
+pub const CAPABILITY_BODY_INVALID: u32 = 5058;
+
+/// capability func references a bare name that is not a declared signal, a
+/// parameter, or a func-local instance (§3.2 self-consistency).
+pub const CAPABILITY_FUNC_UNRESOLVED_REF: u32 = 5059;
+
+/// variant may not write pins/params/func — those are inherited from the base
+/// (data lock, §7.2).
+pub const VARIANT_REDECLARES_PINS_PARAMS_FUNCS: u32 = 5060;
+
+/// abstract component may not carry a variant base `:` (no variant chain).
+pub const ABSTRACT_DERIVES_ABSTRACT: u32 = 5061;
+
+/// `:` (variant) and `::` (capability adoption) are mutually exclusive.
+pub const VARIANT_ADOPTS: u32 = 5062;
+
+/// `:` target is not an abstract component.
+pub const VARIANT_BASE_NON_ABSTRACT: u32 = 5063;
+
+/// `::` target is not a capability.
+pub const ADOPTS_NON_CAPABILITY: u32 = 5064;
+
+/// Adopting component is missing a declared capability signal.
+pub const CAPABILITY_SIGNAL_MISSING: u32 = 5065;
+
+/// Two adopted capabilities expose the same func name and the component does
+/// not override it.
+pub const ADOPTED_FUNC_AMBIGUOUS: u32 = 5066;
+
+// ============================================================================
 // Pass3: reference integrity (5100-5149)
 // ============================================================================
 
@@ -1288,6 +1325,20 @@ pub const ERC_MULTI_DRIVE_NET: u32 = 6003;
 /// Floating net.
 pub const ERC_FLOATING_NET: u32 = 6004;
 
+/// Placed abstract component with no selected part (partno unset).
+pub const ABSTRACT_PART_UNSELECTED: u32 = 6005;
+
+/// Variant still carries an unset (±0/empty) inherited spec item.
+///
+/// Registered but NOT yet emitted (abstract-variant-capability-plan §4.4 /
+/// Open D6): disambiguating a `±0` placeholder from a genuine `±0` device
+/// rating requires spec metadata, which this phase has none of. Gating the
+/// warning on a `±0` value sentinel would be exactly the hardcoding the plan
+/// rules out (rely on spec metadata, not hardcoded sentinels) — revisit when a spec-type table
+/// exists. The materialized variant def keeps the base's `spec.*` leaves
+/// untouched, so the unset state is always visible to a BOM/consumer.
+pub const VARIANT_SPEC_UNSET: u32 = 6006;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -1295,6 +1346,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DUP_ENUM, "An enum with the same name already exists in this file.", "Duplicate enum"),
     entry!(DUP_MODULE, "A module with the same name already exists in this file.", "Duplicate module"),
     entry!(DUP_DEFINE, "A define with the same name already exists in this file.", "Duplicate define"),
+    entry!(DUP_CAPABILITY, "A capability with the same name already exists in this file.", "Duplicate capability"),
     // ---- section ----
     entry!(DEF_ALREADY_EXISTS, "Definition already exists.", "Definition already exists"),
     entry!(CMIE_LOAD_REJECTED, "The declaration is a define or an unexpected type and cannot be loaded as a CMIE.", "Unexpected declaration type {0} for CMIE load"),
@@ -1566,6 +1618,15 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NAME_INSTANCE_SINGLE_CHAR, "Instance name is a single character.", "Instance name is a single character."),
     entry!(NAME_PORT_INST_SHADOWS_CMIE, "Port/instance name shadows a library CMIE name.", "Port/instance name shadows a library CMIE name."),
     entry!(NAME_PARAM_SHADOWS_CMIE, "Parameter name shadows a library CMIE name.", "Parameter name shadows a library CMIE name."),
+    entry!(CAPABILITY_BODY_INVALID, "capability body may only contain signal declarations and funcs.", "capability body may only contain signal declarations and funcs"),
+    entry!(CAPABILITY_FUNC_UNRESOLVED_REF, "capability func references a name that is not a declared signal, parameter, or func-local instance.", "'{0}' is not a declared signal, parameter, or local in this capability func"),
+    entry!(VARIANT_REDECLARES_PINS_PARAMS_FUNCS, "A variant may not declare pins, construction params, or funcs — they are inherited from the abstract base.", "variant '{0}' may not declare pins, params, or funcs (inherited from the base)"),
+    entry!(ABSTRACT_DERIVES_ABSTRACT, "An abstract component may not carry a variant base — abstract inherits abstract is forbidden.", "abstract component may not derive with ':' (no variant chain)"),
+    entry!(VARIANT_ADOPTS, "Variant inheritance (':') and capability adoption ('::') are mutually exclusive.", "':' and '::' are mutually exclusive on one component"),
+    entry!(VARIANT_BASE_NON_ABSTRACT, "A variant base must be an abstract component.", "'{0}' is not an abstract component — use '::' to adopt a capability"),
+    entry!(ADOPTS_NON_CAPABILITY, "Adoption target must be a capability.", "'{0}' is not a capability — use ':' to derive a variant from an abstract component"),
+    entry!(CAPABILITY_SIGNAL_MISSING, "An adopting component must declare every capability signal (name + direction + interface).", "'{0}' is missing capability signal '{1}'; {2}"),
+    entry!(ADOPTED_FUNC_AMBIGUOUS, "Two adopted capabilities expose the same func name and the component does not override it.", "adopted capabilities share func '{0}'; define '{0}' here to override"),
     // ---- section ----
     entry!(SPEC_KEY_UNDECLARED_PARAM, "Spec key references a parameter that is not declared.", "Spec key references a parameter that is not declared."),
     entry!(REF_INTEGRITY, "Reference integrity violation.", "Reference integrity violation."),
@@ -1659,4 +1720,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ERC_UNCONNECTED_PORT, "Unconnected port: not connected to any net.", "unconnected port: '{0}' is not connected to any net"),
     entry!(ERC_MULTI_DRIVE_NET, "Multi-drive net.", "multi-drive net: '{0}' has {1} drivers ({2})"),
     entry!(ERC_FLOATING_NET, "Floating net.", "floating net: '{0}' has no driver"),
+    entry!(ABSTRACT_PART_UNSELECTED, "Placed abstract component has no selected part (partno unset).", "abstract component instance '{0}' is unselected (no partno); BOM must pick a variant"),
+    entry!(VARIANT_SPEC_UNSET, "Variant still carries an unset inherited spec item.", "variant '{0}' leaves spec item '{1}' unset (±0/empty)"),
 ];

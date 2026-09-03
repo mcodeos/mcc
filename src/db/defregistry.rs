@@ -4,10 +4,14 @@
 
 //! Definition-layer write side + identity registry (design defspace §9 Phase B / §5 D11).
 //!
-//! [`insert`] / [`remove_by_uri`] / [`remove_by_uris`] are the single write
-//! entry for the definition tables, and the registry below is the single
-//! definition identity table: a persistent integer [`DefId`] per canonical
-//! key `(uri, ident)` (the [`McSpaceName`]), append-only with tombstones.
+//! [`insert`] and the domain-scoped removals ([`remove_project_by_uri`] /
+//! [`remove_by_uris`]) are the single write entry for the definition tables,
+//! and the registry below is the single definition identity table: a
+//! persistent integer [`DefId`] per canonical key `(uri, ident)` (the
+//! [`McSpaceName`]), append-only with tombstones. The any-domain any-kind
+//! `remove_by_uri` teardown is compiled under `#[cfg(test)]` — it is the
+//! unit tests' canonical cleanup, while real file-removal and lib-unload
+//! paths always use the domain-scoped entry points above (T8 layering).
 //! The physical workspace def tables survive only as workspace-lifecycle
 //! state (snapshot / switch / restore / clear transport); every resolution,
 //! visibility, and ledger read goes through the registry-backed
@@ -53,6 +57,7 @@
 
 use crate::db::cmie::tables as workspace;
 use crate::db::defmember::{DefMemberId, MemberLedger};
+use crate::semantic::capability::McCapability;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
@@ -80,8 +85,10 @@ pub enum LoadDomain {
     SystemLib(String),
 }
 
-/// The six definition kinds, one per AST top-level class template
-/// (design §13.2) plus the function-template addressing entries
+/// The seven definition kinds: the AST top-level class templates (component,
+/// module, interface, enum, define — design §13.2), the capability container
+/// (abstract-variant-capability-plan §3; not a class kind — never in the
+/// system name index), plus the function-template addressing entries
 /// (design §12.1 / §13.6 delta 1).
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -92,6 +99,7 @@ pub enum DefKind {
     Interface,
     Enum,
     Define,
+    Capability,
     Func,
 }
 
@@ -118,7 +126,35 @@ pub struct FuncDef {
     pub name: String,
 }
 
-/// Tagged definition value: one [`insert`] writes any of the six kinds.
+/// One member of a host def's *effective* method set (abstract-variant-capability
+/// plan §5): a func reachable on instances of an adopting component. A func is
+/// either declared on the host itself or adopted from one of the capabilities
+/// the host `::`-adopts. The effective set is cached at link time by
+/// [`RegistryState::sync_derivation_edges`] (own funcs first, then adopted
+/// funcs in adopt order) so dispatch stays a zero-recursion lookup (§5, §8.2);
+/// it is a derived relation of the live defs and is never checkpoint-serialized.
+#[derive(Debug, Clone)]
+pub struct EffFunc {
+    /// Function name within the owning def's `funcs` table.
+    pub name: String,
+    /// Where the func is declared.
+    pub source: EffFuncSource,
+}
+
+/// Origin of one [`EffFunc`] entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffFuncSource {
+    /// Declared on the host def itself. Always outranks an adopted same-name
+    /// func (self-override, §5), so a capability func sharing a host func name
+    /// never enters the set.
+    Own,
+    /// Adopted from this capability def (`::`), carrying the capability's
+    /// [`DefId`].
+    Capability(DefId),
+}
+
+/// Tagged definition value: one [`insert`] writes any of the definition
+/// kinds (Component / Module / Interface / Enum / Define / Capability / Func).
 #[derive(Clone)]
 pub enum DefValue {
     Component(Arc<McComponent>),
@@ -126,6 +162,7 @@ pub enum DefValue {
     Interface(Arc<McInterface>),
     Enum(Arc<McEnumDef>),
     Define(Arc<McDefineDef>),
+    Capability(Arc<McCapability>),
     Func(FuncDef),
 }
 
@@ -137,6 +174,7 @@ impl DefValue {
             DefValue::Interface(_) => DefKind::Interface,
             DefValue::Enum(_) => DefKind::Enum,
             DefValue::Define(_) => DefKind::Define,
+            DefValue::Capability(_) => DefKind::Capability,
             DefValue::Func(_) => DefKind::Func,
         }
     }
@@ -242,6 +280,40 @@ pub(crate) struct RegistryState {
     /// isolated by construction (a host rename re-keys the host def, not its
     /// func members).
     host_funcs: DashMap<(DefId, String), DefId>,
+    /// P2 (abstract-variant-capability plan §4.1/§8.1): host component def →
+    /// the [`DefId`]s of the capability defs it `::`-adopts, in declaration
+    /// order. A *derived* relation — the declaration itself lives on the
+    /// component def's `adopts` list — so it is rebuilt from the live defs by
+    /// [`RegistryState::sync_derivation_edges`] on every load round and is
+    /// never serialized (like `member_ledgers` / `host_funcs`): a full reload
+    /// re-derives it, incremental re-derives refresh it at the same seam that
+    /// re-registers the def. Reverse lookup ([`RegistryState::adopters_of`])
+    /// is a live scan over this ledger.
+    adopts: DashMap<DefId, Vec<DefId>>,
+    /// P2 (§5/§8.2): a host component def's cached effective method set — own
+    /// funcs, then each adopted capability's funcs in adopt order (a func the
+    /// host overrides never appears from the capability; a name two adopted
+    /// capabilities share is omitted — the caller reports
+    /// `ADOPTED_FUNC_AMBIGUOUS`). Sibling of `adopts`: rebuilt by
+    /// [`RegistryState::sync_derivation_edges`], not checkpoint-serialized.
+    effective_funcs: DashMap<DefId, Vec<EffFunc>>,
+    /// P4 (abstract-variant-capability plan §7.1/§8.1): variant → its single
+    /// abstract base (`component Y : X`, MCAST_VARIANT). Like `adopts`, a
+    /// *derived* relation rebuilt by
+    /// [`RegistryState::sync_derivation_edges`] on every load round and never
+    /// serialized — the child def's own `variant_base` declaration is the
+    /// source, and the materialized child replaces the parsed one in place
+    /// (see [`RegistryState::replace_def`]). Reverse lookup
+    /// ([`RegistryState::cluster_of`]) is a live scan over this ledger.
+    variant_of: DashMap<DefId, DefId>,
+    /// P4 §7.2: a variant's *declared* child def — the parsed `component Y : X`
+    /// shell (`variant_base` set, attrs = only what Y wrote). The registry row
+    /// `sync_variant` materializes over (`replace_def`) is the base clone, so
+    /// re-derivation must overlay the declared child's own attributes every
+    /// round — an inherited attr must never re-clobber a freshly changed base
+    /// attr when only the base file is re-parsed. `register` maintains it on
+    /// every fresh data write; never serialized, cleared with `variant_of`.
+    declared_variants: DashMap<DefId, Arc<McComponent>>,
     /// T6-②: whether a def-space mutation landed since the last checkpoint was
     /// captured. Set on every real write (fresh insert, same-layer revive, T8
     /// project shadow append, module re-derive, live→tombstone); cleared by
@@ -263,6 +335,10 @@ impl Default for RegistryState {
             journal: Mutex::new(Vec::new()),
             member_ledgers: DashMap::new(),
             host_funcs: DashMap::new(),
+            adopts: DashMap::new(),
+            effective_funcs: DashMap::new(),
+            variant_of: DashMap::new(),
+            declared_variants: DashMap::new(),
             mutated: AtomicBool::new(false),
         }
     }
@@ -295,7 +371,10 @@ fn kind_priority(kind: DefKind) -> u8 {
         DefKind::Interface => 2,
         DefKind::Enum => 3,
         DefKind::Define => 4,
-        DefKind::Func => 5,
+        // Capability never enters the name index (not a class kind) — kept for
+        // exhaustive matches only.
+        DefKind::Capability => 5,
+        DefKind::Func => 6,
     }
 }
 
@@ -326,7 +405,10 @@ impl RegistryState {
         // key a project def shadows still keeps its own func entries).
         match self.register(sn, kind, domain, def) {
             Some(host_id) => {
-                if kind == DefKind::Component || kind == DefKind::Module {
+                if matches!(
+                    kind,
+                    DefKind::Component | DefKind::Module | DefKind::Capability
+                ) {
                     self.register_host_funcs(sn, host_id, def, domain);
                 }
                 InsertOutcome::Inserted
@@ -390,6 +472,7 @@ impl RegistryState {
                 if !member_seq.is_empty() {
                     self.sync_member_ledger(id, &member_seq);
                 }
+                self.sync_declared_variant(id, def);
                 return Some(id);
             }
             return None;
@@ -431,13 +514,33 @@ impl RegistryState {
                 fingerprint: content_fingerprint(def),
             },
         );
-        if matches!(domain, LoadDomain::SystemLib(_)) && kind != DefKind::Func {
+        if matches!(domain, LoadDomain::SystemLib(_))
+            && !matches!(kind, DefKind::Func | DefKind::Capability)
+        {
             self.system_index_add(&name, kind, id);
         }
         if !member_seq.is_empty() {
             self.sync_member_ledger(id, &member_seq);
         }
+        self.sync_declared_variant(id, def);
         Some(id)
+    }
+
+    /// P4 §7.2: keep the *declared* child def of every variant alongside its
+    /// (materialized) arena row. Only a Component def that declares a
+    /// `variant_base` is recorded; any other fresh write drops the entry (a
+    /// variant clause edited away must not leave a stale shell behind). Called
+    /// on every fresh `register` data write — never from `replace_def`, whose
+    /// payload is the base clone the materialization overlay reads from.
+    fn sync_declared_variant(&self, id: DefId, def: &DefValue) {
+        match def {
+            DefValue::Component(c) if c.variant_base.is_some() => {
+                self.declared_variants.insert(id, c.clone());
+            }
+            _ => {
+                self.declared_variants.remove(&id);
+            }
+        }
     }
 
     /// T4 (defspace-id-core-plan M1): the member sequence of a fresh def
@@ -551,6 +654,11 @@ impl RegistryState {
                     self.register_func_member(sn, host_id, &f.name.to_string(), domain);
                 }
             }
+            DefValue::Capability(cap) => {
+                for f in cap.funcs.iter() {
+                    self.register_func_member(sn, host_id, &f.name.to_string(), domain);
+                }
+            }
             _ => {}
         }
     }
@@ -615,13 +723,14 @@ impl RegistryState {
         );
     }
 
-    /// Registry side of [`remove_by_uri`]: tombstone every definition of any
-    /// kind whose defining file matches `uri`, across every domain (the
-    /// physical-table sweep stays in the free wrapper). The domain-scoped
-    /// variants below are the T8 (M2) removal surfaces: a project source-file
-    /// removal tombstones only the project layer so a shadowed system def
-    /// survives as the read fallback, and a lib unload tombstones only the
-    /// system layer.
+    /// Registry side of the any-domain [`remove_by_uri`] teardown: tombstone
+    /// every definition of any kind whose defining file matches `uri`, across
+    /// every domain (the physical-table sweep stays in the free wrapper).
+    /// Test-only: the domain-scoped variants below are the T8 (M2) removal
+    /// surfaces — a project source-file removal tombstones only the project
+    /// layer so a shadowed system def survives as the read fallback, and a
+    /// lib unload tombstones only the system layer.
+    #[cfg(test)]
     fn remove_by_uri(&self, uri: &str) {
         self.remove_by_uri_in(uri, DomainFilter::Any);
     }
@@ -679,8 +788,10 @@ impl RegistryState {
             .arena
             .iter()
             .filter(|e| {
-                matches!(e.kind, DefKind::Component | DefKind::Module)
-                    && filter_matches(&e.domain, scope)
+                matches!(
+                    e.kind,
+                    DefKind::Component | DefKind::Module | DefKind::Capability
+                ) && filter_matches(&e.domain, scope)
                     && e.data.is_none()
             })
             .map(|e| *e.key())
@@ -743,6 +854,10 @@ impl RegistryState {
         self.system_name_index.clear();
         self.member_ledgers.clear();
         self.host_funcs.clear();
+        self.adopts.clear();
+        self.effective_funcs.clear();
+        self.variant_of.clear();
+        self.declared_variants.clear();
         self.next_def_id.store(0, Ordering::Relaxed);
         self.journal.lock().unwrap().clear();
         self.next_version.store(1, Ordering::Relaxed);
@@ -763,6 +878,12 @@ impl RegistryState {
         // Function-template members are not in `key_to_id`; every host is
         // dead after the key sweep, so bring their members down too.
         self.sweep_orphan_funcs(DomainFilter::Any);
+        // Derived relation edges die with their defs; the next load round's
+        // `sync_derivation_edges` rebuilds them from the revived defs.
+        self.adopts.clear();
+        self.effective_funcs.clear();
+        self.variant_of.clear();
+        self.declared_variants.clear();
     }
 
     /// Build one versioned snapshot of the whole registry — every registered
@@ -889,7 +1010,7 @@ impl RegistryState {
                 continue;
             };
             match &e.def {
-                DefValue::Component(_) | DefValue::Module(_) => {
+                DefValue::Component(_) | DefValue::Module(_) | DefValue::Capability(_) => {
                     self.register_host_funcs(&e.sn, host_id, &e.def, &e.domain);
                 }
                 _ => {}
@@ -897,7 +1018,7 @@ impl RegistryState {
         }
     }
 
-    /// Re-register a restored workspace snapshot's five definition tables as
+    /// Re-register a restored workspace snapshot's six definition tables as
     /// project-domain entries, without touching the physical tables (they are
     /// refilled directly by `restore_snapshot`). Called from
     /// `WorkspaceManager::restore_snapshot` when switching back to a saved
@@ -912,6 +1033,7 @@ impl RegistryState {
         interfaces: &DashMap<McSpaceName, Arc<McInterface>>,
         enums: &DashMap<McSpaceName, Arc<McEnumDef>>,
         defines: &DashMap<McSpaceName, Arc<McDefineDef>>,
+        capabilities: &DashMap<McSpaceName, Arc<McCapability>>,
     ) {
         for e in components.iter() {
             if let Some(host_id) = self.register(
@@ -967,6 +1089,21 @@ impl RegistryState {
                 &DefValue::Define(e.value().clone()),
             );
         }
+        for e in capabilities.iter() {
+            if let Some(host_id) = self.register(
+                e.key(),
+                DefKind::Capability,
+                &LoadDomain::Project,
+                &DefValue::Capability(e.value().clone()),
+            ) {
+                self.register_host_funcs(
+                    e.key(),
+                    host_id,
+                    &DefValue::Capability(e.value().clone()),
+                    &LoadDomain::Project,
+                );
+            }
+        }
     }
 }
 
@@ -1009,7 +1146,7 @@ impl RegistryState {
         was_live_system: bool,
         now_domain: &LoadDomain,
     ) {
-        if kind == DefKind::Func {
+        if matches!(kind, DefKind::Func | DefKind::Capability) {
             return;
         }
         let now_system = matches!(now_domain, LoadDomain::SystemLib(_));
@@ -1199,6 +1336,14 @@ impl RegistryState {
         }
     }
 
+    /// Look up a capability by its `McSpaceName` (any domain).
+    pub(crate) fn get_capability(&self, sn: &McSpaceName) -> Option<Arc<McCapability>> {
+        match self.live_entry(sn, DefKind::Capability)? {
+            DefValue::Capability(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Look up one live function-template member of a host def by its
     /// structured `(host, name)` identity (T9, design §12.1): the host is
     /// resolved by its class key, then the member by name — no qualified
@@ -1284,6 +1429,15 @@ impl RegistryState {
         }
     }
 
+    /// Look up a capability by its `McSpaceName` in the project (workspace)
+    /// domain.
+    pub(crate) fn get_workspace_capability(&self, sn: &McSpaceName) -> Option<Arc<McCapability>> {
+        match self.live_entry_in(sn, DefKind::Capability, DomainFilter::Project)? {
+            DefValue::Capability(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Every live system-library identity whose display-form name is `name`,
     /// in kind-priority order (component → module → interface → enum →
     /// define).
@@ -1305,7 +1459,7 @@ impl RegistryState {
             .iter()
             .filter(|e| {
                 e.data.is_some()
-                    && e.kind != DefKind::Func
+                    && !matches!(e.kind, DefKind::Func | DefKind::Capability)
                     && matches!(e.domain, LoadDomain::SystemLib(_))
                     && crate::semantic::basic::equivalent::are_equivalent(&e.sn.ident, &query)
             })
@@ -1410,6 +1564,294 @@ impl RegistryState {
             .filter(|e| e.data.is_some() && e.kind != DefKind::Func && e.sn.uri.contains(prefix))
             .map(|e| e.sn.clone())
             .collect()
+    }
+}
+
+// ============================================================================
+// P2 — capability adoption (`::`): declaration-relation ledgers (§8.1/§8.2)
+// ============================================================================
+//
+// `adopts` and `effective_funcs` are *derived* relations of the live defs
+// (the declarations live on each component def's own `adopts` list), so they
+// are rebuilt on every load round by [`RegistryState::sync_derivation_edges`]
+// and never serialized — a full reload re-derives them exactly like
+// `member_ledgers`/`host_funcs`, and incremental re-derives refresh them at
+// the same seam that re-registers the def. Reads are plain DashMap lookups;
+// reverse queries (adopters of a capability, the effective method set of a
+// host) are live scans over the same ledgers.
+
+impl RegistryState {
+    /// Re-derive the declaration-relation ledgers — `adopts`, `effective_funcs`
+    /// and `variant_of` (+ in-place variant materialization) — from the live
+    /// component defs. See the free [`sync_derivation_edges`] wrapper for the
+    /// load-round contract (call site, idempotence, diagnostic split).
+    pub(crate) fn sync_derivation_edges(&self) {
+        use crate::db::adoption::{resolve_capability_name, AdoptTarget};
+        self.adopts.clear();
+        self.effective_funcs.clear();
+        self.variant_of.clear();
+        let ds = crate::definition_space();
+
+        // ── P4 §4.2/§7.1: `: Base` variant materialization FIRST — a variant's
+        //    effective surface (pins/params/funcs/adopts) is its abstract
+        //    base's, so the adopts/effective-funcs rebuild below must read the
+        //    materialized def, not the parsed (empty-shell) child.
+        let comps = ds.workspace_components();
+        for (sn, comp) in comps.iter() {
+            if let Some(base_name) = &comp.variant_base {
+                self.sync_variant(sn, comp, base_name);
+            }
+        }
+
+        // ── P2 §4.1: adopts / effective_funcs over the (now materialized) defs.
+        let comps = ds.workspace_components();
+        for (sn, comp) in comps.iter() {
+            if comp.adopts.is_empty() {
+                continue;
+            }
+            let Some(host_id) = self.def_id(&sn, DefKind::Component) else {
+                continue;
+            };
+            // A `::` target resolves from the adopting def's own file scope
+            // (P3 own file → P4 use chain → P5 system), exactly like a class
+            // reference in the same header. A variant inherits the base's
+            // adopts via materialization, so this loop sees it the same way it
+            // sees any adopting component.
+            let from_uri = crate::McURI::from(sn.uri_string().as_ref());
+            let mut cap_ids: Vec<DefId> = Vec::with_capacity(comp.adopts.len());
+            for name in &comp.adopts {
+                if let AdoptTarget::Capability(id) = resolve_capability_name(&from_uri, name) {
+                    cap_ids.push(id);
+                }
+            }
+            if cap_ids.is_empty() {
+                // Nothing resolved (unresolved or wrong-kind targets only) —
+                // the ValidationCheck reports them; dispatch keeps own funcs
+                // only until the file is fixed.
+                continue;
+            }
+            self.adopts.insert(host_id, cap_ids.clone());
+            let caps: Vec<Arc<McCapability>> = cap_ids
+                .iter()
+                .filter_map(|&id| match self.live_entry_by_id(id) {
+                    Some((_, DefValue::Capability(c))) => Some(c),
+                    _ => None,
+                })
+                .collect();
+            if caps.is_empty() {
+                continue;
+            }
+            self.effective_funcs
+                .insert(host_id, self.build_effective_funcs(&comp, &cap_ids, &caps));
+        }
+    }
+
+    /// P4 §7.1/§4.2: one `component Y : X` materialization. Resolves the
+    /// declared base from the child's file scope and, when it is a live
+    /// abstract component, clones the base def, overlays the child's data
+    /// surface ([`materialize_variant`]) and replaces the child's registry row
+    /// in place, recording the `variant_of` child→base edge. When the base
+    /// does not resolve or is not abstract the child keeps its parsed row (the
+    /// `VARIANT_BASE_NON_ABSTRACT` / unresolved-class diagnostics report it)
+    /// and any stale edge is dropped. Idempotent: a round whose materialized
+    /// result equals the stored fingerprint replaces nothing (`O1`).
+    fn sync_variant(&self, sn: &McSpaceName, comp: &McComponent, base_name: &crate::McIds) {
+        let Some(child_id) = self.def_id(sn, DefKind::Component) else {
+            return;
+        };
+        let from_uri = crate::McURI::from(sn.uri_string().as_ref());
+        let base_id = match crate::db::adoption::resolve_variant_base(&from_uri, base_name) {
+            crate::db::adoption::VariantBaseTarget::AbstractComponent(id) => id,
+            _ => {
+                self.variant_of.remove(&child_id);
+                return;
+            }
+        };
+        let Some((_, DefValue::Component(base_arc))) = self.live_entry_by_id(base_id) else {
+            self.variant_of.remove(&child_id);
+            return;
+        };
+        // Materialize from the *declared* child shell, not from the live row:
+        // the row is the previous round's base clone (`replace_def`), and
+        // overlaying its inherited attributes would re-clobber a base attr that
+        // changed since — only the child's own declared attrs may override.
+        // `register` fills `declared_variants` on every fresh write, so the
+        // fallback below is defensive (e.g. a restored snapshot whose arena row
+        // is itself the materialized def).
+        let child_src = self
+            .declared_variants
+            .get(&child_id)
+            .map(|c| c.clone())
+            .unwrap_or_else(|| Arc::new(comp.clone()));
+        let materialized = DefValue::Component(Arc::new(crate::db::adoption::materialize_variant(
+            &base_arc, &child_src,
+        )));
+        let unchanged = self
+            .arena
+            .get(&child_id)
+            .is_some_and(|e| e.fingerprint == content_fingerprint(&materialized));
+        if !unchanged {
+            self.replace_def(sn, &materialized);
+        }
+        self.variant_of.insert(child_id, base_id);
+    }
+
+    /// P4 §7.1: replace a live def's payload in place, keeping its identity,
+    /// [`DefId`] and member ids. Re-syncs the host's function-template members
+    /// and the member account ledger (mirroring `register`'s Pass-1 reuse
+    /// path). Used by variant materialization; the physical tables are
+    /// lifecycle transport, never a read source, so no mirror write is needed.
+    pub(crate) fn replace_def(&self, sn: &McSpaceName, def: &DefValue) -> Option<DefId> {
+        let kind = def.kind();
+        let id = self.def_id(sn, kind)?;
+        let domain = self.arena.get(&id)?.domain.clone();
+        let member_seq = Self::component_member_seq(def);
+        {
+            let mut e = self.arena.get_mut(&id)?;
+            e.data = Some(def.clone());
+            e.fingerprint = content_fingerprint(def);
+        }
+        self.mutated.store(true, Ordering::Relaxed);
+        if matches!(
+            kind,
+            DefKind::Component | DefKind::Module | DefKind::Capability
+        ) {
+            self.register_host_funcs(sn, id, def, &domain);
+        }
+        if !member_seq.is_empty() {
+            self.sync_member_ledger(id, &member_seq);
+        }
+        Some(id)
+    }
+
+    /// P4 §8.1: the abstract base id a variant materialized from
+    /// (`variant_of` child→base), if the edge is live this round.
+    fn variant_base_of(&self, child_id: DefId) -> Option<DefId> {
+        self.variant_of.get(&child_id).map(|e| *e)
+    }
+
+    /// P4 §8.3 `cluster_of(abstract)`: every live variant def whose
+    /// `variant_of` edge points at `abstract_id` — a live scan, like
+    /// [`RegistryState::adopters_of`].
+    fn cluster_of(&self, abstract_id: DefId) -> Vec<DefId> {
+        self.variant_of
+            .iter()
+            .filter(|e| *e.value() == abstract_id)
+            .map(|e| *e.key())
+            .collect()
+    }
+
+    /// The effective method set of one host (abstract-variant-capability plan
+    /// §5): own funcs first, then each adopted capability's funcs in adopt
+    /// order — a name the host overrides never comes through from a
+    /// capability, and a name two capabilities share is omitted (ambiguous;
+    /// the adopter is reported `ADOPTED_FUNC_AMBIGUOUS` and must add an
+    /// override before a call resolves).
+    fn build_effective_funcs(
+        &self,
+        host: &McComponent,
+        cap_ids: &[DefId],
+        caps: &[Arc<McCapability>],
+    ) -> Vec<EffFunc> {
+        let mut eff: Vec<EffFunc> = Vec::new();
+        for f in host.funcs.iter() {
+            eff.push(EffFunc {
+                name: f.name.to_string(),
+                source: EffFuncSource::Own,
+            });
+        }
+        let own: std::collections::HashSet<String> =
+            host.funcs.iter().map(|f| f.name.to_string()).collect();
+        // First pass: per adopted func name, the adopt index that first claims
+        // it (declaration order) and the names two capabilities share.
+        let mut first_cap: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut collided: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for (i, cap) in caps.iter().enumerate() {
+            for f in cap.funcs.iter() {
+                let nm = f.name.to_string();
+                if own.contains(&nm) {
+                    continue; // host overrides — never a collision candidate
+                }
+                if first_cap.contains_key(&nm) {
+                    collided.insert(nm);
+                } else {
+                    first_cap.insert(nm, i);
+                }
+            }
+        }
+        for (i, cap) in caps.iter().enumerate() {
+            for f in cap.funcs.iter() {
+                let nm = f.name.to_string();
+                if own.contains(&nm) || collided.contains(&nm) {
+                    continue;
+                }
+                if first_cap.get(&nm) == Some(&i) {
+                    eff.push(EffFunc {
+                        name: nm,
+                        source: EffFuncSource::Capability(cap_ids[i]),
+                    });
+                }
+            }
+        }
+        eff
+    }
+
+    /// The capability defs a host adopts, in declaration order (P2 §4.1/§8.1).
+    fn adopted_capabilities_of(&self, host_id: DefId) -> Vec<DefId> {
+        self.adopts
+            .get(&host_id)
+            .map(|v| v.clone())
+            .unwrap_or_default()
+    }
+
+    /// Every live host def that adopts `cap_id` (§8.3 `adopters(capability)`
+    /// — reverse of `adopts`; a live scan, like `member_ledgers` reverse
+    /// reads).
+    fn adopters_of(&self, cap_id: DefId) -> Vec<DefId> {
+        self.adopts
+            .iter()
+            .filter(|e| e.value().contains(&cap_id))
+            .map(|e| *e.key())
+            .collect()
+    }
+
+    /// The effective method set of a live host, own funcs then adopted funcs
+    /// in adopt order (§5). Empty for a host that adopts nothing (its own
+    /// funcs are its whole surface — no cache row is kept for it).
+    fn effective_funcs_of(&self, host_id: DefId) -> Vec<EffFunc> {
+        self.effective_funcs
+            .get(&host_id)
+            .map(|v| v.clone())
+            .unwrap_or_default()
+    }
+
+    /// One effective method by name on a live host def (abstract-variant-
+    /// capability plan §5): the [`McFunction`] resolves on the def that owns
+    /// it — the host for an `Own` entry, the adopted capability def for a
+    /// `Capability` entry. `None` when the host has no such func, own or
+    /// adopted — the caller keeps its existing no-method path.
+    fn effective_method_of(
+        &self,
+        sn: &McSpaceName,
+        host_kind: DefKind,
+        name: &str,
+    ) -> Option<crate::semantic::mc_func::McFunction> {
+        let host_id = self.def_id(sn, host_kind)?;
+        let eff = self
+            .effective_funcs_of(host_id)
+            .into_iter()
+            .find(|e| e.name == name)?;
+        let owner_id = match eff.source {
+            EffFuncSource::Own => host_id,
+            EffFuncSource::Capability(id) => id,
+        };
+        let (_, def) = self.live_entry_by_id(owner_id)?;
+        match def {
+            DefValue::Component(c) => c.funcs.find(&eff.name).cloned(),
+            DefValue::Capability(c) => c.funcs.find(&eff.name).cloned(),
+            _ => None,
+        }
     }
 }
 
@@ -1526,6 +1968,15 @@ fn declaration_lines(def: &DefValue) -> Vec<String> {
                            lines: &mut Vec<String>| {
         for a in attrs.iter() {
             lines.push(format!("attr {} {} {}", a.no, a.id, a.values.len()));
+            // The attr's *values* are its data surface (a `partno`/`spec.*`
+            // edit is a real def-content change a checkpoint diff must report,
+            // and variant re-materialization keys its O1 idempotence on this
+            // hash). Span-free deterministic value forms — `McAttrVal`'s
+            // Display recurses into nested attribute / KVS values and prints
+            // no byte positions, so the same def reparses to the same lines.
+            for v in &a.values {
+                lines.push(format!("  value {v}"));
+            }
         }
     };
     let push_func_lines = |funcs: &crate::semantic::mc_func::McFunctions,
@@ -1587,6 +2038,11 @@ fn declaration_lines(def: &DefValue) -> Vec<String> {
         DefValue::Func(f) => {
             lines.push(format!("func-entry {} {}", f.host, f.name));
         }
+        DefValue::Capability(c) => {
+            lines.push(format!("def capability {} {}", c.name, c.uri));
+            push_func_lines(&c.funcs, &mut lines);
+            push_inst_lines(&c.signals, &mut lines);
+        }
     }
     lines
 }
@@ -1617,11 +2073,15 @@ pub fn insert(sn: &McSpaceName, domain: LoadDomain, def: DefValue) -> InsertOutc
 
 /// Remove every definition of any kind whose defining file matches `uri`,
 /// across every domain. The registry keeps each identity as a tombstone
-/// (deleted ≠ never existed); the physical tables drop the entries. Used by
-/// the tests and generic cleanup; the loader's project-file removal and the
+/// (deleted ≠ never existed); the physical tables drop the entries.
+///
+/// Compiled under `#[cfg(test)]`: it is the unit tests' canonical teardown
+/// (a def may be inserted under several domains in one test; any-domain
+/// removal guarantees no residue). The loader's project-file removal and the
 /// lib-unload sweep use the domain-scoped entry points
 /// ([`remove_project_by_uri`] / [`remove_by_uris`]) so a shadowed layer
 /// survives as the read fallback (T8).
+#[cfg(test)]
 pub fn remove_by_uri(uri: &str) {
     active().remove_by_uri(uri);
     remove_by_uri_from(&workspace::WORKSPACE.components, uri);
@@ -1629,6 +2089,7 @@ pub fn remove_by_uri(uri: &str) {
     remove_by_uri_from(&workspace::WORKSPACE.interfaces, uri);
     remove_by_uri_from(&workspace::WORKSPACE.enums, uri);
     remove_by_uri_from(&workspace::WORKSPACE.defines, uri);
+    remove_by_uri_from(&workspace::WORKSPACE.capabilities, uri);
 }
 
 /// Remove the project-domain definitions of a deleted / re-parsed project
@@ -1642,6 +2103,7 @@ pub(crate) fn remove_project_by_uri(uri: &str) {
     remove_by_uri_from(&workspace::WORKSPACE.interfaces, uri);
     remove_by_uri_from(&workspace::WORKSPACE.enums, uri);
     remove_by_uri_from(&workspace::WORKSPACE.defines, uri);
+    remove_by_uri_from(&workspace::WORKSPACE.capabilities, uri);
 }
 
 /// Remove every system-domain definition whose defining file is one of
@@ -1655,6 +2117,7 @@ pub fn remove_by_uris(uris: &HashSet<String>) {
     remove_by_uris_from(&workspace::WORKSPACE.interfaces, uris);
     remove_by_uris_from(&workspace::WORKSPACE.enums, uris);
     remove_by_uris_from(&workspace::WORKSPACE.defines, uris);
+    remove_by_uris_from(&workspace::WORKSPACE.capabilities, uris);
 }
 
 /// Full process reset: drop every registered identity and its data in the
@@ -1697,6 +2160,62 @@ pub fn diff_since(from_version: u64) -> Result<Vec<DefChange>, String> {
 /// callers that address a def by id (host links of function templates).
 pub fn def_id(sn: &McSpaceName, kind: DefKind) -> Option<DefId> {
     active().def_id(sn, kind)
+}
+
+/// P4 §8.1: the abstract-base [`DefId`] a variant def materialized from
+/// (`variant_of` child→base), if the edge is live this round.
+pub fn variant_base_of(child_id: DefId) -> Option<DefId> {
+    active().variant_base_of(child_id)
+}
+
+/// P4 §8.3 `cluster_of(abstract_id)`: every live variant def whose
+/// `variant_of` edge points at the abstract component — the reverse of
+/// [`variant_base_of`], served as a live scan.
+pub fn cluster_of(abstract_id: DefId) -> Vec<DefId> {
+    active().cluster_of(abstract_id)
+}
+
+/// P2 §8.1/§8.3 `adopted_capabilities_of(host_id)`: the capability defs one
+/// component adopts, in declaration order.
+pub fn adopted_capabilities_of(host_id: DefId) -> Vec<DefId> {
+    active().adopted_capabilities_of(host_id)
+}
+
+/// P2 §8.3 `adopters_of(cap_id)`: every live host def that adopts the
+/// capability — the reverse of `adopts`, a live scan.
+pub fn adopters_of(cap_id: DefId) -> Vec<DefId> {
+    active().adopters_of(cap_id)
+}
+
+/// P2/P4 link seam — rebuild the derivation ledgers from live defs: variant
+/// materialization first (a variant def whose `: Base` resolves to a live
+/// abstract component is replaced by the base clone + child attr overlay, and
+/// its `variant_of` edge recorded), then a re-snapshot so adoption and
+/// effective-func ledgers reflect the materialized defs. Called at the top of
+/// `mcb_parse_all_modules`, after every project def is registered and every
+/// file's visibility table is populated, and before the module parse sweep.
+/// Idempotent and silent (see [`RegistryState::sync_derivation_edges`]).
+pub(crate) fn sync_derivation_edges() {
+    active().sync_derivation_edges();
+}
+
+/// §5 effective method resolution on a live component def: the host's own
+/// func wins (self-override), otherwise the func comes from an adopted
+/// capability (declaration order; an ambiguous shared name is excluded by the
+/// ledger until the host overrides it). Fast path: a def with no `adopts`
+/// resolves purely from its own funcs — no registry round-trip.
+pub(crate) fn effective_method(
+    comp: &McComponent,
+    name: &str,
+) -> Option<crate::semantic::mc_func::McFunction> {
+    if let Some(f) = comp.funcs.find(name) {
+        return Some(f.clone());
+    }
+    if comp.adopts.is_empty() {
+        return None;
+    }
+    let sn = McSpaceName::new(&comp.name, comp.uri.clone());
+    active().effective_method_of(&sn, DefKind::Component, name)
 }
 
 /// The stable [`DefMemberId`] of a live def member (T4 registry-owned
@@ -1846,6 +2365,18 @@ pub(crate) fn peel_defines(
         .into_iter()
         .filter_map(|(sn, d)| match d {
             DefValue::Define(d) => Some((sn, d)),
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn peel_capabilities(
+    items: Vec<(McSpaceName, DefValue)>,
+) -> Vec<(McSpaceName, Arc<McCapability>)> {
+    items
+        .into_iter()
+        .filter_map(|(sn, d)| match d {
+            DefValue::Capability(c) => Some((sn, c)),
             _ => None,
         })
         .collect()
@@ -2077,6 +2608,9 @@ fn write_physical(sn: &McSpaceName, domain: &LoadDomain, def: DefValue) {
         DefValue::Define(def) => {
             insert_one(&workspace::WORKSPACE.defines, sn.clone(), def);
         }
+        DefValue::Capability(def) => {
+            insert_one(&workspace::WORKSPACE.capabilities, sn.clone(), def);
+        }
         // Func entries are registry-only addressing metadata (design §12.1):
         // the host def holds the actual McFunction, so there is no physical
         // table to mirror.
@@ -2170,14 +2704,16 @@ mod tests {
         }))
     }
 
-    /// T12 (§2.5 member-boundary audit): the registry identity set is exactly
-    /// the six AST top-level class templates — component, module, interface,
-    /// enum, define, func. Labels and bus members are declaration structure
-    /// plus symbol-layer naming, never registry entries, so a seventh variant
+    /// T12 (§2.5 member-boundary audit) + capability (abstract-variant-
+    /// capability-plan P1): the registry identity set is exactly the seven
+    /// definition kinds — the five class templates (component, module,
+    /// interface, enum, define), the capability container, and the func
+    /// addressing entries. Labels and bus members are declaration structure
+    /// plus symbol-layer naming, never registry entries, so an eighth variant
     /// here (or a removal) is a member-boundary drift and must fail loudly
     /// instead of silently widening the ledger scope.
     #[test]
-    fn registry_holds_exactly_six_def_kinds() {
+    fn registry_holds_exactly_seven_def_kinds() {
         // Shape assertion only — no registry mutation, so no parse lock. An
         // exhaustive match (no wildcard) is the regression lock: adding or
         // removing a `DefKind` variant stops compiling here until the
@@ -2188,9 +2724,11 @@ mod tests {
             DefKind::Interface => "interface",
             DefKind::Enum => "enum",
             DefKind::Define => "define",
+            DefKind::Capability => "capability",
             DefKind::Func => "func",
         };
         assert_eq!(tag(DefKind::Func), "func");
+        assert_eq!(tag(DefKind::Capability), "capability");
     }
 
     /// T1 (G1 / D15.1): [`DefId`] allocation is a pure function of the
@@ -2699,6 +3237,9 @@ mod tests {
                 cond_attrs: vec![],
                 span: 0..0,
                 anon_counter: 0,
+                is_abstract: false,
+                variant_base: None,
+                adopts: Vec::new(),
             })
         };
 

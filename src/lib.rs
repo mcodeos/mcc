@@ -49,6 +49,7 @@ pub use crate::semantic::{
         mc_fcall::{McFuncCall, ReturnShape},
         mc_phrase::McPhrase,
     },
+    capability::McCapability,
     component::{
         mc_pins::{McPinPort, McPins},
         Mc2Component, McComponent,
@@ -92,9 +93,9 @@ pub use builder::{
 pub use db::defmember::DefMemberId;
 // ── Definition-space checkpoint / diff (design §10; T6-② wiring) ──
 pub use db::defregistry::{
-    changed_files, checkpoint, checkpoint_if_changed, def_id, def_member_id_of, diff_since,
-    diff_versions, kind_of, latest_checkpoint, Checkpoint, DefChange, DefChangeKind, DefId,
-    DefKind, RegistryEntrySnapshot,
+    adopted_capabilities_of, adopters_of, changed_files, checkpoint, checkpoint_if_changed,
+    cluster_of, def_id, def_member_id_of, diff_since, diff_versions, kind_of, latest_checkpoint,
+    variant_base_of, Checkpoint, DefChange, DefChangeKind, DefId, DefKind, RegistryEntrySnapshot,
 };
 pub use instant::arena::NodeArena;
 pub use instant::descriptions::{
