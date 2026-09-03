@@ -7,19 +7,15 @@
 //! E3137 (SINGLE_USE_INLINE_NET) from every output channel, errors are never
 //! suppressed, and the config / CLI paths both seed the set.
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
+mod common;
+
 use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
 
 use mcc::errcodes::SINGLE_USE_INLINE_NET;
-
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-}
 
 /// Reset the process-wide ignore set so a test starts from a clean slate.
 fn reset_ignored() {
@@ -28,9 +24,7 @@ fn reset_ignored() {
 
 /// Build `src` in a fresh workspace and return the emitted diagnostic codes.
 fn build_codes(src: &str) -> HashSet<u32> {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/ignore-warnings-test.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -45,8 +39,8 @@ const SINGLE_USE_SRC: &str =
 const ERROR_SRC: &str = "component R {\n    pins = [\n        1 = A\n        2 = B\n    ]\n}\nmodule main {\n    io VDD\n    R r1;\n    func main() {\n        r1.NOPIN -> VDD\n    }\n}";
 
 #[test]
-fn single_use_e3137_fires_without_suppression() {
-    let _lock = lock();
+fn sem_ignwarn__single_use_e3137_fires_without_suppression() {
+    let _lock = common::lock();
     reset_ignored();
     let codes = build_codes(SINGLE_USE_SRC);
     assert!(
@@ -56,8 +50,8 @@ fn single_use_e3137_fires_without_suppression() {
 }
 
 #[test]
-fn set_ignored_warnings_filters_e3137() {
-    let _lock = lock();
+fn sem_ignwarn__set_ignored_warnings_filters_e3137() {
+    let _lock = common::lock();
     reset_ignored();
     mcc::set_ignored_warnings([format!("E{SINGLE_USE_INLINE_NET}")]);
     let codes = build_codes(SINGLE_USE_SRC);
@@ -68,8 +62,8 @@ fn set_ignored_warnings_filters_e3137() {
 }
 
 #[test]
-fn ignore_warnings_config_key_filters_e3137() {
-    let _lock = lock();
+fn sem_ignwarn__config_key_filters_e3137() {
+    let _lock = common::lock();
     reset_ignored();
 
     // A project manifest carrying `[config.diag] ignore_warnings = ["E3137"]`.
@@ -96,8 +90,8 @@ fn ignore_warnings_config_key_filters_e3137() {
 }
 
 #[test]
-fn ignore_warnings_cli_codes_merge_over_config() {
-    let _lock = lock();
+fn sem_ignwarn__cli_codes_merge_over_config() {
+    let _lock = common::lock();
     reset_ignored();
 
     // `--ignore-warnings 3137` (bare numeric form) with no project manifest.
@@ -117,8 +111,8 @@ fn ignore_warnings_cli_codes_merge_over_config() {
 }
 
 #[test]
-fn ignore_warnings_never_suppresses_errors() {
-    let _lock = lock();
+fn sem_ignwarn__never_suppresses_errors() {
+    let _lock = common::lock();
     reset_ignored();
     // Add the E3179 code to the ignore set — an Error-level diagnostic must
     // still surface (suppression is Warning-only by design).

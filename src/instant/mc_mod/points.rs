@@ -98,8 +98,8 @@ fn resolve_bare_member_pid(
     rest: &str,
 ) -> Option<String> {
     // ── P3-4: same-name Multi group member (`VDD.19` where VDD=[19,32,48,64]).
-    // The group name broadcasts to every pin in the group, so `owner.VDD.19` is
-    // really pin 19 of `owner` — resolve it to the physical pid so it merges
+    // The group name spans every pin in the group, so `owner.VDD.19` disambiguates
+    // pin 19 of `owner` — resolve it to the physical pid so it merges
     // with `owner.19` / same-name-pad fan-ins instead of falling back to the
     // raw `owner.VDD.19` phantom path.
     if let Some((base, member)) = rest.rsplit_once('.') {
@@ -312,8 +312,8 @@ impl InstantiationBuilder {
                 //   1. (A + B) -> RES -> C, + incorrectly "attached to next branch"
                 //      (bugfix_report error 12: TP1 connected to @RES1 instead of USB_VBUS)
                 //   2. (C1nF + R10k) -> GND, C1nF/R10k each output .2 endpoint,
-                //      relying on GND single-point broadcast coincidentally forming 2 nets, but
-                //      middle node (operand 1's .1) has no proper internal net (errors 5, 9, 10)
+                //      relying on GND single-point broadcast (pre-§5.3.1, abolished) coincidentally
+                //      forming 2 nets, but middle node (operand 1's .1) has no proper internal net (errors 5, 9, 10)
                 //   3. lpa.BYPASS + lpa.IN.P -> CAP -> GND directly shorts BYPASS
                 //      / IN.P / CAP / GND all together (error 10)
                 //
@@ -1628,8 +1628,9 @@ impl InstantiationBuilder {
     /// - `in vin{POWER_SYS, GND}::DC(5V)` **input** bus, parent module often writes
     ///   `usbsocket.vin -> V5V::DC(5V)` — intent is "vin overall connected to V5V
     ///   label net" (relies on submodule internal inject_port_member_labels injecting
-    ///   vin.POWER_SYS/.GND labels naturally merge), not broadcasting V5V simultaneously to
-    ///   POWER_SYS and GND (that would short power directly to ground). Under §10.4
+    ///   vin.POWER_SYS/.GND labels naturally merge), rather than V5V fanning out onto both
+    ///   POWER_SYS and GND members at once (a §5.3.1-abolished single-point broadcast that would
+    ///   short power directly to ground). Under §10.4
     ///   `[1×1] vs [2×1]` strictly shouldn't be written, but engineering convention is this.
     /// - `io` (InOut) port semantics unclear, conservative strategy: don't expand.
     ///
@@ -1684,10 +1685,12 @@ impl InstantiationBuilder {
         // ── [P2-DIAG] entry ───────────────────────────────────────────────
 
         // ── P2: direction-agnostic expansion ──────────────────────────────────────────
-        // historically banned In to prevent `in vin{POWER_SYS,GND}` broadcasting to power+gnd short.
-        // but the real cause of short is "one side expands to N, other side still scalar → hits broadcast arm",
-        // **not** expansion itself. Part 1's create_connection DC anti-short alignment
-        // (C3) already blocked broadcast arm's short path, so here open all directions, let
+        // historically banned In to prevent `in vin{POWER_SYS,GND}` from fanning a
+        // role-mismatched power/ground pair into lanes and shorting power to ground.
+        // but the real cause of short is "one side expands to N, other side still scalar →
+        // hits the scalar-vs-N fan-out path", **not** expansion itself. Part 1's
+        // create_connection DC anti-short role alignment (C3) already blocked that fan-out's
+        // short path, so here open all directions, let
         // `dc{VDD_3V3,GND}::DC()` (in) bus ports also expand, zip equal-width with peer.
         fn iotype_allowed(_io: &IOType) -> bool {
             true
@@ -1841,10 +1844,10 @@ impl InstantiationBuilder {
         // consistent with inst_table registered component pin path (init_pins uses pid as key,
         // path = `<comp>.<pid>`), ensures downstream flatten / inst_table hit.
         //
-        // Unlike Case 1/2, Case 3 **doesn't restrict direction** — component physical pin is independent
-        // physical pin, expanding to lanes won't cause the "parent module InOut port broadcast to
-        // wrong electrical nodes" regression that Case 1/2 restrictions prevent. Component bus ports
-        // are mostly io (InOut) direction, must be allowed.
+        // Unlike Case 1/2, Case 3 **doesn't restrict direction** — a component physical pin is an
+        // independent pin, so expanding it to lanes won't trigger the "scalar InOut port fanned
+        // across mismatched lane nets" regression that Case 1/2's direction restriction prevents.
+        // Component bus ports are mostly io (InOut) direction, must be allowed.
         if let Some((owner, port_name)) = name.split_once('.') {
             if !port_name.contains('.') {
                 if let Some(comp) = self.find_component(owner) {

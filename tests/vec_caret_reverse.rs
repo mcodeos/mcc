@@ -14,11 +14,9 @@
 // "`^` reversal does not transpose a Node"), fixed in 1519947 and re-verified
 // here end-to-end.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+mod common;
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+use mcc::{McIds, McURI};
 
 const NODE_SRC: &str = r#"
 module MCU()
@@ -61,11 +59,8 @@ module main
 "#;
 
 fn build_flat(source: &str) -> mcc::InstTable {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/caret-node.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
@@ -75,7 +70,6 @@ fn build_flat(source: &str) -> mcc::InstTable {
     };
     let (_, table) = mcc::mcb_pass2_flat(&entry, 1).expect("pass2_flat failed");
 
-    drop(lock);
     table
 }
 

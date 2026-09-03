@@ -1,3 +1,7 @@
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
 use serde_json::Value;
 use std::fs;
 use std::process::Command;
@@ -33,7 +37,7 @@ module main
 }
 
 #[test]
-fn valid_power_net_has_no_false_instance_diagnostics() {
+fn cli_diagreg__valid_power_net_has_no_false_instance_diagnostics() {
     let path = fixture_path();
     let workdir = path.parent().expect("fixture parent");
     let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
@@ -72,7 +76,7 @@ fn valid_power_net_has_no_false_instance_diagnostics() {
 }
 
 #[test]
-fn unresolved_instance_still_reports_missing_class() {
+fn cli_diagreg__unresolved_instance_still_reports_missing_class() {
     let source = r#"
 module main
 {

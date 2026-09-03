@@ -10,20 +10,16 @@
 //! `lane.owner_trunk()` / module subtree walk. These tests lock the surface
 //! on real `DianLu` builds.
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
+mod common;
+
 use mcc::McIds;
-use std::path::Path;
-use std::sync::{Mutex, OnceLock};
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-/// Reset the mcc_* workspace for one test. The caller must hold `TEST_LOCK`.
-fn reset_workspace() {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(Path::new(""));
-    mcc::mcc_clear_workspace();
-}
-
-/// Build a `DianLu` for `src` and return it. The caller must hold `TEST_LOCK`.
+/// Build a `DianLu` for `src` and return it. The caller must hold the lock
+/// from [`common::lock`].
 fn build_dianlu(src: &str) -> mcc::DianLu {
     let uri = "/mcc/read-api.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
@@ -49,14 +45,14 @@ fn pin_member_id(comp: &mcc::McComponentInst, name: &str) -> Option<mcc::DefMemb
         .map(|ord| mcc::DefMemberId(ord as u32))
 }
 
-/// `point.net()` and `net.fanout(point)`: a broadcast
-/// `c[1:2].Cap([VDD, GND])` unions each member pin with its scalar endpoint.
-/// The VDD net holds VDD + c1.1 + c2.1; every one of those points resolves
-/// back to that net, and fanout is exactly the net's member set.
+/// `point.net()` and `net.fanout(point)`: a vector-receiver dispatch
+/// `c[1:2].Cap([VDD, GND])` (§7.6) unions each member pin with its scalar
+/// endpoint. The VDD net holds VDD + c1.1 + c2.1; every one of those points
+/// resolves back to that net, and fanout is exactly the net's member set.
 #[test]
-fn read_api_point_net_and_fanout() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_read__point_net_and_fanout() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -108,13 +104,14 @@ module main {
     }
 }
 
-/// `lane.owner_trunk()`: a broadcast statement's lanes all belong to the one
-/// statement trunk, resolve back to it by containment, and the `(trunk,
-/// ordinal)` LaneRef spelling (`lane`) returns the same lanes in order.
+/// `lane.owner_trunk()`: a vector-receiver dispatch statement's lanes all
+/// belong to the one statement trunk, resolve back to it by containment, and
+/// the `(trunk, ordinal)` LaneRef spelling (`lane`) returns the same lanes in
+/// order.
 #[test]
-fn read_api_lane_owner_trunk() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_read__lane_owner_trunk() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -133,9 +130,9 @@ module main {
 }";
     let dl = build_dianlu(src);
     let trunks = dl.lanes();
-    assert_eq!(trunks.len(), 1, "one trunk for the one broadcast statement");
+    assert_eq!(trunks.len(), 1, "one trunk for the one dispatch statement");
     let trunk = &trunks[0];
-    assert!(!trunk.lanes.is_empty(), "the broadcast emits lanes");
+    assert!(!trunk.lanes.is_empty(), "the dispatch emits lanes");
 
     for (ord, lane) in trunk.lanes.iter().enumerate() {
         let owner = dl.lane_owner_trunk(lane).expect("lane has an owning trunk");
@@ -158,9 +155,9 @@ module main {
 /// plus `main` → `c1`) — the walk from the root visits every node id, and
 /// `children`/`parent` expose the arena edges.
 #[test]
-fn read_api_module_subtree_and_edges() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_read__module_subtree_and_edges() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component RES(res::INT) {
     pins = [

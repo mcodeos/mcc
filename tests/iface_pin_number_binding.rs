@@ -7,10 +7,13 @@
 // that declares pins out of numeric order (`[1,5] = [VBUS, GND]`) previously
 // bound GND to physical pin 2 (its declaration position) instead of pin 5.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 const OUT_OF_ORDER_IFACE_SOURCE: &str = r#"
 interface MINI(role)
@@ -72,11 +75,8 @@ module main(ps GND)
 
 /// Collect every endpoint path (e.g. "main.sock.5") present on any net.
 fn net_endpoint_paths(source: &str) -> Vec<String> {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/iface-pin-number-binding.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
@@ -95,12 +95,11 @@ fn net_endpoint_paths(source: &str) -> Vec<String> {
         }
     }
 
-    drop(lock);
     paths
 }
 
 #[test]
-fn out_of_order_interface_pins_bind_by_pin_number() {
+fn mat_ifacebind__out_of_order_pins_bind_by_pin_number() {
     let paths = net_endpoint_paths(OUT_OF_ORDER_IFACE_SOURCE);
     assert!(
         paths.iter().any(|p| p.ends_with("sock.5")),
@@ -113,7 +112,7 @@ fn out_of_order_interface_pins_bind_by_pin_number() {
 }
 
 #[test]
-fn named_pin_still_wins_over_pin_number_alignment() {
+fn mat_ifacebind__named_pin_wins_over_pin_number_alignment() {
     let paths = net_endpoint_paths(NAMED_PIN_WINS_SOURCE);
     assert!(
         paths.iter().any(|p| p.ends_with("f.6")),

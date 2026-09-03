@@ -414,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn intern_same_path_same_id() {
+    fn dlu_identity__intern_same_path_same_id() {
         let mut reg = IdentityRegistry::new(key());
         let a = reg.intern("main.c1");
         let a2 = reg.intern("main.c1");
@@ -425,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn intern_monotonic_no_reordering() {
+    fn dlu_identity__intern_monotonic_no_reordering() {
         let mut reg = IdentityRegistry::new(key());
         let a = reg.intern("main.c1");
         let b = reg.intern("main.c2");
@@ -436,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_tombstone_no_reuse() {
+    fn dlu_identity__delete_tombstone_no_reuse() {
         let mut reg = IdentityRegistry::new(key());
         let a = reg.intern("main.c1");
         reg.delete(a);
@@ -452,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_reloads_existing_pairs() {
+    fn dlu_identity__resume_reloads_existing_pairs() {
         let mut reg = IdentityRegistry::new(key());
         let a = reg.intern("main.c1");
         let b = reg.intern("main.c2");
@@ -475,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn unassigned_sentinel_is_reserved() {
+    fn dlu_identity__unassigned_sentinel_is_reserved() {
         assert!(NodeId::UNASSIGNED.is_unassigned());
         let mut reg = IdentityRegistry::new(key());
         let a = reg.intern("main.c1");

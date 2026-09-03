@@ -319,7 +319,7 @@ mod tests {
     /// Test multi-segment path tail-segment auto-completion.
     /// Verifies `use man.mcu.comp` → `man/mcu/comp/comp`.
     #[test]
-    fn test_multi_segment_auto_completion() {
+    fn def_mcuse__multi_segment_auto_completion() {
         // Simulate path_strs = ["man", "mcu", "comp"]
         let path_strs = vec!["man".to_string(), "mcu".to_string(), "comp".to_string()];
 
@@ -335,7 +335,7 @@ mod tests {
     /// Test single-segment path auto-completion.
     /// Verifies `use conn` → `conn/conn`.
     #[test]
-    fn test_single_segment_auto_completion() {
+    fn def_mcuse__single_segment_auto_completion() {
         let path_strs = vec!["conn".to_string()];
 
         if path_strs.len() == 1 {
@@ -348,7 +348,7 @@ mod tests {
     /// Test system-library prefix prepending `mcode/`.
     /// Verifies `use $::mcode.gpio` → `mcode/gpio/gpio`.
     #[test]
-    fn test_system_lib_prefix() {
+    fn def_mcuse__system_lib_prefix() {
         let prefix = McUsePrefix::PathSystem;
         let mut final_filename = "gpio/gpio".to_string();
 
@@ -363,7 +363,7 @@ mod tests {
     /// Test project-root path NOT prepending `mcode/`.
     /// Verifies `use /lib/power` → `lib/power/power`.
     #[test]
-    fn test_project_root_no_mcode_prefix() {
+    fn def_mcuse__project_root_no_mcode_prefix() {
         let prefix = McUsePrefix::PathProject;
         let mut final_filename = "lib/power/power".to_string();
 
@@ -378,7 +378,7 @@ mod tests {
     /// Test version-suffix concatenation.
     /// Verifies `use man.mcu.comp@1.1.0` → `man/mcu/comp/comp@1.1.0.mc`.
     #[test]
-    fn test_version_concatenation() {
+    fn def_mcuse__version_concatenation() {
         let mut final_filename = "man/mcu/comp/comp".to_string();
         let version = Some("1.1.0".to_string());
 

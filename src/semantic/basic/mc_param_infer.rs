@@ -434,14 +434,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_empty_usages() {
+    fn sem_paraminfer__empty_usages() {
         let result = aggregate_usages(&[]);
         assert_eq!(result.confidence, 0.0);
         assert_eq!(result.usage_count, 0);
     }
 
     #[test]
-    fn test_label_dominant() {
+    fn sem_paraminfer__label_dominant() {
         let usages = vec![
             UsageSite {
                 kind: UsageKind::NetConnection,
@@ -462,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn test_string_dominant() {
+    fn sem_paraminfer__string_dominant() {
         let usages = vec![
             UsageSite {
                 kind: UsageKind::Assignment("\"BASE\"".into()),
@@ -482,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unused_finder() {
+    fn sem_paraminfer__unused_finder() {
         // Placeholder: needs actual AST
         // Test that unused detection works with empty body
     }

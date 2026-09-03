@@ -79,7 +79,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn eq_is_case_insensitive() {
+    fn cli_filter__eq_is_case_insensitive() {
         let items = json!([{"name": "res1"}, {"name": "RES1"}, {"name": "CAP1"}]);
         // `=` is an exact, case-insensitive match (not a prefix match).
         let out = apply_to_values(Some("name=res1"), items, &["name"]).unwrap();
@@ -94,14 +94,14 @@ mod tests {
     }
 
     #[test]
-    fn glob_matches_prefix() {
+    fn cli_filter__glob_matches_prefix() {
         let items = json!([{"name": "MCU"}, {"name": "MCU_F4"}, {"name": "RES"}]);
         let out = apply_to_values(Some("name=MCU*"), items, &["name"]).unwrap();
         assert_eq!(out.as_array().unwrap().len(), 2);
     }
 
     #[test]
-    fn and_semantics() {
+    fn cli_filter__and_semantics() {
         let items = json!([
             {"kind": "component", "class": "RES10K"},
             {"kind": "module",    "class": "RES10K"},
@@ -117,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_key_errors_with_allowed_set() {
+    fn cli_filter__unknown_key_errors_with_allowed_set() {
         let items = json!([{"name": "X"}]);
         let err = apply_to_values(Some("name=X*"), items.clone(), &["class"]).unwrap_err();
         assert!(format!("{}", err).contains("unknown key"));
@@ -127,14 +127,14 @@ mod tests {
     }
 
     #[test]
-    fn glob_special_chars_in_literal_are_escaped() {
+    fn cli_filter__glob_special_chars_in_literal_are_escaped() {
         let items = json!([{"name": "v1.0"}, {"name": "v1X0"}]);
         let out = apply_to_values(Some("name=v1.0"), items, &["name"]).unwrap();
         assert_eq!(out.as_array().unwrap().len(), 1);
     }
 
     #[test]
-    fn apply_to_names_only_accepts_name_key() {
+    fn cli_filter__apply_to_names_only_accepts_name_key() {
         let out = apply_to_names(Some("name=R*"), vec!["RES".into(), "CAP".into()]).unwrap();
         assert_eq!(out, vec!["RES".to_string()]);
 
@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn boolean_ops_in_filter() {
+    fn cli_filter__boolean_ops_in_filter() {
         let items = json!([
             {"kind": "component", "class": "RES10K"},
             {"kind": "module",    "class": "RES10K"},

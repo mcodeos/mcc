@@ -15,11 +15,13 @@
 // layer so multi-member options like `mcu513{ MIC | DAC_OUT, SPK_MUTE }` keep
 // all members.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 const SOURCE: &str = r#"
 module POWER_LDO()
@@ -38,11 +40,8 @@ module main
 "#;
 
 fn build_flat(source: &str) -> mcc::InstTable {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/curly-option.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
@@ -52,12 +51,11 @@ fn build_flat(source: &str) -> mcc::InstTable {
     };
     let (_, table) = mcc::mcb_pass2_flat(&entry, 1).expect("pass2_flat failed");
 
-    drop(lock);
     table
 }
 
 #[test]
-fn curly_mn_option_connection_parses_and_builds() {
+fn mat_curlopt__connection_parses_and_builds() {
     // Previously: E1003/E1002 at the connection line, whole line dropped.
     let table = build_flat(SOURCE);
 
@@ -93,7 +91,7 @@ fn curly_mn_option_connection_parses_and_builds() {
 }
 
 #[test]
-fn curly_mn_option_left_and_right_members_are_created() {
+fn mat_curlopt__left_and_right_members_created() {
     // `mcu513{ MIC | DAC_OUT, SPK_MUTE }` — the right option has two members;
     // both must survive the id-chain extraction in the semantic layer.
     // The right side is a 2*1 column `[VOUT, VOUT2]` so the series stays

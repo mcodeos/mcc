@@ -2,6 +2,10 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
 //! DianLu — the core circuit object (design §12.2).
 //!
 //! One instantiation = one `DianLu`: the instance tree (with the vector
@@ -11,26 +15,18 @@
 //! instantiation-side diagnostic fires exactly once no matter how many times
 //! the projection is taken. These tests lock that contract.
 
+mod common;
+
 use mcc::McIds;
 use std::cell::RefCell;
-use std::path::Path;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
-
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn count(codes: &[u32], code: u32) -> usize {
     codes.iter().filter(|c| **c == code).count()
 }
 
-/// Reset the mcc_* workspace for one test. The caller must hold `TEST_LOCK`.
-fn reset_workspace() {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(Path::new(""));
-    mcc::mcc_clear_workspace();
-}
-
-/// Build a `DianLu` for `src` and return it. The caller must hold `TEST_LOCK`.
+/// Build a `DianLu` for `src` and return it. The caller must hold
+/// [`common::lock`].
 fn build_dianlu(src: &str) -> mcc::DianLu {
     let uri = "/mcc/dianlu.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
@@ -82,9 +78,9 @@ fn rebuild_dianlu(
 /// whole instantiation, doubling E4057 until `has_code_at` dedup papered over
 /// it; the structural fix is that flatten never re-enters instantiation).
 #[test]
-fn single_instantiation_gap2_fires_once_after_two_flattens() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_identity__gap2_fires_once_after_two_flattens() {
+    let _lock = common::lock();
+    common::reset();
     let mut dl =
         build_dianlu("module main {\n    func main() {\n        res[1:2] -> led[3:4]\n    }\n}");
 
@@ -108,9 +104,9 @@ fn single_instantiation_gap2_fires_once_after_two_flattens() {
 /// `into_parts` hands back the tree and the flat projection together; the flat
 /// table actually carries the built instance entries.
 #[test]
-fn into_parts_returns_tree_and_flat_projection() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_identity__into_parts_returns_tree_and_flat_projection() {
+    let _lock = common::lock();
+    common::reset();
     let mut dl = build_dianlu("module main {\n    io A\n    io GND\n    A -> GND\n}");
     dl.flatten();
     let (tree, table) = dl.into_parts();
@@ -130,9 +126,9 @@ fn into_parts_returns_tree_and_flat_projection() {
 /// the table (which is never constructed), so the object is cheap for the
 /// `mcc build` (non-flat) path.
 #[test]
-fn tree_only_consumer_never_projects() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_identity__tree_only_consumer_never_projects() {
+    let _lock = common::lock();
+    common::reset();
     let dl = build_dianlu("module main {\n    io A\n    io GND\n    A -> GND\n}");
     assert!(
         dl.table().is_none(),
@@ -146,9 +142,9 @@ fn tree_only_consumer_never_projects() {
 /// canonical paths to the same ids as the tree itself (per-build
 /// determinism: same path → same id).
 #[test]
-fn identity_registry_rebuilt_from_frozen_tree_matches() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_identity__registry_rebuilt_from_frozen_tree_matches() {
+    let _lock = common::lock();
+    common::reset();
     let dl =
         build_dianlu("module main {\n    func main() {\n        res[1:2] -> led[3:4]\n    }\n}");
     // The construction-time registry already knows the circuit root.
@@ -199,9 +195,9 @@ fn identity_registry_rebuilt_from_frozen_tree_matches() {
 /// products carry a non-empty `node_id` and the registry resolves their
 /// canonical path.
 #[test]
-fn submodule_method_reentry_interms_products() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_identity__submodule_method_reentry_interns_products() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -316,9 +312,9 @@ fn flat_signature(t: &mcc::InstTable) -> Vec<String> {
 /// the template every later consumer switch (export / viz walks) is verified
 /// against.
 #[test]
-fn arena_flatten_matches_tree_recursive_flatten() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_arena__flatten_matches_tree_recursive_flatten() {
+    let _lock = common::lock();
+    common::reset();
     // A sub-module circuit: nesting + components + ports + nets all present,
     // so both traversal paths cover the full flatten projection.
     let src = "\
@@ -366,9 +362,9 @@ module main {
 /// mismatch; the 1:1 alignment guard inside `arena_sub_modules` additionally
 /// panics on any arena/tree divergence.
 #[test]
-fn mcviz_arena_walk_matches_tree_recursive_walk() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_arena__mcviz_walk_matches_tree_recursive_walk() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -416,9 +412,9 @@ module main {
 /// endpoints (module ports / labels) skip their lane without dropping the
 /// statement trunk.
 #[test]
-fn lane_layer_one_trunk_per_connection_statement() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_lane__one_trunk_per_connection_statement() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -495,9 +491,9 @@ module main {
 /// statements, and the statement count equals the tree's total connection
 /// count.
 #[test]
-fn lane_layer_collects_submodule_statements() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_lane__collects_submodule_statements() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -538,9 +534,9 @@ module main {
 /// classes from the lane layer — lanes sharing an endpoint collapse into one
 /// net, in first-seen point order.
 #[test]
-fn net_layer_unions_shared_endpoints() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_net__unions_shared_endpoints() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -595,9 +591,9 @@ module main {
 /// touches a module port at one end keeps its component-side lane and names
 /// the net with the port label.
 #[test]
-fn net_layer_labels_chain_statement() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_net__labels_chain_statement() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -634,9 +630,9 @@ module main {
 /// statement trunk that keeps the resolvable middle lane and the per-point
 /// labels of the connections that introduced them.
 #[test]
-fn lane_layer_one_trunk_per_chain_statement() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_lane__one_trunk_per_chain_statement() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -693,14 +689,15 @@ module main {
     );
 }
 
-/// Phase D: a vector broadcast statement (`c[1:2].Cap([VDD, GND])`) explodes
-/// into four connections but stays ONE statement trunk — the per-member,
-/// per-pin points survive the merge with their own connection labels
-/// (members' pin 1 on VDD, pin 2 on GND).
+/// Phase D (§7.6): a vector-receiver dispatch call (`c[1:2].Cap([VDD, GND])`)
+/// dispatches the method per member and explodes into four connections, but
+/// stays ONE statement trunk — the per-member, per-pin points survive the
+/// merge with their own connection labels (members' pin 1 on VDD, pin 2 on
+/// GND). matrix §2 row 20 (dispatch family).
 #[test]
-fn lane_layer_one_trunk_per_broadcast_statement() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dispatch__lane_one_trunk_per_statement() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -720,7 +717,7 @@ module main {
     let dl = build_dianlu(src);
     let view = mcc::TreeView::new(dl.arena(), dl.store());
     let trunks = dl.lanes();
-    assert_eq!(trunks.len(), 1, "one broadcast statement -> one trunk");
+    assert_eq!(trunks.len(), 1, "one dispatch statement -> one trunk");
     let t = &trunks[0];
     assert_eq!(
         t.points.len(),
@@ -833,15 +830,16 @@ module main {
     }
 }
 
-/// Phase D: the net layer consumes `Slice` bundle lanes — a vector broadcast
-/// (`c[1:2].Cap([VDD, GND])`) unions each member pin with its scalar
-/// endpoint, so the VDD net holds VDD + c1.1 + c2.1 and the GND net holds
-/// GND + c1.2 + c2.2. The bundle base is a grouping node, never a physical
-/// point, so it stays out of the union.
+/// Phase D (§7.6): the net layer consumes the `Slice` bundle lanes of a
+/// vector-receiver dispatch call (`c[1:2].Cap([VDD, GND])`) — it unions each
+/// member pin with its scalar endpoint, so the VDD net holds VDD + c1.1 + c2.1
+/// and the GND net holds GND + c1.2 + c2.2. The bundle base is a grouping
+/// node, never a physical point, so it stays out of the union. matrix §2
+/// row 20 (dispatch family).
 #[test]
-fn net_layer_unions_slice_bundle() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dispatch__net_slice_bundle_shared_nets() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -949,13 +947,13 @@ module main {
 /// interface members, interface-binding members and idx aliases to the
 /// physical pin path), a module port (port-ordinal), or a sub-module port.
 /// Every legal statement endpoint lands in the lane and net layers as a
-/// physical point; nothing is silently dropped. (Whole-slice broadcasts and
-/// group subscripts are rejected upstream — mcrule §10.4 / name-equivalence
-/// R-family — so they never reach the lane layer.)
+/// physical point; nothing is silently dropped. (A single-point broadcast into a
+/// whole slice, and group subscripts, are rejected upstream — mcrule §10.4 /
+/// name-equivalence R-family — so they never reach the lane layer.)
 #[test]
-fn endpoint_resolution_every_form_reaches_point_id() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_endpoint__every_form_reaches_point_id() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 interface UART.TTL(role) {
     pins = [
@@ -1113,13 +1111,15 @@ module main(ps GND) {
 
 /// GAP1: both-sides vector member alignment `a[1:2].1 -> b[1:2].1` produces
 /// member-level wiring. Pass2 expands each array member to its own
-/// `<member>.1` point (a1.1↔b1.1, a2.1↔b2.1), the lane layer keeps the two
-/// bundles as one `Slice -> Slice` lane, and the net layer zips the members
-/// positionally — exactly two nets, never a cross product.
+/// `<member>.1` point (a1.1↔b1.1, a2.1↔b2.1), and the lane layer keeps the two
+/// bundles as one `Slice -> Slice` lane. **Structural half** of matrix §2
+/// row 15 — the net-layer verdict (quiet + two independent 2-point nets, never
+/// a cross product) lives in the host
+/// `vec_series_rowzip.rs::series_eq__membercol_to_membercol`.
 #[test]
-fn vector_member_alignment_aligns_members_positionally() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_struct__member_alignment_lane_slice_structure() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component RES(res::INT) {
     pins = [
@@ -1133,7 +1133,6 @@ module main {
     a[1:2].1 -> b[1:2].1
 }";
     let dl = build_dianlu(src);
-    let view = mcc::TreeView::new(dl.arena(), dl.store());
 
     // Pass2: member-level connections, a1.1↔b1.1 and a2.1↔b2.1.
     let conns = &dl.tree().connections;
@@ -1169,45 +1168,6 @@ module main {
         }
         other => panic!("expected Slice -> Slice lane, got {other:?}"),
     }
-
-    // Net layer: positional zip — a1.1 joins b1.1, a2.1 joins b2.1.
-    let a1 = view.components(dl.tree()).find(|c| c.name == "a1").unwrap();
-    let a2 = view.components(dl.tree()).find(|c| c.name == "a2").unwrap();
-    let b1 = view.components(dl.tree()).find(|c| c.name == "b1").unwrap();
-    let b2 = view.components(dl.tree()).find(|c| c.name == "b2").unwrap();
-    let pin1 = pin_member_id(a1, "1").unwrap();
-    let p_a1_1 = mcc::PointId {
-        node: a1.node_id.unwrap(),
-        pin: pin1,
-    };
-    let p_a2_1 = mcc::PointId {
-        node: a2.node_id.unwrap(),
-        pin: pin1,
-    };
-    let p_b1_1 = mcc::PointId {
-        node: b1.node_id.unwrap(),
-        pin: pin1,
-    };
-    let p_b2_1 = mcc::PointId {
-        node: b2.node_id.unwrap(),
-        pin: pin1,
-    };
-    let nets = dl.nets();
-    assert_eq!(nets.len(), 2, "two aligned nets; got {nets:?}");
-    let net_ab1 = nets
-        .iter()
-        .find(|n| n.points.contains(&p_a1_1))
-        .expect("a1.1 net present");
-    let net_ab2 = nets
-        .iter()
-        .find(|n| n.points.contains(&p_a2_1))
-        .expect("a2.1 net present");
-    assert_eq!(net_ab1.points.len(), 2);
-    assert!(net_ab1.points.contains(&p_b1_1), "a1.1 joins b1.1");
-    assert!(!net_ab1.points.contains(&p_b2_1), "no cross product");
-    assert_eq!(net_ab2.points.len(), 2);
-    assert!(net_ab2.points.contains(&p_b2_1), "a2.1 joins b2.1");
-    assert!(!net_ab2.points.contains(&p_b1_1), "no cross product");
 }
 
 /// Phase E: the circuit-level overlay derives `labels` and the lookup indexes
@@ -1216,9 +1176,9 @@ module main {
 /// carries every physical point of that net in one lookup — the D5 one-hit
 /// contract for a scalar net.
 #[test]
-fn overlay_labels_and_indexes_lock_named_nets() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_overlay__labels_and_indexes_lock_named_nets() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -1290,9 +1250,9 @@ module main {
 /// every member node in ONE `name_index` lookup, no per-member scan and no
 /// flat-table reverse lookup.
 #[test]
-fn overlay_name_index_vector_base_hits_all_members() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_overlay__name_index_vector_base_hits_all_members() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -1342,9 +1302,9 @@ module main {
 /// circuit→def edge set is complete by construction (the tree sweep) and the
 /// bridge (class resolutions at instantiation time) both feed it.
 #[test]
-fn circuit_deps_record_entry_and_class_resolutions() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_deps__record_entry_and_class_resolutions() {
+    let _lock = common::lock();
+    common::reset();
 
     // Cross-file use statements resolve against the real file system, so this
     // test (unlike the in-memory ones above) writes both files to a temp dir
@@ -1403,9 +1363,9 @@ fn circuit_deps_record_entry_and_class_resolutions() {
 /// tables is recorded with that file's URI — the tree sweep does not depend
 /// on the use chain.
 #[test]
-fn circuit_deps_record_same_file_class() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_deps__record_same_file_class() {
+    let _lock = common::lock();
+    common::reset();
     let main_uri = "/mcc/dianlu.mc".to_string();
     mcc::mcc_load_from_string(
         &main_uri,
@@ -1498,9 +1458,9 @@ fn world_cap_def(main_uri: &str) -> (mcc::McSpaceName, mcc::DefId) {
 /// same net label. The labeled GND net in the built net layer carries exactly
 /// the registry's interned id, and an unchanged rebuild diffs empty.
 #[test]
-fn world_persists_node_and_net_identity_across_rebuilds() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_world__persists_node_and_net_identity_across_rebuilds() {
+    let _lock = common::lock();
+    common::reset();
     let uri = "/mcc/world.mc".to_string();
     mcc::mcc_load_from_string(&uri, world_main_src());
     let ident = mcc::McSpaceName::new(&mcc::McIds::from("main"), uri.clone());
@@ -1580,9 +1540,9 @@ fn world_persists_node_and_net_identity_across_rebuilds() {
 /// (a different entry, same world) keeps its DianLu and its checkpoints
 /// untouched.
 #[test]
-fn world_rebuild_invalidated_rebuilds_only_affected_circuits() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_world__rebuild_invalidated_rebuilds_only_affected_circuits() {
+    let _lock = common::lock();
+    common::reset();
 
     let main_uri = "/mcc/world-main.mc".to_string();
     let pwr_uri = "/mcc/world-pwr.mc".to_string();
@@ -1660,9 +1620,9 @@ module pwr {
 /// member deltas (`VDD: +c3.1`) with the point sets anchored on the persistent
 /// node ids.
 #[test]
-fn world_diff_versions_reports_node_add_and_net_delta() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_world__diff_versions_reports_node_add_and_net_delta() {
+    let _lock = common::lock();
+    common::reset();
     let uri = "/mcc/world.mc".to_string();
     mcc::mcc_load_from_string(&uri, world_main_src());
     let ident = mcc::McSpaceName::new(&mcc::McIds::from("main"), uri.clone());
@@ -1724,9 +1684,9 @@ fn world_diff_versions_reports_node_add_and_net_delta() {
 /// membership is identical and the versions compare equivalent, while the
 /// label uniqueness invariant stays clean.
 #[test]
-fn world_semantic_equivalent_ignores_label_rename() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_world__semantic_equivalent_ignores_label_rename() {
+    let _lock = common::lock();
+    common::reset();
     let uri = "/mcc/world.mc".to_string();
 
     let v1 = "\
@@ -1770,9 +1730,9 @@ module main {
 /// table) and a bus group (the registered prefix bundle), each with the
 /// member points in declaration order.
 #[test]
-fn description_layer_bus_groups_and_iface_bindings_from_member_ports() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_desc__bus_groups_and_iface_bindings_from_member_ports() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -1836,9 +1796,9 @@ module main {
 /// whose products (the inline `CAP(1)` instance) and connections are bucketed
 /// into the func group.
 #[test]
-fn description_layer_func_groups_anchor_user_func_expansions() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_desc__func_groups_anchor_user_func_expansions() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -1892,9 +1852,9 @@ module main {
 /// def-space entry (uri-anchored), so the template anchor assertion holds
 /// for the physical layer.
 #[test]
-fn template_anchor_device_instances_resolve_component_defs() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_world__template_anchor_device_instances_resolve_component_defs() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component CAP(cap::INT) {
     pins = [
@@ -1940,9 +1900,9 @@ module main {
 /// (a new statement at a new offset) allocates a fresh id without disturbing
 /// the existing device.
 #[test]
-fn world_auto_named_device_keeps_anchor_identity_across_rebuilds() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_world__auto_named_device_keeps_anchor_identity_across_rebuilds() {
+    let _lock = common::lock();
+    common::reset();
     let uri = "/mcc/world-auto.mc".to_string();
     let src = "\
 component CAP(cap::INT) {
@@ -2066,14 +2026,15 @@ module main {
 
 /// mcrule.md §10.6.3: a group `(,)` allows front AND rear operands — the rule
 /// `opd1 op1 (s1, .., sN) op2 opd2` expands to per-branch statements that
-/// share opd2. `R101 - (R102 - R103, R104 - R105) + R106` must build without
-/// a parallel shape error, and the net layer must join R106.2 with BOTH group
-/// exits (R103.2, R105.2) on the shared right net, while R106.1 joins the
-/// shared left net (R101.1) and R101.2 fans out to both branch heads.
+/// share opd2. `R101 - (R102 - R103, R104 - R105) + R106` expands into two
+/// standalone chains; the shared left join is recorded once, so the tree holds
+/// exactly 7 connections. **Structural half** of matrix §2 row 19 — the
+/// verdict half (quiet, no E4005/E4007, and the net fan-in/out memberships)
+/// lives in the host `vec_series_rowzip.rs::group_fan__chain_front_rear_share_mid`.
 #[test]
-fn group_rule3_front_and_rear_operands_share_opd2() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn dlu_struct__group_chain_connection_count_structure() {
+    let _lock = common::lock();
+    common::reset();
     let src = "\
 component RES(res::INT) {
     pins = [
@@ -2086,39 +2047,6 @@ module main {
     R101 - (R102 - R103, R104 - R105) + R106
 }";
     let dl = build_dianlu(src);
-
-    let codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
-    assert!(
-        !codes.contains(&mcc::errcodes::CONN_PARALLEL_SHAPE_MISMATCH),
-        "rule §10.6.3 allows a rear operand around a group; got {codes:?}"
-    );
-    assert!(
-        !codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
-        "no series shape error; got {codes:?}"
-    );
-
-    let view = mcc::TreeView::new(dl.arena(), dl.store());
-    let find_comp = |name: &str| {
-        view.components(dl.tree())
-            .find(|c| c.name == name)
-            .unwrap_or_else(|| panic!("instance {name} exists"))
-    };
-    let p1 = pin_member_id(find_comp("R101"), "1").unwrap();
-    let p2 = pin_member_id(find_comp("R101"), "2").unwrap();
-    let pt = |name: &str, pin| mcc::PointId {
-        node: find_comp(name).node_id.unwrap(),
-        pin,
-    };
-    let p_r101_1 = pt("R101", p1);
-    let p_r101_2 = pt("R101", p2);
-    let p_r102_1 = pt("R102", p1);
-    let p_r104_1 = pt("R104", p1);
-    let p_r103_2 = pt("R103", p2);
-    let p_r105_2 = pt("R105", p2);
-    let p_r106_1 = pt("R106", p1);
-    let p_r106_2 = pt("R106", p2);
-
-    let nets = dl.nets();
 
     // The group expands into TWO standalone statements
     // (`R101 - R102 - R103 + R106` / `R101 - R104 - R105 + R106`) — the
@@ -2154,40 +2082,4 @@ module main {
             "missing join {expect:?}; got {conns:?}"
         );
     }
-
-    // Shared left net: R101.1 and R106.1 join.
-    let left = nets
-        .iter()
-        .find(|n| n.points.contains(&p_r101_1))
-        .expect("left net holds R101.1");
-    assert!(
-        left.points.contains(&p_r106_1),
-        "R106.1 joins the shared left net; got {left:?}"
-    );
-    // Shared right net: BOTH group exits and R106.2 join.
-    let right = nets
-        .iter()
-        .find(|n| n.points.contains(&p_r103_2))
-        .expect("right net holds R103.2");
-    assert!(
-        right.points.contains(&p_r105_2),
-        "R105.2 joins the shared right net; got {right:?}"
-    );
-    assert!(
-        right.points.contains(&p_r106_2),
-        "R106.2 joins the shared right net; got {right:?}"
-    );
-    // Series fan-out: R101.2 reaches both branch heads.
-    let fan = nets
-        .iter()
-        .find(|n| n.points.contains(&p_r101_2))
-        .expect("fan-out net holds R101.2");
-    assert!(
-        fan.points.contains(&p_r102_1),
-        "R101.2 joins branch head R102.1; got {fan:?}"
-    );
-    assert!(
-        fan.points.contains(&p_r104_1),
-        "R101.2 joins branch head R104.1; got {fan:?}"
-    );
 }

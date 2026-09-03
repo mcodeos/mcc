@@ -1267,7 +1267,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_def_spans_persist_after_port_filter() {
+    fn sem_paramd__def_spans_persist_after_port_filter() {
         let mut params = McParamDeclares::new();
         params.store_def_span("rs", 0..2);
         params.store_def_span("dc24v", 10..15);
@@ -1311,7 +1311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_record_net_ref_uses_def_spans() {
+    fn sem_paramd__record_net_ref_uses_def_spans() {
         let mut params = McParamDeclares::new();
         params.store_def_span("rs", 0..2);
         params.declares.push(McParamDeclare {

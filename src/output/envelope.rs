@@ -520,7 +520,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn envelope_ok_minimal_serializes_clean() {
+    fn cli_envelope__envelope_ok_minimal_serializes_clean() {
         let env = Envelope::ok(CommandResult {
             command: "mcc load".into(),
             workspace: WorkspaceRef::project("test"),
@@ -538,7 +538,7 @@ mod tests {
     }
 
     #[test]
-    fn envelope_err_serializes_with_code() {
+    fn cli_envelope__envelope_err_serializes_with_code() {
         let env = Envelope::err(RpcError::parse_error("bad token"));
         let json = serde_json::to_string(&env).unwrap();
         assert!(json.contains("\"code\":32110"));
@@ -547,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn pass1_pass2_are_sibling_keys() {
+    fn cli_envelope__pass1_pass2_are_sibling_keys() {
         let res = CommandResult {
             command: "mcc build".into(),
             workspace: WorkspaceRef::project("test"),

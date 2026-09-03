@@ -379,7 +379,7 @@ pub const SHAPE_REVERSE_NOOP: u32 = 2903;
 /// Vector expansion dimension mismatch (eval.md §7 rule 3): both sides are
 /// vectors with different row counts and implicit auto-expansion is forbidden.
 /// Emitted at Pass2 (`create_connection`) when `expand_match` rejects the pair
-/// (count mismatch) and truncation recovery is applied.
+/// (count mismatch); the operation generates no connection.
 pub const SHAPE_EXPAND_DIM_MISMATCH: u32 = 2904;
 
 /// Instance with 3+ pins cannot directly participate in `+` / `-`
@@ -913,7 +913,7 @@ pub const INST_LANE_FUNCCALL_FAILED: u32 = 4162;
 /// Failed to instantiate a Transposed member during lane-by-lane wiring.
 pub const INST_LANE_TRANSPOSED_FAILED: u32 = 4163;
 
-/// Group connection shape mismatch; truncated by branch count.
+/// Group connection shape mismatch; the operation generates no connection.
 pub const CONN_GROUP_SHAPE_MISMATCH: u32 = 4166;
 
 /// Component input pin count mismatch in a function call.
@@ -1592,7 +1592,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SHAPE_INST_3PIN_PLUSMINUS, "Instance with 3+ pins cannot directly participate in `+`/`-`; only 1x1/1x2 instances can (veccircuit.md).", "Instance '{0}' with {1} pins cannot directly participate in `+`/`-`. Use `->` for a pass-through connection."),
     entry!(SHAPE_INCOMPLETE, "NetShape missing; fell back to the deprecated connection_type() inference (stage 3).", "SHAPE_INCOMPLETE: net '{0}' has no NetShape provenance; fell back to connection_type() inference."),
     entry!(SHAPE_COLUMN_WIDTH_MIXED, "Column-width mix in a `[...]` list (vec-arch.md §4.1.1 R4): a single-column element among two-pin/node elements silently spans both columns.", "Column-width mix in a list: '{0}' spans both columns (single-column element among two-pin/node elements, e.g. `[A, R101]`). All elements must be single-column or all two-pin/node; use '_' to inherit the sibling column width."),
-    entry!(CONN_GROUP_SHAPE_MISMATCH, "Group connection shape mismatch; truncated by branch count.", "Group shape mismatch: {0} external points vs {1} group points ({2} branches), truncating"),
+    entry!(CONN_GROUP_SHAPE_MISMATCH, "Group connection shape mismatch; no connection generated.", "Group shape mismatch: {0} external points vs {1} group points ({2} branches); no connection generated"),
     entry!(INST_INPUT_PIN_COUNT_MISMATCH, "Component input pin count mismatch in a function call.", "Component '{0}' ({1}) input pin count mismatch: {2} connections vs {3} input pins"),
     entry!(INST_OUTPUT_PIN_COUNT_MISMATCH, "Component output pin count mismatch in a function call.", "Component '{0}' ({1}) output pin count mismatch: {2} connections vs {3} output pins"),
     entry!(INST_INLINE_MODULE_FAILED, "Inline module instantiation failed.", "Inline module '{0}' ({1}) instantiation failed: {2}"),

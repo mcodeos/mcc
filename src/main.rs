@@ -36,6 +36,10 @@
 //!     export PATH=$PWD:$PATH
 //!     ```
 
+// Family naming (`cli_*__` unit-test fn names, matrix §1 taxonomy) doubles the
+// underscore; allow non_snake_case under cfg(test) only.
+#![cfg_attr(test, allow(non_snake_case))]
+
 use anyhow::Result;
 use clap::Parser;
 use std::env;

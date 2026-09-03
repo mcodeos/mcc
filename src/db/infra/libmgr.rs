@@ -523,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn find_lib_dir_prefers_versioned_dir() {
+    fn def_libmgr__find_lib_dir_prefers_versioned_dir() {
         let root = temp_root("versioned");
         let found = find_lib_dir(&root, "acme");
         assert_eq!(found, Some(root.join("acme@2.0")), "versioned dir wins");
@@ -531,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn find_lib_dir_bare_dir_fallback() {
+    fn def_libmgr__find_lib_dir_bare_dir_fallback() {
         let root = temp_root("bare");
         std::fs::remove_dir_all(root.join("acme@2.0")).unwrap();
         let found = find_lib_dir(&root, "acme");
@@ -540,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn find_lib_dir_mcode_subdir_and_sibling() {
+    fn def_libmgr__find_lib_dir_mcode_subdir_and_sibling() {
         let root = temp_root("mcode");
         let found = find_lib_dir(&root, "mcode");
         assert_eq!(found, Some(root.join("mcode")));
@@ -558,7 +558,7 @@ mod tests {
     }
 
     #[test]
-    fn find_lib_dir_absent_returns_none() {
+    fn def_libmgr__find_lib_dir_absent_returns_none() {
         let root = temp_root("absent");
         assert_eq!(find_lib_dir(&root, "nosuchlib"), None);
         let _ = std::fs::remove_dir_all(&root);

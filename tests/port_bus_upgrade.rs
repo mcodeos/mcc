@@ -10,25 +10,23 @@
 //
 // NOTE: These tests share global mcc state, so a mutex serializes them.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 /// Helper: acquire lock, load source, build module, return instance.
 fn build(source: &str) -> mcc::McModuleInst {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/port-bus-upgrade.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
     let result = mcc::mcc_build(&McIds::from("main"), &uri);
 
-    drop(lock);
     result.expect("build failed")
 }
 
@@ -50,7 +48,7 @@ fn diag_codes() -> Vec<u32> {
 // ── Form 1: curly multi-member use no longer widens a scalar port ──────────
 
 #[test]
-fn curly_use_does_not_upgrade_scalar_port() {
+fn sem_portshape__curly_use_does_not_upgrade_scalar_port() {
     // `spi1` is declared scalar; the curly multi-member use is an E3183 error
     // and must NOT back-fill the port's bus_members.
     let inst = build(
@@ -78,7 +76,7 @@ module main
 // ── Form 2: dotted member access no longer widens a scalar port ────────────
 
 #[test]
-fn dotted_use_does_not_upgrade_scalar_port() {
+fn sem_portshape__dotted_use_does_not_upgrade_scalar_port() {
     // Four single-level dotted accesses each report E3183 (one per offending
     // reference) and never widen the port.
     let inst = build(
@@ -114,7 +112,7 @@ module main
 // ── Form 3: vector connection no longer widens a scalar port ───────────────
 
 #[test]
-fn vector_connection_does_not_upgrade_scalar_port() {
+fn sem_portshape__vector_connection_does_not_upgrade_scalar_port() {
     // `spi1` is a plain scalar operand; its sibling `spi{...}` is a
     // multi-member use of the scalar-declared `spi`, which is itself an
     // E3183. `spi1` must stay scalar (no back-prop from the sibling).
@@ -144,7 +142,7 @@ module main
 // ── Negative: scalar usage keeps the port scalar ──────────────────────────
 
 #[test]
-fn scalar_use_keeps_port_scalar() {
+fn sem_portshape__scalar_use_keeps_port_scalar() {
     // No member/lane-shaped usage in the body, so `spi1` stays a bare scalar
     // port and no E3183 fires.
     let inst = build(

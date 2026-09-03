@@ -21,24 +21,16 @@
 //! Regenerate (review the diff — a new row means a deliberate resolution
 //! change): `LEDGER_UPDATE=1 cargo test --test golden_ledger`.
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
+mod common;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 
 use mcc::ledger::{self, LedgerMode};
-
-/// Global mutex to serialize tests that share mcc's global workspace state
-/// (the ledger is process-global too — each case clears it before building).
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-/// Acquire the shared test lock, recovering from a prior test's panic (a
-/// panicked assert poisons the mutex while unwinding).
-fn lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-}
 
 /// One self-contained corpus case. Each source has no library or project
 /// dependency, so rows are deterministic and stable.
@@ -105,9 +97,7 @@ const CASES: &[Case] = &[
 /// caller to snapshot. Entry resolution mirrors `mcc check` (§7.2): the
 /// module named by the URI, else the first module in the file, else "main".
 fn build_case(c: &Case) -> ledger::LedgerReport {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     ledger::clear();
     let uri = format!("/mcc/golden-{}.mc", c.name);
     mcc::mcc_load_from_string(&uri, c.src);
@@ -190,8 +180,8 @@ fn golden_dir() -> PathBuf {
 }
 
 #[test]
-fn golden_corpus_matches_baseline() {
-    let _g = lock();
+fn def_ledger__golden_corpus_matches_baseline() {
+    let _g = common::lock();
     let update = std::env::var("LEDGER_UPDATE").is_ok();
     let dir = golden_dir();
     for c in CASES {
@@ -223,8 +213,8 @@ fn golden_corpus_matches_baseline() {
 }
 
 #[test]
-fn corpus_exercises_all_live_kinds() {
-    let _g = lock();
+fn def_ledger__corpus_exercises_all_live_kinds() {
+    let _g = common::lock();
     let mut kinds = BTreeSet::new();
     for c in CASES {
         let report = build_case(c);

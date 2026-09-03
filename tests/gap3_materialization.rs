@@ -18,20 +18,16 @@
 //! instance names; 4051 = per-connection net merge (build side, visit.rs);
 //! 4053 = bus pin-group monotonicity (pass1, instref.rs).
 
-use mcc::McIds;
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::McIds;
 
 fn count(codes: &[u32], code: u32) -> usize {
     codes.iter().filter(|c| **c == code).count()
-}
-
-/// Reset the mcc_* workspace for one test. The caller must hold `TEST_LOCK`.
-fn reset_workspace() {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
 }
 
 /// Build `main` (pass1 + pass2 flat) and return all diagnostic codes, sorted.
@@ -61,9 +57,9 @@ fn fresh_table() -> mcc::InstTable {
 /// second registration is merged into the first (same id returned) and GAP3
 /// reports the physical-position preemption exactly once.
 #[test]
-fn structural_structural_different_class_reports_gap3_once() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__both_structural_diff_class_reports_once() {
+    let _lock = common::lock();
+    common::reset();
     let mut table = fresh_table();
     let first = table.register(
         "main.r1.1".to_string(),
@@ -104,9 +100,9 @@ fn structural_structural_different_class_reports_gap3_once() {
 /// path) is the same flat-pin-preemption fact — both sides structural, classes
 /// differ → GAP3 fires once, the old entry wins (priorities tie).
 #[test]
-fn cross_kind_structural_collision_reports_gap3() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__cross_kind_structural_collision_reports_gap3() {
+    let _lock = common::lock();
+    common::reset();
     let mut table = fresh_table();
     let first = table.register(
         "main.s".to_string(),
@@ -138,9 +134,9 @@ fn cross_kind_structural_collision_reports_gap3() {
 /// Same-class re-registration is a normal dedup (the same declaration seen
 /// twice, e.g. a func-created re-parent or a second net back-fill) — silent.
 #[test]
-fn same_class_reregistration_is_silent() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__same_class_reregistration_is_silent() {
+    let _lock = common::lock();
+    common::reset();
     let mut table = fresh_table();
     let first = table.register(
         "main.r1.1".to_string(),
@@ -173,9 +169,9 @@ fn same_class_reregistration_is_silent() {
 /// priority upgrade (Port→Component, "bug ①") — the pass1 declaration layer
 /// owns that case (E5151 same-scope instance names), never GAP3.
 #[test]
-fn net_side_to_structural_seizure_is_not_gap3() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__net_side_to_structural_seizure_is_not_gap3() {
+    let _lock = common::lock();
+    common::reset();
     let mut table = fresh_table();
     let label_id = table.register(
         "main.r1".to_string(),
@@ -212,9 +208,9 @@ fn net_side_to_structural_seizure_is_not_gap3() {
 /// Structural entity claimed by a net-side registration keeps the structural
 /// entry (priority) — a normal no-op, silent.
 #[test]
-fn structural_keeps_entry_against_net_side_claim() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__structural_keeps_entry_against_net_side_claim() {
+    let _lock = common::lock();
+    common::reset();
     let mut table = fresh_table();
     let comp_id = table.register(
         "main.r1".to_string(),
@@ -254,9 +250,9 @@ fn structural_keeps_entry_against_net_side_claim() {
 /// structural → GAP3 gate closed); E5151 owns the same-scope instance-name
 /// duplicate. No double-report.
 #[test]
-fn same_scope_instance_name_collision_is_e5151_not_gap3() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__same_scope_name_collision_is_e5151_not_gap3() {
+    let _lock = common::lock();
+    common::reset();
     let src = "component R {\n    pins = [\n        1 = 1\n    ]\n}\nmodule main {\n    io r1\n    R r1\n    r1.1 -> VDD\n}";
     let codes = build_codes(src);
     assert_eq!(
@@ -275,9 +271,9 @@ fn same_scope_instance_name_collision_is_e5151_not_gap3() {
 /// `insts` name-keyed map dedups to one component, so flatten sees a single
 /// registration; E5151 reports the duplicate. No GAP3.
 #[test]
-fn different_class_same_inst_name_is_e5151_not_gap3() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__different_class_same_inst_name_is_e5151_not_gap3() {
+    let _lock = common::lock();
+    common::reset();
     let src = "component CAP {\n    pins = [\n        1 = 1\n    ]\n}\ncomponent R {\n    pins = [\n        1 = 1\n    ]\n}\nmodule main {\n    R r1\n    CAP r1\n    r1.1 -> VDD\n}";
     let codes = build_codes(src);
     assert_eq!(count(&codes, 5151), 1, "E5151 fires; got {codes:?}");
@@ -292,9 +288,9 @@ fn different_class_same_inst_name_is_e5151_not_gap3() {
 /// port id — a NET-layer merge (build side, visit.rs), reported as 4051. GAP3
 /// is the pin DECLARATION occupancy, a disjoint fact → stays quiet.
 #[test]
-fn net_merge_is_4051_not_gap3() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__net_merge_is_4051_not_gap3() {
+    let _lock = common::lock();
+    common::reset();
     let src = "module main {\n    io A\n    io GND\n    [A, A] -> [GND, GND]\n}";
     let codes = build_codes(src);
     assert!(
@@ -312,9 +308,9 @@ fn net_merge_is_4051_not_gap3() {
 /// SORT_HAZARD (instref.rs) fact — member→pin mapping hazard, not a pin
 /// preemption. No GAP3.
 #[test]
-fn sort_hazard_is_4053_not_gap3() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__sort_hazard_is_4053_not_gap3() {
+    let _lock = common::lock();
+    common::reset();
     let src = "component MyChip {\n    pins = [\n        io [5,2] = BUS{CLK, DATA}\n    ]\n}\nmodule main {\n    io CLK, DATA\n    MyChip chip\n    chip{CLK, DATA} -> (CLK, DATA)\n}";
     let codes = build_codes(src);
     assert_eq!(
@@ -331,9 +327,9 @@ fn sort_hazard_is_4053_not_gap3() {
 
 /// A 0-pin materialization is GAP2 (E4057 NET_DROPPED_STATEMENT), never GAP3.
 #[test]
-fn zero_pin_net_is_4057_not_gap3() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__zero_pin_net_is_4057_not_gap3() {
+    let _lock = common::lock();
+    common::reset();
     let src = "module main {\n    func main() {\n        res[1:2] -> led[3:4]\n    }\n}";
     let codes = build_codes(src);
     assert_eq!(
@@ -350,9 +346,9 @@ fn zero_pin_net_is_4057_not_gap3() {
 
 /// A legit net registers no structural collision and no net merge — quiet.
 #[test]
-fn legit_net_is_quiet_for_gap3() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    reset_workspace();
+fn mat_gap3__legit_net_is_quiet() {
+    let _lock = common::lock();
+    common::reset();
     let src = "module main {\n    io A\n    io GND\n    A -> GND\n}";
     let codes = build_codes(src);
     assert_eq!(count(&codes, 4062), 0, "got {codes:?}");

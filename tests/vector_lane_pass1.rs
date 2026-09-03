@@ -6,26 +6,24 @@
 //!
 //! `c[1:2]`, `XTAL.X[1:2]`, `S[1:4][L,R].IN` resolve at pass1 to **structured
 //! member references** — never a literal `c[1:2]` label (invariant B). The
-//! lane structure contract (§11.3 ③ / the flatten-before-broadcast pitfall):
+//! lane structure contract (§11.3 ③ / the per-member dispatch driver for
+//! iterated.rs, §7.6):
 //! - receiver `c[1:2]` → `Endpoint(List([Single(c1), Single(c2)]))` — one lane
-//!   per ordered member (broadcast driver for iterated.rs)
+//!   per ordered member (dispatch receiver for iterated.rs)
 //! - `[VDD, GND]` arg list → `Set([Opd(Id(VDD)), Opd(Id(GND))])` — 2 scalar lanes
 //! - the vector member set is carried in structure, never re-parsed from a
 //!   `format!("{}", phrase)` display string (AST-driven guideline)
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+mod common;
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+use mcc::{McIds, McURI};
 
 const CAP_COMP: &str = "component CAP(cap::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
 
 /// Build `main` and return func `M`'s parsed stmts.
 fn func_m_stmts(src: &str, uri: &str) -> Vec<mcc::McPhrase> {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let u = McURI::from(uri);
     mcc::mcc_load_from_string(&u, src);
     let inst = mcc::mcc_build(&McIds::from("main"), &u).expect("build");
@@ -154,7 +152,7 @@ fn func_local_vector_receiver_is_lane_structured_list() {
 /// ── §11.3 ③ (b): bus/interface member slice stays structured ─────────────
 /// `[XTAL.X[1:2], gnd]` — the vector lane keeps its AST segment tree
 /// (McIds with embedded square), not a pre-flattened display string.
-/// GAP1 / iterated broadcast compare member sets from this structure.
+/// GAP1 / iterated dispatch compare member sets from this structure.
 #[test]
 fn bus_member_slice_lane_stays_structured_ids() {
     let src = format!(

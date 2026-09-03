@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn records_out_and_rev_edges() {
+    fn def_refgraph__records_out_and_rev_edges() {
         let g = DefRefGraph::new();
         let from = sn("LED", "proj/a.mc");
         let to = sn("LED", "mcode/led.mc");
@@ -169,7 +169,7 @@ mod tests {
     /// registry is process-wide) and uses a unique uri so parallel tests
     /// are never disturbed; the entry is removed afterwards.
     #[test]
-    fn def_id_queries_answer_through_the_registry() {
+    fn def_refgraph__def_id_queries_answer_through_the_registry() {
         use crate::db::defregistry::{insert, remove_by_uri, DefValue, LoadDomain};
         use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
         use crate::semantic::mc_enum::McEnumDef;

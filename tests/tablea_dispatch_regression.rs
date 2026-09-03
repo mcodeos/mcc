@@ -2,24 +2,31 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! resolve-gate §3.3 per-member dispatch — §2.6 Table A
+//! resolve-gate §3.3 / vec-dianlu §7.6 per-member dispatch — §2.6 Table A
 //! regression tests.
 //!
 //! All four Table A forms must materialize one instance per array member and
-//! dispatch the method per member (broadcast args, §5 item 17) — never a
-//! literal `name[1:2]` instance, never an anonymous `_R1`/`_C1` collapse, no
-//! E3179.
+//! dispatch the method per member (scalar args become nets shared by every
+//! member) — never a literal `name[1:2]` instance, never an anonymous
+//! `_R1`/`_C1` collapse, no E3179. formN below is the expansion-shape number
+//! of §2.6 Table A (matrix §2 row 20):
 //!
 //! 1. `CLASS y[1:2](args).Method(...)` — class-first named array subinstance
+//!    → `dispatch__form1_named_subinstance_per_member`
 //! 2. declared `r[1:2]::RES(0)` + `r[1:2].Pullup([net,vcc])` — array receiver
-//! 3. same receiver with `.Pullup` (E3179 phantom form)
+//!    → `dispatch__form2_declared_receiver_per_member`
+//! 3. same receiver with `.Pullup` (E3179 phantom form, folded into form 2)
 //! 4. `x[1:2]::RES(0).Pullup(...)` — construct + trailing method (⑫ collapse)
+//!    → `dispatch__form4_ctor_trailing_method_per_member`
+//! 5. module-level declared receiver → `dispatch__module_declared_receiver_per_member`
+
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
+mod common;
 
 use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
-
-/// Global mutex to serialize tests sharing mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 const CAP_COMP: &str = "component CAP(cap::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([net1, net2]) {\n        net1 - this - net2\n        return [net1, net2]\n    }\n}\n";
 const RES_COMP: &str = "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([net1, net2]) {\n        net1 - this - net2\n        return [net1, net2]\n    }\n}\n";
@@ -37,10 +44,8 @@ fn host_with_body(body: &str) -> String {
 
 /// Build `main` from `src`, returning (paths, nets, diagnostic codes).
 fn build(src: &str, uri: &str) -> (Vec<String>, Vec<String>, Vec<u32>) {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let u = McURI::from(uri);
     mcc::mcc_load_from_string(&u, src);
     let (_, table) = mcc::mcc_build_flat(&McIds::from("main"), &u, 1000).expect("flat build");
@@ -84,7 +89,7 @@ fn assert_no_path_containing(paths: &[String], fragment: &str, what: &str) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn form1_named_array_subinstance_dispatches_per_member() {
+fn dispatch__form1_named_subinstance_per_member() {
     let src = format!(
         "{CAP_COMP}component HOST {{\n    pins = [\n        1 = NET\n        2 = VCC\n    ]\n    func F() {{\n        CAP c[1:2](1).Cap([NET, VCC])\n    }}\n}}\nmodule main {{\n    io VDD\n    HOST U1\n    func M() {{\n        U1.F()\n    }}\n}}\n"
     );
@@ -105,16 +110,16 @@ fn form1_named_array_subinstance_dispatches_per_member() {
         !codes.contains(&mcc::errcodes::COMPONENT_PIN_NOT_FOUND),
         "no E3179; got {codes:?}"
     );
-    // Broadcast wiring: both members parallel between U1.NET(1) and U1.VCC(2).
+    // Dispatch wiring: both members share U1.NET(1) and U1.VCC(2).
     let n1 = net_containing(&nets, "main.U1.1").expect("net on U1 pin 1");
     assert!(
         n1.contains("main.c1.1") && n1.contains("main.c2.1"),
-        "broadcast NET side; got {n1}"
+        "NET side shared by both members; got {n1}"
     );
     let n2 = net_containing(&nets, "main.U1.2").expect("net on U1 pin 2");
     assert!(
         n2.contains("main.c1.2") && n2.contains("main.c2.2"),
-        "broadcast VCC side; got {n2}"
+        "VCC side shared by both members; got {n2}"
     );
 }
 
@@ -124,7 +129,7 @@ fn form1_named_array_subinstance_dispatches_per_member() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn form2_3_declared_array_receiver_dispatches_per_member() {
+fn dispatch__form2_declared_receiver_per_member() {
     // Form 3 (the E3179 phantom form): `.Pullup` on declared RES members.
     let pullup = host_with_body("r[1:2]::RES(0)\nr[1:2].Pullup([NET, VCC])");
     let src = format!("{RES_COMP}{pullup}");
@@ -145,12 +150,12 @@ fn form2_3_declared_array_receiver_dispatches_per_member() {
     let n1 = net_containing(&nets, "main.U1.1").expect("net on U1 pin 1");
     assert!(
         n1.contains("main.U1.r1.1") && n1.contains("main.U1.r2.1"),
-        "broadcast NET side; got {n1}"
+        "NET side shared by both members; got {n1}"
     );
     let n2 = net_containing(&nets, "main.U1.2").expect("net on U1 pin 2");
     assert!(
         n2.contains("main.U1.r1.2") && n2.contains("main.U1.r2.2"),
-        "broadcast VCC side; got {n2}"
+        "VCC side shared by both members; got {n2}"
     );
 
     // Form 2: same receiver shape with `.Cap` on declared CAP members.
@@ -173,7 +178,7 @@ fn form2_3_declared_array_receiver_dispatches_per_member() {
     let n1b = net_containing(&nets2, "main.U1.1").expect("net on U1 pin 1 (Cap)");
     assert!(
         n1b.contains("main.U1.cap1.1") && n1b.contains("main.U1.cap2.1"),
-        "broadcast NET side (Cap); got {n1b}"
+        "NET side shared by both members (Cap); got {n1b}"
     );
 }
 
@@ -183,7 +188,7 @@ fn form2_3_declared_array_receiver_dispatches_per_member() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn form4_ctor_trailing_method_materializes_members() {
+fn dispatch__form4_ctor_trailing_method_per_member() {
     let src = format!(
         "{RES_COMP}component HOST {{\n    pins = [\n        1 = NET\n        2 = VCC\n    ]\n    func F() {{\n        x[1:2]::RES(0).Pullup([NET, VCC])\n    }}\n}}\nmodule main {{\n    io VDD\n    HOST U1\n    func M() {{\n        U1.F()\n    }}\n}}\n"
     );
@@ -206,12 +211,12 @@ fn form4_ctor_trailing_method_materializes_members() {
     let n1 = net_containing(&nets, "main.U1.1").expect("net on U1 pin 1");
     assert!(
         n1.contains("main.x1.1") && n1.contains("main.x2.1"),
-        "broadcast NET side; got {n1}"
+        "NET side shared by both members; got {n1}"
     );
     let n2 = net_containing(&nets, "main.U1.2").expect("net on U1 pin 2");
     assert!(
         n2.contains("main.x1.2") && n2.contains("main.x2.2"),
-        "broadcast VCC side; got {n2}"
+        "VCC side shared by both members; got {n2}"
     );
 }
 
@@ -220,7 +225,7 @@ fn form4_ctor_trailing_method_materializes_members() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn module_level_declared_array_receiver_dispatches_per_member() {
+fn dispatch__module_declared_receiver_per_member() {
     let src = format!(
         "{RES_COMP}module main {{\n    io VDD\n    io NET\n    io VCC\n    func M() {{\n        res[1:2]::RES(0)\n        res[1:2].Pullup([NET, VCC])\n    }}\n}}\n"
     );
@@ -241,11 +246,11 @@ fn module_level_declared_array_receiver_dispatches_per_member() {
     let n1 = net_containing(&nets, "main.NET").expect("net on NET");
     assert!(
         n1.contains("main.res1.1") && n1.contains("main.res2.1"),
-        "broadcast NET side; got {n1}"
+        "NET side shared by both members; got {n1}"
     );
     let n2 = net_containing(&nets, "main.VCC").expect("net on VCC");
     assert!(
         n2.contains("main.res1.2") && n2.contains("main.res2.2"),
-        "broadcast VCC side; got {n2}"
+        "VCC side shared by both members; got {n2}"
     );
 }

@@ -1165,7 +1165,7 @@ impl InstantiationBuilder {
                 // Note **cannot** directly return `Bus(name, members)` — `get_left_points`
                 // Bus branch `Vec::from(mcbus)` in member.len()==2 special path
                 // would clear `member` field, resulting in `speaker{DAC_IN, US_SPEAKER_MUTE}`
-                // collapsed back to single-point "speaker" broadcast to same net as chain other side.
+                // collapsed back to scalar `speaker` sharing the chain's other-side net.
                 //
                 // Changed to return `Endpoint::Node`, which in `get_left_points` goes through
                 // resolve_curly_mn_points, that path stably returns `speaker.DAC_IN` /
@@ -1486,7 +1486,7 @@ impl InstantiationBuilder {
                 // `Endpoint(List([Single(cap4), Single(cap5), ...]))`. Do NOT
                 // collapse through get_left/get_right — those take only the
                 // first/last lane and turn the parallel lane group into a serial
-                // `cap4 → cap5` Node (the flatten-before-broadcast pitfall). Pass
+                // `cap4 → cap5` Node (the flatten-before-zip pitfall). Pass
                 // the List through so the
                 // array-form re-link (resolve_array_caller_to_existing) and the
                 // get_left/get_right_points List handlers consume the lanes
@@ -1987,9 +1987,10 @@ impl InstantiationBuilder {
                 // already the transposed result — so this check runs on the
                 // transposed result with no pair-by-min / lane-hang carve-out.
                 // Legal: equal rows only. Illegal: unequal rows — including the
-                // single-point broadcast `1*1` vs `N*1` (`X -> [A, B]`) and any
-                // transposed mismatch — report the error and generate no
-                // connection statement (no truncation / pair-by-min recovery).
+                // `1×1`-vs-`N×1` scalar-to-lanes mismatch (`X -> [A, B]`,
+                // §5.3.1-abolished single-point broadcast) and any transposed
+                // mismatch — report the error and generate no connection
+                // statement (no truncation / pair-by-min recovery).
                 let verdict = crate::semantic::opcheck::check_series_rows(lhs_shape, rhs_shape);
                 if matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_)) {
                     // Row counts match: pair the whole group (create_connection
@@ -1997,7 +1998,7 @@ impl InstantiationBuilder {
                     this.create_connection(left_points, right_points, dir, None)?;
                 } else {
                     // Illegal §5.2 operation (unequal rows — including the
-                    // single-point broadcast `1*1` vs `N*1` and transposed
+                    // `1×1`-vs-`N×1` scalar-to-lanes mismatch and transposed
                     // mismatches): report the error and generate no statement —
                     // the row mismatch is not truncated into a partial pairing.
                     this.record_error(
@@ -2171,9 +2172,9 @@ impl InstantiationBuilder {
 
             // ── P1 fix (Transposed not single-ended) ───────────────────────
             // Transposed merges left+right into both lp and rp, so
-            // is_single_ended always returns true. This causes the opd to
-            // be broadcast to every lane instead of distributed lane-by-lane
-            // as a bridge/shunt element. Detect Transposed explicitly and
+            // is_single_ended always returns true. This would fan the opd across
+            // every lane instead of distributing it lane-by-lane as a bridge/shunt
+            // element. Detect Transposed explicitly and
             // push lp as-is to left_net (rp == lp, so skip right_net).
             let is_transposed = matches!(stmts[i], McPhrase::Transposed(_));
 
@@ -2197,8 +2198,8 @@ impl InstantiationBuilder {
                 // to left is equivalent — keep the left branch for that case.
                 //
                 // When the anchor is double-ended N wide, the single-end point
-                // needs to be "broadcast" to all N lanes (replicated N times),
-                // so subsequent zip splitting correctly distributes it to each
+                // stays scalar and is shared across all N lanes' right ends, so
+                // subsequent zip splitting correctly distributes it to each
                 // lane's right end.
                 let anchor_is_chain = !is_single_ended(&anchor_left, &anchor_right);
                 if anchor_dim >= 2 && anchor_is_chain {

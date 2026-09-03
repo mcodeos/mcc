@@ -1,3 +1,6 @@
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 // Copyright (c) 2026 MCode
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
@@ -35,7 +38,7 @@ fn run_mcc_parse(source: &str) -> Value {
 /// exist on disk emits E2052 with a "not found" message (split from the
 /// project-mode "undeclared dependency" E2051).
 #[test]
-fn use_lib_not_found_emits_e2052() {
+fn sem_usediag__lib_not_found_emits_e2052() {
     let source = r#"
 use $::nonexistent.lib@1.0
 
@@ -67,7 +70,7 @@ module main {
 /// library that is not declared in [dependencies] keeps the strict
 /// "undeclared dependency" E2051 message and does NOT lazy-load.
 #[test]
-fn undeclared_dependency_project_mode_keeps_undeclared_message() {
+fn sem_usediag__undeclared_dependency_project_mode_keeps_undeclared_message() {
     use std::process::Command as StdCommand;
     // Build a throwaway project so the parse runs in project context.
     let dir = std::env::temp_dir().join(format!("mcc-e2051-project-{}", std::process::id()));
@@ -128,7 +131,7 @@ fn undeclared_dependency_project_mode_keeps_undeclared_message() {
 /// §19.5 rule 2: in non-project context, `use` of a library that exists on
 /// disk lazily loads it — no E2051, and the library's symbols resolve.
 #[test]
-fn non_project_use_lazily_loads_library() {
+fn sem_usediag__non_project_use_lazily_loads_library() {
     use std::process::Command as StdCommand;
 
     // Build a throwaway system root with a tiny third-party library "acme"
@@ -222,7 +225,7 @@ fn non_project_use_lazily_loads_library() {
 /// diagnostics (3154 / 3157 / 5256) and NOT USE_LIB_NOT_FOUND (2052) or
 /// USE_DEP_NOT_DECLARED (2051), since no `use` statement was written.
 #[test]
-fn third_party_visibility_no_e800_when_not_used() {
+fn sem_usediag__third_party_visibility_no_e800_when_not_used() {
     let source = r#"
 module main {
     TI_MCU::init()
@@ -252,7 +255,7 @@ module main {
 /// triggers. E801 may not fire if the symbol sets can't be loaded, so we
 /// only assert that the parse path completes and produces diagnostics.
 #[test]
-fn symbol_conflict_parse_does_not_panic() {
+fn sem_usediag__symbol_conflict_parse_does_not_panic() {
     let source = r#"
 module main {
     use $::lib1.power@1.0
@@ -277,7 +280,7 @@ module main {
 /// The test also verifies that the original module name is NOT leaked
 /// into the importing file's spacenames.
 #[test]
-fn alias_registers_spacename_without_collision() {
+fn sem_usediag__alias_registers_spacename_without_collision() {
     // Run `mcc parse` on the alias_user.mc corpus file with --dlog
     // (--dlog bypasses RPC, which may have a stale PID file)
     let corpus = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
@@ -326,7 +329,7 @@ fn alias_registers_spacename_without_collision() {
 /// path must be recovered from the raw source text and the use must resolve to
 /// the real file with no E2081 and no "use target not found" (E2003).
 #[test]
-fn hyphenated_file_name_in_relative_use_resolves() {
+fn sem_usediag__hyphenated_file_name_in_relative_use_resolves() {
     use std::process::Command as StdCommand;
     let dir = std::env::temp_dir().join(format!("mcc-hyphen-use-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("create temp dir");

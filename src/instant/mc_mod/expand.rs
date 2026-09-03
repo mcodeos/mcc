@@ -585,7 +585,7 @@ mod expand_match_tests {
     // ── §7 rule 1: member-name correspondence (pair by name) ──
 
     #[test]
-    fn by_name_matches_and_preserves_left_order() {
+    fn mat_expand__by_name_matches_and_preserves_left_order() {
         // uC.SPI(SCLK, CS, MOSI, MISO) vs flash.SPI(CS, MISO, MOSI, SCLK)
         let lhs = vec![
             pt("uC.SPI.1", Some("SCLK")),
@@ -617,7 +617,7 @@ mod expand_match_tests {
     }
 
     #[test]
-    fn by_name_skips_on_duplicate_member() {
+    fn mat_expand__by_name_skips_on_duplicate_member() {
         // Duplicate name on rhs → by-name pairing is ambiguous; fall back to
         // total-count positional zip.
         let lhs = vec![pt("a.1", Some("X")), pt("a.2", Some("Y"))];
@@ -633,7 +633,7 @@ mod expand_match_tests {
     }
 
     #[test]
-    fn by_name_skips_on_missing_name() {
+    fn mat_expand__by_name_skips_on_missing_name() {
         // Any point missing a member name → fall back to total-count.
         let lhs = vec![pt("a.1", Some("X")), pt("a.2", None)];
         let rhs = vec![pt("b.1", Some("X")), pt("b.2", Some("Y"))];
@@ -644,7 +644,7 @@ mod expand_match_tests {
     // ── §7 rule 1: names unique and one-to-one → keep lhs order ──
 
     #[test]
-    fn by_name_unique_matching_preserves_lhs_order() {
+    fn mat_expand__by_name_unique_matching_preserves_lhs_order() {
         // Names unique and one-to-one on both sides → rule 1 pairs in lhs
         // order (deterministic). The old implementation
         // (try_match_by_member_name) iterated a HashMap and produced random
@@ -664,7 +664,7 @@ mod expand_match_tests {
     // ── §11.3 rule 1: partial name match → by-name first, positional fallback ──
 
     #[test]
-    fn partial_by_name_then_positional_fallback() {
+    fn mat_expand__partial_by_name_then_positional_fallback() {
         // Only some names match (SPI-like: lhs declares SCLK/MOSI/CSN/MISO,
         // rhs carries CS/SCLK/MISO/MOSI). Name matches are paired by name,
         // the unmatched CSN/CS pair positionally; output stays in lhs order.
@@ -699,7 +699,7 @@ mod expand_match_tests {
     }
 
     #[test]
-    fn partial_by_name_keeps_lhs_order_when_unmatched_first() {
+    fn mat_expand__partial_by_name_keeps_lhs_order_when_unmatched_first() {
         // An unmatched lhs member in front must not reorder later name pairs.
         let lhs = vec![
             pt("l.A", Some("A")),
@@ -724,7 +724,7 @@ mod expand_match_tests {
     // ── §11.3 rule 2: total-count correspondence (positional zip) ──
 
     #[test]
-    fn total_count_by_name_then_positional_fallback() {
+    fn mat_expand__total_count_by_name_then_positional_fallback() {
         // Rule 1 fires with partial matches: GND pairs by name, VDD falls
         // back positionally to VDD_3V3; output stays in lhs declaration order
         // (GND first). The old implementation sorted both sides and zipped.
@@ -741,7 +741,7 @@ mod expand_match_tests {
     }
 
     #[test]
-    fn total_count_positional_without_names() {
+    fn mat_expand__total_count_positional_without_names() {
         // No member names → zip in declaration order.
         let lhs = vec![pt("R1.1", None), pt("R1.2", None)];
         let rhs = vec![pt("R2.1", None), pt("R2.2", None)];
@@ -755,7 +755,7 @@ mod expand_match_tests {
     }
 
     #[test]
-    fn total_count_all_mismatched_signals_d5() {
+    fn mat_expand__total_count_all_mismatched_signals_d5() {
         // No name matches at all → every pair's member names differ → D5 signal.
         let lhs = vec![pt("l.1", Some("A")), pt("l.2", Some("B"))];
         let rhs = vec![pt("r.1", Some("C")), pt("r.2", Some("D"))];
@@ -766,7 +766,7 @@ mod expand_match_tests {
     // ── §7 rule 3: count mismatch → None (implicit expansion forbidden) ──
 
     #[test]
-    fn count_mismatch_returns_none() {
+    fn mat_expand__count_mismatch_returns_none() {
         let lhs = vec![pt("a.1", Some("X")), pt("a.2", Some("Y"))];
         let rhs = vec![
             pt("b.1", Some("X")),
@@ -778,7 +778,7 @@ mod expand_match_tests {
     }
 
     #[test]
-    fn empty_side_returns_none() {
+    fn mat_expand__empty_side_returns_none() {
         assert!(expand_match(&[], &[pt("a.1", None)]).is_none());
     }
 }
@@ -933,7 +933,7 @@ mod inst_scope_tests {
     /// P1 func-bindings scope: a bound param name resolves to a `NetPoint`
     /// owned by the expanded instance; unknown names miss.
     #[test]
-    fn func_bindings_scope_resolves_bound_param() {
+    fn mat_expand__func_bindings_scope_resolves_bound_param() {
         // Pin table holds "VDD" only — the param name "net" does not collide,
         // so no shadow diagnostic is emitted.
         let inst = comp_inst_with_pins("U1", &[("VDD", IOType::Power)]);
@@ -947,7 +947,7 @@ mod inst_scope_tests {
 
     /// P2 instance-pins scope: reads the instance pin table directly.
     #[test]
-    fn instance_pins_scope_resolves_pin() {
+    fn mat_expand__instance_pins_scope_resolves_pin() {
         let mut pins = HashMap::new();
         pins.insert("VDD".to_string(), np("U1.VDD"));
         let scope = InstancePinsScope::new(&pins);
@@ -958,7 +958,7 @@ mod inst_scope_tests {
 
     /// P3 parent-labels scope: reads the parent module label table.
     #[test]
-    fn parent_labels_scope_resolves_label() {
+    fn mat_expand__parent_labels_scope_resolves_label() {
         let mut labels = HashMap::new();
         labels.insert("N_5V".to_string(), np("N_5V"));
         let scope = ParentLabelsScope::new(&labels);
@@ -969,7 +969,7 @@ mod inst_scope_tests {
 
     /// P3 parent-ports scope: a port resolves to its stored `NetPoint`.
     #[test]
-    fn parent_ports_scope_resolves_port() {
+    fn mat_expand__parent_ports_scope_resolves_port() {
         let ports = vec![PortInst::new("CLK", IOType::Out)];
         let scope = ParentPortsScope::new(&ports);
         let hit = scope.resolve("CLK").expect("port should resolve");
@@ -981,7 +981,7 @@ mod inst_scope_tests {
 
     /// Component pins resolve to a terminal `InstEntry::Port`.
     #[test]
-    fn component_pins_scope_resolves_port_entry() {
+    fn mat_expand__component_pins_scope_resolves_port_entry() {
         let inst = comp_inst_with_pins("R1", &[("1", IOType::None), ("2", IOType::None)]);
         let scope = ComponentPinsScope::new(&inst.pins);
         match scope.resolve("1").expect("pin should resolve") {
@@ -993,7 +993,7 @@ mod inst_scope_tests {
 
     /// Module ports resolve to a terminal `InstEntry::Port`.
     #[test]
-    fn module_ports_scope_resolves_port_entry() {
+    fn mat_expand__module_ports_scope_resolves_port_entry() {
         let ports = vec![PortInst::new("VOUT", IOType::Out)];
         let scope = ModulePortsScope::new(&ports);
         match scope.resolve("VOUT").expect("port should resolve") {
@@ -1005,7 +1005,7 @@ mod inst_scope_tests {
 
     /// Module labels resolve to a terminal `InstEntry::Label`.
     #[test]
-    fn module_labels_scope_resolves_label_entry() {
+    fn mat_expand__module_labels_scope_resolves_label_entry() {
         let mut labels = HashMap::new();
         labels.insert("N_VDD".to_string(), np("N_VDD"));
         let scope = ModuleLabelsScope::new(&labels);
@@ -1018,7 +1018,7 @@ mod inst_scope_tests {
 
     /// Module components resolve to a recursive `InstEntry::Component` arc.
     #[test]
-    fn module_components_scope_resolves_component_entry() {
+    fn mat_expand__module_components_scope_resolves_component_entry() {
         let components = vec![Rc::new(comp_inst_with_pins("R1", &[("1", IOType::None)]))];
         let scope = ModuleComponentsScope::new(&components);
         match scope.resolve("R1").expect("component should resolve") {
@@ -1030,7 +1030,7 @@ mod inst_scope_tests {
 
     /// Module sub-modules resolve to a recursive `InstEntry::SubModule` arc.
     #[test]
-    fn module_sub_modules_scope_resolves_submodule_entry() {
+    fn mat_expand__module_sub_modules_scope_resolves_submodule_entry() {
         let sub = McModuleInst::new("mcu513", Arc::new(McModule::test_stub("mcu")));
         let sub_modules = vec![Rc::new(sub)];
         let scope = ModuleSubModulesScope::new(&sub_modules);
@@ -1044,7 +1044,7 @@ mod inst_scope_tests {
     /// Module buses expand to the member `NetPoint`s via the label table;
     /// a member with no label entry is silently skipped.
     #[test]
-    fn module_buses_scope_resolves_members_from_labels() {
+    fn mat_expand__module_buses_scope_resolves_members_from_labels() {
         let mut buses = HashMap::new();
         buses.insert(
             "power".to_string(),
@@ -1080,7 +1080,7 @@ mod inst_scope_tests {
     /// The overlay chain resolver descends `U1` → pin `VDD` through the
     /// store-backed component category (Phase C S3).
     #[test]
-    fn overlay_chain_resolves_component_pin() {
+    fn mat_expand__overlay_chain_resolves_component_pin() {
         let mut m = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));
         let (arena, inst_store) = store_fixture(
             &mut m,
@@ -1108,7 +1108,7 @@ mod inst_scope_tests {
     /// `components` resolves to the port; the label category comes from the
     /// scratch overlay.
     #[test]
-    fn overlay_chain_priority_ports_over_components() {
+    fn mat_expand__overlay_chain_priority_ports_over_components() {
         let mut m = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));
         m.ports.push(PortInst::new("SIG", IOType::InOut));
         let (arena, inst_store) = store_fixture(
@@ -1154,7 +1154,7 @@ mod inst_scope_tests {
     /// arbitrary DOT depth; the sub-module descent reads its overlay from the
     /// store fragment.
     #[test]
-    fn overlay_chain_reaches_submodule_port() {
+    fn mat_expand__overlay_chain_reaches_submodule_port() {
         let mut sub = McModuleInst::new("mcu513", Arc::new(McModule::test_stub("mcu")));
         sub.ports.push(PortInst::new("VDD", IOType::Power));
         let mut m = McModuleInst::new("main", Arc::new(McModule::test_stub("main")));

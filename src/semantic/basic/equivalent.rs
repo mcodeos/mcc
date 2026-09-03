@@ -79,7 +79,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn member_set_single_index_vector() {
+    fn sem_equiv__member_set_single_index_vector() {
         assert_eq!(
             member_set(&McIds::from("c[1:2]")),
             Some(vec!["c1".into(), "c2".into()])
@@ -87,7 +87,7 @@ mod tests {
     }
 
     #[test]
-    fn member_set_single_member_is_set_of_one() {
+    fn sem_equiv__member_set_single_member_is_set_of_one() {
         assert_eq!(
             member_set(&McIds::from("res[4]")),
             Some(vec!["res4".into()])
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn member_set_embedded_member_slice() {
+    fn sem_equiv__member_set_embedded_member_slice() {
         // `XTAL.X[1:2]` — member after a dotted prefix.
         assert_eq!(
             member_set(&McIds::from("XTAL.X[1:2]")),
@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn member_set_matrix_row_major() {
+    fn sem_equiv__member_set_matrix_row_major() {
         // Nested combination: outer index first (row-major, §11.2).
         assert_eq!(
             member_set(&McIds::from("S[1:2][L,R]")),
@@ -113,12 +113,12 @@ mod tests {
     }
 
     #[test]
-    fn member_set_plain_name_is_singleton() {
+    fn sem_equiv__member_set_plain_name_is_singleton() {
         assert_eq!(member_set(&McIds::from("gnd")), Some(vec!["gnd".into()]));
     }
 
     #[test]
-    fn member_set_from_str_curly_pipe() {
+    fn sem_equiv__member_set_from_str_curly_pipe() {
         assert_eq!(
             member_set_from_str("Q1{S|D}"),
             Some(vec!["Q1.S".into(), "Q1.D".into()])
@@ -126,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn member_set_from_str_curly_mixed_separators() {
+    fn sem_equiv__member_set_from_str_curly_mixed_separators() {
         assert_eq!(
             member_set_from_str("X{SPI,MIC|DAC_OUT}"),
             Some(vec!["X.SPI".into(), "X.MIC".into(), "X.DAC_OUT".into()])
@@ -134,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn member_set_from_str_escaped_member() {
+    fn sem_equiv__member_set_from_str_escaped_member() {
         assert_eq!(
             member_set_from_str("usbsock.USB.D\\+"),
             Some(vec!["usbsock.USB.D+".into()])
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn member_set_from_str_curly_slice_expands_range() {
+    fn sem_equiv__member_set_from_str_curly_slice_expands_range() {
         // R12: `IO0{0:7}` (real corpus: pca9555.mc) expands to the 8 members,
         // matching the AST Curly+Slice branch — not a literal "0:7" member.
         assert_eq!(
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn member_set_from_str_curly_slice_descending() {
+    fn sem_equiv__member_set_from_str_curly_slice_descending() {
         // Declaration direction is authoritative: `4:1` yields [4,3,2,1].
         assert_eq!(
             member_set_from_str("X{4:1}"),
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn member_set_from_str_curly_slice_mixed_with_enum() {
+    fn sem_equiv__member_set_from_str_curly_slice_mixed_with_enum() {
         // Slices and enumerated members mix in one group, in writing order.
         assert_eq!(
             member_set_from_str("P{1,3:5}"),
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_display_curly_is_structural() {
+    fn sem_equiv__parse_display_curly_is_structural() {
         // The string front-end now parses `Q1{S|D}` into a base `Ida` run
         // plus a `Curly` member group — the same tree shape the AST front
         // end builds — instead of a single flat Ida that a text post-pass
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_display_curly_slice_is_slice_segment() {
+    fn sem_equiv__parse_display_curly_slice_is_slice_segment() {
         // R12 numeric slice `{0:7}` is a structural `Slice` inside the curly
         // group; expand later yields the interval in declaration order.
         let ids = parse_display("IO0{0:7}");
@@ -233,14 +233,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_display_empty_curly_yields_no_members() {
+    fn sem_equiv__parse_display_empty_curly_yields_no_members() {
         // An empty curly body removes the whole name (keeps the `dc{}`
         // param-name fallback in scope.rs a plain Label).
         assert_eq!(member_set_from_str("dc{}"), None);
     }
 
     #[test]
-    fn parse_display_escaped_brace_stays_literal() {
+    fn sem_equiv__parse_display_escaped_brace_stays_literal() {
         // An escaped brace is a literal character, not a curly group — the
         // AST would never see a group there, and neither should the string
         // port (the old text pass split it only because escapes were already
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_single_bare_only() {
+    fn sem_equiv__canonical_single_bare_only() {
         assert_eq!(canonical_single(&McIds::from("gnd")), Some("gnd".into()));
         // Dotted member is not a bare identifier.
         assert_eq!(canonical_single(&McIds::from("A.m")), None);
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn are_equivalent_compares_member_sets() {
+    fn sem_equiv__are_equivalent_compares_member_sets() {
         assert!(are_equivalent(&McIds::from("c[1:2]"), &McIds::from("c1,c2")) == false);
         assert!(are_equivalent(&McIds::from("res[4]"), &McIds::from("res4")));
     }

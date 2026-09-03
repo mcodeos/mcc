@@ -1835,7 +1835,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_register_and_lookup() {
+    fn mat_insttab__register_and_lookup() {
         let mut table = InstTable::new(1000);
         let id = table.register_simple(
             "main".into(),
@@ -1850,7 +1850,7 @@ mod tests {
     }
 
     #[test]
-    fn test_no_duplicate_registration() {
+    fn mat_insttab__no_duplicate_registration() {
         let mut table = InstTable::new(1000);
         let id1 = table.register_simple(
             "main".into(),
@@ -1871,7 +1871,7 @@ mod tests {
     }
 
     #[test]
-    fn test_children_of() {
+    fn mat_insttab__children_of() {
         let mut table = InstTable::new(1000);
         let parent = table.register_simple(
             "main".into(),
@@ -1907,7 +1907,7 @@ mod tests {
     }
 
     #[test]
-    fn test_id_uniqueness() {
+    fn mat_insttab__id_uniqueness() {
         let mut table = InstTable::new(1000);
         table.register_simple("a".into(), InstKind::Module, None, "A".into(), IOType::None);
         table.register_simple("b".into(), InstKind::Module, None, "B".into(), IOType::None);
@@ -1929,7 +1929,7 @@ mod tests {
     /// `flatten_nets` only tried `main.power.VCC` and `power.VCC`, both miss,
     /// causing the point to be silently lost in the flat netlist.
     #[test]
-    fn test_resolve_bus_member_path_fallback() {
+    fn mat_insttab__resolve_bus_member_path_fallback() {
         let mut table = InstTable::new(1000);
         let m = table.register_simple(
             "main".into(),
@@ -1964,7 +1964,7 @@ mod tests {
     /// Plain component pin path still hits from step (1), fallback does not
     /// change existing behavior
     #[test]
-    fn test_resolve_plain_dot_path_still_works() {
+    fn mat_insttab__resolve_plain_dot_path_still_works() {
         let mut table = InstTable::new(1000);
         let m = table.register_simple(
             "main".into(),
@@ -1994,7 +1994,7 @@ mod tests {
 
     /// Top-level port `VCC` (without prefix) should be hit by step (2)
     #[test]
-    fn test_resolve_top_level_port_no_prefix() {
+    fn mat_insttab__resolve_top_level_port_no_prefix() {
         let mut table = InstTable::new(1000);
         let m = table.register_simple(
             "main".into(),
@@ -2017,7 +2017,7 @@ mod tests {
 
     /// Bracket expansion: `sub.[A, B]` should be resolved into two independent IDs
     #[test]
-    fn test_resolve_bracket_list_expands() {
+    fn mat_insttab__resolve_bracket_list_expands() {
         let mut table = InstTable::new(1000);
         let m = table.register_simple(
             "main".into(),
@@ -2055,7 +2055,7 @@ mod tests {
     /// Bracket partial hit: missed members are silently skipped, hit members
     /// retain original order
     #[test]
-    fn test_resolve_bracket_partial_miss() {
+    fn mat_insttab__resolve_bracket_partial_miss() {
         let mut table = InstTable::new(1000);
         let m = table.register_simple(
             "main".into(),
@@ -2086,7 +2086,7 @@ mod tests {
 
     /// Unregistered path returns empty Vec (no panic, no polluting reverse index)
     #[test]
-    fn test_resolve_missing_path_returns_empty() {
+    fn mat_insttab__resolve_missing_path_returns_empty() {
         let mut table = InstTable::new(1000);
         table.register_simple(
             "main".into(),
@@ -2101,7 +2101,7 @@ mod tests {
 
     /// Syntax test cases for expand_bracket_list (kept in sync with mc_vec_builder side)
     #[test]
-    fn test_expand_bracket_list_syntax() {
+    fn mat_insttab__expand_bracket_list_syntax() {
         assert_eq!(
             expand_bracket_list("moddcdc.[VDD_3V3, GND]"),
             Some(vec!["moddcdc.VDD_3V3".into(), "moddcdc.GND".into()])

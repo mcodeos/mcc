@@ -906,7 +906,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn structured_check() {
+    fn cli_output__structured_check() {
         assert!(OutputFormat::Json.is_structured());
         assert!(OutputFormat::JsonPretty.is_structured());
         assert!(OutputFormat::Yaml.is_structured());
@@ -914,7 +914,7 @@ mod tests {
     }
 
     #[test]
-    fn text_renders_minimal_envelope() {
+    fn cli_output__text_renders_minimal_envelope() {
         let e = Envelope::ok(CommandResult {
             command: "mcc load".into(),
             workspace: WorkspaceRef::project("test"),
@@ -929,7 +929,7 @@ mod tests {
     }
 
     #[test]
-    fn text_renders_error() {
+    fn cli_output__text_renders_error() {
         let e = Envelope::err(RpcError::parse_error("bad"));
         let s = render_envelope_text(&e, false);
         assert!(s.contains("✗ Error"));

@@ -397,7 +397,7 @@ mod tests {
     /// §8.9.2 fine-net shape now serializes `dir`, aligned with coarse
     /// port_trunks and member lanes (which already emit it).
     #[test]
-    fn fine_net_shape_serializes_dir() {
+    fn vec_json__fine_net_shape_serializes_dir() {
         let rtl = shape_json(ConnDir::RtoL);
         assert!(
             rtl.contains("\"dir\": \"<-\""),

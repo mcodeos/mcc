@@ -7,11 +7,13 @@
 // only handles MCAST_INT/MCAST_UNIT_INT and returns None — so `key = 0xFF`
 // attributes vanished without any diagnostic.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 const SOURCE: &str = r#"
 component HEXT (pin = P1)
@@ -31,11 +33,8 @@ module main
 
 /// Load `SOURCE`, build `main`, and return the stringified `key`/`mask` attrs.
 fn load_attrs() -> Vec<(String, String)> {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/hex-literal.mc".to_string();
     mcc::mcc_load_from_string(&uri, SOURCE);
@@ -43,7 +42,6 @@ fn load_attrs() -> Vec<(String, String)> {
     result.expect("build failed");
 
     let cmie = mcc::get_def(&McIds::from("HEXT"), &uri).expect("HEXT definition not found");
-    drop(lock);
 
     let mcc::McCMIE::Component(comp) = cmie else {
         panic!("HEXT is not a Component");
@@ -63,7 +61,7 @@ fn load_attrs() -> Vec<(String, String)> {
 }
 
 #[test]
-fn hex_attributes_are_preserved() {
+fn def_hexattr__hex_attributes_are_preserved() {
     let attrs = load_attrs();
 
     let key = attrs

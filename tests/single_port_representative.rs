@@ -12,26 +12,20 @@
 //
 // NOTE: These tests share global mcc state, so a mutex serializes them.
 
+mod common;
+
 use mcc::{McIds, McURI};
 use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
-
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 /// Helper: acquire lock, load source, build module, return instance.
 fn build(source: &str) -> mcc::McModuleInst {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
 
     let uri: McURI = "/mcc/single-port-representative.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
     let result = mcc::mcc_build(&McIds::from("main"), &uri);
 
-    drop(lock);
     result.expect("build failed")
 }
 

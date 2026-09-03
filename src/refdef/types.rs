@@ -606,7 +606,7 @@ mod tests {
     /// deterministic policy (P3 > P4 > P5, enum family before class,
     /// def-location tiebreaks), never registration order.
     #[test]
-    fn name_index_keeps_all_candidates_and_winner_is_deterministic() {
+    fn svc_types__name_index_keeps_all_candidates_and_winner_is_deterministic() {
         let mut map = RefDefMap::new();
         let f = uri("/mcc/t10.mc");
 

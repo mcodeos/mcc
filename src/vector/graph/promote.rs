@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inter_box_kept_intra_dropped() {
+    fn vec_promote__inter_box_kept_intra_dropped() {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_box(1, BoxKind::SubModule));
         g.boxes.push(mk_box(2, BoxKind::SubModule));
@@ -337,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_in_place_signal_promoted_to_submodule_io() {
+    fn vec_promote__apply_in_place_signal_promoted_to_submodule_io() {
         // ★ P08 (S4): kind=Signal cross-module net still downgrades to SubModuleIO
         // (because merge_net_kinds rule 4: SubModuleIO is more specific than Signal)
         let mut g = McVecGraph::new(0, "main".into());
@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_in_place_preserves_power_kind() {
+    fn vec_promote__apply_in_place_preserves_power_kind() {
         // ★ P08 (S4): kind=Power cross-module net remains Power after promotion, no longer overridden
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_box(1, BoxKind::SubModule));
@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_in_place_preserves_ground_kind() {
+    fn vec_promote__apply_in_place_preserves_ground_kind() {
         // ★ P08 (S4): Ground same as above
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_box(1, BoxKind::SubModule));
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_in_place_preserves_bus_kind() {
+    fn vec_promote__apply_in_place_preserves_bus_kind() {
         // ★ P08 (S4): Bus same as above
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_box(1, BoxKind::SubModule));
@@ -403,7 +403,7 @@ mod tests {
     // ============================================================================
 
     #[test]
-    fn merge_power_wins_over_submodule_io() {
+    fn vec_promote__merge_power_wins_over_submodule_io() {
         assert_eq!(
             merge_net_kinds(NetKind::Power, NetKind::SubModuleIO),
             NetKind::Power
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_power_wins_over_signal() {
+    fn vec_promote__merge_power_wins_over_signal() {
         assert_eq!(
             merge_net_kinds(NetKind::Power, NetKind::Signal),
             NetKind::Power
@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_ground_wins_over_submodule_io() {
+    fn vec_promote__merge_ground_wins_over_submodule_io() {
         assert_eq!(
             merge_net_kinds(NetKind::Ground, NetKind::SubModuleIO),
             NetKind::Ground
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_power_wins_over_ground() {
+    fn vec_promote__merge_power_wins_over_ground() {
         // Edge case: shouldn't happen (a net is both power and ground),
         // but rule is consistent: Power ranks above Ground
         assert_eq!(
@@ -445,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_bus_wins_over_signal_and_submodule_io() {
+    fn vec_promote__merge_bus_wins_over_signal_and_submodule_io() {
         assert_eq!(
             merge_net_kinds(NetKind::Bus(4), NetKind::Signal),
             NetKind::Bus(4)
@@ -462,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_signal_with_submodule_io_yields_submodule_io() {
+    fn vec_promote__merge_signal_with_submodule_io_yields_submodule_io() {
         // Rule 4: SubModuleIO is more specific than Signal
         assert_eq!(
             merge_net_kinds(NetKind::Signal, NetKind::SubModuleIO),
@@ -471,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_signal_signal_yields_signal() {
+    fn vec_promote__merge_signal_signal_yields_signal() {
         assert_eq!(
             merge_net_kinds(NetKind::Signal, NetKind::Signal),
             NetKind::Signal
@@ -479,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_submodule_io_submodule_io_yields_submodule_io() {
+    fn vec_promote__merge_submodule_io_submodule_io_yields_submodule_io() {
         assert_eq!(
             merge_net_kinds(NetKind::SubModuleIO, NetKind::SubModuleIO),
             NetKind::SubModuleIO
@@ -487,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn test_recursive_apply() {
+    fn vec_promote__recursive_apply() {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_box(1, BoxKind::SubModule));
         g.boxes.push(mk_box(2, BoxKind::SubModule));

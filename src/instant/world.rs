@@ -552,7 +552,7 @@ mod tests {
     /// is a different net object (the old label's net is removed, the new one
     /// added), while an unlabeled net matches by overlap.
     #[test]
-    fn net_deltas_match_labeled_by_label_and_unlabeled_by_overlap() {
+    fn dlu_world__net_deltas_match_labeled_by_label_and_unlabeled_by_overlap() {
         let a = vec![snap(Some("VDD"), &[1, 2, 3])];
         let b = vec![snap(Some("VDD"), &[1, 2, 4])];
         let d = net_deltas(&a, &b);
@@ -621,7 +621,7 @@ mod tests {
 
     /// Checkpoint capture + diff: added / removed nodes are reported by path.
     #[test]
-    fn diff_checkpoints_report_node_add_and_remove() {
+    fn dlu_world__diff_checkpoints_report_node_add_and_remove() {
         let mut reg = IdentityRegistry::new(key());
         let a = reg.intern("main.c1");
         let b = reg.intern("main.c2");
@@ -652,7 +652,7 @@ mod tests {
     /// Semantic equivalence ignores labels: the same membership set with a
     /// renamed label is equivalent ("rename not definition").
     #[test]
-    fn canonical_membership_ignores_labels() {
+    fn dlu_world__canonical_membership_ignores_labels() {
         let a = CircuitCheckpoint {
             version: 1,
             alive_nodes: vec![

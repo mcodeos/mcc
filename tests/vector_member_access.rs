@@ -9,19 +9,16 @@
 //! per-lane in Pass2: `c[1:2].1 - c[1:2].2` pairs c1.1~c1.2 and c2.1~c2.2,
 //! never cross-paired.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+mod common;
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+use mcc::{McIds, McURI};
 
 const CAP_COMP: &str = "component CAP(cap::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([n1, n2]) {\n        n1 - this - n2\n    }\n}\n";
 
 /// Build `main`, return the diagnostic codes (sorted).
 fn codes(src: &str, uri: &str) -> Vec<u32> {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let u = McURI::from(uri);
     mcc::mcc_load_from_string(&u, src);
     let _ = mcc::mcc_build(&McIds::from("main"), &u);
@@ -32,10 +29,8 @@ fn codes(src: &str, uri: &str) -> Vec<u32> {
 
 /// Build `main` with nets, returning the frozen net-table store.
 fn build_net_store(src: &str, uri: &str) -> Vec<(String, Vec<String>)> {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let u = McURI::from(uri);
     mcc::mcc_load_from_string(&u, src);
     let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");

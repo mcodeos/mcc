@@ -179,7 +179,7 @@ mod tests {
     // ---- §5.2 series (`-` / `->` / `<-`) ----
 
     #[test]
-    fn series_node_node_ok() {
+    fn sem_opcheck__series_node_node_ok() {
         // node 1*1 - node 1*1
         assert!(matches!(
             check_series(&point("A"), &point("B")),
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn series_column_column_ok() {
+    fn sem_opcheck__series_column_column_ok() {
         // column N*1 - column N*1 (same rows N)
         assert!(matches!(
             check_series(
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn series_asym_node_column_ok() {
+    fn sem_opcheck__series_asym_node_column_ok() {
         // node M*1,N*1 - column N*1: right N == left N
         assert!(matches!(
             check_series(
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn series_broadcast_illegal() {
+    fn sem_opcheck__series_broadcast_illegal() {
         // `1*1` vs `N*1` (single-point broadcast `X -> [A, B]` / `[A, B] -> GND`)
         // is not a §5 series combo and no broadcast is allowed: a 1-row point
         // must connect to another 1-row point.
@@ -233,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn series_rows_mismatch_illegal() {
+    fn sem_opcheck__series_rows_mismatch_illegal() {
         // column 2*1 - column 3*1: not a §5 combo, no broadcast (both >= 2).
         assert_eq!(
             check_series(&column(&["A", "B"]), &column(&["C", "D", "E"])),
@@ -245,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn series_unknown_wildcard() {
+    fn sem_opcheck__series_unknown_wildcard() {
         assert!(matches!(
             check_series(&OpdShape::Unknown, &column(&["A", "B", "C", "D"])),
             OpCheck::Legal(_)
@@ -259,7 +259,7 @@ mod tests {
     // A `return <expr>` FuncCall is `Node([], right)`: its left contact side is
     // empty, which opcheck treats as a Deferred wildcard (vec-arch.md §5.3).
     #[test]
-    fn series_empty_left_contact_wildcard() {
+    fn sem_opcheck__series_empty_left_contact_wildcard() {
         let ret = node(&[], &["OUT"]);
         assert_eq!(ret.size_left(), 0);
         assert!(matches!(check_series(&point("X"), &ret), OpCheck::Legal(_)));
@@ -268,7 +268,7 @@ mod tests {
     // ---- §5.1 parallel (`+`) ----
 
     #[test]
-    fn parallel_node_node_ok() {
+    fn sem_opcheck__parallel_node_node_ok() {
         // node 1*1 + node 1*1
         assert!(matches!(
             check_parallel(&point("A"), &point("B"), ParallelAlign::Left),
@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn parallel_column_column_ok() {
+    fn sem_opcheck__parallel_column_column_ok() {
         // column N*1 + column N*1 (same rows N)
         assert!(matches!(
             check_parallel(
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn parallel_left_mismatch_illegal() {
+    fn sem_opcheck__parallel_left_mismatch_illegal() {
         // node 1*1 + column 2*1 fails left alignment — not a §5 combo.
         assert_eq!(
             check_parallel(&point("A"), &column(&["B", "C"]), ParallelAlign::Left),
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn parallel_right_mismatch_illegal() {
+    fn sem_opcheck__parallel_right_mismatch_illegal() {
         // Row vector 1*2 + row vector 1*2 with different right ports: the
         // left ports align (1*1) but the right ports do not (§5.1: both sides
         // carry an independent right port, so the right ports must also align).
@@ -337,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn parallel_unknown_wildcard() {
+    fn sem_opcheck__parallel_unknown_wildcard() {
         assert!(matches!(
             check_parallel(
                 &OpdShape::Unknown,
@@ -359,7 +359,7 @@ mod tests {
     // ---- row-count entry points (Pass2) ----
 
     #[test]
-    fn rows_entry_series() {
+    fn sem_opcheck__rows_entry_series() {
         assert!(matches!(
             check_series_rows(Shape::vvec(2), Shape::vvec(2)),
             OpCheck::Legal(_)
@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn rows_entry_parallel() {
+    fn sem_opcheck__rows_entry_parallel() {
         assert!(matches!(
             check_parallel_rows(Shape::vvec(2), Shape::vvec(2), ParallelAlign::Left),
             OpCheck::Legal(_)
@@ -402,7 +402,7 @@ mod tests {
     /// expansion through as `vvec(0)`. The explicit guard is what keeps the
     /// `Error` state distinct from `Deferred`.
     #[test]
-    fn tri_state_semantics() {
+    fn sem_opcheck__tri_state_semantics() {
         // Known(n): equal rows legal, unequal rows illegal.
         assert!(matches!(
             check_series(&column(&["A", "B"]), &column(&["C", "D"])),

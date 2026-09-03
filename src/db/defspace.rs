@@ -143,7 +143,7 @@ impl<'a> DefinitionSpace<'a> {
     // T3 (bounded close-out): every definition read below goes through the
     // registry of the world this `DefinitionSpace` was built over — never the
     // process-global one — so an isolated workspace's view cannot leak into
-    // another world (regression: `isolated_worlds_do_not_leak_definitions`).
+    // another world (regression: `def_space__isolated_worlds_do_not_leak_definitions`).
 
     /// Look up a component by its `McSpaceName`. Precedence is
     /// registry-internal (design §12.4 rule 1): the workspace def shadows a
@@ -466,11 +466,11 @@ mod tests {
     /// isolated [`WorkspaceManager`] instead — each owns its own registry
     /// (`workspace.registry()`), and reads through the view never touch the
     /// process-global one. The one deliberate exception is
-    /// `unified_get_component_is_workspace_first_then_global` below, which pins
+    /// `def_space__unified_get_component_is_workspace_first_then_global` below, which pins
     /// the active-world (production) path: it runs under `MCC_TEST_PARSE_LOCK`
     /// and removes its dedicated key on drop.
     #[test]
-    fn manifest_accessors_read_a_definition_space() {
+    fn def_space__manifest_accessors_read_a_definition_space() {
         let wm = WorkspaceManager::new();
         wm.sources
             .insert(uri("/mcc/proj.mc"), SourceDomain::Project);
@@ -509,7 +509,7 @@ mod tests {
     /// semantic-token reads reach file content through the definition space,
     /// not the `mcodes` / `reverse_deps` tables directly.
     #[test]
-    fn source_content_and_reverse_deps_read_through_the_view() {
+    fn def_space__source_content_and_reverse_deps_read_through_the_view() {
         let wm = WorkspaceManager::new();
         wm.mcodes.insert(uri("/mcc/a.mc"), McCode::new_empty());
         wm.reverse_deps
@@ -535,7 +535,7 @@ mod tests {
     /// workspace — the def constructors need a parsed `AstNode`, which has no
     /// place in these global-free unit tests.)
     #[test]
-    fn unified_lookup_is_empty_over_an_empty_workspace() {
+    fn def_space__unified_lookup_is_empty_over_an_empty_workspace() {
         let wm = WorkspaceManager::new();
         let ds = DefinitionSpace::of(&wm);
         let sn = McSpaceName::new(&McIds::from("main"), uri("/mcc/proj.mc"));
@@ -556,12 +556,12 @@ mod tests {
     /// `WORKSPACE`, so the reads bind to that same world through
     /// `definition_space()` — the one call surface the T3 bounded close-out
     /// leaves process-global by design. Reads over a constructed world go to
-    /// that world's own registry (`isolated_worlds_do_not_leak_definitions`).
+    /// that world's own registry (`def_space__isolated_worlds_do_not_leak_definitions`).
     /// The key is dedicated and removed on drop: the process-global state is
     /// shared with the parallel mc_code / buildcmd tests, so no residue may
     /// remain.
     #[test]
-    fn unified_get_component_is_workspace_first_then_global() {
+    fn def_space__unified_get_component_is_workspace_first_then_global() {
         use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
 
@@ -702,7 +702,7 @@ mod tests {
     /// active world), which makes these asserts fail deterministically: the
     /// worlds hold unique keys the process-global registry never contains.
     #[test]
-    fn isolated_worlds_do_not_leak_definitions() {
+    fn def_space__isolated_worlds_do_not_leak_definitions() {
         let wm_a = WorkspaceManager::new();
         let wm_b = WorkspaceManager::new();
 

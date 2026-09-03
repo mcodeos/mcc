@@ -576,7 +576,7 @@ mod tests {
     /// The three kinds share one counter map keyed differently, so each kind's
     /// counter must be isolated from the others (cross-kind independence).
     #[test]
-    fn auto_name_sequence_lock() {
+    fn mat_aname__sequence_lock() {
         // P0.5 lock: drive `auto_name` through the builder (the counters moved
         // out of `McModuleInst` into `InstantiationBuilder` with the tree still
         // reachable via Deref) — the sequences below must stay byte-identical.

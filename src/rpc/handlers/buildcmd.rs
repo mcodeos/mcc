@@ -316,7 +316,7 @@ mod tests {
     /// "virtually instantiated" (mcd docs-mc 16-export-viz §6) and rendered as
     /// an IC with its physical pins; the fabricated instance name is hidden.
     #[test]
-    fn build_viz_component_only_file() {
+    fn cli_buildcmd__build_viz_component_only_file() {
         let _guard = parse_lock();
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -354,7 +354,7 @@ component HUM011D_5_S
     /// must not leak its fabricated instance name (`u_1`) as the designator
     /// label — the resistor symbol renders with the class name instead.
     #[test]
-    fn build_viz_two_pin_passive_hides_u1() {
+    fn cli_buildcmd__build_viz_two_pin_passive_hides_u1() {
         let _guard = parse_lock();
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -388,7 +388,7 @@ component RES
 
     /// Multiple peer modules in one file are all rendered and combined.
     #[test]
-    fn build_viz_multi_module_file() {
+    fn cli_buildcmd__build_viz_multi_module_file() {
         let _guard = parse_lock();
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -409,7 +409,7 @@ component RES
     /// (incl. subfolders), Pass1 covers all files, Pass2 builds each file's
     /// default top, and the envelope carries the first successful tree.
     #[test]
-    fn build_full_directory_batch() {
+    fn cli_buildcmd__build_full_directory_batch() {
         let _guard = parse_lock();
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -468,7 +468,7 @@ component RES
     /// Regression: `build.full` (the "mcc build" envelope) on a component-only
     /// file must succeed with the component as top instead of E32107.
     #[test]
-    fn build_full_component_only_file() {
+    fn cli_buildcmd__build_full_component_only_file() {
         let _guard = parse_lock();
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -501,7 +501,7 @@ component RES
     /// module (mcd docs-mc 16-export-viz §6). The module's component box in
     /// the block diagram must show its pin ids and names (not bare stubs).
     #[test]
-    fn build_viz_module_contains_component_shows_pin_labels() {
+    fn cli_buildcmd__build_viz_module_contains_component_shows_pin_labels() {
         let _guard = parse_lock();
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));
@@ -550,7 +550,7 @@ module TLE7368E(pwr, EN_IGN, EN_UC)
     /// pointer is NULL (the guarded `data_as_cstr` now returns None instead
     /// of dereferencing NULL inside strlen).
     #[test]
-    fn build_viz_tc275_style_constructs() {
+    fn cli_buildcmd__build_viz_tc275_style_constructs() {
         let _guard = parse_lock();
         crate::mcc_init_no_lib();
         crate::mcc_set_system_root(std::path::Path::new(""));

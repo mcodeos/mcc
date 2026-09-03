@@ -925,7 +925,7 @@ mod phase0_golden {
     /// Isolates layout+route determinism; any HashMap-order leak (including in flow.rs)
     /// will surface here.
     #[test]
-    fn determinism_render_twice() {
+    fn cli_build__determinism_render_twice() {
         let Some((root, entry, top)) = hbl_project() else {
             mcc_dbg!(
                 "build",
@@ -945,7 +945,7 @@ mod phase0_golden {
     /// Secondary guard: two independent build+render cycles should also match
     /// (covers build-phase determinism).
     #[test]
-    fn determinism_two_builds() {
+    fn cli_build__determinism_two_builds() {
         let Some((root, entry, top)) = hbl_project() else {
             return;
         };
@@ -960,7 +960,7 @@ mod phase0_golden {
     /// Golden regression: first run (or UPDATE_GOLDEN=1) writes baseline;
     /// subsequent runs compare byte-for-byte.
     #[test]
-    fn golden_roundtrip_hbl() {
+    fn cli_build__golden_roundtrip_hbl() {
         let Some((root, entry, top)) = hbl_project() else {
             return;
         };
@@ -975,13 +975,13 @@ mod phase0_golden {
         let golden = std::fs::read_to_string(&path).unwrap();
         assert_eq!(
             sig, golden,
-            "hbl render changed vs golden. If intended: UPDATE_GOLDEN=1 cargo test golden_roundtrip_hbl"
+            "hbl render changed vs golden. If intended: UPDATE_GOLDEN=1 cargo test cli_build__golden_roundtrip_hbl"
         );
     }
 
     /// Smoke test: metrics accumulation on hbl produces sensible counts.
     #[test]
-    fn metrics_hbl_smoke() {
+    fn cli_build__metrics_hbl_smoke() {
         let Some((root, entry, top)) = hbl_project() else {
             return;
         };
@@ -1071,7 +1071,7 @@ mod d_detectors {
     // ── D1 SORT_HAZARD ─────────────────────────────────────────────────
 
     #[test]
-    fn d1_sort_hazard_non_monotonic_pins() {
+    fn cli_build__d1_sort_hazard_non_monotonic_pins() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // D1 fires when bus pin numbers are non-monotonic.
         // [5,2] = BUS{CLK, DATA} → pin order differs from member order.
@@ -1103,7 +1103,7 @@ module top {
     // ── D2 FLOATING_PLACEHOLDER ─────────────────────────────────────────
 
     #[test]
-    fn d2_floating_placeholder_unbound_lead() {
+    fn cli_build__d2_floating_placeholder_unbound_lead() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = r#"
 module top {
@@ -1121,7 +1121,7 @@ module top {
     // ── D3 MERGED_SHORT ─────────────────────────────────────────────────
 
     #[test]
-    fn d3_merged_short_same_physical_pin() {
+    fn cli_build__d3_merged_short_same_physical_pin() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // D3 fires when two points in the same net resolve to the same id.
         // The bracket expansion [A, A] creates two points both resolving to
@@ -1143,7 +1143,7 @@ module top {
     }
 
     #[test]
-    fn d3_no_fire_for_legit_fanout() {
+    fn cli_build__d3_no_fire_for_legit_fanout() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Fan-out `[P1, P2] -> [G, G]` produces the distinct pairs (P1, G) and
         // (P2, G) — multiple pins merging onto one net is legitimate and must
@@ -1184,7 +1184,7 @@ module top {
     // peer nets together — both are non-blocking warnings.
 
     #[test]
-    fn d5_same_name_group_redundant_ref_warns() {
+    fn cli_build__d5_same_name_group_redundant_ref_warns() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // `spk{GND, GND}` references the same logical net twice and both slots
         // pair to the same peer net (cap.GND) — redundant wiring, warning only.
@@ -1223,7 +1223,7 @@ module top {
     }
 
     #[test]
-    fn d5_same_name_group_short_ref_warns() {
+    fn cli_build__d5_same_name_group_short_ref_warns() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // `spk{GND, GND}` references the same logical net twice but the two
         // slots pair to different peer nets (cap.A1 / cap.A2) — they are
@@ -1258,7 +1258,7 @@ module top {
     }
 
     #[test]
-    fn d5_same_name_group_single_ref_no_warn() {
+    fn cli_build__d5_same_name_group_single_ref_no_warn() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // `spk{GND}` references the 2-pad group once — legal fan-in, no warning.
         let fixture = r#"
@@ -1290,7 +1290,7 @@ module top {
     }
 
     #[test]
-    fn d5_same_name_group_single_side_fan_in_connects_pads() {
+    fn cli_build__d5_same_name_group_single_side_fan_in_connects_pads() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // `spk{GND} -> GND`: one same-name group (`3 = GND; 4 = GND`)
         // referenced once against a 1×1 scalar. Point resolution must see a
@@ -1343,7 +1343,7 @@ module top {
     // ── D5 BUS_ORDER_MISMATCH ───────────────────────────────────────────
 
     #[test]
-    fn d5_bus_order_mismatch_all_pairs() {
+    fn cli_build__d5_bus_order_mismatch_all_pairs() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Two distinct components: PORT_A{A, B} connects to PORT_B{X, Y} with
         // no overlapping member names, so all pairs mismatch positionally.
@@ -1383,7 +1383,7 @@ module top {
     // auto-invoked during instantiate (P2-8), which would mask the gate.
 
     #[test]
-    fn arity_gate_noarg_method_with_args_not_dispatched() {
+    fn cli_build__arity_gate_noarg_method_with_args_not_dispatched() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = r#"
 component CMP {
@@ -1442,7 +1442,7 @@ module top {
     // ── D6 DROPPED_STATEMENT ────────────────────────────────────────────
 
     #[test]
-    fn d6_dropped_statement_indexed_alias() {
+    fn cli_build__d6_dropped_statement_indexed_alias() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // D6 fires when a single-element square bracket expands to an
         // unknown name that is not a known instance.
@@ -1464,7 +1464,7 @@ module top {
     // ── D7 PULLUP_DEGENERATE ────────────────────────────────────────────
 
     #[test]
-    fn d7_pullup_degenerate_signal_bridge() {
+    fn cli_build__d7_pullup_degenerate_signal_bridge() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = r#"
 component RES(rs::UV.OHM) {
@@ -1498,7 +1498,7 @@ module top {
     // `@_phantom_N` (0 connections, silent drop).
 
     #[test]
-    fn d8_array_instance_bracket_reference_relinks() {
+    fn cli_build__d8_array_instance_bracket_reference_relinks() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = r#"
 component CAP {

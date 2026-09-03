@@ -8,6 +8,10 @@
 //! mcode loads automatically in every mode unless `libs.disable_mcode: true`
 //! is set in the project or global config.
 
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Command;
@@ -83,7 +87,7 @@ fn has_mcode_loaded_files(result: &Value) -> bool {
 
 /// Default: mcode auto-loads, so `RES` resolves and mcode files are loaded.
 #[test]
-fn mcode_loads_by_default() {
+fn cli_mcode__loads_by_default() {
     let dir = temp_project("default", false);
     let result = parse_project(&dir);
 
@@ -104,7 +108,7 @@ fn mcode_loads_by_default() {
 /// `libs.disable_mcode: true` is the only opt-out: mcode is not loaded,
 /// so `RES` is unresolved and no mcode files appear.
 #[test]
-fn disable_mcode_skips_mcode() {
+fn cli_mcode__disable_skips_mcode() {
     let dir = temp_project("disabled", true);
     let result = parse_project(&dir);
 

@@ -712,7 +712,7 @@ mod tests {
     /// name like `[key = value]`. Attributes are not net elements, so the
     /// conversion must yield no node while reporting the degradation.
     #[test]
-    fn inline_attrs_param_value_is_not_degraded_to_text_node() {
+    fn mat_subst__inline_attrs_param_value_is_not_degraded_to_text_node() {
         let attr = McAttribute {
             no: 0,
             id: McIds::from("color"),

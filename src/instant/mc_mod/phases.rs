@@ -1538,8 +1538,9 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
         // MOSI in BTreeMap pinid order = declaration order for numeric pinids).
         //
         // Previously falling back to Vec::new() leaves expand_port_lanes without lanes ->
-        // cross sub-module boundary degrades to scalar (1 point) -> 1-vs-N broadcast shorts N
-        // physical pins into the same net (S1 SPI four-wire short).
+        // cross sub-module boundary degrades to scalar (1 point) -> 1-vs-N fan (the
+        // §5.3.1-abolished single-point broadcast) shorts N physical pins into the same
+        // net (S1 SPI four-wire short).
         //
         // Fix: after name-based extraction fails, fall back to iface.base.pins to get names[0]
         // sequence as bus_members. This is consistent with the logic used by

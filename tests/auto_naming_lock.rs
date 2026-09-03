@@ -15,17 +15,18 @@
 //! through the public build API) are locked by the in-crate unit test
 //! `mc_mod::tests::auto_name_sequence_lock`.
 
-use mcc::{McIds, McURI};
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::{McIds, McURI};
 
 /// Build `main` and flatten; return (sorted instance paths, sorted net lines, codes).
 fn build_all(src: &str) -> (Vec<String>, Vec<String>, Vec<u32>) {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let uri = McURI::from("/mcc/auto-name.mc");
     mcc::mcc_load_from_string(&uri, src);
     let (_, table) = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
@@ -52,7 +53,7 @@ const RES_COMP: &str =
     "component RES(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n";
 
 #[test]
-fn auto_naming_normal_sequence_lock() {
+fn mat_aname__normal_sequence_lock() {
     // Two anonymous CAP constructions then one anonymous RES construction ->
     // sequential per-prefix counters: _C1, _C2, then _R1 (RES shares neither
     // the CAP prefix counter nor the ground-label namespace).

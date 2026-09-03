@@ -215,7 +215,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn expected_pins_basic() {
+    fn vec_symbol__expected_pins_basic() {
         assert_eq!(Symbol::Resistor.expected_pins(), Some(2));
         assert_eq!(Symbol::Capacitor.expected_pins(), Some(2));
         assert_eq!(Symbol::PolarCapacitor.expected_pins(), Some(2));
@@ -233,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn is_two_pin_passive_truthy() {
+    fn vec_symbol__is_two_pin_passive_truthy() {
         assert!(Symbol::Resistor.is_two_pin_passive());
         assert!(Symbol::Capacitor.is_two_pin_passive());
         assert!(Symbol::Led.is_two_pin_passive());
@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn from_class_name_canonical_root() {
+    fn vec_symbol__from_class_name_canonical_root() {
         // Scalar library classes.
         assert_eq!(Symbol::from_class_name("RES"), Some(Symbol::Resistor));
         assert_eq!(Symbol::from_class_name("CAP"), Some(Symbol::Capacitor));
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn from_class_name_dotted_root() {
+    fn vec_symbol__from_class_name_dotted_root() {
         // Real registered library classes take their root family.
         assert_eq!(Symbol::from_class_name("RES.SMD"), Some(Symbol::Resistor));
         assert_eq!(Symbol::from_class_name("RES.THT"), Some(Symbol::Resistor));
@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn from_class_name_no_alias_or_variant() {
+    fn vec_symbol__from_class_name_no_alias_or_variant() {
         // Single letters / shorthand aliases are resolved by
         // `naming::canonicalize_class_alias` before flatten — they are not class names here.
         assert_eq!(Symbol::from_class_name("R"), None);
@@ -299,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn from_class_name_negatives() {
+    fn vec_symbol__from_class_name_negatives() {
         assert_eq!(Symbol::from_class_name("MCU"), None);
         assert_eq!(Symbol::from_class_name("FPGA"), None);
         assert_eq!(Symbol::from_class_name(""), None);
@@ -313,14 +313,14 @@ mod tests {
     }
 
     #[test]
-    fn from_class_name_testpoint() {
+    fn vec_symbol__from_class_name_testpoint() {
         assert_eq!(Symbol::from_class_name("TP"), Some(Symbol::TestPoint));
         assert_eq!(Symbol::TestPoint.expected_pins(), Some(1));
         assert!(!Symbol::TestPoint.is_two_pin_passive());
     }
 
     #[test]
-    fn powerrail_predicates() {
+    fn vec_symbol__powerrail_predicates() {
         let p = Symbol::PowerRail { is_ground: false };
         let g = Symbol::PowerRail { is_ground: true };
         assert!(p.is_power_rail());
@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn display() {
+    fn vec_symbol__display() {
         assert_eq!(Symbol::Resistor.to_string(), "resistor");
         assert_eq!(Symbol::Capacitor.to_string(), "capacitor");
         assert_eq!(Symbol::Ic.to_string(), "ic");

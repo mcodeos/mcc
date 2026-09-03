@@ -1,3 +1,7 @@
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
+
 use serde_json::Value;
 use std::fs;
 use std::process::Command;
@@ -32,7 +36,7 @@ module main
 }
 
 #[test]
-fn text_and_json_report_the_union_find_merged_net() {
+fn cli_netreport__text_and_json_report_the_union_find_merged_net() {
     let path = fixture_path();
     let workdir = path.parent().expect("fixture parent");
 

@@ -8,19 +8,18 @@
 // now report NOT_SUPPORTED_YET (2171, formerly E1107) instead of silently
 // ignoring the sub-class name.
 
-use mcc::McIds;
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::McIds;
 
 #[test]
-fn pins_subcls_reports_unsupported() {
-    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+fn sem_pinsubcls__reports_unsupported() {
+    let _lock = common::lock();
+    common::reset();
 
     let uri: mcc::McURI = "/mcc/pins-subcls.mc".to_string();
     let source = r#"
@@ -49,6 +48,4 @@ module main
         "pins.subcls must report NOT_SUPPORTED_YET (not silently drop), got: {:?}",
         diags.iter().filter(|d| d.code == 2171).collect::<Vec<_>>()
     );
-
-    drop(lock);
 }

@@ -20,17 +20,18 @@
 //! E3137 (the orphaned pin is the 41xx unconnected checks' domain). Neither
 //! fires for the other's case.
 
-use mcc::McIds;
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::McIds;
 
 /// Build `main` (pass1 diagnostics only) and return the diagnostic codes.
 fn build_codes(src: &str) -> Vec<u32> {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let uri = "/mcc/gap2-pass1.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build(&McIds::from("main"), &uri);
@@ -41,10 +42,8 @@ fn build_codes(src: &str) -> Vec<u32> {
 
 /// Build `main` and flatten to the InstTable (pass2 + flat net checks logged).
 fn build_flat_codes(src: &str) -> Vec<u32> {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    let _lock = common::lock();
+    common::reset();
     let uri = "/mcc/gap2-flat.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
@@ -64,7 +63,7 @@ fn count(codes: &[u32], code: u32) -> usize {
 /// resolve to nothing at flatten (the last-dot→slash fallback cannot match the
 /// `uC/ADC.P` ghost labels), so it materializes 0 pins → exactly one E4057.
 #[test]
-fn zero_pin_net_reports_gap2_once() {
+fn mat_gap2__zero_pin_net_reports_gap2_once() {
     let src = "module main {\n    func main() {\n        uC.ADC.P -> a.b.c.d\n        uC.ADC.P -> a.b.c.d\n    }\n}";
     let codes = build_flat_codes(src);
     assert_eq!(
@@ -83,7 +82,7 @@ fn zero_pin_net_reports_gap2_once() {
 /// `uC.ADC.P -> VDD`: the net keeps 1 physical point (the VDD port), so it is
 /// a stub, not 0-pin — GAP2 stays quiet. E3137 fires (single-use ghost).
 #[test]
-fn single_use_ghost_stub_is_e3137_not_gap2() {
+fn mat_gap2__single_use_ghost_stub_is_e3137_not_gap2() {
     let src = "module main {\n    io VDD\n    func main() {\n        uC.ADC.P -> VDD\n    }\n}";
     let codes = build_flat_codes(src);
     assert_eq!(
@@ -103,7 +102,7 @@ fn single_use_ghost_stub_is_e3137_not_gap2() {
 /// physical point → no GAP2. The single-use ghost is E3137; the orphaned pin
 /// r1.1 is the 41xx unconnected checks' domain (not asserted here).
 #[test]
-fn ghost_to_real_pin_is_stub_not_gap2() {
+fn mat_gap2__ghost_to_real_pin_is_stub_not_gap2() {
     let src = "component R {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\nmodule main {\n    io VDD\n    io GND\n    R r1\n    uC.ADC.P -> r1.1\n}";
     let codes = build_flat_codes(src);
     assert_eq!(
@@ -123,7 +122,7 @@ fn ghost_to_real_pin_is_stub_not_gap2() {
 /// resolves both to their registered ghost labels, so the net keeps 2 points —
 /// no GAP2. Each ghost is single-use, so E3137 fires twice (one per ghost).
 #[test]
-fn two_resolvable_ghost_labels_are_not_gap2() {
+fn mat_gap2__two_resolvable_ghost_labels_are_not_gap2() {
     let src = "module main {\n    func main() {\n        FOO.BAR -> BAZ.QUX\n    }\n}";
     let codes = build_flat_codes(src);
     assert_eq!(
@@ -140,7 +139,7 @@ fn two_resolvable_ghost_labels_are_not_gap2() {
 
 /// ── Real nets never trigger GAP2 ──────────────────────────────────────────
 #[test]
-fn real_net_is_quiet() {
+fn mat_gap2__real_net_is_quiet() {
     let src = "component CAP(cap::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([n1, n2]) {\n        n1 - this - n2\n    }\n}\nmodule main {\n    io VDD\n    io GND\n    CAP c(1)\n    c.Cap([VDD, GND])\n}";
     let codes = build_flat_codes(src);
     assert_eq!(
@@ -157,7 +156,7 @@ fn real_net_is_quiet() {
 /// otherwise completely silent — no net, no E3137, no 41xx. GAP2 reports the
 /// 0-pin drop at the wiring site.
 #[test]
-fn phantom_only_connection_reports_gap2() {
+fn mat_gap2__phantom_only_connection_reports_gap2() {
     let src = "module main {\n    func main() {\n        res[1:2] -> led[3:4]\n    }\n}";
     let codes = build_flat_codes(src);
     assert_eq!(
@@ -174,7 +173,7 @@ fn phantom_only_connection_reports_gap2() {
 /// is unchanged. (The index form `GPIO[2]` on a fully-undeclared name instead
 /// quarantines as a phantom and is the module-half GAP2's domain.)
 #[test]
-fn namek_alias_local_site_still_fires_e4057() {
+fn mat_gap2__namek_alias_local_site_still_fires_e4057() {
     let src = "module main {\n    io VDD\n    func main() {\n        [GPIO2] -> VDD\n    }\n}";
     let codes = build_codes(src);
     assert_eq!(
@@ -190,7 +189,7 @@ fn namek_alias_local_site_still_fires_e4057() {
 /// phantom reference drops silently (no E3137 — it is a literal label, not a
 /// structured ghost); the orphaned port is the 41xx unconnected domain.
 #[test]
-fn phantom_to_real_port_is_not_gap2() {
+fn mat_gap2__phantom_to_real_port_is_not_gap2() {
     let src = "module main {\n    io VDD\n    func main() {\n        res[1:2] -> VDD\n    }\n}";
     let codes = build_flat_codes(src);
     assert_eq!(

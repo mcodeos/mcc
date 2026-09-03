@@ -15,11 +15,13 @@
 //!
 //! NOTE: These tests share global mcc state, so a mutex serializes them.
 
-use mcc::McURI;
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-/// Global mutex to serialize tests that share mcc's global workspace state.
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+mod common;
+
+use mcc::McURI;
 
 const SOURCE: &str = r#"
 interface DC(volt)
@@ -148,9 +150,7 @@ fn def_interval(dump: &str, kind: &str, span: (usize, usize)) -> Option<u32> {
 
 /// Loads SOURCE into a fresh workspace and returns the F12 dump for the uri.
 fn load_and_dump() -> String {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
 
     let uri: McURI = "/mcc/goto-def-connection-refs.mc".to_string();
     mcc::mcc_load_from_string(&uri, SOURCE);
@@ -158,11 +158,8 @@ fn load_and_dump() -> String {
 }
 
 #[test]
-fn funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
+    let _lock = common::lock();
     let dump = load_and_dump();
 
     // 1. `wm7121.VCC` (arrow right operand inside `[...]`) is a PinNameRef
@@ -235,11 +232,8 @@ fn funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
 }
 
 #[test]
-fn numeric_pin_id_resolves_to_pin_id_def() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__numeric_pin_id_resolves_to_pin_id_def() {
+    let _lock = common::lock();
     let dump = load_and_dump();
 
     // `spk.3` / `spk.4` are pin-ID refs: the chain resolver must land on the
@@ -272,11 +266,8 @@ fn numeric_pin_id_resolves_to_pin_id_def() {
 }
 
 #[test]
-fn dotted_pin_name_resolves_by_longest_match() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__dotted_pin_name_resolves_by_longest_match() {
+    let _lock = common::lock();
     let dump = load_and_dump();
 
     // `lpa.IN.N` must resolve to the literal pin name `IN.N` (longest match),
@@ -300,11 +291,8 @@ fn dotted_pin_name_resolves_by_longest_match() {
 }
 
 #[test]
-fn member_chain_use_site_registers_no_bus_def() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__member_chain_use_site_registers_no_bus_def() {
+    let _lock = common::lock();
     let dump = load_and_dump();
 
     // Regression for periph.mc L105 (`-> USB_VBUS_1.GND`): the first dotted
@@ -358,11 +346,8 @@ fn member_chain_use_site_registers_no_bus_def() {
 }
 
 #[test]
-fn dotted_chain_base_resolves_to_param_decl() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__dotted_chain_base_resolves_to_param_decl() {
+    let _lock = common::lock();
     let dump = load_and_dump();
     // The base `dc` of `(spk.3 + spk.4) -> dc.GND` must resolve to the module
     // param declaration `dc{VDD_3V3, GND}` (PortRef → ParamDef), not to the
@@ -403,11 +388,8 @@ fn dotted_chain_base_resolves_to_param_decl() {
 }
 
 #[test]
-fn dotted_funcall_class_ref_spans_full_class_name() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__dotted_funcall_class_ref_spans_full_class_name() {
+    let _lock = common::lock();
     let dump = load_and_dump();
 
     // `DIO.ESD("ESD9B5V-2/TR", NC)` is a dotted class funcall. The ClassRef
@@ -442,11 +424,8 @@ fn dotted_funcall_class_ref_spans_full_class_name() {
 }
 
 #[test]
-fn bus_form_interface_pin_maps_to_bus_name() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__bus_form_interface_pin_maps_to_bus_name() {
+    let _lock = common::lock();
     // A component pin declared with a bus-form interface
     // (`VIN{Vin, GND}::DC(...)`) must resolve `ldo.VIN` to the bus-name
     // identifier `VIN`, not to the whole bus expression `VIN{Vin, GND`
@@ -474,9 +453,7 @@ module main
 }
 "#;
     let uri: McURI = "/mcc/bus-form-iface-pin.mc".to_string();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     mcc::mcc_load_from_string(&uri, SRC);
     let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
 
@@ -509,11 +486,8 @@ module main
 }
 
 #[test]
-fn twopin_declareb_names_classified_as_instances() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__twopin_declareb_names_classified_as_instances() {
+    let _lock = common::lock();
     // Declareb inference rule (`idx::CLASS(...)`): a 2-pin component class
     // (CAP/RES) makes the declared name an instance, so the lapper must
     // register InstDef at the declaration span and InstRef for the use
@@ -545,9 +519,7 @@ module main
 }
 "#;
     let uri: McURI = "/mcc/twopin-declareb.mc".to_string();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     mcc::mcc_load_from_string(&uri, SRC);
     let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
 
@@ -608,11 +580,8 @@ module main
 }
 
 #[test]
-fn interface_declareb_classified_as_label() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__interface_declareb_classified_as_label() {
+    let _lock = common::lock();
     // Declareb inference rule (`idx::CLASS(...)`): the def kind follows the
     // declared class. An interface class (`DC`) makes the name a label/bus,
     // not an instance — so `vin::DC(5V)` must be LabelDef with no InstDef
@@ -633,9 +602,7 @@ module main
 }
 "#;
     let uri: McURI = "/mcc/iface-declareb.mc".to_string();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     mcc::mcc_load_from_string(&uri, SRC);
     let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
 
@@ -686,11 +653,8 @@ module main
 }
 
 #[test]
-fn bare_idx_upgraded_by_later_declareb() {
-    let _lock = TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn svc_goto__bare_idx_upgraded_by_later_declareb() {
+    let _lock = common::lock();
     // Bare-idx strategy: an untyped inline name (`C4`) is temporarily a
     // LabelDef on first appearance. When a typed `C4::CAP()` appears later,
     // the typed declaration is authoritative: it is the single InstDef and
@@ -714,9 +678,7 @@ module main
 }
 "#;
     let uri: McURI = "/mcc/bare-then-typed.mc".to_string();
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     mcc::mcc_load_from_string(&uri, SRC);
     let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
 

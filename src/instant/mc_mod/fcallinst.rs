@@ -1501,9 +1501,10 @@ impl InstantiationBuilder {
             );
             // ── P2-2: register boundary formals as buses in the submodule ──
             // When a boundary formal (e.g. `spi`) is paired with a component bus
-            // (e.g. `uC[SPI]`), the default broadcast behavior shorts all bus pins.
-            // By registering the formal as a bus with the component's pin IDs,
-            // the body connection becomes N×N instead of 1×N broadcast.
+            // (e.g. `uC[SPI]`), a scalar-formal fan-out (the §5.3.1-abolished 1×N
+            // broadcast) would short all bus pins. By registering the formal as a
+            // bus with the component's pin IDs, the body connection zips N×N
+            // instead of fanning 1×N.
             for (formal, _) in &boundary_pairs {
                 // Resolve formal to declared port name (case-insensitive)
                 let resolved_port = b
@@ -1640,8 +1641,8 @@ impl InstantiationBuilder {
         // declared port name, e.g. `spi` vs `SPI`).
         // expand_port_lanes Case 1 strictly matches the port name (Case 1.a:
         // ports.iter().filter(p.name == port_base)) → case mismatch → fall
-        // back to scalar → 1-vs-N broadcast → all 4 uC SPI pins short into
-        // the same spi net (S1).
+        // back to scalar → 1-vs-N fan (the §5.3.1-abolished single-point
+        // broadcast) → all 4 uC SPI pins short into the same spi net (S1).
         //
         // Fix: look up via self.find_submodule(inst_name).ports,
         //   - First strict match (p.name == formal)

@@ -17,23 +17,16 @@
 //! `uC.ADC.P -> vss` joins vdd~vss through the shared ghost net — netcheck R03
 //! reports the short circuit as an ERROR.
 
-use std::sync::{Mutex, OnceLock};
+// Family naming `{family}__{essence}` deliberately doubles the underscore to
+// keep the grep-able family token separate (matrix §1 taxonomy).
+#![allow(non_snake_case)]
 
-static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-}
+mod common;
 
 /// Diagnostic codes with duplicates preserved (occurrence counts matter: two
 /// identical misses produce two diagnostics).
 fn build_codes(src: &str) -> Vec<u32> {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/gate-phase1-test.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
@@ -43,9 +36,7 @@ fn build_codes(src: &str) -> Vec<u32> {
 /// Build flat (pass2 + netcheck) and return the diagnostic codes plus the
 /// netcheck report — for asserting net-level findings like the R03 short.
 fn build_flat_report(src: &str) -> (Vec<u32>, mcc::instant::netcheck::Report) {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    mcc::mcc_clear_workspace();
+    common::reset();
     let uri = "/mcc/gate-phase1-flat.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);
     let (_, table) =
@@ -65,8 +56,8 @@ fn r03_findings(report: &mcc::instant::netcheck::Report) -> Vec<&mcc::instant::n
 }
 
 #[test]
-fn b_family_same_func_caller_pass_no_error() {
-    let lock = lock();
+fn dlu_gate__b_family_same_func_caller_pass_no_error() {
+    let _lock = common::lock();
 
     // `dTrigger` is a FuncCall caller label (never in insts), referenced from
     // the same func's net statements — pass, no E3182, no dropped stmts.
@@ -76,13 +67,11 @@ fn b_family_same_func_caller_pass_no_error() {
         !codes.contains(&mcc::errcodes::INSTANCE_REF_UNDECLARED),
         "B-family pass must not error E3182; got codes: {codes:?}"
     );
-
-    drop(lock);
 }
 
 #[test]
-fn module_level_true_miss_shorts_via_r03() {
-    let lock = lock();
+fn dlu_gate__module_level_true_miss_shorts_via_r03() {
+    let _lock = common::lock();
 
     // §5 item 23 (relax-everything): `uC.ADC.P -> vdd` + `uC.ADC.P -> vss` with `uC`
     // declared nowhere now INLINES the ghost-bus. The shared node joins the
@@ -110,13 +99,11 @@ fn module_level_true_miss_shorts_via_r03() {
         "uC.ADC.P joining vdd~vss must be an R03 short-circuit; findings: {:?}",
         report.findings
     );
-
-    drop(lock);
 }
 
 #[test]
-fn multi_use_ghost_net_series_reuse_is_quiet() {
-    let lock = lock();
+fn dlu_gate__multi_use_ghost_net_series_reuse_quiet() {
+    let _lock = common::lock();
 
     // §5 item 23 / uart2rs485.mc shape: `RS485.A` / `RS485.B` are bases declared
     // nowhere, but each is referenced twice across series chains through
@@ -142,13 +129,11 @@ fn multi_use_ghost_net_series_reuse_is_quiet() {
         "passive-separated series reuse must not be a rail short; findings: {:?}",
         report.findings
     );
-
-    drop(lock);
 }
 
 #[test]
-fn single_use_inline_ghost_net_warns_e3137() {
-    let lock = lock();
+fn dlu_gate__single_use_inline_ghost_net_warns_e3137() {
+    let _lock = common::lock();
 
     // A reference to an undeclared base used exactly once keeps its ghost-bus
     // but is almost certainly a typo/forgotten declaration → the dedicated
@@ -172,13 +157,11 @@ fn single_use_inline_ghost_net_warns_e3137() {
         "one rail alone cannot short; findings: {:?}",
         report.findings
     );
-
-    drop(lock);
 }
 
 #[test]
-fn declared_base_member_access_is_untouched() {
-    let lock = lock();
+fn dlu_gate__declared_base_member_access_untouched() {
+    let _lock = common::lock();
 
     // A base that resolves to a real instance (`b.VDD`) is unaffected by the
     // gate — no E3182, no E3132, no E3137.
@@ -192,15 +175,13 @@ fn declared_base_member_access_is_untouched() {
         !codes.contains(&mcc::errcodes::SINGLE_USE_INLINE_NET),
         "a resolved base is not an inline ghost-net; got codes: {codes:?}"
     );
-
-    drop(lock);
 }
 
 #[test]
-fn four_gate_forms_each_warn_single_use() {
+fn dlu_gate__four_forms_each_warn_single_use() {
     use mcc::ledger::{self, LedgerMode};
 
-    let lock = lock();
+    let _lock = common::lock();
 
     // §1.2② (relax-everything): the four gate-site shapes of an undeclared-base
     // reference all dispatch through the single `resolve_reference` entry, so
@@ -270,6 +251,4 @@ fn four_gate_forms_each_warn_single_use() {
             "{name}: no unresolved_ref rows remain; got {report:?}"
         );
     }
-
-    drop(lock);
 }

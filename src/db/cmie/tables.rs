@@ -504,14 +504,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_workspace() {
+    fn def_cmie__default_workspace() {
         let mgr = WorkspaceManager::new();
         assert_eq!(mgr.active_id(), "default");
         assert_eq!(mgr.active_kind(), WorkspaceKind::Project);
     }
 
     #[test]
-    fn create_and_switch_workspace() {
+    fn def_cmie__create_and_switch_workspace() {
         let mgr = WorkspaceManager::new();
 
         assert!(mgr.create_and_switch(
@@ -527,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn switch_preserves_data() {
+    fn def_cmie__switch_preserves_data() {
         let mgr = WorkspaceManager::new();
 
         mgr.mcodes
@@ -542,14 +542,14 @@ mod tests {
     }
 
     #[test]
-    fn cannot_create_duplicate() {
+    fn def_cmie__cannot_create_duplicate() {
         let mgr = WorkspaceManager::new();
         mgr.create_and_switch("proj1".into(), WorkspaceKind::Project, PathBuf::from("."));
         assert!(!mgr.create_and_switch("proj1".into(), WorkspaceKind::Project, PathBuf::from(".")));
     }
 
     #[test]
-    fn remove_saved_workspace() {
+    fn def_cmie__remove_saved_workspace() {
         let mgr = WorkspaceManager::new();
         mgr.create_and_switch("proj1".into(), WorkspaceKind::Project, PathBuf::from("."));
         assert!(mgr.remove("default"));
