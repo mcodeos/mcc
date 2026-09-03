@@ -28,6 +28,15 @@
 #define MCAST_DEFINE                   16
 #define MCAST_USE                      17
 #define MCAST_USE_PUB                  18
+#define MCAST_CAPABILITY               19
+
+//1b. component header derivation (sub-node markers):
+//    MCAST_ABSTRACT = leading marker when `abstract component`;
+//    MCAST_VARIANT  = `: Base` variant (sub = base mc_class_name);
+//    MCAST_ADOPTS   = `:: caps` capability-adoption list (sub = mc_idss chain).
+#define MCAST_ABSTRACT                 94
+#define MCAST_VARIANT                  95
+#define MCAST_ADOPTS                   96
 
 //2. top-item
 #define MCAST_NAME                     21
