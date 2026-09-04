@@ -16,6 +16,7 @@ pub mod filter;
 pub mod lib;
 pub mod list;
 pub mod manifest;
+pub mod nets;
 pub mod parse;
 pub mod print;
 pub mod proj;

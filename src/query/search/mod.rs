@@ -2,27 +2,19 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Public search API (M5) — shared between `mcc search` (in the binary's
-//! `cmds/search.rs`) and `defs.search` (in `rpc/handlers.rs`).
+//! Public search API (M5) — the single source of truth for `walk_defs`,
+//! `SearchInputs`, `SearchKind`, `SearchHit` and the def-name matcher.
 //!
-//! This module is `pub mod`'d from `lib.rs` so RPC handlers (which live in
-//! the library crate) can call into the search logic without reaching into
-//! the binary's private `cmds` module. The CLI side reuses the same code via
-//! `use crate::search_api::*` — wait, no: it cannot because the binary's
-//! `cmds` is private to main.rs and cannot reach into lib.rs at compile time
-//! of the binary.
+//! Consumers reach it through the library re-exports in `lib.rs`
+//! (`pub use query::search as search_api;`):
+//! - the binary's `cmds/query.rs` (`use mcc::search_api::*`) for `mcc query`
+//!   def/instance search and the `--kind net` name filter;
+//! - the library's `rpc/handlers/defs.rs` (`defs.query` / `defs.search`),
+//!   which maps JSON kind strings onto [`SearchKind`].
 //!
-//! Architecture:
-//! - This file (`src/search_api.rs`) is the **single source of truth** for
-//!   `walk_defs`, `SearchInputs`, `SearchKind`, `SearchHit`.
-//! - `cmds/search.rs` (binary-private) `use`'s the types from
-//!   `crate::search_api::*` via `crate::search_api::*` (the binary crate's
-//!   extern alias for the library).
-//! - `rpc/handlers.rs` (library) `use`'s them via `crate::search_api::*`.
-//!
-//! Re: the `extern crate self as mcc;` shim in `lib.rs` — that lets internal
-//! modules write `crate::foo` instead of `crate::foo`. The binary does NOT
-//! need that shim.
+//! Public items here are exactly the def-search surface; nets are *not* defs
+//! and have no [`SearchKind`] — the CLI `--kind net` projection lives in the
+//! binary (`cmds/nets.rs` + `cmds/query.rs`) on top of a Pass2 build.
 
 pub mod dsl;
 
@@ -39,6 +31,11 @@ pub struct SearchHit {
     /// For instances: the component/module class the instance is of.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub class: Option<String>,
+    /// For instance hits: the per-instance kind tag (`component` | `module` |
+    /// `label` | `interface` | `bus` | ... — the [`McInstance`] discriminant,
+    /// see [`instance_kind_tag`]). None for definition-kind hits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inst_kind: Option<String>,
 }
 
 /// Inputs that drive a single search pass — shared between CLI + RPC.
@@ -109,6 +106,7 @@ pub fn walk_defs(
                     name,
                     uri,
                     class: None,
+                    inst_kind: None,
                 });
             }
         }
@@ -121,6 +119,7 @@ pub fn walk_defs(
                     name,
                     uri,
                     class: None,
+                    inst_kind: None,
                 });
             }
         }
@@ -133,6 +132,7 @@ pub fn walk_defs(
                     name,
                     uri,
                     class: None,
+                    inst_kind: None,
                 });
             }
         }
@@ -145,6 +145,7 @@ pub fn walk_defs(
                     name,
                     uri,
                     class: None,
+                    inst_kind: None,
                 });
             }
         }
@@ -239,7 +240,7 @@ fn walk_instances(
 
     let mut out = Vec::new();
     for (name, inst) in module_def.insts.iter() {
-        let (_kind_tag, class) = inst_kind_class(inst);
+        let (kind_tag, class) = inst_kind_class(inst);
         let name_s = name.to_string();
         if matcher(&name_s) || matcher(&class) {
             out.push(SearchHit {
@@ -247,6 +248,7 @@ fn walk_instances(
                 name: name_s,
                 uri: uri_str.clone(),
                 class: if class.is_empty() { None } else { Some(class) },
+                inst_kind: Some(kind_tag),
             });
         }
     }
@@ -262,31 +264,65 @@ fn cmie_kind_name(cmie: &McCMIE) -> &'static str {
     }
 }
 
-fn inst_kind_class(inst: &McInstance) -> (String, String) {
+/// The per-instance kind tag string for an [`McInstance`] — the `kind` column
+/// shared by `extract instances` and the `inst_kind` field on instance search
+/// hits. Single source of truth: [`inst_kind_class`] and the extract shim
+/// (cmds/extract.rs) both derive their tag from this function, so the tag can
+/// never drift between the two surfaces.
+///
+/// `pub` (not `pub(crate)`): the binary crate cannot reach lib `pub(crate)`
+/// items, and the binary's extract command consumes this tag.
+pub fn instance_kind_tag(inst: &McInstance) -> &'static str {
     match inst {
-        McInstance::Component(c) => ("component".into(), c.base.name.to_string()),
-        McInstance::Module(m) => ("module".into(), m.base.name.to_string()),
-        McInstance::Label(l) => ("label".into(), l.clone()),
-        McInstance::Interface(i) => ("interface".into(), i.base_name()),
-        McInstance::Bus(b) => ("bus".into(), b.name().to_string()),
-        McInstance::BusRef { component, bus } => {
-            ("busref".into(), format!("{}.{}", component, bus))
-        }
-        McInstance::List(l) => ("list".into(), l.name().to_string()),
-        McInstance::Unresolved { class_name } => ("unresolved".into(), class_name.clone()),
-        McInstance::Pins => ("pins".into(), "pins".into()),
-        McInstance::PinId(id) => ("pinid".into(), id.clone()),
-        McInstance::Attr(a) => ("attr".into(), a.to_string()),
-        McInstance::Func(f) => ("func".into(), f.name.to_string()),
+        McInstance::Component(_) => "component",
+        McInstance::Module(_) => "module",
+        McInstance::Label(_) => "label",
+        McInstance::Interface(_) => "interface",
+        McInstance::Bus(_) => "bus",
+        McInstance::BusRef { .. } => "busref",
+        McInstance::List(_) => "list",
+        McInstance::Unresolved { .. } => "unresolved",
+        McInstance::Pins => "pins",
+        McInstance::PinId(_) => "pinid",
+        McInstance::Attr(_) => "attr",
+        McInstance::Func(_) => "func",
+        McInstance::EnumVal { .. } => "enumval",
+    }
+}
+
+/// `(kind tag, class)` for an instance. The tag is single-sourced from
+/// [`instance_kind_tag`]; `class` here carries the **base class name**
+/// semantics used by the def-search instance hits (e.g. instance `R1` of
+/// class `RES_10K` → `class = "RES_10K"`).
+fn inst_kind_class(inst: &McInstance) -> (String, String) {
+    let class = match inst {
+        McInstance::Component(c) => c.base.name.to_string(),
+        McInstance::Module(m) => m.base.name.to_string(),
+        McInstance::Label(l) => l.clone(),
+        McInstance::Interface(i) => i.base_name(),
+        McInstance::Bus(b) => b.name().to_string(),
+        McInstance::BusRef { component, bus } => format!("{}.{}", component, bus),
+        McInstance::List(l) => l.name().to_string(),
+        McInstance::Unresolved { class_name } => class_name.clone(),
+        McInstance::Pins => "pins".into(),
+        McInstance::PinId(id) => id.clone(),
+        McInstance::Attr(a) => a.to_string(),
+        McInstance::Func(f) => f.name.to_string(),
         McInstance::EnumVal {
             enum_name,
             value_name,
             ..
-        } => ("enumval".into(), format!("{}.{}", enum_name, value_name)),
-    }
+        } => format!("{}.{}", enum_name, value_name),
+    };
+    (instance_kind_tag(inst).into(), class)
 }
 
-fn build_matcher(
+/// Build the name matcher for a pattern: regex when `regex`, fuzzy (Levenshtein
+/// ≤ 2) when `fuzzy`, else case-insensitive substring (the engine default).
+///
+/// `pub` so the binary's net projection (cmds/query.rs `--kind net`) reuses the
+/// exact same substring/regex/fuzzy logic over net names.
+pub fn build_matcher(
     pattern: &str,
     regex: bool,
     fuzzy: bool,
