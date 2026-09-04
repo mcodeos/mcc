@@ -261,9 +261,12 @@ fn dlu_flatchk__cross_file_submodule_port_anchors_def_declaration() {
 /// `[VDD_3V3, GND]::DC(3.3V)` is a Multiple-form signature interface param:
 /// its whole-name span lives in `def.params.def_spans`, not `def.insts`
 /// (`filter_port_spans` drops the whole-bracket name). E4117 for the
-/// unconnected bracket port (and its members) must anchor at the declaration
-/// (`VDD_3V3` inside the bracket) instead of file:1:1. The empty US513 body
-/// also emits 2115; only the 4117 entries are asserted here.
+/// unconnected bracket *members* must anchor at the declaration
+/// (`VDD_3V3` inside the bracket) instead of file:1:1. The bracketed aggregate
+/// (`main.UC.[VDD_3V3, GND]`) is a non-physical grouping header (A′
+/// 2026-09-04) — de-electrified, it must NOT surface here; the members carry
+/// the check. The empty US513 body also emits 2115; only the 4117 entries are
+/// asserted here.
 #[test]
 fn dlu_flatchk__bracket_signature_port_anchors_declaration() {
     let src = "module US513([VDD_3V3,GND]::DC(3.3V)) {\n}\nmodule main {\n    US513 UC\n}\n";
@@ -271,12 +274,6 @@ fn dlu_flatchk__bracket_signature_port_anchors_declaration() {
     let bidir: Vec<(u32, u32, String, String)> =
         diags.into_iter().filter(|d| d.0 == 4117).collect();
     let expected = [
-        (
-            4117,
-            14,
-            "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.UC.[VDD_3V3, GND]' is not connected to any net.",
-        ),
         (
             4117,
             14,
@@ -293,10 +290,12 @@ fn dlu_flatchk__bracket_signature_port_anchors_declaration() {
     assert_lock(bidir, &expected, "bracket signature port anchor changed");
 }
 
-/// ── Lock: curly-bus port members anchor at the port declaration ───────────
-/// `io MIC{P,N}` materializes as the port `MIC` plus three member shapes:
-/// dotted (`MIC.P` / `MIC.N`), bus-slash (`MIC/P` / `MIC/N`) and bare
-/// (`N` / `P`). Every unconnected shape must anchor at the `io MIC{P,N}`
+/// ── Lock: curly-bus unconnected members anchor at the port declaration ─────
+/// `io MIC{P,N}` registers dotted member Ports (`main.s1.MIC.P` / `MIC.N`).
+/// The aggregate (`main.s1.MIC`), bus-slash (`MIC/P` / `MIC/N`) and bare
+/// (`P` / `N`) spellings are non-physical aliases folded onto the members
+/// (A′ 2026-09-04): de-electrified, they must NOT surface as unconnected.
+/// Only the member Ports carry E4117, anchored at the `io MIC{P,N}`
 /// declaration (pos 20) instead of file:1:1.
 #[test]
 fn dlu_flatchk__curly_bus_port_members_anchor_declaration() {
@@ -313,12 +312,6 @@ fn dlu_flatchk__curly_bus_port_members_anchor_declaration() {
             4117,
             20,
             "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.s1.MIC' is not connected to any net.",
-        ),
-        (
-            4117,
-            20,
-            "/mcc/flat-diag.mc",
             "Bidirectional port 'main.s1.MIC.P' is not connected to any net.",
         ),
         (
@@ -327,32 +320,40 @@ fn dlu_flatchk__curly_bus_port_members_anchor_declaration() {
             "/mcc/flat-diag.mc",
             "Bidirectional port 'main.s1.MIC.N' is not connected to any net.",
         ),
-        (
-            4117,
-            20,
-            "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.s1.MIC/P' is not connected to any net.",
-        ),
-        (
-            4117,
-            20,
-            "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.s1.MIC/N' is not connected to any net.",
-        ),
-        (
-            4117,
-            20,
-            "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.s1.N' is not connected to any net.",
-        ),
-        (
-            4117,
-            20,
-            "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.s1.P' is not connected to any net.",
-        ),
     ];
     assert_lock(diags, &expected, "curly bus member anchor changed");
+}
+
+/// ── Lock: E4110 alias shapes of an `out` curly bus are gone (A′) ───────────
+/// The reported hbl shape is `out MIC{P,N}` (an *output* bus): pre-A′ the
+/// aggregate (`main.s1.MIC`), bus-slash (`MIC/P` / `MIC/N`) and bare (`P` / `N`)
+/// Out entries were never net endpoints yet carried io Out → false E4110
+/// "drives nothing". A′ de-electrifies + folds those aliases; only the physical
+/// member Ports (`main.s1.MIC.P` / `.N`) may carry E4110, at the declaration.
+#[test]
+fn dlu_flatchk__curly_bus_out_members_e4110_only_on_members() {
+    let src = "module SUB {\n    out MIC{P,N}\n}\nmodule main {\n    SUB s1\n}\n";
+    let diags = build_flat_diags(src);
+    let e4110: Vec<(u32, u32, String, String)> =
+        diags.into_iter().filter(|d| d.0 == 4110).collect();
+    assert_lock(
+        e4110,
+        &[
+            (
+                4110,
+                21,
+                "/mcc/flat-diag.mc",
+                "Output 'main.s1.MIC.P' drives nothing.",
+            ),
+            (
+                4110,
+                21,
+                "/mcc/flat-diag.mc",
+                "Output 'main.s1.MIC.N' drives nothing.",
+            ),
+        ],
+        "out curly bus alias shapes must not surface as E4110",
+    );
 }
 
 /// ── Lock: coverage-gap net D-family positive locks (reorg doc §8.3/§8.5) ───

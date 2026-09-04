@@ -719,21 +719,24 @@ fn check_r02_short_passive(table: &InstTable, idx: &Index, rep: &mut Report) {
             continue;
         }
         scanned += 1;
-        let n0 = table.get_net_of(pins[0].id).map(|n| n.id);
-        let n1 = table.get_net_of(pins[1].id).map(|n| n.id);
-        if let (Some(a), Some(b)) = (n0, n1) {
-            if a == b {
-                let net_name = table.get_net(a).map(|n| n.name.clone()).unwrap_or_default();
-                push(
-                    rep,
-                    "R02",
-                    idx.module_of_entry(comp.id).to_string(),
-                    format!(
-                        "two-terminal device `{}` ({}) has both pins on net `{}` (net#{}) —— short circuit",
-                        comp.path, comp.class_name, net_name, a
-                    ),
-                );
-            }
+        // ★ A′: two pins share a conductor when their net-segment sets
+        // *intersect* — a boundary point may sit on the child internal net and
+        // the parent net at once, so "the" net id is not unique anymore.
+        let shared = table
+            .nets_of(pins[0].id)
+            .iter()
+            .find(|n0| table.nets_of(pins[1].id).contains(n0));
+        if let Some(&a) = shared {
+            let net_name = table.get_net(a).map(|n| n.name.clone()).unwrap_or_default();
+            push(
+                rep,
+                "R02",
+                idx.module_of_entry(comp.id).to_string(),
+                format!(
+                    "two-terminal device `{}` ({}) has both pins on net `{}` (net#{}) —— short circuit",
+                    comp.path, comp.class_name, net_name, a
+                ),
+            );
         }
     }
     set_scanned(rep, "R02", scanned);
@@ -1326,14 +1329,18 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
             for (rid, port_eids) in port_rails {
                 // ★ Check: did the parent layer actually connect this port through a port binding?
                 // At least one net containing a port entry also contains a point of the parent module → connected
+                // A′: the port entry may sit on several net segments (child + parent); check them all.
                 let port_connected = port_eids.iter().any(|&eid| {
-                    if let Some(net) = table.get_net_of(eid) {
-                        net.points
-                            .iter()
-                            .any(|p| idx.nearest_module.get(p) == Some(&parent_module_id))
-                    } else {
-                        false
-                    }
+                    table.nets_of(eid).iter().any(|&nid| {
+                        table
+                            .get_net(nid)
+                            .map(|net| {
+                                net.points
+                                    .iter()
+                                    .any(|p| idx.nearest_module.get(p) == Some(&parent_module_id))
+                            })
+                            .unwrap_or(false)
+                    })
                 });
                 if !port_connected {
                     // The parent layer did not bind this port, so no union

@@ -337,6 +337,18 @@ pub struct InstEntry {
     /// `VIRT_`/`u_1` names, so build / diagnostic layers can distinguish
     /// synthetic wrappers from real user modules and instances.
     pub synthetic: bool,
+    /// ★ A′ (2026-09-04): physical-member id this spelling collapses onto.
+    ///
+    /// Aggregate port / slash-lane / bare-member alias entries are *not*
+    /// separate conductors — they are non-physical spellings of one module
+    /// boundary point (`lane.rs` §boundary-transparent: one physical point,
+    /// one id, both sides of the module boundary). When `Some(target)`, this
+    /// entry keeps its structural id (rendering / parent chain / path lookup)
+    /// but carries `io_type == IOType::None` and never participates in net
+    /// endpoints or E41xx judgments: `resolve_single_path` folds any hit onto
+    /// `target` first. A real bus member (only slash spelling, no dotted
+    /// member port) stays `None` and remains electrical.
+    pub alias_of: Option<u32>,
 }
 
 // ============================================================================
@@ -385,8 +397,11 @@ pub struct InstTable {
     net_id_counter: u32,
     /// net_id -> NetEntry (ordered by ID)
     nets: BTreeMap<u32, NetEntry>,
-    /// point_id -> net_id (reverse index from endpoint to network)
-    point_to_net: HashMap<u32, u32>,
+    /// point_id -> net_ids (reverse index from endpoint to every net segment it
+    /// belongs to). 1:N since A′ (2026-09-04): a module-boundary point id is a
+    /// *junction* shared by the child module's internal net segment and the
+    /// parent net segment (they are different NetEntries — no global fusion).
+    point_to_net: HashMap<u32, Vec<u32>>,
 
     /// ★ M11.3: full paths of bridge passive components (Transposed 2-pin devices)
     bridge_passive_paths: HashSet<String>,
@@ -617,6 +632,7 @@ impl InstTable {
             unselected: false,
             origin: InstOrigin::Declared,
             synthetic: false,
+            alias_of: None,
         };
 
         self.entries.insert(id, entry);
@@ -646,6 +662,39 @@ impl InstTable {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.vector_info = Some(vector_info);
         }
+    }
+
+    /// ★ A′ (2026-09-04): record that `alias_id` is a non-physical spelling of the
+    /// physical member `target_id` (aggregate / slash-lane / bare-member alias
+    /// entry). The alias keeps its structural id (rendering, parent chain, path
+    /// lookup) but loses any electrical direction it carried — aliases never
+    /// participate in E41xx unconnected-output judgments.
+    fn mark_alias(&mut self, alias_id: u32, target_id: u32) {
+        if alias_id == target_id {
+            return;
+        }
+        if let Some(entry) = self.entries.get_mut(&alias_id) {
+            entry.alias_of = Some(target_id);
+            entry.io_type = IOType::None;
+        }
+    }
+
+    /// ★ A′: fold a path-spelling hit along its alias chain onto the physical
+    /// member id. Non-alias entries return unchanged. Bounded against a corrupt
+    /// alias cycle (never expected — targets are always real member ids).
+    fn fold_alias(&self, mut id: u32) -> u32 {
+        let mut guard = 0usize;
+        while guard < self.entries.len() {
+            let next = self.entries.get(&id).and_then(|e| e.alias_of);
+            match next {
+                Some(t) if t != id => {
+                    id = t;
+                    guard += 1;
+                }
+                _ => break,
+            }
+        }
+        id
     }
 
     /// §11.1: reverse-query — all flattened paths whose entries belong to the
@@ -761,11 +810,24 @@ impl InstTable {
         self.nets.get(&net_id)
     }
 
-    /// Find the network a given endpoint belongs to
+    /// Find the network a given endpoint belongs to.
+    ///
+    /// A boundary point may belong to several net segments (junction); this
+    /// returns the lowest-id segment deterministically. Callers that need *all*
+    /// segments (short detection, rail binding) use [`Self::nets_of`].
     pub fn get_net_of(&self, point_id: u32) -> Option<&NetEntry> {
+        self.nets_of(point_id)
+            .first()
+            .and_then(|&net_id| self.nets.get(&net_id))
+    }
+
+    /// ★ A′ (2026-09-04): every net segment this point id belongs to. Net ids
+    /// ascend in insertion order, so `.first()` is the lowest-id segment.
+    pub fn nets_of(&self, point_id: u32) -> &[u32] {
         self.point_to_net
             .get(&point_id)
-            .and_then(|net_id| self.nets.get(net_id))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Get all component entries
@@ -904,6 +966,13 @@ impl InstTable {
             let port_decl_span = Self::port_decl_span_of(inst, &port.name);
             self.backfill_port_decl_pos(port_id, &inst.def_uri, port_decl_span.clone());
 
+            // ★ A′ (2026-09-04): a port that carries members is a *grouping
+            // header*, not a leaf conductor — the members registered below are
+            // the physical, direction-bearing points. Track every header path
+            // for this port so it can be de-electrified after the member loop;
+            // a scalar (member-less) port keeps its io and stays a real point.
+            let mut aggregate_headers = vec![port_id];
+
             // ── Phase-D support: register a bracketed path for ports with bus_members ──
             // Only create bracketed path for List ports (e.g., [A,B] or GPIO[1:2]),
             // NOT for Bus ports (e.g., rs485{A,B}) because Bus ports can be accessed
@@ -922,6 +991,7 @@ impl InstTable {
                     inst.def_uri.to_string(),
                 );
                 self.backfill_port_decl_pos(bracket_id, &inst.def_uri, port_decl_span.clone());
+                aggregate_headers.push(bracket_id);
             }
 
             // ── P2-4: register individual bus member ports ──
@@ -973,6 +1043,18 @@ impl InstTable {
                     infer_member_role(member, &port.iotype, is_ground_name, is_supply_name);
                 if !matches!(role, MemberRole::Signal) {
                     self.set_member_info(member_id, MemberInfo::new(role, None));
+                }
+            }
+
+            // ★ A′: de-electrify the aggregate header(s). Members are physical;
+            // the header must not read as an unconnected Out/InOut (E4110/E4117).
+            // This also makes flatten step-4 `bus_io` read None for port-derived
+            // buses, so their slash lanes inherit no electrical direction.
+            if !port.bus_members.is_empty() {
+                for hid in aggregate_headers {
+                    if let Some(e) = self.entries.get_mut(&hid) {
+                        e.io_type = IOType::None;
+                    }
                 }
             }
         }
@@ -1334,6 +1416,17 @@ impl InstTable {
                 // them at the owning port/bus declaration span instead of
                 // file:1:1 (same fallback as the port loop above).
                 self.backfill_port_decl_pos(member_id, &inst.def_uri, member_decl_span.clone());
+
+                // ★ A′: when this `/` lane is the slash spelling of a member that
+                // was also registered as a dotted member *Port* (port-derived bus,
+                // e.g. `MIC{P,N}` → `main.MIC.MIC.P`, or `dc{VDD}` → `main.dc.VDD`),
+                // fold the lane onto that Port — same physical conductor, one id.
+                // A real bus whose members have no dotted Port (only `/` lanes) is
+                // untouched and stays electrical.
+                let dotted = format!("{bus_path}.{member}");
+                if let Some(target_id) = self.get_id_by_path(&dotted) {
+                    self.mark_alias(member_id, target_id);
+                }
             }
         }
 
@@ -1349,6 +1442,29 @@ impl InstTable {
                 member_to_port_span
                     .entry(member.as_str())
                     .or_insert_with(|| span.clone());
+            }
+        }
+        // ★ A′: map a bare member name (`P` from `MIC{P,N}`) to the dotted member
+        // Port path registered in step 2, using the *same* member-path rules so
+        // the two always agree. Bracket members register flat under `{my_path}`,
+        // which equals the bare-label path — those are skipped by the
+        // `get_id_by_path` guard below and never reach aliasing here.
+        let mut member_to_dotted: HashMap<&str, String> = HashMap::new();
+        for port in &inst.ports {
+            for member in &port.bus_members {
+                let dotted = if port.name.contains('[') {
+                    format!("{}.{}", my_path, member)
+                } else if port.name.contains('{') {
+                    let base = port.name.split('{').next().unwrap_or("");
+                    if base.is_empty() {
+                        format!("{}.{}", my_path, member)
+                    } else {
+                        format!("{}.{}.{}", my_path, base, member)
+                    }
+                } else {
+                    format!("{}.{}.{}", my_path, port.name, member)
+                };
+                member_to_dotted.entry(member.as_str()).or_insert(dotted);
             }
         }
         let mut label_names: Vec<&String> = labels.keys().collect();
@@ -1374,6 +1490,20 @@ impl InstTable {
                         .cloned()
                         .flatten(),
                 );
+
+                // ★ A′: a bare member label that carries an electrical direction
+                // *and* whose owning port member was registered as a dotted member
+                // Port is a non-physical alias of that Port (lane.rs — bare member
+                // labels are not physical points). De-electrify and fold it onto
+                // the member. A bare label with no dotted member (scalar body rail)
+                // or with no direction stays untouched and remains electrical.
+                let alias = member_to_dotted
+                    .get(label_name.as_str())
+                    .and_then(|d| self.get_id_by_path(d))
+                    .filter(|_| !matches!(net_point.iotype, IOType::None));
+                if let Some(target_id) = alias {
+                    self.mark_alias(label_id, target_id);
+                }
             }
         }
 
@@ -1470,14 +1600,23 @@ impl InstTable {
                 }
             }
 
+            // ★ A′: after alias folding, several spellings of one conductor can
+            // resolve to the same physical member id within one net statement
+            // (e.g. a body writes both `dc.VDD` and `VDD`). Dedupe so each id
+            // appears once per NetEntry, preserving first-seen order.
+            let mut seen: HashSet<u32> = HashSet::new();
+            point_ids.retain(|&pid| seen.insert(pid));
+
             // At least 2 endpoints are needed to constitute a meaningful net
             if point_ids.len() >= 2 {
                 let net_id = self.net_id_counter;
                 self.net_id_counter += 1;
 
-                // Build reverse index
+                // Build reverse index (1 point → many net segments: a boundary
+                // junction id lands on both the child internal net and the
+                // parent net — A′ 3).
                 for &pid in &point_ids {
-                    self.point_to_net.insert(pid, net_id);
+                    self.point_to_net.entry(pid).or_default().push(net_id);
                 }
 
                 self.nets.insert(
@@ -1601,11 +1740,11 @@ impl InstTable {
 
         // (1) Module prefix + path, most common
         if let Some(&id) = self.path_index.get(&full_path) {
-            return Some(id);
+            return Some(self.fold_alias(id));
         }
         // (2) Direct path lookup (top-level port/label)
         if let Some(&id) = self.path_index.get(path) {
-            return Some(id);
+            return Some(self.fold_alias(id));
         }
         // (3) ★ Replace last `.` with `/` — bus member fallback
         //     Example: main.power.VCC → main.power/VCC
@@ -1614,10 +1753,13 @@ impl InstTable {
             if let Some(pos) = candidate.rfind('.') {
                 let bus_style = format!("{}/{}", &candidate[..pos], &candidate[pos + 1..]);
                 if let Some(&id) = self.path_index.get(&bus_style) {
-                    return Some(id);
+                    return Some(self.fold_alias(id));
                 }
             }
         }
+        // ★ A′: every lookup path (dotted member, slash lane, bare member label,
+        // aggregate) collapses onto the same physical member id via `alias_of`;
+        // no fallback below may leak an un-folded alias spelling.
         None
     }
 
