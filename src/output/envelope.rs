@@ -155,9 +155,6 @@ pub struct CommandResult {
     pub viz: Option<VizData>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub search: Option<SearchData>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<QueryData>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -371,32 +368,8 @@ pub struct VizData {
     pub edges: usize,
 }
 
-// ============================================================================
-// Search result (M5)
-// ============================================================================
-
-/// Search hits — used by `mcc search` and `defs.search` RPC.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SearchData {
-    /// The pattern the user searched for (as-typed)
-    pub pattern: String,
-    /// Optional kind restriction: "component" | "module" | "interface" | "enum" | "instance" | null
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<String>,
-    /// Whether pattern was treated as a regular expression
-    pub regex: bool,
-    /// Whether pattern was fuzzy-matched (Levenshtein ≤ 2)
-    pub fuzzy: bool,
-    /// Number of items in `items`
-    pub count: usize,
-    /// Vec<{kind, name, uri}> serialized as JSON array
-    pub items: serde_json::Value,
-}
-
-/// Query result — used by `mcc query` and `defs.query` RPC.
-///
-/// Distinct from `SearchData` (no pattern mode, regex flag, fuzzy flag, or kind
-/// option) so the contract can evolve independently.
+/// Query result — used by `mcc query` (DSL and name modes; `mcc search` is a
+/// query alias) and `defs.query` RPC.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct QueryData {
     /// The expression the user queried (as-typed)

@@ -74,7 +74,7 @@ pub struct MccConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct DiagConfig {
     /// Warning diagnostic codes to suppress from output, e.g. `["E3137"]`.
-    /// Mirrored by the CLI `--ignore-warnings` flag (CLI merges over config).
+    /// Mirrored by the CLI `-i/--ignore` flag (CLI merges over config).
     #[serde(default)]
     pub ignore_warnings: Vec<String>,
 }

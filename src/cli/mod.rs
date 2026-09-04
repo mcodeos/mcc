@@ -32,9 +32,15 @@ pub struct Cli {
     pub quiet: bool,
 
     /// Suppress warning diagnostics with the given codes, comma-separated
-    /// (e.g. `--ignore-warnings E3137,E5641`). Warning-only; errors are never
-    /// suppressed. Merges over `diag.ignore_warnings` in mcc.yaml.
-    #[arg(long, global = true, value_name = "CODES")]
+    /// (e.g. `-i E3137,E5641`). Warning-only; errors are never suppressed.
+    /// Merges over `diag.ignore_warnings` in mcc.yaml.
+    #[arg(
+        long = "ignore",
+        short = 'i',
+        global = true,
+        value_name = "CODES",
+        alias = "ignore-warnings"
+    )]
     pub ignore_warnings: Vec<String>,
 
     /// Log lines include timestamp, module and file:line
@@ -167,10 +173,9 @@ pub enum Command {
     /// List top-level definition names (component/module/interface/enum/nets/ports/files)
     List(ListArgs),
 
-    /// Search across loaded definitions (text/regex/fuzzy)
-    Search(SearchArgs),
-
-    /// Query top-level definitions with the structured DSL
+    /// Query definitions by DSL expression or by name — `mcc search <X>` is an
+    /// alias for a bare-name substring query (text/regex/fuzzy/substring)
+    #[command(visible_alias = "search")]
     Query(QueryArgs),
 
     /// Export netlist / BOM / SPICE (text|csv|json)
@@ -570,30 +575,34 @@ pub enum ListTarget {
 }
 
 // ============================================================================
-// search
+// query  (search folded in: `mcc search <X>` = alias for a bare-name query)
 // ============================================================================
 
 #[derive(Parser, Debug)]
-pub struct SearchArgs {
-    /// Pattern to match (substring by default; regex with --regex; fuzzy with --fuzzy)
-    pub pattern: String,
+pub struct QueryArgs {
+    /// DSL query expression (e.g. 'kind=component AND name=RES*') or a def
+    /// name — a value that does not compile as a DSL expression is matched as
+    /// a case-insensitive substring of def names (the default).
+    pub expr: String,
 
-    /// Optional file or directory to load before searching (required for
-    /// `--kind instance` together with `--top`, so the target module is in
-    /// scope for this invocation).
+    /// Optional file or directory to load before querying
     pub target: Option<String>,
 
     /// Restrict to one kind: component|module|interface|enum|instance
     #[arg(long, value_enum)]
     pub kind: Option<SearchKind>,
 
-    /// Treat pattern as a regular expression
-    #[arg(long)]
+    /// Treat <EXPR | name> as a regular expression (name search mode)
+    #[arg(long, conflicts_with = "fuzzy", conflicts_with = "substring")]
     pub regex: bool,
 
-    /// Fuzzy match (Levenshtein distance ≤ 2)
-    #[arg(long)]
+    /// Fuzzy name match (Levenshtein distance ≤ 2)
+    #[arg(long, conflicts_with = "regex", conflicts_with = "substring")]
     pub fuzzy: bool,
+
+    /// Explicit substring name match (the default when no matcher flag is given)
+    #[arg(long, conflicts_with = "regex", conflicts_with = "fuzzy")]
+    pub substring: bool,
 
     /// Cap on result count (0 = unlimited)
     #[arg(long, default_value_t = 0)]
@@ -616,27 +625,6 @@ pub enum SearchKind {
     Enum,
     // Instances inside a top module (requires --top)
     Instance,
-}
-
-// ============================================================================
-// query
-// ============================================================================
-
-#[derive(Parser, Debug)]
-pub struct QueryArgs {
-    /// Structured query expression (e.g. 'kind=component AND name=RES*')
-    pub expr: String,
-
-    /// Optional file or directory to load before querying
-    pub target: Option<String>,
-
-    /// Cap on result count (0 = unlimited)
-    #[arg(long, default_value_t = 0)]
-    pub limit: usize,
-
-    /// Shorthand for `--format json`
-    #[arg(long, conflicts_with = "format")]
-    pub json: bool,
 }
 
 // ============================================================================

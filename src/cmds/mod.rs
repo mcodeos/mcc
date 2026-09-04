@@ -22,7 +22,6 @@ pub mod proj;
 pub mod query;
 pub mod refs;
 pub mod report;
-pub mod search;
 pub mod server;
 pub mod show;
 pub mod verify;
