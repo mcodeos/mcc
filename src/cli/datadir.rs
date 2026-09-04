@@ -40,24 +40,30 @@ pub fn find_manifest_in(root: &Path) -> Option<PathBuf> {
     p.exists().then_some(p)
 }
 
+/// Default data root — `~/.mcode` (used whenever `$MCC_SYSTEM_ROOT` is unset).
+fn default_data_root() -> PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join(".mcode"))
+        .unwrap_or_else(|| PathBuf::from(".mcode"))
+}
+
+/// Effective `$MCC_SYSTEM_ROOT` override, if any. A relative value is resolved
+/// against the current directory (matching the historical `data_root`
+/// behaviour); `None` when the variable is unset.
+fn env_data_root_override() -> Option<PathBuf> {
+    let val = std::env::var(MCC_SYSTEM_ENV).ok()?;
+    let p = PathBuf::from(val);
+    if p.is_absolute() {
+        Some(p)
+    } else {
+        Some(std::env::current_dir().unwrap_or_default().join(p))
+    }
+}
+
 /// MCC data root directory (single source of truth).
 /// Priority: `$MCC_SYSTEM_ROOT` > `~/.mcode`.
 pub fn data_root() -> PathBuf {
-    if let Ok(val) = std::env::var(MCC_SYSTEM_ENV) {
-        let p = PathBuf::from(val);
-        if p.is_absolute() {
-            return p;
-        }
-        if let Ok(cwd) = std::env::current_dir() {
-            return cwd.join(p);
-        }
-        return p;
-    }
-    if let Some(home) = dirs::home_dir() {
-        home.join(".mcode")
-    } else {
-        PathBuf::from(".mcode")
-    }
+    env_data_root_override().unwrap_or_else(default_data_root)
 }
 
 /// Official mcode library root — `<root>/mcode`.
@@ -81,13 +87,21 @@ pub fn log_file() -> PathBuf {
     logs_dir().join("mcc.log")
 }
 
-/// Daemon PID file. **Always at `~/.mcode/logs/mcc.pid`** (M4 invariant),
-/// decoupled from `$MCC_SYSTEM_ROOT` so `start`/`stop`/`status` and clients
-/// in any shell locate the same single daemon.
+/// Daemon PID file.
+///
+/// The **default-root** daemon keeps the historical global location
+/// `~/.mcode/logs/mcc.pid` (M4 invariant), so `start`/`stop`/`status` and
+/// clients in any shell reach the single default daemon without the env var.
+/// An **explicitly isolated** `$MCC_SYSTEM_ROOT` (any non-default value)
+/// instead owns its PID file at `<root>/logs/mcc.pid` — each data root gets
+/// its own daemon slot, so a custom-root server can run side by side with the
+/// default one on a different port. Reach a custom-root daemon by running
+/// `start`/`stop`/`status`/clients under the same `MCC_SYSTEM_ROOT`.
 pub fn pid_file() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".mcode").join("logs").join("mcc.pid"))
-        .unwrap_or_else(|| PathBuf::from(".mcode/logs/mcc.pid"))
+    match env_data_root_override() {
+        Some(root) if root != default_data_root() => root.join("logs").join("mcc.pid"),
+        _ => default_data_root().join("logs").join("mcc.pid"),
+    }
 }
 
 /// Well-commented default `mcc.yaml` written on first run.
@@ -287,17 +301,37 @@ pub mod tests {
     }
 
     #[test]
-    fn cli_datadir__pid_always_at_home_mcode() {
+    fn cli_datadir__pid_default_root_stays_global() {
         let _lock = ENV_LOCK.lock().unwrap();
         let prev = std::env::var(MCC_SYSTEM_ENV).ok();
-        let unique = scratch_dir("somewhere-else");
+        let default = default_data_root();
+
+        // Unset env → historical global location.
+        std::env::remove_var(MCC_SYSTEM_ENV);
+        assert_eq!(pid_file(), default.join("logs").join("mcc.pid"));
+
+        // Override that equals the default root keeps the same location.
+        std::env::set_var(MCC_SYSTEM_ENV, &default);
+        assert_eq!(pid_file(), default.join("logs").join("mcc.pid"));
+
+        match prev {
+            Some(v) => std::env::set_var(MCC_SYSTEM_ENV, v),
+            None => std::env::remove_var(MCC_SYSTEM_ENV),
+        }
+    }
+
+    #[test]
+    fn cli_datadir__pid_follows_isolated_override_root() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let prev = std::env::var(MCC_SYSTEM_ENV).ok();
+        let unique = scratch_dir("pid-root");
         std::env::set_var(MCC_SYSTEM_ENV, &unique);
         let p = pid_file();
-        assert!(p.to_string_lossy().ends_with(".mcode/logs/mcc.pid"));
-        // The PID file is decoupled from MCC_SYSTEM_ROOT: never under it.
+        // An isolated MCC_SYSTEM_ROOT owns its own daemon slot under the root.
+        assert_eq!(p, unique.join("logs").join("mcc.pid"));
         assert!(
-            !p.starts_with(&unique),
-            "pid file {:?} must not live under the override root {:?}",
+            p.starts_with(&unique),
+            "pid file {:?} must live under the override root {:?}",
             p,
             unique
         );

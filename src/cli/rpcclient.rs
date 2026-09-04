@@ -86,7 +86,9 @@ impl RpcClient {
 }
 
 fn pid_file_path() -> PathBuf {
-    // Single source of truth: fixed at ~/.mcode/logs/mcc.pid, decoupled from MCC_SYSTEM_ROOT.
+    // Single source of truth: datadir::pid_file(). The default-root daemon is
+    // found at the global ~/.mcode/logs/mcc.pid; an isolated MCC_SYSTEM_ROOT
+    // daemon is found at <root>/logs/mcc.pid under the same env.
     crate::cli::datadir::pid_file()
 }
 
