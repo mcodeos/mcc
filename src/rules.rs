@@ -834,6 +834,19 @@ pub static GATE_RULES: &[GateRule] = &[
 // Catalog queries
 // ============================================================================
 
+/// VizLayout-scope rows — the A-series layout invariants (`equi_audit`) and
+/// the F-series fidelity gate tiers (`select::fidelity_gate`). These checks
+/// carry string ids ("A1".."F3") and milestone gates instead of errcode
+/// numbers, so the numeric tables above do not own them (v0.7 stage 4
+/// adjudication): viz authors and orders the rows, and this re-export is the
+/// read-only top-level aggregation entry — no row copy, execution stays
+/// inside the viz pipeline. Row type: `crate::viz::layout::audit_registry::VizAuditRule`.
+/// Consumers today are the lock tests in `tests` below; the §8 read surface
+/// (stage 5) is the future caller, so keep this import allowed in non-test
+/// builds instead of deleting the aggregation entry.
+#[allow(unused_imports)]
+pub use crate::viz::layout::audit_registry::viz_audit_rules as viz_layout_rules;
+
 /// All FlatErc rules in declared (execution) order.
 pub fn flat_erc_rules() -> &'static [FlatErcRule] {
     FLAT_ERC_RULES
@@ -854,7 +867,9 @@ pub fn post_parse_rules() -> &'static [PostParseRule] {
     POSTPARSE_RULES
 }
 
-/// Number of registered rules in the current table set.
+/// Number of rules in the four numeric-code tables. The VizLayout rows are
+/// aggregated separately through [`viz_layout_rules`] and are not part of
+/// this sum (they carry string ids, not errcode codes).
 pub fn rule_count() -> usize {
     FLAT_ERC_RULES.len() + DECL_RULES.len() + GATE_RULES.len() + POSTPARSE_RULES.len()
 }
@@ -1376,6 +1391,75 @@ mod tests {
             // E4101 is the only FlatErc rule adjudicated to a content family
             // so far (the AssemblyGate scope adjudicates R01-R04 to "A").
             assert!(r.meta.family.is_none() || r.meta.code == NET_MULTI_DRIVE);
+        }
+    }
+
+    /// The registered VizLayout row ids in table order (v0.7 stage 4). The A
+    /// rows reproduce `audit_equi_tree` collection order — A1..A18 then
+    /// A21..A34 with A2b, and the A19/A20/A33 numbering gaps are intentional —
+    /// and the F rows are the three fidelity gate tiers.
+    const VIZ_LAYOUT_ORDER: [&str; 35] = [
+        "A1", "A2", "A2b", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12", "A13",
+        "A14", "A15", "A16", "A17", "A18", "A21", "A22", "A23", "A24", "A25", "A26", "A27", "A28",
+        "A29", "A30", "A34", "A31", "A32", "F1", "F2", "F3",
+    ];
+
+    #[test]
+    fn viz_layout_rows_are_aggregated_read_only() {
+        // Stage 4: viz self-describes its checks; the top-level aggregation
+        // returns the viz-owned slice unchanged (no central row copy).
+        assert_eq!(viz_layout_rules().len(), VIZ_LAYOUT_ORDER.len());
+        let ids: Vec<&str> = viz_layout_rules().iter().map(|r| r.id).collect();
+        assert_eq!(ids, VIZ_LAYOUT_ORDER);
+        let a = viz_layout_rules()
+            .iter()
+            .filter(|r| r.id.starts_with('A'))
+            .count();
+        let f = viz_layout_rules()
+            .iter()
+            .filter(|r| r.id.starts_with('F'))
+            .count();
+        assert_eq!((a, f), (32, 3));
+        // VizLayout rows are string-id rules: they are absent from the numeric
+        // scope query and from rule_count(), which sums the code tables only.
+        assert_eq!(rules_in_scope(RuleScope::VizLayout).len(), 0);
+        let before = rule_count();
+        assert!(before > 0);
+    }
+
+    #[test]
+    fn viz_layout_governance_defaults_are_locked() {
+        let all = viz_layout_rules();
+        for r in all {
+            assert!(
+                matches!(r.severity, "error" | "warning" | "info"),
+                "unexpected severity '{}' for {}",
+                r.severity,
+                r.id
+            );
+            assert!(!r.host.is_empty(), "every row names its viz owner");
+            assert!(!r.name.is_empty());
+        }
+        // A-series rows are error invariants; the column-model pair (A5/A6) is
+        // declared but not computable yet, and the fidelity tiers carry the
+        // gate levels (blocking / ratchet / informational).
+        for id in ["A5", "A6"] {
+            let r = all.iter().find(|x| x.id == id).unwrap();
+            assert!(!r.computable, "{id} waits on the column model");
+        }
+        let computable = all.iter().filter(|x| x.computable).count();
+        assert_eq!(computable, 33);
+        let f1 = all.iter().find(|x| x.id == "F1").unwrap();
+        assert_eq!(f1.severity, "error");
+        let f2 = all.iter().find(|x| x.id == "F2").unwrap();
+        assert_eq!(f2.severity, "warning");
+        let f3 = all.iter().find(|x| x.id == "F3").unwrap();
+        assert_eq!(f3.severity, "info");
+        let ids: Vec<&str> = all.iter().map(|r| r.id).collect();
+        assert_eq!(ids.windows(2).position(|w| w == ["A2", "A2b"]), Some(1));
+        assert_eq!(ids.windows(2).position(|w| w == ["A2b", "A3"]), Some(2));
+        for gap in ["A19", "A20", "A33"] {
+            assert!(!ids.contains(&gap), "{gap} is an intentional gap");
         }
     }
 }

@@ -18,6 +18,7 @@
 //! ### Whole-graph Layouter (impl trait)
 //! - [`flow::FlowLayouter`] —— default layout engine
 
+pub mod audit_registry;
 pub mod chain;
 pub mod coalesce;
 pub mod components;
