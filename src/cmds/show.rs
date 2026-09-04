@@ -2238,41 +2238,15 @@ fn attrval_json(v: &mcc::McAttrVal) -> Value {
 }
 
 /// Build the Pass2 netlist for a module: net name -> ordered point labels.
+///
+/// Thin wrapper over the shared net-table projection (`cmds/nets.rs`) so the
+/// fold lives in exactly one place; the `error!` + `exit(1)` guardrail is
+/// preserved for callers that cannot propagate an error.
 pub(crate) fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
-    let uri = mcc::mcb_iter_modules()
-        .iter()
-        .find(|(n, _)| n == top)
-        .map(|(_, u)| mcc::McURI::from(u.as_str()))
-        .unwrap_or_else(|| mcc::McURI::from(top));
-
-    // Guardrail: a Pass2 panic must not abort the process.
-    let inst = crate::cmds::common::build_pass2(top, &uri).unwrap_or_else(|e| {
+    crate::cmds::nets::top_nets(top, None).unwrap_or_else(|e| {
         error!(target: "mcc::show", "{e}");
         std::process::exit(1);
-    });
-
-    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for conn in &inst.connections {
-        let net = conn.effective_net_name();
-        if net == "NC" {
-            continue;
-        }
-        let bucket = nets.entry(net).or_default();
-        for p in &conn.points {
-            if p.path == "NC" {
-                continue;
-            }
-            let label = if let Some(ref o) = p.owner {
-                format!("{}.{}", o, p.path.split('.').last().unwrap_or(&p.path))
-            } else {
-                p.path.clone()
-            };
-            if !bucket.contains(&label) {
-                bucket.push(label);
-            }
-        }
-    }
-    nets
+    })
 }
 
 // ============================================================================

@@ -588,7 +588,7 @@ pub struct QueryArgs {
     /// Optional file or directory to load before querying
     pub target: Option<String>,
 
-    /// Restrict to one kind: component|module|interface|enum|instance
+    /// Restrict to one kind: component|module|interface|enum|instance|net
     #[arg(long, value_enum)]
     pub kind: Option<SearchKind>,
 
@@ -625,6 +625,10 @@ pub enum SearchKind {
     Enum,
     // Instances inside a top module (requires --top)
     Instance,
+    // Pass2 nets of the top module (--top / target-file module; each row has
+    // points). Not a definition kind — the lib search engine has no Net;
+    // `query --kind net` projects the net table in cmds/query.rs.
+    Net,
 }
 
 // ============================================================================

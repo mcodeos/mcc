@@ -2,10 +2,20 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc extract` — structured data extraction (envelope version)
+//! `mcc extract` — structured data extraction (envelope version).
+//!
+//! Migration shim (extract-merge plan): the four raw-table projections now live
+//! under `mcc query --kind`; this command is retained during the migration
+//! window as a thin wrapper that emits the legacy `ExtractData{target, items}`
+//! envelope byte-for-byte (local path), so downstream scripts that consume
+//! `mcc extract` output keep working. RPC delegation was removed — the command
+//! always runs local, like `query`. The RPC `extract` method / `handle_extract`
+//! / `extract_from_uri` server-side tables are untouched.
 
+use crate::cmds::common;
 use crate::cmds::filter;
 use crate::cmds::manifest;
+use crate::cmds::nets;
 use crate::cmds::proj::resolve_workspace_ref;
 use crate::output::{
     self,
@@ -14,33 +24,14 @@ use crate::output::{
     OutputFormatExt,
 };
 use anyhow::{Context, Result};
-use mcc::cli::{rpcclient::RpcClient, ExtractArgs, ExtractTarget};
+use mcc::cli::{ExtractArgs, ExtractTarget};
 use mcc::{McCMIE, McIds, McInstance, McURI};
 use serde_json::{json, Value};
 use std::path::Path;
 
 pub fn run(args: &ExtractArgs) -> Result<()> {
-    // Compile filter once and skip RPC if present (RPC filter parity deferred).
-    // This forces filtered extracts to use the local evaluator so the filter
-    // expression is actually applied (RPC handler doesn't accept filter today).
-    let compiled_filter = args.filter.as_deref().map(filter::compile).transpose()?;
-    if compiled_filter.is_none() {
-        if let Some(client) = RpcClient::probe() {
-            let result = client.call(
-                "extract",
-                json!({
-                    "entry":  args.file.clone(),
-                    "target": format!("{:?}", args.target).to_lowercase(),
-                    "top":    mcc::cli::globals().top.clone(),
-                    "libs":   mcc::cli::globals().lib.clone(),
-                }),
-            )?;
-            println!("{}", serde_json::to_string_pretty(&result)?);
-            return Ok(());
-        }
-    }
-
-    // Shared local initialization: engine + libs (global config, --lib, mcode default).
+    // Shared local initialization: engine + libs (global config, --lib, mcode
+    // default). Local-only since the merge — no RPC delegation.
     manifest::init_local(args.file.as_deref(), &mcc::cli::globals().lib);
 
     // components / interfaces operate on already-loaded libraries; no file required
@@ -50,25 +41,22 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
         _ => {}
     }
 
-    // Note: --filter is applied per-target below; for components/interfaces
-    // we apply it after building the items vec, before emit_extract.
-
     // instances / nets require an entry
-    let uri = if let Some(file) = &args.file {
-        let uri = McURI::from(file.as_str());
-        mcc::mcc_load_project(&uri);
-        uri
-    } else {
-        return emit_err(RpcError::invalid_params(
-            "extract instances/nets: target file must be specified",
-        ));
+    let file = match &args.file {
+        Some(f) => f,
+        None => {
+            return emit_err(RpcError::invalid_params(
+                "extract instances/nets: target file must be specified",
+            ))
+        }
     };
+    let uri = McURI::from(file.as_str());
+    mcc::mcc_load_project(&uri);
 
-    let top_name = mcc::cli::globals()
-        .top
-        .clone()
-        .or_else(|| mcc::mcb_get_module_name_by_uri(&uri))
-        .or_else(|| mcc::mcb_get_first_module_name());
+    // Top-module resolution: global --top → module declared in the entry →
+    // first loaded module (identical chain to the old inline code, centralized
+    // in cmds/common.rs).
+    let top_name = common::resolve_top_module(file, None);
     let top_name = match top_name {
         Some(n) => n,
         None => {
@@ -80,7 +68,7 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
     let ident = McIds::from(top_name.as_str());
     match args.target {
         ExtractTarget::Instances => extract_instances(&uri, &top_name, &ident, args),
-        ExtractTarget::Nets => extract_nets(&uri, &top_name, &ident, args),
+        ExtractTarget::Nets => extract_nets(&uri, &top_name, args),
         _ => unreachable!(),
     }
 }
@@ -102,28 +90,38 @@ fn extract_instances(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractA
         .insts
         .iter()
         .map(|(name, inst)| {
-            let (kind, class) = match inst {
-                McInstance::Component(c) => ("component", c.name.to_string()),
-                McInstance::Module(m) => ("module", m.name.to_string()),
-                McInstance::Label(l) => ("label", l.clone()),
-                McInstance::Interface(i) => ("interface", i.name.to_string()),
-                McInstance::Bus(b) => ("bus", b.name().to_string()),
+            // Class column: legacy semantics preserved byte-for-byte for the
+            // shim (extract-merge plan, class-divergence policy) — resolved
+            // component/module/interface instances report their own symbol
+            // name here, not the base class name. The *kind* column is
+            // single-sourced from `search_api::instance_kind_tag`, shared with
+            // `query --kind instance` (`inst_kind`).
+            let class = match inst {
+                McInstance::Component(c) => c.name.to_string(),
+                McInstance::Module(m) => m.name.to_string(),
+                McInstance::Label(l) => l.clone(),
+                McInstance::Interface(i) => i.name.to_string(),
+                McInstance::Bus(b) => b.name().to_string(),
                 McInstance::BusRef { component, bus } => {
-                    ("busref", format!("{}.{}", component, bus))
+                    format!("{}.{}", component, bus)
                 }
-                McInstance::List(l) => ("list", l.name().to_string()),
-                McInstance::Unresolved { class_name } => ("unresolved", class_name.clone()),
-                McInstance::Pins => ("pins", "pins".into()),
-                McInstance::PinId(id) => ("pinid", id.clone()),
-                McInstance::Attr(a) => ("attr", a.to_string()),
-                McInstance::Func(f) => ("func", f.name.to_string()),
+                McInstance::List(l) => l.name().to_string(),
+                McInstance::Unresolved { class_name } => class_name.clone(),
+                McInstance::Pins => "pins".into(),
+                McInstance::PinId(id) => id.clone(),
+                McInstance::Attr(a) => a.to_string(),
+                McInstance::Func(f) => f.name.to_string(),
                 McInstance::EnumVal {
                     enum_name,
                     value_name,
                     ..
-                } => ("enumval", format!("{}.{}", enum_name, value_name)),
+                } => format!("{}.{}", enum_name, value_name),
             };
-            json!({ "name": name.to_string(), "kind": kind, "class": class })
+            json!({
+                "name": name.to_string(),
+                "kind": mcc::search_api::instance_kind_tag(inst),
+                "class": class
+            })
         })
         .collect();
 
@@ -139,32 +137,10 @@ fn extract_instances(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractA
     emit_extract("instances", Value::Array(items))
 }
 
-fn extract_nets(uri: &McURI, _top_name: &str, ident: &McIds, args: &ExtractArgs) -> Result<()> {
-    let inst = mcc::mcc_build(ident, uri).map_err(|e| anyhow::anyhow!("build failed: {}", e))?;
-
-    use std::collections::BTreeMap;
-    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for conn in &inst.connections {
-        let net = conn.effective_net_name();
-        if net == "NC" {
-            continue;
-        }
-        let bucket = nets.entry(net).or_default();
-        for p in &conn.points {
-            if p.path == "NC" {
-                continue;
-            }
-            let label = if let Some(ref o) = p.owner {
-                format!("{}.{}", o, p.path.split('.').last().unwrap_or(&p.path))
-            } else {
-                p.path.clone()
-            };
-            if !bucket.contains(&label) {
-                bucket.push(label);
-            }
-        }
-    }
-
+fn extract_nets(uri: &McURI, top_name: &str, args: &ExtractArgs) -> Result<()> {
+    // Shared net-table projection (same fold as `query --kind net` /
+    // `list nets` / `show net|nets`).
+    let nets = nets::top_nets(top_name, Some(uri)).map_err(anyhow::Error::msg)?;
     let items: Vec<serde_json::Value> = nets
         .into_iter()
         .map(|(name, points)| json!({ "name": name, "points": points }))

@@ -339,8 +339,8 @@ fn print_help_hint() {
     eprintln!("  build    Manifest-driven build");
     eprintln!("  show     Show component / module / interface / net / file details");
     eprintln!("  list     List top-level definition names (component / module / interface / enum / nets / ports / files / all)");
-    eprintln!("  extract  Extract instances/netlist/components/interfaces");
-    eprintln!("  query    Query defs by DSL <EXPR> or by name substring (text/regex/fuzzy)");
+    eprintln!("  extract  Extract tables (net/instances/components/interfaces) — migration shim: merged into query --kind, verb kept");
+    eprintln!("  query    Query defs by DSL <EXPR> or by name; --kind instance/net tables (text|regex|fuzzy); -f csv");
     eprintln!("  search   Alias of `query` for bare-name substring searches");
     eprintln!("  export   Export netlist / BOM / SPICE (text|csv|json)");
     eprintln!(
