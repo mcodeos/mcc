@@ -187,7 +187,7 @@ impl NetShape {
     }
 
     /// Bus width (widest of all groups); returns 1 for scalars
-    pub fn vec_netshape__bus_width(&self) -> usize {
+    pub fn vec_netshape_bus_width(&self) -> usize {
         self.groups.iter().map(|g| g.width()).max().unwrap_or(1)
     }
 
@@ -329,7 +329,7 @@ impl ShapeStats {
     ///
     /// §8.9.6.7: the structured group kind (`trunk.kind != Plain`) is the
     /// authority for bus classification; the width heuristic
-    /// (`is_bus_lane()` / `vec_netshape__bus_width() >= 2`) only applies when no group
+    /// (`is_bus_lane()` / `vec_netshape_bus_width() >= 2`) only applies when no group
     /// context is available. A net without a shape but with a bus group
     /// identity is still counted as a bus (not left "uncovered").
     pub fn observe(&mut self, name: &str, shape: Option<&NetShape>, group: Option<&TrunkCtx>) {
@@ -344,11 +344,11 @@ impl ShapeStats {
                 }
                 let is_bus = match group {
                     Some(g) => g.kind != TrunkKind::Plain,
-                    None => s.is_bus_lane() || s.vec_netshape__bus_width() >= 2,
+                    None => s.is_bus_lane() || s.vec_netshape_bus_width() >= 2,
                 };
                 if is_bus {
                     self.bus_nets += 1;
-                    self.max_bus_width = self.max_bus_width.max(s.vec_netshape__bus_width());
+                    self.max_bus_width = self.max_bus_width.max(s.vec_netshape_bus_width());
                 }
             }
             None => {
@@ -428,18 +428,18 @@ mod tests {
     }
 
     #[test]
-    fn vec_netshape__bus_width() {
+    fn vec_netshape_bus_width() {
         let s = NetShape {
             groups: vec![GroupRole::Broadcast(2), GroupRole::Broadcast(2)],
             ..Default::default()
         };
-        assert_eq!(s.vec_netshape__bus_width(), 2);
+        assert_eq!(s.vec_netshape_bus_width(), 2);
 
         let scalar = NetShape {
             groups: vec![GroupRole::Scalar, GroupRole::Scalar],
             ..Default::default()
         };
-        assert_eq!(scalar.vec_netshape__bus_width(), 1);
+        assert_eq!(scalar.vec_netshape_bus_width(), 1);
     }
 
     #[test]
