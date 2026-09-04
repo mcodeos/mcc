@@ -826,16 +826,15 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
             .find(|(sn, _)| sn.ident.to_string() == entry.class_name)
             .map(|(_, c)| c)
         {
-            // Count non-NC pin names only — NC pins are intentionally
-            // unconnected and never counted (OR semantics, §2.19).
-            let nc_names = def
-                .pins
-                .pins
-                .values()
-                .filter(|p| p.is_nc)
-                .map(|p| p.names.len())
-                .sum::<usize>();
-            let def_pin_count = def.pins.names_to_id.len().saturating_sub(nc_names);
+            // Count distinct non-NC physical pads, not name entries. A single
+            // pad can carry several alternate signal names (`2 = SO | IO1`) or
+            // receive an interface binding (`[1,2,5,6] = SPI::SPI("Slave")`),
+            // each registering its own key in `names_to_id`; the connected-pin
+            // numerator below counts pads, so the denominator must too —
+            // otherwise every multi-aliased part reports "N of M pins
+            // connected" even when fully wired (E4116). NC pads are
+            // intentionally unconnected and never counted (OR semantics §2.19).
+            let def_pin_count = def.pins.pins.values().filter(|p| !p.is_nc).count();
             if def_pin_count == 0 {
                 continue;
             }
