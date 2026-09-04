@@ -309,6 +309,14 @@ impl DianLu {
         self.table.as_ref()
     }
 
+    /// The flat electrical net-check diagnostics (§11.4), cached by the first
+    /// `flatten` and returned to the caller who owns logging. Empty until the
+    /// projection has run. Read here instead of re-calling `flatten` when the
+    /// projection already exists.
+    pub fn net_diags(&self) -> &[Diagnostic] {
+        &self.net_diags
+    }
+
     /// One-way projection (invariant B): derive the flat `InstTable` from the
     /// already-built tree — never re-instantiate. Cached; subsequent calls are
     /// no-ops. Runs the flat electrical net checks (§11.4) once and returns

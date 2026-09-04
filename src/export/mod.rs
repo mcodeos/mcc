@@ -103,13 +103,13 @@ pub fn build_tree(
     let uri = McURI::from(file);
     let built = panic::catch_unwind(panic::AssertUnwindSafe(|| {
         // One instantiation via the core circuit object, then the single
-        // one-way flatten projection (Phase A: net-check diagnostics are
-        // returned, and the caller logs them — same contract as
-        // `mcb_pass2_flat_with`). The arena + store ride along for the
+        // one-way flatten projection (Phase A: flatten returns the net-check
+        // diagnostics; the owning surface decides logging). Export is a
+        // file-generation surface (netlist / BOM / drawing) — it never writes
+        // the shared Problems store. The arena + store ride along for the
         // exporters.
         let mut dl = crate::mcc_build_dianlu(&ident, &uri, 0)?;
-        let diags = dl.flatten_with_prefix(None);
-        crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
+        let _diags = dl.flatten_with_prefix(None);
         let arena = dl.arena().clone();
         let store = dl.store().clone();
         let (tree, table) = dl.into_parts();

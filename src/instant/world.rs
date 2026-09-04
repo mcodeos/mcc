@@ -28,8 +28,10 @@
 //! the single-circuit CLI path (`mcb_instantiate`) is unchanged.
 
 use crate::db::defregistry::{def_id, kind_of, DefId};
+use crate::db::diagnostic::diagnostic::Diagnostic;
 use crate::instant::dianlu::DianLu;
 use crate::instant::identity::{CircuitKey, IdentityRegistry, NodeId};
+use crate::instant::insttab::InstTable;
 use crate::instant::lane::{Net, NetId, PointId};
 use crate::McIds;
 use crate::McSpaceName;
@@ -187,6 +189,51 @@ impl CircuitWorld {
             .get(&def)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
+    }
+
+    // ========================================================================
+    // Projection side (design §12.2 / invariant B) — the multi-dimensional
+    // read projections of one frozen instantiation. `flatten` derives the
+    // circuit's flat `InstTable` once (one-way from the built tree, never
+    // re-instantiates) and runs the flat electrical net checks once, caching
+    // their diagnostics. Consumers then read tree / flat / nets / diagnostics
+    // off the world's live [`DianLu`]; the world itself never writes the
+    // diagnostics store — the caller owns logging.
+    // ========================================================================
+
+    /// Ensure `key`'s circuit carries its cached flat projection (no-op after
+    /// the first call). Returns the flat net-check diagnostics for the caller
+    /// to log; the world performs no global writes.
+    pub fn flatten(&mut self, key: &CircuitKey) -> Result<Vec<Diagnostic>, Box<dyn Error>> {
+        let dl = self
+            .circuits
+            .get_mut(key)
+            .ok_or_else(|| format!("CircuitWorld::flatten: no circuit instantiated for {key:?}"))?;
+        Ok(dl.flatten())
+    }
+
+    /// Like [`Self::flatten`], but marks every entry under `synthetic_prefix`
+    /// (a virtual single-part view wrapper) as synthetic during the projection,
+    /// so the unwired / pin-count checks skip synthetic instances.
+    pub fn flatten_with_prefix(
+        &mut self,
+        key: &CircuitKey,
+        synthetic_prefix: &str,
+    ) -> Result<Vec<Diagnostic>, Box<dyn Error>> {
+        let dl = self.circuits.get_mut(key).ok_or_else(|| {
+            format!("CircuitWorld::flatten_with_prefix: no circuit instantiated for {key:?}")
+        })?;
+        Ok(dl.flatten_with_prefix(Some(synthetic_prefix)))
+    }
+
+    /// The cached flat projection of `key`, once [`Self::flatten`] ran.
+    pub fn flat(&self, key: &CircuitKey) -> Option<&InstTable> {
+        self.circuits.get(key).and_then(|dl| dl.table())
+    }
+
+    /// The flat electrical net-check diagnostics of `key`, once flattened.
+    pub fn net_diags(&self, key: &CircuitKey) -> Option<&[Diagnostic]> {
+        self.circuits.get(key).map(|dl| dl.net_diags())
     }
 
     // ========================================================================

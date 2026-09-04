@@ -465,6 +465,74 @@ component RES
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// Regression (world-core Stage D): the directory-batch envelope is an
+    /// OWNING surface too — building a toml-less folder must aggregate the real
+    /// flat net-check ERC of every built file, not just pass-1 diagnostics. The
+    /// old dir path built each file tree-only (`mcc_virtual_build_with_nets`, no
+    /// flatten, no ERC), so Build Project on a folder under-reported exactly
+    /// like the old single-file build.full did.
+    #[test]
+    fn cli_buildcmd__build_full_directory_batch_reports_net_erc_truth() {
+        let _guard = parse_lock();
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let root = std::env::temp_dir().join(format!("mcc-direrc-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        // First walked file carries a shorted net → E4101.
+        std::fs::write(
+            root.join("a.mc"),
+            "component BUF {\n    pins = [\n        in 1 = A\n        out 2 = Y\n    ]\n}\n\
+             module main {\n    BUF b1\n    BUF b2\n    b1.Y -> b2.Y\n}\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("c.mc"), "module other\n{\n}\n").unwrap();
+
+        let resp = run_full_build_envelope(
+            &root,
+            None,
+            "mcc build",
+            "file",
+            "test",
+            true,
+            crate::semantic::validation::ledger::LedgerMode::Summary,
+        )
+        .expect("build.full dir ok");
+
+        let codes = resp["pass2"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|d| d["code"].as_u64().map(|c| c as u32))
+            .collect::<Vec<_>>();
+        assert!(
+            codes.contains(&4101),
+            "dir build.full must carry the flat E4101 ...: {codes:?}"
+        );
+        let erc4101 = resp["pass2"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["code"] == 4101)
+            .unwrap();
+        assert!(
+            erc4101["location"]["file"]
+                .as_str()
+                .unwrap()
+                .ends_with("a.mc"),
+            "ERC must be located at the source file that owns the shorted net"
+        );
+        assert!(
+            resp["summary"]["warnings"].as_u64().unwrap_or(0)
+                + resp["summary"]["errors"].as_u64().unwrap_or(0)
+                >= 1,
+            "summary must weight the aggregated ERC"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     /// Regression: `build.full` (the "mcc build" envelope) on a component-only
     /// file must succeed with the component as top instead of E32107.
     #[test]
@@ -493,6 +561,57 @@ component RES
         assert_eq!(
             resp["summary"]["errors"], 0,
             "component-only build must not error"
+        );
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    /// Regression (world-core Stage C): `build.full` is an OWNING surface — the
+    /// envelope must report the real flat electrical net checks, not a pass-1-only
+    /// warning count. The old tree-only build (`mcc_virtual_build_with_nets`)
+    /// never flattened, so `mcc build`/buildProject showed 3 warnings while the
+    /// open-file viz flood showed dozens. The envelope now instantiates the top
+    /// once into a CircuitWorld, flattens it once, logs the returned net
+    /// diagnostics into the pass2 bucket, and summarizes them.
+    #[test]
+    fn cli_buildcmd__build_full_reports_net_erc_truth() {
+        let _guard = parse_lock();
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        // Two buffer outputs merged on one net → E4101 driver conflict (plus
+        // companion warnings). The 4101 proves flatten's net checks ran and the
+        // ERC reached the envelope's pass2 diagnostics + summary.
+        let path = tmp_file(
+            "full-erc",
+            "component BUF {\n    pins = [\n        in 1 = A\n        out 2 = Y\n    ]\n}\n\
+             module main {\n    BUF b1\n    BUF b2\n    b1.Y -> b2.Y\n}\n",
+        );
+        let resp = run_full_build_envelope(
+            &path,
+            None,
+            "mcc build",
+            "file",
+            "test",
+            true,
+            crate::semantic::validation::ledger::LedgerMode::Summary,
+        )
+        .expect("build.full ok");
+        let p2 = &resp["pass2"];
+        let diags = p2["diagnostics"].as_array().unwrap();
+        let codes: Vec<u32> = diags
+            .iter()
+            .filter_map(|d| d["code"].as_u64().map(|c| c as u32))
+            .collect();
+        assert!(
+            codes.contains(&4101),
+            "build.full must carry the flat E4101 driver-conflict ERC; got codes {codes:?}"
+        );
+        assert!(
+            resp["summary"]["warnings"].as_u64().unwrap_or(0)
+                + resp["summary"]["errors"].as_u64().unwrap_or(0)
+                >= codes.len() as u64,
+            "summary must weight the pass2 net diagnostics"
         );
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
