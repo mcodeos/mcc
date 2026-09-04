@@ -258,8 +258,10 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
 }
 
 fn pid_file_path() -> PathBuf {
-    // Single source of truth: fixed at ~/.mcode/logs/mcc.pid, decoupled from MCC_SYSTEM_ROOT,
-    // so start/stop/status locate the same daemon regardless of env var differences.
+    // Single source of truth: datadir::pid_file(). The default-root daemon
+    // stays at the global ~/.mcode/logs/mcc.pid; an isolated MCC_SYSTEM_ROOT
+    // daemon owns <root>/logs/mcc.pid. The spawned child inherits the same
+    // env, so the parent's running-check and the child's write always agree.
     datadir::pid_file()
 }
 
