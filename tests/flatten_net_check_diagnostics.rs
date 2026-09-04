@@ -442,6 +442,45 @@ fn dlu_flatchk__nc_connected_by_pin_id_locked() {
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
 }
 
+/// ── Lock: E4116 counts physical pads, not name entries ─────────────────────
+/// A pad declared with several `|` alternate names (`1 = A | B | C`) registers
+/// one `names_to_id` entry per name, so a fully-wired 2-pad part used to report
+/// "has 2 of 5 pins connected". The denominator is the number of distinct
+/// non-NC pads (matching the connected-pin numerator), so a fully wired
+/// multi-alias part emits no E4116 at all.
+const MULTI_ALIAS: &str =
+    "component F {\n    pins = [\n        1 = A | B | C\n        2 = D | E\n    ]\n}\n";
+
+#[test]
+fn dlu_flatchk__multi_alias_part_fully_wired_no_partial_warning() {
+    let src = format!("{MULTI_ALIAS}module main {{\n    io VDD\n    io GND\n    F f1\n    f1.1 -> VDD\n    f1.2 -> GND\n}}");
+    let diags = build_flat_diags(&src);
+    assert_lock(
+        diags,
+        &[],
+        "fully-wired multi-alias part must not warn E4116",
+    );
+}
+
+/// E4116 still fires when a pad genuinely floats, and the denominator now
+/// reports the physical pad count (2) rather than the name-entry count (5).
+#[test]
+fn dlu_flatchk__multi_alias_part_partial_wiring_reports_pad_count() {
+    let src = format!("{MULTI_ALIAS}module main {{\n    io VDD\n    F f1\n    f1.1 -> VDD\n}}");
+    let diags = build_flat_diags(&src);
+    let expected = [(
+        4116,
+        106,
+        "/mcc/flat-diag.mc",
+        "'main.f1' has 1 of 2 pins connected.",
+    )];
+    assert_lock(
+        diags,
+        &expected,
+        "partial-wiring diagnostic sequence changed",
+    );
+}
+
 /// One-output driver + power-supply component for the 4111/4113 fixtures.
 const DRV: &str = "component D {\n    pins = [\n        out 1 = Y\n    ]\n}\n";
 const PSU: &str = "component PSU {\n    pins = [\n        ps 1 = P\n    ]\n}\n";
