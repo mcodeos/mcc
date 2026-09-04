@@ -211,17 +211,6 @@ pub fn render_envelope_brief(env: &envelope::Envelope, skip_diagnostics: bool) -
         ));
     }
 
-    if let Some(s) = &r.search {
-        out.push_str(&format!(
-            "  search: pattern={:?}, kind={}, regex={}, fuzzy={}, count={}\n",
-            s.pattern,
-            s.kind.as_deref().unwrap_or("*"),
-            s.regex,
-            s.fuzzy,
-            s.count
-        ));
-    }
-
     if let Some(q) = &r.query {
         out.push_str(&format!("  query: expr={:?}, count={}\n", q.expr, q.count));
     }
@@ -520,16 +509,6 @@ pub fn render_envelope_text(env: &envelope::Envelope, skip_diagnostics: bool) ->
                 .as_deref()
                 .map(|p| format!(", written to {}", p))
                 .unwrap_or_default()
-        ));
-    }
-    if let Some(s) = &r.search {
-        out.push_str(&format!(
-            "  search: pattern={:?}, kind={}, regex={}, fuzzy={}, count={}\n",
-            s.pattern,
-            s.kind.as_deref().unwrap_or("*"),
-            s.regex,
-            s.fuzzy,
-            s.count
         ));
     }
     if let Some(q) = &r.query {

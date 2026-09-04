@@ -481,7 +481,7 @@ pub fn set_ignored_warnings(codes: impl IntoIterator<Item = String>) {
 }
 
 /// Load `diag.ignore_warnings` from the merged global + project config and
-/// merge the CLI `--ignore-warnings` codes over them, seeding the process-wide
+/// merge the CLI `-i/--ignore` codes over them, seeding the process-wide
 /// suppression set. Call once at CLI startup (after cwd is set).
 pub fn load_ignore_warnings(project_root: Option<&std::path::Path>, cli_codes: &[String]) {
     use crate::cli::config::{load_global_config, load_project_config, merge_configs};

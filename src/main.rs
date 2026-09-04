@@ -139,7 +139,7 @@ fn main() -> ExitCode {
         mcc::load_trace_config(project_root.as_deref());
     }
 
-    // ── 3.6b. Warning suppression: `diag.ignore_warnings` config + `--ignore-warnings` ──
+    // ── 3.6b. Warning suppression: `diag.ignore_warnings` config + `-i/--ignore` ──
     mcc::load_ignore_warnings(project_root.as_deref(), &cli.ignore_warnings);
 
     // ── 3.7. Apply -D debug-target flags (CLI > config file) ─────────
@@ -168,10 +168,7 @@ fn main() -> ExitCode {
     let need_mcc_init = match &cli.command {
         Some(Command::Start(_)) | Some(Command::Stop(_)) | Some(Command::Status(_)) => false,
         Some(Command::Config(_)) | Some(Command::Proj(_)) => false,
-        Some(Command::Show(_))
-        | Some(Command::List(_))
-        | Some(Command::Search(_))
-        | Some(Command::Query(_)) => false,
+        Some(Command::Show(_)) | Some(Command::List(_)) | Some(Command::Query(_)) => false,
         Some(Command::Export(_)) => false,
         Some(Command::Parse(_)) | Some(Command::Check(_)) | Some(Command::Extract(_)) => false,
         Some(Command::Verify(_)) => false,
@@ -208,13 +205,6 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         | Some(Command::List(_))
         | Some(Command::Build(_))
         | Some(Command::Verify(_)) => Some(mcc::cli::globals().format),
-        Some(Command::Search(a)) => {
-            if a.json {
-                Some(OutputFormat::Json)
-            } else {
-                Some(mcc::cli::globals().format)
-            }
-        }
         Some(Command::Query(a)) => Some(if a.json {
             OutputFormat::Json
         } else {
@@ -262,10 +252,6 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         }
         Some(Command::List(args)) => {
             cmds::list::run(&args)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Some(Command::Search(args)) => {
-            cmds::search::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Query(args)) => {
@@ -354,8 +340,8 @@ fn print_help_hint() {
     eprintln!("  show     Show component / module / interface / net / file details");
     eprintln!("  list     List top-level definition names (component / module / interface / enum / nets / ports / files / all)");
     eprintln!("  extract  Extract instances/netlist/components/interfaces");
-    eprintln!("  search   Search across loaded definitions (text/regex/fuzzy)");
-    eprintln!("  query    Structured DSL query (operators, AND/OR/NOT, attr())");
+    eprintln!("  query    Query defs by DSL <EXPR> or by name substring (text/regex/fuzzy)");
+    eprintln!("  search   Alias of `query` for bare-name substring searches");
     eprintln!("  export   Export netlist / BOM / SPICE (text|csv|json)");
     eprintln!(
         "  lib      System library management (list / install / load / unload / info / search)"

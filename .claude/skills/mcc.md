@@ -184,7 +184,7 @@ Key flags (see also Global Flags above; `--lib`/`--top`/`-f`/`-o` are global):
 | `-l, --lib NAME`            | Load a library (global, repeatable)                              |
 | `-t, --top NAME`            | Top-level module name (global)                                   |
 | `--dlog`                    | Only output diagnostics as `file:line:col: level[code]: message` |
-| `--ignore-warnings CODES`   | Suppress warning-level diagnostics by code (global, e.g. `E3137[,E…]`); errors are never suppressed |
+| `-i, --ignore CODES`        | Suppress warning-level diagnostics by code (global, e.g. `E3137[,E…]`); errors are never suppressed. Alias: `--ignore-warnings` |
 | `--sort {pinid\|interface}` | Pin sorting mode                                                 |
 | `--pass1`                   | Parse only (no instantiation)                                    |
 | `--pass2`                   | Parse + instantiate                                              |
@@ -570,7 +570,7 @@ mcc config reset
 ```
 
 > **Warning suppression.** Warning-only diagnostics can be suppressed per code,
-> either on the CLI (`--ignore-warnings E3137`) or via the config key
+> either on the CLI (`-i E3137`; alias `--ignore-warnings E3137`) or via the config key
 > `diag.ignore_warnings` (project `project.toml`:
 > `[config.diag] ignore_warnings = ["E3137"]`, or global `~/.mcode/config/mcc.yaml`).
 > Errors are never suppressed. E3137 (`SINGLE_USE_INLINE_NET`) is the

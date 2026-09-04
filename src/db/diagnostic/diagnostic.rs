@@ -11,7 +11,7 @@ use std::sync::{Mutex, OnceLock};
 pub type Position = u32;
 
 // ============================================================================
-// Warning-code suppression (`diag.ignore_warnings` config + `--ignore-warnings`
+// Warning-code suppression (`diag.ignore_warnings` config + `-i/--ignore`
 // CLI flag). Warning severity only — errors are never suppressed by this path.
 // ============================================================================
 

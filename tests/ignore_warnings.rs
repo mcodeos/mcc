@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Warning suppression (`diag.ignore_warnings` config key + `--ignore-warnings`
+//! Warning suppression (`diag.ignore_warnings` config key + `-i/--ignore`
 //! CLI flag, resolve-gate-design.md §5): the process-wide ignore set filters
 //! E3137 (SINGLE_USE_INLINE_NET) from every output channel, errors are never
 //! suppressed, and the config / CLI paths both seed the set.
@@ -94,7 +94,7 @@ fn sem_ignwarn__cli_codes_merge_over_config() {
     let _lock = common::lock();
     reset_ignored();
 
-    // `--ignore-warnings 3137` (bare numeric form) with no project manifest.
+    // `-i 3137` (bare numeric form) with no project manifest.
     let dir = std::env::temp_dir().join(format!(
         "mcc-ignore-cli-{}-{}",
         std::process::id(),
@@ -105,7 +105,7 @@ fn sem_ignwarn__cli_codes_merge_over_config() {
     let codes = build_codes(SINGLE_USE_SRC);
     assert!(
         !codes.contains(&SINGLE_USE_INLINE_NET),
-        "CLI --ignore-warnings codes must seed the ignore set; got codes: {codes:?}"
+        "CLI -i/--ignore codes must seed the ignore set; got codes: {codes:?}"
     );
     std::fs::remove_dir_all(&dir).ok();
 }

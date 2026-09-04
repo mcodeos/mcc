@@ -70,11 +70,6 @@ impl ResultBuilder {
         self
     }
 
-    pub fn set_search(&mut self, s: SearchData) -> &mut Self {
-        self.result.search = Some(s);
-        self
-    }
-
     pub fn set_query(&mut self, q: QueryData) -> &mut Self {
         self.result.query = Some(q);
         self
