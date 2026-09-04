@@ -34,6 +34,7 @@ pub mod hierarchy;
 pub mod instant;
 pub(crate) mod lsp;
 pub(crate) mod query;
+pub(crate) mod rules;
 pub(crate) mod semantic;
 pub(crate) use builder::current_uri;
 pub mod rpc;

@@ -47,11 +47,37 @@
 //! | R12 DANGLING_PORT      | INFO  | a port net has only itself as a point |
 //! | R14 ORPHAN_INSTANCE     | WARN  | instance registered but not in any net |
 //! | R15 SYNTHETIC_PIN       | WARN  | synthetic terminal (pin_id not belonging to any real pin, from port scalar/member handling) |
+//!
+//! Every row is registered in the central rule catalog (`src/rules.rs`
+//! `GATE_RULES`) with a numeric code from `errcodes.rs` (`GATE_*`, 4201-4215)
+//! — rule identity, per-row level and the printed label are single-sourced
+//! there; this module only executes the checks and renders the report. The
+//! `build --viz` gate set is the catalog's Blocking rows (design §7.3), so
+//! `is_clean()` is a catalog projection, not a local level table.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 use super::insttab::{InstKind, InstTable};
+use crate::semantic::validation::CheckSeverity;
+
+/// Map a catalog severity to the report level (the AssemblyGate report has no
+/// `Hint` row today, so `Hint` folds into `Info`).
+fn severity_to_level(sev: CheckSeverity) -> Level {
+    match sev {
+        CheckSeverity::Error => Level::Error,
+        CheckSeverity::Warning => Level::Warn,
+        CheckSeverity::Info | CheckSeverity::Hint => Level::Info,
+    }
+}
+
+/// Whether a report tag sits on the catalog's Blocking gate set. Unknown tags
+/// block by default so a future unregistered row cannot silently open a gate.
+fn is_blocking_tag(rule: &str) -> bool {
+    crate::rules::gate_rule_by_tag(rule)
+        .map(|g| g.meta.gate == crate::rules::GateKind::Blocking)
+        .unwrap_or(true)
+}
 
 // ============================================================================
 // Configuration constants
@@ -114,9 +140,16 @@ pub struct Report {
 }
 
 impl Report {
-    /// No ERROR-level violations
+    /// No Blocking findings — the gate test the `build --viz` consumer runs.
+    /// "Blocking" is a catalog projection (§7.3 gate axis): a finding blocks
+    /// when its rule is tagged `Blocking` there (every error-level AssemblyGate
+    /// row today), so the gate set is derived from the catalog, not from a
+    /// local severity table. Unknown rows block by default.
     pub fn is_clean(&self) -> bool {
-        !self.findings.iter().any(|f| f.level == Level::Error)
+        !self
+            .findings
+            .iter()
+            .any(|f| f.level == Level::Error && is_blocking_tag(f.rule))
     }
 
     pub fn error_count(&self) -> usize {
@@ -224,32 +257,22 @@ impl Report {
 }
 
 fn rule_level(rule: &str) -> Level {
-    match rule {
-        "R01-e" | "R03a" | "R12" => Level::Info,
-        "R06" | "R09" | "R14" | "R15" => Level::Warn,
-        _ => Level::Error,
+    // R01-e is the informational waiver note under R01 and has no catalog row.
+    if rule == "R01-e" {
+        return Level::Info;
+    }
+    match crate::rules::gate_severity(rule) {
+        Some(sev) => severity_to_level(sev),
+        // Unknown rows keep the historical default (Error) so a rule that is
+        // not yet registered still reports as before.
+        None => Level::Error,
     }
 }
 
 fn rule_name(rule: &str) -> &'static str {
-    match rule {
-        "R01" => "R01 LITERAL_POINT",
-        "R01-e" => "R01-e WAIVED",
-        "R02" => "R02 SHORT_PASSIVE",
-        "R03" => "R03 SHORT_RAIL",
-        "R03a" => "R03a RAIL_ALIAS",
-        "R04" => "R04 SHORT_LANE",
-        "R05" => "R05 UNRESOLVED_UNIT",
-        "R06" => "R06 MEGANET",
-        "R07" => "R07 GHOST_INSTANCE",
-        "R08" => "R08 PHANTOM_PATH",
-        "R09" => "R09 FLOATING_PWR_PIN",
-        "R10" => "R10 SYMBOL_CONSERV",
-        "R11" => "R11 SPLIT_RAIL",
-        "R12" => "R12 DANGLING_PORT",
-        "R14" => "R14 ORPHAN_INSTANCE",
-        "R15" => "R15 SYNTHETIC_PIN",
-        _ => "?",
+    match crate::rules::gate_rule_by_tag(rule) {
+        Some(g) => g.label,
+        None => "?",
     }
 }
 
@@ -269,12 +292,11 @@ pub fn run(table: &InstTable) -> Report {
 pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, usize>) -> Report {
     let mut rep = Report::default();
 
-    // Register every rule once so that rules with 0 hits also appear in the table
-    for r in [
-        "R01", "R02", "R03", "R03a", "R04", "R05", "R06", "R07", "R08", "R09", "R10", "R11", "R12",
-        "R14", "R15",
-    ] {
-        rep.counts.insert(r, 0);
+    // Register every rule once so that rules with 0 hits also appear in the
+    // table. The row set — and its order — comes from the AssemblyGate catalog
+    // (`src/rules.rs` `GATE_RULES`), the single source of rule identity.
+    for rule in crate::rules::assembly_gate_rules() {
+        rep.counts.insert(rule.meta.name, 0);
     }
 
     let idx = Index::build(table);

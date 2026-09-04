@@ -14,6 +14,11 @@
 //! created after dynamic pin resolution (§2.20). This makes them work
 //! correctly for both static and dynamic (parameterized) component pins,
 //! without needing the template component definition.
+//!
+//! Declaration-scope rules are declared — and ordered — in `crate::rules`
+//! (`DECL_RULES`, rule-registry design stage 3); `run_pin_checks` drives the
+//! sequence from the catalog, mirroring how `nets::run_net_checks` consumes
+//! `FLAT_ERC_RULES`. Output is byte-identical to the former call sequence.
 
 use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 use crate::semantic::common::IOType;
@@ -34,8 +39,9 @@ pub struct PinCheckResult {
 /// Run all pin usage checks and return diagnostics.
 pub fn run_pin_checks(table: &InstTable) -> Vec<PinCheckResult> {
     let mut results = Vec::new();
-    check_unused_pins(table, &mut results);
-    check_conflicting_pins(table, &mut results);
+    for rule in crate::rules::declaration_rules() {
+        (rule.run)(table, &mut results);
+    }
     results
 }
 
@@ -77,7 +83,7 @@ fn pin_display_name<'a>(pinid: &'a str, class_name: &'a str) -> Option<&'a str> 
 ///
 /// This approach works for both static and dynamic (§2.20) pins because Pin
 /// entries are created after dynamic pin resolution during flattening.
-fn check_unused_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) {
+pub(crate) fn check_unused_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) {
     for (_, entry) in table.iter() {
         if !matches!(entry.kind, InstKind::Component) || entry.class_name.is_empty() {
             continue;
@@ -134,7 +140,7 @@ fn check_unused_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) {
 /// (with the first option name), so this check rarely fires. Full multi-option
 /// conflict detection requires connection-level option name tracking
 /// (design doc §4.3 `PinUsageTracker::used_options`).
-fn check_conflicting_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) {
+pub(crate) fn check_conflicting_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) {
     for (_, entry) in table.iter() {
         if !matches!(entry.kind, InstKind::Component) || entry.class_name.is_empty() {
             continue;
