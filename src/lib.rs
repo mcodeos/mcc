@@ -421,8 +421,11 @@ pub fn mcc_build_flat_with_arena(
     // Project once (this also runs the flat electrical net checks), then take
     // both parts out of the object — no second instantiation, no clone. The
     // arena + instance store (Phase C S3) ride along for the consumer walks.
-    let diags = dl.flatten_with_prefix(None);
-    crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
+    // Render surface: the flat net-check diagnostics are NOT logged here (Phase
+    // A — flatten returns them; the caller decides). Render never writes the
+    // shared Problems store; validation surfaces (`mcb_pass2_flat` /
+    // `mcc_build_flat`) own logging.
+    let _diags = dl.flatten_with_prefix(None);
     let arena = dl.arena().clone();
     let store = dl.store().clone();
     let (tree, table) = dl.into_parts();
@@ -587,6 +590,36 @@ pub fn mcc_virtual_build_with_nets(
     Box<dyn Error>,
 > {
     crate::build::vinst::virtual_build_with_nets(target, uri)
+}
+
+/// Build `target` into a fresh world-scoped circuit — the core object of the
+/// world-circuit refactor (design §12.2 / §13.6). Modules instantiate directly;
+/// a component/interface target is wrapped in a synthetic module first (see
+/// [`mcc_virtual_build`]). Returns the world, the circuit key, and the
+/// synthetic wrapper name when `target` was wrapped (the prefix a projection
+/// must mark synthetic so an unwired single-part view doesn't flag
+/// E4112/E4116).
+///
+/// No flatten, no net checks, and no store writes happen here: project with
+/// [`CircuitWorld::flatten`](crate::instant::world::CircuitWorld::flatten) /
+/// [`CircuitWorld::flatten_with_prefix`](crate::instant::world::CircuitWorld::flatten_with_prefix)
+/// when a flat view is needed, and log the returned net diagnostics only on an
+/// owning (validation) surface — the render/export surfaces never do.
+pub fn mcc_virtual_build_world(
+    target: &str,
+    uri: &McURI,
+    start_id: u32,
+) -> Result<
+    (
+        crate::instant::world::CircuitWorld,
+        crate::instant::identity::CircuitKey,
+        Option<String>,
+    ),
+    Box<dyn Error>,
+> {
+    let mut world = crate::instant::world::CircuitWorld::new(start_id);
+    let (key, synthetic) = crate::build::vinst::virtual_instantiate_world(&mut world, target, uri)?;
+    Ok((world, key, synthetic))
 }
 
 /// Append a synthetic wrapper module for every virtual target at once and

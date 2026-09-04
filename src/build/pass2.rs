@@ -4,6 +4,7 @@
 
 use crate::build::pass1::canonicalize_project_uri;
 use crate::db::cmie::tables as workspace;
+use crate::db::diagnostic::diagnostic::Diagnostic;
 use crate::db::infra::init::uri_equivalent;
 use crate::instant::arena::NodeArena;
 use crate::instant::dianlu::DianLu;
@@ -219,7 +220,13 @@ pub fn mcb_pass2_flat(
     entry: &McSpaceName,
     start_id: u32,
 ) -> Result<(MccProjectTree, InstTable), Box<dyn Error>> {
-    let (tree, table, _arena, _store) = mcb_pass2_flat_with(entry, start_id, None)?;
+    let (tree, table, _arena, _store, diags) = mcb_pass2_flat_with(entry, start_id, None)?;
+    // Validation wrapper: the `check --nets/--pins` and `mcc_build_flat` path.
+    // Phase A: flatten returns the net-check diagnostics and the OWNING surface
+    // decides logging — this validation surface logs them into the workspace;
+    // the render / synthetic surfaces that build through `mcb_pass2_flat_with`
+    // directly do not.
+    crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
     Ok((tree, table))
 }
 
@@ -230,20 +237,29 @@ pub fn mcb_pass2_flat(
 /// report E4112 "no pins connected" / E4116 "N of M pins connected" — an
 /// unwired box is exactly what such a view IS. (`virtual_build_flat` builds the
 /// synthetic wrapper module through this entry point.)
+///
+/// The flat net-check diagnostics are returned alongside the parts — this is a
+/// RENDER-oriented projection helper and does not log them; the caller decides.
 pub(crate) fn mcb_pass2_flat_with(
     entry: &McSpaceName,
     start_id: u32,
     synthetic_prefix: Option<&str>,
-) -> Result<(MccProjectTree, InstTable, NodeArena, InstanceStore), Box<dyn Error>> {
+) -> Result<
+    (
+        MccProjectTree,
+        InstTable,
+        NodeArena,
+        InstanceStore,
+        Vec<Diagnostic>,
+    ),
+    Box<dyn Error>,
+> {
     let mut dl = mcb_instantiate(entry, start_id)?;
     // Project once (this also runs the flat electrical net checks), then take
     // both parts out of the object — no second instantiation, no clone.
-    // Phase A: flatten returns the net-check diagnostics; the build layer owns
-    // logging them into the workspace (the current_uri context is ours).
     let diags = dl.flatten_with_prefix(synthetic_prefix);
-    crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
     let arena = dl.arena().clone();
     let store = dl.store().clone();
     let (tree, table) = dl.into_parts();
-    Ok((tree, table, arena, store))
+    Ok((tree, table, arena, store, diags))
 }

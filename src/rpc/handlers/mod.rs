@@ -415,10 +415,26 @@ pub(crate) fn run_full_build_envelope(
         .map_err(|e| JsonRpcError::custom(32107, &e))?;
     let top_name = targets.first().cloned().unwrap_or_else(|| "".to_string());
 
+    // ── World-core build (design §12.2 / §13.6): the top is instantiated ONCE
+    //    and held as a live circuit in a per-build CircuitWorld — the scope's
+    //    core object. Every consumer below reads a projection off it; nothing
+    //    is dismembered and nothing is re-derived. The single one-way flatten
+    //    runs the flat electrical net checks once, and the envelope owns the
+    //    Problems surface, so it logs them (they land in the pass2 diagnostics
+    //    snapshot below) — the render/export surfaces never do. A
+    //    component/interface top is wrapped in a synthetic module and the
+    //    projection marks it synthetic, so an unwired single-part view doesn't
+    //    flag E4112/E4116. ──
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_virtual_build_with_nets(&top_name, &mc_uri)
+        let (mut world, key, synthetic) = crate::mcc_virtual_build_world(&top_name, &mc_uri, 1000)?;
+        let diags = match synthetic {
+            Some(prefix) => world.flatten_with_prefix(&key, &prefix)?,
+            None => world.flatten(&key)?,
+        };
+        crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
+        Ok::<_, Box<dyn std::error::Error>>((world, key))
     }));
-    let (inst, arena, store, net_store) = match built {
+    let (world, key) = match built {
         Ok(Ok(pair)) => pair,
         Ok(Err(e)) => {
             return Err(JsonRpcError::custom(
@@ -434,14 +450,19 @@ pub(crate) fn run_full_build_envelope(
         }
     };
 
-    let view = crate::TreeView::new(&arena, &store);
-    let mut pass2 = collect_pass2(&top_name, &inst, &view, &net_store);
+    let dl = world
+        .circuit(&key)
+        .ok_or_else(|| JsonRpcError::custom(32107, "build produced no circuit"))?;
+    let view = crate::TreeView::new(dl.arena(), dl.store());
+    let net_store = dl.net_store().borrow().clone();
+    let inst = dl.tree();
+    let mut pass2 = collect_pass2(&top_name, inst, &view, &net_store);
     pass2["diagnostics"] = Value::Array(take_diags("pass2"));
 
     // ── Summary, mirroring ResultBuilder::finish() ──
     // Phase C S3-D: the tree tally resolves children through the view (the
     // tree's Vec fields are gone).
-    let summary = build_envelope_summary(&pass0, &pass1, &pass2, Some(&inst), Some(&view), t0);
+    let summary = build_envelope_summary(&pass0, &pass1, &pass2, Some(inst), Some(&view), t0);
 
     Ok(json!({
         "command": command,
@@ -501,7 +522,19 @@ fn run_full_build_dir_envelope(
     // Same contract as the single-file path: ports never populated locally.
     pass1["definitions"]["ports"] = Value::Array(vec![]);
 
-    // ── Pass 2: per-file default top build, aggregated ──
+    // ── Pass 2 (world-core; design §12.2 / §13.6): per-file default top build,
+    //    aggregated ──
+    // Every built file's top is instantiated ONCE into a per-file CircuitWorld
+    // and flattened once, so the single one-way flatten runs that circuit's
+    // flat electrical net checks once. The dir envelope is an OWNING surface
+    // (an explicit Build over the whole folder), so its net diagnostics are
+    // logged into the workspace — the Problems store aggregates real ERC per
+    // source file, exactly like the single-file envelope. Components/interfaces
+    // are wrapped in a synthetic module and the projection marks it synthetic,
+    // so an unwired single-part view doesn't flag E4112/E4116. The first
+    // successful tree rides into the envelope (mirroring the single-file
+    // contract); the rest only need their diagnostics, so their owned parts are
+    // not cloned out of the circuit.
     let mut top_name = String::new();
     let mut first_inst: Option<(
         crate::MccProjectTree,
@@ -512,7 +545,8 @@ fn run_full_build_dir_envelope(
     let mut failures: Vec<Value> = Vec::new();
     let build_one = |target: &str,
                      file: &Path,
-                     failures: &mut Vec<Value>|
+                     failures: &mut Vec<Value>,
+                     keep_tree: bool|
      -> Option<(
         crate::MccProjectTree,
         crate::NodeArena,
@@ -522,10 +556,31 @@ fn run_full_build_dir_envelope(
         let uri = file.to_string_lossy().to_string();
         let mc_uri = McURI::from(uri.as_str());
         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::mcc_virtual_build_with_nets(target, &mc_uri)
+            let (mut world, key, synthetic) =
+                crate::mcc_virtual_build_world(target, &mc_uri, 1000)?;
+            let diags = match synthetic {
+                Some(prefix) => world.flatten_with_prefix(&key, &prefix)?,
+                None => world.flatten(&key)?,
+            };
+            // Owning surface: the flat net-check diagnostics aggregate into the
+            // Problems store, keyed at each diagnostic's own source file.
+            crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
+            if keep_tree {
+                let dl = world
+                    .circuit(&key)
+                    .ok_or_else(|| format!("dir build produced no circuit for {target}"))?;
+                Ok::<_, Box<dyn std::error::Error>>(Some((
+                    dl.tree().clone(),
+                    dl.arena().clone(),
+                    dl.store().clone(),
+                    dl.net_store().borrow().clone(),
+                )))
+            } else {
+                Ok::<_, Box<dyn std::error::Error>>(None)
+            }
         }));
         match built {
-            Ok(Ok(pair)) => Some(pair),
+            Ok(Ok(pair)) => pair,
             Ok(Err(e)) => {
                 failures.push(build_failure_diag(
                     "pass2",
@@ -558,7 +613,7 @@ fn run_full_build_dir_envelope(
             if !declares {
                 continue;
             }
-            if let Some(pair) = build_one(t, f, &mut failures) {
+            if let Some(pair) = build_one(t, f, &mut failures, first_inst.is_none()) {
                 top_name = t.to_string();
                 first_inst = Some(pair);
             }
@@ -575,15 +630,14 @@ fn run_full_build_dir_envelope(
             let Some(tgt) = targets.first().cloned() else {
                 continue;
             };
-            // Build each file's default top; keep the first successful tree.
+            // Keep the first successful tree; the remaining files still build +
+            // flatten so their ERC aggregates, but no owned parts are cloned.
+            let pair = build_one(&tgt, f, &mut failures, first_inst.is_none());
             if first_inst.is_none() {
-                if let Some(pair) = build_one(&tgt, f, &mut failures) {
+                if let Some(pair) = pair {
                     top_name = tgt;
                     first_inst = Some(pair);
                 }
-            } else {
-                // Only collect diagnostics for the remaining files.
-                let _ = build_one(&tgt, f, &mut failures);
             }
         }
     }

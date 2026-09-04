@@ -273,12 +273,39 @@ pub fn virtual_build_flat(
     // report E4112/E4116 on the unwired standalone component/interface view.
     let canonical_uri: crate::McURI = crate::db::infra::init::mcb_canonicalize_uri(uri).into();
     let ident = crate::McIds::from(mod_name.as_str());
-    let (tree, table, arena, store) = crate::build::pass2::mcb_pass2_flat_with(
+    let (tree, table, arena, store, _diags) = crate::build::pass2::mcb_pass2_flat_with(
         &crate::McSpaceName::new(&ident, canonical_uri),
         start_id,
         Some(&mod_name),
     )?;
+    // Render surface: the net-check diagnostics of a standalone view are not
+    // logged into the workspace store — the caller renders and does not own the
+    // Problems surface.
     Ok((tree, table, arena, store))
+}
+
+/// Instantiate `target` into `world` as one live circuit (design §12.2, the
+/// world-core). Modules build directly; a component / interface target is
+/// wrapped in a synthetic module first (see [`virtual_build_flat`]). Returns
+/// the circuit key and, for a synthetic target, the wrapper module name — the
+/// prefix a [`crate::CircuitWorld::flatten_with_prefix`] projection must mark
+/// synthetic so an unwired single-part view doesn't flag E4112/E4116.
+pub(crate) fn virtual_instantiate_world(
+    world: &mut crate::instant::world::CircuitWorld,
+    target: &str,
+    uri: &crate::McURI,
+) -> Result<(crate::instant::identity::CircuitKey, Option<String>), Box<dyn Error>> {
+    let canonical_uri: crate::McURI = crate::db::infra::init::mcb_canonicalize_uri(uri).into();
+    if is_module_in_file(target, uri) {
+        let entry = crate::McSpaceName::new(&crate::McIds::from(target), canonical_uri);
+        let key = world.instantiate(&entry)?;
+        Ok((key, None))
+    } else {
+        let mod_name = ensure_synthetic_view(target, uri)?;
+        let entry = crate::McSpaceName::new(&crate::McIds::from(mod_name.as_str()), canonical_uri);
+        let key = world.instantiate(&entry)?;
+        Ok((key, Some(mod_name)))
+    }
 }
 
 /// Return the synthetic module name that wraps `target` (a component/interface),

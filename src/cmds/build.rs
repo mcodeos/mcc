@@ -228,38 +228,61 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         return Ok(BuildOutcome { exit_code: 1 });
     }
 
-    // ── 3. Pass2 ──
-    // The envelope carries the first target's Pass 2 tree (matching
-    // `--format json`); viz still renders all targets. The build also returns
-    // the Phase D frozen string net-table store (the tree never carries
-    // `NetPoint`); it feeds the flat net checks below.
-    let (inst, arena, store, net_store) =
-        match mcc::mcc_virtual_build_with_nets(&top_name, &entry_uri) {
-            Ok((i, a, s, ns)) => {
-                // Phase C S3-D: the tree tally resolves children through the
-                // view (the tree's Vec fields are gone).
-                let view = mcc::TreeView::new(&a, &s);
-                builder.set_pass2(crate::cmds::parse::public_collect_pass2(
-                    &top_name,
-                    &i,
-                    &view,
-                    &ns,
-                    &mut tracker,
-                ));
-                (i, a, s, ns)
-            }
+    // ── 3. Pass2 (world-core; design §12.2 / §13.6) ──
+    // The top is instantiated ONCE and held as a live circuit in a per-build
+    // CircuitWorld — the scope's core object. Every consumer below (the
+    // envelope's pass2 report, the known-missing baseline, viz, and the §4.5
+    // electrical net checks) reads a projection off it; nothing is dismembered
+    // and nothing is re-derived. The single one-way flatten populates the
+    // cached flat table and runs the flat net checks once; the CLI owns the
+    // console surface, so §4.5 reads those checks back — render/export never
+    // do.
+    let (mut world, key, synthetic) =
+        match mcc::mcc_virtual_build_world(&top_name, &entry_uri, 1000) {
+            Ok(triple) => triple,
             Err(e) => {
                 let err = RpcError::build_error(format!("{}", e));
                 emit_err(&mcc::cli::globals().format, err)?;
                 return Ok(BuildOutcome { exit_code: 1 });
             }
         };
+    let flatten = match synthetic {
+        Some(prefix) => world.flatten_with_prefix(&key, &prefix),
+        None => world.flatten(&key),
+    };
+    let _net_diags = match flatten {
+        Ok(diags) => diags,
+        Err(e) => {
+            let err = RpcError::build_error(format!("flatten failed: {}", e));
+            emit_err(&mcc::cli::globals().format, err)?;
+            return Ok(BuildOutcome { exit_code: 1 });
+        }
+    };
+    // Read projections off the live circuit. Every downstream consumer takes
+    // references, so the circuit stays whole until the build is finished — the
+    // arena + store ride along so a TreeView can resolve the Phase C S3-D
+    // children walks (the tree's Vec fields are gone).
+    let dl = world
+        .circuit(&key)
+        .ok_or_else(|| anyhow::anyhow!("world build produced no circuit"))?;
+    let inst = dl.tree();
+    let arena = dl.arena();
+    let store = dl.store();
+    let net_store_rc = dl.net_store();
+    let net_store = net_store_rc.borrow();
+    let view = mcc::TreeView::new(arena, store);
+    builder.set_pass2(crate::cmds::parse::public_collect_pass2(
+        &top_name,
+        inst,
+        &view,
+        &net_store,
+        &mut tracker,
+    ));
 
     // ── G4: Write known_missing.md baseline ──
     // Phase C S3-D: the failed-record tree walk resolves sub-modules through
     // the view (the tree's Vec fields are gone).
-    let view = mcc::TreeView::new(&arena, &store);
-    mcc::InstTable::write_known_missing(&inst, "baseline/known_missing.md", &view);
+    mcc::InstTable::write_known_missing(inst, "baseline/known_missing.md", &view);
 
     // ── 4. Viz generation ──
     if args.viz {
@@ -417,7 +440,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             }
 
             let (vec_block, build_report) =
-                mcc::build_mc_vec_with_report(&inst, &table, &arena, &store);
+                mcc::build_mc_vec_with_report(inst, &table, arena, store);
             // Virtual (component/interface) targets render in the device
             // pipeline with the fabricated instance name hidden so the
             // physical pins (id + name) show.
@@ -489,22 +512,18 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     }
 
     // ── 4.5. Electrical net checks (Pass2, incl. D7 PULLUP_DEGENERATE) ──
-    // Surface the same findings as `mcc check --nets`. The pass-2 tree was
-    // built above by `mcc_build`; flatten it once and run the net checks, so
-    // D7 PULLUP_DEGENERATE and friends appear in `mcc build` output (the Pass 1
-    // diagnostics block renders before Pass 2, so DB-only logging would never
-    // be visible). Findings are printed, not gated: the Tier-0 netcheck and the
-    // exit-code error count below own the failure semantics.
-    // Phase C S3-D: the net-check re-flatten resolves children through the
-    // view (the owning build's arena + store) — the tree's Vec fields are gone.
-    let view = mcc::TreeView::new(&arena, &store);
-    let mut flat_table =
-        mcc::InstTable::from_module_inst(&inst, 1000, net_store.clone().into_shared(), &view);
-    // from_module_inst rebuilds a fresh table that drops the synthetic markers
-    // pass2 attached to the virtual wrapper's entries; re-apply them so the net
-    // checks don't re-flag the unwired interface/component view's ports.
-    mcc::mcc_virtual_mark_synthetic_flat_entries(&mut flat_table);
-    let net_results = mcc::check::nets::run_net_checks(&flat_table);
+    // Surface the same findings as `mcc check --nets`. The single flat
+    // projection was already built at §3 (world-core flatten); read the checks
+    // back off the live circuit's cached table rather than re-flattening the
+    // dismembered tree via `InstTable::from_module_inst`, so D7
+    // PULLUP_DEGENERATE and friends appear in `mcc build` output. The synthetic
+    // markers pass2 attached to a virtual wrapper are already on this table, so
+    // no re-marking is needed. Findings are printed, not gated: the Tier-0
+    // netcheck and the exit-code error count below own the failure semantics.
+    let flat = dl
+        .table()
+        .ok_or_else(|| anyhow::anyhow!("no flat projection; the §3 flatten did not run"))?;
+    let net_results = mcc::check::nets::run_net_checks(flat);
     if !net_results.is_empty() {
         eprintln!(
             "=== Electrical Net Checks ({} issues) ===",
@@ -599,14 +618,23 @@ fn build_browse_dir(
         mcc::InstanceStore,
         mcc::NetTableStore,
     )> = None;
+    let mut first_nets: Vec<mcc::check::nets::NetCheckResult> = Vec::new();
     let mut failures: Vec<Diagnostic> = Vec::new();
     let mut built: Vec<(String, PathBuf)> = Vec::new(); // (target, file) for viz
 
     // Build `target` from `file`; record failures (non-fatal) so one bad file
-    // doesn't abort the folder report.
+    // doesn't abort the folder report. The first surfaced circuit is built
+    // through the world-core (design §12.2 / §13.6): one instantiation held as
+    // a live circuit, then the single one-way flat projection — flatten + the
+    // flat electrical net checks run once, and its net results are kept for the
+    // §4.5 report (printed, never written to the Problems store — dir build
+    // owns the console). The remaining files are tree-only builds: dir mode
+    // surfaces the first successful tree (mirroring the RPC envelope).
     let build_one = |target: &str,
                      file: &Path,
-                     failures: &mut Vec<Diagnostic>|
+                     failures: &mut Vec<Diagnostic>,
+                     keep_nets: bool,
+                     nets: &mut Vec<mcc::check::nets::NetCheckResult>|
      -> Option<(
         mcc::MccProjectTree,
         mcc::NodeArena,
@@ -616,7 +644,34 @@ fn build_browse_dir(
         let uri = file.to_string_lossy().to_string();
         let mc_uri = mcc::McURI::from(uri.as_str());
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            mcc::mcc_virtual_build_with_nets(target, &mc_uri)
+            if keep_nets {
+                // World-core build of the surfaced circuit. A component /
+                // interface top is wrapped in a synthetic module and the
+                // projection marks it synthetic, so an unwired single-part view
+                // doesn't flag E4112/E4116.
+                let (mut world, key, synthetic) =
+                    mcc::mcc_virtual_build_world(target, &mc_uri, 1000)?;
+                let _net_diags = match synthetic {
+                    Some(prefix) => world.flatten_with_prefix(&key, &prefix)?,
+                    None => world.flatten(&key)?,
+                };
+                let dl = world
+                    .circuit(&key)
+                    .ok_or_else(|| anyhow::anyhow!("world build produced no circuit"))?;
+                if let Some(tab) = dl.table() {
+                    *nets = mcc::check::nets::run_net_checks(tab);
+                }
+                let pair = (
+                    dl.tree().clone(),
+                    dl.arena().clone(),
+                    dl.store().clone(),
+                    dl.net_store().borrow().clone(),
+                );
+                Ok::<_, Box<dyn std::error::Error>>(pair)
+            } else {
+                let pair = mcc::mcc_virtual_build_with_nets(target, &mc_uri)?;
+                Ok::<_, Box<dyn std::error::Error>>(pair)
+            }
         })) {
             Ok(Ok(pair)) => Some(pair),
             Ok(Err(e)) => {
@@ -650,7 +705,9 @@ fn build_browse_dir(
             if !declares {
                 continue;
             }
-            if let Some(pair) = build_one(t, f, &mut failures) {
+            if let Some(pair) =
+                build_one(t, f, &mut failures, first_inst.is_none(), &mut first_nets)
+            {
                 top_name = t.to_string();
                 first_inst = Some(pair);
                 built.push((t.to_string(), f.clone()));
@@ -668,7 +725,13 @@ fn build_browse_dir(
             let Some(tgt) = targets.into_iter().next() else {
                 continue;
             };
-            if let Some(pair) = build_one(&tgt, f, &mut failures) {
+            if let Some(pair) = build_one(
+                &tgt,
+                f,
+                &mut failures,
+                first_inst.is_none(),
+                &mut first_nets,
+            ) {
                 built.push((tgt.clone(), f.clone()));
                 if first_inst.is_none() {
                     top_name = tgt;
@@ -809,22 +872,17 @@ fn build_browse_dir(
     }
 
     // ── 4.5. Electrical net checks (Pass2) on the first successful tree ──
-    if let Some((inst, arena, store, net_store)) = &first_inst {
-        // Phase C S3-D: re-flatten resolves children through the view (the
-        // owning build's arena + store) — the tree's Vec fields are gone.
-        let view = mcc::TreeView::new(arena, store);
-        let mut flat_table =
-            mcc::InstTable::from_module_inst(inst, 1000, net_store.clone().into_shared(), &view);
-        mcc::mcc_virtual_mark_synthetic_flat_entries(&mut flat_table);
-        let net_results = mcc::check::nets::run_net_checks(&flat_table);
-        if !net_results.is_empty() {
-            eprintln!(
-                "=== Electrical Net Checks ({} issues) ===",
-                net_results.len()
-            );
-            for r in &net_results {
-                eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
-            }
+    // The first circuit's checks were produced once by its world-core flatten
+    // above (§3, design §12.2 / §13.6) — no re-flatten of the dismembered
+    // tree. Printed, not gated, and never written to the Problems store (the
+    // explicit build.full / check --nets surfaces own the ERC store logging).
+    if !first_nets.is_empty() {
+        eprintln!(
+            "=== Electrical Net Checks ({} issues) ===",
+            first_nets.len()
+        );
+        for r in &first_nets {
+            eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
         }
     }
 
