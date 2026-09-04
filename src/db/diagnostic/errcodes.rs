@@ -904,6 +904,62 @@ pub const VECTOR_WIDTH_MISMATCH: u32 = 4180;
 pub const VECTOR_ZIP_WIDTH_MISMATCH: u32 = 4181;
 
 // ============================================================================
+// Pass2: AssemblyGate netlist health — R-series report rows (4200-4249)
+// ============================================================================
+//
+// The netcheck Tier-0 report (instant::netcheck) registers every R-series row
+// here as a numeric code (rule-registry design §5-1), so each rule has one
+// identity in the central `errcodes` table. The rules are still emitted as
+// report rows (sink = GateReport), not as envelope diagnostics; the report's
+// per-row level is the severity declared next to each code in `src/rules.rs`
+// `GATE_RULES` (rule-registry design §7.3 gate/sink axes).
+
+/// R01 — a vector reference reached the netlist unexpanded (literal braces).
+pub const GATE_LITERAL_POINT: u32 = 4201;
+
+/// R02 — both terminals of a two-terminal device land on the same net (short).
+pub const GATE_SHORT_PASSIVE: u32 = 4202;
+
+/// R03 — a net carries two different power-domain names (short).
+pub const GATE_SHORT_RAIL: u32 = 4203;
+
+/// R03a — a net carries multiple power-domain aliases (advisory).
+pub const GATE_RAIL_ALIAS: u32 = 4204;
+
+/// R04 — two members of the same bus land on one net (lane short).
+pub const GATE_SHORT_LANE: u32 = 4205;
+
+/// R05 — a unit-typed argument claims no formal parameter slot.
+pub const GATE_UNRESOLVED_UNIT: u32 = 4206;
+
+/// R06 — a non-power net is oversized (meganet, advisory).
+pub const GATE_MEGANET: u32 = 4207;
+
+/// R07 — a net references a device missing from the instance table (ghost).
+pub const GATE_GHOST_INSTANCE: u32 = 4208;
+
+/// R08 — an endpoint path has an unregistered middle segment (phantom path).
+pub const GATE_PHANTOM_PATH: u32 = 4209;
+
+/// R09 — a device power/ground pin is left unconnected (advisory).
+pub const GATE_FLOATING_POWER_PIN: u32 = 4210;
+
+/// R10 — pass2 device count fell below the pass1 symbol-table expectation.
+pub const GATE_SYMBOL_CONSERVATION: u32 = 4211;
+
+/// R11 — a same-name power rail is split into unconnected nets.
+pub const GATE_SPLIT_RAIL: u32 = 4212;
+
+/// R12 — a port net holds only its own point (advisory).
+pub const GATE_DANGLING_PORT: u32 = 4213;
+
+/// R14 — an instance is registered but appears in no net (advisory).
+pub const GATE_ORPHAN_INSTANCE: u32 = 4214;
+
+/// R15 — a synthetic terminal is not backed by any real pin (advisory).
+pub const GATE_SYNTHETIC_PIN: u32 = 4215;
+
+// ============================================================================
 // Pass3: duplicate validation (5000-5049)
 // ============================================================================
 
@@ -1628,4 +1684,20 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ERC_FLOATING_NET, "Floating net.", "floating net: '{0}' has no driver"),
     entry!(ABSTRACT_PART_UNSELECTED, "Placed abstract component has no selected part (partno unset).", "abstract component instance '{0}' is unselected (no partno); BOM must pick a variant"),
     entry!(VARIANT_SPEC_UNSET, "Variant still carries an unset inherited spec item.", "variant '{0}' leaves spec item '{1}' unset (±0/empty)"),
+    // ---- section ----
+    entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
+    entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
+    entry!(GATE_SHORT_RAIL, "R03 — a net carries two different power-domain names.", "net contains both supply and ground: {0}"),
+    entry!(GATE_RAIL_ALIAS, "R03a — a net carries multiple power-domain aliases.", "net contains multiple power-domain aliases: {0}"),
+    entry!(GATE_SHORT_LANE, "R04 — two members of the same bus land on one net.", "bus lane short: {0}"),
+    entry!(GATE_UNRESOLVED_UNIT, "R05 — a unit-typed argument claims no formal parameter slot.", "unit-typed argument claims no formal parameter slot"),
+    entry!(GATE_MEGANET, "R06 — a non-power net is oversized.", "non-power net is a meganet: {0}"),
+    entry!(GATE_GHOST_INSTANCE, "R07 — a net references a device missing from the instance table.", "unregistered device referenced in a net: {0}"),
+    entry!(GATE_PHANTOM_PATH, "R08 — an endpoint path has an unregistered middle segment.", "phantom path: {0}"),
+    entry!(GATE_FLOATING_POWER_PIN, "R09 — a device power/ground pin is left unconnected.", "floating power/ground pin: {0}"),
+    entry!(GATE_SYMBOL_CONSERVATION, "R10 — pass2 device count fell below the pass1 symbol-table expectation.", "symbol conservation mismatch: {0}"),
+    entry!(GATE_SPLIT_RAIL, "R11 — a same-name power rail is split into unconnected nets.", "split power rail: {0}"),
+    entry!(GATE_DANGLING_PORT, "R12 — a port net holds only its own point.", "dangling port net: {0}"),
+    entry!(GATE_ORPHAN_INSTANCE, "R14 — an instance is registered but appears in no net.", "orphan instance: {0}"),
+    entry!(GATE_SYNTHETIC_PIN, "R15 — a synthetic terminal is not backed by any real pin.", "synthetic terminal: {0}"),
 ];

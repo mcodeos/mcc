@@ -21,24 +21,16 @@ use crate::semantic::component::mc_pins::McPinPort;
 use std::collections::HashSet;
 
 /// Run all electrical net checks and return diagnostics.
+///
+/// FlatErc rules are declared — and ordered — in `crate::rules`
+/// (`FLAT_ERC_RULES`); the runner executes each declared rule in declaration
+/// order (§5-5 of the rule-registry design), replacing the former hand-written
+/// call table. Output is byte-identical to the old sequence.
 pub fn run_net_checks(table: &InstTable) -> Vec<NetCheckResult> {
     let mut results = Vec::new();
-    check_driver_conflict(table, &mut results); // P1
-    check_undriven_nets(table, &mut results); // P2
-    check_floating_inputs(table, &mut results); // P5
-    check_nc_connected(table, &mut results); // P6
-    check_unconnected_outputs(table, &mut results); // P7
-    check_backfeed(table, &mut results); // P8
-    check_unwired_instances(table, &mut results); // P9
-    check_voltage_mismatch(table, &mut results); // P3+P4
-    check_port_io_mismatch(table, &mut results); // V1
-    check_power_nets(table, &mut results); // net count summary
-    check_unused_module_ports(table, &mut results); // C4
-    check_single_point_nets(table, &mut results); // self-loop
-    check_pin_count_mismatch(table, &mut results); // pin count vs definition
-    check_unselected_abstract(table, &mut results); // abstract-variant §6.1 (P3)
-    check_floating_outputs(table, &mut results); // output variant of P5
-    check_pullup_degenerate(table, &mut results); // D7 (network-level)
+    for rule in crate::rules::flat_erc_rules() {
+        (rule.run)(table, &mut results);
+    }
     results
 }
 
@@ -149,7 +141,7 @@ fn best_pos(table: &InstTable, ids: &[u32]) -> (u32, String) {
 }
 
 // ── P1: Multiple outputs driving the same net ──
-fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
         // Only true signal `Out` pins are "drivers" for short-circuit purposes.
         // Power pins are rails by design — same-name multi-pin groups broadcast
@@ -157,22 +149,38 @@ fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetCheckResult>) {
         // pins share the VDD rail), so multiple Power entries on a net are normal,
         // not a short. Power-rail conflicts (e.g. two different supplies tied)
         // are handled by NET_VOLTAGE_MISMATCH (E4104) instead.
-        let outputs: Vec<&InstEntry> = net
+        let out_ids: Vec<u32> = net
             .points
             .iter()
             .filter_map(|id| table.get_entry(*id))
             .filter(|e| matches!(e.io_type, IOType::Out))
+            .map(|e| e.id)
             .collect();
-        if outputs.len() > 1 {
-            let names: Vec<_> = outputs.iter().map(|e| e.path.as_str()).collect();
-            let (pos, uri) = entry_pos(outputs[0]);
+        // Vantage dedupe (rule-registry design §4-a): in the A' flat model a
+        // module-boundary `out` port is a junction — the exit of the net segment
+        // inside its own module instance. When that exit's net already carries an
+        // `Out` point rooted inside the port's module (the internal driver it
+        // forwards), the port is not a second physical driver; counting both
+        // double-counts one signal (e.g. `SUB { out Y; BUF b; b.Y -> Y }`
+        // instanced as `s1` puts `s1.Y` and `s1.b.2` on one internal net). The
+        // port still counts when no interior driver shares the net — two out
+        // ports on a parent net (`s1.Y -> s2.Y`) are two different modules' real
+        // drivers shorted, exactly what E4101 exists to catch.
+        let drivers: Vec<&InstEntry> = out_ids
+            .iter()
+            .filter(|&&id| !is_module_out_port_exit(table, id, &out_ids))
+            .filter_map(|id| table.get_entry(*id))
+            .collect();
+        if drivers.len() > 1 {
+            let names: Vec<_> = drivers.iter().map(|e| e.path.as_str()).collect();
+            let (pos, uri) = entry_pos(drivers[0]);
             results.push(NetCheckResult {
                 check: "driver-conflict",
                 severity: "error",
                 message: format!(
                     "Net '{}' has {} drivers: {}. Possible short circuit.",
                     net.name,
-                    outputs.len(),
+                    drivers.len(),
                     names.join(", ")
                 ),
                 net_name: net.name.clone(),
@@ -184,8 +192,45 @@ fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     }
 }
 
+/// §4-a vantage: is `id` a module-boundary `out` port that is merely the exit
+/// of an interior driver already present on the same net?
+fn is_module_out_port_exit(table: &InstTable, id: u32, net_out_ids: &[u32]) -> bool {
+    let Some(port) = table.get_entry(id) else {
+        return false;
+    };
+    if !matches!(port.kind, InstKind::Port) {
+        return false;
+    }
+    let Some(owner) = port.parent_id else {
+        return false;
+    };
+    net_out_ids.iter().any(|&oid| {
+        if oid == id {
+            return false;
+        }
+        let Some(other) = table.get_entry(oid) else {
+            return false;
+        };
+        // A sibling out port of the same module instance is a distinct signal
+        // of that module, not this port's interior driver.
+        if other.kind == InstKind::Port && other.parent_id == Some(owner) {
+            return false;
+        }
+        // Walk the other point's parent chain: the port's own module instance
+        // must appear strictly between it and the root.
+        let mut cur = other.parent_id;
+        while let Some(pid) = cur {
+            if pid == owner {
+                return true;
+            }
+            cur = table.get_entry(pid).and_then(|e| e.parent_id);
+        }
+        false
+    })
+}
+
 // ── P2: Nets with only input endpoints (no driver) ──
-fn check_undriven_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_undriven_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
         let points: Vec<&InstEntry> = net
             .points
@@ -234,7 +279,7 @@ fn check_undriven_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
 }
 
 // ── P5: Input ports with no net connection ──
-fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let connected: HashSet<u32> = table
         .get_nets()
         .iter()
@@ -264,7 +309,7 @@ fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
 }
 
 // ── P6: NC port connected to a net ──
-fn check_nc_connected(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_nc_connected(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
         for id in &net.points {
             if let Some(entry) = table.get_entry(*id) {
@@ -289,7 +334,7 @@ fn check_nc_connected(table: &InstTable, results: &mut Vec<NetCheckResult>) {
 }
 
 // ── P7: Output ports with no net connection ──
-fn check_unconnected_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_unconnected_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let connected: HashSet<u32> = table
         .get_nets()
         .iter()
@@ -328,7 +373,7 @@ fn check_unconnected_outputs(table: &InstTable, results: &mut Vec<NetCheckResult
 // (`2.5V~5.5V`, `±`) is a tolerance statement, not a fixed rail, and is
 // skipped. A net carrying two supply pins whose declared voltage sets share
 // no common value (within tolerance) is reported as a short.
-fn check_voltage_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_voltage_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     const TOL: f64 = 0.5;
     for net in table.get_nets() {
         // (pin path, declared alternative voltages) for supply pins on this net
@@ -545,7 +590,7 @@ fn fmt_voltages(vs: &[f64]) -> String {
 }
 
 // ── P9: Component instances with no pins connected to any net ──
-fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let connected: HashSet<u32> = table
         .get_nets()
         .iter()
@@ -581,7 +626,7 @@ fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCheckResult>)
 }
 
 // ── P8: Output connected to PowerSupply (backfeed risk) ──
-fn check_backfeed(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_backfeed(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
         let has_out = net.points.iter().any(|id| {
             table
@@ -622,7 +667,7 @@ fn check_backfeed(table: &InstTable, results: &mut Vec<NetCheckResult>) {
 // member role) instead of the old name-prefix heuristic. Both ends non-rail →
 // the pullup degenerated into a signal-signal bridge (E4056), e.g.
 // `Pullup(SCL, SDA)` shorting two signals instead of pulling one up to a rail.
-fn check_pullup_degenerate(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_pullup_degenerate(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let nets: Vec<&NetEntry> = table.get_nets();
     let net_of = |pin_id: u32| -> Option<&NetEntry> {
         nets.iter().find(|n| n.points.contains(&pin_id)).copied()
@@ -674,7 +719,7 @@ fn check_pullup_degenerate(table: &InstTable, results: &mut Vec<NetCheckResult>)
 }
 
 // ── V1: Module ports with mismatched IO directions on same net ──
-fn check_port_io_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_port_io_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
         let mut has_in = false;
         let mut _has_out = false;
@@ -709,7 +754,7 @@ fn check_port_io_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) 
 }
 
 // ── Power net summary ──
-fn check_power_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_power_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let mut count = 0u32;
     for net in table.get_nets() {
         for id in &net.points {
@@ -735,7 +780,7 @@ fn check_power_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
 }
 
 // ── C4: Module boundary ports not connected to any net ──
-fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let connected: HashSet<u32> = table
         .get_nets()
         .iter()
@@ -781,7 +826,7 @@ fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult
 }
 
 // ── Single-point nets (self-loop or isolated point) ──
-fn check_single_point_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_single_point_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
         if net.points.len() == 1 {
             if let Some(entry) = table.get_entry(net.points[0]) {
@@ -804,7 +849,7 @@ fn check_single_point_nets(table: &InstTable, results: &mut Vec<NetCheckResult>)
 }
 
 // ── Pin count mismatch: instance has fewer connected pins than component defines ──
-fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let connected: HashSet<u32> = table
         .get_nets()
         .iter()
@@ -864,7 +909,7 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
 /// marker set at flatten time (never inferred here from a `partno` sentinel —
 /// abstract defs may legally hold a reference partno). Placement is legal and
 /// the netlist is produced, but a BOM tool must still pick a variant: ERC W.
-fn check_unselected_abstract(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_unselected_abstract(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for (_, entry) in table.iter() {
         // Same synthetic-wrapper carve-out as E4112/E4116: a virtually-
         // instantiated component (VIRT view) is never BOM-selected, so the
@@ -894,7 +939,7 @@ fn check_unselected_abstract(table: &InstTable, results: &mut Vec<NetCheckResult
 }
 
 // ── Floating outputs (output variant of floating input check) ──
-fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+pub(crate) fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let connected: HashSet<u32> = table
         .get_nets()
         .iter()
