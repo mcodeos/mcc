@@ -1445,9 +1445,27 @@ impl InstantiationBuilder {
                 if (rest_part == "in" || rest_part == "out")
                     && !comp.def.pins.names_to_id.contains_key(rest_part)
                 {
+                    // The `.in`/`.out` suffix is an mc_fcall.rs placeholder, not a
+                    // real pin of `owner_part`. Isolation must stay (it is what
+                    // prevents the cross-chain union-find merge), but the leak is
+                    // no longer silent: surface a warning at the access site so an
+                    // upstream chain-expansion bug is visible instead of absorbed.
+                    let diag = crate::errcodes::format_msg(
+                        crate::errcodes::PHANTOM_IO_ACCESS,
+                        &[
+                            &element.name.to_string(),
+                            &owner_part.to_string(),
+                            &rest_part.to_string(),
+                        ],
+                    );
                     let (isolated, _, _) = self.auto_name(super::AutoNameKind::Phantom, owner_part);
                     let pin = if rest_part == "in" { "1" } else { "2" };
                     let path = format!("{isolated}.{pin}");
+                    self.log_global_diag(
+                        crate::errcodes::PHANTOM_IO_ACCESS,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                        diag,
+                    );
                     return NetPoint::with_owner(&path, &isolated, IOType::None);
                 }
                 // ── P7 + P2: inst.IFACE.member / bare alias → physical pid, unified notation ──
@@ -1534,9 +1552,27 @@ impl InstantiationBuilder {
                     && !self.is_port(class_part)
                     && !self.is_bus(class_part)
                 {
+                    // Class-name leak (mc_fcall.rs caller=None placeholder): the
+                    // isolation is required to stop same-class cross-call union
+                    // merges, but the leak itself must surface as a warning —
+                    // it indicates an upstream chain expansion dropped a real
+                    // instance. Same fact/dedup rules as the FIX-C site above.
+                    let diag = crate::errcodes::format_msg(
+                        crate::errcodes::PHANTOM_IO_ACCESS,
+                        &[
+                            &element.name.to_string(),
+                            &class_part.to_string(),
+                            &suffix.to_string(),
+                        ],
+                    );
                     let (isolated, _, _) = self.auto_name(super::AutoNameKind::Phantom, class_part);
                     let pin = if suffix == "in" { "1" } else { "2" };
                     let path = format!("{isolated}.{pin}");
+                    self.log_global_diag(
+                        crate::errcodes::PHANTOM_IO_ACCESS,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                        diag,
+                    );
                     // ── [P4-PHANTOM] temp probe: who's leaking CLASS.in/out ──
                     mcc_dbg!(
                         "inst::points",

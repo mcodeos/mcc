@@ -971,6 +971,42 @@ impl InstantiationBuilder {
             .push(InstDiagnostic::warning(code, &name, message));
     }
 
+    /// Emit a user-visible diagnostic to the global log at an arbitrary level,
+    /// deduped on (code, uri, offset).
+    ///
+    /// [`record_warning`] only pushes an `InstDiagnostic` that mcviz metrics and
+    /// module dumps consume — it is *not* surfaced in the build report, so a
+    /// warning that must reach the user (e.g. phantom `.in`/`.out` isolation)
+    /// has to go through the global `diagnostic_log_at` directly. Mirror
+    /// [`record_error`]'s span fallback (current func → current stmt → def) and
+    /// E4057's dedup (mc_net.rs): `mcc_build` and `mcc_build_flat` both drive
+    /// this instantiation (pass2_flat delegates to pass2), so without a
+    /// (uri, offset) guard a consumer that runs both sees the fact twice.
+    pub(super) fn log_global_diag(
+        &mut self,
+        code: u32,
+        level: crate::db::diagnostic::diagnostic::DiagnosticLevel,
+        message: String,
+    ) {
+        let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
+            (Some(sp), _) => (sp.uri.clone(), sp.offset),
+            (None, Some(s)) => (s.uri.clone(), s.offset),
+            (None, None) => (self.def_uri.clone(), 0),
+        };
+        if crate::db::diagnostic::diagnostic::has_code_at(code, &uri, pos) {
+            return;
+        }
+        crate::db::diagnostic::diagnostic::diagnostic_log_at(
+            code,
+            level,
+            uri,
+            pos,
+            1,
+            &message,
+            &[],
+        );
+    }
+
     /// Merge diagnostics from a sub-module into the current module
     pub(super) fn merge_diagnostics_from(&mut self, child: &McModuleInst) {
         self.diagnostics.extend(child.diagnostics.iter().cloned());
@@ -1055,12 +1091,14 @@ impl InstantiationBuilder {
                 let module_name = self.name.clone();
                 let counter = self.auto_inst_counter.entry(key.clone()).or_insert(0);
                 *counter += 1;
-                // Failure ledger (observation-only): an `.in`/`.out` access to a
-                // component whose type declares no such pin is isolated into a
-                // phantom instance (points.rs P7/P2 fix) — silently broken.
+                // Failure ledger: an `.in`/`.out` access to a component whose
+                // type declares no such pin is isolated into a phantom instance
+                // (points.rs P7/P2 fix). The isolation is reported to the user
+                // as a warning at the call site (errcodes::PHANTOM_IO_ACCESS);
+                // the ledger row mirrors that with a Warning action.
                 ledger::record(
                     LedgerEntry::new(LedgerKind::Phantom, type_name.to_string(), module_name)
-                        .with_action(LedgerAction::Silent),
+                        .with_action(LedgerAction::Warning),
                 );
                 (
                     format!("{key}_{counter}"),

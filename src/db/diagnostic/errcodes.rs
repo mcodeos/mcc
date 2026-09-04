@@ -701,6 +701,14 @@ pub const NET_SHORT_REF: u32 = 4061;
 /// declaration. The second registration is silently merged into the first.
 pub const PIN_OCCUPIED_BY_DECLARATION: u32 = 4062;
 
+/// An .in/.out access on a component/class that declares no such pin is
+/// isolated into a phantom endpoint (function-chain placeholder leak fallout).
+pub const PHANTOM_IO_ACCESS: u32 = 4063;
+
+/// A bare construction references a class that cannot be opened/resolved;
+/// instantiation is dropped to an @? stub.
+pub const UNRESOLVED_CLASS_STUB: u32 = 4064;
+
 /// Layout attribute is missing a required subnode.
 pub const LAYOUT_MISSING_SUBNODE: u32 = 4081;
 
@@ -1438,6 +1446,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NET_DUPLICATE_REF, "Same logical net referenced more than once in a connection, always pairing to the same peer net — redundant.", "DUPLICATE_REF: logical net '{0}' is referenced more than once and always pairs to the same net '{1}'. The result is identical to '{0} -> {1}'; simplify the redundant reference."),
     entry!(NET_SHORT_REF, "Same logical net referenced more than once in a connection, pairing to different peer nets — possible short.", "SHORT_REF: logical net '{0}' is referenced more than once and pairs to different nets [{1}]. Those nets are shorted together through the same-name group's pads; review the connection."),
     entry!(PIN_OCCUPIED_BY_DECLARATION, "Two different declarations materialized to the same physical pin id; the later registration is merged into the first.", "OCCUPIED_PIN: physical pin '{0}' (declaration class '{1}') is also claimed by a second, different declaration (class '{2}'). Two different-named declarations materialized to the same physical pin id; the later registration is absorbed by the first."),
+    entry!(PHANTOM_IO_ACCESS, "An .in/.out access on a component/class that declares no such pin was isolated into a phantom endpoint.", "PHANTOM_IO: access '{0}' is isolated as a phantom endpoint: '{1}' has no declared pin '{2}'. The access does not connect to any net; it is fallout of an internal function-chain placeholder, not a real {1} pin."),
+    entry!(UNRESOLVED_CLASS_STUB, "A class-looking construction was not opened into a real instance; it is dropped to an @? stub that produces no nets or parts.", "UNRESOLVED_CLASS: construction of '{0}' was not opened into a real instance and is dropped to an @? stub — it produces no nets or parts. '{0}' is a registered class, so review the construction / caller shape (a func-call dispatcher PassThrough fallback), or an alias-normalization gap that routed it here instead of real construction."),
     entry!(LAYOUT_MISSING_SUBNODE, "Layout attribute is missing a required subnode.", "Layout attribute is missing a required subnode."),
     entry!(LAYOUT_TYPE_MISMATCH, "Layout attribute node type mismatch.", "Layout attribute node type mismatch."),
     entry!(LAYOUT_SET_MISSING_SUBNODE, "Layout set is missing a required subnode.", "Layout set is missing a required subnode."),

@@ -3237,9 +3237,26 @@ impl InstantiationBuilder {
                                 if let Some(real_name) = reusable {
                                     self.auto_inst_map.insert(key, real_name);
                                 } else {
+                                    // Genuine unresolved construction: the class is
+                                    // registered (`class_looking`) but no real instance
+                                    // was ever materialized for it, so the outer call
+                                    // degrades to an `@?` stub that produces no nets
+                                    // or parts. That is a user-facing error — surface
+                                    // it instead of silently absorbing the construction
+                                    // (unlike the ITER-1 reuse branch above, which is
+                                    // the healthy same-class sharing path).
+                                    let diag = crate::errcodes::format_msg(
+                                        crate::errcodes::UNRESOLVED_CLASS_STUB,
+                                        &[&class_name],
+                                    );
                                     let (stub, _, _) =
                                         self.auto_name(super::AutoNameKind::Stub, &safe);
                                     self.auto_inst_map.insert(key, stub);
+                                    self.log_global_diag(
+                                        crate::errcodes::UNRESOLVED_CLASS_STUB,
+                                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                                        diag,
+                                    );
                                 }
                             }
                         } // ← P2-2 else close
