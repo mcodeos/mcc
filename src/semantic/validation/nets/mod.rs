@@ -6,7 +6,7 @@
 //!
 //! Runs after `mcb_pass2()` when the full flattened netlist (`InstTable`) is available.
 
-use crate::db::diagnostic::diagnostic::{Diagnostic, DiagnosticLevel, Location};
+use crate::db::diagnostic::diagnostic::Diagnostic;
 use crate::instant::insttab::{
     is_ground_name, is_supply_name, InstEntry, InstKind, InstOrigin, InstTable, MemberRole,
     NetEntry,
@@ -18,6 +18,7 @@ use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::McAttrVal;
 use crate::semantic::component::mc_pins::McPinPort;
+use crate::semantic::validation::finding::CheckFinding;
 use std::collections::HashSet;
 
 /// Run all electrical net checks and return diagnostics.
@@ -48,26 +49,29 @@ pub struct NetCheckResult {
 }
 
 /// Convert net-check results into ready-to-log `Diagnostic`s (dianlu-tree
-/// Phase A). `uri` is taken verbatim from each result; a result without one
-/// keeps an empty uri and [`log_net_check_diagnostics`] falls back to the
-/// caller's `current_uri` at log time.
+/// Phase A). Each carrier is first projected onto the unified
+/// [`CheckFinding`] line (`finding.rs`), then flattened by the finding's
+/// `to_diagnostic`; the mapping reproduces the former severity-string match
+/// and uri/pos passthrough byte-for-byte. A result without a uri keeps an
+/// empty uri and [`log_net_check_diagnostics`] falls back to the caller's
+/// `current_uri` at log time.
+///
+/// This is the FlatErc emission choke of the rule-registry normalization
+/// point (§8-5): each finding is adjudicated against the process-wide
+/// override store before it becomes a diagnostic. Under the empty (or fully
+/// non-overridable) store the output is byte-identical to the legacy mapping.
 pub fn net_results_to_diagnostics(results: &[NetCheckResult]) -> Vec<Diagnostic> {
-    results
-        .iter()
-        .map(|r| {
-            let level = match r.severity {
-                "error" => DiagnosticLevel::Error,
-                "info" => DiagnosticLevel::Info,
-                _ => DiagnosticLevel::Warning,
-            };
-            Diagnostic::new(
-                r.code,
-                level,
-                Location::new(crate::McURI::from(r.uri.as_str()), r.pos, 0),
-                r.message.clone(),
-            )
-        })
-        .collect()
+    let mut out = Vec::with_capacity(results.len());
+    for r in results {
+        let finding = CheckFinding::from(r.clone());
+        let Some(effective) =
+            crate::db::diagnostic::override_store::with_store(|s| s.apply_to_finding(&finding))
+        else {
+            continue; // allow hit suppresses the finding at the display layers
+        };
+        out.push(effective.to_diagnostic());
+    }
+    out
 }
 
 /// Log net-check diagnostics at their own uris (dianlu-tree Phase A
@@ -969,5 +973,64 @@ pub(crate) fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetChe
                 uri,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::diagnostic::override_store::{
+        install_store, AllowEntry, OverrideStore, PathScope,
+    };
+    use crate::semantic::validation::CheckSeverity;
+
+    fn net_result(code: u32, uri: &str) -> NetCheckResult {
+        NetCheckResult {
+            check: "probe",
+            severity: "error",
+            message: "probe message".to_string(),
+            net_name: "n".to_string(),
+            code,
+            pos: 7,
+            uri: uri.to_string(),
+        }
+    }
+
+    fn diag_key(d: &Diagnostic) -> (u32, String) {
+        (d.code, d.msg.clone())
+    }
+
+    #[test]
+    fn net_results_to_diagnostics_is_identity_under_any_store_today() {
+        // §8-5 identity anchor: while every catalog rule is non-overridable,
+        // even a store that would otherwise hit must leave the FlatErc
+        // diagnostic output byte-identical. This is what lets the lock tests
+        // run unmodified.
+        let results = [
+            net_result(crate::errcodes::NET_MULTI_DRIVE, ""),
+            net_result(1, "a.mc"), // unregistered code
+        ];
+        let empty = net_results_to_diagnostics(&results);
+
+        // A populated store (severity override + global allow for E4101)
+        // refuses both under the current non-overridable catalog.
+        let mut store = OverrideStore::default();
+        store
+            .project
+            .severities
+            .insert(crate::errcodes::NET_MULTI_DRIVE, CheckSeverity::Info);
+        store.project.allows.push(AllowEntry {
+            code: crate::errcodes::NET_MULTI_DRIVE,
+            path: PathScope::Project,
+            reason: None,
+        });
+        install_store(store);
+        let populated = net_results_to_diagnostics(&results);
+        install_store(OverrideStore::default());
+        assert_eq!(
+            populated.iter().map(diag_key).collect::<Vec<_>>(),
+            empty.iter().map(diag_key).collect::<Vec<_>>()
+        );
+        assert_eq!(populated.len(), 2);
     }
 }

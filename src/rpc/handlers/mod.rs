@@ -2767,6 +2767,7 @@ mod defs;
 mod exportcmd;
 mod libcmd;
 mod lsp;
+mod rulescmd;
 mod show;
 
 pub use admin::*;
@@ -2776,6 +2777,7 @@ pub use defs::*;
 pub use exportcmd::*;
 pub use libcmd::*;
 pub use lsp::*;
+pub use rulescmd::*;
 pub use show::*;
 
 // ── Phase 8.3: Method registry (single source of truth for caps) ──
@@ -2997,6 +2999,26 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "cli",
     },
     MethodMeta {
+        name: "rules.list",
+        consumer: "ai",
+    },
+    MethodMeta {
+        name: "rule.detail",
+        consumer: "ai",
+    },
+    MethodMeta {
+        name: "severity.set",
+        consumer: "ai",
+    },
+    MethodMeta {
+        name: "allow.add",
+        consumer: "ai",
+    },
+    MethodMeta {
+        name: "accept",
+        consumer: "ai",
+    },
+    MethodMeta {
         name: "caps",
         consumer: "ai",
     },
@@ -3097,6 +3119,7 @@ pub fn caps_json() -> serde_json::Value {
             "explain": true,
             "search": true,
             "query": true,
+            "rules": crate::override_store::rules_summary_json(),
             "export": ["netlist", "bom", "spice", "kicad"],
             "ai": {
                 "methods": ai_methods,
@@ -3176,6 +3199,11 @@ pub fn register_all(
     // LSP
     builder = builder.register_method("sem", handle_sem);
     builder = builder.register_method("explain", handle_explain);
+    builder = builder.register_method("rules.list", handle_rules_list);
+    builder = builder.register_method("rule.detail", handle_rule_detail);
+    builder = builder.register_method("severity.set", handle_severity_set);
+    builder = builder.register_method("allow.add", handle_allow_add);
+    builder = builder.register_method("accept", handle_accept);
     builder = builder.register_method("def", handle_def);
     builder = builder.register_method("erc", handle_erc);
     builder = builder.register_method("refs", handle_refs);

@@ -159,6 +159,62 @@ pub struct ExportRequest {
     pub libs: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListRulesRequest {
+    /// Filter axis: rule scope (post-parse | assembly-gate | flat-erc | declaration | viz-layout).
+    pub scope: Option<String>,
+    /// Filter axis: rule domain.
+    pub domain: Option<String>,
+    /// Filter axis: rule severity (error | warning | info | hint).
+    pub severity: Option<String>,
+    /// Filter axis: rule plane (core-mechanism | domain-package | sim-fulfillment).
+    pub plane: Option<String>,
+    /// Filter axis: rule gate (blocking | advisory).
+    pub gate: Option<String>,
+    /// Filter axis: true = overridable rules only, false = non-overridable only.
+    pub overridable: Option<bool>,
+    /// Filter axis: rule fix kind (none | quick-fix | suggestion).
+    pub fix: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RuleDetailRequest {
+    /// Rule code as listed, e.g. E4101 (E-prefixed or bare numeric both accepted).
+    #[schemars(description = "Rule code, e.g. E4101 or 4101")]
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetSeverityRequest {
+    /// Rule code as listed, e.g. E4101.
+    #[schemars(description = "Rule code, e.g. E4101 or 4101")]
+    pub code: String,
+    /// Target severity: error | warning | info | hint.
+    pub severity: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AllowRuleRequest {
+    /// Rule code as listed, e.g. E4101 (overridable rules only).
+    #[schemars(description = "Rule code, e.g. E4101 or 4101 (overridable rules only)")]
+    pub code: String,
+    /// Path scope; omitted = project global. A file, a directory prefix, or a glob.
+    pub path: Option<String>,
+    /// Human-readable reason, recorded in the audit view.
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AcceptRuleRequest {
+    /// Rule code as listed, e.g. E3101 (overridable rules only).
+    #[schemars(description = "Rule code, e.g. E3101 or 3101 (overridable rules only)")]
+    pub code: String,
+    /// Path scope; omitted = project global. A file, a directory prefix, or a glob.
+    pub path: Option<String>,
+    /// ISO date the waiver started, e.g. 2026-09-05.
+    pub since: Option<String>,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -416,12 +472,107 @@ impl MccMcpServer {
         });
         rpc_to_mcp(mcc::rpc::handlers::handle_export(Some(params)), "export")
     }
+
+    /// List the check-rule registry catalog, filtered by the rule axes.
+    #[tool(
+        description = "List the check-rule registry catalog; filter by scope/domain/severity/plane/gate/overridable/fix"
+    )]
+    fn mcc_list_rules(
+        &self,
+        Parameters(req): Parameters<ListRulesRequest>,
+    ) -> Result<Json<Value>, McpError> {
+        let mut obj = serde_json::Map::new();
+        for (k, v) in [
+            ("scope", req.scope),
+            ("domain", req.domain),
+            ("severity", req.severity),
+            ("plane", req.plane),
+            ("gate", req.gate),
+            ("fix", req.fix),
+        ] {
+            if let Some(v) = v {
+                obj.insert(k.into(), json!(v));
+            }
+        }
+        if let Some(b) = req.overridable {
+            obj.insert("overridable".into(), json!(b.to_string()));
+        }
+        rpc_to_mcp(
+            mcc::rpc::handlers::handle_rules_list(Some(Value::Object(obj))),
+            "rules.list",
+        )
+    }
+
+    /// Full descriptor and override/waiver audit for one rule.
+    #[tool(description = "One rule's full descriptor plus its override/waiver audit rows")]
+    fn mcc_rule_detail(
+        &self,
+        Parameters(req): Parameters<RuleDetailRequest>,
+    ) -> Result<Json<Value>, McpError> {
+        rpc_to_mcp(
+            mcc::rpc::handlers::handle_rule_detail(Some(json!({ "code": req.code }))),
+            "rule.detail",
+        )
+    }
+
+    /// Session-layer severity override for a rule (never persisted).
+    #[tool(
+        description = "Override a rule's severity in this session (error|warning|info|hint); only overridable rules accept it"
+    )]
+    fn mcc_set_severity(
+        &self,
+        Parameters(req): Parameters<SetSeverityRequest>,
+    ) -> Result<Json<Value>, McpError> {
+        rpc_to_mcp(
+            mcc::rpc::handlers::handle_severity_set(Some(json!({
+                "code": req.code,
+                "severity": req.severity,
+            }))),
+            "severity.set",
+        )
+    }
+
+    /// Suppress a rule in this session (whole diagnostic), scoped to a path.
+    #[tool(
+        description = "Suppress a rule in this session; omit path for the project global, or pass a file/directory/glob"
+    )]
+    fn mcc_allow(
+        &self,
+        Parameters(req): Parameters<AllowRuleRequest>,
+    ) -> Result<Json<Value>, McpError> {
+        rpc_to_mcp(
+            mcc::rpc::handlers::handle_allow_add(Some(json!({
+                "code": req.code,
+                "path": req.path,
+                "reason": req.reason,
+            }))),
+            "allow.add",
+        )
+    }
+
+    /// Record an on-file waiver for a rule in this session (still shown/counted).
+    #[tool(
+        description = "Record a waiver for a rule in this session (still displayed and counted, exempt from gate audit)"
+    )]
+    fn mcc_accept(
+        &self,
+        Parameters(req): Parameters<AcceptRuleRequest>,
+    ) -> Result<Json<Value>, McpError> {
+        rpc_to_mcp(
+            mcc::rpc::handlers::handle_accept(Some(json!({
+                "code": req.code,
+                "path": req.path,
+                "since": req.since,
+            }))),
+            "accept",
+        )
+    }
 }
 
 /// `#[tool_handler]` fills in `call_tool` / `list_tools` / `get_tool` from the
 /// generated `tool_router()`; `get_info` below is kept custom.
 #[tool_handler(
-    instructions = "MCode compiler tools for AI agents: validate, parse, check, build, search, export."
+    instructions = "MCode compiler tools for AI agents: validate, parse, check, build, search, export, and the check-rule registry catalog (list/detail/severity.set/allow/accept)."
 )]
 impl ServerHandler for MccMcpServer {
     fn get_info(&self) -> ServerInfo {
@@ -467,6 +618,9 @@ async fn main() -> anyhow::Result<()> {
             mcc::mcc_set_project_root(std::path::Path::new(&project_root));
         }
     }
+    // 3b. Seed the process-wide rule override store from the merged config
+    //     (identity when nothing is configured).
+    mcc::load_rule_overrides(std::env::current_dir().ok().as_deref());
 
     // 4. Serve MCP over stdio.
     let server = MccMcpServer::new().serve(rmcp::transport::stdio()).await?;

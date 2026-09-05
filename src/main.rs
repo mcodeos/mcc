@@ -104,6 +104,7 @@ fn main() -> ExitCode {
         Some(Command::Config(_)) => false,
         Some(Command::Proj(_)) => false,
         Some(Command::Explain(_)) => false,
+        Some(Command::Rules(_)) => false,
         Some(Command::Caps) => false,
         Some(Command::Def(_)) => false,
         Some(Command::Erc(_)) => false,
@@ -142,6 +143,9 @@ fn main() -> ExitCode {
     // ── 3.6b. Warning suppression: `diag.ignore_warnings` config + `-i/--ignore` ──
     mcc::load_ignore_warnings(project_root.as_deref(), &cli.ignore_warnings);
 
+    // ── 3.6c. Rule override store: `diag` severities/allows/accepts (user + project) ──
+    mcc::load_rule_overrides(project_root.as_deref());
+
     // ── 3.7. Apply -D debug-target flags (CLI > config file) ─────────
     if !cli.debug_targets.is_empty() {
         let base = mcc::cli::config::base_level(cli.verbose, cli.quiet);
@@ -168,6 +172,7 @@ fn main() -> ExitCode {
     let need_mcc_init = match &cli.command {
         Some(Command::Start(_)) | Some(Command::Stop(_)) | Some(Command::Status(_)) => false,
         Some(Command::Config(_)) | Some(Command::Proj(_)) => false,
+        Some(Command::Rules(_)) => false,
         Some(Command::Show(_)) | Some(Command::List(_)) | Some(Command::Query(_)) => false,
         Some(Command::Export(_)) => false,
         Some(Command::Parse(_)) | Some(Command::Check(_)) | Some(Command::Extract(_)) => false,
@@ -294,6 +299,10 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             cmds::explain::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
+        Some(Command::Rules(args)) => {
+            cmds::rules::run(args.action.as_ref(), mcc::cli::globals().format)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Some(Command::Def(args)) => {
             cmds::def::run(&args)?;
             Ok(ExitCode::SUCCESS)
@@ -351,6 +360,7 @@ fn print_help_hint() {
     eprintln!("  stop     Stop server");
     eprintln!("  status   View server status");
     eprintln!("  config   Configuration management (get / set / list / reset)");
+    eprintln!("  rules    Check-rule registry catalog (list / detail / allow / accept)");
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  mcc parse example.mc");

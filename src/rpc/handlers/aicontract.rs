@@ -75,11 +75,43 @@ pub fn handle_explain(params: Option<Value>) -> RpcResult {
 
     match p.code {
         Some(code) => match crate::errcodes::describe(code) {
-            Some(info) => Ok(json!({
-                "code": info.code,
-                "name": info.name,
-                "description": info.description,
-            })),
+            Some(info) => {
+                // Deepen to the full rule descriptor when the code is a
+                // registered catalog rule (rule-registry design §8): the
+                // explain view carries owner/lock/plane/acceptance/fix and
+                // the allow syntax of the §8-5 write face.
+                let mut base = json!({
+                    "code": info.code,
+                    "name": info.name,
+                    "description": info.description,
+                });
+                if let Some(meta) = crate::rules::find_rule(code) {
+                    if let Some(obj) = base.as_object_mut() {
+                        obj.insert(
+                            "rule".into(),
+                            crate::override_store::rule_descriptor_json(meta),
+                        );
+                        obj.insert(
+                            "allow_syntax".into(),
+                            serde_json::json!({
+                                "severity.set": format!(
+                                    "mcc rules set-severity {} <hint|info|warning|error> [--write]",
+                                    crate::override_store::rule_key(code)
+                                ),
+                                "allow.add": format!(
+                                    "mcc rules allow {} --path 'boards/**/*.mc' --reason '...' [--write]",
+                                    crate::override_store::rule_key(code)
+                                ),
+                                "accept": format!(
+                                    "mcc rules accept {} --path boards/dev/main.mc --since 2026-09-05 [--write]",
+                                    crate::override_store::rule_key(code)
+                                ),
+                            }),
+                        );
+                    }
+                }
+                Ok(base)
+            }
             None => Err(JsonRpcError::custom(
                 32112,
                 &format!("unknown error code: {code}"),

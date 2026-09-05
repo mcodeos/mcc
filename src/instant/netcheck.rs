@@ -59,6 +59,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 use super::insttab::{InstKind, InstTable};
+use crate::semantic::validation::finding::CheckFinding;
 use crate::semantic::validation::CheckSeverity;
 
 /// Map a catalog severity to the report level (the AssemblyGate report has no
@@ -150,6 +151,34 @@ impl Report {
             .findings
             .iter()
             .any(|f| f.level == Level::Error && is_blocking_tag(f.rule))
+    }
+
+    /// Normalize every cataloged finding onto the unified [`CheckFinding`]
+    /// line (rule-registry design, unified-result shape). The catalog is the
+    /// single source of code + severity, so each finding is projected from
+    /// its tag via `gate_rule_by_tag`, not from a second local level table.
+    /// Rows whose tag has no AssemblyGate catalog row (the "R01-e" waiver
+    /// note, rows for retired rules) are skipped — a unified finding exists
+    /// only for a registered rule. The AssemblyGate report stays unchanged;
+    /// this is a pure read view for the future normalization/adjudication
+    /// point and for the `mcc rules` consumer surface.
+    pub fn unified_findings(&self) -> Vec<CheckFinding> {
+        self.findings
+            .iter()
+            .filter_map(|f| {
+                crate::rules::gate_rule_by_tag(f.rule).map(|g| CheckFinding {
+                    rule: g.meta.name,
+                    code: g.meta.code,
+                    severity: g.meta.severity,
+                    message: f.detail.clone(),
+                    // The report rows carry module scope, not a source byte
+                    // anchor; the finding stays unattributed (None + 0 span).
+                    uri: None,
+                    pos: 0,
+                    len: 0,
+                })
+            })
+            .collect()
     }
 
     pub fn error_count(&self) -> usize {
@@ -1678,5 +1707,55 @@ mod tests {
         assert_eq!(common_module_prefix(&["main.mic", "main.mic"]), "main.mic");
         assert_eq!(common_module_prefix(&[]), "");
         assert_eq!(common_module_prefix(&["main"]), "main");
+    }
+
+    #[test]
+    fn dlu_netcheck__unified_findings_projects_cataloged_rows_only() {
+        // The AssemblyGate report normalizes onto the unified CheckFinding
+        // line: cataloged rows keep their catalog code + severity (single
+        // source), non-cataloged notes ("R01-e") are skipped, and the report
+        // rows carry no source byte anchor.
+        let mut rep = Report::default();
+        rep.findings.push(Finding {
+            rule: "R02",
+            level: Level::Error,
+            module: "main.pwr".to_string(),
+            detail: "short passive".to_string(),
+        });
+        rep.findings.push(Finding {
+            rule: "R01-e",
+            level: Level::Info,
+            module: String::new(),
+            detail: "R01-e waived".to_string(),
+        });
+        rep.findings.push(Finding {
+            rule: "R12",
+            level: Level::Info,
+            module: String::new(),
+            detail: "dangling port".to_string(),
+        });
+
+        let out = rep.unified_findings();
+        assert_eq!(out.len(), 2);
+        let r02 = crate::rules::gate_rule_by_tag("R02").expect("R02 registered");
+        let r12 = crate::rules::gate_rule_by_tag("R12").expect("R12 registered");
+
+        assert_eq!(out[0].rule, "R02");
+        assert_eq!(out[0].code, r02.meta.code);
+        assert_eq!(out[0].severity, r02.meta.severity);
+        assert_eq!(out[0].message, "short passive");
+        assert_eq!(out[0].uri, None);
+        assert_eq!(out[0].pos, 0);
+        assert_eq!(out[0].len, 0);
+
+        assert_eq!(out[1].rule, "R12");
+        assert_eq!(out[1].code, r12.meta.code);
+        assert_eq!(out[1].severity, r12.meta.severity);
+        assert_eq!(out[1].message, "dangling port");
+    }
+
+    #[test]
+    fn dlu_netcheck__unified_findings_empty_report_is_empty() {
+        assert!(Report::default().unified_findings().is_empty());
     }
 }

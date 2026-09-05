@@ -35,6 +35,39 @@ fn run_local(args: &ExplainArgs) -> Result<()> {
             Some(info) => {
                 println!("Error {}: {}", info.code, info.name);
                 println!("  {}", info.description);
+                // Deepened descriptor for catalog rules (design §8): the
+                // explain view carries the same projection the `mcc rules`
+                // detail view renders, plus the §8-5 allow syntax.
+                if let Some(meta) = mcc::rules::find_rule(code) {
+                    let desc = mcc::override_store::rule_descriptor_json(meta);
+                    println!(
+                        "  scope: {} / domain: {} / gate: {} / plane: {} / acceptance: {} / cadence: {} / fix: {}",
+                        desc["scope"].as_str().unwrap_or("?"),
+                        desc["domain"].as_str().unwrap_or("?"),
+                        desc["gate"].as_str().unwrap_or("?"),
+                        desc["plane"].as_str().unwrap_or("?"),
+                        desc["acceptance"].as_str().unwrap_or("?"),
+                        desc["cadence"].as_str().unwrap_or("?"),
+                        desc["fix"].as_str().unwrap_or("?"),
+                    );
+                    if let Some(fam) = desc["family"].as_str() {
+                        println!("  family: {fam}");
+                    }
+                    println!(
+                        "  overridable: {}",
+                        if desc["overridable"].as_bool().unwrap_or(false) {
+                            "yes"
+                        } else {
+                            "no"
+                        }
+                    );
+                    println!("  lock: {}", meta.lock);
+                    println!("  doc: {}", meta.doc);
+                    println!(
+                        "  allow: `mcc rules set-severity {key} <hint|info|warning|error>` / `mcc rules allow {key} --path 'boards/**/*.mc' --reason ...`",
+                        key = mcc::override_store::rule_key(code)
+                    );
+                }
             }
             None => {
                 eprintln!("Unknown error code: {code}");

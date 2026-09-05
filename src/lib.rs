@@ -34,7 +34,12 @@ pub mod hierarchy;
 pub mod instant;
 pub(crate) mod lsp;
 pub(crate) mod query;
-pub(crate) mod rules;
+// The rule catalog (§2.2 descriptors + governance axes) is the single read
+// projection behind `mcc rules`, RPC `rules.*`, MCP tools, `explain`/`caps`
+// and the lock ledger; the binary crate reaches it through this public path
+// (rule-registry design §8). The execution-facing tables stay declarative;
+// only the metadata is exposed.
+pub mod rules;
 pub(crate) mod semantic;
 pub(crate) use builder::current_uri;
 pub mod rpc;
@@ -67,6 +72,10 @@ pub use crate::semantic::{
     module::{Mc2Module, McModule},
 };
 pub use db::diagnostic::errcodes;
+// ── Catalog override store (§8-5): process-wide adjudication + write face.
+// RPC `severity.set`/`allow.add`/`accept` and the local `mcc rules` writes go
+// through this one store API (design §8-5: a single write face for every entry).
+pub use db::diagnostic::override_store;
 // ── Definition space (§12.1) ──
 pub use db::defspace::{definition_space, DefinitionSpace, LibBoundary, SourceDomain};
 pub mod export;
@@ -498,6 +507,26 @@ pub fn load_ignore_warnings(project_root: Option<&std::path::Path>, cli_codes: &
         );
     }
     set_ignored_warnings(codes);
+}
+
+/// Load the `diag` override zones (severities/allows/accepts) into the
+/// process-wide override store — user layer from the global `mcc.yaml`,
+/// project layer from the project `[config]` — and install it. Call once at
+/// CLI/server/MCP startup next to `load_ignore_warnings`; the store stays
+/// empty (identity) where this is never called, which is the anchor the lock
+/// tests run under (rule-registry design §8-5).
+pub fn load_rule_overrides(project_root: Option<&std::path::Path>) {
+    use crate::cli::config::{load_global_config, load_project_config};
+    use crate::db::diagnostic::override_store::{install_store, OverrideStore};
+    let global = load_global_config().unwrap_or_default();
+    let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
+    let mut store = OverrideStore::default();
+    store.user = global.diag.to_override_layer();
+    if let Some(local) = &local {
+        store.project = local.diag.to_override_layer();
+    }
+    store.project_root = project_root.map(|p| p.to_string_lossy().into_owned());
+    install_store(store);
 }
 
 /// Clear workspace state (for test isolation).

@@ -132,8 +132,63 @@ fn get_config_value(config: &MccConfig, name: &str) -> Result<String> {
             .disable_mcode
             .map(|v| v.to_string())
             .unwrap_or_else(|| "null".to_string())),
+        ["diag", "ignore_warnings"] => Ok(format!("{:?}", config.diag.ignore_warnings)),
+        ["diag", "severities"] => {
+            if config.diag.severities.is_empty() {
+                Ok("null".to_string())
+            } else {
+                let lines: Vec<String> = config
+                    .diag
+                    .severities
+                    .iter()
+                    .map(|(k, v)| format!("{} = {}", k, v))
+                    .collect();
+                Ok(lines.join("\n"))
+            }
+        }
+        ["diag", "allows"] => Ok(fmt_zone_rows(
+            &config
+                .diag
+                .allows
+                .iter()
+                .map(|r| {
+                    (
+                        &r.rule,
+                        r.path.as_deref().unwrap_or("*"),
+                        r.reason.as_deref(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )),
+        ["diag", "accepts"] => Ok(fmt_zone_rows(
+            &config
+                .diag
+                .accepts
+                .iter()
+                .map(|r| {
+                    (
+                        &r.rule,
+                        r.path.as_deref().unwrap_or("*"),
+                        r.since.as_deref(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )),
         _ => anyhow::bail!("unknown config key: {}", name),
     }
+}
+
+fn fmt_zone_rows(rows: &[(&String, &str, Option<&str>)]) -> String {
+    if rows.is_empty() {
+        return "null".to_string();
+    }
+    rows.iter()
+        .map(|(rule, path, note)| match note {
+            Some(n) => format!("{}  path={}  note={}", rule, path, n),
+            None => format!("{}  path={}", rule, path),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn set_config_value(config: &mut MccConfig, name: &str, value: &str) -> Result<()> {
@@ -175,6 +230,12 @@ fn set_config_value(config: &mut MccConfig, name: &str, value: &str) -> Result<(
                 _ => Some(parse_bool(value)?),
             };
         }
+        ["diag", ..] => {
+            // The rule override zones are owned by the override store; the
+            // `mcc rules set-severity/allow/accept --write` entry is the only
+            // writer (rule-registry design §8-5).
+            anyhow::bail!("diag.* is managed by `mcc rules`; use `mcc rules set-severity --write`")
+        }
         _ => anyhow::bail!("unknown config key: {}", name),
     }
     Ok(())
@@ -200,6 +261,47 @@ fn list_config(config: &MccConfig) {
     println!("  output.color = {:?}", config.output.color);
     println!("  libs.load = {:?}", config.libs.load);
     println!("  libs.disable_mcode = {:?}", config.libs.disable_mcode);
+    println!("  diag.ignore_warnings = {:?}", config.diag.ignore_warnings);
+    if config.diag.severities.is_empty() {
+        println!("  diag.severities = []");
+    } else {
+        println!("  diag.severities:");
+        for (k, v) in &config.diag.severities {
+            println!("    {} = {}", k, v);
+        }
+    }
+    if config.diag.allows.is_empty() {
+        println!("  diag.allows = []");
+    } else {
+        println!("  diag.allows:");
+        for r in &config.diag.allows {
+            println!(
+                "    {} path={}{}",
+                r.rule,
+                r.path.as_deref().unwrap_or("*"),
+                r.reason
+                    .as_deref()
+                    .map(|n| format!(" reason={n}"))
+                    .unwrap_or_default()
+            );
+        }
+    }
+    if config.diag.accepts.is_empty() {
+        println!("  diag.accepts = []");
+    } else {
+        println!("  diag.accepts:");
+        for r in &config.diag.accepts {
+            println!(
+                "    {} path={}{}",
+                r.rule,
+                r.path.as_deref().unwrap_or("*"),
+                r.since
+                    .as_deref()
+                    .map(|s| format!(" since={s}"))
+                    .unwrap_or_default()
+            );
+        }
+    }
 }
 
 fn parse_bool(value: &str) -> Result<bool> {
