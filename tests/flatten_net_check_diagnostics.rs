@@ -43,9 +43,12 @@ const BUF: &str = "component BUF {\n    pins = [\n        in 1 = A\n        out 
 
 /// ── Lock: driver conflict + floating inputs + partial wiring ──────────────
 /// `b1.Y -> b2.Y` merges two `Out` pins onto one net. Expected sequence:
-/// 4101 driver conflict, two 4108 floating inputs, two 4114 module-port
-/// checks, two 4116 partial-wiring checks. Order is the `run_net_checks`
-/// pass order, positions are byte offsets into the fixture text.
+/// 4101 driver conflict, two 4108 floating inputs (the pads' own directional
+/// float), two 4116 partial-wiring checks. C4/E4114 no longer re-reports the
+/// unconnected `In` pads as "module ports" — component pads belong to the
+/// directional checks (A′-scope), so the former 4114 rows on `main.b1.1` /
+/// `main.b2.1` are gone. Order is the `run_net_checks` pass order, positions
+/// are byte offsets into the fixture text.
 #[test]
 fn dlu_flatchk__driver_conflict_sequence_locked() {
     let src = format!("{BUF}module main {{\n    BUF b1\n    BUF b2\n    b1.Y -> b2.Y\n}}");
@@ -70,18 +73,6 @@ fn dlu_flatchk__driver_conflict_sequence_locked() {
             "Input 'main.b2.1' is not connected to any net.",
         ),
         (
-            4114,
-            40,
-            "/mcc/flat-diag.mc",
-            "Module port 'main.b1.1' (In) is not connected to any net.",
-        ),
-        (
-            4114,
-            40,
-            "/mcc/flat-diag.mc",
-            "Module port 'main.b2.1' (In) is not connected to any net.",
-        ),
-        (
             4116,
             94,
             "/mcc/flat-diag.mc",
@@ -98,33 +89,30 @@ fn dlu_flatchk__driver_conflict_sequence_locked() {
 }
 
 /// ── Lock: passive chain with an unused io port ─────────────────────────────
-/// The resistor chain is clean; the unused `GND` io port produces the
-/// port-unused (5642) and bidirectional-port-unconnected (4117) pair.
+/// The resistor chain is clean; the unused top-level `io GND` produces only
+/// the pass1 port-unused (5642). The instance float (4117/4114) does not fire
+/// on the top module's own ports — those are the design's external contract
+/// (C4 skips top ports; the directional checks are A′-scoped to pads), so the
+/// former `main.GND` 4117 row is gone.
 #[test]
 fn dlu_flatchk__unused_io_port_sequence_locked() {
     let src = "component R {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\nmodule main {\n    io VDD\n    io GND\n    R r1\n    R r2\n    r1.1 -> VDD\n    r1.2 -> r2.1\n    r2.2 -> VDD\n}";
     let diags = build_flat_diags(src);
-    let expected = [
-        (
-            5642,
-            95,
-            "/mcc/flat-diag.mc",
-            "Port 'GND' in 'main' is declared but never used in any net connection.",
-        ),
-        (
-            4117,
-            95,
-            "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.GND' is not connected to any net.",
-        ),
-    ];
+    let expected = [(
+        5642,
+        95,
+        "/mcc/flat-diag.mc",
+        "Port 'GND' in 'main' is declared but never used in any net connection.",
+    )];
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
 }
 
 /// ── Lock: fully unwired instance ───────────────────────────────────────────
 /// `b1.A -> b1.A` loops the input onto itself but leaves every pin unwired:
 /// 4108 floating input, 4110 output drives nothing, 4112 no pins connected,
-/// 4114 module-port checks, 4116 0-of-2 partial wiring.
+/// 4116 0-of-2 partial wiring. The former 4114 "module port" rows on the
+/// `In`/`Out` pads are gone — component pads are owned by the directional
+/// checks (A′-scope), so C4 no longer double-reports them.
 #[test]
 fn dlu_flatchk__unwired_instance_sequence_locked() {
     let src = format!("{BUF}module main {{\n    BUF b1\n    b1.A -> b1.A\n}}");
@@ -149,18 +137,6 @@ fn dlu_flatchk__unwired_instance_sequence_locked() {
             "Instance 'main.b1' has no pins connected to any net.",
         ),
         (
-            4114,
-            40,
-            "/mcc/flat-diag.mc",
-            "Module port 'main.b1.1' (In) is not connected to any net.",
-        ),
-        (
-            4114,
-            58,
-            "/mcc/flat-diag.mc",
-            "Module port 'main.b1.2' (Out) is not connected to any net.",
-        ),
-        (
             4116,
             94,
             "/mcc/flat-diag.mc",
@@ -170,11 +146,12 @@ fn dlu_flatchk__unwired_instance_sequence_locked() {
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
 }
 
-/// ── Lock: unconnected bidirectional port of a sub-module ──────────────────
+/// ── Lock: unconnected io port of a sub-module ─────────────────────────────
 /// Mirrors the reported case (`main.MCU513.I2C0` in the hbl view): the
-/// sub-module's `io I2C0` port is never wired, so E4117 must anchor at the
+/// sub-module's `io I2C0` port is never wired, so C4/E4114 must anchor at the
 /// port's declaration in the sub-module body (`io I2C0`) — not at offset 0
-/// (file:1:1).
+/// (file:1:1). A′-scope routes module-boundary ports to C4, so the code is
+/// 4114 (formerly 4117).
 #[test]
 fn dlu_flatchk__submodule_unconnected_bidir_port_anchors_declaration() {
     let src = "component R {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\nmodule SUB {\n    io I2C0\n}\nmodule main {\n    SUB sub1\n}";
@@ -187,10 +164,10 @@ fn dlu_flatchk__submodule_unconnected_bidir_port_anchors_declaration() {
             "Port 'I2C0' in 'SUB' is declared but never used in any net connection.",
         ),
         (
-            4117,
+            4114,
             83,
             "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.sub1.I2C0' is not connected to any net.",
+            "Module port 'main.sub1.I2C0' (InOut) is not connected to any net.",
         ),
     ];
     assert_lock(diags, &expected, "sub-module port anchor changed");
@@ -198,11 +175,13 @@ fn dlu_flatchk__submodule_unconnected_bidir_port_anchors_declaration() {
 
 /// ── Lock: cross-file sub-module port anchor (the reported hbl case) ───────
 /// `module main` instantiates `SUB MCU513` from a def file; SUB's `io I2C0`
-/// port is never wired, so E4117 on `main.MCU513.I2C0` anchors at the port's
-/// declaration in the def file (`io I2C0`) — not at offset 0 / file:1:1.
-/// `use ./defs.mc` resolves against the real file system, so both files are
-/// written to a temp dir and loaded by canonical path (the same pattern the
-/// `circuit_deps_record_entry_and_class_resolutions` cross-file test uses).
+/// port is never wired, so C4/E4114 on `main.MCU513.I2C0` anchors at the
+/// port's declaration in the def file (`io I2C0`) — not at offset 0 /
+/// file:1:1. A′-scope routes module-boundary ports to C4, so the code is 4114
+/// (formerly 4117). `use ./defs.mc` resolves against the real file system, so
+/// both files are written to a temp dir and loaded by canonical path (the same
+/// pattern the `circuit_deps_record_entry_and_class_resolutions` cross-file
+/// test uses).
 #[test]
 fn dlu_flatchk__cross_file_submodule_port_anchors_def_declaration() {
     let _lock = common::lock();
@@ -247,10 +226,10 @@ fn dlu_flatchk__cross_file_submodule_port_anchors_def_declaration() {
             "Port 'I2C0' in 'SUB' is declared but never used in any net connection.",
         ),
         (
-            4117,
+            4114,
             20,
             defs_uri.as_str(),
-            "Bidirectional port 'main.MCU513.I2C0' is not connected to any net.",
+            "Module port 'main.MCU513.I2C0' (InOut) is not connected to any net.",
         ),
     ];
     assert_lock(diags, &expected, "cross-file port anchor changed");
@@ -260,31 +239,32 @@ fn dlu_flatchk__cross_file_submodule_port_anchors_def_declaration() {
 /// ── Lock: bracket-form signature port anchors at its declaration ──────────
 /// `[VDD_3V3, GND]::DC(3.3V)` is a Multiple-form signature interface param:
 /// its whole-name span lives in `def.params.def_spans`, not `def.insts`
-/// (`filter_port_spans` drops the whole-bracket name). E4117 for the
+/// (`filter_port_spans` drops the whole-bracket name). C4/E4114 for the
 /// unconnected bracket *members* must anchor at the declaration
 /// (`VDD_3V3` inside the bracket) instead of file:1:1. The bracketed aggregate
 /// (`main.UC.[VDD_3V3, GND]`) is a non-physical grouping header (A′
 /// 2026-09-04) — de-electrified, it must NOT surface here; the members carry
-/// the check. The empty US513 body also emits 2115; only the 4117 entries are
+/// the check. A′-scope routes these module-boundary members to C4 (formerly
+/// E4117). The empty US513 body also emits 2115; only the 4114 entries are
 /// asserted here.
 #[test]
 fn dlu_flatchk__bracket_signature_port_anchors_declaration() {
     let src = "module US513([VDD_3V3,GND]::DC(3.3V)) {\n}\nmodule main {\n    US513 UC\n}\n";
     let diags = build_flat_diags(src);
     let bidir: Vec<(u32, u32, String, String)> =
-        diags.into_iter().filter(|d| d.0 == 4117).collect();
+        diags.into_iter().filter(|d| d.0 == 4114).collect();
     let expected = [
         (
-            4117,
+            4114,
             14,
             "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.UC.VDD_3V3' is not connected to any net.",
+            "Module port 'main.UC.VDD_3V3' (InOut) is not connected to any net.",
         ),
         (
-            4117,
+            4114,
             14,
             "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.UC.GND' is not connected to any net.",
+            "Module port 'main.UC.GND' (InOut) is not connected to any net.",
         ),
     ];
     assert_lock(bidir, &expected, "bracket signature port anchor changed");
@@ -295,8 +275,9 @@ fn dlu_flatchk__bracket_signature_port_anchors_declaration() {
 /// The aggregate (`main.s1.MIC`), bus-slash (`MIC/P` / `MIC/N`) and bare
 /// (`P` / `N`) spellings are non-physical aliases folded onto the members
 /// (A′ 2026-09-04): de-electrified, they must NOT surface as unconnected.
-/// Only the member Ports carry E4117, anchored at the `io MIC{P,N}`
-/// declaration (pos 20) instead of file:1:1.
+/// Only the member Ports carry C4/E4114 (module-boundary ports are A′-scoped
+/// to C4; formerly E4117), anchored at the `io MIC{P,N}` declaration (pos 20)
+/// instead of file:1:1.
 #[test]
 fn dlu_flatchk__curly_bus_port_members_anchor_declaration() {
     let src = "module SUB {\n    io MIC{P,N}\n}\nmodule main {\n    SUB s1\n}\n";
@@ -309,16 +290,16 @@ fn dlu_flatchk__curly_bus_port_members_anchor_declaration() {
             "Port 'MIC' in 'SUB' is declared but never used in any net connection.",
         ),
         (
-            4117,
+            4114,
             20,
             "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.s1.MIC.P' is not connected to any net.",
+            "Module port 'main.s1.MIC.P' (InOut) is not connected to any net.",
         ),
         (
-            4117,
+            4114,
             20,
             "/mcc/flat-diag.mc",
-            "Bidirectional port 'main.s1.MIC.N' is not connected to any net.",
+            "Module port 'main.s1.MIC.N' (InOut) is not connected to any net.",
         ),
     ];
     assert_lock(diags, &expected, "curly bus member anchor changed");
@@ -328,31 +309,41 @@ fn dlu_flatchk__curly_bus_port_members_anchor_declaration() {
 /// The reported hbl shape is `out MIC{P,N}` (an *output* bus): pre-A′ the
 /// aggregate (`main.s1.MIC`), bus-slash (`MIC/P` / `MIC/N`) and bare (`P` / `N`)
 /// Out entries were never net endpoints yet carried io Out → false E4110
-/// "drives nothing". A′ de-electrifies + folds those aliases; only the physical
-/// member Ports (`main.s1.MIC.P` / `.N`) may carry E4110, at the declaration.
+/// "drives nothing". A′ de-electrifies + folds those aliases, and the
+/// directional E4110 is A′-scoped to pads — module-boundary `out` member Ports
+/// are C4/E4114's domain. So only the physical member Ports
+/// (`main.s1.MIC.P` / `.N`) carry C4, at the declaration; E4110 surfaces
+/// nothing here.
 #[test]
 fn dlu_flatchk__curly_bus_out_members_e4110_only_on_members() {
     let src = "module SUB {\n    out MIC{P,N}\n}\nmodule main {\n    SUB s1\n}\n";
     let diags = build_flat_diags(src);
     let e4110: Vec<(u32, u32, String, String)> =
-        diags.into_iter().filter(|d| d.0 == 4110).collect();
+        diags.iter().filter(|d| d.0 == 4110).cloned().collect();
     assert_lock(
         e4110,
+        &[],
+        "out curly bus members must not surface as E4110",
+    );
+    let e4114: Vec<(u32, u32, String, String)> =
+        diags.iter().filter(|d| d.0 == 4114).cloned().collect();
+    assert_lock(
+        e4114,
         &[
             (
-                4110,
+                4114,
                 21,
                 "/mcc/flat-diag.mc",
-                "Output 'main.s1.MIC.P' drives nothing.",
+                "Module port 'main.s1.MIC.P' (Out) is not connected to any net.",
             ),
             (
-                4110,
+                4114,
                 21,
                 "/mcc/flat-diag.mc",
-                "Output 'main.s1.MIC.N' drives nothing.",
+                "Module port 'main.s1.MIC.N' (Out) is not connected to any net.",
             ),
         ],
-        "out curly bus alias shapes must not surface as E4110",
+        "out curly bus member Ports must carry C4/E4114 only",
     );
 }
 
@@ -374,7 +365,8 @@ const TWIN: &str = "component TW {\n    pins = [\n        in 1 = A\n        in 2
 
 /// 4103 NET_NO_DRIVER: `c1.A -> c2.A` merges two `In` pins onto one net with
 /// no output or power supply driving it. The `B` inputs of both instances
-/// float, adding the usual 4108/4114/4116 trio per instance.
+/// float, adding the 4108/4116 per-instance pair (the former C4/E4114 rows on
+/// the pads are gone — pads are owned by the directional checks).
 #[test]
 fn dlu_flatchk__no_driver_net_locked() {
     let src = format!("{TWIN}module main {{\n    TW c1\n    TW c2\n    c1.A -> c2.A\n}}");
@@ -397,18 +389,6 @@ fn dlu_flatchk__no_driver_net_locked() {
             56,
             "/mcc/flat-diag.mc",
             "Input 'main.c2.2' is not connected to any net.",
-        ),
-        (
-            4114,
-            56,
-            "/mcc/flat-diag.mc",
-            "Module port 'main.c1.2' (In) is not connected to any net.",
-        ),
-        (
-            4114,
-            56,
-            "/mcc/flat-diag.mc",
-            "Module port 'main.c2.2' (In) is not connected to any net.",
         ),
         (
             4116,
