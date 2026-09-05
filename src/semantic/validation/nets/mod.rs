@@ -283,6 +283,13 @@ pub(crate) fn check_undriven_nets(table: &InstTable, results: &mut Vec<NetCheckR
 }
 
 // ── P5: Input ports with no net connection ──
+// §A′-scope: directional float checks (E4108 / E-output-undriven / E4117)
+// own *component pads* (kind Pin) only. Module-boundary ports (kind Port) are
+// owned by C4/E4114 (`check_unused_module_ports`); A′ bus-slash / bare-member
+// alias entries (kind Label) and other non-physical spellings never carry a
+// directional float — the physical member Port or pad reports for them. This
+// split is what stops the same unconnected pad from being double-reported by
+// a directional check and by C4.
 pub(crate) fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let connected: HashSet<u32> = table
         .get_nets()
@@ -294,6 +301,7 @@ pub(crate) fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetChec
         // instantiated component/interface is never wired by definition, so
         // its unwired pins are the normal shape of the view, not a defect.
         if matches!(entry.io_type, IOType::In)
+            && matches!(entry.kind, InstKind::Pin)
             && !connected.contains(&entry.id)
             && !is_nc_entry(entry)
             && !entry.synthetic
@@ -348,7 +356,10 @@ pub(crate) fn check_unconnected_outputs(table: &InstTable, results: &mut Vec<Net
         // Same synthetic-wrapper carve-out as E4112/E4116: a virtually-
         // instantiated component/interface is never wired by definition, so
         // its unwired output pins are the normal shape of the view.
+        // §A′-scope: component pads only (kind Pin); module-boundary ports go
+        // to C4/E4114, A′ alias spellings never carry a directional float.
         if matches!(entry.io_type, IOType::Out)
+            && matches!(entry.kind, InstKind::Pin)
             && !connected.contains(&entry.id)
             && !is_nc_entry(entry)
             && !entry.synthetic
@@ -797,15 +808,25 @@ pub(crate) fn check_unused_module_ports(table: &InstTable, results: &mut Vec<Net
         })
         .map(|(id, _)| *id);
     for (_, entry) in table.iter() {
-        // Check module boundary ports (not internal pins)
+        // §A′-scope: this check owns *module-boundary ports* — entries whose
+        // kind is Port (the aggregate or dotted member a parent design wires).
+        // Component pads (kind Pin) are owned by the directional float checks
+        // (E4108 / E-output-undriven / E4117); A′ bus-slash/bare alias spellings
+        // (kind Label) are folded onto the Port and never surface here. The
+        // former `class_name` guard (which only selected class-carrying pads)
+        // is what made C4 re-report Pin pads that the directional checks had
+        // already reported — the ldo.4 (E4108+E4114) and UC.8 (E4117+E4114)
+        // duplicates on hbl.
         if entry.parent_id == top_id || entry.parent_id.is_none() {
+            continue;
+        }
+        if !matches!(entry.kind, crate::instant::insttab::InstKind::Port) {
             continue;
         }
         if matches!(
             entry.io_type,
             IOType::In | IOType::Out | IOType::InOut | IOType::Power
         ) && !connected.contains(&entry.id)
-            && !entry.class_name.is_empty()
             && !is_nc_entry(entry)
             // Same synthetic-wrapper carve-out as E4112/E4116: a virtually-
             // instantiated component/interface is never wired by definition,
@@ -954,7 +975,13 @@ pub(crate) fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetChe
         // instantiated interface's io ports render boundary pins and are never
         // wired by definition, so "bidirectional port not connected" is the
         // normal shape of the view, not a defect.
+        // §A′-scope: component pads only (kind Pin); an unconnected
+        // module-boundary InOut port is owned by C4/E4114, and the A′ bus-slash
+        // lane / bare-member alias spellings of that port (kind Label) are
+        // folded onto it — reporting the lane and its aggregate twice is the
+        // `UART1` + `UART1/TX` + `UART1/RX` phantom triple this guard removes.
         if matches!(entry.io_type, IOType::InOut)
+            && matches!(entry.kind, InstKind::Pin)
             && !connected.contains(&entry.id)
             && !is_nc_entry(entry)
             && !entry.synthetic

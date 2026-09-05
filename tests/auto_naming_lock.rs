@@ -97,12 +97,15 @@ fn mat_aname__normal_sequence_lock() {
         "net table around auto-named instances changed (P0.5 lock)"
     );
 
-    // 5641 (unused ctor param cap/res) x2, 4116 (one pin of _R1 unconnected),
-    // 4117 (bidirectional port main.GND left with no net). Set-equal check —
-    // diagnostic insertion order is not part of the naming contract.
+    // 5641 (unused ctor param cap/res) x2, 4116 (one pin of _R1 unconnected).
+    // `main.GND` is a top-level grouping header whose real wiring runs through
+    // the `GND@7` split-ground label; under the A′-scope the instance floats
+    // (4117/4114) never fire on top-module ports or on grouping headers, so
+    // the former 4117 row is gone. Set-equal check — diagnostic insertion
+    // order is not part of the naming contract.
     assert_eq!(
         codes,
-        vec![4116, 4117, 5641, 5641],
+        vec![4116, 5641, 5641],
         "diagnostic codes around auto-named instances changed (P0.5 lock)"
     );
 }
