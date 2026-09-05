@@ -14,7 +14,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex as StdMutex, RwLock};
@@ -77,6 +77,101 @@ pub struct DiagConfig {
     /// Mirrored by the CLI `-i/--ignore` flag (CLI merges over config).
     #[serde(default)]
     pub ignore_warnings: Vec<String>,
+
+    /// Rule severity overrides (rule-registry design §8-5, zone 1), keyed by
+    /// the stable rule code string `"E4101"`/`"4101"`. A value takes effect
+    /// only when the descriptor grants `overridable = true`.
+    #[serde(default)]
+    pub severities: BTreeMap<String, String>,
+
+    /// Explicit suppressions (§8-5 zone 2). Each row suppresses the rule when
+    /// `path` matches; an omitted `path` is the project global.
+    #[serde(default)]
+    pub allows: Vec<AllowRow>,
+
+    /// On-file waivers (§8-5 zone 3): still displayed and counted, recorded
+    /// for audit/gate exemption. v1 has no gate consumer.
+    #[serde(default)]
+    pub accepts: Vec<AcceptRow>,
+}
+
+/// One `diag.allows` row (`rule` + optional `path`/`reason`).
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct AllowRow {
+    /// Stable rule code string, e.g. `"E4101"`.
+    pub rule: String,
+    /// Project-relative path / directory prefix / glob. Omitted = project
+    /// global.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Documented exception note.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// One `diag.accepts` row (`rule` + optional `path`/`since`).
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct AcceptRow {
+    /// Stable rule code string, e.g. `"E3101"`.
+    pub rule: String,
+    /// Project-relative path / directory prefix / glob. Omitted = project
+    /// global.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// When the waiver started, e.g. `"2026-09-05"`.
+    #[serde(default)]
+    pub since: Option<String>,
+}
+
+impl DiagConfig {
+    /// Project this config's three override zones into one override-store
+    /// layer. Rows whose code is unparseable or whose severity string is
+    /// unknown are skipped: config is advisory, and the adjudicator is what
+    /// enforces `overridable` on the actual catalog rules.
+    pub fn to_override_layer(&self) -> crate::db::diagnostic::override_store::Layer {
+        use crate::db::diagnostic::override_store::{
+            parse_path_scope, parse_rule_code, AcceptEntry, AllowEntry, Layer,
+        };
+        use crate::semantic::validation::CheckSeverity;
+        let severities = self
+            .severities
+            .iter()
+            .filter_map(|(k, v)| {
+                let code = parse_rule_code(k)?;
+                let sev = CheckSeverity::from_str(v.trim())?;
+                Some((code, sev))
+            })
+            .collect();
+        let allows = self
+            .allows
+            .iter()
+            .filter_map(|r| {
+                let code = parse_rule_code(&r.rule)?;
+                Some(AllowEntry {
+                    code,
+                    path: parse_path_scope(r.path.as_deref().unwrap_or("")),
+                    reason: r.reason.clone(),
+                })
+            })
+            .collect();
+        let accepts = self
+            .accepts
+            .iter()
+            .filter_map(|r| {
+                let code = parse_rule_code(&r.rule)?;
+                Some(AcceptEntry {
+                    code,
+                    path: parse_path_scope(r.path.as_deref().unwrap_or("")),
+                    since: r.since.clone(),
+                })
+            })
+            .collect();
+        Layer {
+            severities,
+            allows,
+            accepts,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -298,6 +393,52 @@ pub fn load_project_config(project_root: &Path) -> Result<Option<MccConfig>> {
     Ok(None)
 }
 
+/// Merge a modified `diag` zone into the project config file
+/// (`project.toml` `[config]`), replacing only the `diag` subsection and
+/// leaving every other section/zone untouched (design §8-5 persistence
+/// discipline: merge, never overwrite). Returns the manifest path written.
+///
+/// This is the only writer of the project `diag` zones — `mcc config set
+/// diag.*` refuses, and the `mcc rules ... --write` entry delegates here.
+pub fn save_project_diag_config(project_root: &Path, diag: &DiagConfig) -> Result<PathBuf> {
+    use std::io::Write;
+    let manifest = crate::cli::datadir::find_manifest_in(project_root)
+        .ok_or_else(|| anyhow::anyhow!(
+            "no project.toml at {}; `mcc rules ... --write` persists into the project config (rule-registry design §8-5)",
+            project_root.display()
+        ))?;
+    let content = fs::read_to_string(&manifest)
+        .with_context(|| format!("Failed to read project config: {}", manifest.display()))?;
+    let mut doc: toml::Value = toml::from_str(&content)
+        .with_context(|| format!("Invalid project config format: {}", manifest.display()))?;
+    // Ensure `[config]` exists, then replace its `diag` subsection only
+    // (toml::Value table keys are inserted through `as_table_mut`, never
+    // through index assignment, which panics on a missing key).
+    if !doc.get("config").map(|v| v.is_table()).unwrap_or(false) {
+        if let Some(root) = doc.as_table_mut() {
+            root.insert("config".into(), toml::Value::Table(toml::map::Map::new()));
+        }
+    }
+    let diag_value = toml::Value::try_from(diag)
+        .with_context(|| "Failed to serialize diag config zone".to_string())?;
+    if let Some(config) = doc.get_mut("config").and_then(|v| v.as_table_mut()) {
+        config.insert("diag".into(), diag_value);
+    }
+    let out = toml::to_string(&doc)
+        .with_context(|| format!("Failed to serialize project config: {}", manifest.display()))?;
+    let mut file = fs::File::create(&manifest)
+        .with_context(|| format!("Failed to open project config: {}", manifest.display()))?;
+    file.write_all(out.as_bytes())
+        .with_context(|| format!("Failed to write project config: {}", manifest.display()))?;
+    Ok(manifest)
+}
+
+/// Load just the project `[config]` diag zone (if any) — the read twin of
+/// [`save_project_diag_config`].
+pub fn load_project_diag_config(project_root: &Path) -> Result<Option<DiagConfig>> {
+    Ok(load_project_config(project_root)?.map(|c| c.diag))
+}
+
 pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig {
     match local {
         Some(local) => {
@@ -341,6 +482,21 @@ pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig
                     global.diag.ignore_warnings.clone()
                 } else {
                     local.diag.ignore_warnings.clone()
+                },
+                severities: if local.diag.severities.is_empty() {
+                    global.diag.severities.clone()
+                } else {
+                    local.diag.severities.clone()
+                },
+                allows: if local.diag.allows.is_empty() {
+                    global.diag.allows.clone()
+                } else {
+                    local.diag.allows.clone()
+                },
+                accepts: if local.diag.accepts.is_empty() {
+                    global.diag.accepts.clone()
+                } else {
+                    local.diag.accepts.clone()
                 },
             };
 
@@ -712,4 +868,183 @@ pub fn get_known_debug_targets() -> Vec<&'static str> {
         "mcc::build",
         "mcc::config",
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::diagnostic::override_store::{Adjudication, OverrideStore, PathScope};
+    use crate::semantic::validation::CheckSeverity;
+
+    fn sample_config() -> MccConfig {
+        // The same schema serves the user-level `mcc.yaml` and the project
+        // `[config]` section (project config is deserialized through the same
+        // MccConfig shape).
+        serde_yaml::from_str(
+            r#"
+diag:
+  severities:
+    E5155: info
+    4101: warning
+    not-a-code: error
+    E4101x: error
+  allows:
+    - rule: E5155
+      path: boards/**/*.mc
+      reason: documented exception
+    - rule: 4102
+  accepts:
+    - rule: E5156
+      path: boards/dev/main.mc
+      since: "2026-09-05"
+"#,
+        )
+        .expect("yaml parse")
+    }
+
+    #[test]
+    fn diag_zones_project_into_an_override_layer() {
+        let cfg = sample_config();
+        let layer = cfg.diag.to_override_layer();
+        // Invalid code keys and unknown severities are skipped.
+        assert_eq!(layer.severities.len(), 2);
+        assert_eq!(layer.severities.get(&5155), Some(&CheckSeverity::Info));
+        assert_eq!(layer.severities.get(&4101), Some(&CheckSeverity::Warning));
+        assert_eq!(layer.allows.len(), 2);
+        assert_eq!(layer.allows[0].code, 5155);
+        assert!(matches!(layer.allows[0].path, PathScope::Directory(_)));
+        assert_eq!(layer.allows[1].code, 4102);
+        assert_eq!(layer.accepts.len(), 1);
+        assert_eq!(layer.accepts[0].code, 5156);
+        assert_eq!(layer.accepts[0].since.as_deref(), Some("2026-09-05"));
+    }
+
+    #[test]
+    fn config_layer_and_store_adjudicate_together() {
+        let cfg = sample_config();
+        let store = OverrideStore {
+            project: cfg.diag.to_override_layer(),
+            ..Default::default()
+        };
+        // The store refuses the override while the rule is non-overridable.
+        assert_eq!(
+            store.adjudicate(
+                5155,
+                false,
+                CheckSeverity::Warning,
+                Some("boards/dev/main.mc")
+            ),
+            Adjudication::Default
+        );
+        // Overridable + allow hit: the path-scoped allow suppresses (allow
+        // outranks the severity row when both hit).
+        assert_eq!(
+            store.adjudicate(
+                5155,
+                true,
+                CheckSeverity::Warning,
+                Some("boards/dev/main.mc")
+            ),
+            Adjudication::Suppressed
+        );
+        // Overridable + no allow hit: the severity row re-levels.
+        assert_eq!(
+            store.adjudicate(5155, true, CheckSeverity::Warning, Some("core/main.mc")),
+            Adjudication::Severity(CheckSeverity::Info)
+        );
+        // A path the allow matches but the severity row does not cover: the
+        // project-global allow row for 4102 hits any uri.
+        assert_eq!(
+            store.adjudicate(4102, true, CheckSeverity::Warning, Some("any/main.mc")),
+            Adjudication::Suppressed
+        );
+    }
+
+    #[test]
+    fn merge_configs_prefers_project_diag_zones() {
+        let mut global = MccConfig::default();
+        global.diag.severities.insert("E4101".into(), "info".into());
+        global.diag.allows.push(AllowRow {
+            rule: "E5155".into(),
+            path: None,
+            reason: None,
+        });
+        let mut local = MccConfig::default();
+        local.diag.severities.insert("E5155".into(), "hint".into());
+        let merged = merge_configs(&global, Some(&local));
+        assert_eq!(merged.diag.severities.len(), 1);
+        assert_eq!(
+            merged.diag.severities.get("E5155"),
+            Some(&"hint".to_string())
+        );
+        // No local allows: the global rows carry over.
+        assert_eq!(merged.diag.allows.len(), 1);
+    }
+
+    #[test]
+    fn project_diag_config_roundtrips_and_preserves_other_zones() {
+        // §8-5 persistence discipline: `save_project_diag_config` replaces
+        // only the `[config] diag` subsection of project.toml and leaves
+        // every other section/zone untouched.
+        let base = std::env::temp_dir().join(format!(
+            "mcc-config-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let proj = base.join("p");
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(
+            proj.join("project.toml"),
+            "[project]\nname = \"t\"\n\n[config]\ntrace = { enabled = true }\n",
+        )
+        .unwrap();
+
+        let mut diag = DiagConfig::default();
+        diag.severities.insert("E5155".into(), "info".into());
+        diag.allows.push(AllowRow {
+            rule: "E4101".into(),
+            path: Some("boards/**/*.mc".into()),
+            reason: Some("documented exception".into()),
+        });
+        let written = save_project_diag_config(&proj, &diag).unwrap();
+        assert_eq!(written, proj.join("project.toml"));
+
+        let content = fs::read_to_string(&written).unwrap();
+        assert!(
+            content.contains("enabled = true"),
+            "other zone clobbered: {content}"
+        );
+        assert!(content.contains("severities"), "{content}");
+
+        let back = load_project_diag_config(&proj)
+            .unwrap()
+            .expect("diag zone present");
+        assert_eq!(
+            back.severities.get("E5155").map(|s| s.as_str()),
+            Some("info")
+        );
+        assert_eq!(back.allows.len(), 1);
+        assert_eq!(back.allows[0].path.as_deref(), Some("boards/**/*.mc"));
+        assert_eq!(
+            back.allows[0].reason.as_deref(),
+            Some("documented exception")
+        );
+        assert!(back.accepts.is_empty());
+
+        // Without a `[config]` diag zone the read twin is `None`.
+        let bare = base.join("bare");
+        fs::create_dir_all(&bare).unwrap();
+        fs::write(bare.join("project.toml"), "[project]\nname = \"t\"\n").unwrap();
+        assert!(load_project_diag_config(&bare).unwrap().is_none());
+
+        // Writing into a directory without a manifest is an explicit error.
+        let no_manifest = base.join("none");
+        fs::create_dir_all(&no_manifest).unwrap();
+        assert!(save_project_diag_config(&no_manifest, &DiagConfig::default()).is_err());
+
+        fs::remove_dir_all(&base).ok();
+    }
 }

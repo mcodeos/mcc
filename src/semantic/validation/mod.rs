@@ -42,6 +42,20 @@ impl CheckSeverity {
             Self::Error => "error",
         }
     }
+
+    /// Parse the string severity used by the string-typed host carriers
+    /// (`FlatErc`/`Declaration` push "error" | "warning" | "info") back into
+    /// the enum. Unknown values return None — the caller conversion decides
+    /// the fallback (see `finding.rs`).
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "error" => Some(Self::Error),
+            "warning" => Some(Self::Warning),
+            "info" => Some(Self::Info),
+            "hint" => Some(Self::Hint),
+            _ => None,
+        }
+    }
 }
 
 // ============================================================================
@@ -166,6 +180,7 @@ pub mod dupwithin;
 pub mod enums;
 pub mod exprs;
 pub mod extra;
+pub mod finding;
 pub mod floating;
 pub mod gate;
 pub mod hw;

@@ -186,6 +186,192 @@ pub const fn gate_for(severity: CheckSeverity) -> GateKind {
 // Descriptor (§2.2, data-only metadata shared by every scope)
 // ============================================================================
 
+/// Machine-actionable follow-up a fired rule carries (§7.4 closed-loop
+/// writeback axis). Today every row is `None`: the registry still has no
+/// editor code-action, so the diagnostic text is the whole payload. When an
+/// IDE/mcext codeAction lands, a rule assigns its fix kind here and the
+/// envelope builder can populate `suggestions` from it; the axis is a filter
+/// key, not free text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum FixKind {
+    /// No machine quick-fix; the diagnostic text is the whole payload.
+    #[default]
+    None,
+    /// A deterministic source edit the AI/IDE loop can apply directly.
+    QuickFix,
+    /// A suggested follow-up (for example "grant an override") surfaced as a
+    /// diagnostic suggestion rather than a source edit.
+    Suggestion,
+}
+
+// ============================================================================
+// Stable string forms of the §2.3/§2.5 axes — the spelling every consumer
+// surface uses (`mcc rules --scope flat-erc`, RPC `rules.list` params, MCP
+// tool args, the JSON projection and the text views). Keep one spelling per
+// axis so the CLI/RPC/MCP bytes stay identical (design §8 projection).
+// ============================================================================
+
+/// Kebab-case axis name used by the §8 read/write surfaces.
+impl RuleScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PostParse => "post-parse",
+            Self::AssemblyGate => "assembly-gate",
+            Self::FlatErc => "flat-erc",
+            Self::Declaration => "declaration",
+            Self::VizLayout => "viz-layout",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "post-parse" | "postparse" => Self::PostParse,
+            "assembly-gate" | "assemblygate" => Self::AssemblyGate,
+            "flat-erc" | "flaterc" => Self::FlatErc,
+            "declaration" | "decl" => Self::Declaration,
+            "viz-layout" | "vizlayout" => Self::VizLayout,
+            _ => return None,
+        })
+    }
+}
+
+impl RuleDomain {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Connectivity => "connectivity",
+            Self::Power => "power",
+            Self::BusHierarchy => "bus-hierarchy",
+            Self::PinDecl => "pin-decl",
+            Self::IO => "io",
+            Self::SignalIntegrity => "signal-integrity",
+            Self::Structure => "structure",
+            Self::NamingStyle => "naming-style",
+            Self::Duplicate => "duplicate",
+            Self::RefIntegrity => "ref-integrity",
+            Self::Rating => "rating",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "connectivity" => Self::Connectivity,
+            "power" => Self::Power,
+            "bus-hierarchy" | "bushierarchy" => Self::BusHierarchy,
+            "pin-decl" | "pindecl" => Self::PinDecl,
+            "io" => Self::IO,
+            "signal-integrity" | "signalintegrity" => Self::SignalIntegrity,
+            "structure" => Self::Structure,
+            "naming-style" | "namingstyle" => Self::NamingStyle,
+            "duplicate" => Self::Duplicate,
+            "ref-integrity" | "refintegrity" => Self::RefIntegrity,
+            "rating" => Self::Rating,
+            _ => return None,
+        })
+    }
+}
+
+impl RulePlane {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CoreMechanism => "core-mechanism",
+            Self::DomainPackage => "domain-package",
+            Self::SimFulfillment => "sim-fulfillment",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "core-mechanism" | "coremechanism" => Self::CoreMechanism,
+            "domain-package" | "domainpackage" => Self::DomainPackage,
+            "sim-fulfillment" | "simfulfillment" => Self::SimFulfillment,
+            _ => return None,
+        })
+    }
+}
+
+impl Acceptance {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Legal => "legal",
+            Self::Contract => "contract",
+            Self::Fulfillment => "fulfillment",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "legal" => Self::Legal,
+            "contract" => Self::Contract,
+            "fulfillment" => Self::Fulfillment,
+            _ => return None,
+        })
+    }
+}
+
+impl RuleSink {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Envelope => "envelope",
+            Self::GateReport => "gate-report",
+            Self::OwnedStore => "owned-store",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "envelope" => Self::Envelope,
+            "gate-report" | "gatereport" => Self::GateReport,
+            "owned-store" | "ownedstore" => Self::OwnedStore,
+            _ => return None,
+        })
+    }
+}
+
+impl GateKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Advisory => "advisory",
+            Self::Blocking => "blocking",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "advisory" => Self::Advisory,
+            "blocking" => Self::Blocking,
+            _ => return None,
+        })
+    }
+}
+
+impl Cadence {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PerCircuit => "per-circuit",
+            Self::Incremental => "incremental",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "per-circuit" | "percircuit" => Self::PerCircuit,
+            "incremental" => Self::Incremental,
+            _ => return None,
+        })
+    }
+}
+
+impl FixKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::QuickFix => "quick-fix",
+            Self::Suggestion => "suggestion",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "none" => Self::None,
+            "quick-fix" | "quickfix" => Self::QuickFix,
+            "suggestion" => Self::Suggestion,
+            _ => return None,
+        })
+    }
+}
+
 /// Rule descriptor metadata. This is the part every scope has in common, so
 /// catalog queries (by code/scope/domain/severity) operate on it.
 #[derive(Debug, Clone)]
@@ -212,6 +398,8 @@ pub struct RuleMeta {
     /// Whether severity overrides / allows are permitted at all (§7.4/§8-5).
     /// Errors are not suppressible unless explicitly granted.
     pub overridable: bool,
+    /// Quick-fix kind (§7.4); `None` today for every row.
+    pub fix: FixKind,
     /// Ownership plane (§7.1).
     pub plane: RulePlane,
     /// Acceptance reading (§7.2).
@@ -264,6 +452,7 @@ macro_rules! declare_flat_erc_rule {
                 doc: $doc,
                 lock: $lock,
                 overridable: $ov,
+                fix: FixKind::None,
                 plane: RulePlane::CoreMechanism,
                 acceptance: Acceptance::Legal,
                 sink: RuleSink::Envelope,
@@ -542,6 +731,7 @@ macro_rules! declare_decl_rule {
                 doc: $doc,
                 lock: $lock,
                 overridable: false,
+                fix: FixKind::None,
                 plane: RulePlane::CoreMechanism,
                 acceptance: Acceptance::Legal,
                 sink: RuleSink::Envelope,
@@ -630,6 +820,7 @@ macro_rules! declare_gate_rule {
                 doc: $doc,
                 lock: $lock,
                 overridable: false,
+                fix: FixKind::None,
                 plane: RulePlane::CoreMechanism,
                 acceptance: Acceptance::Legal,
                 sink: RuleSink::GateReport,
@@ -928,6 +1119,101 @@ pub fn rules_in_scope(scope: RuleScope) -> Vec<&'static RuleMeta> {
             .map(|r| &r.meta),
     );
     v
+}
+
+/// One row of the test-lock ledger projection: a `lock` anchor and every
+/// numeric-code rule that declares it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockLedgerEntry {
+    /// The declaring rules' `lock` field, verbatim — a `tests/` lock file, or
+    /// a documented placeholder for codes whose behavior is locked by
+    /// whole-file semantic tests with no per-code integration file.
+    pub lock: &'static str,
+    /// Rule codes declaring this anchor, in declared (table) order.
+    pub codes: Vec<u32>,
+}
+
+/// The documented non-`tests/` lock placeholder. A rule cites it instead of
+/// inventing a lock file when its behavior is locked only by a context-gated
+/// netcheck report path with no per-code integration test. Every other lock
+/// anchor in the catalog is a concrete `tests/` file that fires (or, for
+/// structurally unreachable codes, actively documents and asserts the
+/// absence of) the codes it owns - see tests/lock_pp_*.rs.
+const DOC_LOCK_PLACEHOLDERS: &[&str] = &["netcheck context-gated (reorg doc §8.3)"];
+
+/// Project the numeric-code scopes' test-lock ledger: group every `lock`
+/// anchor across FlatErc / Declaration / AssemblyGate / PostParse into one
+/// per-anchor code list (codes keep declared order within an anchor; anchors
+/// sort lexically). This is the "ledger = catalog projection" of design §3:
+/// per-code lock completeness is validated against this view, and the §8
+/// consumer surface (stage 5) reads the same projection. VizLayout rows are
+/// excluded — they carry string ids and their bookkeeping anchor is the viz
+/// owner host fn (stage-4 adjudication), not a test lock file.
+pub fn lock_ledger() -> Vec<LockLedgerEntry> {
+    let mut by_lock: std::collections::BTreeMap<&'static str, Vec<u32>> =
+        std::collections::BTreeMap::new();
+    for r in FLAT_ERC_RULES {
+        by_lock.entry(r.meta.lock).or_default().push(r.meta.code);
+    }
+    for r in DECL_RULES {
+        by_lock.entry(r.meta.lock).or_default().push(r.meta.code);
+    }
+    for r in GATE_RULES {
+        by_lock.entry(r.meta.lock).or_default().push(r.meta.code);
+    }
+    for r in POSTPARSE_RULES {
+        by_lock.entry(r.meta.lock).or_default().push(r.meta.code);
+    }
+    by_lock
+        .into_iter()
+        .map(|(lock, codes)| LockLedgerEntry { lock, codes })
+        .collect()
+}
+
+/// Filter axes for [`query_rules`] (design §8: list/detail, filter by the
+/// §2.3 category axes and the §2.5 governance attributes). `None` means "any".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RuleFilter {
+    pub scope: Option<RuleScope>,
+    pub domain: Option<RuleDomain>,
+    pub severity: Option<CheckSeverity>,
+    pub plane: Option<RulePlane>,
+    pub gate: Option<GateKind>,
+    /// `Some(true)` = suppressible rows only (`overridable`), `Some(false)` =
+    /// the rest.
+    pub overridable: Option<bool>,
+    pub fix: Option<FixKind>,
+}
+
+/// Enumerate every numeric-code rule descriptor matching the filter, in
+/// declared table order: FlatErc, Declaration, AssemblyGate, then PostParse.
+/// The four scope tables are the catalog's only numeric-code rule carriers —
+/// viz rows carry string ids and stay behind [`viz_layout_rules`]. Every
+/// consumer surface (`mcc rules` list, RPC `rules.list`, caps summary) reads
+/// this same projection so the bytes stay identical across layers.
+pub fn query_rules(filter: &RuleFilter) -> Vec<&'static RuleMeta> {
+    fn hit(m: &'static RuleMeta, f: &RuleFilter) -> bool {
+        f.scope.map_or(true, |v| m.scope == v)
+            && f.domain.map_or(true, |v| m.domain == v)
+            && f.severity.map_or(true, |v| m.severity == v)
+            && f.plane.map_or(true, |v| m.plane == v)
+            && f.gate.map_or(true, |v| m.gate == v)
+            && f.overridable.map_or(true, |v| m.overridable == v)
+            && f.fix.map_or(true, |v| m.fix == v)
+    }
+    let mut out = Vec::new();
+    let tables = FLAT_ERC_RULES
+        .iter()
+        .map(|r| &r.meta)
+        .chain(DECL_RULES.iter().map(|r| &r.meta))
+        .chain(GATE_RULES.iter().map(|r| &r.meta))
+        .chain(POSTPARSE_RULES.iter().map(|r| &r.meta));
+    for m in tables {
+        if hit(m, filter) {
+            out.push(m);
+        }
+    }
+    out
 }
 
 /// Look up an AssemblyGate rule by its report tag (meta name, e.g. "R02").
@@ -1462,6 +1748,129 @@ mod tests {
             assert!(!ids.contains(&gap), "{gap} is an intentional gap");
         }
     }
+
+    #[test]
+    fn lock_ledger_projects_every_numeric_code_exactly_once() {
+        // Ledger = catalog projection (design §3): each numeric-code rule
+        // appears in exactly one anchor row, and the ledger covers
+        // rule_count() codes with no duplication or loss.
+        let entries = lock_ledger();
+        assert!(entries.iter().all(|e| !e.codes.is_empty()));
+        assert_eq!(
+            entries.len(),
+            entries
+                .iter()
+                .map(|e| &e.lock)
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+        );
+        let total: usize = entries.iter().map(|e| e.codes.len()).sum();
+        assert_eq!(total, rule_count());
+        let mut codes: Vec<u32> = entries
+            .iter()
+            .flat_map(|e| e.codes.iter().copied())
+            .collect();
+        codes.sort_unstable();
+        codes.dedup();
+        assert_eq!(codes.len(), rule_count());
+        // Anchors come from the rules verbatim and the rows are lexically
+        // sorted, so the projection itself is deterministic.
+        assert!(entries.windows(2).all(|w| w[0].lock < w[1].lock));
+    }
+
+    #[test]
+    fn lock_ledger_anchors_are_strong_or_documented_and_pinned() {
+        // Every numeric-code lock is either a tests/ file (strong anchor) or
+        // the one remaining documented placeholder (context-gated netcheck
+        // rows with no per-code integration test); nothing else is allowed.
+        // The per-kind code counts are the ledger lock: adding a rule, or
+        // re-anchoring one, changes this line on purpose.
+        let mut strong = 0usize;
+        let doc = 0usize;
+        let mut note = 0usize;
+        for e in lock_ledger() {
+            if e.lock.starts_with("tests/") {
+                strong += e.codes.len();
+            } else if e.lock == DOC_LOCK_PLACEHOLDERS[0] {
+                note += e.codes.len();
+            } else {
+                panic!(
+                    "anchor '{}' is neither a tests/ file nor a documented placeholder",
+                    e.lock
+                );
+            }
+        }
+        // The 63 PostParse codes that once shared the validation-module doc
+        // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
+        // doc partition is empty and every one of them counts as strong.
+        assert_eq!((strong, doc, note), (123, 0, 3));
+        assert_eq!(strong + doc + note, rule_count());
+    }
+
+    #[test]
+    fn query_rules_filters_axes_and_preserves_table_order() {
+        // No filter == every numeric-code rule, in declared table order.
+        let all = query_rules(&RuleFilter::default());
+        assert_eq!(all.len(), rule_count());
+        let order = [
+            flat_erc_rules().len(),
+            declaration_rules().len(),
+            assembly_gate_rules().len(),
+            post_parse_rules().len(),
+        ];
+        // The combined list is the four tables concatenated: boundaries fall
+        // exactly at the per-table lengths.
+        let boundary_checks = [
+            0usize,
+            order[0],
+            order[0] + order[1],
+            order[0] + order[1] + order[2],
+        ];
+        for (i, &b) in boundary_checks.iter().enumerate() {
+            let expected_scope = match i {
+                0 => RuleScope::FlatErc,
+                1 => RuleScope::Declaration,
+                2 => RuleScope::AssemblyGate,
+                _ => RuleScope::PostParse,
+            };
+            assert_eq!(all[b].scope, expected_scope, "table boundary at {b}");
+        }
+
+        // Scope filter counts match the table lengths.
+        for (scope, len) in [
+            (RuleScope::FlatErc, order[0]),
+            (RuleScope::Declaration, order[1]),
+            (RuleScope::AssemblyGate, order[2]),
+            (RuleScope::PostParse, order[3]),
+        ] {
+            let f = RuleFilter {
+                scope: Some(scope),
+                ..Default::default()
+            };
+            assert_eq!(query_rules(&f).len(), len, "{scope:?}");
+        }
+
+        // Nothing is suppressible today (overridable all false), and severity
+        // filtering narrows the result to the matching default rows.
+        let ov = query_rules(&RuleFilter {
+            overridable: Some(true),
+            ..Default::default()
+        });
+        assert!(ov.is_empty());
+        let errs = query_rules(&RuleFilter {
+            severity: Some(CheckSeverity::Error),
+            ..Default::default()
+        });
+        assert!(!errs.is_empty());
+        assert!(errs.iter().all(|m| m.severity == CheckSeverity::Error));
+
+        // Every row carries the default `fix = None` descriptor value.
+        let fixes = query_rules(&RuleFilter {
+            fix: Some(FixKind::None),
+            ..Default::default()
+        });
+        assert_eq!(fixes.len(), rule_count());
+    }
 }
 
 // ============================================================================
@@ -1491,8 +1900,9 @@ pub struct PostParseRule {
 /// PerCircuit); the semantic sweep is language-base legality checking, so no
 /// DomainPackage / SimFulfillment / Contract / Fulfillment exception arises
 /// among these hosts (design §6 stage-3 adjudication). `lock` names the
-/// strongest known test anchor today; the per-code lock-ledger projection
-/// (stage 4) upgrades the coarse `validation-module.md` anchors.
+/// concrete test anchor that fires the code (or documents its structural
+/// unreachability); every row now points at a `tests/` file, and the
+/// per-code lock-ledger projection (stage 4) verifies the assignment.
 macro_rules! declare_post_parse_rule {
     (
         code = $code:expr,
@@ -1516,6 +1926,7 @@ macro_rules! declare_post_parse_rule {
                 doc: $doc,
                 lock: $lock,
                 overridable: false,
+                fix: FixKind::None,
                 plane: RulePlane::CoreMechanism,
                 acceptance: Acceptance::Legal,
                 sink: RuleSink::Envelope,
@@ -1547,7 +1958,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Duplicate,
         host = "duplicate",
         doc = "Same name defined in another file (cross-file duplicate).",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_duplicates.rs",
     },
     // dupwithin — DupWithinCheck: duplicate definitions inside one file.
     declare_post_parse_rule! {
@@ -1558,7 +1969,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Duplicate,
         host = "dupwithin",
         doc = "Duplicate definition within the same declaration.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_duplicates.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::DUP_ENUM_VALUE,
@@ -1568,7 +1979,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Duplicate,
         host = "dupwithin",
         doc = "Enum value appears more than once in the enum.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_duplicates.rs",
     },
     // enums — EnumsCheck: enum body shape and member hygiene.
     // Sibling of dupwithin's DUP_ENUM_VALUE fired from a different sweep.
@@ -1580,7 +1991,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Duplicate,
         host = "enums",
         doc = "Enum has a duplicate value.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_duplicates.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::ENUM_MEMBER_DOT,
@@ -1590,7 +2001,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "enums",
         doc = "Enum member contains a dot.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_duplicates.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::ENUM_MEMBER_LEADING_DIGIT,
@@ -1600,7 +2011,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "enums",
         doc = "Enum member starts with a digit.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_duplicates.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::ENUM_MEMBER_RESERVED,
@@ -1610,7 +2021,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "enums",
         doc = "Enum member is a reserved keyword.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_duplicates.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::ATTR_SELF_REFERENTIAL,
@@ -1620,7 +2031,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "enums",
         doc = "Attribute value equals its own key; likely a copy-paste mistake.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_duplicates.rs",
     },
     // Range/vector syntax check; also fired by the exprs host at the same
     // Warning level (range-literal reversal), so this single row covers both.
@@ -1632,7 +2043,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "enums",
         doc = "Range appears reversed; did you mean the opposite order?",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_duplicates.rs",
     },
     // attrs — AttrsCheck: attribute naming, nesting, pin-group refs, pins.X.
     declare_post_parse_rule! {
@@ -1657,7 +2068,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "attrs",
         doc = "Role has an empty body.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_attrs_insts.rs",
     },
     // Real nesting check in attrs and insts (function attrs), plus an insts
     // func-param IO-direction warning that reuses this code; all sites Warning.
@@ -1669,7 +2080,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "attrs",
         doc = "Attribute nesting depth exceeds 16.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_attrs_insts.rs",
     },
     // Fired by attrs (`pins.X` group check) and insts (role binding); both Error.
     declare_post_parse_rule! {
@@ -1680,7 +2091,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = RefIntegrity,
         host = "attrs",
         doc = "Attribute references an undefined pin group, or role used outside a component.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_attrs_insts.rs",
     },
     // Fired by attrs (N8) and insts; both Warning.
     declare_post_parse_rule! {
@@ -1732,7 +2143,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = PinDecl,
         host = "conds",
         doc = "NC pin used at component level.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_conds.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PIN_IO_MIX_IN_OUT,
@@ -1742,7 +2153,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = IO,
         host = "conds",
         doc = "Pin mixes In and Out IO types.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_conds.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PIN_IO_MIX_OUTPUT_POWER,
@@ -1752,7 +2163,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = IO,
         host = "conds",
         doc = "Pin mixes Output and Power IO types.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_conds.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PIN_IO_MIX_ANALOG_POWER,
@@ -1762,7 +2173,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = IO,
         host = "conds",
         doc = "Pin mixes Analog and Power IO types.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_conds.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PARAM_PIN_NAME_SHADOW,
@@ -1772,7 +2183,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = NamingStyle,
         host = "conds",
         doc = "Parameter shares its name with a pin.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_conds.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::MODULE_STUB,
@@ -1782,7 +2193,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "conds",
         doc = "Module is a stub.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_conds.rs",
     },
     // defs — DefsCheck: cross-kind name collisions, unresolved class refs,
     // `.int` suffix style.
@@ -1797,7 +2208,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Duplicate,
         host = "defs",
         doc = "Same name used for different definition kinds.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_defs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::DEF_REF_NOT_LOADED,
@@ -1807,7 +2218,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = RefIntegrity,
         host = "defs",
         doc = "Definition references a class that is not loaded.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_defs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::COMPONENT_INT_SUFFIX,
@@ -1817,7 +2228,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = NamingStyle,
         host = "defs",
         doc = "Component has an unconventional '.int' suffix.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_defs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::ENUM_INT_SUFFIX,
@@ -1827,7 +2238,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = NamingStyle,
         host = "defs",
         doc = "Enum has an unconventional '.int' suffix.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_defs.rs",
     },
     // imports — ImportsCheck: use-statement path shape and import(..)
     // resolution across files.
@@ -1900,7 +2311,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = RefIntegrity,
         host = "interface",
         doc = "Interface role referenced by a param does not exist in the interface.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_interface.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::IFACE_NOT_LOADED,
@@ -1910,7 +2321,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = RefIntegrity,
         host = "interface",
         doc = "Interface referenced by a param is not loaded.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_interface.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::IFACE_DEPRECATED_CMIE,
@@ -1920,7 +2331,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "interface",
         doc = "Deprecated interface/component/param used.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_interface.rs",
     },
     // naming — NamingCheck: name conventions and library-name shadows.
     // Also fired by the style host at the same Info level (duplicate sweep).
@@ -1932,7 +2343,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = NamingStyle,
         host = "naming",
         doc = "Component name starts with lowercase; convention is UPPER_SNAKE.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_naming_ports.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::NAME_PIN_MIXED_CONVENTION,
@@ -1942,7 +2353,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = NamingStyle,
         host = "naming",
         doc = "Pins use mixed naming conventions.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_naming_ports.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::NAME_INSTANCE_SINGLE_CHAR,
@@ -1983,7 +2394,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Duplicate,
         host = "ports",
         doc = "Duplicate port name in the module - ambiguous.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_naming_ports.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::NAME_PARAM_AND_INSTANCE,
@@ -2014,7 +2425,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "refs",
         doc = "Function has parameters but no body (empty implementation).",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_refs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::REF_INTEGRITY,
@@ -2024,7 +2435,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = RefIntegrity,
         host = "refs",
         doc = "Reference integrity violation.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_refs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::SPEC_KEY_UNDECLARED_PARAM,
@@ -2034,7 +2445,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = RefIntegrity,
         host = "refs",
         doc = "Spec key references a parameter that is not declared.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_refs.rs",
     },
     // style — StyleCheck (registered between refs and exprs in with_defaults)
     // contributes no codes of its own: its NAME_COMPONENT_LOWERCASE sweep is
@@ -2049,7 +2460,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "exprs",
         doc = "'this' used in a top-level net statement; it is only valid inside instance/function contexts.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_exprs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::EXPR_PLACEHOLDER_ONLY,
@@ -2059,7 +2470,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "exprs",
         doc = "Net connects only to '_' placeholder; the connection has no effect.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_exprs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::ATTR_LARGE_INT,
@@ -2069,7 +2480,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "exprs",
         doc = "Attribute has a suspiciously large integer value.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_exprs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::ATTR_INFINITE_FLOAT,
@@ -2079,7 +2490,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "exprs",
         doc = "Attribute has an infinite float value.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_exprs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::RANGE_SINGLE_ELEMENT,
@@ -2089,7 +2500,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "exprs",
         doc = "Range expands to a single element.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_exprs.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::IDX_MULTIPLE_SLICE_SPEC,
@@ -2099,7 +2510,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "exprs",
         doc = "IDX key has multiple slice specifications.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_exprs.rs",
     },
     // extra — ExtraCheck: extra declaration/convention checks (J3, U1, R4, I4,
     // M1/M3/M4, U5, D2, D3, F1/F2, R5, N5, B7, spec sub-keys).
@@ -2121,7 +2532,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Enum has only one value.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::FUNC_EMPTY_BODY,
@@ -2131,7 +2542,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Function has an empty body.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::IFACE_PIN_COUNT_MISMATCH,
@@ -2151,7 +2562,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Component has no params, pins, attributes, or functions.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::COMPONENT_NO_PINS,
@@ -2161,7 +2572,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = PinDecl,
         host = "extra",
         doc = "Component has no pin definitions.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::INTERFACE_EMPTY,
@@ -2171,7 +2582,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Interface has no pins or roles.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PARAM_INT_DEFAULT_STRING,
@@ -2181,7 +2592,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Integer param has a string default.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PARAM_STRING_DEFAULT_NUMERIC,
@@ -2191,7 +2602,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "String param has a numeric-looking default.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PARAM_UV_DEFAULT_NO_UNIT,
@@ -2201,7 +2612,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Unit-value param default has no unit suffix (e.g. '5V').",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::DEFINE_NO_ATTRS,
@@ -2211,7 +2622,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Define has no attributes.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::DEFINE_NON_ATTR_CLAUSE,
@@ -2221,7 +2632,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Define contains a non-attribute clause.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::INST_CLASS_NOT_LOADED,
@@ -2241,7 +2652,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Duplicate,
         host = "extra",
         doc = "Bus has a duplicate member.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::COMPONENT_MIXED_CASE,
@@ -2251,7 +2662,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = NamingStyle,
         host = "extra",
         doc = "Component name uses mixed case; convention is UPPER_SNAKE.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PARAM_RESERVED_KEYWORD,
@@ -2261,7 +2672,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Parameter uses a reserved keyword.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::FUNC_SHARES_NAME_WITH_PORT,
@@ -2271,7 +2682,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = NamingStyle,
         host = "extra",
         doc = "Function shares its name with a port/param.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PARAM_NEGATIVE_DEFAULT,
@@ -2281,7 +2692,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Integer param default is negative.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::PARAM_FLOAT_DEFAULT_INVALID,
@@ -2291,7 +2702,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "extra",
         doc = "Param has an invalid float default.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::SPEC_KEY_DUPLICATE,
@@ -2301,7 +2712,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Duplicate,
         host = "extra",
         doc = "Spec key appears more than once.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_extra.rs",
     },
     // floating — FloatingLabelCheck: function-body net endpoints that resolve
     // to nothing declared become one-shot dangling labels.
@@ -2348,7 +2759,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = NamingStyle,
         host = "insts",
         doc = "Role shares its name with a parameter or pin/port.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_attrs_insts.rs",
     },
     // body — BodyCheck: use-path shape, `this :: TYPE`, condition shape, and
     // unused module ports.
@@ -2370,7 +2781,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "body",
         doc = "'this :: TYPE' declaration is not allowed.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_body.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::COND_SINGLE_BINARY,
@@ -2380,7 +2791,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = Structure,
         host = "body",
         doc = "Condition compares against a single binary value.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_body.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::MODULE_PORT_UNUSED,
@@ -2390,7 +2801,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = PinDecl,
         host = "body",
         doc = "Module port is declared but never connected.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_body.rs",
     },
     // hw — HwCheck: hardware-shape advisories (pin numbering/count, power
     // voltage attributes, role binding, IO-type uniformity).
@@ -2412,7 +2823,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = PinDecl,
         host = "hw",
         doc = "Pin numbers have gaps.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_hw.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::HW_PIN_COUNT_HIGH,
@@ -2422,7 +2833,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = PinDecl,
         host = "hw",
         doc = "Pin count is unusually high.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_hw.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::HW_ZERO_PINS_WITH_PARAMS,
@@ -2432,7 +2843,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = PinDecl,
         host = "hw",
         doc = "Component has zero pins but parameter attributes.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_hw.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::HW_IFACE_ROLE_UNBOUND,
@@ -2452,7 +2863,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = IO,
         host = "hw",
         doc = "All pins have the same IO type.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_hw.rs",
     },
     declare_post_parse_rule! {
         code = crate::errcodes::HW_FUNC_PARAM_SHADOWS_PIN,
@@ -2462,7 +2873,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         domain = NamingStyle,
         host = "hw",
         doc = "Function parameter shadows a pin name.",
-        lock = "mcd/doc/data/validation-module.md",
+        lock = "tests/lock_pp_hw.rs",
     },
     // types — TypesCheck: value/unit type incompatibility between net points.
     declare_post_parse_rule! {

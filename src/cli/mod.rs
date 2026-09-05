@@ -205,6 +205,9 @@ pub enum Command {
     /// Explain error codes (M6)
     Explain(ExplainArgs),
 
+    /// Check-rule registry catalog (list / detail / severity / allow / accept)
+    Rules(RulesArgs),
+
     /// Show compiler capabilities (M6) — self-describing API for AI
     Caps,
 
@@ -960,4 +963,113 @@ pub struct ErcArgs {
 pub struct ExplainArgs {
     /// Error code to look up (omit to list all)
     pub code: Option<u32>,
+}
+
+// ============================================================================
+// rules (check-rule registry §8)
+// ============================================================================
+
+/// `mcc rules` — catalog read projection + unified override write face
+/// (rule-registry design §8 / §8-5). With no subcommand, lists the catalog.
+#[derive(Parser, Debug)]
+pub struct RulesArgs {
+    #[command(subcommand)]
+    pub action: Option<RulesAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum RulesAction {
+    /// List catalog rules, filterable by the §2.3 category axes and the §2.5
+    /// attributes. `-f json` emits the shared rules.list projection.
+    List {
+        /// Filter by execution scope:
+        /// post-parse | assembly-gate | flat-erc | declaration | viz-layout
+        #[arg(long, value_name = "SCOPE")]
+        scope: Option<String>,
+
+        /// Filter by content domain (e.g. wiring, structure, electrical)
+        #[arg(long, value_name = "DOMAIN")]
+        domain: Option<String>,
+
+        /// Filter by default severity: hint | info | warning | error
+        #[arg(long, value_name = "SEVERITY")]
+        severity: Option<String>,
+
+        /// Filter by ownership plane: core-mechanism | domain-package | sim-fulfillment
+        #[arg(long, value_name = "PLANE")]
+        plane: Option<String>,
+
+        /// Filter by gate kind: advisory | blocking
+        #[arg(long, value_name = "GATE")]
+        gate: Option<String>,
+
+        /// Filter suppressible rows only (true) or non-suppressible (false)
+        #[arg(long, value_name = "BOOL")]
+        overridable: Option<String>,
+
+        /// Filter by fix kind: none | quick-fix | suggestion
+        #[arg(long, value_name = "FIX")]
+        fix: Option<String>,
+    },
+
+    /// Show one rule's full descriptor, its §8-5 override audit (configured
+    /// severity / allow / accept rows per layer) and the allow syntax
+    Detail {
+        /// Rule code, e.g. E4101 or 4101
+        code: String,
+    },
+
+    /// Set a severity override for one rule. Session-only unless --write
+    /// persists it into the project `[config] diag.severities`.
+    SetSeverity {
+        /// Rule code, e.g. E4101 or 4101
+        code: String,
+
+        /// Severity to apply: hint | info | warning | error
+        severity: String,
+
+        /// Persist into the project project.toml `[config]` diag zone
+        #[arg(long)]
+        write: bool,
+    },
+
+    /// Add an allow (suppression) row for one rule. Session-only unless
+    /// --write persists it into the project `[config] diag.allows`.
+    Allow {
+        /// Rule code, e.g. E4101 or 4101
+        code: String,
+
+        /// Path scope: project-relative file, directory prefix or glob.
+        /// Omit for the project global.
+        #[arg(long, value_name = "PATH")]
+        path: Option<String>,
+
+        /// Documented exception note
+        #[arg(long, value_name = "TEXT")]
+        reason: Option<String>,
+
+        /// Persist into the project project.toml `[config]` diag zone
+        #[arg(long)]
+        write: bool,
+    },
+
+    /// Add an accept (waiver) row for one rule. Session-only unless --write
+    /// persists it into the project `[config] diag.accepts`.
+    Accept {
+        /// Rule code, e.g. E4101 or 4101
+        code: String,
+
+        /// Path scope: project-relative file, directory prefix or glob.
+        /// Omit for the project global.
+        #[arg(long, value_name = "PATH")]
+        path: Option<String>,
+
+        /// When the waiver started, e.g. 2026-09-05
+        #[arg(long, value_name = "DATE")]
+        since: Option<String>,
+
+        /// Persist into the project project.toml `[config]` diag zone
+        #[arg(long)]
+        write: bool,
+    },
 }

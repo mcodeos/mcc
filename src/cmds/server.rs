@@ -217,6 +217,9 @@ pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()>
     if !libs.is_empty() {
         crate::cmds::manifest::load_libs(&crate::cmds::manifest::collect_libs(None, libs));
     }
+    // Seed the process-wide rule override store from the merged config
+    // (identity when nothing is configured).
+    mcc::load_rule_overrides(std::env::current_dir().ok().as_deref());
 
     // Initialize logging to file (env var set by run_start)
     let log_file = std::env::var("MCC_LOG_FILE").ok();

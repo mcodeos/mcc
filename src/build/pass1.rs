@@ -199,7 +199,17 @@ pub fn mcb_parse_all_modules() {
         let registry = CheckRegistry::with_defaults();
         let saved_uri = crate::current_uri::try_get();
         for r in registry.run_post_parse() {
-            let Some(ref uri) = r.uri else {
+            use crate::semantic::validation::finding::CheckFinding;
+            // Project onto the unified finding and adjudicate against the
+            // process-wide override store (§8-5) before emitting — the store
+            // is empty (identity) unless the entry point seeded it.
+            let f = CheckFinding::from(r);
+            let Some(f) =
+                crate::db::diagnostic::override_store::with_store(|s| s.apply_to_finding(&f))
+            else {
+                continue; // allow hit suppresses the finding
+            };
+            let Some(ref uri) = f.uri else {
                 continue;
             };
             if !re_derived_set.contains(uri) {
@@ -207,18 +217,13 @@ pub fn mcb_parse_all_modules() {
             }
             // Switch current_uri to the file this diagnostic belongs to
             crate::current_uri::set(&McURI::from(uri.as_str()));
-            let level = match r.severity {
+            let level = match f.severity {
                 crate::semantic::validation::CheckSeverity::Error => DiagnosticLevel::Error,
                 crate::semantic::validation::CheckSeverity::Warning => DiagnosticLevel::Warning,
                 crate::semantic::validation::CheckSeverity::Info => DiagnosticLevel::Info,
                 crate::semantic::validation::CheckSeverity::Hint => DiagnosticLevel::Hint,
             };
-            let (pos, len) = r
-                .span
-                .as_ref()
-                .map(|s| (s.start as u32, (s.end - s.start) as u32))
-                .unwrap_or((0, 0));
-            diagnostic_log(r.code, level, pos, len, &r.message, &[]);
+            diagnostic_log(f.code, level, f.pos, f.len, &f.message, &[]);
         }
         // Restore previous current_uri (or reset)
         match saved_uri {
