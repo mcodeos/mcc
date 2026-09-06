@@ -196,6 +196,13 @@ impl InstantiationBuilder {
             //    `io X` stays a scalar 1×1 port and body member access on it is a
             //    Pass1 error (E3183). The old §8.9.6.6 step-2 "scalar → bus
             //    upgrade by usage" is removed.
+            //
+            //    ★ A scalar interface-type port declaration (`in vin::DC(5V)`)
+            //    is DEFINED, not sugar: for an interface-typed declareb the
+            //    interface's own sub-pin definitions are brought over by
+            //    default, so extract_port_bus_members expands the declared
+            //    port from the interface's pin set. No phantom lane is
+            //    synthesized beyond what the interface itself declares.
             let bus_members = extract_port_bus_members(inst, port_name);
             let inject_inst = inst.clone();
             // Phase C1: intern the port's canonical path before it enters the
@@ -1028,18 +1035,29 @@ impl InstantiationBuilder {
             //    `[rail, GND]`-style inference (matching-rules-design.md §3
             //    B3/B4, P5).
             if members.len() >= 2 {
-                self.record_error(
+                let message = crate::errcodes::format_msg(
                     crate::errcodes::VECTOR_WIDTH_MISMATCH,
-                    crate::errcodes::format_msg(
-                        crate::errcodes::VECTOR_WIDTH_MISMATCH,
-                        &[
-                            &port.name,
-                            &members.len() as &dyn std::fmt::Display,
-                            &arg_name,
-                            &arg_lanes.len() as &dyn std::fmt::Display,
-                        ],
-                    ),
+                    &[
+                        &port.name,
+                        &members.len() as &dyn std::fmt::Display,
+                        &arg_name,
+                        &arg_lanes.len() as &dyn std::fmt::Display,
+                    ],
                 );
+                // Decl-context bindings (`US513 MCU513(V3V3, V1V2)`) are iterated
+                // outside any func/stmt span; anchor the E4180 at the instance's
+                // own declaration line so it doesn't collapse to row 1. Inline
+                // instances (e.g. `MIC(V3V3)` inside a chain) have no decl
+                // entry — fall back to the func/stmt span via record_error.
+                match self.def.insts.get_port_span(inst_name) {
+                    Some(r) => self.record_error_at(
+                        crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                        message,
+                        self.def_uri.clone(),
+                        r.start as u32,
+                    ),
+                    None => self.record_error(crate::errcodes::VECTOR_WIDTH_MISMATCH, message),
+                }
                 continue;
             }
             // ── Case 3: scalar↔scalar / unknown shape ──
@@ -1387,7 +1405,16 @@ impl InstantiationBuilder {
         // e.g. `FLASH.GD25Q32E flash(V3V3)` binds the `[V3V3, GND]` formal to
         // the caller's V3V3 DC bus, aligning body `V3V3`/`GND` to V3V3.VCC /
         // V3V3.GND lanes.
-        bindings = self.align_vector_bindings(&bindings);
+        // Constructors run from declarations (no func/stmt span), so anchor the
+        // E4180 at the instance's own declaration line.
+        let anchor = self
+            .def
+            .insts
+            .port_spans()
+            .get(inst_name)
+            .and_then(|v| v.first().cloned())
+            .map(|r| crate::semantic::common::SourcePos::new(self.def_uri.clone(), r.start as u32));
+        bindings = self.align_vector_bindings(&bindings, anchor);
 
         // skip set: names appearing in args (parent scope net) + parent module ports -> not prefixed
         let mut skip: HashSet<String> = HashSet::new();

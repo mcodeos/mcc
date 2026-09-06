@@ -133,11 +133,15 @@ impl InstantiationBuilder {
 
     /// Generic connection generation (1:1 / 1:N / N:1 / N:N).
     ///
-    /// Legal paths only: equal-row 1:1 pairing (by-name / sorted zip),
-    /// the role-aligned 1↔bus DC-rail / interface expansion (NOT §5.3.1
-    /// broadcast), and the §7.3 group fan. A genuine N:M row mismatch
-    /// (N, M ≥ 2) is E4007 with no connection — never truncated into a
-    /// partial pair-by-min pairing (vec-dianlu.md §5.3.3).
+    /// Legal paths only: equal-row 1:1 pairing (by-name / sorted zip), the
+    /// declared scalar-port member passthrough, and the §7.3 fan whose N side
+    /// is ONE logical net (same-name multi-pin group). A single point against
+    /// N ≥ 2 DISTINCT logical nets — a bare label meeting a DC [hot, ret]
+    /// pair or a signal bus — is the abolished §5.3.1 single-point broadcast
+    /// and is E4007 with no connection and no synthesized return, whether the
+    /// bus is power or not. A genuine N:M row mismatch (N, M ≥ 2) is likewise
+    /// E4007 with no connection — never truncated into a partial pair-by-min
+    /// pairing (vec-dianlu.md §5.3.1/§5.3.3).
     pub(super) fn create_connection(
         &mut self,
         left_points: Vec<NetPoint>,
@@ -154,10 +158,16 @@ impl InstantiationBuilder {
         // ── §5.3 shape-match check (vec-dianlu.md) ───────────────────────
         // Endpoint-layer shape is N×1 (one NetPoint per row). Same row count
         // → legal 1:1 pairing (by-name / sorted zip). Different row count is
-        // handled below: a single point against a bus reaches only the legal
-        // role-aligned DC-rail / member-passthrough / interface-expansion
-        // semantics; every other unequal-row pair (including N:M with both
-        // sides ≥ 2) is E4007 and generates NO connection — no broadcast, no
+        // handled below under the UNIFIED vector rule (model A): a single
+        // point against N ≥ 2 points is legal only when (a) the scalar side
+        // is a declared port that member-passes through to the N lanes
+        // (`mic.MIC -> mcu.MIC`), or (b) the N side is ONE logical net whose
+        // pads merge onto the scalar net (same-name multi-pin fan, §7.3).
+        // Every other single-point ↔ bus pair — a bare label meeting a DC
+        // [hot, ret] pair or a signal bus — is the abolished §5.3.1 single-
+        // point broadcast (no DC role alignment, no synthesized return, no
+        // silent drop) and is E4007 generating NO connection, whether the
+        // bus is power or not. N:M with both sides ≥ 2 likewise E4007 — no
         // truncation, no pair-by-min recovery (§5.3.1/§5.3.3).
 
         // ★ P9-A2: compute source_span and trunk once for this connection
@@ -523,39 +533,64 @@ impl InstantiationBuilder {
                 .into_iter()
                 .next()
                 .ok_or_else(|| InstError::Other("expected 1 left point".into()))?;
-            // ── P2: scalar ↔ DC bus → role-aligned, no broadcast (prevent power-to-ground short) ──
-            if Self::is_dc_power_bus(&right_points) {
-                self.connect_scalar_to_dc_bus(&l, &right_points);
-            } else if let Some(expanded) = self.try_member_passthrough_scalar(&l, &right_points) {
+            // ── Unified vector rule (model A): scalar vs N ≥ 2 side ──────────
+            // Only two shapes pass: a declared scalar port that member-passes
+            // through to the N lanes (try_member_passthrough_scalar), or an N
+            // side that is ONE logical net (same-name multi-pin group / the
+            // same net repeated) whose pads legally merge onto the scalar net.
+            // Everything else — a bare label meeting a DC [hot, ret] pair or a
+            // distinct-lane signal bus — is the abolished §5.3.1 single-point
+            // broadcast. No DC role alignment, no synthesized `{label}.GND`
+            // return, no silent drop: report E4007 and generate NO connection
+            // (power and non-power judged by the same structural rule).
+            if let Some(expanded) = self.try_member_passthrough_scalar(&l, &right_points) {
                 // ── P2/A2: bare submodule port expanded by peer member then per-bit zip ──
                 for (le, r) in expanded.into_iter().zip(right_points.into_iter()) {
                     let conn = mk_conn(self.next_conn_id(), vec![le, r], dir, lane);
                     self.add_connection(conn);
                 }
-            } else {
+            } else if right_points
+                .iter()
+                .all(|p| net_key(p) == net_key(&right_points[0]))
+            {
+                // One logical net on the N side (§7.3 same-name fan): every pad
+                // shares the (owner, member) net identity → merge onto scalar.
                 for r in right_points {
                     let conn = mk_conn(self.next_conn_id(), vec![l.clone(), r], dir, lane);
                     self.add_connection(conn);
                 }
+            } else {
+                self.record_error(
+                    crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                    crate::errcodes::format_msg(crate::errcodes::CONN_SERIES_SHAPE_MISMATCH, &[]),
+                );
             }
         } else if right_size == 1 {
             let r = right_points
                 .into_iter()
                 .next()
                 .ok_or_else(|| InstError::Other("expected 1 right point".into()))?;
-            if Self::is_dc_power_bus(&left_points) {
-                self.connect_scalar_to_dc_bus(&r, &left_points);
-            } else if let Some(expanded) = self.try_member_passthrough_scalar(&r, &left_points) {
+            // ── Unified vector rule (model A): mirror of the left_size==1 case ──
+            if let Some(expanded) = self.try_member_passthrough_scalar(&r, &left_points) {
                 // ── P2/A2: same as above, scalar on the right ──
                 for (l, re) in left_points.into_iter().zip(expanded.into_iter()) {
                     let conn = mk_conn(self.next_conn_id(), vec![l, re], dir, lane);
                     self.add_connection(conn);
                 }
-            } else {
+            } else if left_points
+                .iter()
+                .all(|p| net_key(p) == net_key(&left_points[0]))
+            {
+                // One logical net on the N side → legal merge onto scalar.
                 for l in left_points {
                     let conn = mk_conn(self.next_conn_id(), vec![l, r.clone()], dir, lane);
                     self.add_connection(conn);
                 }
+            } else {
+                self.record_error(
+                    crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                    crate::errcodes::format_msg(crate::errcodes::CONN_SERIES_SHAPE_MISMATCH, &[]),
+                );
             }
         } else {
             // §5.3.3 row count mismatch (N×1 vs M×1, N, M ≥ 2): a genuine
@@ -665,62 +700,6 @@ impl InstantiationBuilder {
             }
         }
         conn
-    }
-
-    /// ── P2: connect a scalar net to a DC bus with role alignment ──
-    /// Power-rail members ← scalar (representing that power net); ground members ← global GND.
-    /// Covers `usbsocket.vin -> V5V`: V5V~vin.POWER_SYS, vin.GND~GND (no short).
-    fn connect_scalar_to_dc_bus(&mut self, scalar: &NetPoint, bus: &[NetPoint]) {
-        let scalar_is_ground = is_ground_point(scalar);
-        for p in bus {
-            // Prefer member_name for role detection: interface member points carry
-            // the member (e.g. ldo.VOUT.GND → member_name "GND") while the path is
-            // a physical pin id (e.g. "ldo.2") that name heuristics cannot classify.
-            let last = p
-                .member_name
-                .as_deref()
-                .or_else(|| Some(p.path.rsplit('.').next().unwrap_or("")))
-                .unwrap_or("");
-            let id = self.next_conn_id();
-            if is_ground_name(last) {
-                if scalar_is_ground {
-                    // Ground scalar (bare `GND` or `s.GND` → pid `s.2` with
-                    // member_name "GND") lands on the bus ground member — wiring
-                    // it to the power member would short the rail to ground.
-                    self.add_connection(self.make_conn_with_provenance(
-                        id,
-                        vec![scalar.clone(), p.clone()],
-                        ConnDir::Undirected,
-                        None,
-                    ));
-                } else {
-                    // Strict DC rail identity: the bus ground member belongs to
-                    // the scalar rail (`{scalar}.GND`), not the module's bare
-                    // `GND` label. Different rails keep distinct grounds until
-                    // real wiring ties them together.
-                    let gnd = self.rail_ground_point(scalar, last);
-                    self.add_connection(self.make_conn_with_provenance(
-                        id,
-                        vec![p.clone(), gnd],
-                        ConnDir::Undirected,
-                        None,
-                    ));
-                }
-            } else if !scalar_is_ground {
-                self.add_connection(self.make_conn_with_provenance(
-                    id,
-                    vec![scalar.clone(), p.clone()],
-                    ConnDir::Undirected,
-                    None,
-                ));
-            }
-        }
-    }
-
-    /// ── P2: check whether a set of points constitutes a DC power bus ──
-    /// i.e. it contains both power-rail members and ground members.
-    fn is_dc_power_bus(points: &[NetPoint]) -> bool {
-        is_dc_power_bus_points(points)
     }
 
     /// ── P2/A2: boundary member passthrough (fallback) ─────────────────────────────────────
@@ -896,7 +875,10 @@ impl InstantiationBuilder {
         // use its bus_members to expand into `[spi.<member_i>]` and zip with the peer.
         if !scalar.path.contains('.') {
             let formal = scalar.path.as_str();
-            // Power/ground handled by connect_scalar_to_dc_bus
+            // A power/ground-named bare label is a single conductor, not a declared
+            // member column: never member-expand it. A scalar power/ground net
+            // against an N-lane bus falls to the unified vector rule below
+            // (same-net fan legal, distinct-net bus E4007) — no role alignment.
             if is_power_rail_name(formal) || is_ground_name(formal) {
                 return None;
             }
@@ -932,18 +914,6 @@ fn is_ground_name(s: &str) -> bool {
     matches!(u.as_str(), "GND" | "VSS" | "AGND" | "DGND" | "PGND")
         || u.starts_with("GND")
         || u.starts_with("VSS")
-}
-
-/// Ground check for a NetPoint that prefers `member_name` over the path leaf.
-/// Component pin alias paths are unified to pin-id paths at construction
-/// (`s.GND` → `s.2`), so the path leaf loses the rail name while
-/// `member_name` keeps it (`Some("GND")`).
-fn is_ground_point(p: &NetPoint) -> bool {
-    let name = p
-        .member_name
-        .as_deref()
-        .unwrap_or_else(|| p.path.rsplit('.').next().unwrap_or(&p.path));
-    is_ground_name(name)
 }
 
 /// Extract the common port group from a set of NetPoint paths.
@@ -1040,20 +1010,4 @@ fn is_power_rail_name(s: &str) -> bool {
             && b[i - 1].is_ascii_digit()
             && b[i + 1].is_ascii_digit()
     })
-}
-
-/// Whether a set of endpoints constitutes a DC power bus (containing both power-rail members and ground members).
-/// Used by create_connection to determine whether role-aligning a power/ground endpoint onto such a
-/// bus would short power to ground.
-fn is_dc_power_bus_points(points: &[NetPoint]) -> bool {
-    // Prefer member_name (interface member points carry it; e.g. ldo.VIN member
-    // "Vin"/"GND") and fall back to the path's last segment for plain labels.
-    fn role_name(p: &NetPoint) -> &str {
-        p.member_name
-            .as_deref()
-            .unwrap_or_else(|| p.path.rsplit('.').next().unwrap_or(&p.path))
-    }
-    let has_pwr = points.iter().any(|p| is_power_rail_name(role_name(p)));
-    let has_gnd = points.iter().any(|p| is_ground_name(role_name(p)));
-    has_pwr && has_gnd
 }

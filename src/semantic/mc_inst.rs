@@ -1548,6 +1548,13 @@ impl McInstances {
 
             // ── P1: collect this instance's construction args ──
             let ctor_args = collect_ctor_params(inst_node, &inst_id_node);
+            // ★ Declareb at argument position (user ruling): an interface
+            // declare written as a constructor argument (`SPK(V3V3::DC(3.3V))`)
+            // declares the referenced net in the enclosing module scope exactly
+            // as the same `V3V3::DC(3.3V)` at a net/annotation position would —
+            // the interface's sub-pin set comes over by default. Register any
+            // such nested interface-declare argument now.
+            self.register_nested_iface_declare_args(inst_node, &inst_id_node, uri, iotype);
 
             for inst_name_ref in &names_to_create {
                 let inst_name = inst_name_ref.clone();
@@ -1863,6 +1870,82 @@ impl McInstances {
                 self.store_port_span(&insert_key, inst_span.clone());
             } // end for inst_name_ref in names_to_create
         }
+    }
+
+    /// Register interface-declare constructor arguments as declarations in the
+    /// enclosing scope.
+    ///
+    /// An interface-typed declare written at an *argument* position
+    /// (`SPK(V3V3::DC(3.3V))`) is a declareb of the referenced net: by the
+    /// interface-declareb rule the interface's own sub-pin set comes over by
+    /// default, so `V3V3` is a DC-typed (membered) net in the module scope,
+    /// identical to what the same `V3V3::DC(3.3V)` written at a net /
+    /// annotation position registers. The net is not lost or demoted to a bare
+    /// single-conductor label, and the declaration is never silently dropped.
+    ///
+    /// Implemented by re-running `parse_declare` on the nested declare node:
+    /// the nested node is structurally the same MCAST_DECLARE (class = the
+    /// interface, instance = the declared net) that a top-level annotation
+    /// feeds `parse_declare`, so the interface branch performs the same
+    /// registration, keyed by the net name. Only classes that resolve to an
+    /// interface are processed — a component/module class in an argument is not
+    /// a net declaration.
+    fn register_nested_iface_declare_args(
+        &mut self,
+        inst_node: &AstNode,
+        inst_id_node: &AstNode,
+        uri: &McURI,
+        iotype: &IOType,
+    ) {
+        for cand in [inst_id_node.get_next(), inst_node.get_next()] {
+            let Some(n) = cand else {
+                continue;
+            };
+            if n.get_type() != MCAST_PARAMS {
+                continue;
+            }
+            let Some(psub) = n.get_sub_node() else {
+                continue;
+            };
+            // Collect owned nested nodes first: parse_declare needs &mut self.
+            let mut nested: Vec<AstNode> = Vec::new();
+            for p in psub.iter() {
+                if p.get_type() != MCAST_PARAM {
+                    continue;
+                }
+                let Some(val) = p.get_sub_node() else {
+                    continue;
+                };
+                if val.get_type() != MCAST_DECLARE {
+                    continue;
+                }
+                let Some(class_ids) = Self::declare_class_ids(&val) else {
+                    continue;
+                };
+                if matches!(
+                    resolve_cmie(&DB, &class_ids, uri),
+                    Some(McCMIE::Interface(_))
+                ) {
+                    nested.push(val);
+                }
+            }
+            for val in nested {
+                self.parse_declare(&val, uri, iotype);
+            }
+            return;
+        }
+    }
+
+    /// Extract the class ids of a MCAST_DECLARE node (the type after `::`).
+    fn declare_class_ids(node: &AstNode) -> Option<McIds> {
+        let sub = node.get_sub_node()?;
+        for child in sub.iter() {
+            if child.get_type() == MCAST_CLASS {
+                let class_id_node = child.get_sub_node()?;
+                return McIds::new(&class_id_node);
+            }
+        }
+        None
     }
 
     /// Parse a single MCAST_OPD node (reference parameter like &dc24v, &GPIO[1:2])

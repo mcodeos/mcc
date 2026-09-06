@@ -247,6 +247,38 @@ impl McParamValue {
                     .filter(|ids| !ids.is_empty())
                     .map(McParamValue::Ids)
             }
+            // Interface/class declare as an argument value (`X::DC(3.3V)`): the
+            // value IS the declared instance `X` — surface it as a plain ids
+            // reference exactly like the unit-value arm above, so the argument
+            // is never silently dropped. A dropped declare-arg leaves the
+            // callee's membered (DC-pair) formal unbound: `SPK(V3V3::DC(3.3V))`
+            // wired nothing while the same net passed bare (`MIC(V3V3)`) binds
+            // the pair. (The declare itself is registered separately at the
+            // semantic layer; here the arg must still *bind* as net `X`.)
+            MCAST_DECLARE => {
+                let sub = node.get_sub_node()?;
+                let mut inst: Option<AstNode> = None;
+                for child in sub.iter() {
+                    if child.get_type() == MCAST_INSTANCE {
+                        inst = Some(child);
+                        break;
+                    }
+                }
+                let inst_node = inst?;
+                let inst_id_node = if let Some(sub) = inst_node.get_sub_node() {
+                    sub
+                } else {
+                    inst_node.clone()
+                };
+                let ids_node = if inst_id_node.get_type() == MCAST_OPD {
+                    inst_id_node.get_sub_node().unwrap_or(inst_id_node.clone())
+                } else {
+                    inst_id_node
+                };
+                McIds::new(&ids_node)
+                    .filter(|ids| !ids.is_empty())
+                    .map(McParamValue::Ids)
+            }
             // Plain identifiers (MCAST_ID / IDA / IDS / MCAST_OPD / square
             // vectors): McIds::new unwraps wrapper layers and yields Ids.
             _ => McIds::new(node)

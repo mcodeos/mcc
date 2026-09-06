@@ -35,7 +35,7 @@ mod subst;
 
 pub(crate) use builder::InstantiationBuilder;
 
-use super::mc_net::{ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, PortInst};
+use super::mc_net::{ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, PortInst};
 use crate::instant::arena::NodeArena;
 use crate::instant::identity::{IdentityRegistry, NodeId};
 use crate::instant::inststore::{InstanceStore, TreeView};
@@ -420,13 +420,6 @@ impl McModuleInst {
     // ========================================================================
     // Ground identity helpers
     // ========================================================================
-
-    /// Strict DC rail identity: the ground member point owned by a rail scalar.
-    /// Delegates to the centralized [`matching::rail_ground_point`]
-    /// (dc-rail-identity-design.md / matching-rules-design.md §5).
-    pub(super) fn rail_ground_point(&self, rail: &NetPoint, gnd_member: &str) -> NetPoint {
-        matching::rail_ground_point(rail, gnd_member)
-    }
 
     /// Is `name` a structurally valid reference to one of this module's ports
     /// (exact port name, bare member of a bus port, or `port.member` against
