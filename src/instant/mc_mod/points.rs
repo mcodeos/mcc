@@ -498,6 +498,40 @@ impl InstantiationBuilder {
                 },
             )) => {
                 let bus = iref.to_bus();
+                if !bus.name.is_empty() && !bus.member.is_empty() {
+                    // ── case-3: membered component/submodule bus-port reference ──
+                    // `ldo.VIN`, `mcu.UART0` reaching this arm (McEndpoint::Single
+                    // whose base is a Component/Module with the member baked into
+                    // iref rather than split into a McPhrase::Member): expand each
+                    // member to its physical lanes. Without this a whole multi-pin
+                    // bus port collapses to get_left_pin's single
+                    // direction-heuristic pin — silently wiring (or
+                    // shape-mismatching) the wrong pad.
+                    let is_owned = self.find_submodule(&bus.name).is_some()
+                        || self.find_component(&bus.name).is_some();
+                    let mut points = Vec::new();
+                    for m in &bus.member {
+                        let path = format!("{}.{}", bus.name, m);
+                        if let Some(lanes) = self.expand_port_lanes(&path) {
+                            points.extend(lanes);
+                            continue;
+                        }
+                        let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
+                        if let Some(lanes) = self.expand_port_lanes(&path) {
+                            points.extend(lanes);
+                        } else if is_owned {
+                            points.push(
+                                NetPoint::with_owner(&path, &bus.name, IOType::None)
+                                    .with_member_name(m),
+                            );
+                        } else {
+                            points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                        }
+                    }
+                    if !points.is_empty() {
+                        return Ok(points);
+                    }
+                }
                 if !bus.name.is_empty() {
                     // ── P2-4: expand submodule's in-ports to left-side endpoints ──
                     if let Some(sub) = self.find_submodule(&bus.name) {
@@ -550,7 +584,11 @@ impl InstantiationBuilder {
                     } else if let Some((p, m)) = iface.name.as_bus() {
                         (m, Some(p))
                     } else {
-                        // Scalar-named interface (e.g. V3V3::DC(3.3V)): extract from base pins
+                        // Scalar-named interface (e.g. V3V3::DC(3.3V)): no
+                        // explicit member table — the interface's own sub-pin
+                        // definitions are brought over by default (a declared
+                        // interface-typed net is defined, not sugar). Extract
+                        // the base interface's pin names as the member list.
                         let pin_names: Vec<String> = iface
                             .base
                             .pins
@@ -561,8 +599,6 @@ impl InstantiationBuilder {
                         // ── P2-10 fix: do NOT sort pin_names alphabetically ──
                         // BTreeMap already iterates in pin-ID order (1, 2, …),
                         // which is the canonical interface definition order.
-                        // Alphabetical sort would reorder e.g. UART [TX, RX] → [RX, TX],
-                        // causing cross-wiring with the component side.
                         if pin_names.len() >= 2 {
                             let port_name = iface.name.to_string();
                             (pin_names, Some(port_name))
@@ -1045,6 +1081,36 @@ impl InstantiationBuilder {
                 },
             )) => {
                 let bus = iref.to_bus();
+                if !bus.name.is_empty() && !bus.member.is_empty() {
+                    // ── case-3: membered component/submodule bus-port reference ──
+                    // Mirror of the left-side Single(Component/Module) arm: expand
+                    // each member to its physical lanes instead of collapsing to
+                    // get_right_pin's single direction-heuristic pin.
+                    let is_owned = self.find_submodule(&bus.name).is_some()
+                        || self.find_component(&bus.name).is_some();
+                    let mut points = Vec::new();
+                    for m in &bus.member {
+                        let path = format!("{}.{}", bus.name, m);
+                        if let Some(lanes) = self.expand_port_lanes(&path) {
+                            points.extend(lanes);
+                            continue;
+                        }
+                        let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
+                        if let Some(lanes) = self.expand_port_lanes(&path) {
+                            points.extend(lanes);
+                        } else if is_owned {
+                            points.push(
+                                NetPoint::with_owner(&path, &bus.name, IOType::None)
+                                    .with_member_name(m),
+                            );
+                        } else {
+                            points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                        }
+                    }
+                    if !points.is_empty() {
+                        return Ok(points);
+                    }
+                }
                 if !bus.name.is_empty() {
                     // ── P2-4: expand submodule's out-ports to right-side endpoints ──
                     if let Some(sub) = self.find_submodule(&bus.name) {
@@ -1097,7 +1163,11 @@ impl InstantiationBuilder {
                     } else if let Some((p, m)) = iface.name.as_bus() {
                         (m, Some(p))
                     } else {
-                        // Scalar-named interface (e.g. V3V3::DC(3.3V)): extract from base pins
+                        // Scalar-named interface (e.g. V3V3::DC(3.3V)): no
+                        // explicit member table — the interface's own sub-pin
+                        // definitions are brought over by default (a declared
+                        // interface-typed net is defined, not sugar). Extract
+                        // the base interface's pin names as the member list.
                         let pin_names: Vec<String> = iface
                             .base
                             .pins

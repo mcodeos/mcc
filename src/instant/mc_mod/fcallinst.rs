@@ -688,7 +688,7 @@ impl InstantiationBuilder {
         };
         // Vector-formal width rules at the boundary (matching-rules-design.md
         // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
-        bindings = self.align_vector_bindings(&bindings);
+        bindings = self.align_vector_bindings(&bindings, None);
 
         // 2. Expand function body stmts with parameter substitution.
         // The func scope is pushed for the whole expansion so nested calls
@@ -822,7 +822,16 @@ impl InstantiationBuilder {
     ///     variable's shape is decided at the outer call site, no error;
     ///   - scalar→vector / unequal width (B3/B4): report E4180. No implicit
     ///     expansion and no member dropping.
-    pub(super) fn align_vector_bindings(&mut self, bindings: &McParamBindings) -> McParamBindings {
+    ///
+    /// `anchor` pins the E4180 to a real position when binding runs in a decl
+    /// context (component constructor invoked from a declaration — no func/stmt
+    /// span); call sites inside statements pass `None` and the func/stmt span
+    /// fallback places the diagnostic.
+    pub(super) fn align_vector_bindings(
+        &mut self,
+        bindings: &McParamBindings,
+        anchor: Option<crate::semantic::common::SourcePos>,
+    ) -> McParamBindings {
         let mut out: Vec<McParamBinding> = Vec::with_capacity(bindings.len());
         for b in bindings.iter() {
             let members = b.declare.expand();
@@ -862,22 +871,24 @@ impl InstantiationBuilder {
                 }
                 WidthCheck::Upgrade(_) => out.push(b.clone()),
                 WidthCheck::Mismatch { expected, got } => {
-                    crate::db::diagnostic::diagnostic::diagnostic_log(
+                    let message = crate::errcodes::format_msg(
                         crate::errcodes::VECTOR_WIDTH_MISMATCH,
-                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                        0,
-                        0,
-                        &crate::errcodes::format_msg(
-                            crate::errcodes::VECTOR_WIDTH_MISMATCH,
-                            &[
-                                &formal_display,
-                                &expected as &dyn std::fmt::Display,
-                                &format!("{value}"),
-                                &got as &dyn std::fmt::Display,
-                            ],
-                        ),
-                        &[],
+                        &[
+                            &formal_display,
+                            &expected as &dyn std::fmt::Display,
+                            &format!("{value}"),
+                            &got as &dyn std::fmt::Display,
+                        ],
                     );
+                    match &anchor {
+                        Some(sp) => self.record_error_at(
+                            crate::errcodes::VECTOR_WIDTH_MISMATCH,
+                            message,
+                            sp.uri.clone(),
+                            sp.offset,
+                        ),
+                        None => self.record_error(crate::errcodes::VECTOR_WIDTH_MISMATCH, message),
+                    }
                     out.push(b.clone());
                 }
             }
@@ -1245,7 +1256,7 @@ impl InstantiationBuilder {
         };
         // Vector-formal width rules at the boundary (matching-rules-design.md
         // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
-        bindings = self.align_vector_bindings(&bindings);
+        bindings = self.align_vector_bindings(&bindings, None);
 
         // ── P2-13: wire Series net-expression params before body expansion ──
         // `[[dc.VDD_3V3 -> wm7121.VCC], dc.GND]` carries an internal `->`

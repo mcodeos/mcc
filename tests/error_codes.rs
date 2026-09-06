@@ -408,9 +408,11 @@ fn def_ercode__record_error_surfaces_as_located_error_diagnostic() {
 /// P1 (regression): an undeclared bus-member reference on a typed interface
 /// port must fire BUS_MEMBER_UNDECLARED (E3181) as an Error-level diagnostic
 /// with a file:line. `out vout::DC(3.3V)` fixes the member set to `{VCC, GND}`
-/// (interface DC's pin names); `ldo.VOUT.Vout -> vout.VCC1V2` references a
-/// member that is not declared — it would otherwise silently create a dangling
-/// net (the periph.mc:67 chain-loss root cause).
+/// (interface DC's pin names — a scalar interface-typed declareb brings the
+/// interface's own sub-pin definitions over by default, which is defined, not
+/// sugar); `ldo.VOUT.Vout -> vout.VCC1V2` references a member that is not
+/// declared — it would otherwise silently create a dangling net (the
+/// periph.mc:67 chain-loss root cause).
 ///
 /// Fixture mirrors the original periph.mc shape: the LHS sits on a *different*
 /// bus (`_LDO ldo` component) than `vout`, so `merge_adjacent_curly_split`

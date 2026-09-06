@@ -924,8 +924,25 @@ impl InstantiationBuilder {
     // Diagnostic helper methods
     // ========================================================================
 
-    /// Record a non-fatal error to the diagnostic collector
+    /// Record a non-fatal error to the diagnostic collector, anchored at the
+    /// best source position currently in scope: the enclosing func body, else
+    /// the enclosing connection statement, else the module file start.
     pub(super) fn record_error(&mut self, code: u32, message: String) {
+        // Decl contexts (module io / instance declarations) that are iterated
+        // outside any func or statement have neither span set; callers that
+        // know a real position (a port/instance declaration) should use
+        // `record_error_at` so the diagnostic does not collapse to row 1.
+        let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
+            (Some(sp), _) => (sp.uri.clone(), sp.offset),
+            (None, Some(s)) => (s.uri.clone(), s.offset),
+            (None, None) => (self.def_uri.clone(), 0),
+        };
+        self.record_error_at(code, message, uri, pos);
+    }
+
+    /// Record a non-fatal error at an explicit source position (declaration
+    /// site anchors for errors raised while iterating symbol tables).
+    pub(super) fn record_error_at(&mut self, code: u32, message: String, uri: String, pos: u32) {
         mcc_dbg!(
             "inst::mod",
             "[inst:{}] ERROR #{}: {}",
@@ -938,11 +955,6 @@ impl InstantiationBuilder {
         // by mcviz metrics and module dumps, so otherwise the error is silent
         // (the enabler behind the periph.mc E4007 chain loss). Mirror the
         // `diagnostic_log_at` pattern from bus.rs:143.
-        let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
-            (Some(sp), _) => (sp.uri.clone(), sp.offset),
-            (None, Some(s)) => (s.uri.clone(), s.offset),
-            (None, None) => (self.def_uri.clone(), 0),
-        };
         crate::db::diagnostic::diagnostic::diagnostic_log_at(
             code,
             crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,

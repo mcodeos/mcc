@@ -17,7 +17,6 @@
 //! an undecided passthrough variable upgrades to the formal's vector shape (P6).
 
 use crate::instant::mc_net::NetPoint;
-use crate::semantic::common::IOType;
 
 // ============================================================================
 // Vector-width check (§3.2)
@@ -118,8 +117,7 @@ pub fn pair_members_to_lanes(members: &[String], arg_lanes: &[NetPoint]) -> Vec<
 ///
 /// Not a matching rule: matching decisions are purely structural (lane count,
 /// member pairing, scope). This helper serves the netcheck / DC-rail-identity
-/// concerns only — port-ground-member detection (`check_unbound_param_ports`)
-/// and `rail_ground_point`.
+/// concerns only — port-ground-member detection (`check_unbound_param_ports`).
 pub fn is_ground_name(s: &str) -> bool {
     let leaf = s.rsplit('.').next().unwrap_or(s);
     matches!(
@@ -165,28 +163,4 @@ pub fn parse_bracket_members(name: &str) -> Vec<String> {
         .map(|x| x.trim().to_string())
         .filter(|x| !x.is_empty())
         .collect()
-}
-
-// ============================================================================
-// Ground identity (§ dc-rail-identity-design.md)
-// ============================================================================
-
-/// Strict DC rail identity: the ground member point owned by a rail scalar.
-///
-/// A rail scalar (`V5V`, `usbsocket.vin`) owns its ground member
-/// `{rail}.GND`. Binding a DC port's ground member to this point keeps every
-/// rail's ground distinct until real wiring ties them together (shared
-/// component ground pins, explicit `X.GND -> GND` connections). A scalar that
-/// is itself a ground reference (bare `GND` or `s.GND`) is returned unchanged —
-/// the author is explicitly naming that net.
-pub fn rail_ground_point(rail: &NetPoint, gnd_member: &str) -> NetPoint {
-    let leaf = rail
-        .member_name
-        .as_deref()
-        .unwrap_or_else(|| rail.path.rsplit('.').next().unwrap_or(&rail.path));
-    if is_ground_name(leaf) {
-        return rail.clone();
-    }
-    NetPoint::new(&format!("{}.{}", rail.path, gnd_member), IOType::None)
-        .with_member_name(gnd_member)
 }

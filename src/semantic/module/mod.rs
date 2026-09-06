@@ -127,7 +127,6 @@ impl McModule {
                     module.stmts.push(stmt);
                 }
             }
-
             Some(module)
         } else {
             dlog_error(
