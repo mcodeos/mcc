@@ -485,9 +485,11 @@ capability DecoupledPower
     ps GND
     io VBUS
 
-    func Idle([ref])
+    // `ref` is a reserved power-intent keyword (power-intent-design.md §5),
+    // so the func's reference port is named `rp`.
+    func Idle([rp])
     {
-        ref -> VBUS
+        rp -> VBUS
     }
 }
 "#;
@@ -790,9 +792,9 @@ capability GuardA
 {
     io VA
 
-    func Kick([ref])
+    func Kick([rp])
     {
-        ref -> VA
+        rp -> VA
     }
 }
 
@@ -800,9 +802,9 @@ capability GuardB
 {
     io VB
 
-    func Kick([ref])
+    func Kick([rp])
     {
-        ref -> VB
+        rp -> VB
     }
 }
 
@@ -839,9 +841,9 @@ capability GuardC
 {
     io VC
 
-    func Kick([ref])
+    func Kick([rp])
     {
-        ref -> VC
+        rp -> VC
     }
 }
 
@@ -849,9 +851,9 @@ capability GuardD
 {
     io VD
 
-    func Kick([ref])
+    func Kick([rp])
     {
-        ref -> VD
+        rp -> VD
     }
 }
 
@@ -862,9 +864,9 @@ component TwinOpen :: GuardC, GuardD
         io 2 = VD
     ]
 
-    func Kick([ref])
+    func Kick([rp])
     {
-        ref -> VC
+        rp -> VC
     }
 }
 "#;
@@ -882,7 +884,8 @@ component TwinOpen :: GuardC, GuardD
 /// P11 (abstract-variant-capability-plan P2 §2.4): an instance-method call on
 /// a placed host resolves to an ADOPTED capability func and expands its body
 /// against the host's member surface. `Fetcher` declares one signal `VBUS`
-/// plus `func Strap([ref]) { ref -> VBUS }`; concrete `FetcherChip :: Fetcher`
+/// plus `func Strap([rp]) { rp -> VBUS }` (`ref` is a reserved keyword, so the
+/// reference port is named `rp`); concrete `FetcherChip :: Fetcher`
 /// realizes `VBUS` on pin 1. `main` instantiates it and calls `U1.Strap(REF)`
 /// — with the effective-method fall-through the call wires the module net to
 /// the host member (a net touching both `REF` and `U1`); without it the call
@@ -898,9 +901,9 @@ capability Fetcher
 {
     io VBUS
 
-    func Strap([ref])
+    func Strap([rp])
     {
-        ref -> VBUS
+        rp -> VBUS
     }
 }
 

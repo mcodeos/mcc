@@ -61,6 +61,46 @@ pub struct McPin {
     pub is_nc: bool,
 }
 
+/// Energy direction of a power-intent terminal — power-intent-design §5.2
+/// direction-word family. `psrc` = source (guarantee half), `psnk` = sink (requirement
+/// half), `psbi` = conditional source (charge = sink, discharge = source).
+/// Rides the pin iotype keyword; all three read as [`IOType::Power`] in the net
+/// model, so the direction cannot be recovered from the generic IOType and is
+/// captured here alongside the `::DC(...)` contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PwrDir {
+    Src,
+    Snk,
+    Bi,
+}
+
+/// One `::DC(...)` ctor argument on a power-direction pin line — positional
+/// (`3.3V`) or `key:value` (`tol:±5%`). Mirrors the domain-rail param reader
+/// (pi.rs `McRailParam`); numeric decode is deferred to pi.rs.
+#[derive(Debug, Clone)]
+pub struct PwrParam {
+    pub key: Option<String>,
+    pub text: String,
+}
+
+/// One `psrc/psnk/psbi` pin line carrying a trailing `::DC(...)` (§4.1): a
+/// power-terminal contract with its energy direction. Captured structurally
+/// from the pin AST during [`McPins::parse`]; typed decode (nominal volts,
+/// tol) lives in pi.rs next to the domain-rail decode.
+#[derive(Debug, Clone)]
+pub struct McPwrPin {
+    pub dir: PwrDir,
+    /// Interface name after `::` — `DC` today (AC-axis rails/pins come later).
+    pub iface: String,
+    /// First `::` member — the power/hot terminal (e.g. `VDD`, `OUT`).
+    pub hot: String,
+    /// Second `::` member — the return terminal, when the contract carries a
+    /// `[hot, ret]` pair (e.g. `psnk [1,2]=[IN,GND]::DC(5V)` → hot `IN`, ret `GND`).
+    pub ret: Option<String>,
+    pub params: Vec<PwrParam>,
+    pub span: std::ops::Range<usize>,
+}
+
 /// McPins definition
 #[derive(Debug, Clone)]
 pub struct McPins {
@@ -139,6 +179,11 @@ pub struct McPins {
     /// deliberately NOT registered in `names_to_id`; this table lets tools
     /// render the original `PDM[CLK, DATA]` group.
     pub list_groups: Vec<(String, Vec<String>, Vec<String>)>, // (list_name, members, pins)
+
+    /// §4.1 power-intent pin contracts: every `psrc/psnk/psbi` pin line that
+    /// carries a trailing `::DC(...)`, in declaration order. Structural only —
+    /// numeric decode happens in pi.rs (same value language as domain rails).
+    pub pwr: Vec<McPwrPin>,
 }
 
 impl Default for McPins {
@@ -165,6 +210,7 @@ impl McPins {
             values_pool: Vec::new(),
             dynamic_pins: Vec::new(),
             list_groups: Vec::new(),
+            pwr: Vec::new(),
         }
     }
 
@@ -178,6 +224,299 @@ impl McPins {
     /// so presence checks must not rely on `names_to_id` alone.
     pub fn has_any_pins(&self) -> bool {
         !self.pins.is_empty() || !self.names_to_id.is_empty() || !self.dynamic_pins.is_empty()
+    }
+
+    /// §4.1 — capture power-direction pin `::DC(...)` contracts. Walks the pin
+    /// body AST (the `MCAST_PIN_LINE` list) once per `pins = [...]` body; for
+    /// each line whose iotype keyword is `psrc/psnk/psbi` and whose name side
+    /// carries a trailing `::DC(...)` declare, appends a structural
+    /// [`McPwrPin`]. Purely additive — never gates generic pin registration;
+    /// numeric decode is pi.rs's job (§4 value language shared with rails).
+    fn capture_pwr_lines(&mut self, plinenodes: &AstNode) {
+        for pnode in plinenodes.iter().filter(|n| n.get_type() == MCAST_PIN_LINE) {
+            // The direction word rides the line's iotype keyword.
+            let Some(dir) = Self::pin_line_pwr_dir(&pnode) else {
+                continue; // not a psrc/psnk/psbi line
+            };
+            // The `::<iface>(params)` declare lives under the line's name side.
+            let Some(names_node) = Self::line_child(&pnode, MCAST_PIN_NAMES) else {
+                continue;
+            };
+            let Some(declare) = Self::find_declare_deep(&names_node, 5) else {
+                continue; // power-direction pin without a trailing `::` contract
+            };
+            if let Some(pin) = Self::read_pwr_declare(dir, &declare) {
+                self.pwr.push(pin);
+            }
+        }
+    }
+
+    /// The iotype keyword of a pin line as an energy direction — `None` unless
+    /// the keyword is `psrc`/`psnk`/`psbi`.
+    fn pin_line_pwr_dir(pnode: &AstNode) -> Option<PwrDir> {
+        let iotype = Self::line_child(pnode, MCAST_IOTYPE)?;
+        match iotype.get_sub_node()?.get_type() {
+            MCAST_IOTYPE_PSRC => Some(PwrDir::Src),
+            MCAST_IOTYPE_PSNK => Some(PwrDir::Snk),
+            MCAST_IOTYPE_PSBI => Some(PwrDir::Bi),
+            _ => None,
+        }
+    }
+
+    /// First child of `node` whose AST kind is `ty`.
+    fn line_child(node: &AstNode, ty: u16) -> Option<AstNode> {
+        node.get_sub_node()?.iter().find(|c| c.get_type() == ty)
+    }
+
+    /// First `MCAST_DECLARE`/`MCAST_DECLARE_UV` node under `node`, bounded by
+    /// `depth` levels of sub-node descent (skips phrase/expression wrappers).
+    fn find_declare_deep(node: &AstNode, depth: usize) -> Option<AstNode> {
+        if node.is_type(MCAST_DECLARE) || node.is_type(MCAST_DECLARE_UV) {
+            return Some(node.clone());
+        }
+        if depth == 0 {
+            return None;
+        }
+        let head = node.get_sub_node()?;
+        for c in head.iter() {
+            if let Some(found) = Self::find_declare_deep(&c, depth - 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Read a `::<iface>(params)` declare into a structural [`McPwrPin`],
+    /// mirroring pi.rs's rail reader over the same `[hot, ret]::DC(...)` sub-AST.
+    fn read_pwr_declare(dir: PwrDir, declare: &AstNode) -> Option<McPwrPin> {
+        let span = (declare.get_pos() as usize)..((declare.get_pos() + declare.get_len()) as usize);
+        let mut iface = String::new();
+        let mut params: Vec<PwrParam> = Vec::new();
+        if let Some(class) = Self::line_child(declare, MCAST_CLASS) {
+            if let Some(ch) = class.get_sub_node() {
+                for c in ch.iter() {
+                    if c.is_type(MCAST_IDS) {
+                        iface = Self::leaf_text(&c).unwrap_or_default();
+                    } else if c.is_type(MCAST_PARAMS) {
+                        params = Self::read_params(&c);
+                    }
+                }
+            }
+        }
+        // Only the DC-axis contract is decoded in this increment (AC/nature pin
+        // contracts belong to the later AC-axis step).
+        if iface != "DC" {
+            return None;
+        }
+        // Operand side: `[hot, ret]` square vector (or a bare single member).
+        let (hot, ret) = Self::read_pair(declare);
+        if hot.is_empty() {
+            return None;
+        }
+        Some(McPwrPin {
+            dir,
+            iface,
+            hot,
+            ret,
+            params,
+            span,
+        })
+    }
+
+    /// First two `::` members of a declare as (hot, ret) — hot = first member
+    /// (the power terminal), ret = second (the return), when a pair is present.
+    ///
+    /// Two spellings are canonical (§4.1 / golden components.mc):
+    ///   * bracket form `[VDD, GND]` — a square vector whose operands are the
+    ///     member net names verbatim (`hot = VDD`);
+    ///   * member-bus form `VIN{Vin, GND}` — a Bus whose members *register*
+    ///     dotted (`VIN.Vin` / `VIN.GND`), which is the flat pin class_name, so
+    ///     capture must reproduce the dotted spelling for the E-PWR-001 sink
+    ///     lookup to match the net's pin entry.
+    fn read_pair(declare: &AstNode) -> (String, Option<String>) {
+        // Bracket form: `[hot, ret]` square vector under the declare's instance.
+        if let Some(inst) = Self::line_child(declare, MCAST_INSTANCE) {
+            if let Some(sq) = Self::find_square_vec(&inst) {
+                let mut members: Vec<String> = Vec::new();
+                if let Some(first) = sq.get_sub_node() {
+                    for opd in first.iter() {
+                        if let Some(n) = Self::net_text(&opd) {
+                            members.push(n);
+                        }
+                    }
+                }
+                match members.len() {
+                    0 => {}
+                    1 => return (members[0].clone(), None),
+                    _ => return (members[0].clone(), Some(members[1].clone())),
+                }
+            }
+        }
+        // Member-bus form: `VIN{Vin, GND}` → dotted `bus.member` names.
+        if let Some((bus, members)) = Self::find_bus_pair(declare) {
+            if members.is_empty() {
+                return (String::new(), None);
+            }
+            // Mirror registration (§register Bus): numeric members concat
+            // (`VIN1`), named members use the dot separator (`VIN.Vin`).
+            let dot = |m: &str| -> String {
+                if m.parse::<i64>().is_ok() {
+                    format!("{bus}{m}")
+                } else {
+                    format!("{bus}.{m}")
+                }
+            };
+            return match members.len() {
+                1 => (dot(&members[0]), None),
+                _ => (dot(&members[0]), Some(dot(&members[1]))),
+            };
+        }
+        (String::new(), None)
+    }
+
+    /// The member-bus operand under a declare: the first IDS whose McIds parse
+    /// is a Bus (`VIN{Vin, GND}` → `("VIN", ["Vin", "GND"])`). Mirrors the pin
+    /// register path's `McIds::as_bus()` test so capture and registration agree
+    /// on the group/member split.
+    fn find_bus_pair(declare: &AstNode) -> Option<(String, Vec<String>)> {
+        let found = Self::find_bus_ids_deep(declare, 6)?;
+        let ids = McIds::new(&found)?;
+        ids.as_bus()
+    }
+
+    /// First IDS under `node` (bounded descent) whose McIds parse is a Bus —
+    /// never a plain member or the `::` class name, since `as_bus` requires a
+    /// name + `{...}` member group.
+    fn find_bus_ids_deep(node: &AstNode, depth: usize) -> Option<AstNode> {
+        if node.is_type(MCAST_IDS) {
+            if let Some(ids) = McIds::new(node) {
+                if ids.as_bus().is_some() {
+                    return Some(node.clone());
+                }
+            }
+            return None;
+        }
+        if depth == 0 {
+            return None;
+        }
+        let head = node.get_sub_node()?;
+        for c in head.iter() {
+            if let Some(found) = Self::find_bus_ids_deep(&c, depth - 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Locate the `[a, b]` square-vector under a declare's INSTANCE node.
+    fn find_square_vec(inst: &AstNode) -> Option<AstNode> {
+        if inst.is_type(MCAST_OPD_SQUARE_VEC) {
+            return Some(inst.clone());
+        }
+        let head = inst.get_sub_node()?;
+        if head.is_type(MCAST_OPD_SQUARE_VEC) {
+            return Some(head);
+        }
+        head.iter().find(|c| c.is_type(MCAST_OPD_SQUARE_VEC))
+    }
+
+    /// `::(params)` ctor args → positional/keyed raw params (pi.rs mirror).
+    fn read_params(params_node: &AstNode) -> Vec<PwrParam> {
+        let mut out = Vec::new();
+        if let Some(head) = params_node.get_sub_node() {
+            for p in head.iter() {
+                if p.is_type(MCAST_PARAM) {
+                    if let Some(param) = Self::read_param(&p) {
+                        out.push(param);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// One `::(...)` argument: `key:value` (MCAST_OPD_COLON) or positional text.
+    fn read_param(node: &AstNode) -> Option<PwrParam> {
+        let value = node.get_sub_node()?;
+        if value.is_type(MCAST_OPD_COLON) {
+            if let Some(left) = value.get_sub_node() {
+                let key = Self::leaf_text(&left).unwrap_or_default();
+                let right = left
+                    .get_next()
+                    .map(|r| Self::value_text(&r))
+                    .unwrap_or_default();
+                return Some(PwrParam {
+                    key: Some(key),
+                    text: right,
+                });
+            }
+        }
+        Some(PwrParam {
+            key: None,
+            text: Self::value_text(&value),
+        })
+    }
+
+    /// Net name of a square-vector member operand (`opd.sub = IDS` → text).
+    fn net_text(opd: &AstNode) -> Option<String> {
+        if let Some(sub) = opd.get_sub_node() {
+            if sub.is_type(MCAST_IDS) {
+                return Self::leaf_text(&sub).filter(|s| !s.is_empty());
+            }
+        }
+        crate::McOpd::new(opd).map(|o| o.to_string())
+    }
+
+    /// Text of a value node (structural `±` comes from the node kind).
+    fn value_text(node: &AstNode) -> String {
+        match node.get_type() {
+            MCAST_RANGE_PLUSMINUS => {
+                let inner = Self::leaf_text(node).unwrap_or_default();
+                if inner.is_empty() {
+                    "±".to_string()
+                } else if inner.starts_with('±') {
+                    inner
+                } else {
+                    format!("±{inner}")
+                }
+            }
+            MCAST_OPD_COLON => {
+                if let Some(left) = node.get_sub_node() {
+                    let key = Self::leaf_text(&left).unwrap_or_default();
+                    let right = left
+                        .get_next()
+                        .map(|r| Self::value_text(&r))
+                        .unwrap_or_default();
+                    if right.is_empty() {
+                        if key.is_empty() {
+                            String::new()
+                        } else {
+                            format!("{key}:")
+                        }
+                    } else if key.is_empty() {
+                        right
+                    } else {
+                        format!("{key}: {right}")
+                    }
+                } else {
+                    String::new()
+                }
+            }
+            _ => Self::leaf_text(node).unwrap_or_default(),
+        }
+    }
+
+    /// First non-empty token text reachable from `node` (self or descendants).
+    fn leaf_text(node: &AstNode) -> Option<String> {
+        if let Some(c) = node.data_as_cstr() {
+            if let Ok(s) = c.to_str() {
+                let s = s.trim();
+                if !s.is_empty() {
+                    return Some(s.to_string());
+                }
+            }
+        }
+        node.get_sub_node().and_then(|sub| Self::leaf_text(&sub))
     }
 
     /// §11.1: member names in **source declaration order** (the interface
@@ -333,6 +672,37 @@ impl McPins {
         Vec::new()
     }
 
+    /// §5.3 whole-pair DC face: a curly-`|` face may name a whole power port
+    /// (`ldo33{VIN | VOUT}`) rather than its members. Each face then spans that
+    /// port's full DC pair, in declaration order (hot, ret) — read from the
+    /// captured `pwr` contract rows (whose `hot`/`ret` hold the member access
+    /// refs, dotted when the member sits in a named bus: `VIN.Vin`, `VIN.GND`).
+    /// Returns `None` when `head` is not a power-port head (a leaf member or an
+    /// unknown name) — the caller keeps the id verbatim.
+    pub(crate) fn power_pair_member_refs(&self, head: &str) -> Option<Vec<String>> {
+        for p in &self.pwr {
+            // Only a *named* member-bus row (`psnk [1,2]=VIN{Vin,GND}`) has a
+            // port head to name a curly face by: its `hot` is dotted
+            // (`VIN.Vin`) and the head is the part before the last dot
+            // (`VIN`). A bare hot (`IN1` on an anonymous `[IN1,GND]` row) *is*
+            // the leaf member — a face equal to it must stay verbatim, not
+            // expand, or the pair would be double-registered.
+            let Some((port, _member)) = p.hot.rsplit_once('.') else {
+                continue;
+            };
+            if port != head {
+                continue;
+            }
+            let mut refs = Vec::with_capacity(2);
+            refs.push(p.hot.clone());
+            if let Some(ret) = &p.ret {
+                refs.push(ret.clone());
+            }
+            return Some(refs);
+        }
+        None
+    }
+
     pub fn parse(&mut self, node: &AstNode) {
         let node_type = node.get_type();
         // N6: pins+= without prior pins=
@@ -358,6 +728,13 @@ impl McPins {
             return;
         };
 
+        // ── §4.1 power-intent: capture psrc/psnk/psbi pin DC contracts
+        // (direction rides the iotype word; the generic registration branches
+        // below read it only as IOType::Power, so direction + ::DC are kept
+        // here while the AST is in hand). Purely additive — never gates the
+        // generic pin registration.
+        self.capture_pwr_lines(&plinenodes);
+
         // ── P1-3/B5: `pins.subcls = [...]` — mca.y produces
         // MCAST_ATTRIBUTE_PIN [mc_id(subcls), pin_lines...], but the sub-class
         // name is silently dropped here. Report instead of ignoring it.
@@ -378,6 +755,10 @@ impl McPins {
             // MCAST_PIN_LINE
             // |-MCAST_IOTYPE (option) - MCAST_PIN_ID - MCAST_PIN_NAMES - MCAST_ATT_VALUES (option)
             let subnodes = pnode.get_sub_node().expect(MISSING_SUBNODE);
+            // §5.2 power-intent: on a `psrc/psnk/psbi` line the trailing `::X`
+            // declare is a power contract (DC axis), not an interface binding —
+            // the names parse below must skip the generic `::Iface` resolver.
+            let is_power_line = Self::pin_line_pwr_dir(&pnode).is_some();
 
             let mut iotype: Option<IOType> = None;
             let mut pinids: Option<McPinPort> = None;
@@ -420,7 +801,11 @@ impl McPins {
                         }
                     }
                     MCAST_PIN_NAMES => {
-                        pinnames = McPinNames::new(&subnode);
+                        pinnames = if is_power_line {
+                            McPinNames::new_power_row(&subnode)
+                        } else {
+                            McPinNames::new(&subnode)
+                        };
                         pinnames_node = Some(subnode.clone());
                         // ★ Collect interface name spans for LSP goto-def (e.g. `I2C` in `I2C0::I2C(Master)`)
                         if let Some(ref names) = pinnames {
@@ -2196,6 +2581,20 @@ impl McPinNames {
     }
 
     pub fn new(node: &AstNode) -> Option<Self> {
+        Self::new_inner(node, false)
+    }
+
+    /// Parse pin names of one `psrc/psnk/psbi` line. `power_row` tells the
+    /// parser that the line's trailing `::X` declare is a power-intent
+    /// contract (power-intent-design §4.1/§5.2 DC axis — the suffix is read by
+    /// `capture_pwr_lines`), never an interface binding, so the generic
+    /// `::Iface` resolver must not run on it and must not degrade with a
+    /// "lookup failed" warning.
+    pub(crate) fn new_power_row(node: &AstNode) -> Option<Self> {
+        Self::new_inner(node, true)
+    }
+
+    fn new_inner(node: &AstNode, power_row: bool) -> Option<Self> {
         // MCAST_PIN_NAMES
         //  |- MCAST_PIN_NAME *
 
@@ -2344,26 +2743,39 @@ impl McPinNames {
                                             }
                                             cur = c.get_next();
                                         }
-                                        if let Some(ref s) = span {
-                                            myself
-                                                .iface_spans
-                                                .push((class_id.to_string(), s.clone()));
+                                        // Power-row `::DC` is a contract axis, not an
+                                        // interface class — skip the LSP interface list.
+                                        if !power_row {
+                                            if let Some(ref s) = span {
+                                                myself
+                                                    .iface_spans
+                                                    .push((class_id.to_string(), s.clone()));
+                                            }
                                         }
                                         span
                                     };
                                     let lookup_uri =
                                         crate::current_uri::try_get().unwrap_or_default();
                                     // ★ LSP: Register class reference for goto-definition on
-                                    // :: syntax inside pin names (e.g., I0::I2C).
-                                    if let Some(ref span) = class_span {
-                                        mcb_register_declare_class(
-                                            &lookup_uri,
-                                            &class_id,
-                                            span.clone(),
-                                        );
+                                    // :: syntax inside pin names (e.g., I0::I2C). A power-row
+                                    // `::DC` is a contract suffix, not an interface class.
+                                    if !power_row {
+                                        if let Some(ref span) = class_span {
+                                            mcb_register_declare_class(
+                                                &lookup_uri,
+                                                &class_id,
+                                                span.clone(),
+                                            );
+                                        }
                                     }
-                                    let lookup_result =
-                                        resolve_interface_binding(&class_id, &lookup_uri);
+                                    // §5.2: on a `psrc/psnk/psbi` line the trailing `::X`
+                                    // declare is a power contract (DC axis) — never an
+                                    // interface binding, so never resolve/register it as one.
+                                    let lookup_result = if power_row {
+                                        None
+                                    } else {
+                                        resolve_interface_binding(&class_id, &lookup_uri)
+                                    };
                                     if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                         let mc2_iface = Mc2Interface::new(inst_id, iface_def);
                                         myself.push_option(
@@ -2384,17 +2796,21 @@ impl McPinNames {
                                         continue;
                                     } else {
                                         // Same as DECLARE_UV branch: lookup failed, treat
-                                        // the name as a plain pin alias but warn the user.
+                                        // the name as a plain pin alias but warn the user
+                                        // (silently on a power row — the register above is
+                                        // the DC contract, already captured by capture_pwr_lines).
                                         let class_str = class_id.to_string();
                                         let inst_str = inst_id.to_string();
-                                        dlog_warning(
-                                            crate::errcodes::PARAM_INST_LOOKUP_FAILED,
-                                            err_node,
-                                            &crate::errcodes::format_msg(
+                                        if !power_row {
+                                            dlog_warning(
                                                 crate::errcodes::PARAM_INST_LOOKUP_FAILED,
-                                                &[&inst_str, &class_str],
-                                            ),
-                                        );
+                                                err_node,
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::PARAM_INST_LOOKUP_FAILED,
+                                                    &[&inst_str, &class_str],
+                                                ),
+                                            );
+                                        }
                                         myself.push_option(McPinPort::Single(inst_str), err_node);
                                     }
                                 } else {
@@ -2594,7 +3010,11 @@ impl McPinNames {
                                                             as usize)
                                                 };
                                                 class_span = Some(span.clone());
-                                                myself.iface_spans.push((cn.to_string(), span));
+                                                // Power-row `::DC` is a contract axis, not an
+                                                // interface class — skip the LSP interface list.
+                                                if !power_row {
+                                                    myself.iface_spans.push((cn.to_string(), span));
+                                                }
                                             }
                                         }
 
@@ -2712,10 +3132,24 @@ impl McPinNames {
                                 });
                             // ★ LSP: Register class reference for goto-definition on
                             // ::Interface() syntax in pin names (e.g., I2C0::I2C(Master)).
-                            if let Some(ref span) = class_span {
-                                mcb_register_declare_class(&lookup_uri, &class_name, span.clone());
+                            // A power-row `::DC` is a contract suffix (§5.2), not a class.
+                            if !power_row {
+                                if let Some(ref span) = class_span {
+                                    mcb_register_declare_class(
+                                        &lookup_uri,
+                                        &class_name,
+                                        span.clone(),
+                                    );
+                                }
                             }
-                            let lookup_result = resolve_interface_binding(&class_name, &lookup_uri);
+                            // §5.2: on a `psrc/psnk/psbi` line the trailing `::X` declare is
+                            // a power contract (DC axis; captured by capture_pwr_lines) —
+                            // never an interface binding, so never resolve it as one.
+                            let lookup_result = if power_row {
+                                None
+                            } else {
+                                resolve_interface_binding(&class_name, &lookup_uri)
+                            };
                             if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                 // Pass params to Mc2Interface (e.g., role parameter "DCE")
                                 let mc2_iface =
@@ -2747,15 +3181,19 @@ impl McPinNames {
                                 // - Instance name form I2C1::I2C(): push Single, assign to all pins
                                 let class_str = class_name.to_string();
                                 let inst_str = inst_name.to_string();
-                                // Use inst_node if available (tighter span), otherwise fall back to err_node
-                                dlog_warning(
-                                    crate::errcodes::PARAM_INST_LOOKUP_FAILED,
-                                    inst_node.as_ref().unwrap_or(err_node),
-                                    &crate::errcodes::format_msg(
+                                // Use inst_node if available (tighter span), otherwise fall
+                                // back to err_node. Silent on a power row: the register below
+                                // is the DC contract members, already captured structurally.
+                                if !power_row {
+                                    dlog_warning(
                                         crate::errcodes::PARAM_INST_LOOKUP_FAILED,
-                                        &[&inst_str, &class_str],
-                                    ),
-                                );
+                                        inst_node.as_ref().unwrap_or(err_node),
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::PARAM_INST_LOOKUP_FAILED,
+                                            &[&inst_str, &class_str],
+                                        ),
+                                    );
+                                }
                                 if inst_name.is_list() {
                                     if let Some(members) = inst_name.list_members() {
                                         myself.push_option(McPinPort::Multi(members), err_node);
@@ -3141,5 +3579,100 @@ mod subname_tests {
         let iface_pins = vec!["1".to_string(), "2".to_string()]; // GPIO(count=2) dynamic pins
         let got = derive_interface_subnames(&inst, &iface_pins);
         assert_eq!(got, vec!["GPIO5", "GPIO6"]);
+    }
+}
+
+#[cfg(test)]
+mod pwr_capture_tests {
+    use super::*;
+    use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
+
+    /// Load `src` and return the McPins of the component whose name equals
+    /// `want` (parse-level; the C parser / workspace tables are process-global,
+    /// so hold the suite-wide parse lock — see pi.rs tests).
+    fn parse_component_pins(src: &str, want: &str) -> McPins {
+        let _guard = MCC_TEST_PARSE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let root = crate::cli::datadir::data_root();
+        crate::mcc_set_system_root(&root);
+        crate::mcc_init();
+        let uri: crate::McURI = "/mcc/pwr-pin-capture-test.mc".to_string();
+        crate::mcc_load_from_string(&uri, src);
+        crate::definition_space()
+            .workspace_components()
+            .into_iter()
+            .find(|(_, c)| c.name.to_string() == want)
+            .map(|(_, c)| c.pins.clone())
+            .unwrap_or_else(|| panic!("component '{want}' not parsed"))
+    }
+
+    const LDO: &str = r#"component LDO.X {
+    pins = [
+        psnk [1,2]=[IN, GND]::DC(5V)
+        psrc [3,4]=[OUT, GND]::DC(3.3V, tol:±5%, capacity:300mA)
+    ]
+}
+module main {
+}
+"#;
+
+    /// §4.1 psnk = sink (requirement side): `[1,2]=[IN,GND]::DC(5V)` captures
+    /// dir Snk, hot IN, ret GND, positional nominal `5V`.
+    #[test]
+    fn captures_psnk_sink_pair_with_nominal() {
+        let pins = parse_component_pins(LDO, "LDO.X");
+        assert_eq!(pins.pwr.len(), 2, "pwr: {:?}", pins.pwr);
+        let sink = pins
+            .pwr
+            .iter()
+            .find(|p| p.dir == PwrDir::Snk)
+            .expect("psnk");
+        assert_eq!(sink.iface, "DC");
+        assert_eq!(sink.hot, "IN");
+        assert_eq!(sink.ret.as_deref(), Some("GND"));
+        assert_eq!(sink.params.len(), 1);
+        assert_eq!(sink.params[0].key, None);
+        assert_eq!(sink.params[0].text, "5V");
+    }
+
+    /// §4.1 psrc = source (guarantee side): the DC contract carries the source
+    /// params verbatim (tol:±5% text kept for pi.rs decode).
+    #[test]
+    fn captures_psrc_source_with_tol_text() {
+        let pins = parse_component_pins(LDO, "LDO.X");
+        let src = pins
+            .pwr
+            .iter()
+            .find(|p| p.dir == PwrDir::Src)
+            .expect("psrc");
+        assert_eq!(src.hot, "OUT");
+        assert_eq!(src.ret.as_deref(), Some("GND"));
+        assert_eq!(src.params.len(), 3, "params: {:?}", src.params);
+        assert_eq!(src.params[1].key.as_deref(), Some("tol"));
+        assert_eq!(src.params[1].text, "±5%");
+        assert_eq!(src.params[2].key.as_deref(), Some("capacity"));
+    }
+
+    /// Direction words without a `::DC` contract (plain power `ps`, plain
+    /// psrc/psnk) and signal `io` lines must NOT appear in `pwr`.
+    #[test]
+    fn plain_power_and_signal_pins_are_not_contracts() {
+        const SRC: &str = r#"component P {
+    pins = [
+        psnk 1 = VDD
+        ps   2 = GND
+        io   3 = EN
+    ]
+}
+module main {
+}
+"#;
+        let pins = parse_component_pins(SRC, "P");
+        assert!(
+            pins.pwr.is_empty(),
+            "no ::DC contract on any line; got pwr: {:?}",
+            pins.pwr
+        );
     }
 }

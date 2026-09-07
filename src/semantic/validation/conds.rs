@@ -550,8 +550,11 @@ fn check_empty_module(acc: &mut CheckAccumulator) {
         let has_insts = !m.insts.is_empty();
         let has_stmts = !m.stmts.is_empty();
         let has_funcs = !m.funcs.is_empty();
+        // A module carrying only power-intent declarations (refs / domains /
+        // rails) is not a stub — the declarations are content.
+        let has_pi = !m.pi.is_empty();
 
-        if !has_params && !has_insts && !has_stmts && !has_funcs {
+        if !has_params && !has_insts && !has_stmts && !has_funcs && !has_pi {
             acc.push(CheckResult {
                 check_name: "conds",
                 severity: CheckSeverity::Warning,

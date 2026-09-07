@@ -17,7 +17,9 @@ use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::McAttrVal;
-use crate::semantic::component::mc_pins::McPinPort;
+use crate::semantic::component::mc_pins::{McPinPort, McPwrPin, PwrDir};
+use crate::semantic::component::McComponent;
+use crate::semantic::module::pi::{decode_pwr_pin, McPowerDecls};
 use crate::semantic::validation::finding::CheckFinding;
 use std::collections::HashSet;
 
@@ -1001,6 +1003,458 @@ pub(crate) fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetChe
             });
         }
     }
+}
+
+// ── Power-intent L1 (design §3 / §13 landing 1): declared relation edges ──
+//
+// A declared `@bridge`/`@couple`/`@clamp` edge *never* merges L0 copper —
+// net-identity already unions real wiring. It only declares a relation between
+// two L1 potential classes. These checks are the declaration-local slice of the
+// §3.2 role table, emitted as FlatErc rules (PWR-2 loop/@star, PWR-7 clamp
+// target). Each verdict is *owning-def local* (an instance's nets are the
+// def's nets under the instance path, and relation edges only name same-scope
+// nets/refs, iron rule 1 §6), so a def instantiated N times reports once, at
+// its own source span.
+
+/// Module instances carrying power-intent declarations, deduped by owning def
+/// (`def_uri` + `def.name`). The map is keyed by module entry id; the entry
+/// supplies the def's file for span anchoring.
+fn power_intent_defs(table: &InstTable) -> Vec<(&McPowerDecls, String)> {
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    let mut out = Vec::new();
+    for (id, pi) in table.power_decls() {
+        let Some(entry) = table.get_entry(*id) else {
+            continue;
+        };
+        if !matches!(entry.kind, InstKind::Module) {
+            continue;
+        }
+        if !seen.insert((entry.def_uri.clone(), entry.class_name.clone())) {
+            continue;
+        }
+        out.push((pi, entry.def_uri.clone()));
+    }
+    out
+}
+
+/// PWR-2 (design §3.2/§3.4): the DC `@bridge` subgraph must be acyclic. A
+/// second/cyclic leg between endpoints already DC-bridged (parallel legs, or a
+/// triangle) is a loop — unless a hub conduit on either endpoint carries
+/// `@star`, which discharges the intentional loop to the simulation layer.
+/// Union-find over declared bridge endpoint nets; an edge whose endpoints
+/// already share a root is the redundant path.
+pub(crate) fn check_power_bridge_loop(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        let edges: Vec<crate::semantic::module::pi::L1Edge> = pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Bridge)
+            .collect();
+        if edges.is_empty() {
+            continue;
+        }
+        let refs = pi.l1_refs();
+        let star: HashSet<&str> = refs
+            .iter()
+            .filter(|r| r.star)
+            .map(|r| r.name.as_str())
+            .collect();
+
+        // Distinct endpoint nets → index, then union-find.
+        let mut names: Vec<String> = Vec::new();
+        let mut idx: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for e in &edges {
+            for ep in e.endpoints.iter() {
+                if !idx.contains_key(ep) {
+                    idx.insert(ep.clone(), names.len());
+                    names.push(ep.clone());
+                }
+            }
+        }
+        let mut parent: Vec<usize> = (0..names.len()).collect();
+        let find = |parent: &mut Vec<usize>, mut x: usize| -> usize {
+            while parent[x] != x {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+            x
+        };
+
+        for e in &edges {
+            let (Some(a), Some(b)) = (idx.get(&e.endpoints[0]), idx.get(&e.endpoints[1])) else {
+                continue;
+            };
+            let (a, b) = (*a, *b);
+            let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+            if ra != rb {
+                parent[ra] = rb;
+                continue;
+            }
+            // Redundant DC path. Discharged when either endpoint is a @star hub.
+            if star.contains(names[a].as_str()) || star.contains(names[b].as_str()) {
+                continue;
+            }
+            results.push(NetCheckResult {
+                check: "power-bridge-loop",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::POWER_BRIDGE_LOOP,
+                    &[&names[a], &names[b]],
+                ),
+                net_name: names[a].clone(),
+                code: crate::errcodes::POWER_BRIDGE_LOOP,
+                pos: e.span.start as u32,
+                uri: uri.clone(),
+            });
+        }
+    }
+}
+
+/// PWR-7 (design §11 / §3.2): `@clamp(ref)` must reference an
+/// `@role(protective)`/`@role(earth)` ref — clamping to a main/quiet/isolated
+/// ref would dump transient current into the wrong reference. A clamp target
+/// that is not a same-scope ref is not adjudicated here (its role is supplied
+/// by an ancestor world / port contract, iron rule 1).
+pub(crate) fn check_clamp_ref_role(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        let refs = pi.l1_refs();
+        let role_of: std::collections::HashMap<&str, &str> = refs
+            .iter()
+            .filter_map(|r| r.role.as_deref().map(|role| (r.name.as_str(), role)))
+            .collect();
+        for e in pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Clamp)
+        {
+            let Some(target) = e.endpoints.first() else {
+                continue;
+            };
+            let Some(role) = role_of.get(target.as_str()).copied() else {
+                continue;
+            };
+            if role == "protective" || role == "earth" {
+                continue;
+            }
+            results.push(NetCheckResult {
+                check: "clamp-ref-role",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::CLAMP_REF_NOT_PROTECTIVE,
+                    &[&target, &role],
+                ),
+                net_name: target.clone(),
+                code: crate::errcodes::CLAMP_REF_NOT_PROTECTIVE,
+                pos: e.span.start as u32,
+                uri: uri.clone(),
+            });
+        }
+    }
+}
+
+// ── Power-intent DC rail contract (§4.1 / §13.2): Volt-arg decode ──────────
+// A domain rail declares the *guarantee* half of a DC contract:
+// `rail [hot, ret]::DC(v, tol, capacity, eff)`. Two declaration-local
+// verdicts, owning-def local exactly like the relation-edge rules above:
+//   * decode (6009): every rail ctor arg decodes to the contract it names
+//     (nominal is a signed DC volts, tol is ±%, capacity a current, eff a
+//     factor). The Volt-arg self-check — no fake window, no silent pass.
+//   * two-roots (6010): a net is the hot member of at most one rail. Writing
+//     an intermediate net into a domain rail gives S two handwritten roots and
+//     every downstream window ERC a fake conflict (§4.1 — an intermediate net never enters a domain).
+// The full sink-window E-PWR-001 (`S(net) ⊆ input_req` / sink req window)
+// needs the psnk + spec semantic layer (design §13 axis ③) and is not
+// adjudicated here — it cannot be golden-verified until that layer lands.
+pub(crate) fn check_power_rail_contract(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        for r in pi.l1_rails() {
+            if let Some(bad) = &r.bad {
+                results.push(NetCheckResult {
+                    check: "rail-contract",
+                    severity: "error",
+                    message: crate::errcodes::format_msg(
+                        crate::errcodes::POWER_RAIL_DECODE,
+                        &[&r.hot, &r.ret, bad],
+                    ),
+                    net_name: r.hot.clone(),
+                    code: crate::errcodes::POWER_RAIL_DECODE,
+                    pos: r.span.start as u32,
+                    uri: uri.clone(),
+                });
+            }
+        }
+    }
+}
+
+pub(crate) fn check_power_rail_two_roots(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        let rails = pi.l1_rails();
+        let mut first: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for (i, r) in rails.iter().enumerate() {
+            if let Some(&j) = first.get(r.hot.as_str()) {
+                // A second rail guarantees the same hot net: two handwritten
+                // roots on one S. Report once per extra root, at its span.
+                let prev = &rails[j];
+                results.push(NetCheckResult {
+                    check: "rail-two-roots",
+                    severity: "error",
+                    message: crate::errcodes::format_msg(
+                        crate::errcodes::POWER_RAIL_TWO_ROOTS,
+                        &[&r.hot, &prev.domain, &r.domain],
+                    ),
+                    net_name: r.hot.clone(),
+                    code: crate::errcodes::POWER_RAIL_TWO_ROOTS,
+                    pos: r.span.start as u32,
+                    uri: uri.clone(),
+                });
+            } else {
+                first.insert(r.hot.as_str(), i);
+            }
+        }
+    }
+}
+
+/// E-PWR-001 (design §4.4 mandatory-nominal check / §11): a sink (`psnk`) on
+/// a net must require that net's derived supply nominal S. The canonical §4.4
+/// case: a `::DC(3.3V)`
+/// sink sitting on a 5V-supplied net is a wrong hookup (P3/E-PWR-001) — nominal
+/// vs nominal is the comparison, no window needed.
+///
+/// S is derived per net from the net's handwritten supply roots — the design's
+/// §4.3 roots: `S(root)` = a handwritten guarantee window (a psrc or a
+/// domain-rail block). Both are consumed here, joined to the flat net the
+/// root's hot member lands on:
+///   * a domain rail whose `hot` resolves to the net name (net name == rail name — identity,
+///     not a voltage-from-name heuristic);
+///   * a `psrc`/`psbi` source pin whose hot terminal is directly on the net
+///     (e.g. ORing `OUT` psrc feeding VMAIN_5V in the golden).
+/// If the roots on one net disagree in nominal, the net is left un-adjudicated
+/// (source contention is PWR-3 OR-merge territory, deferred) rather than judged
+/// against an arbitrary pick. Copper pass-through propagation (S crossing a fuse
+/// / inductor / ferrite §4.3) and converter re-anchoring are the later S-set
+/// step; this rule compares only sinks on nets that carry a direct root.
+/// A root whose own nominal failed to decode is reported by the decl-local
+/// decode ERC (rail: 6009; pin: 6012), never adjudicated here; likewise a
+/// sink whose nominal does not decode is skipped rather than compared blind.
+pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    // Guarantee net name → (domain, nominal, verbatim nominal text). Two rails
+    // claiming the same hot with *different* nominals leave the net un-
+    // adjudicated (6010 reports the two-root conflict within a scope; across
+    // scopes the flat net name cannot be pinned to one guarantee).
+    let mut guarantee: std::collections::HashMap<String, (String, f64, String)> =
+        std::collections::HashMap::new();
+    for (pi, _uri) in power_intent_defs(table) {
+        for r in pi.l1_rails() {
+            let Some(v) = r.v else {
+                continue; // 6009's job
+            };
+            match guarantee.get(&r.hot) {
+                Some((_, prev, _)) if (*prev - v).abs() > 1e-9 => {
+                    guarantee.remove(&r.hot); // ambiguous scope — skip
+                }
+                None => {
+                    guarantee.insert(r.hot.clone(), (r.domain.clone(), v, r.v_text.clone()));
+                }
+                _ => {} // same nominal redeclared: keep the first
+            }
+        }
+    }
+
+    // Component class → def, then component-instance id → def, so every net
+    // point recovers its def contract without re-scanning the definition space.
+    // (`workspace` lives for the whole check so the borrowed defs stay valid.)
+    let workspace = crate::definition_space().workspace_components();
+    let defs: std::collections::HashMap<String, &McComponent> = workspace
+        .iter()
+        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
+        .collect();
+    let comp_def: std::collections::HashMap<u32, &McComponent> = table
+        .get_components()
+        .iter()
+        .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, *d)))
+        .collect();
+
+    for net in table.get_nets() {
+        // ── Derive S(net) from its handwritten supply roots (design §4.3). ──
+        // Rail face first: exact net name, then the last dotted segment
+        // (module-qualified / power-rail tier-3 spellings).
+        let rail_root = guarantee
+            .get(&net.name)
+            .or_else(|| net.name.rsplit('.').next().and_then(|l| guarantee.get(l)))
+            .map(|(_domain, v, text)| (*v, text.clone()));
+        // Source pins: a psrc/psbi hot terminal directly on the net.
+        let mut src_nominal: Vec<(f64, String)> = Vec::new();
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = comp_def.get(&comp_id).copied() else {
+                continue;
+            };
+            let Some(contract) = source_contract_for(def, entry) else {
+                continue;
+            };
+            let dec = decode_pwr_pin(contract);
+            if let Some(v) = dec.v {
+                src_nominal.push((v, dec.v_text));
+            }
+        }
+        // All roots on one net must agree on one S, else leave it un-adjudicated
+        // (source contention / cross-scope ambiguity → 6010 or PWR-3, not here).
+        let (v_supply, supply_text) = match rail_root {
+            Some((v, text)) => {
+                if src_nominal.iter().any(|(sv, _)| (*sv - v).abs() > 1e-9) {
+                    continue; // a source pin on the net disagrees with the rail
+                }
+                (v, text)
+            }
+            None => {
+                let mut it = src_nominal.iter();
+                let Some((first, first_text)) = it.next() else {
+                    continue; // no supply root on this net — intermediate (S-set later)
+                };
+                if it.any(|(sv, _)| (*sv - *first).abs() > 1e-9) {
+                    continue; // two sources, different nominals — defer
+                }
+                (*first, first_text.clone())
+            }
+        };
+
+        // ── mandatory-nominal: every decodable psnk sink on this net must need S. ──
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = comp_def.get(&comp_id).copied() else {
+                continue;
+            };
+            let Some(contract) = sink_contract_for(def, entry) else {
+                continue;
+            };
+            let dec = decode_pwr_pin(contract);
+            let Some(v_sink) = dec.v else { continue };
+            if (v_sink - v_supply).abs() <= 1e-9 {
+                continue; // sink nominal == S(net) — the healthy hookup
+            }
+            // Instance-side sink terminal for the message (`main.s.VDD`, not
+            // the positional pin id `main.s.1`).
+            let base = entry
+                .path
+                .rsplit_once('.')
+                .map(|(p, _)| p)
+                .unwrap_or(&entry.path);
+            let sink_path = format!("{base}.{}", contract.hot);
+            let (pos, uri) = entry_pos(entry);
+            results.push(NetCheckResult {
+                check: "sink-nominal-mismatch",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::POWER_SINK_NOMINAL_MISMATCH,
+                    &[&sink_path, &net.name, &dec.v_text, &supply_text],
+                ),
+                net_name: net.name.clone(),
+                code: crate::errcodes::POWER_SINK_NOMINAL_MISMATCH,
+                pos,
+                uri,
+            });
+        }
+    }
+}
+
+/// Pin-contract Volt-arg decode (the pin-side of [`POWER_RAIL_DECODE`] 6009;
+/// power-intent-design.md §5.2 closed word-list discipline): every `psrc`/`psnk`/`psbi`
+/// `::DC(…)` ctor arg must decode to the contract it names. `decode_pwr_pin`
+/// keeps the first failure as `L1PwrPin::bad` — a non-DC nominal (e.g.
+/// `::DC(5A)` on a sink), a source-exclusive budget key (`tol`/`capacity`/`eff`)
+/// on a sink, a `spec`-belonging window key (`req`/`abs`) on the pin, or a
+/// missing mandatory nominal. This rule reports it decl-locally — once per used
+/// component class's power contract, at its own source span — rather than the
+/// hookup layer silently skipping an undecodable sink.
+pub(crate) fn check_pin_contract_decode(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let workspace = crate::definition_space().workspace_components();
+    let defs: std::collections::HashMap<String, &McComponent> = workspace
+        .iter()
+        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
+        .collect();
+    // One report per used component class's offending contract (a def
+    // instantiated N times is checked once, at its own decl — like 6009).
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for entry in table.get_components() {
+        if !seen.insert(entry.class_name.clone()) {
+            continue;
+        }
+        let Some(def) = defs.get(&entry.class_name).copied() else {
+            continue;
+        };
+        for contract in &def.pins.pwr {
+            let dec = decode_pwr_pin(contract);
+            let Some(bad) = dec.bad else {
+                continue;
+            };
+            results.push(NetCheckResult {
+                check: "pin-contract-decode",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::POWER_PIN_DECODE,
+                    &[&entry.class_name, &dec.hot, &bad],
+                ),
+                net_name: dec.hot.clone(),
+                code: crate::errcodes::POWER_PIN_DECODE,
+                pos: dec.span.start as u32,
+                uri: entry.def_uri.clone(),
+            });
+        }
+    }
+}
+
+/// The `psnk` contract whose *hot* terminal this flat pin is, if any. A flat
+/// pin is the hot member of a sink contract when the def-side member names of
+/// its pin id include the contract's `hot` (pin ids are positional: `main.s.1`
+/// → def pin "1" whose registered names are the terminals); the return member
+/// (`ret`, e.g. GND) never matches its own contract's `hot`, so the return pin
+/// is naturally skipped.
+fn sink_contract_for<'a>(def: &'a McComponent, entry: &InstEntry) -> Option<&'a McPwrPin> {
+    let pin_id = entry.path.rsplit('.').next().unwrap_or("");
+    let names: Vec<&str> = def
+        .pins
+        .pins
+        .get(pin_id)
+        .map(|p| p.names.iter().map(|n| n.as_str()).collect())
+        .unwrap_or_default();
+    def.pins.pwr.iter().find(|c| {
+        c.dir == PwrDir::Snk && (names.iter().any(|n| *n == c.hot) || entry.class_name == c.hot)
+    })
+}
+
+/// The `psrc`/`psbi` contract whose *hot* terminal this flat pin is, if any —
+/// the source-side mirror of [`sink_contract_for`]. A `psbi` counts as a source
+/// root because its `::DC(v)` is the *discharge* supply guarantee (§4.1), which
+/// is the S its hot net carries while it sources. Shared-return pins never match
+/// the contract's own `hot`, so return nets get no S from source pins.
+fn source_contract_for<'a>(def: &'a McComponent, entry: &InstEntry) -> Option<&'a McPwrPin> {
+    let pin_id = entry.path.rsplit('.').next().unwrap_or("");
+    let names: Vec<&str> = def
+        .pins
+        .pins
+        .get(pin_id)
+        .map(|p| p.names.iter().map(|n| n.as_str()).collect())
+        .unwrap_or_default();
+    def.pins.pwr.iter().find(|c| {
+        matches!(c.dir, PwrDir::Src | PwrDir::Bi)
+            && (names.iter().any(|n| *n == c.hot) || entry.class_name == c.hot)
+    })
 }
 
 #[cfg(test)]
