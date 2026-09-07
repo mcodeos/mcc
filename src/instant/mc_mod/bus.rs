@@ -329,7 +329,7 @@ impl InstantiationBuilder {
         if self.find_component(base_name).is_some() {
             return Ok(elements
                 .iter()
-                .map(|e| {
+                .flat_map(|e| {
                     // McBus.name may already be dotted (like "R1.1") or just (like "1")
                     let path = if e.name.contains('.') {
                         e.name.clone()
@@ -338,12 +338,22 @@ impl InstantiationBuilder {
                     };
                     // ── P3-1: normalize alias to physical pin ID (e.g. uC.VDD → uC.5) ──
                     let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
+                    // ── Whole-group face reference (model A, two-face DC chain) ──
+                    // A curly face that names a whole multi-member power group
+                    // (`ldo{VIN | VOUT}`, face bus = "ldo.VIN") must expand to its
+                    // sub-member physical lanes (`ldo.1`/Vin, `ldo.2`/GND) so it can
+                    // row-align to a DC `[hot, ret]` vector — mirror of the submodule
+                    // branch below. Without this the whole group collapses to a single
+                    // face point and the 2-row vector pair is rejected as E4007.
+                    if let Some(lanes) = self.expand_port_lanes(&path) {
+                        return lanes.into_iter().collect::<Vec<_>>();
+                    }
                     // ── §3.3: owner is the deepest known component prefix of the
                     // path, not the split_once base. `U1.cap1.1` → owner=`U1.cap1`
                     // (the materialized member), else validate_expanded_net_points
                     // looks `cap1.1` up in U1's pins → E3179. ──
                     let owner = self.deepest_component_owner(&path).to_string();
-                    NetPoint::with_owner(&path, &owner, IOType::None)
+                    vec![NetPoint::with_owner(&path, &owner, IOType::None)]
                 })
                 .collect());
         }

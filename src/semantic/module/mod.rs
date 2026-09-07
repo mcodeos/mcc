@@ -23,6 +23,10 @@ use crate::{
     IOType, McCMIE, McIds, McParamValue, McURI,
 };
 use std::sync::Arc;
+
+pub(crate) mod pi;
+use self::pi::McPowerDecls;
+
 // ============================================================================
 // McModule - Module definition
 // ============================================================================
@@ -37,6 +41,9 @@ pub struct McModule {
     /// Used for diagnostic position reporting during instantiation.
     pub stmt_spans: Vec<crate::ast::sem::Span>,
     pub funcs: McFunctions,
+    /// Power-intent declarations declared in this module body
+    /// (`ref` identities + `domain`/`rail` sources; power-intent-design.md §5).
+    pub(crate) pi: McPowerDecls,
     pub uri: McURI,
     /// Source span for LSP goto-definition (byte range in `uri`).
     pub span: crate::ast::sem::Span,
@@ -96,6 +103,7 @@ impl McModule {
                 name: module_name,
                 params: McParamDeclares::new(),
                 funcs: McFunctions::new(),
+                pi: McPowerDecls::new(),
                 insts: McInstances::new(),
                 stmts: Vec::new(),
                 stmt_spans: Vec::new(),
@@ -150,6 +158,7 @@ impl McModule {
             stmts: Vec::new(),
             stmt_spans: Vec::new(),
             funcs: McFunctions::new(),
+            pi: McPowerDecls::new(),
             uri: McURI::default(),
             span: crate::ast::sem::Span {
                 start: 0,
@@ -283,6 +292,12 @@ impl McModule {
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
+                            // Power-intent relation-edge attributes (`@bridge(a,b)`
+                            // …) trail this connection net; the net reader consumes
+                            // only the phrase head, so capture the edges here
+                            // (design §13 landing 1 groundwork).
+                            self.pi.parse_net(&clause);
+
                             // Collect port reference spans before parsing the net
                             let scope = self.name.to_string();
                             Self::collect_net_refs_in_node(
@@ -338,6 +353,22 @@ impl McModule {
                         // declare_class_refs.
                         crate::query::refs::register_func_header_iface_refs(&clause, &self.uri);
                         self.funcs.parse(&clause, context);
+                    }
+
+                    MCAST_REF => {
+                        // Power-intent conductor-identity declaration
+                        // (`conduit GND @role(main) @star`; keyword `ref` is a
+                        // legacy alias). Capture only — the identity/role
+                        // semantics land with the flatten/ERC block
+                        // (power-intent-design.md §13 landing 1).
+                        self.pi.parse_ref(&clause);
+                    }
+
+                    MCAST_DOMAIN => {
+                        // Power-intent domain/rail source block
+                        // (`domain DVDD { rail ... }`). Capture the domain and
+                        // its rails; rail supply semantics land later.
+                        self.pi.parse_domain(&clause);
                     }
 
                     MCAST_DECLARE => {

@@ -21,6 +21,7 @@ use super::mc_mod::McModuleInst;
 use super::mc_net::NetPoint;
 use crate::instant::nettab::NetTableStore;
 use crate::semantic::common::IOType;
+use crate::semantic::module::pi::McPowerDecls;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
@@ -412,6 +413,15 @@ pub struct InstTable {
     /// tree-level string nets (export netlist, viz ground override) read
     /// through [`Self::net_table`].
     net_table: Rc<RefCell<NetTableStore>>,
+
+    /// Power-intent declarations of every module instance in the flat tree,
+    /// keyed by the module entry id registered in [`Self::flatten_module`].
+    /// Each entry is the *owning def's* capture (`ref` roles / `@star` and the
+    /// connection-net relation edges — design §3), cloned at flatten time so a
+    /// FlatErc rule can read the declaration set whose nets live at that
+    /// instance's prefixed path. Store-only threading: the L1 checks (PWR-2 /
+    /// PWR-7) consume this; the edges never merge L0 copper.
+    power_decls: BTreeMap<u32, McPowerDecls>,
 }
 
 impl InstTable {
@@ -426,6 +436,7 @@ impl InstTable {
             point_to_net: HashMap::new(),
             bridge_passive_paths: HashSet::new(),
             net_table: Rc::new(RefCell::new(NetTableStore::new())),
+            power_decls: BTreeMap::new(),
         }
     }
 
@@ -434,6 +445,15 @@ impl InstTable {
     /// here, keyed by canonical module path.
     pub fn net_table(&self) -> Rc<RefCell<NetTableStore>> {
         self.net_table.clone()
+    }
+
+    /// Power-intent declaration map threaded at flatten time: module entry id →
+    /// owning def's [`McPowerDecls`]. FlatErc L1 rules read the per-instance
+    /// declaration sets (ref roles / `@star` / connection-net relation edges)
+    /// through this — the map is keyed by the same ids [`Self::get_entry`]
+    /// resolves, so a check can recover the module's `path`/`def_uri`.
+    pub(crate) fn power_decls(&self) -> &BTreeMap<u32, McPowerDecls> {
+        &self.power_decls
     }
 
     /// Recursively generate flattened instance table from McModuleInst tree.
@@ -945,6 +965,11 @@ impl InstTable {
             None,
             inst.def_uri.to_string(),
         );
+        // Power-intent L1 threading: capture the owning def's declarations so
+        // FlatErc can run the per-module relation-edge checks against this
+        // instance. Cloned per instance (defs are shared across instances);
+        // the L1 checks dedupe by def below.
+        self.power_decls.insert(my_id, inst.def.pi.clone());
 
         // 2. Register ports
         for port in &inst.ports {

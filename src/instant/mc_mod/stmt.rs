@@ -440,8 +440,32 @@ impl InstantiationBuilder {
                 base: McInstance::Bus(ref bus),
                 ..
             })) if !bus.member.is_empty() => bus.member.len(),
+            // ── model A §5.3 whole-DC-pair curly face ──
+            // A Node (`ldo{VIN | VOUT}`) spans its input face's [hot, ret]
+            // lanes (collect_one_lane_item mirrors this), so a lane chain
+            // containing one is sized by the face width, not 1.
+            McPhrase::Endpoint(McEndpoint::Node { input, .. }) => Self::node_face_lanes(input),
             _ => 1,
         }
+    }
+
+    /// Number of lane slots a curly-face Node exposes on one side. A face is a
+    /// list of bus refs; a whole-DC-pair face (`bk{VIN | VOUT}`) is usually ONE
+    /// ref whose Bus carries the port's members (`Bus(bk{VIN.Vin, VIN.GND})`),
+    /// so the count is the sum of each ref's bus-member count — matching the
+    /// points `get_left_points`/`get_right_points` resolve for the face.
+    fn node_face_lanes(face: &[McEndpoint]) -> usize {
+        let mut n = 0usize;
+        for f in face {
+            match f {
+                McEndpoint::Single(McInstanceRef {
+                    base: McInstance::Bus(ref bus),
+                    ..
+                }) if !bus.member.is_empty() => n += bus.member.len(),
+                _ => n += 1,
+            }
+        }
+        n.max(1)
     }
 
     // ── M11.1 / M11.2 / M11.4: Lane-by-lane wiring for chains containing
@@ -835,6 +859,23 @@ impl InstantiationBuilder {
                     if !matches!(p, McPhrase::Lead) {
                         items.push((member_idx, LaneItem::Series(p)));
                     }
+                }
+            }
+            // ── whole-DC-pair curly face (model A §5.3) ──────────────────
+            // `ldo{VIN | VOUT}` / `buck{VIN | LX}` expands to a Node whose
+            // input/output faces are the port's [hot, ret] member refs,
+            // spanning `node_face_lanes` lanes. The default arm below would
+            // place it on lane 0 only, so a lane-series right side
+            // (`- [IND(2.2uH), _] ->`, golden main.mc buck12) wired the hot
+            // lane but silently dropped the return member — the device's GND
+            // pin never reached the return net (4116, zero explicit error).
+            // A Node must appear on every lane of its face: per-lane left /
+            // right points are the input / output face members in order
+            // (get_left_points / get_right_points → resolve_curly_mn_points),
+            // so the shared return participates on the return lane.
+            McPhrase::Endpoint(McEndpoint::Node { input, .. }) => {
+                if lane < Self::node_face_lanes(input) {
+                    items.push((member_idx, LaneItem::Series(member)));
                 }
             }
             // ── P2-7: bus endpoint (e.g. XTAL interface with 2 pins) ──

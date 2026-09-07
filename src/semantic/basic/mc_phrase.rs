@@ -891,6 +891,31 @@ impl McPhrase {
                                                 scope.as_deref(),
                                             );
                                         }
+                                        // ── §5.3 whole-DC-pair reference ────────────
+                                        // `bat.BAT` names a *whole* `psbi`/`psrc`/
+                                        // `psnk` port (a named member-bus DC pair
+                                        // `BAT{VCC, GND}`), not one of its leaves —
+                                        // reference the declaration as a whole. Expand the head to the captured
+                                        // pair's dotted member refs in declaration
+                                        // order (`BAT` → `BAT.VCC`, `BAT.GND`) so the
+                                        // ref carries the full 2-lane pair instead of
+                                        // collapsing to the head's first pin (the old
+                                        // width-1 E4007 L=2 vs R=1). A leaf member or
+                                        // bare-hot head keeps the single-member path.
+                                        if let Some(McInstance::Component(c)) =
+                                            context.find_inst(base)
+                                        {
+                                            if let Some(pair) =
+                                                c.base.pins.power_pair_member_refs(&rest)
+                                            {
+                                                let pair_bus = McBus::new_with_members(base, pair);
+                                                return Some(McPhrase::Endpoint(
+                                                    McEndpoint::Single(McInstanceRef::new(
+                                                        McInstance::Bus(pair_bus),
+                                                    )),
+                                                ));
+                                            }
+                                        }
                                         // ★ E3183/E3181 gate: a declared module
                                         // port's shape is authoritative — a
                                         // member access must never auto-widen it
@@ -2180,13 +2205,46 @@ impl McPhrase {
                 let mut right1: Vec<String> = Vec::new();
                 let mut cur = subnode2.get_sub_node();
                 while let Some(n) = cur {
-                    right1.extend(n.to_id_or_ida_or_num());
+                    // ── SQUARE_VEC row flatten (two-face DC chain) ──
+                    // A curly face may be written as a literal bracket row
+                    // `oring{[IN1, GND] | [OUT, GND]}`; each `[a, b]` row parses as
+                    // one MCAST_OPD_SQUARE_VEC whose to_id_or_ida_or_num() only
+                    // returns the *first* child (`IN1`, dropping `GND`). Flatten the
+                    // whole row so both vector members reach the face, matching the
+                    // canonical member-list form `oring{IN1, GND | OUT, GND}`.
+                    if n.get_type() == MCAST_OPD_SQUARE_VEC {
+                        if let Some(mut s) = n.get_sub_node() {
+                            loop {
+                                right1.extend(s.to_id_or_ida_or_num());
+                                match s.get_next() {
+                                    Some(nx) => s = nx,
+                                    None => break,
+                                }
+                            }
+                        }
+                    } else {
+                        right1.extend(n.to_id_or_ida_or_num());
+                    }
                     cur = n.get_next();
                 }
                 let mut right2: Vec<String> = Vec::new();
                 cur = subnode3.get_sub_node();
+                // Right-face of the `|` split: same SQUARE_VEC bracket-row flatten as
+                // the left face above (`oring{IN1 | [OUT, GND]}` must keep GND).
                 while let Some(n) = cur {
-                    right2.extend(n.to_id_or_ida_or_num());
+                    if n.get_type() == MCAST_OPD_SQUARE_VEC {
+                        if let Some(mut s) = n.get_sub_node() {
+                            loop {
+                                right2.extend(s.to_id_or_ida_or_num());
+                                match s.get_next() {
+                                    Some(nx) => s = nx,
+                                    None => break,
+                                }
+                            }
+                        }
+                    } else {
+                        right2.extend(n.to_id_or_ida_or_num());
+                    }
                     cur = n.get_next();
                 }
 
@@ -3988,8 +4046,37 @@ impl McPhrase {
                     .collect::<Option<Vec<_>>>()?,
             )),
             _ => {
-                let left = opd_to_node_element_vec(self.clone().dot_or_curly(right1)?)?;
-                let right = opd_to_node_element_vec(self.dot_or_curly(right2)?)?;
+                // ── §5.3 whole-DC-pair face ─────────────────────────────
+                // `ldo33{VIN | VOUT}` names each face by its *port head* (a
+                // whole `psrc/psnk/psbi` DC pair), not by its members. Expand
+                // such a face to the port's [hot, ret] member refs (dotted for
+                // a named bus: `VIN` → `VIN.Vin`, `VIN.GND`) so the face spans
+                // the full pair in declaration order — the same Node shape the
+                // canonical member-list form `{IN1, GND | OUT, GND}` produces,
+                // keeping the 2×2 through-device connectable (§5.3). A face id
+                // that is a leaf member or unknown stays verbatim.
+                let mut r1 = right1.to_vec();
+                let mut r2 = right2.to_vec();
+                if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                    base: McInstance::Component(c),
+                    ..
+                })) = &self
+                {
+                    let expand = |ids: &mut Vec<String>| {
+                        let mut out: Vec<String> = Vec::new();
+                        for id in ids.drain(..) {
+                            match c.base.pins.power_pair_member_refs(&id) {
+                                Some(refs) => out.extend(refs),
+                                None => out.push(id),
+                            }
+                        }
+                        *ids = out;
+                    };
+                    expand(&mut r1);
+                    expand(&mut r2);
+                }
+                let left = opd_to_node_element_vec(self.clone().dot_or_curly(&r1)?)?;
+                let right = opd_to_node_element_vec(self.dot_or_curly(&r2)?)?;
                 Some(McPhrase::Endpoint(McEndpoint::Node {
                     input: left
                         .iter()

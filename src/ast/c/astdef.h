@@ -68,6 +68,25 @@
 #define MCAST_IOTYPE_ANL               44
 #define MCAST_IOTYPE_NC                45
 #define MCAST_IOTYPE_LABEL             93 // 46+ already taken; 93 is the next free id in section 3
+#define MCAST_IOTYPE_PSRC              97 // power-source direction word (psrc) — pin/rail source side
+#define MCAST_IOTYPE_PSNK              98 // power-sink direction word (psnk) — pin/rail sink side
+#define MCAST_IOTYPE_PSBI              99 // power-bidirectional (psbi) — charge = sink, discharge = source
+
+//3.5 power-intent declarations (power-intent-design.md §5)
+//    MCAST_REF     = `conduit GND @role(main) @star` — conductor identity decl.
+//                    (keyword `conduit`, legacy alias `ref` accepted; node name
+//                    MCAST_REF retained as internal.)
+//                    sub = [ name(mc_ids), trailing MCAST_ATTRIBUTE* ]
+//    MCAST_DOMAIN  = `domain DVDD @class(...) { rail ... }` — domain/rail source
+//                    decl. sub = [ name(mc_ids), MCAST_ATTRIBUTE*, MCAST_BODY ]
+//    MCAST_RAIL    = a rail line inside a domain body, e.g.
+//                    `rail [VDD_3V3, GND]::DC(3.3V, ...)`.
+//                    sub = the DC-decl mc_phrase (MCAST_DECLARE shape).
+//    Trailing `@key(v)` / `@key` attributes reuse the existing
+//    MCAST_ATTRIBUTE(MCAST_ATT_ID, MCAST_ATT_VALUES) shape.
+#define MCAST_REF                      107
+#define MCAST_DOMAIN                   108
+#define MCAST_RAIL                     109
 
 //3.1 attr
 #define MCAST_ATT_ID                   46

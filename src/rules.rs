@@ -58,9 +58,11 @@
 
 use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
-    check_backfeed, check_driver_conflict, check_floating_inputs, check_floating_outputs,
-    check_nc_connected, check_pin_count_mismatch, check_port_io_mismatch, check_power_nets,
-    check_pullup_degenerate, check_single_point_nets, check_unconnected_outputs,
+    check_backfeed, check_clamp_ref_role, check_driver_conflict, check_floating_inputs,
+    check_floating_outputs, check_nc_connected, check_pin_contract_decode,
+    check_pin_count_mismatch, check_port_io_mismatch, check_power_bridge_loop, check_power_nets,
+    check_power_rail_contract, check_power_rail_two_roots, check_pullup_degenerate,
+    check_single_point_nets, check_sink_nominal_mismatch, check_unconnected_outputs,
     check_undriven_nets, check_unselected_abstract, check_unused_module_ports,
     check_unwired_instances, check_voltage_mismatch, NetCheckResult,
 };
@@ -685,6 +687,96 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_pullup_degenerate,
     },
+    // PWR-2 (power-intent-design.md §3.4): a DC @bridge subgraph loop (parallel/
+    // cyclic legs) with no @star discharge on a hub conduit.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POWER_BRIDGE_LOOP,
+        name = "power-bridge-loop",
+        title = "parallel DC @bridge forms a loop",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "Two or more DC @bridge legs relate the same L1 potential pair; declare @star on a hub ref to discharge (PWR-2).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_power_bridge_loop,
+    },
+    // PWR-7 (power-intent-design.md §11): @clamp(ref) must target protective/earth.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::CLAMP_REF_NOT_PROTECTIVE,
+        name = "clamp-ref-role",
+        title = "@clamp ref is not protective/earth",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "@clamp(ref) must reference an @role(protective)/@role(earth) ref; clamping to a main/quiet/isolated ref would dump transient current into the wrong reference (PWR-7).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_clamp_ref_role,
+    },
+    // §13.2 Volt-arg decode (rail side): a DC rail ctor arg must decode to the contract
+    // it names (nominal = signed DC volts, tol = ±%, capacity = current,
+    // eff = factor); off-register keys are flagged.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POWER_RAIL_DECODE,
+        name = "rail-contract-decode",
+        title = "DC rail contract argument does not decode",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "A rail [hot,ret]::DC(…) ctor arg must decode to the contract it names (power-intent-design.md §4.1/§5.2); no fake windows, no silent pass.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_power_rail_contract,
+    },
+    // P3 two-roots (§4.1 — an intermediate net never enters a domain): one net is the hot member of at
+    // most one rail; a second rail on the same hot = two handwritten S roots.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POWER_RAIL_TWO_ROOTS,
+        name = "rail-two-roots",
+        title = "net is hot member of two rails",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "A net must be the rail hot member of at most one domain rail — a second guarantee on the same net is a second handwritten S root and every downstream window ERC a fake conflict (P3).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_power_rail_two_roots,
+    },
+    // E-PWR-001 (§4.4 mandatory-nominal check / §11): a psnk sink on a net must
+    // require that net's derived supply nominal S — the canonical P3 case: a
+    // ::DC(3.3V) sink wired onto a 5V rail is a wrong hookup. S comes from the
+    // net's handwritten roots (§4.3): a declared rail
+    // face or a psrc/psbi hot directly on the net; copper pass-through
+    // propagation (S crossing a fuse/inductor/ferrite) is the later S-set step.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POWER_SINK_NOMINAL_MISMATCH,
+        name = "sink-nominal-mismatch",
+        title = "sink nominal does not match the net's supply guarantee",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "A sink (psnk) landing on a net must require that net's derived supply nominal S (a rail face or a psrc/psbi root, §4.3) — nominal vs nominal (the §4.4 mandatory-nominal check); a mismatch is a wrong hookup (P3/E-PWR-001).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_sink_nominal_mismatch,
+    },
+    // Pin-side Volt-arg decode (§5.2 closed word-list discipline): a psrc/psnk/psbi ::DC(…) ctor
+    // arg must decode to the contract it names. decode_pwr_pin keeps the first
+    // failure (non-DC nominal, source-exclusive key on a sink, spec window key
+    // on the pin, missing mandatory nominal); this rule reports it decl-locally.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POWER_PIN_DECODE,
+        name = "pin-contract-decode",
+        title = "power pin DC contract argument does not decode",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "A psrc/psnk/psbi ::DC(…) ctor arg must decode to the contract it names — sink nominal is mandatory and the only legal sink key; tol/capacity/eff are source-exclusive (PWR-4); req/abs belong in the component spec (§4.4 write-site rule) (power-intent-design.md §4.1/§5.2).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_pin_contract_decode,
+    },
 ];
 
 // ============================================================================
@@ -1243,17 +1335,19 @@ pub fn assembly_gate_blocking_tags() -> Vec<&'static str> {
 mod tests {
     use super::*;
     use crate::errcodes::{
-        ABSTRACT_PART_UNSELECTED, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_DANGLING_ENDPOINT,
-        NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED,
-        NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT,
-        NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH,
-        PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED, PULLUP_DEGENERATE,
+        ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, NET_BACKFEED_RISK,
+        NET_BIDIR_UNCONNECTED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
+        NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
+        NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
+        NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED,
+        POWER_BRIDGE_LOOP, POWER_PIN_DECODE, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
+        POWER_SINK_NOMINAL_MISMATCH, PULLUP_DEGENERATE,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 16] = [
+    const FLAT_ERC_ORDER: [u32; 22] = [
         NET_MULTI_DRIVE,             // P1
         NET_NO_DRIVER,               // P2
         NET_INPUT_UNCONNECTED,       // P5
@@ -1270,6 +1364,12 @@ mod tests {
         ABSTRACT_PART_UNSELECTED,    // abstract-variant
         NET_BIDIR_UNCONNECTED,       // floating outputs
         PULLUP_DEGENERATE,           // D7
+        POWER_BRIDGE_LOOP,           // PWR-2 (power-intent L1)
+        CLAMP_REF_NOT_PROTECTIVE,    // PWR-7 (power-intent L1)
+        POWER_RAIL_DECODE,           // rail Volt-arg decode (L2)
+        POWER_RAIL_TWO_ROOTS,        // P3 two-roots (L2)
+        POWER_SINK_NOMINAL_MISMATCH, // P3/E-PWR-001 mandatory nominal (L2)
+        POWER_PIN_DECODE,            // pin Volt-arg decode (L2, §5.2)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -1803,7 +1903,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (123, 0, 3));
+        assert_eq!((strong, doc, note), (129, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

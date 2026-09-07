@@ -1325,6 +1325,41 @@ pub const ABSTRACT_PART_UNSELECTED: u32 = 6005;
 /// untouched, so the unset state is always visible to a BOM/consumer.
 pub const VARIANT_SPEC_UNSET: u32 = 6006;
 
+/// DC `@bridge` subgraph forms a loop (parallel/cyclic legs) with no `@star`
+/// discharge on a hub ref — PWR-2 (power-intent-design.md §3.4).
+pub const POWER_BRIDGE_LOOP: u32 = 6007;
+
+/// `@clamp(ref)` references a ref whose role is not protective/earth — PWR-7
+/// (power-intent-design.md §11).
+pub const CLAMP_REF_NOT_PROTECTIVE: u32 = 6008;
+
+/// A DC `rail [hot,ret]::DC(…)` ctor argument does not decode to the contract
+/// it names (nominal not a DC volts value, tol not ±%, capacity not a current,
+/// eff not a factor, or an off-register param key) — the §13.2 Volt-arg decode
+/// (power-intent-design.md §4.1/§5.2).
+pub const POWER_RAIL_DECODE: u32 = 6009;
+
+/// The same net is the `hot` member of two rails (two handwritten supply roots
+/// on one S) — P3 fake-conflict (power-intent-design.md §4.1 — an intermediate net never enters a domain).
+pub const POWER_RAIL_TWO_ROOTS: u32 = 6010;
+
+/// A sink (`psnk`) lands on a net whose derived supply S differs from the
+/// sink's required nominal — the §4.4 mandatory-nominal check, the canonical P3/E-PWR-001 case
+/// (power-intent-design.md §4.4/§11; e.g. a `::DC(3.3V)` sink on a 5V rail or
+/// psrc-fed net). S comes from the net's handwritten supply roots (§4.3): a
+/// declared rail face or a psrc/psbi hot directly on the net. Requirement
+/// nominal vs guarantee nominal is the comparison; window ⊆-checks (req/abs,
+/// spec-declared) are a later S-set step.
+pub const POWER_SINK_NOMINAL_MISMATCH: u32 = 6011;
+
+/// A `psrc`/`psnk`/`psbi` `::DC(…)` ctor argument does not decode to the
+/// contract it names — the pin-side of 6009 (§13.2 Volt-arg decode / §5.2
+/// closed word-list discipline). A sink nominal is mandatory and the only legal
+/// sink key; tol/capacity/eff are source-exclusive (PWR-4); req/abs belong in
+/// the component `spec` (§4.4 write-site rule), never per-schematic.
+/// (power-intent-design.md §4.1/§5.2)
+pub const POWER_PIN_DECODE: u32 = 6012;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -1684,6 +1719,12 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ERC_FLOATING_NET, "Floating net.", "floating net: '{0}' has no driver"),
     entry!(ABSTRACT_PART_UNSELECTED, "Placed abstract component has no selected part (partno unset).", "abstract component instance '{0}' is unselected (no partno); BOM must pick a variant"),
     entry!(VARIANT_SPEC_UNSET, "Variant still carries an unset inherited spec item.", "variant '{0}' leaves spec item '{1}' unset (±0/empty)"),
+    entry!(POWER_BRIDGE_LOOP, "A DC @bridge subgraph contains a loop (parallel/cyclic legs).", "parallel DC @bridge between '{0}' and '{1}' forms a loop; declare @star on a hub ref to discharge it (PWR-2)"),
+    entry!(CLAMP_REF_NOT_PROTECTIVE, "@clamp(ref) must reference a protective/earth-role ref.", "@clamp target '{0}' must be an @role(protective)/@role(earth) ref, but its role is '{1}' (PWR-7)"),
+    entry!(POWER_RAIL_DECODE, "A DC rail contract argument does not decode.", "rail [{0}, {1}]::DC: {2}"),
+    entry!(POWER_RAIL_TWO_ROOTS, "A net is the hot member of two rails (two handwritten supply roots).", "net '{0}' is a rail guarantee in both domain '{1}' and domain '{2}' — one net carries one handwritten supply root (P3)"),
+    entry!(POWER_SINK_NOMINAL_MISMATCH, "A sink terminal's required DC nominal does not match the supply guarantee of the net it lands on.", "sink '{0}' on net '{1}' requires {2}, but the net's supply guarantee is {3} — sink nominal ≠ supply nominal (P3/E-PWR-001)"),
+    entry!(POWER_PIN_DECODE, "A power pin DC contract argument does not decode.", "power pin '{0}.{1}': {2}"),
     // ---- section ----
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),

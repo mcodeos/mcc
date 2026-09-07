@@ -148,11 +148,16 @@ pub struct McAttribute {
 impl McAttribute {
     pub fn new(node: &AstNode) -> Option<Self> {
         // MCAST_ATTRIBUTE
-        // |- MCAST_ATT_ID --- MCAST_ATT_VALUES
+        // |- MCAST_ATT_ID (--- MCAST_ATT_VALUES)?
+        //
+        // Power-intent trailing attributes add two shapes (power-intent-design.md
+        // §5 / mca.y mc_tattr): the valued `@role(main)` form keeps the classic
+        // [MCAST_ATT_ID, MCAST_ATT_VALUES] child pair, while a bare flag such as
+        // `@star` / `@return` yields MCAST_ATT_ID as the *only* child. The value
+        // sibling is therefore optional — a flag attribute has no values.
 
         //1. Check child node: exists + type
         let subnode1 = node.get_sub_node().expect(MISSING_SUBNODE);
-        let subnode2 = subnode1.get_next().expect(MISSING_SUBNODE);
 
         if !subnode1.is_type(MCAST_ATT_ID) {
             dlog_error(
@@ -170,6 +175,16 @@ impl McAttribute {
             (snode1_ids_node.get_pos() as usize)
                 ..((snode1_ids_node.get_pos() + snode1_ids_node.get_len()) as usize),
         );
+
+        // The value sibling is optional: `@star` (bare flag) has no MCAST_ATT_VALUES.
+        let Some(subnode2) = subnode1.get_next() else {
+            return Some(Self {
+                no: 0,
+                id: attr_id,
+                values: Vec::new(),
+                key_span,
+            });
+        };
 
         // Special case: if value is MCAST_OPD_SQUARE_VEC containing colon expressions,
         // treat the attribute id as the KVS key

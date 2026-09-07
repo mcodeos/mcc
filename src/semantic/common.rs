@@ -10,7 +10,8 @@ use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
 use crate::{
     McIds, MCAST_IOTYPE, MCAST_IOTYPE_ANL, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_LABEL,
-    MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT, MCAST_IOTYPE_PS, MCAST_IOTYPE_RETURN,
+    MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT, MCAST_IOTYPE_PS, MCAST_IOTYPE_PSBI, MCAST_IOTYPE_PSNK,
+    MCAST_IOTYPE_PSRC, MCAST_IOTYPE_RETURN,
 };
 use std::collections::HashMap;
 use std::ops::Range;
@@ -40,6 +41,14 @@ impl IOType {
                 MCAST_IOTYPE_OUT => return Some(IOType::Out),
                 MCAST_IOTYPE_IO => return Some(IOType::InOut),
                 MCAST_IOTYPE_PS => return Some(IOType::Power),
+                MCAST_IOTYPE_PSRC | MCAST_IOTYPE_PSNK | MCAST_IOTYPE_PSBI => {
+                    // power-intent §5.2 direction-word family (psrc source / psnk sink /
+                    // psbi conditional): these ARE power terminals, so they take
+                    // IOType::Power in the net model; the energy *direction* is
+                    // captured separately by the pin contract reader (§4.1) —
+                    // it cannot ride on the single IOType value.
+                    return Some(IOType::Power);
+                }
                 MCAST_IOTYPE_ANL => return Some(IOType::Analog),
                 MCAST_IOTYPE_RETURN => return Some(IOType::Return),
                 MCAST_IOTYPE_NC => return Some(IOType::NonCon),

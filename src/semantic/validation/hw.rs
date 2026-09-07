@@ -159,7 +159,14 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             false
         });
 
-        if !has_voltage_attr && !has_voltage_param && !has_voltage_iface {
+        // §4.1/§5.2 power-intent: a `psrc/psnk/psbi` row's trailing `::DC(...)`
+        // declare is the modern way to document a supply pin's nominal — it is
+        // captured into `pins.pwr` (mc_pins), so a component carrying such a
+        // contract needs no legacy `voltage` attribute. (Same coarse axis as
+        // `has_voltage_iface`: any contract anywhere satisfies the hint.)
+        let has_pwr_contract = !comp.pins.pwr.is_empty();
+
+        if !has_voltage_attr && !has_voltage_param && !has_voltage_iface && !has_pwr_contract {
             // One Info per supply pin, anchored on the pin's own name span: the
             // suggested fix (a `voltage` attribute) belongs on the supply pin,
             // so the marker lives there, not on the component name. A pin that
