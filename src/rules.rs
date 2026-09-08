@@ -58,10 +58,10 @@
 
 use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
-    check_backfeed, check_clamp_ref_role, check_driver_conflict, check_earth_dc_leak,
-    check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
-    check_pin_contract_decode, check_pin_count_mismatch, check_port_io_mismatch,
-    check_power_bridge_loop, check_power_nets, check_power_rail_contract,
+    check_backfeed, check_clamp_ref_role, check_combine_output_tol, check_driver_conflict,
+    check_earth_dc_leak, check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge,
+    check_nc_connected, check_pin_contract_decode, check_pin_count_mismatch,
+    check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
     check_power_rail_two_roots, check_power_source_contention, check_protective_multi_bridge,
     check_pullup_degenerate, check_reference_island_root, check_role_ref_missing_bridge,
     check_single_point_nets, check_sink_nominal_mismatch, check_unconnected_outputs,
@@ -885,6 +885,23 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_undriven_sink_net,
     },
+    // rail-contract-design.md §6.2③: a combine element (≥2 psnk/psbi input
+    // rows + psrc output, no spec.output — structural combine test today, §6.5)
+    // is a pass-through OR-merge, never a regulator: its output psrc writes the
+    // merged nominal only. A tol there re-anchors a window no single live input
+    // can hold — the over-claim the ∪ semantics exists to catch. Decl-local.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::COMBINE_OUTPUT_TOL,
+        name = "combine-output-tol",
+        title = "combine element output declares a tolerance window",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "A combine element (≥2 psnk/psbi input power rows + a psrc output row) is a pass-through OR-merge, not a regulator: its output psrc writes the merged nominal ::DC(v) only, never a ±tol window — a pass can't guarantee tighter than its live input, so a literal OUT window over-claims under single-source states (rail-contract-design.md §6.2③).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_combine_output_tol,
+    },
 ];
 
 // ============================================================================
@@ -1443,20 +1460,21 @@ pub fn assembly_gate_blocking_tags() -> Vec<&'static str> {
 mod tests {
     use super::*;
     use crate::errcodes::{
-        ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, EARTH_DC_LEAK, ISOLATED_DC_BRIDGE,
-        NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
-        NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
-        NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
-        NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED,
-        POWER_BRIDGE_LOOP, POWER_PIN_DECODE, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
-        POWER_SINK_NOMINAL_MISMATCH, POWER_SOURCE_CONTENTION, PROTECTIVE_MULTI_BRIDGE,
-        PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
+        ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, EARTH_DC_LEAK,
+        ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_DANGLING_ENDPOINT,
+        NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED,
+        NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT,
+        NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH,
+        PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED, POWER_BRIDGE_LOOP, POWER_PIN_DECODE,
+        POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS, POWER_SINK_NOMINAL_MISMATCH,
+        POWER_SOURCE_CONTENTION, PROTECTIVE_MULTI_BRIDGE, PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT,
+        ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 29] = [
+    const FLAT_ERC_ORDER: [u32; 30] = [
         NET_MULTI_DRIVE,             // P1
         NET_NO_DRIVER,               // P2
         NET_INPUT_UNCONNECTED,       // P5
@@ -1486,6 +1504,7 @@ mod tests {
         REFERENCE_ISLAND_ROOT,       // §3.2.1 one main per DC-bridged reference island
         ROLE_REF_MISSING_BRIDGE,     // conduit-equivalence §8.4 quiet/protective zero-bridge
         SINK_NET_NO_SOURCE,          // PWR-1 no-source face (axis ③, L3)
+        COMBINE_OUTPUT_TOL,          // §6.2③ combine output nominal-only (rail-contract §6, L3)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2019,7 +2038,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (136, 0, 3));
+        assert_eq!((strong, doc, note), (137, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
