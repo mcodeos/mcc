@@ -3215,6 +3215,7 @@ mod tests {
                         values: Arc::new(vec![]),
                         active_low: false,
                         is_nc: false,
+                        attrs: McAttributes::new(),
                     },
                 );
                 mp.decl_order.push(pid.to_string());

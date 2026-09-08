@@ -11,7 +11,7 @@ use crate::query::refs::mcb_register_declare_class;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ida::IdaSegment;
 use crate::semantic::basic::mc_ids::IdsSegment;
-use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
+use crate::semantic::component::mc_attr::{McAttrVal, McAttribute, McAttributes};
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_ifs::Mc2Interface;
 use crate::{
@@ -59,6 +59,13 @@ pub struct McPin {
     pub active_low: bool,
     /// §2.19: true if this pin is NC (Not Connected)
     pub is_nc: bool,
+    /// Trailing `@attr…` run on the pin row that declared this pin
+    /// (power-intent-design.md §5.1 unified slot) — identity-axis words such as
+    /// `@class(digital|analog)` / `@nature` / `@noise` on non-power io/in/out
+    /// rows. Power rows carry theirs on [`McPwrPin::attrs`]; this slot records
+    /// them for generic rows so the words are never silently dropped. Empty on
+    /// rows that declare no trailing attributes.
+    pub attrs: McAttributes,
 }
 
 /// Energy direction of a power-intent terminal — power-intent-design §5.2
@@ -99,6 +106,11 @@ pub struct McPwrPin {
     pub ret: Option<String>,
     pub params: Vec<PwrParam>,
     pub span: std::ops::Range<usize>,
+    /// Trailing `@attr…` run on the pin row (power-intent-design.md §5.1 unified
+    /// slot) — identity-axis words such as `@class(digital|analog)` /
+    /// `@nature` / `@noise`. Captured verbatim into the typed reader's reach;
+    /// semantic adjudication of these axes is a later ERC step.
+    pub attrs: McAttributes,
 }
 
 /// McPins definition
@@ -246,9 +258,28 @@ impl McPins {
                 continue; // power-direction pin without a trailing `::` contract
             };
             if let Some(pin) = Self::read_pwr_declare(dir, &declare) {
+                let mut pin = pin;
+                // Trailing `@attr…` run lives on the pin *line* (siblings after
+                // the name side), not inside the `::` declare — collect it here.
+                pin.attrs = Self::collect_line_attrs(&pnode);
                 self.pwr.push(pin);
             }
         }
+    }
+
+    /// The trailing `@key(value)` / `@key` run of a pin line — the
+    /// `MCAST_ATTRIBUTE` siblings after the name side (design §5.1 unified
+    /// slot). Empty when the row carries no attributes.
+    fn collect_line_attrs(pnode: &AstNode) -> McAttributes {
+        let mut attrs = McAttributes::new();
+        if let Some(head) = pnode.get_sub_node() {
+            for c in head.iter() {
+                if c.is_type(MCAST_ATTRIBUTE) {
+                    attrs.parse(&c);
+                }
+            }
+        }
+        attrs
     }
 
     /// The iotype keyword of a pin line as an energy direction — `None` unless
@@ -320,6 +351,7 @@ impl McPins {
             ret,
             params,
             span,
+            attrs: McAttributes::new(), // trailing `@attr…` filled by the caller
         })
     }
 
@@ -557,6 +589,7 @@ impl McPins {
         node: &AstNode,
         iotype: IOType,
         values: &[McAttrVal],
+        attrs: &McAttributes,
     ) -> Option<dynamic::DynamicPinLine> {
         let subnodes = node.get_sub_node()?;
 
@@ -595,7 +628,11 @@ impl McPins {
         let mut line = dynamic::DynamicPinLine::new()
             .with_iotype(iotype)
             .with_values(values.to_vec())
-            .with_pin_id(pin_id_expr);
+            .with_pin_id(pin_id_expr)
+            // Row-level identity words trail the whole bank declaration
+            // (`out [1:N] = D[1:N] @class(digital)`); the line is the def-level
+            // home until the bank materializes per instantiation (§5.1).
+            .with_attrs(attrs.clone());
 
         if let Some(name_expr) = pin_name_expr {
             line = line.with_pin_name(name_expr);
@@ -766,6 +803,10 @@ impl McPins {
             let mut pinnames_node: Option<AstNode> = None;
             let mut values: Option<Vec<McAttrVal>> = None;
             let mut pin_name_has_param_ref = false;
+            // Trailing `@attr…` run on THIS row (power-intent-design.md §5.1) —
+            // carried onto the pins the row registers so identity words on
+            // non-power io/in/out rows are not silently dropped.
+            let mut line_attrs = McAttributes::new();
 
             for subnode in subnodes.iter() {
                 match subnode.get_type() {
@@ -935,6 +976,15 @@ impl McPins {
                     MCAST_ATT_VALUES => {
                         values = McAttribute::new_attr_values(&subnode);
                     }
+                    MCAST_ATTRIBUTE => {
+                        // Trailing `@attr…` run (power-intent-design.md §5.1) —
+                        // an extra sibling after the name side. Power-direction
+                        // lines keep it on `pwr[].attrs` (capture_pwr_lines);
+                        // generic rows carry it onto the registered pins
+                        // (`.attrs`) — identity-axis adjudication is a later
+                        // ERC step, but the words are never dropped.
+                        line_attrs.parse(&subnode);
+                    }
                     _ => {
                         dlog_error(
                             crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
@@ -953,7 +1003,9 @@ impl McPins {
             let values = values.unwrap_or_default();
 
             if pin_name_has_param_ref {
-                if let Some(dyn_line) = self.parse_dynamic_pin_line(&pnode, iotype, &values) {
+                if let Some(dyn_line) =
+                    self.parse_dynamic_pin_line(&pnode, iotype, &values, &line_attrs)
+                {
                     self.dynamic_pins.push(dyn_line);
                 }
                 continue;
@@ -1675,6 +1727,12 @@ impl McPins {
                     _ => {}
                 }
             }
+            // Row-level identity words (`@class/@noise/…`) ride every McPin this
+            // row registered, by pin id (all register_pin for the row have run;
+            // `pinids` is unwrapped above).
+            if !line_attrs.is_empty() {
+                Self::attach_row_attrs(&mut self.pins, &pinids, &line_attrs);
+            }
         }
     }
 
@@ -2111,6 +2169,32 @@ impl McPins {
         arc
     }
 
+    /// Merge a pin row's trailing identity attributes onto the McPin(s) the row
+    /// registered, by pin id. A later row appending names to an already-existing
+    /// pin extends its attrs only with keys it does not yet carry (the identity
+    /// of a pin is declared once — first declaration wins).
+    fn attach_row_attrs(
+        pins: &mut BTreeMap<String, McPin>,
+        pinids: &McPinPort,
+        attrs: &McAttributes,
+    ) {
+        let mut visit = |pid: &str| {
+            if let Some(pin) = pins.get_mut(pid) {
+                for a in attrs.iter() {
+                    if pin.attrs.find(&a.id).is_none() {
+                        pin.attrs.push(a.clone());
+                    }
+                }
+            }
+        };
+        match pinids {
+            McPinPort::Single(pid) => visit(pid),
+            McPinPort::Multi(pids) => pids.iter().for_each(|p| visit(p)),
+            McPinPort::MultiGroup(groups) => groups.iter().flatten().for_each(|p| visit(p)),
+            _ => {}
+        }
+    }
+
     fn register_pin(
         &mut self,
         iotype: IOType,
@@ -2159,6 +2243,7 @@ impl McPins {
                     values: values_arc,
                     active_low,
                     is_nc,
+                    attrs: McAttributes::new(),
                 },
             );
         }
@@ -3674,5 +3759,101 @@ module main {
             "no ::DC contract on any line; got pwr: {:?}",
             pins.pwr
         );
+    }
+
+    /// §5.1 identity words on generic (non-power) component io/in/out rows ride
+    /// the registered pins' `attrs` — never silently dropped. Only rows that
+    /// carry a trailing `@attr` contribute; a bare row's pins keep empty attrs.
+    #[test]
+    fn generic_io_row_identity_attrs_carry_to_pins() {
+        const SRC: &str = r#"component A {
+    pins = [
+        in   3 = CE    @class(analog) @noise(sensitive)
+        io  [6,7] = [INP, INN] @nature(ac)
+        out  9 = DONE  @bind_role(earth)
+        psnk [1,2] = [VDD, GND]::DC(3.3V)   // power row, no trailing @attr
+        io   5 = EN                        // plain row, no @attr
+    ]
+}
+module main {
+}
+"#;
+        let pins = parse_component_pins(SRC, "A");
+
+        let class = |id: &str| -> Vec<String> {
+            pins.pins[id].attrs.iter().map(|a| a.to_string()).collect()
+        };
+        // `in 3 = CE @class(analog) @noise(sensitive)` → pin "3" carries both.
+        let ce = class("3");
+        assert!(
+            ce.contains(&"class = analog".to_string()),
+            "pin 3 attrs: {ce:?}"
+        );
+        assert!(ce.contains(&"noise = sensitive".to_string()), "{ce:?}");
+
+        // Both members of `io [6,7] = [INP, INN] @nature(ac)` carry the row attr.
+        assert_eq!(class("6"), vec!["nature = ac".to_string()], "INP");
+        assert_eq!(class("7"), vec!["nature = ac".to_string()], "INN");
+
+        // `out 9 = DONE @bind_role(earth)` → the pin carries the role contract.
+        assert_eq!(class("9"), vec!["bind_role = earth".to_string()]);
+
+        // Rows without trailing @attrs leave their pins' attrs empty.
+        assert!(class("1").is_empty(), "VDD power pin attrs empty");
+        assert!(class("5").is_empty(), "plain io pin attrs empty");
+    }
+
+    /// Merging: a later row reusing a pin id appends only attrs the pin does
+    /// not already carry (first-declared identity wins).
+    #[test]
+    fn row_attrs_merge_into_reused_pin_without_duplicate_keys() {
+        const SRC: &str = r#"component B {
+    pins = [
+        in  2 = SEL  @class(analog)
+        io  2 = SEL2 @noise(quiet)
+    ]
+}
+module main {
+}
+"#;
+        let pins = parse_component_pins(SRC, "B");
+        let texts: Vec<String> = pins.pins["2"].attrs.iter().map(|a| a.to_string()).collect();
+        assert!(
+            texts.contains(&"class = analog".to_string())
+                && texts.contains(&"noise = quiet".to_string()),
+            "both rows' identity words survive: {texts:?}"
+        );
+    }
+
+    /// §5.1 identity words on a *dynamic* (param-ranged) pin row are not dropped
+    /// either: the bank declaration `out [1:N] = D[1:N] @class(digital)` carries
+    /// its words on the `DynamicPinLine` (the def-level home until the bank
+    /// materializes per instantiation). A static-row control stays a static pin,
+    /// never a dynamic line.
+    #[test]
+    fn dynamic_pin_row_identity_attrs_carry_on_the_line() {
+        const SRC: &str = r#"component GPIO_BANK(N::INT = 4) {
+    pins = [
+        out [1:N] = D[1:N] @class(digital) @noise(noisy)
+        in  9 = EN
+    ]
+}
+module main {
+}
+"#;
+        let pins = parse_component_pins(SRC, "GPIO_BANK");
+
+        assert_eq!(pins.dynamic_pins.len(), 1, "{:?}", pins.dynamic_pins);
+        let line = &pins.dynamic_pins[0];
+        let texts: Vec<String> = line.attrs.iter().map(|a| a.to_string()).collect();
+        assert!(
+            texts.contains(&"class = digital".to_string())
+                && texts.contains(&"noise = noisy".to_string()),
+            "bank identity words ride the line: {texts:?}"
+        );
+
+        // The static `in 9 = EN` row registers a normal pin with empty attrs.
+        assert_eq!(pins.pins.len(), 1, "{:?}", pins.pins);
+        assert!(pins.pins["9"].attrs.is_empty());
     }
 }

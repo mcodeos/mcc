@@ -4373,8 +4373,8 @@ impl McCode {
             }
             // Module-param net refs (`m.params.iter_net_refs()`) reference the
             // module's own param/port declarations (e.g. the curly bus param
-            // `USB_VBUS_1` in `module M(USB_VBUS_1{VDD_3V, GND}::DC(3.3V))` used
-            // at `USB_VBUS_1 {VDD_3V, GND} -> ...`). Those defs are ParamDef /
+            // `USB_VBUS_1` in `module M(psnk USB_VBUS_1{VDD_3V, GND}::DC(3.3V))`
+            // used at `USB_VBUS_1 {VDD_3V, GND} -> ...`). Those defs are ParamDef /
             // PortDef, so the ref kind must be PortRef: fill_refdef_layer2 maps
             // InstRef only to InstDef, which would drop the entry and make F12
             // self-locate instead of jumping to the param declaration.
@@ -6973,7 +6973,7 @@ component TEST_PKG
     package = PKG.SOT_23_5
 }
 
-module TEST_IFS([VDD, GND]::DC(3.3V))
+module TEST_IFS(psnk [VDD, GND]::DC(3.3V))
 {
 }
 

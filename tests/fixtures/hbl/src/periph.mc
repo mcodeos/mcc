@@ -29,7 +29,7 @@ component MICROPHONE.WM7121P
     ]  
 }
 
-module MIC_SIP(dc{VDD_3V3, GND}::DC(3.3V))
+module MIC_SIP(psnk dc{VDD_3V3, GND}::DC(3.3V))
 {
     out MIC{P, N}::ADC.DIFF(Transmitter)
 
@@ -79,7 +79,7 @@ component SPEAKER.PHB2AWB
     ]
 }
 
-module SPEAKER_M(USB_VBUS_1{VDD_3V, GND}::DC(3.3V))
+module SPEAKER_M(psnk USB_VBUS_1{VDD_3V, GND}::DC(3.3V))
 {
     in DAC_OUT , US_SPEAKER_MUTE
 

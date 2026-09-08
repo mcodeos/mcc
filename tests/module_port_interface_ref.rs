@@ -25,7 +25,7 @@ interface DC(volt)
     ]
 }
 
-module main([VDD_3V3,GND]::DC(3.3V))
+module main(psnk [VDD_3V3,GND]::DC(3.3V))
 {
     VDD_3V3 -> GND
 }

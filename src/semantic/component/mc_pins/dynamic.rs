@@ -6,7 +6,7 @@ use crate::ast::node::AstNode;
 use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::common::IOType;
-use crate::semantic::component::mc_attr::McAttrVal;
+use crate::semantic::component::mc_attr::{McAttrVal, McAttributes};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -197,6 +197,12 @@ pub struct DynamicPinLine {
     pub pin_id_expr: Option<DynamicPinExpr>,
     pub pin_name_expr: Option<DynamicPinExpr>,
     pub values: Arc<Vec<McAttrVal>>,
+    /// Row-level identity words (`@class/@noise/…`, power-intent-design.md
+    /// §5.1) trail a *bank* declaration like `out [1:N] = D[1:N]`. The bank is
+    /// only materialized into concrete pins per instantiation, so the words
+    /// ride the line itself — mirroring how a static row's words ride each
+    /// registered McPin's `attrs` (see `attach_row_attrs`). Never dropped.
+    pub attrs: McAttributes,
 }
 
 impl DynamicPinLine {
@@ -206,7 +212,13 @@ impl DynamicPinLine {
             pin_id_expr: None,
             pin_name_expr: None,
             values: Arc::new(Vec::new()),
+            attrs: McAttributes::new(),
         }
+    }
+
+    pub fn with_attrs(mut self, attrs: McAttributes) -> Self {
+        self.attrs = attrs;
+        self
     }
 
     pub fn with_iotype(mut self, iotype: IOType) -> Self {

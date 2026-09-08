@@ -82,7 +82,7 @@ component DIO.ESD
     ]
 }
 
-module main(dc{VDD_3V3, GND}::DC(3.3V))
+module main(psnk dc{VDD_3V3, GND}::DC(3.3V))
 {
     MICROPHONE.WM7121P wm7121(NC)
     CAP(100nF).Cap([dc.VDD_3V3 -> wm7121.VCC], dc.GND)
@@ -351,7 +351,9 @@ fn svc_goto__dotted_chain_base_resolves_to_param_decl() {
     let dump = load_and_dump();
     // The base `dc` of `(spk.3 + spk.4) -> dc.GND` must resolve to the module
     // param declaration `dc{VDD_3V3, GND}` (PortRef → ParamDef), not to the
-    // whole-chain member `GND` and not to the chain base's own text.
+    // whole-chain member `GND` and not to the chain base's own text. The header
+    // carries the explicit `psnk` direction (no-direction sugar is E3055); the
+    // ParamDef anchors at the `dc` name token inside `psnk dc{VDD_3V3, GND}`.
     let arrow = SOURCE.find("-> dc.GND").expect("arrow dc.GND in source");
     let dc_off = arrow + "-> ".len();
     let base_span = (dc_off, dc_off + "dc".len());
@@ -362,9 +364,9 @@ fn svc_goto__dotted_chain_base_resolves_to_param_decl() {
         ref_interval(&dump, "PortRef", base_span).expect("PortRef interval for chain base dc");
     assert_eq!(
         map_def_span(&dump, "PortRef", ref_id),
-        Some((param_decl, param_decl + "dc{VDD_3V3, GND}".len())),
+        Some((param_decl, param_decl + "dc".len())),
         "chain base dc must map to ParamDef at {param_decl}..{}",
-        param_decl + "dc{VDD_3V3, GND}".len()
+        param_decl + "dc".len()
     );
 
     // The instance base `spk` in `spk.3` stays an InstRef → InstDef (not a

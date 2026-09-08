@@ -180,8 +180,9 @@ impl InstantiationBuilder {
             // module ports instead of internal labels.
             //
             // ── P2-4 exception ──
-            // Interface-type items in the module signature (e.g. `[VDD_3V3,GND]::DC(3.3V)`)
-            // have IOType::None but ARE real ports. They must be added to self.ports
+            // Interface-type items in the module signature (e.g. `psnk [VDD_3V3,GND]::DC(3.3V)`)
+            // have IOType::Power (or IOType::None on the removed no-direction
+            // sugar, E3055) but ARE real ports. They must be added to self.ports
             // so that `bind_actual_args_to_ports` can find them.
             let is_interface_port = matches!(inst, McInstance::Interface(_));
             if matches!(iotype, IOType::None) && !is_interface_port {

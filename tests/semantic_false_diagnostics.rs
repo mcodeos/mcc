@@ -469,3 +469,66 @@ module main(io LIN)
     let result = parse(source);
     assert!(has_code(&result, 5057), "expected E5057: {result}");
 }
+
+/// ── Header-DC direction rule (E3055) ────────────────────────────────────────
+/// A module-header interface-typed (power/DC) parameter must carry an explicit
+/// energy-direction word. The no-direction sugar (`module X([VDD,GND]::DC(v))`,
+/// `module X(dc{VDD,GND}::DC(v))`, `module X(pwr::DC(v))`) is removed: E3055,
+/// no legacy tolerance. Every shape must error, and the directed form must not.
+#[test]
+fn sem_falsediag__directionless_module_header_power_param_is_e3055() {
+    // Square net-list form, curly name-prefix form, and bare-name declare form.
+    let source = r#"module SQ([VDD, GND]::DC(3.3V))
+{
+}
+module CB(dc{VDD_3V3, GND}::DC(3.3V))
+{
+}
+module BA(pwr::DC(5V))
+{
+}
+module main
+{
+}
+"#;
+    let result = parse(source);
+    let hits: Vec<&str> = diagnostics(&result)
+        .iter()
+        .filter(|d| d["code"].as_u64() == Some(3055))
+        .map(|d| d["message"].as_str().unwrap_or(""))
+        .collect();
+    assert_eq!(
+        hits.len(),
+        3,
+        "expected E3055 once per directionless module header (SQ/CB/BA), and \
+         no module beyond them (shape-driven, exactly the no-direction forms): {result}"
+    );
+    assert!(
+        hits.iter().all(|m| m.contains("direction word")),
+        "E3055 message must name the missing direction word: {hits:?}"
+    );
+}
+
+#[test]
+fn sem_falsediag__directed_and_func_header_power_params_quiet() {
+    // Explicit direction words (any of psnk/psrc/psbi) on module-header power
+    // declares are the canonical form and must be E3055-silent. A `func`-header
+    // interface declare is a leaf-macro label, not a module port — also quiet.
+    let source = r#"module main(psnk [VDD_3V3, GND]::DC(3.3V))
+{
+    func pwr([A, B]::DC(3.3V))
+    {
+    }
+    pwr -> GND
+}
+module MIXED(psrc out_v{VBUS, GND}::DC(5V), psbi io_v{VCC, GND}::DC(3.3V))
+{
+}
+"#;
+    let result = parse(source);
+    assert!(
+        !has_code(&result, 3055),
+        "directed module-header power params and func-header declares must be \
+         E3055-silent: {result}"
+    );
+}

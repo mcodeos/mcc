@@ -58,6 +58,11 @@ pub struct McPowerDecls {
     /// `@clamp`/`@star`), in source order. A net with no trailing attributes
     /// contributes no edge.
     pub net_edges: Vec<McNetEdge>,
+    /// Module-interface port rows that carry identity-axis trailing attributes
+    /// (`io … @class/@noise/@nature/@return/@exposed`, `out … @bind_role`) —
+    /// design §5.1 unified slot. The generic net reader registers the port
+    /// operands but drops the trailing words, so they are re-captured here.
+    pub ports: Vec<McPortDecl>,
 }
 
 impl McPowerDecls {
@@ -87,6 +92,12 @@ impl McPowerDecls {
     pub fn parse_net(&mut self, node: &AstNode) {
         if let Some(e) = McNetEdge::from_node(node) {
             self.net_edges.push(e);
+        }
+    }
+
+    pub fn parse_port(&mut self, node: &AstNode) {
+        if let Some(p) = McPortDecl::from_node(node) {
+            self.ports.push(p);
         }
     }
 
@@ -142,6 +153,32 @@ impl McPowerDecls {
                     continue;
                 }
                 out.push(decode_rail(&d.name, r));
+            }
+        }
+        out
+    }
+
+    /// Decode identity-bearing module port rows into typed L1 identity reads
+    /// (design §5.2/§8/§9): one entry per declared net-visible member of each
+    /// row, carrying the row's identity-axis words (`@class`/`@nature`/`@noise`/
+    /// `@return`/`@exposed`/`@bind_role`). No rule semantics here — the ERC
+    /// axes (SN-1 return coupling, PWR-6 exposed→clamp, port role contract)
+    /// consume these later.
+    pub fn l1_ports(&self) -> Vec<L1Port> {
+        let mut out = Vec::new();
+        for p in &self.ports {
+            for name in &p.names {
+                out.push(L1Port {
+                    kind: p.kind.clone(),
+                    name: name.clone(),
+                    class: first_text(&p.attrs, "class"),
+                    nature: first_text(&p.attrs, "nature"),
+                    noise: first_text(&p.attrs, "noise"),
+                    ret: first_text(&p.attrs, "return"),
+                    exposed: attr_texts(&p.attrs, "exposed"),
+                    bind_role: first_text(&p.attrs, "bind_role"),
+                    span: p.span.clone(),
+                });
             }
         }
         out
@@ -260,6 +297,10 @@ pub struct L1PwrPin {
     /// First decode problem, if any (missing/non-DC nominal, a
     /// source-exclusive key on a sink, or a `spec`-belonging window key).
     pub bad: Option<String>,
+    /// Trailing `@attr…` run of the source pin row (design §5.1), carried
+    /// through decode so identity words (`@class(digital|analog)`, …) reach the
+    /// rule layer instead of being dropped between capture and the typed read.
+    pub attrs: McAttributes,
     pub span: Range<usize>,
 }
 
@@ -278,6 +319,7 @@ pub(crate) fn decode_pwr_pin(pin: &McPwrPin) -> L1PwrPin {
         capacity_amps: None,
         eff: None,
         bad: None,
+        attrs: pin.attrs.clone(),
         span: pin.span.clone(),
     };
     for p in &pin.params {
@@ -445,6 +487,11 @@ fn attr_texts(attrs: &McAttributes, key: &str) -> Vec<String> {
         .collect()
 }
 
+/// First value of the attribute `key`, if present (`@class(analog)` → `analog`).
+fn first_text(attrs: &McAttributes, key: &str) -> Option<String> {
+    attr_texts(attrs, key).into_iter().next()
+}
+
 /// Whether an attribute with key `key` is present (bare flags like `@star`).
 fn has_attr(attrs: &McAttributes, key: &str) -> bool {
     attrs.iter().any(|a| a.id.to_string() == key)
@@ -492,6 +539,77 @@ impl McNetEdge {
             span: clause_span(node),
         })
     }
+}
+
+/// One module-interface port row that carries identity-axis trailing
+/// attributes — `io MIC{P, N} @class(analog) @return(GNDA)`,
+/// `out shield_to_earth @bind_role(earth)`, `io DP_OUT, DM_OUT @exposed(…)`.
+/// Only rows with ≥1 trailing attribute are captured (a plain `io` row is an
+/// ordinary port, not a power-intent declaration). `kind` is the iotype word
+/// (`io`/`in`/`out`/`psrc`/…); `names` are the row's declared net-visible
+/// members, bus-curly expanded (`MIC{P, N}` → `["MIC.P", "MIC.N"]`).
+#[derive(Debug, Clone)]
+pub struct McPortDecl {
+    pub kind: String,
+    pub names: Vec<String>,
+    pub attrs: McAttributes,
+    pub span: Span,
+}
+
+impl McPortDecl {
+    fn from_node(node: &AstNode) -> Option<Self> {
+        // MCAST_NET_PORTS.sub = [ IOTYPE keyword carrier,
+        //                         (port operand)*,
+        //                         (MCAST_ATTRIBUTE)* ]
+        let head = node.get_sub_node()?;
+        let mut children = head.iter();
+        let iotype_node = children.next()?;
+        let kind = leaf_text(&iotype_node)?;
+
+        let mut names = Vec::new();
+        let mut attrs = McAttributes::new();
+        for c in children {
+            match c.get_type() {
+                MCAST_OPD => names.extend(opd_member_names(&c)),
+                MCAST_ATTRIBUTE => {
+                    attrs.parse(&c);
+                }
+                // DECLARE operands (a `psrc vin{…}::DC(…)` row) and other
+                // non-identifier children contribute no net-visible member.
+                _ => {}
+            }
+        }
+        if attrs.is_empty() {
+            // No identity words → an ordinary port row, not this layer's concern.
+            return None;
+        }
+        Some(Self {
+            kind,
+            names,
+            attrs,
+            span: clause_span(node),
+        })
+    }
+}
+
+/// One decoded identity-bearing port member — the typed projection of
+/// [`McPortDecl`] that the §9/§8 identity axes read. Field-per-key extraction
+/// only; defaults are `None`/empty when the word is absent.
+#[derive(Debug, Clone)]
+pub struct L1Port {
+    pub kind: String,
+    pub name: String,
+    pub class: Option<String>,
+    pub nature: Option<String>,
+    pub noise: Option<String>,
+    /// `@return(<conduit>)` — the declared return-reference anchor (SN-1).
+    pub ret: Option<String>,
+    /// `@exposed(<level>)` levels — one per occurrence (PWR-5/6 threat entry).
+    pub exposed: Vec<String>,
+    /// `@bind_role(<role>)` — the port-role contract the parent binding must
+    /// satisfy (composition-terminal-design §4 reference-binding).
+    pub bind_role: Option<String>,
+    pub span: Span,
 }
 
 /// `conduit GND @role(main) @star` — a conductor-identity declaration
@@ -726,6 +844,45 @@ fn net_name(opd: &AstNode) -> Option<String> {
 /// Identifier text from an MCAST_IDS chain (`ids.sub = id leaf`).
 fn id_text(ids: &AstNode) -> Option<String> {
     leaf_text(ids).filter(|s| !s.is_empty())
+}
+
+/// Net-visible member names one port operand declares. A plain operand yields
+/// its identifier (`DP_OUT` → `["DP_OUT"]`); a bus-curly operand expands to its
+/// members (`MIC{P, N}` → `["MIC.P", "MIC.N"]`) because the net model names
+/// the members, not the bus. Operands that are not identifier chains (a
+/// `::DC(…)` declare instance, …) yield nothing.
+fn opd_member_names(opd: &AstNode) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(ids) = opd.get_sub_node() else {
+        return out;
+    };
+    let Some(base) = id_text(&ids) else {
+        return out;
+    };
+    // The bus-curly member group rides the IDS child chain: base id leaf, then
+    // MCAST_OPD_CURLY (`{P, N}`) as its next sibling.
+    let mut members: Vec<String> = Vec::new();
+    if let Some(first) = ids.get_sub_node() {
+        for c in first.iter() {
+            if c.is_type(MCAST_OPD_CURLY) {
+                if let Some(m0) = c.get_sub_node() {
+                    for m in m0.iter() {
+                        if let Some(t) = leaf_text(&m) {
+                            members.push(t);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if members.is_empty() {
+        out.push(base);
+    } else {
+        for m in members {
+            out.push(format!("{base}.{m}"));
+        }
+    }
+    out
 }
 
 /// First non-empty token text reachable from `node` (self or descendants).
@@ -1041,6 +1198,121 @@ module main {
         assert!(sink.bad.is_none(), "sink decode: {:?}", sink.bad);
     }
 
+    /// §5.1 identity-axis carry: a trailing `@class(analog)` on a psnk pin row
+    /// (component leaf — the exact hs analog-supply row shape
+    /// `psnk [13,12]=[VDDA,VSSA]::DC(5V) @class(analog), "Analog power/ground"`,
+    /// attributes plus a `, label` value tail) is captured into the structural
+    /// [`McPwrPin`] and carried through [`decode_pwr_pin`] so the rule layer
+    /// reads it — no silent drop.
+    #[test]
+    fn decode_psnk_class_attr_carries_identity() {
+        const SRC: &str = r#"component MCU.M {
+    pins = [
+        psnk [13, 12] = [VDDA, VSSA]::DC(5V) @class(analog), "Analog power/ground"
+    ]
+}
+module main {
+}
+"#;
+        let pins = parse_pwr_pins(SRC, "MCU.M");
+        assert_eq!(pins.len(), 1, "the @class row must capture one pwr pin");
+        let cap = &pins[0];
+        assert_eq!(cap.hot, "VDDA");
+        assert_eq!(cap.ret.as_deref(), Some("VSSA"));
+        assert_eq!(
+            attr_texts(&cap.attrs, "class"),
+            vec!["analog".to_string()],
+            "structural capture must keep the @class identity word"
+        );
+        let out = decode_pwr_pin(cap);
+        assert_eq!(out.v, Some(5.0), "nominal still decodes beside the attrs");
+        assert_eq!(
+            attr_texts(&out.attrs, "class"),
+            vec!["analog".to_string()],
+            "typed decode must carry the identity axis, got {:?}",
+            out.attrs.iter().map(|a| a.to_string()).collect::<Vec<_>>()
+        );
+        assert!(out.bad.is_none(), "decode: {:?}", out.bad);
+    }
+
+    const SRC_PORTS: &str = r#"module main {
+    out shield_to_earth @bind_role(earth)
+    io  DP_OUT, DM_OUT  @exposed(esd_contact)
+    io  MIC{P, N}       @class(analog) @return(GNDA)
+    io  SEL                    // plain row, no identity word → not a capture
+    conduit GND @role(main)
+}
+"#;
+
+    #[test]
+    fn captures_module_port_identity_rows() {
+        // §5.1 identity rows on module-interface ports: only rows carrying a
+        // trailing attribute are McPortDecls; the plain `io SEL` is not.
+        let pi = parse_pi(SRC_PORTS);
+        assert_eq!(pi.ports.len(), 3, "ports: {:#?}", pi.ports);
+
+        let out = pi
+            .ports
+            .iter()
+            .find(|p| p.kind == "out")
+            .expect("the out row");
+        assert_eq!(out.names, vec!["shield_to_earth".to_string()]);
+        assert_eq!(
+            attr_texts(&out.attrs, "bind_role"),
+            vec!["earth".to_string()],
+            "row attrs: {:?}",
+            out.attrs
+        );
+
+        let io = pi.ports.iter().find(|p| p.kind == "io").expect("io rows");
+        // DP_OUT, DM_OUT are separate operands → both carry the row's @exposed.
+        assert_eq!(io.names, vec!["DP_OUT".to_string(), "DM_OUT".to_string()]);
+        assert_eq!(
+            attr_texts(&io.attrs, "exposed"),
+            vec!["esd_contact".to_string()]
+        );
+
+        let mic = pi
+            .ports
+            .iter()
+            .find(|p| p.names.iter().any(|n| n == "MIC.P"))
+            .expect("the MIC bus row");
+        assert_eq!(
+            mic.names,
+            vec!["MIC.P".to_string(), "MIC.N".to_string()],
+            "bus-curly operand expands to its net-visible members"
+        );
+        assert_eq!(attr_texts(&mic.attrs, "class"), vec!["analog".to_string()]);
+        assert_eq!(attr_texts(&mic.attrs, "return"), vec!["GNDA".to_string()]);
+    }
+
+    #[test]
+    fn l1_ports_project_identity_axis_fields() {
+        let pi = parse_pi(SRC_PORTS);
+        let ports = pi.l1_ports();
+        assert_eq!(ports.len(), 5, "per-member decode: {:#?}", ports);
+
+        let earth = ports
+            .iter()
+            .find(|p| p.name == "shield_to_earth")
+            .expect("out member");
+        assert_eq!(earth.kind, "out");
+        assert_eq!(earth.bind_role.as_deref(), Some("earth"));
+        assert!(earth.exposed.is_empty());
+
+        let mic_p = ports.iter().find(|p| p.name == "MIC.P").expect("MIC.P");
+        assert_eq!(mic_p.class.as_deref(), Some("analog"));
+        assert_eq!(
+            mic_p.ret.as_deref(),
+            Some("GNDA"),
+            "@return → conduit anchor"
+        );
+        assert_eq!(mic_p.bind_role, None);
+
+        let dp = ports.iter().find(|p| p.name == "DP_OUT").expect("DP_OUT");
+        assert_eq!(dp.exposed, vec!["esd_contact".to_string()]);
+    }
+
     /// A source (`psrc`) pin mirrors the domain-rail decode: nominal + the
     /// source-exclusive budget keys decode to typed values.
     #[test]
@@ -1109,6 +1381,7 @@ module main {
             ret: Some("GND".to_string()),
             params: Vec::new(),
             span: 0..1,
+            attrs: McAttributes::new(),
         };
         let out = decode_pwr_pin(&pin);
         assert_eq!(out.v, None);

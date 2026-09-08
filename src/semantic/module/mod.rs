@@ -223,9 +223,32 @@ impl McModule {
                             // goto-def lands on the library `interface DC`
                             // definition (same path as component pin ::ifaces).
                             if is_interface {
-                                if let Some((class_name, class_span)) =
-                                    Self::extract_declare_class_span(&subnode)
-                                {
+                                // A MCAST_DECLARE clause typed as an interface
+                                // reaches this arm only because it carries NO
+                                // leading direction word (a `psrc`/`psnk`/`psbi`
+                                // direction routes the clause to the MCAST_IOTYPE
+                                // arm above). Design removed the no-direction
+                                // header sugar for power/DC supply params: every
+                                // such declare must state its energy direction
+                                // explicitly (E3055), no legacy tolerance.
+                                let extracted = Self::extract_declare_class_span(&subnode);
+                                let module_name = self.name.to_string();
+                                let class_name = extracted
+                                    .as_ref()
+                                    .map(|(cn, _)| cn.base_name())
+                                    .unwrap_or_default();
+                                dlog_error(
+                                    crate::errcodes::MODULE_HEADER_IFACE_NEEDS_DIRECTION,
+                                    &subnode,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::MODULE_HEADER_IFACE_NEEDS_DIRECTION,
+                                        &[&module_name, &class_name],
+                                    ),
+                                );
+                                // Keep registering (LSP + curly bus def) so
+                                // goto-def stays live while the author fixes
+                                // the direction — fewer cascading errors.
+                                if let Some((class_name, class_span)) = extracted {
                                     tracing::info!(target: "mcc::lsp::audit",
                                         "[AUDIT-ModulePort-Iface] class={class_name} span={class_span:?} uri={}",
                                         self.uri);
@@ -281,6 +304,14 @@ impl McModule {
                 match ct {
                     MCAST_NET_PORTS => {
                         self.insts.parse(&clause, &self.uri);
+                        // Power-intent identity words trail module-interface
+                        // port rows (`io MIC{P,N} @class(analog) @return(GNDA)`,
+                        // `out … @bind_role(earth)`, `io … @exposed(…)` —
+                        // design §5.1 unified slot). The net reader above
+                        // registers the port operands and drops the trailing
+                        // words, so identity-bearing rows are re-captured here
+                        // (design §13 groundwork; no rule consumes them yet).
+                        self.pi.parse_port(&clause);
                     }
 
                     MCAST_NET => {
@@ -905,7 +936,7 @@ impl HasFindInst for McModule {
     }
 
     fn interface_param_members(&self, name: &str) -> Option<Vec<String>> {
-        // Interface-class module params (e.g. `dc{VDD_3V3, GND}::DC(3.3V)`)
+        // Interface-class module params (e.g. `psnk dc{VDD_3V3, GND}::DC(3.3V)`)
         // are routed by parse_params into the param table only — never into
         // insts — so a bare reference falls to the 1*1 label fallback in the
         // Pass1 opcheck. Present the declared member width instead, matching
