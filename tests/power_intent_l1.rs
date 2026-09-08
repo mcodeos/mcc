@@ -44,6 +44,14 @@
 //!   pass-through OR-merge, not a regulator; its output `psrc` writes the
 //!   merged nominal `::DC(v)` only, so a ±tol on it is a declaration error
 //!   (a literal OUT window would over-claim under single-source states).
+//! * **PWR-4 budget** (`NET_BUDGET_EXCEEDED` = 6021, rail-contract-design.md
+//!   §8) — a net whose supply root declares a `capacity` (a domain-rail face or
+//!   a `psrc`/`psbi` hot pin carrying `capacity`) is budgeted against the psnk
+//!   sinks on the same net that declare an `amp` demand (a sink-exclusive,
+//!   opt-in key on the psnk `::DC`, §8.1): Σ amp ≤ capacity. Net-local mirror
+//!   of 6011/6013/6019 — converter-input push-up (`I_in = ΣP_out/(|V_in|×eff)`)
+//!   and cross-net/module-boundary feed are the S-set step, and a net with no
+//!   declared capacity (or with disagreeing capacity roots) is not adjudicated.
 //!
 //! Golden board (`mcs/pwrint/src/main.mc`) shape: GND carries `@star`, so its
 //! two parallel `@bridge(GND, GNDA)` legs are discharged (that island holds the
@@ -1204,5 +1212,207 @@ fn combine_nominal_only_output_is_clean_6020() {
             && !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE)
             && !codes.contains(&mcc::errcodes::POWER_SOURCE_CONTENTION),
         "a nominal-only combine output must stay silent (6020/6011/6019/6013) — the golden ORING/VMAIN_5V seam; got codes: {codes:?}"
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PWR-4 net budget (§8, rail-contract-design.md) — sink `amp` demand vs the
+// supply root's capacity, net-local. `amp` is a sink-exclusive opt-in key on
+// the psnk `::DC` (§8.1); the budget sums declared demand over the same net a
+// capacity-bearing root (domain-rail face / psrc / psbi) governs and fires 6021
+// when Σ amp > capacity. A net with no declared capacity (or with disagreeing
+// capacity roots) is not adjudicated; converter-input push-up and cross-net
+// feed are the S-set step.
+
+/// A regulated source whose output declares its capacity (500mA at 3.3V).
+const SRC_CAP: &str = "component SRC_CAP {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(3.3V, capacity:500mA)\n    ]\n}\n";
+
+/// A sink that declares its instance demand (`amp:300mA`) on its 3.3V nominal.
+const SNK_AMP3: &str = "component SNK_AMP3 {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(3.3V, amp:300mA)\n    ]\n}\n";
+
+/// The same demand declaration on a 5V nominal (for capacity-less 5V roots).
+const SNK_AMP5: &str = "component SNK_AMP5 {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(5V, amp:300mA)\n    ]\n}\n";
+
+/// A 3.3V sink that draws more than the golden VDD_3V3 rail's own capacity.
+const SNK_AMP_HI: &str = "component SNK_AMP_HI {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(3.3V, amp:600mA)\n    ]\n}\n";
+
+/// 6021 fire through a *psrc* capacity root: two 300mA sinks on a 500mA source
+/// net sum to 600mA > 500mA. amp on a sink is legal (no 6012), the nominals
+/// match (no 6011), the source root is present (no 6019).
+#[test]
+fn source_capacity_over_declared_sinks_fires_budget() {
+    let src = format!(
+        "{SRC_CAP}{SNK_AMP3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io V33\n    SRC_CAP s\n    SNK_AMP3 a\n    SNK_AMP3 b\n    \
+         s.OUT -> V33\n    s.GND -> GND\n    a.VDD -> V33\n    a.GND -> GND\n    \
+         b.VDD -> V33\n    b.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED)
+            && !codes.contains(&mcc::errcodes::POWER_PIN_DECODE)
+            && !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH)
+            && !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "600mA of declared sink amp on a 500mA psrc net must fire 6021 (and stay clean on 6012/6011/6019); got codes: {codes:?}"
+    );
+}
+
+/// 6021 through a *domain-rail face* capacity root — the golden VDD_3V3 shape
+/// (rail declares capacity, converter output carries none), loaded past budget.
+#[test]
+fn rail_face_capacity_over_declared_sinks_fires_budget() {
+    let src = format!(
+        "{SNK_AMP_HI}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V3V3, GND]::DC(3.3V, capacity:500mA) }}\n    \
+         io V3V3\n    SNK_AMP_HI a\n    a.VDD -> V3V3\n    a.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
+        "a 600mA sink on a 500mA domain-rail face must fire 6021; got codes: {codes:?}"
+    );
+}
+
+/// Within budget on a psrc capacity root is the healthy hookup → silent.
+#[test]
+fn declared_load_within_source_capacity_is_silent() {
+    let src = format!(
+        "{SRC_CAP}{SNK_AMP3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io V33\n    SRC_CAP s\n    SNK_AMP3 a\n    \
+         s.OUT -> V33\n    s.GND -> GND\n    a.VDD -> V33\n    a.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED)
+            && !codes.contains(&mcc::errcodes::POWER_PIN_DECODE)
+            && !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "a 300mA load on a 500mA source must stay silent (6021/6012/6011); got codes: {codes:?}"
+    );
+}
+
+/// No declared capacity → no budget oracle: even a declared amp load on a
+/// capacity-less 5V source stays silent (PWR-4 does not fake a capacity).
+#[test]
+fn amp_load_on_capacity_less_source_is_silent() {
+    let src = format!(
+        "{SRC5}{SNK_AMP5}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io V5\n    SRC5 s\n    SNK_AMP5 a\n    \
+         s.OUT -> V5\n    s.GND -> GND\n    a.VDD -> V5\n    a.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
+        "a source with no declared capacity is not a budget root — no 6021 without an oracle; got codes: {codes:?}"
+    );
+}
+
+/// `amp` on a *source* row is off-register (a source declares capacity, not a
+/// net load, §8.1) → 6012, decl-locally.
+#[test]
+fn amp_on_source_row_fires_pin_decode() {
+    let src = "component SRC_BAD {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(3.3V, amp:100mA)\n    ]\n}\n\
+module main {\n    conduit GND @role(main)\n    io V33\n    SRC_BAD s\n    \
+         s.OUT -> V33\n    s.GND -> GND\n}\n";
+    let codes = build_codes(src);
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_PIN_DECODE),
+        "an amp demand key on a psrc row must fire 6012 (§8.1 sink-exclusive); got codes: {codes:?}"
+    );
+}
+
+/// §8.5 return-path completeness (6022, conduit-equivalence-design.md §8.5;
+/// first NetIslandIndex consumer, net-island-attribution §7 L2). Two quiet
+/// rail-return coppers (GNDA, GNDB) are each DC-bridged to the main GND (golden
+/// FB_agnd shape) — but a *bare* two-terminal leg then ties GNDA ↔ GNDB with no
+/// declared @bridge/@couple on that net pair. The physical leg is a DC
+/// relation between two different resolvable return coppers that the
+/// declaration layer never adjudicates → the forgotten bridge must warn.
+/// Exactly one finding: the two declared bridge legs are exempt, the bare
+/// cross-quiet leg fires.
+#[test]
+fn undeclared_leg_between_quiet_return_coppers_fires_6022() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main) @star\n    \
+         conduit GNDA @role(quiet)\n    conduit GNDB @role(quiet)\n    \
+         domain DV {{ rail [VDD_3V3, GND]::DC(3V3) }}\n    \
+         domain AV {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         domain BV {{ rail [VDDB, GNDB]::DC(3V3) }}\n    \
+         GNDA - ba::FB() - GND @bridge(GNDA, GND)\n    \
+         GNDB - bb::FB() - GND @bridge(GNDB, GND)\n    \
+         GNDA - rr::FB() - GNDB\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::RETURN_LEG_UNDECLARED)
+        .count();
+    assert_eq!(
+        n, 1,
+        "the bare GNDA↔GNDB leg must be the only undeclared return leg (6022 ×1); got codes: {codes:?}"
+    );
+}
+
+/// Control for the firing shape: the *same* geometry with every return leg
+/// carrying its declaration — the bare cross-quiet leg now declares
+/// `@bridge(GNDA, GNDB)` — leaves no undeclared physical tie, so 6022 is silent
+/// (6007's declared-loop bookkeeping is @star-discharged and not this rule's).
+#[test]
+fn declared_return_legs_stay_silent_on_6022() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main) @star\n    \
+         conduit GNDA @role(quiet)\n    conduit GNDB @role(quiet)\n    \
+         domain DV {{ rail [VDD_3V3, GND]::DC(3V3) }}\n    \
+         domain AV {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         domain BV {{ rail [VDDB, GNDB]::DC(3V3) }}\n    \
+         GNDA - ba::FB() - GND @bridge(GNDA, GND)\n    \
+         GNDB - bb::FB() - GND @bridge(GNDB, GND)\n    \
+         GNDA - rr::FB() - GNDB @bridge(GNDA, GNDB)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
+        "all return legs declared → no 6022; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 first-layer boundary (data-gap 2): exemption is per *declared net
+/// pair*, not per leg carrier. A second bare leg paralleling an already-declared
+/// pair (GNDA ↔ GND declared once, a duplicate return ferrite left bare) is
+/// exempt — its physical carrier cannot yet be matched to the @bridge
+/// statement (L1Edge holds endpoints+span, not the leg), so a deliberately
+/// parallel return path must carry its own declaration to be visible. Locking
+/// the accepted granularity so the deferral reads as intent, not as a miss.
+#[test]
+fn bare_parallel_leg_on_declared_pair_stays_exempt_6022() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main) @star\n    \
+         conduit GNDA @role(quiet)\n    \
+         domain AV {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         GNDA - ba::FB() - GND @bridge(GNDA, GND)\n    \
+         GNDA - rr::FB() - GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
+        "a bare leg on an already-declared net pair is exempt at L2 (data-gap 2); got codes: {codes:?}"
+    );
+}
+
+/// Decoupling carve-out: a two-terminal passive across the supply face
+/// (hot↔return, e.g. a rail decoupling cap) is not a return-relation leg —
+/// 6022 audits *return-side* coppers only, so bare hot↔return legs stay silent
+/// even with no @bridge anywhere.
+#[test]
+fn decoupling_legs_across_hot_return_are_not_audited() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND @role(main) @star\n    \
+         domain DV {{ rail [VDD_3V3, GND]::DC(3V3) }}\n    \
+         VDD_3V3 - d1::FB() - GND\n    \
+         VDD_3V3 - d2::FB() - GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
+        "hot↔return legs are decoupling, not undeclared return relations; got codes: {codes:?}"
     );
 }

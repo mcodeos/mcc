@@ -60,13 +60,14 @@ use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
     check_backfeed, check_clamp_ref_role, check_combine_output_tol, check_driver_conflict,
     check_earth_dc_leak, check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge,
-    check_nc_connected, check_pin_contract_decode, check_pin_count_mismatch,
+    check_nc_connected, check_net_budget, check_pin_contract_decode, check_pin_count_mismatch,
     check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
     check_power_rail_two_roots, check_power_source_contention, check_protective_multi_bridge,
-    check_pullup_degenerate, check_reference_island_root, check_role_ref_missing_bridge,
-    check_single_point_nets, check_sink_nominal_mismatch, check_unconnected_outputs,
-    check_undriven_nets, check_undriven_sink_net, check_unselected_abstract,
-    check_unused_module_ports, check_unwired_instances, check_voltage_mismatch, NetCheckResult,
+    check_pullup_degenerate, check_reference_island_root, check_return_leg_undeclared,
+    check_role_ref_missing_bridge, check_single_point_nets, check_sink_nominal_mismatch,
+    check_unconnected_outputs, check_undriven_nets, check_undriven_sink_net,
+    check_unselected_abstract, check_unused_module_ports, check_unwired_instances,
+    check_voltage_mismatch, NetCheckResult,
 };
 use crate::semantic::validation::pins::{
     check_conflicting_pins, check_unused_pins, PinCheckResult,
@@ -765,8 +766,9 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
     },
     // Pin-side Volt-arg decode (§5.2 closed word-list discipline): a psrc/psnk/psbi ::DC(…) ctor
     // arg must decode to the contract it names. decode_pwr_pin keeps the first
-    // failure (non-DC nominal, source-exclusive key on a sink, spec window key
-    // on the pin, missing mandatory nominal); this rule reports it decl-locally.
+    // failure (non-DC nominal, source-exclusive key on a sink, amp on a source,
+    // spec window key on the pin, missing mandatory nominal); this rule reports
+    // it decl-locally.
     declare_flat_erc_rule! {
         code = crate::errcodes::POWER_PIN_DECODE,
         name = "pin-contract-decode",
@@ -774,7 +776,7 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         severity = Error,
         domain = Power,
         family = None,
-        doc = "A psrc/psnk/psbi ::DC(…) ctor arg must decode to the contract it names — sink nominal is mandatory and the only legal sink key; tol/capacity/eff are source-exclusive (PWR-4); req/abs belong in the component spec (§4.4 write-site rule) (power-intent-design.md §4.1/§5.2).",
+        doc = "A psrc/psnk/psbi ::DC(…) ctor arg must decode to the contract it names — a sink writes its nominal plus an optional amp demand key (rail-contract-design.md §8.1); tol/capacity/eff are source-exclusive and amp is sink-exclusive (PWR-4), so either off its register side is flagged; req/abs belong in the component spec (§4.4 write-site rule) (power-intent-design.md §4.1/§5.2, rail-contract-design.md §8).",
         lock = "tests/power_intent_l1.rs",
         overridable = false,
         owner = check_pin_contract_decode,
@@ -901,6 +903,42 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         lock = "tests/power_intent_l1.rs",
         overridable = false,
         owner = check_combine_output_tol,
+    },
+    // rail-contract-design.md §8 (PWR-4 budget, first net-local kernel): a net
+    // whose supply root declares a capacity (domain-rail face / psrc / psbi)
+    // carries psnk sinks whose declared `amp` demand sums over that capacity.
+    // Net-local mirror of 6011/6013/6019 — converter push-up and cross-net feed
+    // are the S-set step, so only loads wired directly to the net are counted.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::NET_BUDGET_EXCEEDED,
+        name = "net-budget-exceeded",
+        title = "net load demand exceeds its supply capacity",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "PWR-4 budget, net-local first kernel: Σ amp over the psnk sinks on a capacity-declaring net exceeds that capacity (rail-contract-design.md §8.2). amp is a sink-exclusive, opt-in demand key on the psnk ::DC (§8.1); a supply root with no declared capacity is not adjudicated, and multiple disagreeing capacity roots defer. Converter-input push-up and copper/module-boundary feed are the S-set step.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_net_budget,
+    },
+    // conduit-equivalence-design.md §8.5 return-path completeness (PWR-2 upper
+    // clause) — the first NetIslandIndex consumer (net-island-attribution
+    // §7 L2). A physical two-terminal DC element between two *different*
+    // resolvable return-side coppers (Ret rail copper / Reference copper) with
+    // no declared @bridge/@couple on the net pair in the owning scope is a
+    // forgotten single-point bridge or an undeclared bypass — advisory Warning;
+    // the relation is never inferred from a part type (§8.4 iron rule).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::RETURN_LEG_UNDECLARED,
+        name = "return-leg-undeclared",
+        title = "two-terminal DC element joins return coppers with no declared DC relation",
+        severity = Warning,
+        domain = Power,
+        family = None,
+        doc = "§8.5 return-path completeness: a two-terminal DC element (pin_count 2, both pads wired) lands on two different resolvable return-side coppers of one owning scope (rail Ret copper or Reference copper) and that net pair carries no declared @bridge/@couple edge — either the single-point bridge was never declared or an intentional bypass was left undeclared. Decoupling legs (hot↔return), same-copper shunts, and any leg touching an unresolvable net (split fragment, dotted pass-through, derived face) are not adjudicated; exemption is per declared net-pair (conduit-equivalence-design.md §8.5).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_return_leg_undeclared,
     },
 ];
 
@@ -1461,20 +1499,20 @@ mod tests {
     use super::*;
     use crate::errcodes::{
         ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, EARTH_DC_LEAK,
-        ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_DANGLING_ENDPOINT,
-        NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED,
-        NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT,
-        NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH,
-        PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED, POWER_BRIDGE_LOOP, POWER_PIN_DECODE,
-        POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS, POWER_SINK_NOMINAL_MISMATCH,
+        ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED,
+        NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED,
+        NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER,
+        NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_POWER_NET_COUNT,
+        NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED, POWER_BRIDGE_LOOP,
+        POWER_PIN_DECODE, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS, POWER_SINK_NOMINAL_MISMATCH,
         POWER_SOURCE_CONTENTION, PROTECTIVE_MULTI_BRIDGE, PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT,
-        ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
+        RETURN_LEG_UNDECLARED, ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 30] = [
+    const FLAT_ERC_ORDER: [u32; 32] = [
         NET_MULTI_DRIVE,             // P1
         NET_NO_DRIVER,               // P2
         NET_INPUT_UNCONNECTED,       // P5
@@ -1505,6 +1543,8 @@ mod tests {
         ROLE_REF_MISSING_BRIDGE,     // conduit-equivalence §8.4 quiet/protective zero-bridge
         SINK_NET_NO_SOURCE,          // PWR-1 no-source face (axis ③, L3)
         COMBINE_OUTPUT_TOL,          // §6.2③ combine output nominal-only (rail-contract §6, L3)
+        NET_BUDGET_EXCEEDED,         // PWR-4 net budget (rail-contract §8, L3)
+        RETURN_LEG_UNDECLARED,       // §8.5 return-path completeness (net-island §7 L2)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2038,7 +2078,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (137, 0, 3));
+        assert_eq!((strong, doc, note), (139, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
