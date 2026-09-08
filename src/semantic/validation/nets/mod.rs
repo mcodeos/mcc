@@ -1373,6 +1373,571 @@ pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<N
     }
 }
 
+/// PWR-1 no-source-face kernel (power-intent-design.md §11 / §13 landing 3): a
+/// flat net that carries component power-sink (`psnk`) terminals yet has no
+/// supply root on the net itself — neither a declared domain-rail face
+/// (`guarantee`, §4.1) nor a `psrc`/`psbi` hot pin whose nominal decodes (§4.3)
+/// — is a face whose loads draw from nothing. This is the complement of 6011's
+/// "no supply root on this net — intermediate (S-set later)" skip: a root-less
+/// net is only a *legal intermediate* when it carries no demand, so a root-less
+/// net that does carry a sink is reported. The kernel is net-local and mirrors
+/// 6011/6013 exactly: only parents resolved through the component class table
+/// count, so module boundary feed ports (an inlet module's `psnk` port is where
+/// an external supply enters the netlist, e.g. a connector feed) never
+/// false-fire, and copper pass-through feed (S crossing an inductor/ferrite/
+/// fuse from a neighbouring net) stays the later S-set step, documented the
+/// same way as in 6011/6013. Reports once per offending net at the first sink
+/// terminal's entry.
+pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    // Declared domain-rail faces → (domain, nominal, verbatim), exactly 6011's
+    // `guarantee`: a rail face on the net is a handwritten source root (§4.1).
+    let mut guarantee: std::collections::HashMap<String, (String, f64, String)> =
+        std::collections::HashMap::new();
+    for (pi, _uri) in power_intent_defs(table) {
+        for r in pi.l1_rails() {
+            let Some(v) = r.v else {
+                continue; // 6009's job
+            };
+            match guarantee.get(&r.hot) {
+                Some((_, prev, _)) if (*prev - v).abs() > 1e-9 => {
+                    guarantee.remove(&r.hot); // ambiguous scope — skip
+                }
+                None => {
+                    guarantee.insert(r.hot.clone(), (r.domain.clone(), v, r.v_text.clone()));
+                }
+                _ => {} // same nominal redeclared: keep the first
+            }
+        }
+    }
+
+    let workspace = crate::definition_space().workspace_components();
+    let defs: std::collections::HashMap<String, &McComponent> = workspace
+        .iter()
+        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
+        .collect();
+    let comp_def: std::collections::HashMap<u32, &McComponent> = table
+        .get_components()
+        .iter()
+        .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, *d)))
+        .collect();
+
+    for net in table.get_nets() {
+        // ── Supply root on this net? ──
+        // Rail face first (exact name, then last dotted segment), then a
+        // psrc/psbi hot pin whose nominal decodes — mirroring 6011's S(net)
+        // so a "root-less" net here is exactly the net 6011 defers.
+        let rail_root = guarantee
+            .get(&net.name)
+            .or_else(|| net.name.rsplit('.').next().and_then(|l| guarantee.get(l)));
+        if rail_root.is_some() {
+            continue;
+        }
+        let mut has_src_root = false;
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = comp_def.get(&comp_id).copied() else {
+                continue;
+            };
+            let Some(contract) = source_contract_for(def, entry) else {
+                continue;
+            };
+            if decode_pwr_pin(contract).v.is_some() {
+                has_src_root = true;
+                break;
+            }
+        }
+        if has_src_root {
+            continue; // a source drives this net — 6013's contention scope, not PWR-1
+        }
+
+        // A net that carries a boundary port of an *instantiated* (non-top)
+        // submodule — kind Port whose parent is a Module-kind entry other than
+        // the top module — is a declared interface, not a forgotten face:
+        // external feeds enter at a module's power-input port (P6) and a
+        // sub-domain's source guarantee is adjudicated inside that module's own
+        // scope. PWR-1's net-local kernel leaves such boundary nets to the
+        // module-local rules, so the Port point exempts the net. The top
+        // module's own `io` labels are NOT boundaries — they alias ordinary
+        // copper nets and stay in PWR-1's scope.
+        let top_id = table
+            .iter()
+            .find(|(_, e)| matches!(e.kind, InstKind::Module) && e.parent_id.is_none())
+            .map(|(id, _)| *id);
+        let mut has_submodule_boundary = false;
+        for &pid in &net.points {
+            let Some(e) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(e.kind, InstKind::Port) {
+                continue;
+            }
+            let is_sub = e.parent_id.is_some_and(|par| {
+                par != top_id.unwrap_or(u32::MAX)
+                    && table
+                        .get_entry(par)
+                        .is_some_and(|p| matches!(p.kind, InstKind::Module))
+            });
+            if is_sub {
+                has_submodule_boundary = true;
+                break;
+            }
+        }
+        if has_submodule_boundary {
+            continue;
+        }
+
+        // ── Root-less net: report if it still carries a component psnk sink. ──
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = comp_def.get(&comp_id).copied() else {
+                continue;
+            };
+            let Some(_contract) = sink_contract_for(def, entry) else {
+                continue;
+            };
+            let (pos, uri) = entry_pos(entry);
+            results.push(NetCheckResult {
+                check: "undriven-sink-net",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::SINK_NET_NO_SOURCE,
+                    &[&net.name],
+                ),
+                net_name: net.name.clone(),
+                code: crate::errcodes::SINK_NET_NO_SOURCE,
+                pos,
+                uri,
+            });
+            break; // one report per offending net
+        }
+    }
+}
+
+/// PWR-3 source-contention kernel (power-intent-design.md §11 / §13 landing 3):
+/// two or more `psrc` hard sources landing their hot terminal on the same net
+/// with no declared combine element between them is an undeclared parallel
+/// source — a regulator pair wired straight to one node, where a failed or
+/// slower source back-feeds the other. The narrow kernel counts only
+/// `PwrDir::Src` (`psrc`) contracts, deduped per component instance + hot member
+/// (a def that straps several physical pins to one `OUT` is one source, not N);
+/// `psbi` (a conditional source — battery coexistence) and rail faces (6010's
+/// two-roots scope) are not source points, and copper pass-through propagation /
+/// converter re-anchoring stay the later S-set step. Nominal *agreement* does
+/// not excuse the parallel — ORing is a topological merge, so even two 5V
+/// regulators wire-ORed onto one net still need the declared element.
+pub(crate) fn check_power_source_contention(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let workspace = crate::definition_space().workspace_components();
+    let defs: std::collections::HashMap<String, &McComponent> = workspace
+        .iter()
+        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
+        .collect();
+    let comp_def: std::collections::HashMap<u32, &McComponent> = table
+        .get_components()
+        .iter()
+        .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, *d)))
+        .collect();
+
+    for net in table.get_nets() {
+        // Distinct (component instance, hot member) psrc sources driving this
+        // net directly, in first-encounter order; the instance-side terminal
+        // path (`main.a.OUT`) is kept for the message.
+        let mut seen: std::collections::HashSet<(u32, String)> = std::collections::HashSet::new();
+        let mut paths: Vec<String> = Vec::new();
+        let mut pos: Option<(u32, String)> = None;
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = comp_def.get(&comp_id).copied() else {
+                continue;
+            };
+            let Some(contract) = source_contract_for(def, entry) else {
+                continue;
+            };
+            if contract.dir != PwrDir::Src {
+                continue; // psbi is a conditional source, not a hard psrc
+            }
+            if !seen.insert((comp_id, contract.hot.clone())) {
+                continue; // a second physical pin strapped to the same OUT
+            }
+            let base = entry
+                .path
+                .rsplit_once('.')
+                .map(|(p, _)| p)
+                .unwrap_or(&entry.path);
+            paths.push(format!("{base}.{}", contract.hot));
+            if pos.is_none() {
+                pos = Some(entry_pos(entry));
+            }
+        }
+        if paths.len() < 2 {
+            continue;
+        }
+        let (p, uri) = pos.unwrap_or((0, String::new()));
+        results.push(NetCheckResult {
+            check: "power-source-contention",
+            severity: "error",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::POWER_SOURCE_CONTENTION,
+                &[&net.name, &paths.len().to_string(), &paths.join(", ")],
+            ),
+            net_name: net.name.clone(),
+            code: crate::errcodes::POWER_SOURCE_CONTENTION,
+            pos: p,
+            uri,
+        });
+    }
+}
+
+/// §3.2 role-relation contract, isolated row: a declared DC `@bridge` must not
+/// join an `@role(isolated)` member to a non-isolated net. The isolated world
+/// is derived (design §4): its member net names are the isolated refs plus
+/// every rail whose return member is an isolated ref. Only an explicit Y-cap
+/// `@couple` may cross the boundary — a `@bridge` makes the "isolated"
+/// secondary side a hard connection (PWR-9 conduit half). Per-module: a child
+/// never names an ancestor's conduit (iron rule 1), so each module's own
+/// isolated refs + rails + edges are the whole adjudication surface here.
+pub(crate) fn check_isolated_dc_bridge(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        // Owned names: l1_refs()/l1_rails()/l1_edges() decode fresh temporaries
+        // per call, so &str views into them cannot outlive the loop body.
+        let isolated_refs: HashSet<String> = pi
+            .l1_refs()
+            .iter()
+            .filter(|r| r.role.as_deref() == Some("isolated"))
+            .map(|r| r.name.clone())
+            .collect();
+        if isolated_refs.is_empty() {
+            continue;
+        }
+        let mut isolated: HashSet<String> = isolated_refs.clone();
+        for r in pi.l1_rails() {
+            if isolated_refs.contains(&r.ret) {
+                isolated.insert(r.hot.clone());
+            }
+        }
+        for e in pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Bridge)
+        {
+            let (Some(a), Some(b)) = (e.endpoints.first(), e.endpoints.get(1)) else {
+                continue;
+            };
+            let (ia, ib) = (isolated.contains(a), isolated.contains(b));
+            if ia == ib {
+                continue; // neither isolated, or isolated↔isolated (two zero-DC worlds merge — kernel-accepted)
+            }
+            let (member, far) = if ia { (a, b) } else { (b, a) };
+            results.push(NetCheckResult {
+                check: "isolated-dc-bridge",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::ISOLATED_DC_BRIDGE,
+                    &[member, far],
+                ),
+                net_name: member.clone(),
+                code: crate::errcodes::ISOLATED_DC_BRIDGE,
+                pos: e.span.start as u32,
+                uri: uri.clone(),
+            });
+        }
+    }
+}
+
+/// §3.2 role-relation contract, protective row (PWR-8): an `@role(protective)`
+/// conduit is allowed exactly one declared DC `@bridge` — its single point to
+/// the circuit main reference. A second incident bridge (a parallel
+/// protective-ground leg, or a tie to a second island) is a second single
+/// point: a ground loop under ESD. Unlike a quiet-leg loop (PWR-2), `@star`
+/// does *not* discharge this — the single point is a hard (1,0) invariant, so
+/// this rule fires even when the loop check stays silent.
+pub(crate) fn check_protective_multi_bridge(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        // Owned names (see check_isolated_dc_bridge for the lifetime rationale).
+        let protective: HashSet<String> = pi
+            .l1_refs()
+            .iter()
+            .filter(|r| r.role.as_deref() == Some("protective"))
+            .map(|r| r.name.clone())
+            .collect();
+        if protective.is_empty() {
+            continue;
+        }
+        // protective name → spans of every incident DC bridge (in edge order).
+        let mut inc: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
+        for e in pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Bridge)
+        {
+            for ep in e.endpoints.iter() {
+                if protective.contains(ep) {
+                    inc.entry(ep.clone()).or_default().push(e.span.start as u32);
+                }
+            }
+        }
+        for (name, spans) in inc {
+            if spans.len() < 2 {
+                continue;
+            }
+            results.push(NetCheckResult {
+                check: "protective-multi-bridge",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::PROTECTIVE_MULTI_BRIDGE,
+                    &[&name, &spans.len().to_string()],
+                ),
+                net_name: name.to_string(),
+                code: crate::errcodes::PROTECTIVE_MULTI_BRIDGE,
+                pos: spans[1],
+                uri: uri.clone(),
+            });
+        }
+    }
+}
+
+/// §3.2 role-relation contract, earth row: an `@role(earth)` conduit couples to
+/// protective/main only through a Y-cap `@couple` (AC-only) — any declared DC
+/// `@bridge` incident to it is a low-resistance chassis direct tie and a leakage
+/// warning (power-intent-design.md §3.2 earth row / §11 chassis/earth scene).
+/// Unlike the isolated row, no world derivation is needed: earth refs are
+/// themselves the full incident surface. `@clamp` into an earth ref stays legal
+/// (PWR-7 targets protective/earth), so only `@bridge` rows leak. Severity is a
+/// warning, not an error, per the design's "leakage warning" wording — a
+/// single-point chassis tie is surfaced, not hard-failed (the protective row
+/// 6015 already errors on the circuit side when such a tie doubles).
+pub(crate) fn check_earth_dc_leak(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        // Owned names (see check_isolated_dc_bridge for the lifetime rationale).
+        let earth: HashSet<String> = pi
+            .l1_refs()
+            .iter()
+            .filter(|r| r.role.as_deref() == Some("earth"))
+            .map(|r| r.name.clone())
+            .collect();
+        if earth.is_empty() {
+            continue;
+        }
+        for e in pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Bridge)
+        {
+            let (Some(a), Some(b)) = (e.endpoints.first(), e.endpoints.get(1)) else {
+                continue;
+            };
+            let (ia, ib) = (earth.contains(a), earth.contains(b));
+            if !ia && !ib {
+                continue;
+            }
+            let (member, far) = if ia { (a, b) } else { (b, a) };
+            results.push(NetCheckResult {
+                check: "earth-dc-leak",
+                severity: "warning",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::EARTH_DC_LEAK,
+                    &[member, far],
+                ),
+                net_name: member.clone(),
+                code: crate::errcodes::EARTH_DC_LEAK,
+                pos: e.span.start as u32,
+                uri: uri.clone(),
+            });
+        }
+    }
+}
+
+/// §3.2.1 island-root contract (main row): every DC-bridged reference island
+/// carries exactly one `@role(main)` root. A reference island is a connected
+/// component of DC `@bridge` edges whose two endpoints are *both* role-bearing
+/// reference identities — supply-side legs (`@bridge(VDD_3V3, VDDA)` ties rail
+/// hots, not identities) and a bound child leg (`@bridge(ESDGND, vin.GND)` names
+/// a member the child owns no role for; its root is supplied by the parent
+/// binding) stay out of the graph. Zero mains → the joined identities (two
+/// quiets, or a quiet tied to a protective) have no island ground to return to;
+/// two or more mains → two power worlds were DC-joined by a `@bridge` — the
+/// doc's canonical "two main islands must not be @bridge'd" case (§3.2.1).
+/// Isolated/earth worlds declare no DC bridge, so they never enter an island.
+pub(crate) fn check_reference_island_root(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        let refs = pi.l1_refs();
+        // Owned names for the node set; the role map borrows `refs` (a named
+        // binding, alive for the whole body — see check_isolated_dc_bridge).
+        let role: std::collections::HashMap<&str, &str> = refs
+            .iter()
+            .filter_map(|r| r.role.as_deref().map(|ro| (r.name.as_str(), ro)))
+            .collect();
+        let bridges: Vec<crate::semantic::module::pi::L1Edge> = pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Bridge)
+            .filter(|e| {
+                e.endpoints.len() >= 2
+                    && role.contains_key(e.endpoints[0].as_str())
+                    && role.contains_key(e.endpoints[1].as_str())
+            })
+            .collect();
+        if bridges.is_empty() {
+            continue;
+        }
+        let mut names: Vec<String> = Vec::new();
+        let mut idx: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        // (endpoint a, endpoint b, source span) per ref-ref bridge, in order.
+        let mut edge_pairs: Vec<(usize, usize, u32)> = Vec::new();
+        for e in &bridges {
+            for ep in e.endpoints.iter().take(2) {
+                if !idx.contains_key(ep) {
+                    idx.insert(ep.clone(), names.len());
+                    names.push(ep.clone());
+                }
+            }
+            edge_pairs.push((
+                idx[&e.endpoints[0]],
+                idx[&e.endpoints[1]],
+                e.span.start as u32,
+            ));
+        }
+        let mut parent: Vec<usize> = (0..names.len()).collect();
+        let find = |parent: &mut Vec<usize>, mut x: usize| -> usize {
+            while parent[x] != x {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+            x
+        };
+        for &(a, b, _) in &edge_pairs {
+            let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+            if ra != rb {
+                parent[ra] = rb;
+            }
+        }
+        // Component root → member indices (source order).
+        let mut comp: std::collections::HashMap<usize, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, _) in names.iter().enumerate() {
+            comp.entry(find(&mut parent, i)).or_default().push(i);
+        }
+        // Per component: main count + first ref-ref bridge span (witness pos).
+        let mut main_count: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
+        let mut witness: std::collections::HashMap<usize, u32> = std::collections::HashMap::new();
+        for (i, n) in names.iter().enumerate() {
+            if role.get(n.as_str()).copied() == Some("main") {
+                *main_count.entry(find(&mut parent, i)).or_default() += 1;
+            }
+        }
+        for &(a, b, span) in &edge_pairs {
+            let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+            if ra == rb {
+                witness.entry(ra).or_insert(span);
+            }
+        }
+        for (root, members) in &comp {
+            if members.len() < 2 {
+                continue; // lone identity with no ref-ref DC leg is not an island
+            }
+            let mains = main_count.get(root).copied().unwrap_or(0);
+            if mains == 1 {
+                continue;
+            }
+            let rep = &names[members[0]];
+            results.push(NetCheckResult {
+                check: "reference-island-root",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::REFERENCE_ISLAND_ROOT,
+                    &[rep, &mains.to_string()],
+                ),
+                net_name: rep.clone(),
+                code: crate::errcodes::REFERENCE_ISLAND_ROOT,
+                pos: witness.get(root).copied().unwrap_or(0),
+                uri: uri.clone(),
+            });
+        }
+    }
+}
+
+/// conduit-equivalence-design.md §8.4: `@bridge` is an explicit declaration —
+/// the design never infers a bridge from component types (a ferrite without a
+/// `@bridge` is an ordinary part). But a *forgotten* declaration must not be
+/// silent: a conduit declaring `@role(quiet)` or `@role(protective)` expects
+/// exactly one declared DC `@bridge` to its island main, and ERC counts it to
+/// zero — no incident DC `@bridge` at all means the role-bearing conduit was
+/// never wired (a quiet face with no return leg, or a protective single point
+/// never declared). Supply-side and bound-member legs are still edges in the
+/// same module and count; the upper bound (a second bridge) is discharged by
+/// 6007 (quiet leg loop, `@star`-exempt) and 6015 (protective single point,
+/// hard) — this rule fires only on the bare zero.
+pub(crate) fn check_role_ref_missing_bridge(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        // Owned names (see check_isolated_dc_bridge for the lifetime rationale).
+        let expect: HashSet<String> = pi
+            .l1_refs()
+            .iter()
+            .filter(|r| {
+                r.role.as_deref() == Some("quiet") || r.role.as_deref() == Some("protective")
+            })
+            .map(|r| r.name.clone())
+            .collect();
+        if expect.is_empty() {
+            continue;
+        }
+        // The refs that actually carry a declared DC bridge in this module.
+        let mut bridged: HashSet<String> = HashSet::new();
+        for e in pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Bridge)
+        {
+            for ep in e.endpoints.iter() {
+                if expect.contains(ep) {
+                    bridged.insert(ep.clone());
+                }
+            }
+        }
+        for r in pi.l1_refs() {
+            if !expect.contains(&r.name) || bridged.contains(&r.name) {
+                continue;
+            }
+            results.push(NetCheckResult {
+                check: "role-ref-missing-bridge",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::ROLE_REF_MISSING_BRIDGE,
+                    &[&r.name],
+                ),
+                net_name: r.name.clone(),
+                code: crate::errcodes::ROLE_REF_MISSING_BRIDGE,
+                pos: r.span.start as u32,
+                uri: uri.clone(),
+            });
+        }
+    }
+}
+
 /// Pin-contract Volt-arg decode (the pin-side of [`POWER_RAIL_DECODE`] 6009;
 /// power-intent-design.md §5.2 closed word-list discipline): every `psrc`/`psnk`/`psbi`
 /// `::DC(…)` ctor arg must decode to the contract it names. `decode_pwr_pin`
