@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[derive(Parser, Debug)]
 #[command(
     name = "mcc",
-    version,
+    version = concat!(env!("CARGO_PKG_VERSION"), ".b", env!("MCC_BUILD_NR")),
     about = "MCode Compiler — Load, parse, analyze .mc design files",
     long_about = None,
 )]

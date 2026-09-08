@@ -3,6 +3,8 @@
 debug
 target
 Cargo.lock
+# Auto-incremented per build by build.rs (MCC_BUILD_NR) — never commit
+.buildnr
 **/*.rs.bk
 *.pdb
 **/mutants.out*/

@@ -25,9 +25,14 @@ use tracing::debug;
 mod dbgflags;
 
 //2. crate wise
+// Crate version + per-build counter (buildinfo.rs): build.rs reads the
+// gitignored `.buildnr`, writes back n+1 and feeds `MCC_BUILD_NR` to rustc,
+// so every cargo build/check/test invocation stamps this build with a fresh
+// monotonic number.
 pub(crate) mod ast;
 pub(crate) mod build;
 pub(crate) mod builder;
+pub mod buildinfo;
 pub mod cli;
 pub mod db;
 pub mod hierarchy;

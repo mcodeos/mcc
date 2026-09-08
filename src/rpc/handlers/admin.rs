@@ -153,7 +153,8 @@ pub fn handle_library_show(params: Option<Value>) -> RpcResult {
 pub fn handle_server_info(_params: Option<Value>) -> RpcResult {
     let (active_id, kind, root) = crate::workspace_info();
     Ok(json!({
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": crate::buildinfo::VERSION,
+        "build": crate::buildinfo::number(),
         "status": "running",
         "data_dir": mcc_system_root().to_string_lossy(),
         "active_workspace": {

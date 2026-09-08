@@ -3105,7 +3105,8 @@ pub fn caps_json() -> serde_json::Value {
 
     json!({
         "server": "mcc",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": crate::buildinfo::VERSION,
+        "build": crate::buildinfo::number(),
         "schema_version": 1,
         "methods": names,
         "features": {
