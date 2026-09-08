@@ -67,10 +67,10 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "phantom_port",
-        // `module MIC_SIP(dc{VDD_3V3, GND}::DC(3.3V))` with a curly `out` — the
-        // curly port/out names reach the net layer and are quarantined. Entry
-        // resolves to MIC_SIP (first module in the file).
-        src: "component DC { pins = [ 1 = A ] }\nmodule MIC_SIP(dc{VDD_3V3, GND}::DC(3.3V))\n{\n    out MIC{P, N}::ADC.DIFF()\n}",
+        // `module MIC_SIP(psnk dc{VDD_3V3, GND}::DC(3.3V))` with a curly `out` —
+        // the curly port/out names reach the net layer and are quarantined.
+        // Entry resolves to MIC_SIP (first module in the file).
+        src: "component DC { pins = [ 1 = A ] }\nmodule MIC_SIP(psnk dc{VDD_3V3, GND}::DC(3.3V))\n{\n    out MIC{P, N}::ADC.DIFF()\n}",
     },
     Case {
         name: "clean_declared",

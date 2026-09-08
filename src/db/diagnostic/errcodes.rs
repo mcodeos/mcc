@@ -477,6 +477,9 @@ pub const MODULE_ROLE_UNSUPPORTED: u32 = 3053;
 /// Unexpected type in a module parameter.
 pub const MODULE_PARAM_TYPE_UNEXPECTED: u32 = 3054;
 
+/// Module header interface-typed (power/DC) parameter carries no direction word.
+pub const MODULE_HEADER_IFACE_NEEDS_DIRECTION: u32 = 3055;
+
 /// Function was not found in the class.
 pub const MODULE_METHOD_NOT_FOUND: u32 = 3071;
 
@@ -1544,6 +1547,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(MODULE_PINS_UNSUPPORTED, "Module does not support PINS directly; use in/out/io declarations.", "Module does not support PINS directly. Use in/out/io declarations."),
     entry!(MODULE_ROLE_UNSUPPORTED, "Module does not support role definition.", "Module does not support role definition."),
     entry!(MODULE_PARAM_TYPE_UNEXPECTED, "Unexpected type in a module parameter.", "Unexpected type in module param"),
+    entry!(MODULE_HEADER_IFACE_NEEDS_DIRECTION, "Module header interface-typed parameter is missing a direction word.", "module header interface-typed parameter (class `{1}`) in `module {0}` carries no direction word — write an explicit power direction `psrc`/`psnk`/`psbi`, e.g. `module {0}(psnk [VDD, GND]::DC(v))`; the no-direction header sugar is removed"),
     entry!(MODULE_METHOD_NOT_FOUND, "Function was not found in the class.", "function '{0}' not found in class '{1}'"),
     entry!(UNEXPECTED_CLAUSE_TYPE, "Unexpected clause type in a module body.", "Unexpected clause type in module body"),
     // ---- section ----

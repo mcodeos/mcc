@@ -113,7 +113,7 @@ component FLASH.GD25Q32E
     }
 }
 
-module US513([VDD_3V3,GND]::DC(3.3V), [VCC_1V2,GND]::DC(1.2V))
+module US513(psnk [VDD_3V3,GND]::DC(3.3V), psnk [VCC_1V2,GND]::DC(1.2V))
 {
     io MIC{P,N}, I2C0, SPI, UART0, UART1, port1{A,B,C,D}
     out DAC_OUT, SPK_MUTE

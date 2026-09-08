@@ -64,10 +64,12 @@ pub fn comp_class_raw(base: &str, params: &[crate::McParamValue]) -> String {
 }
 
 /// Interface binding of a module-header bus port, from its parameter
-/// declaration: `module SPEAKER_M(USB_VBUS_1{VDD_3V, GND}::DC(3.3V))` renders
+/// declaration: `module SPEAKER_M(psnk USB_VBUS_1{VDD_3V, GND}::DC(3.3V))` renders
 /// the bus row's class column as `DC(3.3V)`. The `McBus` instance itself does
 /// not carry the `::IFACE(args)` binding — it lives in the module's parameter
-/// declaration table. Returns `None` for buses without a binding.
+/// declaration table. Returns `None` for buses without a binding. (Module-header
+/// power declares must state an explicit direction word; the no-direction
+/// `module M(X::DC(v))` sugar is E3055.)
 fn bus_class(def: &crate::McModule, name: &str) -> Option<String> {
     def.params
         .iter()

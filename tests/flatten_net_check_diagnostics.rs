@@ -237,36 +237,32 @@ fn dlu_flatchk__cross_file_submodule_port_anchors_def_declaration() {
 }
 
 /// ── Lock: bracket-form signature port anchors at its declaration ──────────
-/// `[VDD_3V3, GND]::DC(3.3V)` is a Multiple-form signature interface param:
+/// `psnk [VDD_3V3, GND]::DC(3.3V)` is a Multiple-form signature interface param:
 /// its whole-name span lives in `def.params.def_spans`, not `def.insts`
-/// (`filter_port_spans` drops the whole-bracket name). C4/E4114 for the
-/// unconnected bracket *members* must anchor at the declaration
-/// (`VDD_3V3` inside the bracket) instead of file:1:1. The bracketed aggregate
-/// (`main.UC.[VDD_3V3, GND]`) is a non-physical grouping header (A′
-/// 2026-09-04) — de-electrified, it must NOT surface here; the members carry
-/// the check. A′-scope routes these module-boundary members to C4 (formerly
+/// (`filter_port_spans` drops the whole-bracket name). The unconnected Power
+/// bracket port anchors at its declaration (first member `VDD_3V3`, pos 19)
+/// instead of file:1:1. A′-scope routes module-boundary ports to C4 (formerly
 /// E4117). The empty US513 body also emits 2115; only the 4114 entries are
 /// asserted here.
+///
+/// NOTE (2026-09-08, header-DC direction rule): the fixture now carries an
+/// explicit `psnk` direction — the no-direction sugar is E3055. With the
+/// direction the bracket surfaces as a whole Power port (`main.UC.[VDD_3V3, GND]`),
+/// not as per-member InOut ports the way the sugar's InOut members did;
+/// Power-port member splitting at flatten is a composition-terminal (A3/A4)
+/// model question, not settled by this lock.
 #[test]
 fn dlu_flatchk__bracket_signature_port_anchors_declaration() {
-    let src = "module US513([VDD_3V3,GND]::DC(3.3V)) {\n}\nmodule main {\n    US513 UC\n}\n";
+    let src = "module US513(psnk [VDD_3V3,GND]::DC(3.3V)) {\n}\nmodule main {\n    US513 UC\n}\n";
     let diags = build_flat_diags(src);
     let bidir: Vec<(u32, u32, String, String)> =
         diags.into_iter().filter(|d| d.0 == 4114).collect();
-    let expected = [
-        (
-            4114,
-            14,
-            "/mcc/flat-diag.mc",
-            "Module port 'main.UC.VDD_3V3' (InOut) is not connected to any net.",
-        ),
-        (
-            4114,
-            14,
-            "/mcc/flat-diag.mc",
-            "Module port 'main.UC.GND' (InOut) is not connected to any net.",
-        ),
-    ];
+    let expected = [(
+        4114,
+        19,
+        "/mcc/flat-diag.mc",
+        "Module port 'main.UC.[VDD_3V3, GND]' (Power) is not connected to any net.",
+    )];
     assert_lock(bidir, &expected, "bracket signature port anchor changed");
 }
 

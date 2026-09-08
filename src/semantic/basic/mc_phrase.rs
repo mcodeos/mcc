@@ -4849,7 +4849,7 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
             // before Pass2 can upgrade the port. Internal labels and function
             // parameters keep their fixed 1*1 shape.
             if !label.contains('.') {
-                // Interface-class module params (`dc{VDD_3V3, GND}::DC(3.3V)`)
+                // Interface-class module params (`psnk dc{VDD_3V3, GND}::DC(3.3V)`)
                 // live in the module param table only, so a bare reference is
                 // invisible to find_inst. Present the declared member width
                 // (matching Pass2's expand_port_lanes) instead of the 1*1
