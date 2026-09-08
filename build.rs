@@ -10,6 +10,27 @@ fn main() {
     // NOTE: cargo only reads `cargo:` directives from stdout — must use println!.
     println!("cargo:rerun-if-changed=src/ast/c");
 
+    // Build counter (`MCC_BUILD_NR`): the gitignored `.buildnr` is read here,
+    // written back as n+1 and handed to rustc via rustc-env. Listing the
+    // counter itself in rerun-if-changed makes cargo rerun this script once
+    // per invocation, so the number advances exactly once per build (sandbox
+    // verified — no double count, no rerun loop). Cost: the leaf crate
+    // recompiles each invocation because the env value changes.
+    let counter = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".buildnr");
+    let prior = fs::read_to_string(&counter)
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+    let next = prior + 1;
+    if let Err(e) = fs::write(&counter, next.to_string()) {
+        eprintln!(
+            "mcc: failed to write build counter {}: {e}",
+            counter.display()
+        );
+    }
+    println!("cargo:rustc-env=MCC_BUILD_NR={next}");
+    println!("cargo:rerun-if-changed={}", counter.display());
+
     // add C source files
     let mut build = cc::Build::new();
     build
