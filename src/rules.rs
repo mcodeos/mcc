@@ -58,13 +58,15 @@
 
 use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
-    check_backfeed, check_clamp_ref_role, check_driver_conflict, check_floating_inputs,
-    check_floating_outputs, check_nc_connected, check_pin_contract_decode,
-    check_pin_count_mismatch, check_port_io_mismatch, check_power_bridge_loop, check_power_nets,
-    check_power_rail_contract, check_power_rail_two_roots, check_pullup_degenerate,
+    check_backfeed, check_clamp_ref_role, check_driver_conflict, check_earth_dc_leak,
+    check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
+    check_pin_contract_decode, check_pin_count_mismatch, check_port_io_mismatch,
+    check_power_bridge_loop, check_power_nets, check_power_rail_contract,
+    check_power_rail_two_roots, check_power_source_contention, check_protective_multi_bridge,
+    check_pullup_degenerate, check_reference_island_root, check_role_ref_missing_bridge,
     check_single_point_nets, check_sink_nominal_mismatch, check_unconnected_outputs,
-    check_undriven_nets, check_unselected_abstract, check_unused_module_ports,
-    check_unwired_instances, check_voltage_mismatch, NetCheckResult,
+    check_undriven_nets, check_undriven_sink_net, check_unselected_abstract,
+    check_unused_module_ports, check_unwired_instances, check_voltage_mismatch, NetCheckResult,
 };
 use crate::semantic::validation::pins::{
     check_conflicting_pins, check_unused_pins, PinCheckResult,
@@ -777,6 +779,112 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_pin_contract_decode,
     },
+    // PWR-3 source-contention kernel (power-intent-design.md §11): two or more
+    // `psrc` hard sources on one net with no declared combine. psbi/rail faces
+    // are not source points; nominal agreement does not excuse the parallel.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POWER_SOURCE_CONTENTION,
+        name = "power-source-contention",
+        title = "multiple psrc hard sources drive one net",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "Two or more psrc hard sources landing their hot terminal on one net is an undeclared parallel source — wire-ORing regulators needs a declared ORing/combine element (PWR-3).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_power_source_contention,
+    },
+    // §3.2 isolated row (PWR-9 conduit half): no declared DC @bridge crosses out
+    // of an isolated world; only an explicit Y-cap @couple may.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::ISOLATED_DC_BRIDGE,
+        name = "isolated-dc-bridge",
+        title = "isolated world is DC-bridged to a non-isolated net",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "An @role(isolated) member (ref, or a rail returned to an isolated ref) must not be @bridge'd to a non-isolated net — the isolated secondary side crosses only through an explicit Y-cap @couple (PWR-9/§3.2).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_isolated_dc_bridge,
+    },
+    // §3.2 protective row (PWR-8): at most one declared single-point DC bridge.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::PROTECTIVE_MULTI_BRIDGE,
+        name = "protective-multi-bridge",
+        title = "protective conduit carries more than one DC single-point bridge",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "An @role(protective) conduit is allowed exactly one declared DC @bridge (its single point to the circuit main); a second is a ground loop under ESD and @star does not discharge it (PWR-8).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_protective_multi_bridge,
+    },
+    // §3.2 earth row: the chassis/earth reference couples only through a Y-cap
+    // `@couple`; a declared DC `@bridge` incident to it is a leakage warning
+    // (the design's "warning" wording, not hard error — surfaced, not failed).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::EARTH_DC_LEAK,
+        name = "earth-dc-leak",
+        title = "earth reference is DC-bridged to another net (leakage)",
+        severity = Warning,
+        domain = Power,
+        family = None,
+        doc = "An @role(earth) conduit must couple to protective/main only through a Y-cap @couple; a DC @bridge into it is a low-resistance chassis direct tie and a leakage warning (§3.2 earth row / §11 chassis/earth scene). @clamp into an earth ref stays legal (PWR-7).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_earth_dc_leak,
+    },
+    // §3.2.1 island-root contract (main row): every DC-bridged reference island
+    // carries exactly one @role(main) root — zero or two mains is an error
+    // (two main worlds DC-joined by a bridge is the doc's canonical example).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::REFERENCE_ISLAND_ROOT,
+        name = "reference-island-root",
+        title = "DC-bridged reference island does not carry exactly one main root",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "A DC-bridged reference island (role-bearing refs joined by DC @bridge legs) must carry exactly one @role(main) root: zero mains means the joined reference identities have no island ground to return to; two or more mains means two power worlds were DC-joined by a @bridge (§3.2.1).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_reference_island_root,
+    },
+    // conduit-equivalence-design.md §8.4: a quiet/protective conduit with zero
+    // declared DC @bridge legs is an unwired declaration (the "forgot the
+    // @bridge" case) — the upper bound is handled by 6007 (quiet loop,
+    // star-exempt) and 6015 (protective single point, hard); this fires on the
+    // bare zero only.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::ROLE_REF_MISSING_BRIDGE,
+        name = "role-ref-missing-bridge",
+        title = "quiet/protective reference conduit has no declared DC @bridge",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "An @role(quiet)/@role(protective) conduit expects exactly one declared DC @bridge to its main reference; a count of zero means the declaration was never wired and must not be silent — @bridge is explicit, never inferred from a component type (conduit-equivalence-design.md §8.4).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_role_ref_missing_bridge,
+    },
+    // PWR-1 no-source face (power-intent-design.md §11 / §13 landing 3): a flat
+    // net carrying component psnk sinks with no supply root on the net itself —
+    // no declared domain-rail face, no decodable psrc/psbi hot pin. Net-local,
+    // mirroring 6011/6013: module boundary feed ports and copper pass-through
+    // feed stay the S-set step.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::SINK_NET_NO_SOURCE,
+        name = "undriven-sink-net",
+        title = "net carries power sinks but no declared source root",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "A net that carries component power-sink (psnk) terminals must have a supply root on the net itself — a declared domain-rail face (§4.1) or a psrc/psbi hot pin whose nominal decodes (§4.3); a root-less net that still demands power draws from nothing (PWR-1 no-source face).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_undriven_sink_net,
+    },
 ];
 
 // ============================================================================
@@ -1335,19 +1443,20 @@ pub fn assembly_gate_blocking_tags() -> Vec<&'static str> {
 mod tests {
     use super::*;
     use crate::errcodes::{
-        ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, NET_BACKFEED_RISK,
-        NET_BIDIR_UNCONNECTED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
+        ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, EARTH_DC_LEAK, ISOLATED_DC_BRIDGE,
+        NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
         NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
         NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
         NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED,
         POWER_BRIDGE_LOOP, POWER_PIN_DECODE, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
-        POWER_SINK_NOMINAL_MISMATCH, PULLUP_DEGENERATE,
+        POWER_SINK_NOMINAL_MISMATCH, POWER_SOURCE_CONTENTION, PROTECTIVE_MULTI_BRIDGE,
+        PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 22] = [
+    const FLAT_ERC_ORDER: [u32; 29] = [
         NET_MULTI_DRIVE,             // P1
         NET_NO_DRIVER,               // P2
         NET_INPUT_UNCONNECTED,       // P5
@@ -1370,6 +1479,13 @@ mod tests {
         POWER_RAIL_TWO_ROOTS,        // P3 two-roots (L2)
         POWER_SINK_NOMINAL_MISMATCH, // P3/E-PWR-001 mandatory nominal (L2)
         POWER_PIN_DECODE,            // pin Volt-arg decode (L2, §5.2)
+        POWER_SOURCE_CONTENTION,     // PWR-3 source contention (axis ③, L3)
+        ISOLATED_DC_BRIDGE,          // §3.2 isolated zero-DC-bridge (PWR-9)
+        PROTECTIVE_MULTI_BRIDGE,     // §3.2 protective single-point (PWR-8)
+        EARTH_DC_LEAK,               // §3.2 earth Y-cap-only row (leakage warning)
+        REFERENCE_ISLAND_ROOT,       // §3.2.1 one main per DC-bridged reference island
+        ROLE_REF_MISSING_BRIDGE,     // conduit-equivalence §8.4 quiet/protective zero-bridge
+        SINK_NET_NO_SOURCE,          // PWR-1 no-source face (axis ③, L3)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -1903,7 +2019,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (129, 0, 3));
+        assert_eq!((strong, doc, note), (136, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

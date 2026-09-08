@@ -1360,6 +1360,79 @@ pub const POWER_SINK_NOMINAL_MISMATCH: u32 = 6011;
 /// (power-intent-design.md §4.1/§5.2)
 pub const POWER_PIN_DECODE: u32 = 6012;
 
+/// Two or more `psrc` hard sources land their hot terminal on the same net
+/// with no declared combine — the PWR-3 source-contention kernel
+/// (power-intent-design.md §11). Wiring two regulators' outputs straight to one
+/// node is an undeclared parallel source: without an ORing / combining element
+/// between them a failed or slower source back-feeds the other. `psbi`
+/// (conditional source: battery coexistence) and rail faces (6010's scope) are
+/// not counted; copper pass-through propagation and converter re-anchoring
+/// belong to the later S-set step.
+pub const POWER_SOURCE_CONTENTION: u32 = 6013;
+
+/// A declared DC `@bridge` joins an `@role(isolated)` member to a non-isolated
+/// net — the §3.2 isolated-world zero-DC-bridge contract (power-intent-design.md
+/// §3.2 / §11 PWR-9, the conduit-level half). An isolated ref, or a rail whose
+/// return member is an isolated ref, may only cross out of its world through an
+/// explicit Y-cap `@couple`; a DC bridge turns the "isolated" secondary side
+/// into a hard connection. `isolated`↔`isolated` bridging merges two zero-DC
+/// worlds and is accepted at the kernel; component-level crossings are PWR-9's
+/// other half. (Design note: a rail whose return member is an
+/// `@role(isolated)` conduit is how a net is derived into that isolated world —
+/// power-intent-design.md §4.)
+pub const ISOLATED_DC_BRIDGE: u32 = 6014;
+
+/// An `@role(protective)` conduit carries more than one declared DC `@bridge` —
+/// PWR-8 (power-intent-design.md §3.2/§11): a protective conduit is allowed
+/// exactly one single-point bridge to its circuit main reference. A second
+/// bridge (a parallel protective-ground leg, or a tie to a second island) is a
+/// second single point and a ground loop under ESD — and, unlike a quiet-leg
+/// loop, it is *not* discharged by `@star`: the protective single point is a
+/// hard (1,0) invariant, not a simulation-deferred design choice.
+pub const PROTECTIVE_MULTI_BRIDGE: u32 = 6015;
+
+/// An `@role(earth)` conduit is incident to a declared DC `@bridge` — the §3.2
+/// earth-row leak (power-intent-design.md §3.2 / §11 chassis/earth scene /
+/// landing axis
+/// ④). The chassis/earth reference couples to protective or main only through a
+/// Y-cap `@couple` (AC-only, does not merge L1 classes); a DC `@bridge` is a
+/// low-resistance direct tie and is flagged as a leakage warning. `@clamp` into
+/// an earth ref stays legal (PWR-7 permits protective/earth clamp targets) —
+/// only a DC bridge row leaks.
+pub const EARTH_DC_LEAK: u32 = 6016;
+
+/// A DC-bridged reference island carries other than exactly one `@role(main)`
+/// root — the §3.2.1 "each L1 island has one main" contract
+/// (power-intent-design.md §3.2.1 / §3.2 main row / landing axis ④). Reference
+/// islands are the connected components of DC `@bridge` edges whose two
+/// endpoints are both role-bearing reference identities (supply-side legs like
+/// `@bridge(VDD_3V3, VDDA)` and a bound child leg naming a member the child
+/// owns no role for stay out of the graph). Zero mains = a quiet/protective
+/// group DC-joined with no island ground to return to; two or more mains = two
+/// power worlds were DC-joined by a bridge — the doc's canonical
+/// "two main islands must not be @bridge'd" case.
+pub const REFERENCE_ISLAND_ROOT: u32 = 6017;
+
+/// A `@role(quiet)`/`@role(protective)` reference conduit carries no declared
+/// DC `@bridge` at all — the forgotten-declaration case
+/// (conduit-equivalence-design.md §8.4). `@bridge` is explicit, never inferred
+/// from a component type (a ferrite without a `@bridge` is an ordinary part),
+/// but the ERC expects exactly one bridge to the island main for these two
+/// roles and counts a bare zero as an unwired declaration — never silent. The
+/// upper bound is discharged by 6007 (quiet second leg = loop, `@star`-exempt)
+/// and 6015 (protective second leg = second single point, hard).
+pub const ROLE_REF_MISSING_BRIDGE: u32 = 6018;
+
+/// PWR-1 no-source face (power-intent-design.md §11): a flat net that carries
+/// component power-sink (`psnk`) terminals but no supply root on the net itself
+/// — no declared domain-rail face and no `psrc`/`psbi` hot pin. The net's loads
+/// promise to draw from a supply that nothing on the net guarantees. Net-local
+/// kernel (mirrors 6011/6013): copper pass-through feed (S crossing an
+/// inductor/ferrite/fuse from another net) and module-boundary feed ports are
+/// the later S-set step; module ports are structurally invisible here because
+/// only `InstKind::Component` parents are decoded as sinks.
+pub const SINK_NET_NO_SOURCE: u32 = 6019;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -1725,6 +1798,13 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(POWER_RAIL_TWO_ROOTS, "A net is the hot member of two rails (two handwritten supply roots).", "net '{0}' is a rail guarantee in both domain '{1}' and domain '{2}' — one net carries one handwritten supply root (P3)"),
     entry!(POWER_SINK_NOMINAL_MISMATCH, "A sink terminal's required DC nominal does not match the supply guarantee of the net it lands on.", "sink '{0}' on net '{1}' requires {2}, but the net's supply guarantee is {3} — sink nominal ≠ supply nominal (P3/E-PWR-001)"),
     entry!(POWER_PIN_DECODE, "A power pin DC contract argument does not decode.", "power pin '{0}.{1}': {2}"),
+    entry!(POWER_SOURCE_CONTENTION, "Two or more psrc hard sources drive one net (undeclared parallel).", "net '{0}' carries {1} psrc hard sources ({2}) — an undeclared parallel source; ORing needs a declared combine element (PWR-3)"),
+    entry!(ISOLATED_DC_BRIDGE, "An isolated world is DC-bridged to a non-isolated net.", "isolated '{0}' is DC-bridged to non-isolated '{1}' — an isolated world carries zero DC bridges to the outside (§3.2/PWR-9); only an explicit Y-cap @couple to earth may cross"),
+    entry!(PROTECTIVE_MULTI_BRIDGE, "A protective conduit carries more than one DC single-point bridge.", "protective '{0}' has {1} DC single-point bridges to the circuit side — exactly one declared bridge is allowed (PWR-8)"),
+    entry!(EARTH_DC_LEAK, "An earth reference is DC-bridged to another net (leakage).", "earth '{0}' is DC-bridged to '{1}' — the chassis/earth reference couples only through a Y-cap @couple, never a DC @bridge (§3.2 earth row); a DC tie is a leakage warning"),
+    entry!(REFERENCE_ISLAND_ROOT, "A DC-bridged reference island must have exactly one @role(main) root.", "reference island '{0}' carries {1} @role(main) roots — each DC-bridged L1 island has exactly one main root: zero means the joined reference identities have no island ground to return to, more than one means two power worlds were DC-joined by a @bridge (§3.2.1)"),
+    entry!(ROLE_REF_MISSING_BRIDGE, "A quiet/protective reference conduit has no declared DC @bridge.", "role conduit '{0}' carries no declared DC @bridge — an @role(quiet)/@role(protective) conduit expects exactly one bridge to its main reference; a bare zero means the declaration was never wired (conduit-equivalence-design.md §8.4)"),
+    entry!(SINK_NET_NO_SOURCE, "A net carrying power sinks (psnk) has no declared source root on it.", "net '{0}' carries component power-sink terminals but has no supply root on the net — it is neither a declared domain-rail face nor driven by a psrc/psbi hot pin, so its loads draw from nothing that guarantees power (PWR-1 no-source face). Attach the loads to a declared rail face or drive the net from a psrc source; a feed that crosses a series pass element (inductor/ferrite/fuse) from another net is not yet traced (S-set step)"),
     // ---- section ----
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),

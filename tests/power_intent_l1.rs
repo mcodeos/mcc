@@ -13,10 +13,39 @@
 //!   A `@bridge` edge never merges L0 copper — it only relates two L1 classes.
 //! * **PWR-7** (`CLAMP_REF_NOT_PROTECTIVE` = 6008) — `@clamp(ref)` must target an
 //!   `@role(protective)`/`@role(earth)` ref.
+//! * **PWR-9** (`ISOLATED_DC_BRIDGE` = 6014, §3.2 isolated row) — the isolated
+//!   world (isolated refs + every rail returned to one) carries zero declared DC
+//!   `@bridge` to any non-isolated member.
+//! * **PWR-8** (`PROTECTIVE_MULTI_BRIDGE` = 6015, §3.2 protective row) — a
+//!   protective conduit allows exactly one DC `@bridge`; a second fires even
+//!   when `@star` discharges the 6007 loop (single point is a hard (1,0)).
+//! * **earth** (`EARTH_DC_LEAK` = 6016, §3.2 earth row) — an `@role(earth)`
+//!   conduit couples only through a Y-cap `@couple`; a DC `@bridge` incident to
+//!   it is a leakage warning. Severity is a warning, not an error, per the
+//!   design's "leakage warning" wording.
+//! * **main** (`REFERENCE_ISLAND_ROOT` = 6017, §3.2.1) — a DC-bridged reference
+//!   island (role-bearing refs joined by DC `@bridge` legs) carries exactly one
+//!   `@role(main)` root; zero mains or two mains is an error.
+//! * **zero-bridge** (`ROLE_REF_MISSING_BRIDGE` = 6018, conduit-equivalence-design.md
+//!   §8.4) — `@bridge` is explicit, never inferred from a component type, but a
+//!   `@role(quiet)`/`@role(protective)` conduit with no declared DC `@bridge`
+//!   (a bare count of zero) is an unwired declaration and must not be silent; a
+//!   Y-cap `@couple` does not discharge it. The upper bound (a second bridge) is
+//!   6007's / 6015's job — this fires on the zero only.
+//! * **PWR-1** (`SINK_NET_NO_SOURCE` = 6019, §11 no-source face / axis ③) — a
+//!   net that carries component power-sink (`psnk`) terminals yet has no supply
+//!   root on the net itself (no declared domain-rail face, no decodable
+//!   psrc/psbi hot pin) is a face whose loads draw from nothing. Net-local,
+//!   mirroring 6011/6013: module boundary feed ports and copper pass-through
+//!   feed stay the S-set step.
 //!
 //! Golden board (`mcs/pwrint/src/main.mc`) shape: GND carries `@star`, so its
-//! two parallel `@bridge(GND, GNDA)` legs are discharged, and POWER_USB clamps
-//! to its own `@role(protective)` ESDGND — neither new code fires.
+//! two parallel `@bridge(GND, GNDA)` legs are discharged (that island holds the
+//! single main root GND), and POWER_USB clamps to its own `@role(protective)`
+//! ESDGND with exactly one bridge; GND_ISO's isolated world (V5V_ISO ret
+//! GND_ISO) and EARTH declare no DC edge. The two quiet/protective conduits
+//! (GNDA, ESDGND) each carry a declared DC bridge, so 6018 stays silent — none
+//! of the new codes fire.
 
 mod common;
 
@@ -261,9 +290,10 @@ fn sink_on_its_own_rail_is_clean() {
     );
 }
 
-/// A sink on a net that is *not* a declared rail face (its S-set would be
-/// derived by §4.3 propagation) is not adjudicated by this first rule — the
-/// net carries no rail guarantee to compare against.
+/// A sink on a net that is *not* a declared rail face carries no rail guarantee
+/// to compare, so this first rule (6011) defers it to the S-set step — the
+/// bare `VMID` label is also fed by nothing, so PWR-1 (6019) reports the
+/// dead net while 6011 itself stays silent.
 #[test]
 fn sink_on_intermediate_net_is_not_adjudicated() {
     let src = format!(
@@ -274,7 +304,11 @@ fn sink_on_intermediate_net_is_not_adjudicated() {
     let codes = build_codes(&src);
     assert!(
         !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
-        "a sink on a non-rail net carries no guarantee to compare (S-set later); got codes: {codes:?}"
+        "a sink on a non-rail net carries no guarantee to compare (6011 S-set later); got codes: {codes:?}"
+    );
+    assert!(
+        codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "the bare VMID net feeds the sink from nothing — PWR-1 (6019) must report it; got codes: {codes:?}"
     );
 }
 
@@ -581,5 +615,488 @@ fn interface_misuse_still_warns_while_power_rows_are_silent() {
     assert_eq!(
         warns, 1,
         "exactly the non-power interface misuse must warn 3110 (once); got {warns} in {codes:?}"
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PWR-3 source contention (axis ③ — §11 / §13 landing 3).
+//
+// The narrow kernel: two or more `psrc` HARD sources landing their hot
+// terminal on the same net with no declared ORing/combine element between them
+// is an undeclared parallel source (6013). Nominal *agreement* does not excuse
+// the parallel — ORing is a topological merge, so even two 5V regulators
+// wire-ORed to one node still need the declared element. `psbi` (battery
+// coexistence, a conditional source) and rail faces (6010's two-roots scope)
+// are not source points; copper pass-through propagation / converter
+// re-anchoring stay the later S-set step.
+
+/// Two `psrc` on one net — even with *agreeing* nominals — is an undeclared
+/// parallel source (the golden never does this: every net there has ≤1 psrc).
+#[test]
+fn two_psrc_same_nominal_on_one_net_fire_contention() {
+    let src = format!(
+        "{SRC5}\nmodule main {{\n    conduit GND @role(main)\n    io V5\n    \
+         SRC5 a\n    SRC5 b\n    a.OUT -> V5\n    a.GND -> GND\n    \
+         b.OUT -> V5\n    b.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_SOURCE_CONTENTION),
+        "two 5V psrc on one net must fire 6013 (undeclared parallel even at the same nominal); got codes: {codes:?}"
+    );
+}
+
+/// Two `psrc` at *different* nominals on one net — the case the sink nominal
+/// check used to defer silently — is the same contention: 6013 replaces the
+/// defer. 6011 stays silent because there is no single S to judge sinks against.
+#[test]
+fn two_psrc_different_nominal_on_one_net_fire_contention() {
+    let src = format!(
+        "{SRC5}{SRC3}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    io VX\n    \
+         SRC5 a\n    SRC3 b\n    SINK3 k\n    a.OUT -> VX\n    a.GND -> GND\n    \
+         b.OUT -> VX\n    b.GND -> GND\n    k.VDD -> VX\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_SOURCE_CONTENTION)
+            && !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "conflicting 5V/3.3V psrc on one net must fire 6013 and leave the net un-adjudicated by 6011; got codes: {codes:?}"
+    );
+}
+
+/// Golden battery-coexistence shape: one `psrc` (regulator OUT) + one `psbi`
+/// (battery BAT) on the same net is NOT contention — the battery is a
+/// conditional source. The 3.3V sink still fires 6011 against the agreed 5V S,
+/// proving both roots were detected before the psbi was excluded from the count.
+#[test]
+fn psrc_plus_psbi_on_one_net_is_not_contention() {
+    let src = format!(
+        "{SRC5}{BAT5}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    io VB\n    \
+         SRC5 a\n    BAT5 b\n    SINK3 k\n    a.OUT -> VB\n    a.GND -> GND\n    \
+         b.BAT -> VB\n    b.GND -> GND\n    k.VDD -> VB\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_SOURCE_CONTENTION)
+            && codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "a psrc + a psbi on one net must not fire 6013, but the 5V S must still fire the 3.3V sink (6011); got codes: {codes:?}"
+    );
+}
+
+/// One psrc per net is the healthy shape — sources on *different* nets are
+/// never compared.
+#[test]
+fn two_psrc_on_different_nets_are_clean() {
+    let src = format!(
+        "{SRC5}\nmodule main {{\n    conduit GND @role(main)\n    io VA\n    io VB\n    \
+         SRC5 a\n    SRC5 b\n    a.OUT -> VA\n    a.GND -> GND\n    \
+         b.OUT -> VB\n    b.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_SOURCE_CONTENTION),
+        "one psrc per net must not fire 6013; got codes: {codes:?}"
+    );
+}
+
+/// Golden VDD_3V3 / V5V_ISO shape: a rail face *and* one same-nominal `psrc`
+/// on the same net (DVDD rail 3.3V + LDO OUT psrc 3.3V) is one agreeing
+/// supply — rail faces are not source points for 6013, so this never fires.
+#[test]
+fn rail_face_plus_single_psrc_is_not_contention() {
+    let src = format!(
+        "{SRC3}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [VS, GND]::DC(3.3V) }}\n    \
+         io VS\n    SRC3 a\n    SINK3 k\n    a.OUT -> VS\n    a.GND -> GND\n    \
+         k.VDD -> VS\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_SOURCE_CONTENTION),
+        "a rail face + one psrc on the same net must not fire 6013; got codes: {codes:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// §3.2 role-relation contract rows 6014 (isolated zero-DC-bridge, PWR-9) and
+// 6015 (protective single-point, PWR-8), landed with the loop/clamp rows above.
+// ---------------------------------------------------------------------------
+
+/// 6014 fire: an `@role(isolated)` ref DC-`@bridge`d to the main reference is
+/// a hard tie out of the zero-DC world — a declared DC bridge across the
+/// isolation boundary.
+#[test]
+fn isolated_ref_dc_bridged_to_main_net_fires_6014() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND     @role(main)\n    conduit GND_ISO @role(isolated)\n    \
+         GND_ISO - fb1::FB() - GND @bridge(GND_ISO, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::ISOLATED_DC_BRIDGE),
+        "a DC bridge out of an isolated ref must fire 6014; got codes: {codes:?}"
+    );
+}
+
+/// 6014 fires via the *derived* member too: V5V_ISO carries no role of its own,
+/// but its rail returns to `@role(isolated)` GND_ISO (design §4), so a DC
+/// `@bridge` from it out to GND is still a bridge out of the isolated world.
+#[test]
+fn rail_returned_to_isolated_ref_dc_bridged_outside_fires_6014() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND     @role(main)\n    conduit GND_ISO @role(isolated)\n    \
+         domain ISO {{ rail [V5V_ISO, GND_ISO]::DC(5V) }}\n    \
+         V5V_ISO - fb1::FB() - GND @bridge(V5V_ISO, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::ISOLATED_DC_BRIDGE),
+        "a DC bridge out of a rail hot returned to an isolated ref must fire 6014; got codes: {codes:?}"
+    );
+}
+
+/// 6014 clean (golden GND_ISO mirror): an isolated world that declares no DC
+/// edge is silent — the isolation is stated by role, not derived from an edge.
+#[test]
+fn isolated_world_without_dc_edge_is_clean() {
+    let src =
+        "module main {\n    conduit GND     @role(main)\n    conduit GND_ISO @role(isolated)\n    \
+        domain ISO { rail [V5V_ISO, GND_ISO]::DC(5V) }\n}\n";
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::ISOLATED_DC_BRIDGE),
+        "an isolated world with no DC edge must not fire 6014; got codes: {codes:?}"
+    );
+}
+
+/// 6014 kernel boundary: an isolated↔isolated DC `@bridge` merges two zero-DC
+/// worlds — both endpoints are isolated, so it is not a bridge *out* and 6014
+/// stays silent (kernel-accepted world merge).
+#[test]
+fn isolated_to_isolated_dc_bridge_is_kernel_clean() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND_ISO  @role(isolated)\n    conduit GND_ISO2 @role(isolated)\n    \
+         GND_ISO2 - fb1::FB() - GND_ISO @bridge(GND_ISO2, GND_ISO)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::ISOLATED_DC_BRIDGE),
+        "an isolated-to-isolated DC bridge must not fire 6014 (world merge); got codes: {codes:?}"
+    );
+}
+
+/// 6015 clean (golden POWER_USB ESDGND mirror): exactly one declared DC
+/// `@bridge` to the circuit reference is the protective conduit's single point.
+#[test]
+fn protective_with_single_dc_bridge_is_clean() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit ESDGND @role(protective)\n    conduit GND    @role(main)\n    \
+         ESDGND - fb1::FB() - GND @bridge(ESDGND, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECTIVE_MULTI_BRIDGE),
+        "one protective DC bridge must not fire 6015; got codes: {codes:?}"
+    );
+}
+
+/// 6015 fires where 6007 stays silent: a second protective-ground leg is a
+/// single-point violation even though `@star` on the far GND hub discharges
+/// the 6007 loop — the protective single point is a hard (1,0) invariant.
+#[test]
+fn protective_second_dc_bridge_fires_6015_even_with_star() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit ESDGND @role(protective)\n    conduit GND    @role(main) @star\n    \
+         ESDGND - fb1::FB() - GND @bridge(ESDGND, GND)\n    \
+         ESDGND - fb2::FB() - GND @bridge(ESDGND, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::PROTECTIVE_MULTI_BRIDGE)
+            && !codes.contains(&mcc::errcodes::POWER_BRIDGE_LOOP),
+        "a second protective bridge must fire 6015 even with @star on the hub (6007 stays silent); got codes: {codes:?}"
+    );
+}
+
+/// 6016 fire (design §11 chassis/earth scene / §3.2 earth row): an `@role(earth)`
+/// conduit DC-`@bridge`d to the circuit reference is a low-resistance chassis
+/// direct tie — a leakage warning.
+#[test]
+fn earth_ref_dc_bridged_to_main_net_leaks_6016() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit EARTH @role(earth)\n    conduit GND   @role(main)\n    \
+         EARTH - fb1::FB() - GND @bridge(EARTH, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::EARTH_DC_LEAK),
+        "a DC bridge into an earth ref must leak (6016); got codes: {codes:?}"
+    );
+}
+
+/// 6016 clean: an earth ref met by a Y-cap `@couple` (the AC-only (0,1)
+/// relation) is exactly the legal chassis coupling — no DC row, no leak.
+#[test]
+fn earth_ref_with_only_ycap_couple_is_clean() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit EARTH @role(earth)\n    conduit GND   @role(main)\n    \
+         EARTH - fb1::FB() - GND @couple(EARTH, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::EARTH_DC_LEAK),
+        "a Y-cap @couple into an earth ref is legal — 6016 only rows DC @bridges; got codes: {codes:?}"
+    );
+}
+
+/// 6016 clean + PWR-7 pass: an ESD clamp into an `@role(earth)` ref is a legal
+/// clamp target (6008 accepts protective/earth), and the clamp edge is not a DC
+/// bridge so no leak fires.
+#[test]
+fn clamp_into_earth_ref_is_not_a_leak() {
+    let src = format!(
+        "{TV}\nmodule main {{\n    conduit EARTH @role(earth)\n    io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> EARTH @clamp(EARTH)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::EARTH_DC_LEAK)
+            && !codes.contains(&mcc::errcodes::CLAMP_REF_NOT_PROTECTIVE),
+        "a clamp into an earth ref must not leak (6016) nor fire PWR-7 (6008); got codes: {codes:?}"
+    );
+}
+
+/// 6017 fire (§3.2.1): DC-`@bridge`ing two `@role(main)` islands merges them
+/// into one L1 island that then carries two roots — the doc's canonical "two
+/// main islands must not be @bridge'd" case.
+#[test]
+fn two_main_islands_dc_bridged_fire_6017() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main)\n    conduit GND2 @role(main)\n    \
+         GND - fb1::FB() - GND2 @bridge(GND, GND2)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::REFERENCE_ISLAND_ROOT),
+        "a DC bridge between two main islands must fire 6017; got codes: {codes:?}"
+    );
+}
+
+/// 6017 fire: a DC-bridged reference group with *no* main root (two quiet
+/// leaves tied to each other, not to an island main) has no ground to return
+/// to — zero mains is as much a violation as two.
+#[test]
+fn bridge_joined_quiet_group_without_main_fires_6017() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GNDA @role(quiet)\n    conduit GNDB @role(quiet)\n    \
+         GNDA - fb1::FB() - GNDB @bridge(GNDA, GNDB)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::REFERENCE_ISLAND_ROOT),
+        "a DC-bridged quiet group with no main root must fire 6017; got codes: {codes:?}"
+    );
+}
+
+/// 6017 clean (golden GND/GNDA shape): one main + one quiet DC-`@bridge`d is an
+/// island with exactly one root.
+#[test]
+fn main_quiet_island_with_single_root_is_clean() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main)\n    conduit GNDA @role(quiet)\n    \
+         GNDA - fb1::FB() - GND @bridge(GNDA, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::REFERENCE_ISLAND_ROOT),
+        "one main + one quiet bridged must not fire 6017; got codes: {codes:?}"
+    );
+}
+
+/// 6017 clean (golden four-role shape): isolated and earth conduits declare no
+/// DC bridge, so they are not reference islands and the main+quiet island keeps
+/// its single root.
+#[test]
+fn isolated_earth_singletons_do_not_break_the_main_island() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND     @role(main)\n    conduit GNDA    @role(quiet)\n    \
+         conduit GND_ISO @role(isolated)\n    conduit EARTH   @role(earth)\n    \
+         GNDA - fb1::FB() - GND @bridge(GNDA, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::REFERENCE_ISLAND_ROOT),
+        "isolated/earth singletons must not turn a one-root island into a violation; got codes: {codes:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// §8.4 zero-bridge rule 6018 (quiet/protective conduit with no declared DC
+// `@bridge`) — conduit-equivalence-design.md §8.4. The upper bound is 6007 /
+// 6015; this fires on the bare zero only.
+// ---------------------------------------------------------------------------
+
+/// 6018 fire (primary §8.4 scenario): a `@role(quiet)` conduit that is a real
+/// supply face — a rail returns to it — but declares no DC `@bridge` is an
+/// unwired quiet reference: its loads have no declared return path to the island
+/// main. The forgotten `@bridge` must not be silent.
+#[test]
+fn quiet_face_without_return_bridge_fires_6018() {
+    let src = "module main {\n    conduit GND  @role(main)\n    conduit GNDA @role(quiet)\n    \
+        domain AV { rail [VDDA, GNDA]::DC(3V3) }\n}\n";
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::ROLE_REF_MISSING_BRIDGE),
+        "a quiet rail return with no declared DC bridge must fire 6018; got codes: {codes:?}"
+    );
+}
+
+/// 6018 fire, bare protective form: an `@role(protective)` conduit with no
+/// declared DC `@bridge` has no single point to the circuit reference at all —
+/// the protective expectation (§3.2) is one bridge, and zero is unwired.
+#[test]
+fn protective_conduit_without_dc_bridge_fires_6018() {
+    let src =
+        "module main {\n    conduit GND    @role(main)\n    conduit ESDGND @role(protective)\n}\n";
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::ROLE_REF_MISSING_BRIDGE),
+        "a protective conduit with no declared DC bridge must fire 6018; got codes: {codes:?}"
+    );
+}
+
+/// 6018 clean (golden GNDA mirror, single leg): a quiet conduit carrying a
+/// declared DC `@bridge` to the main reference satisfies the expectation — the
+/// upper bound (a second leg = loop) is 6007's job, not this rule's.
+#[test]
+fn quiet_ref_with_single_dc_bridge_is_clean() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main)\n    conduit GNDA @role(quiet)\n    \
+         GNDA - fb1::FB() - GND @bridge(GNDA, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::ROLE_REF_MISSING_BRIDGE),
+        "a quiet conduit with one declared DC bridge must not fire 6018; got codes: {codes:?}"
+    );
+}
+
+/// 6018 clean (golden POWER_USB ESDGND mirror): exactly one declared DC bridge
+/// is the protective conduit's single point — 6018 counts the bare zero only.
+#[test]
+fn protective_ref_with_single_dc_bridge_is_clean() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit ESDGND @role(protective)\n    conduit GND    @role(main)\n    \
+         ESDGND - fb1::FB() - GND @bridge(ESDGND, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::ROLE_REF_MISSING_BRIDGE),
+        "a protective conduit with one declared DC bridge must not fire 6018; got codes: {codes:?}"
+    );
+}
+
+/// 6018 discriminator: only a declared DC `@bridge` satisfies the quiet/protective
+/// expectation. A Y-cap `@couple` is the (0,1) AC-only relation — a quiet tied
+/// only by a couple is still unwired at DC and fires (mirrors how 6016 rows DC
+/// only; here the couple does not discharge the zero-bridge count).
+#[test]
+fn quiet_ref_with_only_ycap_couple_still_fires_6018() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main)\n    conduit GNDA @role(quiet)\n    \
+         GNDA - fb1::FB() - GND @couple(GNDA, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::ROLE_REF_MISSING_BRIDGE),
+        "a Y-cap @couple alone does not tie a quiet conduit at DC — 6018 must fire; got codes: {codes:?}"
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PWR-1 no-source face (§11 / axis ③): a net that carries component power-sink
+// (psnk) terminals but no supply root on the net itself — no declared
+// domain-rail face, no decodable psrc/psbi hot pin. Net-local, mirroring
+// 6011/6013: module boundary feed ports and copper pass-through feed (S
+// crossing a fuse/inductor/ferrite from a neighbouring net) stay the S-set
+// step, so a root-less net that is silent in 6011 is only legal when it
+// carries no demand.
+
+/// 6019 fire, canonical form: a 3.3V sink wired to a bare `io` net that is
+/// neither a declared rail face nor driven by any source — the load draws from
+/// nothing. This is exactly the net 6011 skips as "intermediate (S-set later)"
+/// — once it carries a sink, the skip must not be silent.
+#[test]
+fn sink_on_rootless_net_fires_6019() {
+    let src = format!(
+        "{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VMID\n    SINK3 s\n    s.VDD -> VMID\n    s.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a psnk sink on a net with no supply root must fire 6019 (PWR-1); got codes: {codes:?}"
+    );
+}
+
+/// 6019 fire, second nominal: a 5V sink on a root-less net fires the same way —
+/// PWR-1 does not depend on the sink nominal, only on the missing source root.
+#[test]
+fn fivesink_on_rootless_net_fires_6019() {
+    let src = format!(
+        "{SNK5}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VX\n    SNK5 s\n    s.VDD -> VX\n    s.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a 5V psnk sink on a root-less net must fire 6019 (PWR-1); got codes: {codes:?}"
+    );
+}
+
+/// 6019 clean: a sink on its *declared* domain-rail face has a handwritten
+/// source root (§4.1) — the domain rail block is the guarantee, so no PWR-1.
+#[test]
+fn sink_on_declared_rail_face_is_clean_6019() {
+    let src = format!(
+        "{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V3V3, GND]::DC(3.3V) }}\n    \
+         io V3V3\n    SINK3 s\n    s.VDD -> V3V3\n    s.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a sink on a declared rail face carries the domain guarantee — no 6019; got codes: {codes:?}"
+    );
+}
+
+/// 6019 clean (golden VMAIN_5V shape): a sink on a net driven by a bare `psrc`
+/// source pin (no rail face in sight) has an S root on the net — no PWR-1.
+#[test]
+fn sink_on_psrc_driven_net_is_clean_6019() {
+    let src = format!(
+        "{SRC5}{SNK5}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VMAIN\n    SRC5 src\n    src.OUT -> VMAIN\n    src.GND -> GND\n    \
+         SNK5 load\n    load.VDD -> VMAIN\n    load.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a sink on a psrc-driven net is fed on-net — no 6019; got codes: {codes:?}"
+    );
+}
+
+/// 6019 clean: a root-less net that carries no component power sink at all is a
+/// legal intermediate/copper net — PWR-1 only fires on nets that *demand* power.
+#[test]
+fn rootless_net_without_sink_is_clean_6019() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND @role(main)\n    conduit GNDA @role(quiet)\n    \
+         io VX\n    io VY\n    VX - fb1::FB() - VY\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a root-less net with no component psnk sink must not fire 6019; got codes: {codes:?}"
     );
 }
