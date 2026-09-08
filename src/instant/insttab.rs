@@ -372,6 +372,15 @@ pub struct NetEntry {
     pub id: u32,
     /// Network name (port name > label name > anonymous `_net{N}`)
     pub name: String,
+    /// ★ Net-island attribution L1 (net-island-attribution-design.md §5): the
+    /// module entry id whose `flatten_nets` produced this record (the scope its
+    /// endpoints live under). Every flat net is created from exactly one
+    /// module's frozen string net table, so this is always `Some` at flatten
+    /// time; `None` is reserved for a net with no locatable scope. Consumers
+    /// that need per-module identity (island/copper attribution, S-set, the
+    /// per-scope 6011/6019/6021 refinement) key on this instead of re-deriving
+    /// scope from point-path prefixes.
+    pub module: Option<u32>,
     /// InstEntry IDs of all endpoints belonging to this network
     pub points: Vec<u32>,
 }
@@ -1540,8 +1549,10 @@ impl InstTable {
             self.flatten_module(sub, &my_path, Some(my_id), view);
         }
 
-        // 7. Register network information (module's frozen string net table)
-        self.flatten_nets(inst, &my_path);
+        // 7. Register network information (module's frozen string net table).
+        //    Pass `my_id` so every NetEntry records the module scope that owns
+        //    it (net-island attribution L1).
+        self.flatten_nets(inst, &my_path, my_id);
     }
 
     /// Flatten the module instance's net table into NetEntry records
@@ -1564,7 +1575,7 @@ impl InstTable {
     /// turn caused the layer to see fewer top-level edges (root cause 2).
     ///
     /// See `resolve_netpoint_path` comment for details.
-    fn flatten_nets(&mut self, _inst: &McModuleInst, module_path: &str) {
+    fn flatten_nets(&mut self, _inst: &McModuleInst, module_path: &str, module_id: u32) {
         // [P0-DET] sorted net-name order: `net_id_counter` is allocated by iteration
         // order, so HashMap order would leak into net ids (and downstream pin ids).
         // Each module's table is a Vec (a module may hold multiple nets all named
@@ -1649,6 +1660,7 @@ impl InstTable {
                     NetEntry {
                         id: net_id,
                         name: net_name.clone(),
+                        module: Some(module_id),
                         points: point_ids,
                     },
                 );

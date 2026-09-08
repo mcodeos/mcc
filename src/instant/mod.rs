@@ -9,6 +9,7 @@ pub(crate) mod dianlu;
 pub(crate) mod identity;
 pub(crate) mod inststore;
 pub(crate) mod insttab;
+pub(crate) mod island;
 pub(crate) mod lane;
 pub(crate) mod mc_bus;
 pub(crate) mod mc_comp;

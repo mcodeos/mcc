@@ -1357,10 +1357,11 @@ pub const POWER_SINK_NOMINAL_MISMATCH: u32 = 6011;
 
 /// A `psrc`/`psnk`/`psbi` `::DC(…)` ctor argument does not decode to the
 /// contract it names — the pin-side of 6009 (§13.2 Volt-arg decode / §5.2
-/// closed word-list discipline). A sink nominal is mandatory and the only legal
-/// sink key; tol/capacity/eff are source-exclusive (PWR-4); req/abs belong in
-/// the component `spec` (§4.4 write-site rule), never per-schematic.
-/// (power-intent-design.md §4.1/§5.2)
+/// closed word-list discipline). A sink writes its nominal plus an optional
+/// `amp` demand key (rail-contract-design.md §8.1); tol/capacity/eff are
+/// source-exclusive (PWR-4) and `amp` is sink-exclusive, so either off its
+/// register side is flagged; req/abs belong in the component `spec` (§4.4
+/// write-site rule), never per-schematic. (power-intent-design.md §4.1/§5.2)
 pub const POWER_PIN_DECODE: u32 = 6012;
 
 /// Two or more `psrc` hard sources land their hot terminal on the same net
@@ -1443,6 +1444,24 @@ pub const SINK_NET_NO_SOURCE: u32 = 6019;
 /// holds tighter than any single live input can, the exact over-claim the
 /// OR-merge ∪ semantics exists to catch under single-source states (§6.3).
 pub const COMBINE_OUTPUT_TOL: u32 = 6020;
+
+/// PWR-4 budget, net-local first kernel (rail-contract-design.md §8): a net
+/// whose supply root declares a capacity (domain-rail face or psrc/psbi hot
+/// pin carrying `capacity`) carries psnk sinks whose declared `amp` demand
+/// (§8.1, sink-exclusive, opt-in) sums to more than that capacity. Net-local,
+/// mirroring 6011/6013/6019: only loads wired directly to the capacity-bearing
+/// net are counted — converter push-up (`I_in = ΣP_out/(|V_in|×eff)`, §7.2),
+/// copper pass-through feed, and module-boundary feed are the S-set step.
+pub const NET_BUDGET_EXCEEDED: u32 = 6021;
+
+/// §8.5 return-path completeness (conduit-equivalence-design.md §8.5, PWR-2
+/// upper clause) — the first consumer of the NetIslandIndex L1 (design
+/// net-island-attribution-design.md §7 L2): a physical two-terminal DC element
+/// joins two *different* resolvable return-side coppers (rail `Ret` copper or
+/// `Reference` copper) but the owning scope declares no `@bridge`/`@couple` on
+/// that net pair. Advisory Warning — a forgotten single-point bridge or an
+/// undeclared bypass; the relation is never inferred from the part type (§8.4).
+pub const RETURN_LEG_UNDECLARED: u32 = 6022;
 
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
@@ -1818,6 +1837,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ROLE_REF_MISSING_BRIDGE, "A quiet/protective reference conduit has no declared DC @bridge.", "role conduit '{0}' carries no declared DC @bridge — an @role(quiet)/@role(protective) conduit expects exactly one bridge to its main reference; a bare zero means the declaration was never wired (conduit-equivalence-design.md §8.4)"),
     entry!(SINK_NET_NO_SOURCE, "A net carrying power sinks (psnk) has no declared source root on it.", "net '{0}' carries component power-sink terminals but has no supply root on the net — it is neither a declared domain-rail face nor driven by a psrc/psbi hot pin, so its loads draw from nothing that guarantees power (PWR-1 no-source face). Attach the loads to a declared rail face or drive the net from a psrc source; a feed that crosses a series pass element (inductor/ferrite/fuse) from another net is not yet traced (S-set step)"),
     entry!(COMBINE_OUTPUT_TOL, "A combine element's output psrc declares a tolerance window it cannot re-anchor.", "combine element '{0}' output '{1}' declares tol {2} — a pass-through OR-merge can't guarantee tighter than its live input, so a literal OUT window over-claims under single-source states (rail-contract-design.md §6.2③); write the nominal-only ::DC(v), or add spec.output to model a regulator"),
+    entry!(NET_BUDGET_EXCEEDED, "A net's declared psnk load demand exceeds its supply capacity (PWR-4).", "net '{0}' declares {1} of psnk load ({2} sinks) but its supply root declares capacity {3} — Σ amp ≤ capacity is the PWR-4 budget (rail-contract-design.md §8.2). Either the loads really overdraw the rail (cut the load / raise the source capacity / split the rail), or a sink's amp is mis-declared. Undeclared sinks draw unknown current and are not counted; converter-input push-up and cross-net feed are the S-set step"),
+    entry!(RETURN_LEG_UNDECLARED, "A two-terminal DC element joins two return coppers with no declared DC relation (§8.5).", "two-terminal '{2}' DC-joins return coppers '{0}' and '{1}' but that net pair carries no declared @bridge/@couple — a DC reference tie is explicit: add the forgotten single-point @bridge, or declare the intentional bypass (conduit-equivalence-design.md §8.5)"),
     // ---- section ----
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),

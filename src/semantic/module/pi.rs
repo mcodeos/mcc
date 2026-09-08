@@ -272,14 +272,16 @@ fn decode_rail(domain: &str, r: &McRailDecl) -> L1Rail {
 // ============================================================================
 
 /// One decoded component `psrc/psnk/psbi ...::DC(...)` pin contract
-/// (design §4.1/§4.4). The **guarantee** words decode exactly like a domain
-/// rail (`psrc` / `psbi` — positional nominal + `tol`/`capacity`/`eff` source
-/// budget, source-exclusive §5.2). The **requirement** word (`psnk`) writes its nominal: only the
-/// positional nominal is legal on its `::DC`; a source-exclusive budget key
-/// (PWR-4) or a window key (`req`/`abs` — which belong in the component `spec`
-/// block, §4.4 write-site rule, never per-schematic) is flagged. `v` is `None` when the
-/// nominal text does not decode to a DC volts value; the failure is kept as
-/// `bad` (reported by the E-PWR-001 ERC rule) rather than silently dropped.
+/// (design §4.1/§4.4, rail-contract-design.md §8). The **guarantee** words decode
+/// exactly like a domain rail (`psrc` / `psbi` — positional nominal +
+/// `tol`/`capacity`/`eff` source budget, source-exclusive §5.2). The
+/// **requirement** word (`psnk`) writes its nominal plus an optional `amp`
+/// demand key (sink-exclusive, rail-contract §8.1); a source-exclusive budget
+/// key on a sink, an `amp` on a source row, or a window key (`req`/`abs` — which
+/// belong in the component `spec` block, §4.4 write-site rule, never
+/// per-schematic) is flagged. `v` is `None` when the nominal text does not
+/// decode to a DC volts value; the failure is kept as `bad` (reported by the
+/// E-PWR-001 ERC rule) rather than silently dropped.
 #[derive(Debug, Clone)]
 pub struct L1PwrPin {
     pub dir: PwrDir,
@@ -294,8 +296,13 @@ pub struct L1PwrPin {
     pub tol: Option<f64>,
     pub capacity_amps: Option<f64>,
     pub eff: Option<f64>,
+    /// The `psnk` instance's declared DC current demand (`amp:`, in amps) —
+    /// sink-exclusive (rail-contract-design.md §8.1); the PWR-4 budget kernel
+    /// sums it per net against the supply root's `capacity`.
+    pub amp: Option<f64>,
     /// First decode problem, if any (missing/non-DC nominal, a
-    /// source-exclusive key on a sink, or a `spec`-belonging window key).
+    /// source-exclusive key on a sink, an `amp` on a source row, or a
+    /// `spec`-belonging window key).
     pub bad: Option<String>,
     /// Trailing `@attr…` run of the source pin row (design §5.1), carried
     /// through decode so identity words (`@class(digital|analog)`, …) reach the
@@ -318,6 +325,7 @@ pub(crate) fn decode_pwr_pin(pin: &McPwrPin) -> L1PwrPin {
         tol: None,
         capacity_amps: None,
         eff: None,
+        amp: None,
         bad: None,
         attrs: pin.attrs.clone(),
         span: pin.span.clone(),
@@ -337,10 +345,26 @@ pub(crate) fn decode_pwr_pin(pin: &McPwrPin) -> L1PwrPin {
             Some("tol") | Some("capacity") | Some("eff") if is_sink => flag_bad(
                 &mut out.bad,
                 format!(
-                    "'{}' is a source-exclusive budget key (§5.2); a psnk declares only its nominal",
+                    "'{}' is a source-exclusive budget key (§5.2); a psnk declares only its nominal (and optional amp demand, §8.1)",
                     p.key.as_deref().unwrap_or("")
                 ),
             ),
+            // rail-contract-design.md §8.1: `amp` is the sink-exclusive demand
+            // key. On a source/psbi row it is off-register — a source declares
+            // what it can supply (`capacity`), never a net load.
+            Some("amp") if !is_sink => flag_bad(
+                &mut out.bad,
+                format!(
+                    "'amp' is a sink-exclusive demand key (§8.1); a source declares capacity, its input draw is derived, not a net load",
+                ),
+            ),
+            Some("amp") => match parse_amps(&p.text) {
+                Some(x) => out.amp = Some(x),
+                None => flag_bad(
+                    &mut out.bad,
+                    format!("amp '{}' is not a DC current", p.text),
+                ),
+            },
             Some("tol") => match parse_tol(&p.text) {
                 Some(x) => out.tol = Some(x),
                 None => flag_bad(
@@ -1347,6 +1371,73 @@ module main {
         assert!(
             bad.contains("source-exclusive"),
             "expected a source-exclusive-key flag, got: {bad}"
+        );
+    }
+
+    /// rail-contract-design.md §8.1: `amp` is the sink-exclusive demand key —
+    /// a `psnk` may carry its instance's DC current draw after its nominal.
+    #[test]
+    fn decode_psnk_amp_demand() {
+        const PWR_SINK_AMP: &str = r#"component SINK.A {
+    pins = [
+        psnk [1,2]=[VDD, GND]::DC(3.3V, amp:40mA)
+    ]
+}
+module main {
+}
+"#;
+        let pins = parse_pwr_pins(PWR_SINK_AMP, "SINK.A");
+        let sink = decode_pwr_pin(&pins[0]);
+        assert_eq!(sink.hot, "VDD");
+        assert_eq!(sink.v, Some(3.3));
+        assert_eq!(sink.amp, Some(0.04), "40mA → 0.04A");
+        assert!(sink.bad.is_none(), "sink amp decode: {:?}", sink.bad);
+    }
+
+    /// `amp` on a source row is off-register: a source declares what it can
+    /// supply (`capacity`); its own input draw is derived (§7.2), not a net load.
+    #[test]
+    fn decode_amp_on_source_flags() {
+        const SRC_AMP: &str = r#"component SRC.A {
+    pins = [
+        psrc [1,2]=[OUT, GND]::DC(5V, amp:100mA)
+    ]
+}
+module main {
+}
+"#;
+        let pins = parse_pwr_pins(SRC_AMP, "SRC.A");
+        let src = decode_pwr_pin(&pins[0]);
+        assert!(
+            src.capacity_amps.is_none(),
+            "amp must not decode as capacity"
+        );
+        let bad = src.bad.expect("amp on a source must be flagged");
+        assert!(
+            bad.contains("sink-exclusive"),
+            "expected a sink-exclusive demand-key flag, got: {bad}"
+        );
+    }
+
+    /// A non-current `amp` value on a sink is a decode failure (6012 reports it).
+    #[test]
+    fn decode_bad_amp_on_sink_flags() {
+        const BAD_AMP: &str = r#"component SINK.B {
+    pins = [
+        psnk [1,2]=[VDD, GND]::DC(3.3V, amp:5V)
+    ]
+}
+module main {
+}
+"#;
+        let pins = parse_pwr_pins(BAD_AMP, "SINK.B");
+        let sink = decode_pwr_pin(&pins[0]);
+        let bad = sink
+            .bad
+            .expect("a non-current amp on a sink must be flagged");
+        assert!(
+            bad.contains("not a DC current"),
+            "expected a bad-amp flag, got: {bad}"
         );
     }
 

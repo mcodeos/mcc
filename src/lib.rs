@@ -122,6 +122,7 @@ pub use instant::inststore::{InstanceStore, TreeView};
 pub use instant::insttab::{
     InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry, VectorMemberInfo,
 };
+pub use instant::island::{NetAttribution, NetIslandIndex, NetRole};
 pub use instant::lane::{
     collect_stmt_trunks, derive_nets, Lane, Net, NetId, PointGroup, PointId, Trunk,
 };

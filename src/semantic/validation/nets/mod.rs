@@ -2051,6 +2051,307 @@ pub(crate) fn check_combine_output_tol(table: &InstTable, results: &mut Vec<NetC
     }
 }
 
+/// PWR-4 budget, net-local first kernel (rail-contract-design.md §8). Every
+/// net whose supply root declares a *capacity* (a domain-rail face or a
+/// `psrc`/`psbi` hot pin carrying `capacity`, §8.2) declares how much current
+/// that root may deliver; each decodable `psnk` sink on the same net may
+/// declare its instance demand via `amp` (§8.1 — sink-exclusive, opt-in). The
+/// budget compares declared demand against declared capacity: Σ amp ≤ capacity,
+/// else 6021.
+///
+/// The kernel mirrors 6011/6013/6019 exactly. A net whose supply root declares
+/// no capacity is not adjudicated (no budget oracle — PWR-4 stays silent), and
+/// a net whose supply roots declare *different* capacities is skipped (two
+/// handwritten rail roots = 6010; hard-source coexistence = 6013; the
+/// combine-merged net's single-source-mode budget is the S-set step, §6.4).
+/// Only sinks that declare `amp` count, so a capacity-bearing net whose loads
+/// draw unknown current stays silent (opt-in: a declared subset alone over
+/// capacity is still a sound over-budget). Module-boundary feed ports, copper
+/// pass-through feed, and the §7.2 converter push-up (input demand derived from
+/// output power/eff) are the later S-set step — this fires only on loads wired
+/// directly to the capacity-declaring net. Reports once per offending net at
+/// the first contributing sink's entry.
+pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    // Budget capacity from declared domain-rail faces, keyed by rail hot net
+    // name. Ambiguity mirrors 6011's `guarantee`: a hot redeclared across
+    // scopes with a *different* capacity is dropped (6010's two-roots scope).
+    let mut rail_cap: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    for (pi, _uri) in power_intent_defs(table) {
+        for r in pi.l1_rails() {
+            let Some(c) = r.capacity_amps else {
+                continue;
+            };
+            match rail_cap.get(&r.hot) {
+                Some(prev) if (*prev - c).abs() > 1e-9 => {
+                    rail_cap.remove(&r.hot); // ambiguous scope — skip
+                }
+                None => {
+                    rail_cap.insert(r.hot.clone(), c);
+                }
+                _ => {} // same capacity redeclared: keep the first
+            }
+        }
+    }
+
+    // Component class → def, then component-instance id → def, so every net
+    // point recovers its def contract without re-scanning the definition space
+    // (identical to 6011/6019).
+    let workspace = crate::definition_space().workspace_components();
+    let defs: std::collections::HashMap<String, &McComponent> = workspace
+        .iter()
+        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
+        .collect();
+    let comp_def: std::collections::HashMap<u32, &McComponent> = table
+        .get_components()
+        .iter()
+        .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, *d)))
+        .collect();
+
+    for net in table.get_nets() {
+        // ── Budget roots on this net: rail face first (exact name, then the
+        // last dotted segment), then psrc/psbi hot pins carrying a capacity. ──
+        let mut caps: Vec<f64> = Vec::new();
+        if let Some(c) = rail_cap
+            .get(&net.name)
+            .or_else(|| net.name.rsplit('.').next().and_then(|l| rail_cap.get(l)))
+        {
+            caps.push(*c);
+        }
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = comp_def.get(&comp_id).copied() else {
+                continue;
+            };
+            let Some(contract) = source_contract_for(def, entry) else {
+                continue;
+            };
+            let dec = decode_pwr_pin(contract);
+            if let Some(c) = dec.capacity_amps {
+                caps.push(c);
+            }
+        }
+        if caps.is_empty() {
+            continue; // no declared capacity on this net — nothing to budget
+        }
+        // Distinct capacity roots disagree → ambiguous (6010/6013 scope, or the
+        // combine-merged single-mode budget of the S-set step). Require one
+        // agreed capacity before adjudicating.
+        let cap = caps[0];
+        if caps.iter().any(|c| (*c - cap).abs() > 1e-9) {
+            continue;
+        }
+
+        // ── Demand: every decodable psnk sink on this net that declares amp. ──
+        let mut demand: f64 = 0.0;
+        let mut count: usize = 0;
+        let mut witness: Option<(u32, String)> = None;
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = comp_def.get(&comp_id).copied() else {
+                continue;
+            };
+            let Some(contract) = sink_contract_for(def, entry) else {
+                continue;
+            };
+            let dec = decode_pwr_pin(contract);
+            let Some(a) = dec.amp else {
+                continue; // sink draws unknown current — not counted (opt-in)
+            };
+            demand += a;
+            count += 1;
+            if witness.is_none() {
+                witness = Some(entry_pos(entry));
+            }
+        }
+        if count == 0 || demand <= cap + 1e-9 {
+            continue;
+        }
+        let (pos, uri) = witness.unwrap_or((0, String::new()));
+        results.push(NetCheckResult {
+            check: "net-budget-exceeded",
+            severity: "error",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::NET_BUDGET_EXCEEDED,
+                &[
+                    &net.name,
+                    &fmt_amps(demand),
+                    &count.to_string(),
+                    &fmt_amps(cap),
+                ],
+            ),
+            net_name: net.name.clone(),
+            code: crate::errcodes::NET_BUDGET_EXCEEDED,
+            pos,
+            uri,
+        });
+    }
+}
+
+/// §8.5 return-path completeness (conduit-equivalence-design.md §8.5, PWR-2
+/// upper clause) — the first consumer of the L1 island index
+/// (net-island-attribution-design.md §7 L2). Every physical two-terminal DC
+/// element whose two pads land on two *different* resolvable return-side
+/// coppers (a rail `Ret` copper or a `Reference` copper: quiet/protective/
+/// isolated/earth or a plain named conduit) is itself a DC relation between
+/// those coppers. The declaration layer adjudicates such relations only on net
+/// statements that carry `@bridge`/`@couple`; a leg whose net pair declares no
+/// DC edge in its owning scope is either a forgotten single-point bridge or an
+/// intentional bypass that was never declared. Advisory Warning (upper side) —
+/// the relation is never inferred from the part type (§8.4 iron rule): the
+/// declaration is the only evidence of intent.
+///
+/// L2 adjudicates the identity-stable region only: both leg nets must resolve
+/// against their owning scope's declarations (role `Ret`/`Reference`, distinct
+/// coppers). Decoupling legs (hot↔return), same-copper shunts, and any leg
+/// touching an unresolvable net (split-ground fragment, dotted pass-through,
+/// derived supply face) are not judged. Exemption is at the *declared
+/// net-pair* granularity — one `@bridge`/`@couple` between the two coppers
+/// exempts every leg on that pair, so a second deliberately-paralleled return
+/// leg is 6007's declared-loop / §8.5 data-gap-2 boundary, not this rule's
+/// single-path reading.
+pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let idx = crate::instant::island::NetIslandIndex::build(table);
+
+    // Declared DC-relation pairs per owning module — the {a, b} of every
+    // Bridge/Couple edge (a Clamp is a net→ref transient dump, no DC tie).
+    let mut declared: std::collections::HashMap<u32, Vec<[String; 2]>> =
+        std::collections::HashMap::new();
+    for (id, pi) in table.power_decls() {
+        let is_module = table
+            .get_entry(*id)
+            .is_some_and(|e| matches!(e.kind, InstKind::Module));
+        if !is_module {
+            continue;
+        }
+        let pairs: Vec<[String; 2]> = pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| {
+                matches!(
+                    e.kind,
+                    crate::semantic::module::pi::L1EdgeKind::Bridge
+                        | crate::semantic::module::pi::L1EdgeKind::Couple
+                )
+            })
+            .filter_map(|e| {
+                let (Some(a), Some(b)) = (e.endpoints.first(), e.endpoints.get(1)) else {
+                    return None;
+                };
+                if a == b {
+                    return None;
+                }
+                let (a, b) = if a < b { (a, b) } else { (b, a) };
+                Some([a.clone(), b.clone()])
+            })
+            .collect();
+        if !pairs.is_empty() {
+            declared.insert(*id, pairs);
+        }
+    }
+
+    for comp in table.get_components() {
+        // A through leg is a real two-terminal part wired on both pads.
+        if comp.synthetic || comp.unselected || comp.not_fitted || comp.pin_count != 2 {
+            continue;
+        }
+        let pins = table.get_pins_of(comp.id);
+        if pins.len() != 2 {
+            continue;
+        }
+        let (Some(an), Some(bn)) = (table.get_net_of(pins[0].id), table.get_net_of(pins[1].id))
+        else {
+            continue; // an unwired pad is a floating-input matter, not a leg
+        };
+        if an.id == bn.id {
+            continue; // both pads shorted onto one net
+        }
+        let (Some(a), Some(b)) = (idx.get(an.id), idx.get(bn.id)) else {
+            continue;
+        };
+        let Some(ma) = a.module else {
+            continue;
+        };
+        if b.module != Some(ma) {
+            continue; // a boundary-straddling tie is not a same-scope copper pair
+        }
+        // Both nets must be return-side coppers, distinct — a hot↔return leg is
+        // the ordinary decoupling case and stays unjudged.
+        let (Some(cua), Some(cub)) = (a.copper.as_deref(), b.copper.as_deref()) else {
+            continue;
+        };
+        let is_return = |r: crate::instant::island::NetRole| {
+            matches!(
+                r,
+                crate::instant::island::NetRole::Ret | crate::instant::island::NetRole::Reference
+            )
+        };
+        if cua == cub
+            || !(a.resolvable && b.resolvable)
+            || !(is_return(a.role) && is_return(b.role))
+        {
+            continue;
+        }
+        let (cua, cub) = if cua < cub { (cua, cub) } else { (cub, cua) };
+        let exempt = declared.get(&ma).is_some_and(|pairs| {
+            pairs
+                .iter()
+                .any(|p| p[0].as_str() == cua && p[1].as_str() == cub)
+        });
+        if exempt {
+            continue;
+        }
+        let (pos, uri) = entry_pos(comp);
+        results.push(NetCheckResult {
+            check: "return-leg-undeclared",
+            severity: "warning",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::RETURN_LEG_UNDECLARED,
+                &[&cua, &cub, &comp.path],
+            ),
+            net_name: an.name.clone(),
+            code: crate::errcodes::RETURN_LEG_UNDECLARED,
+            pos,
+            uri,
+        });
+    }
+}
+
+/// Render an amps value for diagnostics: `< 1 A` as mA, else as A (`500mA`,
+/// `1.5A`). Sub-milli values keep two decimals.
+fn fmt_amps(a: f64) -> String {
+    if a.abs() < 1.0 {
+        format!("{}mA", fmt_round(a * 1000.0))
+    } else {
+        format!("{}A", fmt_round(a))
+    }
+}
+
+/// Round to two decimals; drop the `.00`/`.0` tail for whole values.
+fn fmt_round(x: f64) -> String {
+    let r = (x * 100.0).round() / 100.0;
+    if (r - r.round()).abs() < 1e-9 {
+        format!("{}", r.round() as i64)
+    } else {
+        format!("{r}")
+    }
+}
+
 /// The `psnk` contract whose *hot* terminal this flat pin is, if any. A flat
 /// pin is the hot member of a sink contract when the def-side member names of
 /// its pin id include the contract's `hot` (pin ids are positional: `main.s.1`
