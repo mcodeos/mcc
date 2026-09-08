@@ -19,7 +19,9 @@ pub mod vec;
 /// vector-layer `PairDir` (vec-dianlu.md §8.9.7-F).
 pub use crate::semantic::common::ConnDir;
 pub use block::McVecBlock;
-pub use net::{BoundaryInfo, ConnectionType, McVecNet, RailClass, RailSpec};
+pub use net::{
+    AttrRole, BoundaryInfo, ConnectionType, McVecNet, NetAttrMirror, RailClass, RailSpec,
+};
 pub use netshape::{GroupRole, LaneRef, NetShape, ShapeStats};
 pub use trunk::{MemberLane, PathSegment, Trunk, TrunkEnd, TrunkKind, TrunkRef};
 pub use vec::McVec;

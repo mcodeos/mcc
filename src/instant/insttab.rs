@@ -159,28 +159,45 @@ impl VectorMemberInfo {
     }
 }
 
-/// Infer MemberRole from IOType and leaf name.
+/// Infer MemberRole from IOType and owning-module declared identity.
 ///
-/// Returns `(role, inferred)` where `inferred == true` means the role was
-/// determined by name heuristic rather than explicit qualifier.
+/// Model-A rule (classification-retirement batch2 R1): a member gets an
+/// electrical role only from an explicit qualifier or the owning module's OWN
+/// power-intent declarations — never from a hardcoded name table. The old
+/// `is_ground`/`is_supply` name-fallback arm is gone: a bare name with no
+/// declaration is `Signal` (classification-retirement-design §3 ruling ① —
+/// undeclared: never judged, never guessed). The two predicates are the module's declared ground-side
+/// coppers (conduit names ∪ DC rail `ret` members) and declared supply faces
+/// (DC rail `hot` members) — the same identity set split_ground batch1 used.
+/// Callers enrich the predicates with connection-point DC pairs (port
+/// `dc_pair` at site 1, the component's own `McPwrPin` rows at the pin sites).
+///
+/// Returns `(role, inferred)`; `inferred` is kept for signature stability but
+/// no arm sets it now (there is no heuristic arm left).
 pub fn infer_member_role(
     leaf_name: &str,
     io_type: &IOType,
-    is_ground: fn(&str) -> bool,
-    is_supply: fn(&str) -> bool,
+    is_declared_ground: impl Fn(&str) -> bool,
+    is_declared_power: impl Fn(&str) -> bool,
 ) -> (MemberRole, bool) {
-    // (a) explicit qualifier: ps → Power
+    // (a) declared identity first: the member names a declared return/
+    //     reference copper or DC-pair `ret` (ground side) → Ground, or a
+    //     declared DC rail / DC-pair `hot` member (supply side) → Power.
+    //     Outranks the generic `IOType::Power` qualifier so a `::DC` pair's
+    //     ret member (also `IOType::Power`) reads Ground, not Power
+    //     (classification-retirement-design §4 C full capture — positional,
+    //     name-independent).
+    if is_declared_ground(leaf_name) {
+        return (MemberRole::Ground, false);
+    }
+    if is_declared_power(leaf_name) {
+        return (MemberRole::Power, false);
+    }
+    // (b) explicit qualifier fallback: ps / ::DC power-direction → Power.
     if matches!(io_type, IOType::Power) {
         return (MemberRole::Power, false);
     }
-    // (b) fallback heuristic: name-based
-    if is_ground(leaf_name) {
-        return (MemberRole::Ground, true);
-    }
-    if is_supply(leaf_name) {
-        return (MemberRole::Power, true);
-    }
-    // (c) default
+    // (c) no explicit qualifier, no declaration → Signal (never guessed).
     (MemberRole::Signal, false)
 }
 
@@ -980,6 +997,29 @@ impl InstTable {
         // the L1 checks dedupe by def below.
         self.power_decls.insert(my_id, inst.def.pi.clone());
 
+        // Model-A declared member identity (classification-retirement batch2
+        // R1): a port member / pin func name gets an electrical role only when
+        // it names this module's OWN declared copper — ground-side = every
+        // `conduit` name + every declared DC rail's `ret` member (the same set
+        // split_ground batch1 exempts); supply-side = every declared DC rail's
+        // `hot` member. Shared by all three `infer_member_role` call sites in
+        // this method (module port members, net-connected pins). Legacy
+        // modules with no power-intent declaration → empty sets → Signal.
+        let declared_ground_coppers: std::collections::HashSet<String> = {
+            let pi = &inst.def.pi;
+            pi.l1_refs()
+                .iter()
+                .map(|r| r.name.clone())
+                .chain(pi.l1_rails().iter().map(|r| r.ret.clone()))
+                .collect()
+        };
+        let declared_power_members: std::collections::HashSet<String> = {
+            let pi = &inst.def.pi;
+            pi.l1_rails().iter().map(|r| r.hot.clone()).collect()
+        };
+        let is_declared_ground = |m: &str| declared_ground_coppers.contains(m);
+        let is_declared_power = |m: &str| declared_power_members.contains(m);
+
         // 2. Register ports
         for port in &inst.ports {
             let port_path = format!("{}.{}", my_path, port.name);
@@ -1073,8 +1113,31 @@ impl InstTable {
 
                 // Set member_info role (Ground/Power) — consumed by the viz
                 // projection layer for rail classification, not for net merging.
-                let (role, _inferred) =
-                    infer_member_role(member, &port.iotype, is_ground_name, is_supply_name);
+                // A connection-point DC pair (`::DC` [hot,ret] written on this
+                // port) is decoded positionally and outranks everything: the
+                // 2nd member is the declared return (ground side), the 1st is
+                // the supply face (classification-retirement-design §4, C).
+                let (role, _inferred) = if let Some((hot, ret)) = &port.dc_pair {
+                    if member == ret {
+                        (MemberRole::Ground, false)
+                    } else if member == hot {
+                        (MemberRole::Power, false)
+                    } else {
+                        infer_member_role(
+                            member,
+                            &port.iotype,
+                            &is_declared_ground,
+                            &is_declared_power,
+                        )
+                    }
+                } else {
+                    infer_member_role(
+                        member,
+                        &port.iotype,
+                        &is_declared_ground,
+                        &is_declared_power,
+                    )
+                };
                 if !matches!(role, MemberRole::Signal) {
                     self.set_member_info(member_id, MemberInfo::new(role, None));
                 }
@@ -1138,6 +1201,28 @@ impl InstTable {
             if matches!(comp.origin, InstOrigin::FuncCall { .. }) {
                 continue; // handled in second pass
             }
+            // Model-A connection-point DC pair (classification-retirement-design
+            // §4, C full capture): a component pin IS the component's own
+            // external connection point — every `McPwrPin` row this def WRITES
+            // declares a DC pair at its pins (ret member = declared return /
+            // ground side, hot member = declared supply face). Enrich the
+            // module-scope declared identity with this component's own rows so
+            // a DC return pin (US513.21 — ret of `ps [5,21]=[VDD,GND]::DC`)
+            // reads Ground instead of the io==Power default. Positional:
+            // ret/hot come from the ::DC [hot,ret] write, never from names.
+            let comp_ground_coppers: Vec<String> = comp
+                .def
+                .pins
+                .pwr
+                .iter()
+                .filter_map(|p| p.ret.clone())
+                .collect();
+            let comp_power_members: Vec<String> =
+                comp.def.pins.pwr.iter().map(|p| p.hot.clone()).collect();
+            let is_comp_ground =
+                |m: &str| is_declared_ground(m) || comp_ground_coppers.iter().any(|r| r == m);
+            let is_comp_power =
+                |m: &str| is_declared_power(m) || comp_power_members.iter().any(|p| p == m);
             let comp_path = format!("{}.{}", my_path, comp.name);
             let comp_id = self.register(
                 comp_path.clone(),
@@ -1251,8 +1336,8 @@ impl InstTable {
                     let (role, _inferred) = infer_member_role(
                         &pin_func_name,
                         &net_point.iotype,
-                        is_ground_name,
-                        is_supply_name,
+                        &is_comp_ground,
+                        &is_comp_power,
                     );
                     if !matches!(role, MemberRole::Signal) {
                         self.set_member_info(pin_id, MemberInfo::new(role, None));
@@ -1268,6 +1353,22 @@ impl InstTable {
             if !matches!(comp.origin, InstOrigin::FuncCall { .. }) {
                 continue;
             }
+            // Per-comp connection-point DC enrichment — same rule as pass 1
+            // (a func-created instance's own def rarely carries pwr rows, so
+            // this usually degenerates to the module-scope identity).
+            let comp_ground_coppers: Vec<String> = comp
+                .def
+                .pins
+                .pwr
+                .iter()
+                .filter_map(|p| p.ret.clone())
+                .collect();
+            let comp_power_members: Vec<String> =
+                comp.def.pins.pwr.iter().map(|p| p.hot.clone()).collect();
+            let is_comp_ground =
+                |m: &str| is_declared_ground(m) || comp_ground_coppers.iter().any(|r| r == m);
+            let is_comp_power =
+                |m: &str| is_declared_power(m) || comp_power_members.iter().any(|p| p == m);
             let fn_name = match &comp.origin {
                 InstOrigin::FuncCall { fn_name, .. } => fn_name.clone(),
                 _ => continue,
@@ -1366,8 +1467,8 @@ impl InstTable {
                     let (role, _inferred) = infer_member_role(
                         &pin_func_name,
                         &net_point.iotype,
-                        is_ground_name,
-                        is_supply_name,
+                        &is_comp_ground,
+                        &is_comp_power,
                     );
                     if !matches!(role, MemberRole::Signal) {
                         self.set_member_info(pin_id, MemberInfo::new(role, None));

@@ -206,12 +206,46 @@ impl InstantiationBuilder {
             //    synthesized beyond what the interface itself declares.
             let bus_members = extract_port_bus_members(inst, port_name);
             let inject_inst = inst.clone();
+
+            // Model-A connection-point DC pair (classification-retirement-design
+            // §4, C full capture): the row is a DC pair only when the interface
+            // is `::DC` AND the pair was WRITTEN on the row (`[hot, ret]` or
+            // `base{hot, ret}`) — a scalar `x::DC(v)` whose members are expanded
+            // from the DC base pins is not a written pair, so it stays `None`.
+            // Positional decode: 1st member=hot (supply side), 2nd=ret (declared
+            // return / ground side); names are copper labels only (a member is ret
+            // because it sits second, not because it is named GND) — no-hardcoding.
+            let dc_pair: Option<(String, String)> = match inst {
+                McInstance::Interface(iface) if iface.base_name() == "DC" => {
+                    // Written members: curly `base{hot, ret}` (as_bus) or
+                    // bracket `[hot, ret]` (list_members). A scalar `x::DC(v)`
+                    // has neither (its members would come from base pins).
+                    if let Some((_prefix, members)) = iface.name.as_bus() {
+                        if members.len() == 2 {
+                            Some((members[0].clone(), members[1].clone()))
+                        } else {
+                            None
+                        }
+                    } else if let Some(members) = iface.name.list_members() {
+                        if members.len() == 2 {
+                            Some((members[0].clone(), members[1].clone()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
             // Phase C1: intern the port's canonical path before it enters the
             // module's port list (its node id lives in the circuit registry).
             let port_path = self.child_path(port_name);
             let port_id = self.identity_mut().intern(&port_path);
             let port = PortInst::with_members(port_name, iotype.clone(), bus_members.clone());
             let mut port = port;
+            port.dc_pair = dc_pair;
             port.node_id = Some(port_id);
             // Phase C S3: lay the port's arena node down beside the Vec push
             // (the arena is the structural store; `ports` stays on the tree).

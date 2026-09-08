@@ -16,7 +16,7 @@
 //! In the long term the registration dedup logic should be fixed in `instant/inst_table`, making
 //! InstKind labels trustworthy. Once fixed, this file can shrink by 80%.
 
-use crate::instant::insttab::{InstEntry, InstKind, InstTable};
+use crate::instant::insttab::{InstEntry, InstKind, InstTable, MemberRole};
 use crate::semantic::common::IOType;
 
 // ============================================================================
@@ -263,8 +263,14 @@ pub fn detect_symbol(table: &InstTable, id: u32, kind: &BoxKind) -> Symbol {
     let name = extract_last_segment(&entry.path);
 
     match kind {
+        // §5③ (classification-retirement-design): is_ground from the member role,
+        // never the name. Dead in practice (both call sites pass TwoPin/MultiPin),
+        // kept declaration-driven in case a PowerLabel box routes through here.
         BoxKind::PowerLabel => Symbol::PowerRail {
-            is_ground: super::naming::is_ground(&name),
+            is_ground: matches!(
+                entry.member_info.as_ref().map(|m| &m.role),
+                Some(&MemberRole::Ground)
+            ),
         },
         BoxKind::SubModule => Symbol::Module,
         BoxKind::MultiPin => Symbol::Ic,

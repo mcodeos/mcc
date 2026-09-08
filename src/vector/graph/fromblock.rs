@@ -16,10 +16,10 @@
 
 use std::collections::HashMap;
 
-use crate::instant::insttab::{InstEntry, InstKind, InstTable};
+use crate::instant::insttab::{InstEntry, InstKind, InstTable, MemberRole};
 
 use super::super::model::netshape::{GroupRole, NetShape};
-use super::super::model::{ConnectionType, McVecBlock, McVecNet};
+use super::super::model::{AttrRole, ConnectionType, McVecBlock, McVecNet, NetAttrMirror};
 use super::boxdef::{
     BoxPin, CustomSymbol, EntryPoint, EntrySide, IoSummary, McVecBox, PinConstraint, PinLayout,
     PortDir, VisualRole,
@@ -33,6 +33,36 @@ use super::kinds::{BoxKind, NetKind};
 use super::naming;
 use super::netdef::{EndpointRef, IoDirection, NetRole, VizNet};
 use super::symbol::Symbol;
+
+// ============================================================================
+// §5③ Helper: declared rail identity (classification-retirement-design §4/§5)
+// ============================================================================
+
+/// Ground-side reading of an entry's declared supply role.
+///
+/// `member_info` is only set on declared Port/Pin members whose inferred role is
+/// Power or Ground (flatten 1b); everything else — legacy Labels, signal members,
+/// bus containers — returns `None` and must never be guessed from the name.
+fn declared_rail_is_ground(entry: &InstEntry) -> Option<bool> {
+    match entry.member_info.as_ref().map(|m| &m.role) {
+        Some(&MemberRole::Ground) => Some(true),
+        Some(&MemberRole::Power) => Some(false),
+        _ => None,
+    }
+}
+
+/// Ground-side reading of a net's declared supply mirror (`net.attr.role`).
+///
+/// Ret/Reference = the declared return (ground side), Hot = the supply side,
+/// Signal = no declaration. `None` answers "not a declared rail" so the caller
+/// must not draw a power/ground symbol (ruling ① — no declaration, no guessing).
+fn attr_rail_is_ground(attr: &NetAttrMirror) -> Option<bool> {
+    match attr.role {
+        AttrRole::Ret | AttrRole::Reference => Some(true),
+        AttrRole::Hot => Some(false),
+        AttrRole::Signal => None,
+    }
+}
 
 // ============================================================================
 // Helper: IOType → PortDir
@@ -257,9 +287,12 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             Some(b)
         }
         DetectedKind::PowerLabel => {
-            let symbol = Symbol::PowerRail {
-                is_ground: naming::is_ground(&name),
-            };
+            // §5③: only synthesize a rail box for a DECLARED supply endpoint — the
+            // is_ground bit comes from the member role, never the name; an entry
+            // with no declared role yields no box. (Current callers pass only
+            // Component/Module, which never classify as PowerLabel, so this arm is
+            // effectively dead — kept declaration-driven for safety.)
+            let is_ground = declared_rail_is_ground(entry)?;
             let inst_path = entry.path.clone();
             let scope_chain = compute_scope_chain(&inst_path);
             Some(McVecBox::new_v2(
@@ -267,7 +300,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 name,
                 String::new(),
                 BoxKind::PowerLabel,
-                symbol,
+                Symbol::PowerRail { is_ground },
                 None,
                 None,
                 0,
@@ -335,6 +368,24 @@ fn build_mc_vec_graph_inner(
 
     // ── Phase 1: block.insts -> boxes (duck typing recognition) ──
     let mut box_ids_set: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
+    // ── §5③: declared rail identity per net point ──
+    // The projection layer has already filled `McVecNet.attr` (the declared supply
+    // mirror) on every net. A PowerRail symbol is only synthesized for a point that
+    // sits on a net with a declared identity (role Hot/Ret/Reference); name matching
+    // never drives it. Index endpoint point id -> ground-side bit for the Phase 1
+    // per-instance boxes that have no net in scope.
+    let mut point_rail_is_ground: std::collections::HashMap<i64, bool> =
+        std::collections::HashMap::new();
+    for net in &block.nets {
+        if let Some(g) = net.attr.as_ref().and_then(attr_rail_is_ground) {
+            for pid in net.all_point_ids() {
+                if pid >= 0 {
+                    point_rail_is_ground.insert(pid, g);
+                }
+            }
+        }
+    }
 
     crate::velog!(
         "[graph] build_mc_vec_graph_inner: bid={}, block.insts has {} entries: {:?}",
@@ -449,27 +500,41 @@ fn build_mc_vec_graph_inner(
                 box_ids_set.insert(id);
             }
             DetectedKind::PowerLabel => {
-                crate::velog!("[graph] ✓ PowerLabel: {name}");
-                // ★ P01: PowerRail symbol with is_ground bit
-                let symbol = Symbol::PowerRail {
-                    is_ground: naming::is_ground(&name),
-                };
-                let inst_path = entry.path.clone();
-                let scope_chain = compute_scope_chain(&inst_path);
-                graph.boxes.push(McVecBox::new_v2(
-                    id as i64,
-                    name,
-                    String::new(),
-                    BoxKind::PowerLabel,
-                    symbol,
-                    None,
-                    None,
-                    0,
-                    IoSummary::new(),
-                    inst_path,
-                    scope_chain,
-                ));
-                box_ids_set.insert(id);
+                // §5③ (classification-retirement-design): a PowerRail symbol is only
+                // synthesized for an endpoint with a DECLARED supply identity — the
+                // member role (Ground/Power), else the declared rail net the point
+                // belongs to (`point_rail_is_ground`). A name-power Label/Port with
+                // no declaration is NOT drawn as a rail: never name-guess (①).
+                let is_ground = declared_rail_is_ground(entry)
+                    .or_else(|| point_rail_is_ground.get(&iid).copied());
+                match is_ground {
+                    Some(is_ground) => {
+                        crate::velog!("[graph] ✓ PowerLabel: {name}");
+                        let symbol = Symbol::PowerRail { is_ground };
+                        let inst_path = entry.path.clone();
+                        let scope_chain = compute_scope_chain(&inst_path);
+                        graph.boxes.push(McVecBox::new_v2(
+                            id as i64,
+                            name,
+                            String::new(),
+                            BoxKind::PowerLabel,
+                            symbol,
+                            None,
+                            None,
+                            0,
+                            IoSummary::new(),
+                            inst_path,
+                            scope_chain,
+                        ));
+                        box_ids_set.insert(id);
+                    }
+                    None => {
+                        crate::velog!(
+                            "[graph] skip undeclared power label '{name}' (id={id}): \
+                             no declared supply role on entry or net"
+                        );
+                    }
+                }
             }
             DetectedKind::Label => {
                 // ★ P7-6: Label entries are literal views of port declarations, not
@@ -479,28 +544,31 @@ fn build_mc_vec_graph_inner(
             DetectedKind::Skip => {
                 if entry.kind == InstKind::Bus {
                     for member in &table.children_of(id) {
-                        let mname = extract_last_segment(&member.path);
-                        if naming::is_power_rail(&mname) && !box_ids_set.contains(&member.id) {
-                            crate::velog!("[graph] ✓ PowerLabel (bus member): {mname}");
-                            let symbol = Symbol::PowerRail {
-                                is_ground: naming::is_ground(&mname),
-                            };
-                            let inst_path = member.path.clone();
-                            let scope_chain = compute_scope_chain(&inst_path);
-                            graph.boxes.push(McVecBox::new_v2(
-                                member.id as i64,
-                                mname,
-                                String::new(),
-                                BoxKind::PowerLabel,
-                                symbol,
-                                None,
-                                None,
-                                0,
-                                IoSummary::new(),
-                                inst_path,
-                                scope_chain,
-                            ));
-                            box_ids_set.insert(member.id);
+                        // §5③: only declared-supply bus members (connection-point DC
+                        // pair members carry a Ground/Power member role) become rail
+                        // boxes; signal bus members (MIC{P,N} etc.) never do.
+                        if !box_ids_set.contains(&member.id) {
+                            if let Some(is_ground) = declared_rail_is_ground(member) {
+                                let mname = extract_last_segment(&member.path);
+                                crate::velog!("[graph] ✓ PowerLabel (bus member): {mname}");
+                                let symbol = Symbol::PowerRail { is_ground };
+                                let inst_path = member.path.clone();
+                                let scope_chain = compute_scope_chain(&inst_path);
+                                graph.boxes.push(McVecBox::new_v2(
+                                    member.id as i64,
+                                    mname,
+                                    String::new(),
+                                    BoxKind::PowerLabel,
+                                    symbol,
+                                    None,
+                                    None,
+                                    0,
+                                    IoSummary::new(),
+                                    inst_path,
+                                    scope_chain,
+                                ));
+                                box_ids_set.insert(member.id);
+                            }
                         }
                     }
                 }
@@ -791,14 +859,18 @@ fn build_mc_vec_graph_inner(
                     continue;
                 }
 
-                // ★ S3.5 Fix B: tighten -- only create PowerLabel in two cases:
-                //   (1) name really looks like power/ground (naming::is_power_rail)
+                // ★ S3.5 Fix B + §5③ (classification-retirement-design): only create a
+                // PowerRail in two cases:
+                //   (1) the endpoint sits on a net with a DECLARED supply identity
+                //       (`net.attr` role Hot/Ret/Reference) — the name is irrelevant;
                 //   (2) Bus kind and name is signal-like (entire bus as label, like MIC{P,N})
-                // Pure Label kind (especially SPI/UART sub-ports CSN/MOSI/10) is no longer misjudged.
-                let looks_like_power = naming::is_power_rail(&name);
+                // An undeclared net (attr None → Signal) is never drawn as a rail,
+                // however power-like its name (ruling ①). Pure Label kind (especially
+                // SPI/UART sub-ports CSN/MOSI/10) is no longer misjudged.
+                let rail_is_ground = net.attr.as_ref().and_then(attr_rail_is_ground);
                 let looks_like_bus_label =
                     entry.kind == InstKind::Bus && naming::is_signal_like(&name);
-                if !looks_like_power && !looks_like_bus_label {
+                if rail_is_ground.is_none() && !looks_like_bus_label {
                     // ── ★ Phase E.1: sub-layer edge endpoints -> boundary label box ────────────
                     //
                     // Trigger scenario: **non-top-level** sub-layer (block.bid is some SubModule), the
@@ -870,13 +942,30 @@ fn build_mc_vec_graph_inner(
                     continue;
                 }
 
+                // ★ §5③ (classification-retirement-design): this endpoint is the net's
+                // P7-8 boundary port-group — P7-8 later creates the PortTerminal box for
+                // exactly this id (`port_group_id`). Synthesizing a PowerRail here too would
+                // double-box the same id. Defer to the PortTerminal.
+                if let Some(ref bi) = net.boundary {
+                    if bi.port_group_id == u as i64 {
+                        crate::velog!(
+                            "[graph] ✓ PowerLabel deferred to P7-8 PortTerminal: {} (id={})",
+                            entry.path,
+                            u
+                        );
+                        continue;
+                    }
+                }
+
                 crate::velog!(
                     "[graph] ✓ PowerLabel (from net endpoint): {} (kind={:?})",
                     name,
                     entry.kind
                 );
                 let symbol = Symbol::PowerRail {
-                    is_ground: naming::is_ground(&name),
+                    // §5③: is_ground comes from the declared net attr (Ret/Reference =
+                    // ground side); the signal-bus-label branch above never is ground.
+                    is_ground: rail_is_ground.unwrap_or(false),
                 };
                 let inst_path = entry.path.clone();
                 let scope_chain = compute_scope_chain(&inst_path);
@@ -1522,6 +1611,21 @@ fn generate_viznets_from_block(
 
         // Initial NetKind: guess by name (goes through naming, see P04)
         let mut kind = naming::classify_net(&net.name);
+        // ★ §5② (classification-retirement-design): power/ground classification is
+        // ATTR-DRIVEN — the net's declared supply identity (`net.attr.role`),
+        // never its name. A declared Hot net is Power, a declared Ret/Reference
+        // net is Ground (name-independent); a legacy net with no declaration
+        // (attr None) that only LOOKS like a rail by name is Signal (ruling ① —
+        // undeclared: never judged, never guessed, no power/ground symbol drawn).
+        match net.attr.as_ref().map(|a| a.role) {
+            Some(AttrRole::Hot) => kind = NetKind::Power,
+            Some(AttrRole::Ret) | Some(AttrRole::Reference) => kind = NetKind::Ground,
+            _ => {
+                if matches!(kind, NetKind::Power | NetKind::Ground) {
+                    kind = NetKind::Signal;
+                }
+            }
+        }
 
         // If net has NtoN topology and width > 1, promote to Bus
         //
@@ -1569,6 +1673,14 @@ fn generate_viznets_from_block(
         // (R-1/R-2/R-3) consumes it.
         if let Some(spec) = &net.rail {
             out.last_mut().unwrap().rail = Some(spec.clone());
+        }
+        // ★ §4 (classification-retirement-design): pass the declared supply
+        // identity mirror through as-is; drawing consumers key on `attr.role`
+        // (Ret/Reference → ground side, Hot → supply, None → Signal), never on
+        // the net name. Split nets (SPI / NtoN bus expansion above) do not
+        // mirror attr.
+        if let Some(attr) = &net.attr {
+            out.last_mut().unwrap().attr = Some(attr.clone());
         }
         // ★ P9-A2: pass through source_span and trunk
         if let Some(ref ss) = net.source_span {

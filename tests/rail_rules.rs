@@ -152,12 +152,18 @@ fn sub_layers_s1_s2_decoration_counts() {
     let expect: &[(&str, usize, usize, usize, usize)] = &[
         // layer, decorations_gnd, decorations_pwr, gnd_edges, pwr_edges
         // Sub-layers render rail symbols geometrically (Device pipeline), not via
-        // rail_decorations (decorations_* = 0). Ground nets are preserved verbatim
-        // from the netlist — a ground net that spans ≥2 boxes draws a real
-        // cross-box trunk (gnd_edges counts those); power stays a cross-box bus.
-        ("MCU513", 0, 0, 3, 2),
+        // rail_decorations (decorations_* = 0). Ground/power edges now count ONLY
+        // DECLARED supply nets (classification-retirement-design §4/§5: NetKind is
+        // attr-driven; a net with no declared endpoint — no connection-point DC
+        // pair member, no module rail/conduit — is Signal and draws no rail).
+        // Cap returns that route to a module's declared ground (header DC-pair ret
+        // copper, split-ground v0.2 criterion 2) stay on that one ground net, so a
+        // declared ground net spanning ≥2 boxes draws one real cross-box trunk.
+        ("MCU513", 0, 0, 1, 2),
         ("MIC", 0, 0, 1, 1),
-        ("LDO", 0, 0, 1, 2),
+        // LDO's header uses scalar DC ports (`in vin::DC(5V)`) with no [hot,ret]
+        // pair → no declared supply identity → its supply nets are Signal.
+        ("LDO", 0, 0, 0, 0),
         ("DCDC", 0, 0, 1, 2),
         ("SPK", 0, 0, 1, 1),
         ("USB", 0, 0, 1, 0),

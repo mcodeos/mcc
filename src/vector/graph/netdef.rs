@@ -140,6 +140,11 @@ pub struct VizNet {
     /// McVecNet.rail, resolved by viz/project.rs from port declarations
     /// (class + driver_pin + volt).
     pub rail: Option<super::super::model::RailSpec>,
+    /// ★ §4 (classification-retirement-design): declared supply identity mirror,
+    /// copied by fromblock from `McVecNet.attr`. `None` = no declaration
+    /// (legacy signal — never judged). Split nets (SPI / NtoN bus expansion) do
+    /// not mirror attr.
+    pub attr: Option<super::super::model::NetAttrMirror>,
     /// ★ P8-2 (G16): source span for bidirectional traceability.
     /// `(file, line)` — which source file and line created this net.
     pub source_span: Option<crate::semantic::common::SourcePos>,
@@ -172,6 +177,7 @@ impl VizNet {
             endpoints,
             route: None,
             rail: None,
+            attr: None,
             source_span: None,
             trunk: None,
             trunk_ref: None,

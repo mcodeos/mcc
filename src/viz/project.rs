@@ -226,7 +226,25 @@ fn project_nets(
     //       `modldo.vin.GND` and `modldo.vout.GND` sit in one sub-block net.
     // Rail member grounds (`va.GND` / `vb.GND`) never merge by name (strict DC rail
     // identity); only (2) / (3) may merge them, through a real wiring tie.
-    let is_ground_net = |ni: usize| naming::is_ground(&nets[ni].name);
+    //
+    // ★ split-ground batch2 (classification-retirement-design §5): only nets that
+    // resolve to a DECLARED return/ref copper participate in ground merging —
+    // resolvable Ground-side identity, same resolver as the per-output-net
+    // `detect_net_attr`, so the merge gate and the carried attr agree by
+    // construction. Undeclared power-named nets (LDO `vin.GND`, legacy bare GND)
+    // stay Signal and are never merged/classified as ground (ruling ①/②: no
+    // declaration, no name guessing).
+    let declared_ret: Vec<bool> = nets
+        .iter()
+        .map(|net| {
+            let ids: Vec<i64> = net.all_point_ids();
+            matches!(
+                detect_net_attr(&ids, block, table).map(|a| a.role),
+                Some(AttrRole::Ret | AttrRole::Reference)
+            )
+        })
+        .collect();
+    let is_ground_net = |ni: usize| declared_ret[ni];
 
     // (1) same-name union: bare ground-label nets with the SAME exact name
     // (no '.', is_ground) merge. The merge key is the FULL net name — the
@@ -304,11 +322,13 @@ fn project_nets(
                     if e.kind != InstKind::Port {
                         continue;
                     }
+                    // Declared ground role only (C-captured ::DC connection-point
+                    // member / declared copper); never a name guess on the path leaf
+                    // (classification-retirement ruling ②).
                     let is_ground_role = e
                         .member_info
                         .as_ref()
-                        .map_or(false, |m| matches!(m.role, MemberRole::Ground))
-                        || naming::is_ground(last_segment(&e.path).as_str());
+                        .map_or(false, |m| matches!(m.role, MemberRole::Ground));
                     if is_ground_role {
                         ground_ports.push(pid);
                     }
@@ -426,67 +446,47 @@ fn project_nets(
             }
         }
 
-        // ── ★ P7-8: Rule (c) split —— rail pseudo endpoints removed, non-rail become Boundary ──
-        // Rail pseudo endpoints (Ground/Power role): still removed from real (same as before).
-        // Non-rail pseudo endpoints (Signal module boundary): kept in real, annotated with
-        // BoundaryInfo so fromblock.rs creates a PortTerminal box per port group.
+        // ── ★ P7-8: Rule (c) split —— rail pseudo endpoints removed, Signal become Boundary ──
+        // ★ §5⑥ (classification-retirement): whether a group is a rail group is the
+        // net's DECLARED supply identity — `detect_net_attr` over the whole group
+        // (conduit reference / rail ret / rail hot in this layer's power scope, or a
+        // DC-pair member role on any endpoint). A pseudo endpoint (this layer's own
+        // Port/Label boundary declaration) is the net's NAME — main.GND, main.V5V,
+        // a DC-face member port — not a connection point, so it is removed from real
+        // whenever the group is a rail net. Never a power-name guess (ruling ②): a
+        // member_info-None scalar port whose leaf merely LOOKS like VCC/GND (LDO
+        // `vin.GND`, §5⑥ `in VDD_3V3`) leaves the group Signal, so its pseudo
+        // endpoints stay in real as Boundary / PortTerminal markers.
+        let attr = detect_net_attr(&all_ids, block, table);
+        let group_is_rail = attr.as_ref().map_or(false, |a| a.role != AttrRole::Signal);
         let mut dropped_c: Vec<&crate::instant::insttab::InstEntry> = Vec::new();
         let mut boundary: Option<BoundaryInfo> = None;
         for &pid in &all_ids {
             if let Some((e, ancestor)) = pseudo_entry_with_ancestor(pid, bid, table) {
-                let is_rail = e.member_info.as_ref().map_or_else(
-                    || {
-                        // Fallback: scalar ports without member_info (e.g.
-                        // speaker.VDD_3V3 declared as `in VDD_3V3`) — use
-                        // name-based classification as a secondary signal.
-                        // This is a port-level check, not a net-level name match.
-                        naming::is_power_rail(last_segment(&e.path).as_str())
-                    },
-                    |m| matches!(m.role, MemberRole::Ground | MemberRole::Power),
-                );
-                if is_rail {
+                if group_is_rail {
                     dropped_c.push(e);
-                } else {
-                    // Non-rail pseudo endpoint → mark as Boundary (port-group level)
-                    if boundary.is_none() {
-                        let io = match e.io_type {
-                            crate::semantic::common::IOType::In => IoDirection::Input,
-                            crate::semantic::common::IOType::Out => IoDirection::Output,
-                            crate::semantic::common::IOType::InOut => IoDirection::Bidir,
-                            _ => IoDirection::Passive,
-                        };
-                        let port_name = last_segment(&ancestor.path);
-                        boundary = Some(BoundaryInfo {
-                            port_group_id: ancestor.id as i64,
-                            port_name,
-                            io,
-                        });
-                    }
-                }
-            }
-        }
-        // If the group contains any rail pseudo endpoints, it is a rail group
-        // (Ground/Power) and should not carry a BoundaryInfo marker.
-        // This handles Labels like main.GND whose member_info is None but whose
-        // group has Ground-role Port pseudo endpoints from merged nets.
-        if !dropped_c.is_empty() {
-            boundary = None;
-            // Also add any remaining pseudo endpoints (e.g. Labels without member_info)
-            // to dropped_c so they are properly audited.
-            for &pid in &all_ids {
-                if let Some((e, _)) = pseudo_entry_with_ancestor(pid, bid, table) {
-                    if !dropped_c.iter().any(|d| d.id == e.id) {
-                        dropped_c.push(e);
-                    }
+                } else if boundary.is_none() {
+                    // Non-rail (Signal) pseudo endpoint → mark as Boundary (port-group level)
+                    let io = match e.io_type {
+                        crate::semantic::common::IOType::In => IoDirection::Input,
+                        crate::semantic::common::IOType::Out => IoDirection::Output,
+                        crate::semantic::common::IOType::InOut => IoDirection::Bidir,
+                        _ => IoDirection::Passive,
+                    };
+                    let port_name = last_segment(&ancestor.path);
+                    boundary = Some(BoundaryInfo {
+                        port_group_id: ancestor.id as i64,
+                        port_name,
+                        io,
+                    });
                 }
             }
         }
 
         // ── Real endpoints = all - (b dropped) - (c pseudo endpoints) ─────
-        // Rail groups: drop ALL pseudo endpoints (including Labels like main.GND
-        // whose own member_info is None but whose group is a rail group).
-        // Non-rail groups: keep pseudo endpoints (they become PortTerminal connections).
-        let group_is_rail = !dropped_c.is_empty();
+        // Rail groups: drop ALL pseudo endpoints (Labels and member ports alike —
+        // the net's name / DC-face boundary, not a connection point).
+        // Signal groups: keep pseudo endpoints (they become PortTerminal connections).
         let real: Vec<i64> = all_ids
             .iter()
             .copied()
@@ -552,6 +552,7 @@ fn project_nets(
         // ── Output: a single flat group (rail/signal both consumed as flat endpoint sets in Phase 3) ──
         let mut net = McVecNet::new(nets[sorted[0]].nid, name_src, vec![McVec::new(real)]);
         net.rail = rail;
+        net.attr = attr;
         net.boundary = boundary;
         // ★ P9-A2.5: propagate source_span and trunk from the first net in the group
         net.source_span = nets[sorted[0]].source_span.clone();
@@ -695,7 +696,7 @@ fn last_two_segments(path: &str) -> String {
 // ============================================================================
 
 use crate::semantic::common::IOType;
-use crate::vector::model::{RailClass, RailSpec};
+use crate::vector::model::{AttrRole, NetAttrMirror, RailClass, RailSpec};
 
 /// Resolve the power net spec from a group's pseudo endpoint roles + real endpoint
 /// declarations; returns `None` for ordinary signal groups.
@@ -816,6 +817,93 @@ fn endpoint_is_out_power(pid: i64, table: &InstTable) -> bool {
                     .as_ref()
                     .map_or(false, |m| m.role == MemberRole::Power)
         })
+}
+
+/// ★ §4 (classification-retirement-design): resolve the declared supply
+/// identity of one projected group from its endpoints' declarations — zero name
+/// matching. Two declaration arms:
+///
+/// (i)  **the projected layer module's own declared copper** — pseudo endpoints
+///      (this block's Port/Label boundary declarations) whose leaf is a
+///      declared `conduit` name (`Reference`), a declared DC rail `ret` member
+///      (`Ret`) or `hot` member (`Hot`) of `power_decls[block.bid]`;
+/// (ii) **connection-point DC pairs carried on an endpoint's own flat entry** —
+///      `member_info.role` set at flatten from the `::DC` positional decode
+///      (module-header pairs) and component DC pin rows: `Ground` → `Ret`,
+///      `Power` → `Hot`.
+///
+/// `None` (no candidate) = legacy net with no declaration → `Signal` (ruling ① —
+/// undeclared: never judged, never guessed). Ground-side roles
+/// (`Ret`/`Reference`) outrank `Hot` so a merged
+/// return copper with a stray supply endpoint stays the return. `copper` is the
+/// first candidate's leaf (nid order) — informational only.
+fn detect_net_attr(
+    all_ids: &[i64],
+    block: &McVecBlock,
+    table: &InstTable,
+) -> Option<NetAttrMirror> {
+    let bid = block.bid;
+    let decls = table.power_decls().get(&(bid as u32));
+    let mut copper: Option<String> = None;
+    let mut has_ret = false;
+    let mut has_ref = false;
+    let mut has_hot = false;
+    for &pid in all_ids {
+        let Some(e) = table.get_entry(pid as u32) else {
+            continue;
+        };
+        if e.alias_of.is_some() {
+            continue; // non-physical spelling — never a declaration endpoint
+        }
+        let leaf = last_segment(&e.path);
+        // (i) this layer module's own declared copper (Port/Label boundary).
+        if pseudo_entry(pid, bid, table).is_some() {
+            if let Some(d) = decls {
+                if d.l1_refs().iter().any(|r| r.name == leaf) {
+                    has_ref = true;
+                    copper.get_or_insert_with(|| leaf.clone());
+                }
+                for r in &d.l1_rails() {
+                    if r.ret == leaf {
+                        has_ret = true;
+                        copper.get_or_insert_with(|| leaf.clone());
+                    } else if r.hot == leaf {
+                        has_hot = true;
+                        copper.get_or_insert_with(|| leaf.clone());
+                    }
+                }
+            }
+        }
+        // (ii) connection-point DC pair on the endpoint's own entry.
+        if let Some(mi) = &e.member_info {
+            match mi.role {
+                MemberRole::Ground => {
+                    has_ret = true;
+                    copper.get_or_insert_with(|| leaf.clone());
+                }
+                MemberRole::Power => {
+                    has_hot = true;
+                    copper.get_or_insert_with(|| leaf.clone());
+                }
+                MemberRole::Signal => {}
+            }
+        }
+    }
+    if !has_ret && !has_ref && !has_hot {
+        return None; // no declaration — legacy signal net, never guessed
+    }
+    let role = if has_ret {
+        AttrRole::Ret
+    } else if has_ref {
+        AttrRole::Reference
+    } else {
+        AttrRole::Hot
+    };
+    Some(NetAttrMirror {
+        copper,
+        role,
+        resolvable: true,
+    })
 }
 
 /// Sub-layer generation-side check: in the raw subblock, the net containing this boundary

@@ -45,6 +45,47 @@ pub struct RailSpec {
 }
 
 // ============================================================================
+// ★ §4 (classification-retirement-design): NetAttrMirror — declared supply identity
+// ============================================================================
+
+/// Declared supply function of a net, resolved from endpoint declarations
+/// (classification-retirement-design §4). No variant is ever inferred from a
+/// name — a net is whatever its owning declarations say it is, or `Signal`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttrRole {
+    /// No declaration anchors this net — legacy signal; consumers must not
+    /// judge or draw it as a power net.
+    Signal,
+    /// Hot member of a declared DC rail / connection-point DC pair (supply face).
+    Hot,
+    /// Return member of a declared DC rail / connection-point DC pair — the
+    /// ground side.
+    Ret,
+    /// Declared conduit copper that no DC rail returns to (`EARTH`, `ESDGND` …).
+    Reference,
+}
+
+/// The mirror of one projected net's declared supply identity (§4). Filled by
+/// viz/project.rs beside `detect_rail_spec` from the same per-endpoint
+/// declarations (the layer module's own conduit/rail sets + the endpoints'
+/// connection-point DC-pair roles), and copied by fromblock.rs into the graph
+/// `VizNet` so the drawing side consumes the declaration — never a name re-guess.
+/// `None` on the net = no declaration → legacy `Signal` (design ruling ①).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetAttrMirror {
+    /// Copper label of the first candidate endpoint in nid order (the declared
+    /// ret/ref/hot name, or a connection-point member leaf). Informational
+    /// only — consumers key on `role`, not on this name.
+    pub copper: Option<String>,
+    /// Declared supply function of the net.
+    pub role: AttrRole,
+    /// True when identity is provable from declarations. Consumers skip when
+    /// false (a `NetAttrMirror` is only ever produced with `resolvable: true`;
+    /// the `false` case is the `None` net).
+    pub resolvable: bool,
+}
+
+// ============================================================================
 // ConnectionType
 // ============================================================================
 
@@ -99,6 +140,11 @@ pub struct McVecNet {
     pub shape: Option<super::netshape::NetShape>,
     /// ★ P7-3: power net spec (None = ordinary signal net). Filled by viz/project.rs from port declarations.
     pub rail: Option<RailSpec>,
+    /// ★ §4 (classification-retirement-design): declared supply identity mirror
+    /// (copper / role / resolvable). `None` = ordinary signal net with no
+    /// declaration — drawing consumers must not guess. Filled by viz/project.rs
+    /// beside `rail`, copied by fromblock into the graph net.
+    pub attr: Option<NetAttrMirror>,
     /// ★ P7-8: boundary terminal marker. When a net has a pseudo endpoint that is the
     /// module's own port declaration (not a rail), project.rs creates a BoundaryInfo
     /// instead of removing the endpoint. fromblock.rs reads it to create a PortTerminal box.
@@ -138,6 +184,7 @@ impl McVecNet {
             nets,
             shape: None,
             rail: None,
+            attr: None,
             boundary: None,
             source_span: None,
             trunk: None,
@@ -164,6 +211,7 @@ impl McVecNet {
             nets,
             shape,
             rail: None,
+            attr: None,
             boundary: None,
             source_span: None,
             trunk: None,

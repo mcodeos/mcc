@@ -1440,14 +1440,52 @@ impl InstantiationBuilder {
             .map(|c| c.name.clone())
             .collect();
 
+        // Declared return copper of THIS module def (split-ground-copper-design
+        // v0.2 §3 criterion 2): every `conduit` name + every declared DC rail's
+        // `ret` member name. A bare ground endpoint that equals one of these is
+        // that declared copper (model-A: a module that declared `conduit GND`
+        // cannot be writing a bare `GND` that means anything else), so its net
+        // must not be fragmented into per-statement local grounds. Empty for
+        // legacy modules with no power-intent declaration → no behavior change.
+        let declared_return_coppers: std::collections::HashSet<String> = {
+            let pi = &self.def.pi;
+            pi.l1_refs()
+                .iter()
+                .map(|r| r.name.clone())
+                .chain(pi.l1_rails().iter().map(|r| r.ret.clone()))
+                // C full capture (classification-retirement-design §4): a
+                // connection-point DC pair written on one of THIS module's own
+                // boundary ports (`psnk [hot,GND]::DC`, `in [x,GND]::DC`,
+                // `out [x,GND]::DC`) declares that 2nd member as the module's
+                // return copper too — same source as the projection layer's
+                // detect_net_attr. A bare ground endpoint equal to that ret is
+                // that declared copper (model-A: a module that declared
+                // `[_, GND]::DC` on its own port cannot be writing a bare `GND`
+                // that means anything else), so its net must not be fragmented
+                // into per-statement local grounds either. Scalar `x::DC(v)`
+                // ports carry `None` and contribute nothing.
+                .chain(
+                    self.ports
+                        .iter()
+                        .filter_map(|p| p.dc_pair.as_ref().map(|(_hot, ret)| ret.clone())),
+                )
+                .collect()
+        };
+
         // Indices of nets that contain a ground-name point. A net carrying a
         // rail-member ground (`va.GND`, `vin.GND`, `dc.GND` — multi-segment
         // path) is a single rail identity and is left untouched: strict DC
         // rail identity keeps each rail's ground distinct and traceable, so
         // re-partitioning it into per-line `@N` groups would fragment real
-        // wiring (e.g. `vin.GND ~ ldo.2 ~ cap.2`). Only nets whose ground
-        // points are bare single-segment labels (`GND`, `AGND`, ...) get the
-        // per-line local-ground re-partition.
+        // wiring (e.g. `vin.GND ~ ldo.2 ~ cap.2`). A net carrying a bare ground
+        // endpoint that resolves to this module's OWN declared return copper
+        // (a `conduit` name or a declared rail's `ret` member) is that single
+        // copper too — exempt for the same reason (v0.2 §3 criterion 2; the
+        // old `has_rail_ground` test only saw dotted members, so an explicit
+        // `conduit GND` with bare-`GND` legs was still fragmented). Only nets
+        // whose ground points are bare single-segment labels NOT declared as a
+        // return copper (`GND`, `AGND`, ... in a legacy no-declaration module)
+        // get the per-line local-ground re-partition.
         let ground_net_idx: Vec<usize> = self
             .net_table
             .iter()
@@ -1457,7 +1495,11 @@ impl InstantiationBuilder {
                 let has_rail_ground = pts
                     .iter()
                     .any(|p| p.path.contains('.') && Self::is_ground_leaf(&p.path));
-                has_ground && !has_rail_ground
+                let on_declared_copper = pts.iter().any(|p| {
+                    Self::is_ground_leaf(&p.path)
+                        && declared_return_coppers.contains(p.path.as_str())
+                });
+                has_ground && !has_rail_ground && !on_declared_copper
             })
             .map(|(i, _)| i)
             .collect();
