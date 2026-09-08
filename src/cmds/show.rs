@@ -15,13 +15,15 @@
 //!                entity; funcs are referenced dot-qualified as `OWNER.FUNC` for
 //!                `params` and `nets`)
 //!   * debug    : `dump` / `lapper` / `ast`
+//!   * power    : `pwr` (recursive power-intent tree: planes / DC faces /
+//!                rail-member nets + component power contracts)
 //!
 //! Top-level name lists live in `mcc list` (see cmds/list.rs).
 
 use crate::output::compact;
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowScope, ShowTarget};
-use mcc::{McIds, McURI, TreeView};
+use mcc::{InstEntry, InstKind, InstTable, McIds, McURI, MemberRole, TreeView};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -91,9 +93,9 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
             }
             Some(("show.net", json!({ "name": args.name })))
         }
-        ShowTarget::Dianlu => {
-            // local-only: walks the Pass2 McModuleInst tree (sections render
-            // from live object data, no RPC method exists)
+        ShowTarget::Dianlu | ShowTarget::Pwr => {
+            // local-only: walks the Pass2 McModuleInst tree / flat InstTable
+            // (sections render from live object data, no RPC method exists)
             return None;
         }
 
@@ -165,6 +167,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
             Some(n) => show_net(n, args),
         },
         ShowTarget::Dianlu => show_dianlu(args),
+        ShowTarget::Pwr => show_pwr(args),
 
         // ── drill-down ─────────────────────────────────────────────────────
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -237,7 +240,9 @@ fn target_path(args: &ShowArgs) -> Option<&str> {
         return args.file.as_deref();
     }
     match args.target {
-        ShowTarget::All | ShowTarget::Defs | ShowTarget::Dianlu => args.name.as_deref(),
+        ShowTarget::All | ShowTarget::Defs | ShowTarget::Dianlu | ShowTarget::Pwr => {
+            args.name.as_deref()
+        }
         _ => None,
     }
 }
@@ -1047,6 +1052,478 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         "sections": dianlu_sections(&inst, &top, &view, &net_store, args.ids),
     });
     output(&data, args.span)
+}
+
+// ============================================================================
+// show pwr — recursive power-intent tree (Pass2 + flat InstTable)
+// ============================================================================
+
+/// `show pwr`: build the top module (`--top` or first loaded module) with the
+/// **flat** InstTable (Pass2 + flatten) so each module node can report the
+/// merged net its DC-face members / rail labels actually land on, alongside
+/// the source-level declarations (`McModule.pi`: conduit/@role, domain rails,
+/// body edges, identity port rows).
+///
+/// The dump is one node per module instance, nested: `decl` (declared planes /
+/// faces), `rails` (this module's own Ground/Power member endpoints grouped by
+/// the merged net they hang on, with the full net point set — the cross-module
+/// union when the project top is used), `components` (the power contracts of
+/// the leaves it declares), and `children`. See `mcc show erc` for the rule
+/// findings; this command reports the *facts* the rules evaluate.
+fn show_pwr(args: &ShowArgs) -> Result<()> {
+    // Top-module resolution mirrors `show dianlu` (file/dir positional with
+    // `-F` override; `--top` selects the module within the loaded set).
+    let (entry_uri, top) = if let Some(f) = target_path(args) {
+        let p = Path::new(f);
+        if p.is_dir() {
+            crate::cmds::common::load_target(
+                Some(f),
+                mcc::cli::globals().top.as_deref(),
+                mcc::cli::globals().entry.as_deref(),
+            )
+            .unwrap_or_else(|e| {
+                error!(target: "mcc::show", "directory target: {:#}", e);
+                std::process::exit(1);
+            })
+        } else {
+            let path = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(p)
+            };
+            (path.to_string_lossy().to_string(), None)
+        }
+    } else {
+        (String::new(), None)
+    };
+    let top = crate::cmds::common::resolve_top_module(&entry_uri, top).unwrap_or_else(|| {
+        error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
+        std::process::exit(1);
+    });
+    let uri = mcc::mcb_iter_modules()
+        .iter()
+        .find(|(n, _)| *n == top)
+        .map(|(_, u)| mcc::McURI::from(u.as_str()))
+        .unwrap_or_else(|| mcc::McURI::from(top.clone()));
+
+    // One flat build gives both the modeling tree (decls) and the InstTable
+    // (merged nets). `mcc_build_flat_with_arena` does not log the net-check
+    // diagnostics it runs — the caller decides — so a power dump stays quiet.
+    let (tree, table, arena, store) =
+        mcc::mcc_build_flat_with_arena(&mcc::McIds::from(top.clone()), &uri, 1000).unwrap_or_else(
+            |e| {
+                error!(target: "mcc::show", "{e}");
+                std::process::exit(1);
+            },
+        );
+    let view = mcc::TreeView::new(&arena, &store);
+
+    if matches!(mcc::cli::globals().format, OutputFormat::Text) {
+        let mut lines = Vec::new();
+        lines.push(format!("===== Power Intent: {top} ====="));
+        lines.push(String::new());
+        render_pwr_section(&tree, &top, &view, &table, &mut lines, args.ids);
+        let rendered = lines.join("\n");
+        if let Some(path) = &mcc::cli::globals().output {
+            std::fs::write(path, rendered)?;
+        } else {
+            println!("{rendered}");
+        }
+        return Ok(());
+    }
+
+    let data = json!({
+        "type": "pwr",
+        "format": "power-intent/v1",
+        "top": top,
+        "tree": pwr_node_json(&tree, &top, &view, &table, args.ids),
+    });
+    output(&data, args.span)
+}
+
+/// One net the module's own rail endpoints aggregate onto.
+struct PwrNetAgg {
+    name: String,
+    members: Vec<Value>, // {member: rel path, role}
+    points: Vec<String>,
+}
+
+/// The role of a direct Port/Label child of a module, when it is a power
+/// endpoint (DC-face member or rail label): the flatten-inferred
+/// Ground/Power `MemberInfo` role, else (bare rail labels carry no role) the
+/// model-A ground convention — a `GND*` leaf. Returns `None` for signal rows
+/// and `alias_of` collapses (non-physical spellings never reach the nets).
+fn rail_member_role(child: &InstEntry) -> Option<&'static str> {
+    if child.alias_of.is_some() {
+        return None;
+    }
+    match &child.member_info {
+        Some(mi) => match mi.role {
+            MemberRole::Ground => Some("Ground"),
+            MemberRole::Power => Some("Power"),
+            MemberRole::Signal => None,
+        },
+        None => {
+            let leaf = child.path.rsplit('.').next().unwrap_or("");
+            if leaf.starts_with("GND") {
+                Some("Ground")
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Group a module instance's own rail endpoints (the Ground/Power Port members
+/// and rail labels registered directly under it) by the merged net each hangs
+/// on, attaching the full net point set. Order is by first-registered net.
+fn module_rail_nets(module_path: &str, table: &InstTable) -> Vec<PwrNetAgg> {
+    let Some(module_id) = table.get_id_by_path(module_path) else {
+        return Vec::new();
+    };
+    let mut order: Vec<u32> = Vec::new();
+    let mut aggs: BTreeMap<u32, PwrNetAgg> = BTreeMap::new();
+    for child in table.children_of(module_id) {
+        if !matches!(child.kind, InstKind::Port | InstKind::Label) {
+            continue;
+        }
+        let Some(role) = rail_member_role(child) else {
+            continue;
+        };
+        let Some(net) = table.get_net_of(child.id) else {
+            continue;
+        };
+        let rel = child
+            .path
+            .strip_prefix(module_path)
+            .and_then(|s| s.strip_prefix('.'))
+            .unwrap_or(&child.path)
+            .to_string();
+        if !aggs.contains_key(&net.id) {
+            order.push(net.id);
+            aggs.insert(
+                net.id,
+                PwrNetAgg {
+                    name: if net.name.is_empty() {
+                        format!("_net#{}", net.id)
+                    } else {
+                        net.name.clone()
+                    },
+                    members: Vec::new(),
+                    points: Vec::new(),
+                },
+            );
+        }
+        aggs.get_mut(&net.id)
+            .expect("just inserted")
+            .members
+            .push(json!({ "member": rel, "role": role }));
+    }
+    for (net_id, agg) in aggs.iter_mut() {
+        if let Some(net) = table.get_net(*net_id) {
+            let mut pts: Vec<String> = net
+                .points
+                .iter()
+                .filter_map(|pid| table.get_entry(*pid).map(|e| e.path.clone()))
+                .collect();
+            pts.sort();
+            pts.dedup();
+            agg.points = pts;
+        }
+    }
+    order
+        .into_iter()
+        .filter_map(|id| aggs.remove(&id))
+        .collect()
+}
+
+/// Power contracts of a component def (`psrc/psnk/psbi ...::DC(...)` rows).
+fn pwr_contracts(comp: &mcc::McComponentInst) -> Vec<Value> {
+    comp.def
+        .pins
+        .pwr
+        .iter()
+        .map(|p| {
+            let dir = format!("{:?}", p.dir).to_lowercase();
+            let dc = p
+                .params
+                .iter()
+                .map(|q| match &q.key {
+                    Some(k) => format!("{k}:{}", q.text),
+                    None => q.text.clone(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            json!({ "dir": dir, "iface": p.iface, "hot": p.hot, "ret": p.ret, "dc": dc })
+        })
+        .collect()
+}
+
+/// Recursive power node: one module instance + its nested sub-modules.
+fn pwr_node_json(
+    inst: &mcc::McModuleInst,
+    path: &str,
+    view: &TreeView,
+    table: &InstTable,
+    ids: bool,
+) -> Value {
+    let subs: Vec<&mcc::McModuleInst> = view.sub_modules(inst).collect();
+    let components: Vec<Value> = view
+        .components(inst)
+        .map(|c| {
+            let contracts = pwr_contracts(c);
+            let mut v = json!({
+                "name": c.name,
+                "class": c.def.name.to_string(),
+            });
+            if !contracts.is_empty() {
+                v["power"] = json!(contracts);
+            }
+            if ids {
+                v["node_id"] = json!(c.node_id.map(|n| n.0));
+                v["def_id"] = json!(registry_def_id(
+                    &c.def.name,
+                    &c.def.uri,
+                    mcc::DefKind::Component,
+                ));
+            }
+            v
+        })
+        .collect();
+    let rail_nets = module_rail_nets(path, table);
+    let mut node = json!({
+        "path": path,
+        "kind": "module",
+        "class": inst.def.name.to_string(),
+        "decl": mcc::mcc_module_power_json(&inst.def),
+        "rails": rail_nets
+            .iter()
+            .map(|a| json!({"net": a.name, "members": a.members, "points": a.points}))
+            .collect::<Vec<_>>(),
+        "components": components,
+        "children": subs
+            .iter()
+            .map(|s| pwr_node_json(s, &format!("{path}.{}", s.name), view, table, ids))
+            .collect::<Vec<_>>(),
+    });
+    if ids {
+        node["node_id"] = json!(inst.node_id.map(|n| n.0));
+        node["def_id"] = json!(registry_def_id(
+            &inst.def.name,
+            &inst.def_uri,
+            mcc::DefKind::Module,
+        ));
+    }
+    node
+}
+
+/// Text rendering of one module section; sub-modules follow as their own
+/// sections below (mirrors `show dianlu`'s section layout).
+fn render_pwr_section(
+    inst: &mcc::McModuleInst,
+    path: &str,
+    view: &TreeView,
+    table: &InstTable,
+    lines: &mut Vec<String>,
+    ids: bool,
+) {
+    let mut header = format!(
+        "===== Pwr: {path} (module {}) =====",
+        inst.def.name.to_string()
+    );
+    if ids {
+        header.push(' ');
+        header.push_str(&dianlu_id_tag(
+            inst.node_id.map(|n| n.0),
+            registry_def_id(&inst.def.name, &inst.def_uri, mcc::DefKind::Module),
+        ));
+    }
+    lines.push(header);
+
+    // Declared planes / rails / edges / identity rows (lib projection).
+    let decl = mcc::mcc_module_power_json(&inst.def);
+    let n_conduits = decl["conduits"].as_array().map_or(0, |a| a.len());
+    let n_rails = decl["rails"].as_array().map_or(0, |a| a.len());
+    let n_edges = decl["edges"].as_array().map_or(0, |a| a.len());
+    let n_ident = decl["port_identities"].as_array().map_or(0, |a| a.len());
+    if n_conduits + n_rails + n_edges + n_ident == 0 {
+        lines.push("  (no power-intent declarations)".to_string());
+    } else {
+        if let Some(conduits) = decl["conduits"].as_array() {
+            for r in conduits {
+                let mut s = format!("  conduit {}", r["name"].as_str().unwrap_or(""));
+                if let Some(role) = r["role"].as_str() {
+                    s.push_str(&format!(" @role({role})"));
+                }
+                if r.get("star").and_then(|x| x.as_bool()).unwrap_or(false) {
+                    s.push_str(" @star");
+                }
+                lines.push(s);
+            }
+        }
+        if let Some(rails) = decl["rails"].as_array() {
+            for r in rails {
+                let mut s = format!(
+                    "  rail [{hot} / {ret}] {domain}",
+                    hot = r["hot"].as_str().unwrap_or(""),
+                    ret = r["ret"].as_str().unwrap_or(""),
+                    domain = r["domain"].as_str().unwrap_or("")
+                );
+                let mut params: Vec<String> = Vec::new();
+                let v_text = r["v_text"].as_str().unwrap_or("");
+                if !v_text.is_empty() {
+                    params.push(v_text.to_string());
+                }
+                if let Some(t) = r["tol"].as_f64() {
+                    params.push(format!("tol:±{}%", t * 100.0));
+                }
+                if let Some(a) = r["capacity_amps"].as_f64() {
+                    params.push(format!("capacity:{}A", a));
+                }
+                if let Some(e) = r["eff"].as_f64() {
+                    params.push(format!("eff:{}", e));
+                }
+                if !params.is_empty() {
+                    s.push_str(&format!(" ::DC({})", params.join(", ")));
+                }
+                if let Some(bad) = r["bad"].as_str() {
+                    s.push_str(&format!("  // bad: {bad}"));
+                }
+                lines.push(s);
+            }
+        }
+        if let Some(edges) = decl["edges"].as_array() {
+            for e in edges {
+                let endpoints = e["endpoints"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "  edge @{} {}",
+                    e["kind"].as_str().unwrap_or(""),
+                    endpoints
+                ));
+            }
+        }
+        if let Some(identities) = decl["port_identities"].as_array() {
+            for p in identities {
+                let mut s = format!(
+                    "  io {} {}",
+                    p["kind"].as_str().unwrap_or(""),
+                    p["name"].as_str().unwrap_or("")
+                );
+                if let Some(c) = p["class"].as_str() {
+                    s.push_str(&format!(" @class({c})"));
+                }
+                if let Some(r) = p["return"].as_str() {
+                    s.push_str(&format!(" @return({r})"));
+                }
+                if let Some(n) = p["noise"].as_str() {
+                    s.push_str(&format!(" @noise({n})"));
+                }
+                if let Some(n) = p["nature"].as_str() {
+                    s.push_str(&format!(" @nature({n})"));
+                }
+                if let Some(b) = p["bind_role"].as_str() {
+                    s.push_str(&format!(" @bind_role({b})"));
+                }
+                if let Some(x) = p["exposed"].as_array() {
+                    let vals: Vec<&str> = x.iter().filter_map(|v| v.as_str()).collect();
+                    if !vals.is_empty() {
+                        s.push_str(&format!(" @exposed({})", vals.join(",")));
+                    }
+                }
+                lines.push(s);
+            }
+        }
+    }
+
+    // Rail members → merged nets (the core debug signal).
+    let net_aggs = module_rail_nets(path, table);
+    if net_aggs.is_empty() {
+        lines.push("  (no rail members → nets)".to_string());
+    } else {
+        lines.push("  rail members -> nets:".to_string());
+        for agg in &net_aggs {
+            let members: Vec<String> = agg
+                .members
+                .iter()
+                .map(|m| {
+                    format!(
+                        "{}[{}]",
+                        m["member"].as_str().unwrap_or(""),
+                        m["role"].as_str().unwrap_or("")
+                    )
+                })
+                .collect();
+            lines.push(format!(
+                "    {}  ->  net \"{}\"  ({} pts)",
+                members.join(", "),
+                agg.name,
+                agg.points.len()
+            ));
+            lines.push(format!("      [{}]", agg.points.join(", ")));
+        }
+    }
+
+    // Component power contracts at this level.
+    let comps: Vec<Value> = view
+        .components(inst)
+        .filter(|c| !c.def.pins.pwr.is_empty())
+        .map(|c| {
+            let contracts = pwr_contracts(c);
+            let mut v = json!({
+                "name": c.name,
+                "class": c.def.name.to_string(),
+                "power": contracts,
+            });
+            if ids {
+                v["def_id"] = json!(registry_def_id(
+                    &c.def.name,
+                    &c.def.uri,
+                    mcc::DefKind::Component,
+                ));
+            }
+            v
+        })
+        .collect();
+    if !comps.is_empty() {
+        lines.push("  component power contracts:".to_string());
+        for c in &comps {
+            for p in c["power"].as_array().unwrap_or(&vec![]) {
+                let dir = p["dir"].as_str().unwrap_or("");
+                let hot = p["hot"].as_str().unwrap_or("");
+                let ret = p["ret"].as_str().unwrap_or("");
+                let dc = p["dc"].as_str().unwrap_or("");
+                lines.push(format!(
+                    "    {} {} {} [{hot} / {ret}]: {}",
+                    c["name"].as_str().unwrap_or(""),
+                    c["class"].as_str().unwrap_or(""),
+                    dir,
+                    dc
+                ));
+            }
+        }
+    }
+
+    lines.push(String::new());
+    for sub in view.sub_modules(inst) {
+        render_pwr_section(
+            sub,
+            &format!("{path}.{}", sub.name),
+            view,
+            table,
+            lines,
+            ids,
+        );
+    }
 }
 
 /// The registry `DefId` of the def that `(name, uri)` names — the def-space

@@ -460,6 +460,93 @@ pub fn mcc_build_dianlu(
     builder::mcb_instantiate(&McSpaceName::new(ident, canonical_uri), start_id)
 }
 
+/// Power-intent declaration summary of one module def (the §5 typed capture in
+/// `McModule.pi`): conduits, domain-rail contracts, body relation edges and
+/// identity-bearing io rows. Stable value shape for CLI/RPC rendering; the ERC
+/// layer consumes the same source data typed (`pi.rs` l1_* decoders) — this is
+/// the display projection. Returns an object with four arrays even when the
+/// module declares no power intent.
+pub fn mcc_module_power_json(m: &McModule) -> serde_json::Value {
+    let pi = &m.pi;
+    let conduits: Vec<serde_json::Value> = pi
+        .l1_refs()
+        .iter()
+        .map(|r| {
+            let mut v = serde_json::json!({ "name": r.name, "role": r.role });
+            if r.star {
+                v["star"] = serde_json::json!(true);
+            }
+            v
+        })
+        .collect();
+    let rails: Vec<serde_json::Value> = pi
+        .l1_rails()
+        .iter()
+        .map(|r| {
+            let mut v = serde_json::json!({
+                "domain": r.domain,
+                "hot": r.hot,
+                "ret": r.ret,
+                "v_text": r.v_text,
+                "v": r.v,
+                "bad": r.bad,
+            });
+            if let Some(t) = r.tol {
+                v["tol"] = serde_json::json!(t);
+            }
+            if let Some(a) = r.capacity_amps {
+                v["capacity_amps"] = serde_json::json!(a);
+            }
+            if let Some(e) = r.eff {
+                v["eff"] = serde_json::json!(e);
+            }
+            v
+        })
+        .collect();
+    let edges: Vec<serde_json::Value> = pi
+        .l1_edges()
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "kind": format!("{:?}", e.kind).to_lowercase(),
+                "endpoints": e.endpoints,
+            })
+        })
+        .collect();
+    let identities: Vec<serde_json::Value> = pi
+        .l1_ports()
+        .iter()
+        .map(|p| {
+            let mut v = serde_json::json!({ "kind": p.kind, "name": p.name });
+            if let Some(c) = &p.class {
+                v["class"] = serde_json::json!(c);
+            }
+            if let Some(n) = &p.nature {
+                v["nature"] = serde_json::json!(n);
+            }
+            if let Some(n) = &p.noise {
+                v["noise"] = serde_json::json!(n);
+            }
+            if let Some(r) = &p.ret {
+                v["return"] = serde_json::json!(r);
+            }
+            if !p.exposed.is_empty() {
+                v["exposed"] = serde_json::json!(p.exposed);
+            }
+            if let Some(b) = &p.bind_role {
+                v["bind_role"] = serde_json::json!(b);
+            }
+            v
+        })
+        .collect();
+    serde_json::json!({
+        "conduits": conduits,
+        "rails": rails,
+        "edges": edges,
+        "port_identities": identities,
+    })
+}
+
 pub fn mcc_diagnose(uri: &McURI) -> Vec<Diagnostic> {
     crate::db::cmie::tables::WORKSPACE
         .diagnostics

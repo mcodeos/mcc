@@ -491,6 +491,15 @@ pub enum ShowTarget {
     // its own nested section. Interface-typed buses are annotated with
     // their interface class, e.g. `uC.UART0{TX, RX} :: UART.TTL(DCE)`.
     Dianlu,
+    // Power-intent facts after instantiation + flatten (Pass2, uses --top):
+    // a recursive tree — per module its declared planes (conduit/@role,
+    // domain rails), DC faces / body edges, the merged net each rail member
+    // lands on (with the full point set), and the power contracts of the
+    // component leaves it instantiates. `mcc show pwr US513` prints the
+    // face/member nets of one module standalone; the project top shows the
+    // cross-module unions (shared GND / a rail fan-out). Companion of
+    // `show dianlu` (structure) — see also `show erc` for the rule findings.
+    Pwr,
     // Dump LSP lapper intervals for a file (semantic tokens + symbols)
     Lapper,
     // Print AST tree for a file
