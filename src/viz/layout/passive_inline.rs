@@ -1353,6 +1353,7 @@ mod m11_diagnostic_tests {
             name: name.to_string(),
             role: NetRole::Signal,
             rail: None,
+            attr: None,
             endpoints: endpoints
                 .into_iter()
                 .map(|(box_id, pin_id)| EndpointRef {

@@ -69,7 +69,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::vector::graph::boxdef::{BoxPin, PinLayout};
 use crate::vector::graph::netdef::IoDirection;
-use crate::vector::graph::{BoxKind, EntryPoint, EntrySide, McVecBox, McVecGraph};
+use crate::vector::graph::{BoxKind, EntryPoint, EntrySide, McVecBox, McVecGraph, Symbol};
 
 // ============================================================================
 // Main API
@@ -1177,13 +1177,14 @@ fn classify_pin(name: &str) -> PinRole {
 // Allocation strategies by BoxKind
 // ============================================================================
 
-/// PowerLabel: single exit point
+/// PowerLabel / Dot: single exit point
 ///
-/// - Name contains GND/VSS → exit point at **top** (rail label hangs below circuit, wire enters from top)
-/// - Otherwise (VCC/VDD/...) → exit point at **bottom** (rail label hangs above circuit, wire enters from bottom)
+/// §5④ (classification-retirement-design): the exit side comes from the box's
+/// declared **symbol** role, never its name (ruling ③ — name-keyed display layout
+/// is also name resolution). A declared ground rail hangs below the circuit (exit
+/// point at top); declared supply and every non-rail label exit at bottom.
 fn ep_for_power_label(b: &McVecBox, pins: &[(i64, String)]) -> Vec<EntryPoint> {
-    let u = b.name.to_uppercase();
-    let is_ground = u.contains("GND") || u.contains("VSS");
+    let is_ground = matches!(b.symbol, Symbol::PowerRail { is_ground: true });
     let side = if is_ground {
         EntrySide::Top
     } else {
@@ -1540,22 +1541,26 @@ mod tests {
 
     #[test]
     fn test_power_label() {
-        let vcc_box = McVecBox::new(
-            10,
-            "VCC".into(),
-            String::new(),
-            BoxKind::PowerLabel,
-            0,
-            crate::vector::graph::IoSummary::new(),
-        );
-        let gnd_box = McVecBox::new(
-            11,
-            "GND".into(),
-            String::new(),
-            BoxKind::PowerLabel,
-            0,
-            crate::vector::graph::IoSummary::new(),
-        );
+        // §5④: the exit side is decided by the declared SYMBOL role, not the name.
+        // (A PowerRail box's is_ground bit is filled from the declared supply role
+        // at synthesis time — see classification-retirement-design §5③.)
+        let mk = |id: i64, name: &str, is_ground: bool| {
+            McVecBox::new_v2(
+                id,
+                name.into(),
+                String::new(),
+                BoxKind::PowerLabel,
+                Symbol::PowerRail { is_ground },
+                None,
+                None,
+                0,
+                crate::vector::graph::IoSummary::new(),
+                name.to_string(),
+                Vec::new(),
+            )
+        };
+        let vcc_box = mk(10, "VCC", false);
+        let gnd_box = mk(11, "GND", true);
         let vcc_eps = ep_for_power_label(&vcc_box, &[]);
         let gnd_eps = ep_for_power_label(&gnd_box, &[]);
         assert_eq!(vcc_eps[0].side, EntrySide::Bottom);
