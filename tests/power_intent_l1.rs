@@ -38,14 +38,22 @@
 //!   psrc/psbi hot pin) is a face whose loads draw from nothing. Net-local,
 //!   mirroring 6011/6013: module boundary feed ports and copper pass-through
 //!   feed stay the S-set step.
+//! * **§6.2③ combine output** (`COMBINE_OUTPUT_TOL` = 6020,
+//!   rail-contract-design.md §6.1/§6.2) — a combine element (a def with ≥2
+//!   input-direction `psnk`/`psbi` power rows and a `psrc` output row) is a
+//!   pass-through OR-merge, not a regulator; its output `psrc` writes the
+//!   merged nominal `::DC(v)` only, so a ±tol on it is a declaration error
+//!   (a literal OUT window would over-claim under single-source states).
 //!
 //! Golden board (`mcs/pwrint/src/main.mc`) shape: GND carries `@star`, so its
 //! two parallel `@bridge(GND, GNDA)` legs are discharged (that island holds the
 //! single main root GND), and POWER_USB clamps to its own `@role(protective)`
 //! ESDGND with exactly one bridge; GND_ISO's isolated world (V5V_ISO ret
 //! GND_ISO) and EARTH declare no DC edge. The two quiet/protective conduits
-//! (GNDA, ESDGND) each carry a declared DC bridge, so 6018 stays silent — none
-//! of the new codes fire.
+//! (GNDA, ESDGND) each carry a declared DC bridge, so 6018 stays silent; the
+//! two combine shapes — ORING.IDEAL's nominal-only OUT psrc, and the
+//! psrc+psbi USB/battery coexistence — keep 6020 silent. None of the new codes
+//! fire.
 
 mod common;
 
@@ -1098,5 +1106,103 @@ fn rootless_net_without_sink_is_clean_6019() {
     assert!(
         !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
         "a root-less net with no component psnk sink must not fire 6019; got codes: {codes:?}"
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Multi-source combine S-set (§6.2③, rail-contract-design.md §6) — the
+// combine-output nominal-only guard. The ∪ window merge itself rides the future
+// S-set window engine (§6.3/§7.3); this kernel lands the one piece the design
+// prescribes at the current nominal/declaration layer: a *combine element* (a
+// def with ≥2 input-direction psnk/psbi rows + a psrc output row) is a
+// pass-through OR-merge, so its output psrc writes the merged nominal only.
+// A ±tol there re-anchors a window no single live input can hold — 6020, at the
+// def's own declaration, once per used class.
+
+/// Golden ORING.IDEAL *clean* shape: two 5V `psnk` input groups + a 5V psrc
+/// output writing only its nominal.
+const OR2: &str = "component OR2 {\n    pins = [\n        psnk [1,2] = [IN1, G1]::DC(5V)\n        psnk [3,4] = [IN2, G2]::DC(5V)\n        psrc [5,6] = [OUT, G3]::DC(5V)\n    ]\n}\n";
+
+/// The same combine with the §6.2③ over-claim: the output `psrc` carries a tol.
+const OR2T: &str = "component OR2T {\n    pins = [\n        psnk [1,2] = [IN1, G1]::DC(5V)\n        psnk [3,4] = [IN2, G2]::DC(5V)\n        psrc [5,6] = [OUT, G3]::DC(5V, tol:±1%)\n    ]\n}\n";
+
+/// A combine whose second input is a `psbi` charge half (BAT row): the Bi
+/// direction is an input group too (§6.1), so the output tol still fires.
+const ORBT: &str = "component ORBT {\n    pins = [\n        psnk [1,2] = [IN, G1]::DC(5V)\n        psbi [3,4] = [BAT, G2]::DC(5V)\n        psrc [5,6] = [OUT, G3]::DC(5V, tol:±1%)\n    ]\n}\n";
+
+/// A single-input converter (LDO/DCDC shape): its toleranced output is a legal
+/// §2 re-anchor — never a combine, so no 6020.
+const CONVT: &str = "component CONVT {\n    pins = [\n        psnk [1,2] = [VIN, G1]::DC(5V)\n        psrc [3,4] = [VOUT, G2]::DC(3.3V, tol:±1%)\n    ]\n}\n";
+
+/// 6020 fire: a two-psnk combine whose output psrc carries a ±tol window.
+#[test]
+fn two_psnk_inputs_with_tol_output_fires_6020() {
+    let src = format!(
+        "{OR2T}\nmodule main {{\n    conduit GND @role(main)\n    io VA\n    io VB\n    io VC\n    \
+         OR2T o\n    o.IN1 -> VA\n    o.G1 -> GND\n    o.IN2 -> VB\n    o.G2 -> GND\n    \
+         o.OUT -> VC\n    o.G3 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::COMBINE_OUTPUT_TOL),
+        "a two-psnk combine output carrying tol must fire 6020 (§6.2③); got codes: {codes:?}"
+    );
+}
+
+/// 6020 fire through a `psbi` second input: a psbi charge half is an input
+/// group (§6.1), so 1 psnk + 1 psbi + a toleranced psrc output is still a
+/// combine output over-claim.
+#[test]
+fn psbi_input_counts_for_combine_shape_fires_6020() {
+    let src = format!(
+        "{ORBT}\nmodule main {{\n    conduit GND @role(main)\n    io VA\n    io VB\n    io VC\n    \
+         ORBT o\n    o.IN -> VA\n    o.G1 -> GND\n    o.BAT -> VB\n    o.G2 -> GND\n    \
+         o.OUT -> VC\n    o.G3 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::COMBINE_OUTPUT_TOL),
+        "a psbi input must count toward the ≥2-input combine shape, so the output tol fires 6020; got codes: {codes:?}"
+    );
+}
+
+/// A *single-input* converter (the LDO/DCDC golden shape) may re-anchor a
+/// window at its psrc output (§2 Hoare break) — never a combine, so the tol is
+/// legal and 6020 stays silent.
+#[test]
+fn single_input_converter_with_tol_output_is_not_combine() {
+    let src = format!(
+        "{CONVT}\nmodule main {{\n    conduit GND @role(main)\n    io VA\n    io VC\n    \
+         CONVT c\n    c.VIN -> VA\n    c.G1 -> GND\n    c.VOUT -> VC\n    c.G2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::COMBINE_OUTPUT_TOL),
+        "a single-input converter's toleranced output is a legal re-anchor, not a combine — no 6020; got codes: {codes:?}"
+    );
+}
+
+/// 6020 clean + the §6.4 seam, in one golden-equivalent board: two 5V psrc
+/// sources each feed one combine input group, the nominal-only output psrc
+/// roots the merged rail, and a 5V sink on it adjudicates against S = 5V —
+/// no 6020 (nominal-only OUT), no 6011 (sink matches the merged nominal), no
+/// 6019 (OUT is the merged net's root), no 6013 (sources sit on different nets).
+#[test]
+fn combine_nominal_only_output_is_clean_6020() {
+    let src = format!(
+        "{OR2}{SRC5}{SNK5}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VA\n    io VB\n    io VMAIN\n    \
+         SRC5 a\n    SRC5 b\n    OR2 o\n    SNK5 load\n    \
+         a.OUT -> VA\n    a.GND -> GND\n    b.OUT -> VB\n    b.GND -> GND\n    \
+         o.IN1 -> VA\n    o.G1 -> GND\n    o.IN2 -> VB\n    o.G2 -> GND\n    \
+         o.OUT -> VMAIN\n    o.G3 -> GND\n    load.VDD -> VMAIN\n    load.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::COMBINE_OUTPUT_TOL)
+            && !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH)
+            && !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE)
+            && !codes.contains(&mcc::errcodes::POWER_SOURCE_CONTENTION),
+        "a nominal-only combine output must stay silent (6020/6011/6019/6013) — the golden ORING/VMAIN_5V seam; got codes: {codes:?}"
     );
 }

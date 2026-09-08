@@ -1436,6 +1436,14 @@ pub const ROLE_REF_MISSING_BRIDGE: u32 = 6018;
 /// only `InstKind::Component` parents are decoded as sinks.
 pub const SINK_NET_NO_SOURCE: u32 = 6019;
 
+/// §6.2③ combine-output re-anchor (rail-contract-design.md §6): a combine
+/// element — ≥2 input-direction (`psnk`/`psbi`) power rows + ≥1 `psrc` output
+/// row — is a pass-through OR-merge, not a regulator. Its output `psrc` writes
+/// only the merged nominal `::DC(v)`: a ±tol window would claim the net's supply
+/// holds tighter than any single live input can, the exact over-claim the
+/// OR-merge ∪ semantics exists to catch under single-source states (§6.3).
+pub const COMBINE_OUTPUT_TOL: u32 = 6020;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -1809,6 +1817,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(REFERENCE_ISLAND_ROOT, "A DC-bridged reference island must have exactly one @role(main) root.", "reference island '{0}' carries {1} @role(main) roots — each DC-bridged L1 island has exactly one main root: zero means the joined reference identities have no island ground to return to, more than one means two power worlds were DC-joined by a @bridge (§3.2.1)"),
     entry!(ROLE_REF_MISSING_BRIDGE, "A quiet/protective reference conduit has no declared DC @bridge.", "role conduit '{0}' carries no declared DC @bridge — an @role(quiet)/@role(protective) conduit expects exactly one bridge to its main reference; a bare zero means the declaration was never wired (conduit-equivalence-design.md §8.4)"),
     entry!(SINK_NET_NO_SOURCE, "A net carrying power sinks (psnk) has no declared source root on it.", "net '{0}' carries component power-sink terminals but has no supply root on the net — it is neither a declared domain-rail face nor driven by a psrc/psbi hot pin, so its loads draw from nothing that guarantees power (PWR-1 no-source face). Attach the loads to a declared rail face or drive the net from a psrc source; a feed that crosses a series pass element (inductor/ferrite/fuse) from another net is not yet traced (S-set step)"),
+    entry!(COMBINE_OUTPUT_TOL, "A combine element's output psrc declares a tolerance window it cannot re-anchor.", "combine element '{0}' output '{1}' declares tol {2} — a pass-through OR-merge can't guarantee tighter than its live input, so a literal OUT window over-claims under single-source states (rail-contract-design.md §6.2③); write the nominal-only ::DC(v), or add spec.output to model a regulator"),
     // ---- section ----
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),

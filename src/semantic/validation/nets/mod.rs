@@ -1984,6 +1984,73 @@ pub(crate) fn check_pin_contract_decode(table: &InstTable, results: &mut Vec<Net
     }
 }
 
+/// §6.2③ combine-output re-anchor (rail-contract-design.md §6.1/§6.2): a
+/// combine element — a component def with ≥2 input-direction (`psnk`, or a
+/// `psbi` charge half) power rows and ≥1 `psrc` output row — is a pass-through
+/// OR-merge, not a regulator. `spec.output`, the sole combine-vs-converter
+/// discriminator (§6.1), is still parse-dormant, so the structural shape is the
+/// combine test today (§6.5): no single-input→output pass element carries a
+/// `psrc` output row, and a ≥2-input part that re-anchors a window is a
+/// dual-input converter (deferred, §6.5). Such an output `psrc` writes only the
+/// merged nominal `::DC(v)`; a ±tol window would claim the merged net's supply
+/// holds tighter than any single active input — the exact over-claim the
+/// OR-merge ∪ semantics (§6.3) exists to catch under single-source states.
+/// Decl-locally, once per used class, mirroring 6012.
+pub(crate) fn check_combine_output_tol(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let workspace = crate::definition_space().workspace_components();
+    let defs: std::collections::HashMap<String, &McComponent> = workspace
+        .iter()
+        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
+        .collect();
+    // One report per used combine class's offending output contract (a def
+    // instantiated N times is checked once, at its own decl — like 6012).
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for entry in table.get_components() {
+        if !seen.insert(entry.class_name.clone()) {
+            continue;
+        }
+        let Some(def) = defs.get(&entry.class_name).copied() else {
+            continue;
+        };
+        // Combine shape (§6.1): ≥2 input-direction rows (psnk, or a psbi
+        // charge half) plus ≥1 psrc output row.
+        let inputs = def
+            .pins
+            .pwr
+            .iter()
+            .filter(|c| matches!(c.dir, PwrDir::Snk | PwrDir::Bi))
+            .count();
+        if inputs < 2 {
+            continue;
+        }
+        for contract in def.pins.pwr.iter().filter(|c| c.dir == PwrDir::Src) {
+            let dec = decode_pwr_pin(contract);
+            let Some(_tol) = dec.tol else {
+                continue;
+            };
+            // Verbatim tol text (`±1%`, `5%`) for the message, off the param.
+            let tol_text = contract
+                .params
+                .iter()
+                .find(|p| p.key.as_deref() == Some("tol"))
+                .map(|p| p.text.as_str())
+                .unwrap_or_default();
+            results.push(NetCheckResult {
+                check: "combine-output-tol",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::COMBINE_OUTPUT_TOL,
+                    &[&entry.class_name, &dec.hot, &tol_text],
+                ),
+                net_name: dec.hot.clone(),
+                code: crate::errcodes::COMBINE_OUTPUT_TOL,
+                pos: dec.span.start as u32,
+                uri: entry.def_uri.clone(),
+            });
+        }
+    }
+}
+
 /// The `psnk` contract whose *hot* terminal this flat pin is, if any. A flat
 /// pin is the hot member of a sink contract when the def-side member names of
 /// its pin id include the contract's `hot` (pin ids are positional: `main.s.1`
