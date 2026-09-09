@@ -59,16 +59,16 @@
 use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
     check_backfeed, check_clamp_ref_role, check_combine_output_tol, check_converter_gate_window,
-    check_converter_output_rail_window, check_converter_spec_incomplete, check_driver_conflict,
-    check_earth_dc_leak, check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge,
-    check_nc_connected, check_net_budget, check_pin_contract_decode, check_pin_count_mismatch,
-    check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
-    check_power_rail_two_roots, check_power_source_contention, check_protective_multi_bridge,
-    check_pullup_degenerate, check_reference_island_root, check_return_leg_undeclared,
-    check_role_ref_missing_bridge, check_single_point_nets, check_sink_nominal_mismatch,
-    check_sink_window_mismatch, check_unconnected_outputs, check_undriven_nets,
-    check_undriven_sink_net, check_unselected_abstract, check_unused_module_ports,
-    check_unwired_instances, check_voltage_mismatch, NetCheckResult,
+    check_converter_output_rail_window, check_converter_spec_incomplete, check_device_return_span,
+    check_driver_conflict, check_earth_dc_leak, check_floating_inputs, check_floating_outputs,
+    check_isolated_dc_bridge, check_nc_connected, check_net_budget, check_pin_contract_decode,
+    check_pin_count_mismatch, check_port_io_mismatch, check_power_bridge_loop, check_power_nets,
+    check_power_rail_contract, check_power_rail_two_roots, check_power_source_contention,
+    check_protective_multi_bridge, check_pullup_degenerate, check_reference_island_root,
+    check_return_leg_undeclared, check_role_ref_missing_bridge, check_single_point_nets,
+    check_sink_nominal_mismatch, check_sink_window_mismatch, check_unconnected_outputs,
+    check_undriven_nets, check_undriven_sink_net, check_unselected_abstract,
+    check_unused_module_ports, check_unwired_instances, check_voltage_mismatch, NetCheckResult,
 };
 use crate::semantic::validation::pins::{
     check_conflicting_pins, check_unused_pins, PinCheckResult,
@@ -922,21 +922,25 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_net_budget,
     },
-    // conduit-equivalence-design.md §8.5 return-path completeness (PWR-2 upper
-    // clause) — the first NetIslandIndex consumer (net-island-attribution
-    // §7 L2). A physical two-terminal DC element between two *different*
-    // resolvable return-side coppers (Ret rail copper / Reference copper) with
-    // no declared @bridge/@couple on the net pair in the owning scope is a
-    // forgotten single-point bridge or an undeclared bypass — advisory Warning;
-    // the relation is never inferred from a part type (§8.4 iron rule).
+    // conduit-equivalence-design.md §8.5 cross-plane DC-relation completeness
+    // (PWR-2 upper clause) — unified predicate (v1.2, 2026-09-09), the first
+    // NetIslandIndex consumer. A two-terminal DC element *is* a relation: when
+    // its pads resolve to two potential classes (conduit copper / rail hot-ret
+    // member net name / A′ boundary-inherited ancestor class) whose worlds are
+    // DISJOINT, the physical leg is a cross-plane DC relation (return↔return,
+    // hot↔hot supply bead, hot↔foreign return) that must carry a declared
+    // @bridge/@couple on its own statement — a forgotten single-point bridge or
+    // an undeclared bypass. Exemption is PER-LEG (own clause span in the module
+    // def file); library/func carriers fall back to net-pair-anywhere. The
+    // relation is never inferred from a part type (§8.4 iron rule).
     declare_flat_erc_rule! {
         code = crate::errcodes::RETURN_LEG_UNDECLARED,
         name = "return-leg-undeclared",
-        title = "two-terminal DC element joins return coppers with no declared DC relation",
+        title = "two-terminal DC element links disjoint potential classes with no declared DC relation on this leg",
         severity = Warning,
         domain = Power,
         family = None,
-        doc = "§8.5 return-path completeness: a two-terminal DC element (pin_count 2, both pads wired) lands on two different resolvable return-side coppers of one owning scope (rail Ret copper or Reference copper) and that net pair carries no declared @bridge/@couple edge — either the single-point bridge was never declared or an intentional bypass was left undeclared. Decoupling legs (hot↔return), same-copper shunts, and any leg touching an unresolvable net (split fragment, dotted pass-through, derived face) are not adjudicated; exemption is per declared net-pair (conduit-equivalence-design.md §8.5).",
+        doc = "§8.5 cross-plane DC-relation completeness (unified predicate): a two-terminal DC element (pin_count 2, both pads wired) lands on two potential classes of one owning scope whose domain-worlds are DISJOINT (not co-resident in one declared rail[hot,ret] loop) — return↔return, hot↔hot supply bead, hot↔foreign return. The leg must carry a declared @bridge/@couple on its own statement; a bare leg is a forgotten single-point bridge or an undeclared bypass. Decoupling (shared world) and unresolvable-pad legs are not adjudicated; exemption is per-leg (clause span + wiring site in the module def file), library/func carriers fall back to net-pair-anywhere (conduit-equivalence-design.md §8.5).",
         lock = "tests/power_intent_l1.rs",
         overridable = false,
         owner = check_return_leg_undeclared,
@@ -1009,6 +1013,30 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         lock = "tests/power_intent_l1.rs",
         overridable = false,
         owner = check_converter_output_rail_window,
+    },
+    // conduit-equivalence-design.md §8.6 device reference-pin cross-plane
+    // (adjudicated 2026-09-09) — the ≥3-pin functional sibling of 6022. A
+    // device whose DC-pair return pins resolve to ≥2 disjoint potential classes
+    // is a candidate silent die/substrate merge of two board return planes. The
+    // span is exempt only when covered by ① a net-level declared @bridge/@couple
+    // on the class pair (uc/GND↔GNDA) or ② a declared isolation structure (iso5:
+    // one return class is an @role(isolated) copper carried by a source-side
+    // psrc/psbi contract and another return class is sink-side psnk/psbi — the
+    // device is the isolator that defines the isolated world). Never inferred
+    // from a part type (§8.4); the merge is only exempted by a declaration.
+    // (Tail of the table: 6027 is a §8.6 sibling of 6022 but is declared last so
+    // its catalog position tracks the FLAT_ERC_ORDER tail append, §5-5.)
+    declare_flat_erc_rule! {
+        code = crate::errcodes::DEVICE_RETURN_SPAN_UNDECLARED,
+        name = "device-return-span-undeclared",
+        title = "device return pins span disjoint planes with no declared relation",
+        severity = Warning,
+        domain = Power,
+        family = None,
+        doc = "§8.6 device reference-pin cross-plane: a ≥3-pin functional device whose DC-pair return pins (the ret member of its psnk/psrc/psbi ::DC rows) land on ≥2 potential classes of one owning scope whose worlds are DISJOINT silently DC-joins the two planes through the die/substrate. A two-terminal leg is 6022's object (the part is the relation and carries its own @bridge); a functional device's internal return commonality is not a declarable leg, so the span must be covered by a net-level declared @bridge/@couple on the class pair (①, the uc/GND↔GNDA shape) or by a declared isolation structure (②, the iso5 shape: one return class is an @role(isolated) copper fed by a source-side psrc/psbi contract AND another return class is sink-side psnk/psbi — both conditions). Isolation alone is not enough: a sink-only device returning across isolated + main is the hidden DC bridge into the isolated world the role forbids, and is judged. The merge is never inferred from a part type (conduit-equivalence-design.md §8.6).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_device_return_span,
     },
 ];
 
@@ -1568,23 +1596,23 @@ pub fn assembly_gate_blocking_tags() -> Vec<&'static str> {
 mod tests {
     use super::*;
     use crate::errcodes::{
-        ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, EARTH_DC_LEAK,
-        ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED,
-        NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED,
-        NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER,
-        NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_POWER_NET_COUNT,
-        NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED, POWER_BRIDGE_LOOP,
-        POWER_CONVERTER_GATE, POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE,
-        POWER_PIN_DECODE, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS, POWER_SINK_NOMINAL_MISMATCH,
-        POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION, PROTECTIVE_MULTI_BRIDGE,
-        PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED, ROLE_REF_MISSING_BRIDGE,
-        SINK_NET_NO_SOURCE,
+        ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL,
+        DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK,
+        NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
+        NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
+        NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
+        NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED,
+        POWER_BRIDGE_LOOP, POWER_CONVERTER_GATE, POWER_CONVERTER_OUTPUT_RAIL_WINDOW,
+        POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
+        POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION,
+        PROTECTIVE_MULTI_BRIDGE, PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
+        ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 36] = [
+    const FLAT_ERC_ORDER: [u32; 37] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1621,6 +1649,7 @@ mod tests {
         POWER_SINK_WINDOW_MISMATCH, // §6.3 sink req-window ⊆ supply-window (window batch)
         POWER_CONVERTER_SPEC_INCOMPLETE, // §6.1 one-sided spec advisory (window batch)
         POWER_CONVERTER_OUTPUT_RAIL_WINDOW, // §6.7 converter output vs rail window
+        DEVICE_RETURN_SPAN_UNDECLARED, // §8.6 device reference-pin cross-plane (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2154,7 +2183,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (143, 0, 3));
+        assert_eq!((strong, doc, note), (144, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

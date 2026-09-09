@@ -2260,34 +2260,139 @@ pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResu
     }
 }
 
-/// §8.5 return-path completeness (conduit-equivalence-design.md §8.5, PWR-2
-/// upper clause) — the first consumer of the L1 island index
-/// (net-island-attribution-design.md §7 L2). Every physical two-terminal DC
-/// element whose two pads land on two *different* resolvable return-side
-/// coppers (a rail `Ret` copper or a `Reference` copper: quiet/protective/
-/// isolated/earth or a plain named conduit) is itself a DC relation between
-/// those coppers. The declaration layer adjudicates such relations only on net
-/// statements that carry `@bridge`/`@couple`; a leg whose net pair declares no
-/// DC edge in its owning scope is either a forgotten single-point bridge or an
-/// intentional bypass that was never declared. Advisory Warning (upper side) —
-/// the relation is never inferred from the part type (§8.4 iron rule): the
-/// declaration is the only evidence of intent.
+/// One resolvable "potential class" for a leg pad (conduit-equivalence §8.5):
+/// the identity a flat net's pad belongs to, resolved owner-locally against the
+/// owning module's own declarations. island attribution semantics are shared and
+/// untouched — identity is recovered *here*, never by re-deriving scope.
+#[derive(Debug, Clone)]
+struct EffClass {
+    /// Class display id — the `conduit` copper name, or the rail member net name.
+    id: String,
+    /// Domain names whose declared DC rail anchors this class (empty for a pure
+    /// conduit reference such as ESDGND/EARTH). The audit's disjointness test.
+    worlds: Vec<String>,
+}
+
+/// Resolve a flat net's potential class. Order:
+/// 1. owning-scope `conduit` copper (net name == conduit bare name);
+/// 2. a rail hot/ret *member net name* — the rail declaration is the class even
+///    without a same-name conduit (attribution keeps role Hot/Ret, copper None);
+/// 3. else an A′ boundary walk: follow the net's junction points outward to
+///    co-resident segments owned by an *ancestor* scope and resolve those
+///    (visited guards the symmetric in-progress cycle; multi-hop reaches the
+///    nearest copper anchor — C_y's `shield_to_earth` member → the parent
+///    `EARTH` copper). A net that reaches no class (Signal / derived supply
+///    face — an LX switch node, a bare legacy ground) is unjudged: never guess
+///    past a declaration anchor (net-island-attribution §8).
+fn eff_class(
+    table: &InstTable,
+    idx: &crate::instant::island::NetIslandIndex,
+    attr: &crate::instant::island::NetAttribution,
+    visiting: &mut Vec<u32>,
+) -> Option<EffClass> {
+    if let Some(cu) = attr.copper.as_deref() {
+        return Some(EffClass {
+            id: cu.to_string(),
+            worlds: attr.worlds.clone(),
+        });
+    }
+    if matches!(
+        attr.role,
+        crate::instant::island::NetRole::Hot | crate::instant::island::NetRole::Ret
+    ) {
+        return Some(EffClass {
+            id: attr.name.clone(),
+            worlds: attr.worlds.clone(),
+        });
+    }
+    // Unresolvable in the owning scope — only a boundary junction can rescue it.
+    if visiting.contains(&attr.net_id) {
+        return None;
+    }
+    visiting.push(attr.net_id);
+    let Some(own) = attr.module else {
+        return None;
+    };
+    let Some(net) = table.get_net(attr.net_id) else {
+        return None;
+    };
+    for &pid in &net.points {
+        for &cid in table.nets_of(pid) {
+            if cid == attr.net_id {
+                continue;
+            }
+            let Some(co) = idx.get(cid) else {
+                continue;
+            };
+            if co.module.is_none() || co.module == Some(own) {
+                continue; // same-scope co-segment — not an outward boundary step
+            }
+            if let Some(cls) = eff_class(table, idx, co, visiting) {
+                return Some(cls);
+            }
+        }
+    }
+    None
+}
+
+/// A declared `@bridge`/`@couple` DC edge, keyed by owning module. `a`/`b` are
+/// the sorted endpoint net names as written in the clause; `lo..hi` is the
+/// clause byte span in the module's def file, used for the per-leg carrier match.
+/// (A Clamp is a net→ref transient dump — no DC tie.)
+#[derive(Debug, Clone)]
+struct DeclEdge {
+    a: String,
+    b: String,
+    lo: usize,
+    hi: usize,
+}
+
+/// Wiring-site positions of a leg's pads and carrier, for the per-leg span
+/// match: each pad's `src_pos` (wiring site) first, then its `fallback_pos`
+/// (declaration site), then the component's own `src_pos`. The carrier of a
+/// clause-declared leg sits inside that clause's span in the module def file.
+fn leg_sites(comp: &InstEntry, pins: &[&InstEntry]) -> Vec<(u32, String)> {
+    let mut sites = Vec::new();
+    for p in pins {
+        if let Some(s) = &p.src_pos {
+            sites.push((s.offset, s.uri.clone()));
+        }
+    }
+    for p in pins {
+        if let Some(s) = &p.fallback_pos {
+            sites.push((s.offset, s.uri.clone()));
+        }
+    }
+    if let Some(s) = &comp.src_pos {
+        sites.push((s.offset, s.uri.clone()));
+    }
+    sites
+}
+
+/// §8.5 cross-plane DC-relation completeness (conduit-equivalence-design.md
+/// §8.5, PWR-2 upper clause) — the first consumer of the L1 island index
+/// (net-island-attribution-design.md §7 L2). A two-terminal DC element *is* a
+/// relation (the §8.5 unified predicate): when its two pads resolve to two
+/// different potential classes whose domain-worlds are DISJOINT — the pads sit
+/// in no single declared `rail[hot,ret]` loop — the physical leg is a
+/// cross-plane DC relation (return↔return, hot↔hot supply bead, hot↔foreign
+/// return) that the declaration layer must carry explicitly on the leg's own
+/// statement. A judged leg is a forgotten single-point bridge or an intentional
+/// bypass never declared. Advisory Warning (upper side) — the relation is never
+/// inferred from the part type (§8.4 iron rule): the declaration is the only
+/// evidence of intent.
 ///
-/// L2 adjudicates the identity-stable region only: both leg nets must resolve
-/// against their owning scope's declarations (role `Ret`/`Reference`, distinct
-/// coppers). Decoupling legs (hot↔return), same-copper shunts, and any leg
-/// touching an unresolvable net (dotted pass-through, derived supply face) are
-/// not judged. Exemption is at the *declared
-/// net-pair* granularity — one `@bridge`/`@couple` between the two coppers
-/// exempts every leg on that pair, so a second deliberately-paralleled return
-/// leg is 6007's declared-loop / §8.5 data-gap-2 boundary, not this rule's
-/// single-path reading.
+/// Exemption is PER-LEG (data-gap 2 closed): the leg's own statement clause
+/// span must contain one of its wiring sites (module def file) and the edge
+/// endpoints must equal the pad net names. Decoupling is naturally exempt — the
+/// two pads share a domain world (one rail's own hot↔return loop). A leg whose
+/// carrier position is unreachable (library/func body — a func cannot write
+/// @bridge) falls back to net-pair-anywhere, conservative.
 pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let idx = crate::instant::island::NetIslandIndex::build(table);
 
-    // Declared DC-relation pairs per owning module — the {a, b} of every
-    // Bridge/Couple edge (a Clamp is a net→ref transient dump, no DC tie).
-    let mut declared: std::collections::HashMap<u32, Vec<[String; 2]>> =
+    // Declared DC edges per owning module.
+    let mut declared: std::collections::HashMap<u32, Vec<DeclEdge>> =
         std::collections::HashMap::new();
     for (id, pi) in table.power_decls() {
         let is_module = table
@@ -2296,7 +2401,7 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
         if !is_module {
             continue;
         }
-        let pairs: Vec<[String; 2]> = pi
+        let edges: Vec<DeclEdge> = pi
             .l1_edges()
             .into_iter()
             .filter(|e| {
@@ -2313,12 +2418,21 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
                 if a == b {
                     return None;
                 }
-                let (a, b) = if a < b { (a, b) } else { (b, a) };
-                Some([a.clone(), b.clone()])
+                let (a, b) = if a < b {
+                    (a.clone(), b.clone())
+                } else {
+                    (b.clone(), a.clone())
+                };
+                Some(DeclEdge {
+                    a,
+                    b,
+                    lo: e.span.start,
+                    hi: e.span.end,
+                })
             })
             .collect();
-        if !pairs.is_empty() {
-            declared.insert(*id, pairs);
+        if !edges.is_empty() {
+            declared.insert(*id, edges);
         }
     }
 
@@ -2345,47 +2459,317 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
             continue;
         };
         if b.module != Some(ma) {
-            continue; // a boundary-straddling tie is not a same-scope copper pair
+            continue; // a boundary-straddling tie is not a same-scope leg
         }
-        // Both nets must be return-side coppers, distinct — a hot↔return leg is
-        // the ordinary decoupling case and stays unjudged.
-        let (Some(cua), Some(cub)) = (a.copper.as_deref(), b.copper.as_deref()) else {
+        // Resolve both pads to potential classes; a pad with no class is unjudged.
+        let (Some(cla), Some(clb)) = (
+            eff_class(table, &idx, a, &mut Vec::new()),
+            eff_class(table, &idx, b, &mut Vec::new()),
+        ) else {
             continue;
         };
-        let is_return = |r: crate::instant::island::NetRole| {
-            matches!(
-                r,
-                crate::instant::island::NetRole::Ret | crate::instant::island::NetRole::Reference
-            )
-        };
-        if cua == cub
-            || !(a.resolvable && b.resolvable)
-            || !(is_return(a.role) && is_return(b.role))
-        {
+        if cla.id == clb.id {
+            continue; // same class = same-copper shunt / 0Ω tie
+        }
+        // Decoupling is naturally co-resident: the two classes share a declared
+        // rail domain world (one rail's own hot↔return loop). Disjoint worlds —
+        // including the empty-worlds of two pure conduit references — are
+        // separate potential classes that a bare leg silently DC-joins.
+        if cla.worlds.iter().any(|w| clb.worlds.contains(w)) {
             continue;
         }
-        let (cua, cub) = if cua < cub { (cua, cub) } else { (cub, cua) };
-        let exempt = declared.get(&ma).is_some_and(|pairs| {
-            pairs
-                .iter()
-                .any(|p| p[0].as_str() == cua && p[1].as_str() == cub)
+        let (n0, n1) = (&an.name, &bn.name);
+        let (na, nb) = if n0 < n1 { (n0, n1) } else { (n1, n0) };
+        let pair_hits: Vec<&DeclEdge> = declared
+            .get(&ma)
+            .map(|edges| edges.iter().filter(|d| d.a == *na && d.b == *nb).collect())
+            .unwrap_or_default();
+        let pair_declared = !pair_hits.is_empty();
+        let sites = leg_sites(comp, &pins);
+        let mdef_uri = comp_def_uri(table, ma); // the file the clause spans index against
+                                                // Self-declared: an edge on this exact pair whose clause span contains a
+                                                // pad's wiring site in the module def file.
+        let self_declared = pair_hits.iter().any(|d| {
+            sites.iter().any(|(off, uri)| {
+                uri == mdef_uri.as_deref().unwrap_or_default()
+                    && d.lo <= (*off as usize)
+                    && (*off as usize) < d.hi
+            })
         });
-        if exempt {
+        if self_declared {
             continue;
         }
+        let in_module = sites
+            .iter()
+            .any(|(_, uri)| uri == mdef_uri.as_deref().unwrap_or_default());
+        if !in_module && pair_declared {
+            continue; // library/func carrier — net-pair fallback, conservative
+        }
+        let (cua, cub) = if cla.id < clb.id {
+            (cla.id, clb.id)
+        } else {
+            (clb.id, cla.id)
+        };
         let (pos, uri) = entry_pos(comp);
+        let mut message = crate::errcodes::format_msg(
+            crate::errcodes::RETURN_LEG_UNDECLARED,
+            &[&cua, &cub, &comp.path],
+        );
+        if pair_declared {
+            // Parallel reading: a @bridge on the same pair on another leg does
+            // not cover this one — a parallel carrier must carry its own.
+            message.push_str(
+                " A @bridge on the same pair on another leg does not exempt this \
+                 parallel leg — declare it here (and @star to discharge 6007).",
+            );
+        }
         results.push(NetCheckResult {
             check: "return-leg-undeclared",
             severity: "warning",
-            message: crate::errcodes::format_msg(
-                crate::errcodes::RETURN_LEG_UNDECLARED,
-                &[&cua, &cub, &comp.path],
-            ),
+            message,
             net_name: an.name.clone(),
             code: crate::errcodes::RETURN_LEG_UNDECLARED,
             pos,
             uri,
         });
+    }
+}
+
+/// Owning module entry's definition-file URI — the file whose byte spans the
+/// module's `l1_edges()` clause spans index against.
+fn comp_def_uri(table: &InstTable, module_id: u32) -> Option<String> {
+    table
+        .get_entry(module_id)
+        .map(|e| e.def_uri.clone())
+        .filter(|u| !u.is_empty())
+}
+
+/// One return-side class a device's DC-pair returns resolve to (6027): the
+/// class id, its declared domain worlds, and the direction flags of the
+/// `psrc`/`psnk`/`psbi` contracts whose `ret` member that return pin is.
+struct DeviceReturnClass {
+    ma: u32,
+    id: String,
+    worlds: Vec<String>,
+    net_name: String,
+    isolated: bool,
+    sink: bool, // some owning contract is Snk (or a psbi charge half)
+    src: bool,  // some owning contract is Src (or a psbi discharge half)
+}
+
+/// §8.6 device reference-pin cross-plane (conduit-equivalence-design.md §8.6,
+/// adjudicated 2026-09-09) — the ≥3-pin functional sibling of 6022. A device
+/// whose DC-pair *return* pins (the `ret` member of each `psnk`/`psrc`/`psbi`
+/// `::DC` row, §4.1) resolve to two different potential classes whose domain-
+/// worlds are DISJOINT is a candidate silent merge: the die/substrate DC-joins
+/// two board return planes the declaration layer never tied. A two-terminal leg
+/// is 6022's object (the part *is* the relation and carries its own `@bridge`);
+/// a functional device's internal return commonality is not a declarable leg, so
+/// the span must be covered by a declaration:
+///   ① a net-level declared `@bridge`/`@couple` on the class pair (the
+///      uc/GND↔GNDA shape — FB_agnd already declares the return tie), or
+///   ② a declared power-isolation structure (the iso5/DC.ISO_SRC shape, both
+///      conditions): one return class is an `@role(isolated)` copper carried by
+///      a *source-side* (`psrc`/`psbi`) contract AND another return class is
+///      carried by a *sink-side* (`psnk`/`psbi`) contract — the device is the
+///      isolator that defines the isolated world, whose copper expects no DC
+///      bridge to any world (§3.2), so its return span is the isolation itself.
+///      Isolation alone is not enough: a sink-only device returning across an
+///      isolated + a main class is precisely the hidden DC bridge into the
+///      isolated world the role forbids, and is judged.
+/// A disjoint return-class span under neither fires a Warning. Signal-derived
+/// return nets (no class), single-return devices, and returns sharing a world
+/// are not adjudicated. The merge is never inferred from a part type (§8.4).
+pub(crate) fn check_device_return_span(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let idx = crate::instant::island::NetIslandIndex::build(table);
+
+    // ① net-level declared @bridge/@couple class pairs, keyed by owning module.
+    let mut bridges: std::collections::HashMap<u32, HashSet<(String, String)>> =
+        std::collections::HashMap::new();
+    // Each owning module's conduit `@role` tags (name → tag); isolation is a
+    // declared-world fact, not island attribution (net-island-attribution §2).
+    let mut roles: std::collections::HashMap<u32, std::collections::HashMap<String, String>> =
+        std::collections::HashMap::new();
+    for (id, pi) in table.power_decls() {
+        let is_module = table
+            .get_entry(*id)
+            .is_some_and(|e| matches!(e.kind, InstKind::Module));
+        if !is_module {
+            continue;
+        }
+        let pair_set: HashSet<(String, String)> = pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| {
+                matches!(
+                    e.kind,
+                    crate::semantic::module::pi::L1EdgeKind::Bridge
+                        | crate::semantic::module::pi::L1EdgeKind::Couple
+                )
+            })
+            .filter_map(|e| {
+                let (Some(a), Some(b)) = (e.endpoints.first(), e.endpoints.get(1)) else {
+                    return None;
+                };
+                if a == b {
+                    return None;
+                }
+                let (a, b) = if a < b {
+                    (a.clone(), b.clone())
+                } else {
+                    (b.clone(), a.clone())
+                };
+                Some((a, b))
+            })
+            .collect();
+        if !pair_set.is_empty() {
+            bridges.insert(*id, pair_set);
+        }
+        let role_map: std::collections::HashMap<String, String> = pi
+            .l1_refs()
+            .into_iter()
+            .filter_map(|r| r.role.map(|role| (r.name.clone(), role)))
+            .collect();
+        if !role_map.is_empty() {
+            roles.insert(*id, role_map);
+        }
+    }
+
+    let workspace = crate::definition_space().workspace_components();
+    let defs: std::collections::HashMap<String, &McComponent> = workspace
+        .iter()
+        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
+        .collect();
+
+    for comp in table.get_components() {
+        if comp.synthetic || comp.unselected || comp.not_fitted {
+            continue;
+        }
+        if comp.pin_count < 3 {
+            continue; // the two-terminal object is 6022's (§8.6: 6027 is the
+                      // ≥3-pin functional device, whose merge is not a declarable leg)
+        }
+        let Some(def) = defs.get(&comp.class_name).copied() else {
+            continue;
+        };
+        if def.pins.pwr.is_empty() {
+            continue; // no DC-pair return contract to straddle
+        }
+        let pins = table.get_pins_of(comp.id);
+        let mut classes: std::collections::HashMap<String, DeviceReturnClass> =
+            std::collections::HashMap::new();
+        for pin in &pins {
+            // Which DC-pair rows is this flat pin the *return* terminal of?
+            // The def-side pin's registered names carry its terminal member;
+            // a return pin's name equals some contract's `ret`.
+            let pin_id = pin.path.rsplit('.').next().unwrap_or("");
+            let names: Vec<&str> = def
+                .pins
+                .pins
+                .get(pin_id)
+                .map(|p| p.names.iter().map(|n| n.as_str()).collect())
+                .unwrap_or_default();
+            let own: Vec<&McPwrPin> = def
+                .pins
+                .pwr
+                .iter()
+                .filter(|c| {
+                    c.ret
+                        .as_deref()
+                        .is_some_and(|r| names.iter().any(|n| *n == r))
+                })
+                .collect();
+            if own.is_empty() {
+                continue; // hot / signal / NC pin — only return members straddle
+            }
+            let Some(net) = table.get_net_of(pin.id) else {
+                continue; // an unwired return pin is a floating-input matter
+            };
+            let Some(attr) = idx.get(net.id) else {
+                continue;
+            };
+            let Some(ma) = attr.module else {
+                continue;
+            };
+            let Some(cls) = eff_class(table, &idx, attr, &mut Vec::new()) else {
+                continue; // return on a Signal/unresolvable net — unjudged
+            };
+            let sink = own
+                .iter()
+                .any(|c| matches!(c.dir, PwrDir::Snk | PwrDir::Bi));
+            let src = own
+                .iter()
+                .any(|c| matches!(c.dir, PwrDir::Src | PwrDir::Bi));
+            let isolated = roles
+                .get(&ma)
+                .and_then(|m| m.get(&cls.id))
+                .is_some_and(|r| r == "isolated");
+            let slot = classes
+                .entry(cls.id.clone())
+                .or_insert_with(|| DeviceReturnClass {
+                    ma,
+                    id: cls.id.clone(),
+                    worlds: cls.worlds.clone(),
+                    net_name: net.name.clone(),
+                    isolated,
+                    sink,
+                    src,
+                });
+            slot.sink |= sink;
+            slot.src |= src;
+            slot.isolated |= isolated;
+        }
+        if classes.len() < 2 {
+            continue; // single return class — nothing crosses a plane
+        }
+        let list: Vec<DeviceReturnClass> = classes.into_values().collect();
+        // Judge pairs only within one owning scope; a device whose return pins
+        // straddle modules is a boundary-tie matter, not a die merge.
+        if list.iter().any(|c| c.ma != list[0].ma) {
+            continue;
+        }
+        let ma = list[0].ma;
+        let pairs = bridges.get(&ma);
+        for i in 0..list.len() {
+            for j in (i + 1)..list.len() {
+                let (a, b) = (&list[i], &list[j]);
+                // Co-resident in a declared world = one rail's own return loop —
+                // not a cross-plane span.
+                if a.worlds.iter().any(|w| b.worlds.contains(w)) {
+                    continue;
+                }
+                let (xa, xb) = if a.id < b.id {
+                    (&a.id, &b.id)
+                } else {
+                    (&b.id, &a.id)
+                };
+                // ① net-level declared bridge/couple on the class pair.
+                if pairs.is_some_and(|ps| ps.contains(&(xa.clone(), xb.clone()))) {
+                    continue;
+                }
+                // ② declared isolation structure (both conditions, §8.6): the
+                // isolated return is source-fed (the isolator's output side) and
+                // the other return is sink-side (the isolator's input return).
+                let covered_iso =
+                    (a.isolated && a.src && b.sink) || (b.isolated && b.src && a.sink);
+                if covered_iso {
+                    continue;
+                }
+                let (pos, uri) = entry_pos(comp);
+                results.push(NetCheckResult {
+                    check: "device-return-span-undeclared",
+                    severity: "warning",
+                    message: crate::errcodes::format_msg(
+                        crate::errcodes::DEVICE_RETURN_SPAN_UNDECLARED,
+                        &[xa, xb, &comp.path],
+                    ),
+                    net_name: a.net_name.clone(),
+                    code: crate::errcodes::DEVICE_RETURN_SPAN_UNDECLARED,
+                    pos,
+                    uri,
+                });
+            }
+        }
     }
 }
 
@@ -2415,7 +2799,10 @@ fn fmt_round(x: f64) -> String {
 /// → def pin "1" whose registered names are the terminals); the return member
 /// (`ret`, e.g. GND) never matches its own contract's `hot`, so the return pin
 /// is naturally skipped.
-fn sink_contract_for<'a>(def: &'a McComponent, entry: &InstEntry) -> Option<&'a McPwrPin> {
+pub(crate) fn sink_contract_for<'a>(
+    def: &'a McComponent,
+    entry: &InstEntry,
+) -> Option<&'a McPwrPin> {
     let pin_id = entry.path.rsplit('.').next().unwrap_or("");
     let names: Vec<&str> = def
         .pins
@@ -2433,7 +2820,10 @@ fn sink_contract_for<'a>(def: &'a McComponent, entry: &InstEntry) -> Option<&'a 
 /// root because its `::DC(v)` is the *discharge* supply guarantee (§4.1), which
 /// is the S its hot net carries while it sources. Shared-return pins never match
 /// the contract's own `hot`, so return nets get no S from source pins.
-fn source_contract_for<'a>(def: &'a McComponent, entry: &InstEntry) -> Option<&'a McPwrPin> {
+pub(crate) fn source_contract_for<'a>(
+    def: &'a McComponent,
+    entry: &InstEntry,
+) -> Option<&'a McPwrPin> {
     let pin_id = entry.path.rsplit('.').next().unwrap_or("");
     let names: Vec<&str> = def
         .pins

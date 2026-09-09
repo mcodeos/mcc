@@ -1454,13 +1454,17 @@ pub const COMBINE_OUTPUT_TOL: u32 = 6020;
 /// copper pass-through feed, and module-boundary feed are the S-set step.
 pub const NET_BUDGET_EXCEEDED: u32 = 6021;
 
-/// §8.5 return-path completeness (conduit-equivalence-design.md §8.5, PWR-2
-/// upper clause) — the first consumer of the NetIslandIndex L1 (design
-/// net-island-attribution-design.md §7 L2): a physical two-terminal DC element
-/// joins two *different* resolvable return-side coppers (rail `Ret` copper or
-/// `Reference` copper) but the owning scope declares no `@bridge`/`@couple` on
-/// that net pair. Advisory Warning — a forgotten single-point bridge or an
-/// undeclared bypass; the relation is never inferred from the part type (§8.4).
+/// §8.5 cross-plane DC-relation completeness (conduit-equivalence-design.md
+/// §8.5, PWR-2 upper clause) — the first consumer of the NetIslandIndex L1
+/// (design net-island-attribution-design.md §7 L2). A two-terminal DC element
+/// *is* a relation: when its pads resolve to two potential classes (conduit
+/// copper, or rail hot/ret member net name, or an A′ boundary-inherited
+/// ancestor class) whose domain-worlds are DISJOINT — not co-resident in one
+/// declared `rail[hot,ret]` loop — the leg is a cross-plane DC relation
+/// (return↔return, hot↔hot supply bead, hot↔foreign return) that must carry an
+/// explicit `@bridge`/`@couple` on its own statement. Advisory Warning — a
+/// forgotten single-point bridge or an undeclared bypass; the relation is never
+/// inferred from the part type (§8.4).
 pub const RETURN_LEG_UNDECLARED: u32 = 6022;
 
 /// §6.1 regulator gate (rail-contract-design.md, window batch) — a regulator
@@ -1504,6 +1508,24 @@ pub const POWER_CONVERTER_SPEC_INCOMPLETE: u32 = 6025;
 /// → rail net), or a degenerate rail face (a bare nominal with no ±tol — no
 /// allowed spread is declared) is not checked.
 pub const POWER_CONVERTER_OUTPUT_RAIL_WINDOW: u32 = 6026;
+
+/// §8.6 device reference-pin cross-plane (conduit-equivalence-design.md §8.6,
+/// adjudicated 2026-09-09) — the ≥3-pin functional sibling of 6022. A device
+/// whose DC-pair *return* pins (the `ret` member of each `psnk`/`psrc`/`psbi`
+/// `::DC` row) resolve to ≥2 disjoint potential classes is a candidate silent
+/// merge: the die/substrate DC-joins two board return planes the declaration
+/// layer never tied. Unlike a two-terminal leg (6022 — the part *is* the
+/// relation and carries its own `@bridge`), a functional device's internal
+/// return commonality is not a declarable leg, so the span must be covered by
+/// ① a net-level declared `@bridge`/`@couple` on the class pair (the uc/GNDA
+/// shape) or ② a declared power-isolation structure (the iso5/DC.ISO_SRC
+/// shape: one return class is an `@role(isolated)` copper carried by a
+/// source-side contract and another return class is sink-side — the device is
+/// the isolator that defines the isolated world). A disjoint return-class span
+/// under neither is a Warning — the merge is never inferred from a part type
+/// (§8.4); only a declared net bridge or the declared isolation structure
+/// exempts it.
+pub const DEVICE_RETURN_SPAN_UNDECLARED: u32 = 6027;
 
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
@@ -1880,11 +1902,12 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SINK_NET_NO_SOURCE, "A net carrying power sinks (psnk) has no declared source root on it.", "net '{0}' carries component power-sink terminals but has no supply root on the net — it is neither a declared domain-rail face nor driven by a psrc/psbi hot pin, so its loads draw from nothing that guarantees power (PWR-1 no-source face). Attach the loads to a declared rail face or drive the net from a psrc source; a feed that crosses a series pass element (inductor/ferrite/fuse) from another net is not yet traced (S-set step)"),
     entry!(COMBINE_OUTPUT_TOL, "A combine element's output psrc declares a tolerance window it cannot re-anchor.", "combine element '{0}' output '{1}' declares tol {2} — a pass-through OR-merge can't guarantee tighter than its live input, so a literal OUT window over-claims under single-source states (rail-contract-design.md §6.2③); write the nominal-only ::DC(v), or add spec.output to model a regulator"),
     entry!(NET_BUDGET_EXCEEDED, "A net's declared psnk load demand exceeds its supply capacity (PWR-4).", "net '{0}' declares {1} of psnk load ({2} sinks) but its supply root declares capacity {3} — Σ amp ≤ capacity is the PWR-4 budget (rail-contract-design.md §8.2). Either the loads really overdraw the rail (cut the load / raise the source capacity / split the rail), or a sink's amp is mis-declared. Undeclared sinks draw unknown current and are not counted; converter-input push-up and cross-net feed are the S-set step"),
-    entry!(RETURN_LEG_UNDECLARED, "A two-terminal DC element joins two return coppers with no declared DC relation (§8.5).", "two-terminal '{2}' DC-joins return coppers '{0}' and '{1}' but that net pair carries no declared @bridge/@couple — a DC reference tie is explicit: add the forgotten single-point @bridge, or declare the intentional bypass (conduit-equivalence-design.md §8.5)"),
+    entry!(RETURN_LEG_UNDECLARED, "A two-terminal DC element links two disjoint potential classes (planes) with no declared DC relation on this leg (§8.5).", "two-terminal '{2}' links planes '{0}' and '{1}' but this leg carries no @bridge/@couple — the classes are not co-resident in one declared rail loop, so the DC relation is explicit: add the forgotten single-point @bridge here, or declare the intentional bypass on this leg (conduit-equivalence-design.md §8.5)"),
     entry!(POWER_CONVERTER_GATE, "A regulator's declared input window excludes the supply window on its input net.", "regulator '{2}' declares input window {1}, but the supply window riding its input net is {0} — S(input) ⊄ input_req: the rail or source feeding it sags or soars outside its operating pre-condition, so the declared output guarantee cannot be trusted. Fix the feed (or the input_req if it is mis-declared); a net whose supply window cannot be derived is not adjudicated (rail-contract-design.md §6.1 gate)"),
     entry!(POWER_SINK_WINDOW_MISMATCH, "A load's declared acceptable window excludes the actual supply window on its net.", "load '{2}' accepts supply only within {1}, but the supply window actually riding its net is {0} — S(net) ⊄ input_req: the rail or source can over- or under-volt the load outside what it tolerates. Fix the feed, or correct the load's declared window; a net whose supply window cannot be derived is not adjudicated (rail-contract-design.md §6.3 sink window)"),
     entry!(POWER_CONVERTER_SPEC_INCOMPLETE, "A spec block on a power-output component declares only one of input_req / output.", "component '{0}' has a psrc/psbi output row and a spec block, but declares only '{1}' — a regulator needs both windows of the Hoare triple for the gate (6023) and sink-window (6024) checks to judge it. The written side still decodes (an output-only regulator is treated as guaranteeing that output; an input_req-only one as an un-gated feed), it just cannot be gated: add the missing '{2}' (rail-contract-design.md §6.1)"),
     entry!(POWER_CONVERTER_OUTPUT_RAIL_WINDOW, "A converter's declared output guarantee is not covered by the declared rail window of the rail net it drives.", "converter '{2}' guarantees output {0} on rail net '{3}', but the rail's declared window is only {1} — the guarantee escapes the rail's allowed window: the converter can deliver outside what the scope declares on that net. Fix the spec.output, or the rail tolerance if the rail is mis-declared (rail-contract-design.md §6.7)"),
+    entry!(DEVICE_RETURN_SPAN_UNDECLARED, "A device's DC return pins span disjoint return classes (planes) with no declared relation covering the span.", "device '{2}' returns across planes '{0}' and '{1}' but no net-level @bridge/@couple and no declared isolation structure covers the span — its return-side pins silently DC-join the two classes through the die/substrate: add a net-level @bridge/@couple between the return nets, or check whether one return is an @role(isolated) source-side copper the device legitimately feeds (conduit-equivalence-design.md §8.6)"),
     // ---- section ----
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
