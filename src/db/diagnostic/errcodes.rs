@@ -1463,6 +1463,37 @@ pub const NET_BUDGET_EXCEEDED: u32 = 6021;
 /// undeclared bypass; the relation is never inferred from the part type (§8.4).
 pub const RETURN_LEG_UNDECLARED: u32 = 6022;
 
+/// §6.1 regulator gate (rail-contract-design.md, window batch) — a regulator
+/// declares its operating pre-condition `input_req` (the input window inside
+/// which its `output` post-condition holds). The supply window actually riding
+/// its input net must lie inside that declared input window: `S(input) ⊆
+/// input_req`. A Resolved input window outside it fires an Error. Nets whose
+/// window cannot be derived (NoSupply / Unresolved — module-boundary feed,
+/// undeclared contention, an un-driven leg) are not adjudicated, mirroring the
+/// nominal layer's leave.
+pub const POWER_CONVERTER_GATE: u32 = 6023;
+
+/// §6.3 sink req window (rail-contract-design.md, window batch) — a load whose
+/// component spec declares `input_req` states the supply window it accepts.
+/// The actual supply window on the net the sink's hot pin rides must sit inside
+/// that accepted window: `S(supply net) ⊆ input_req`. A Resolved supply window
+/// that escapes the accepted window (over/under-volts the load) is an Error.
+/// A regulator's own `psnk` input row is gated per-net by 6023, not re-judged
+/// here; nets without a derivable window stay silent (E-PWR-001 window step).
+pub const POWER_SINK_WINDOW_MISMATCH: u32 = 6024;
+
+/// §6.1/6023 partial-spec advisory (rail-contract-design.md, window batch) — a
+/// component with a `psrc`/`psbi` output row writes a `spec` block but declares
+/// only one of the Hoare triple's two windows: `input_req` (the pre-condition
+/// its output needs) or `output` (the post-condition it guarantees). A regulator
+/// needs both for the gate (6023) and the sink-window (6024) checks to judge it;
+/// a one-sided write is an incomplete contract. Advisory Info — the written side
+/// still decodes (an output-only regulator is treated as guaranteeing that
+/// output; an input_req-only one as an un-gated load), it just cannot be gated.
+/// A pure load (no output row) legitimately writes `input_req` alone and is not
+/// flagged.
+pub const POWER_CONVERTER_SPEC_INCOMPLETE: u32 = 6025;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -1839,6 +1870,9 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(COMBINE_OUTPUT_TOL, "A combine element's output psrc declares a tolerance window it cannot re-anchor.", "combine element '{0}' output '{1}' declares tol {2} — a pass-through OR-merge can't guarantee tighter than its live input, so a literal OUT window over-claims under single-source states (rail-contract-design.md §6.2③); write the nominal-only ::DC(v), or add spec.output to model a regulator"),
     entry!(NET_BUDGET_EXCEEDED, "A net's declared psnk load demand exceeds its supply capacity (PWR-4).", "net '{0}' declares {1} of psnk load ({2} sinks) but its supply root declares capacity {3} — Σ amp ≤ capacity is the PWR-4 budget (rail-contract-design.md §8.2). Either the loads really overdraw the rail (cut the load / raise the source capacity / split the rail), or a sink's amp is mis-declared. Undeclared sinks draw unknown current and are not counted; converter-input push-up and cross-net feed are the S-set step"),
     entry!(RETURN_LEG_UNDECLARED, "A two-terminal DC element joins two return coppers with no declared DC relation (§8.5).", "two-terminal '{2}' DC-joins return coppers '{0}' and '{1}' but that net pair carries no declared @bridge/@couple — a DC reference tie is explicit: add the forgotten single-point @bridge, or declare the intentional bypass (conduit-equivalence-design.md §8.5)"),
+    entry!(POWER_CONVERTER_GATE, "A regulator's declared input window excludes the supply window on its input net.", "regulator '{2}' declares input window {1}, but the supply window riding its input net is {0} — S(input) ⊄ input_req: the rail or source feeding it sags or soars outside its operating pre-condition, so the declared output guarantee cannot be trusted. Fix the feed (or the input_req if it is mis-declared); a net whose supply window cannot be derived is not adjudicated (rail-contract-design.md §6.1 gate)"),
+    entry!(POWER_SINK_WINDOW_MISMATCH, "A load's declared acceptable window excludes the actual supply window on its net.", "load '{2}' accepts supply only within {1}, but the supply window actually riding its net is {0} — S(net) ⊄ input_req: the rail or source can over- or under-volt the load outside what it tolerates. Fix the feed, or correct the load's declared window; a net whose supply window cannot be derived is not adjudicated (rail-contract-design.md §6.3 sink window)"),
+    entry!(POWER_CONVERTER_SPEC_INCOMPLETE, "A spec block on a power-output component declares only one of input_req / output.", "component '{0}' has a psrc/psbi output row and a spec block, but declares only '{1}' — a regulator needs both windows of the Hoare triple for the gate (6023) and sink-window (6024) checks to judge it. The written side still decodes (an output-only regulator is treated as guaranteeing that output; an input_req-only one as an un-gated feed), it just cannot be gated: add the missing '{2}' (rail-contract-design.md §6.1)"),
     // ---- section ----
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
