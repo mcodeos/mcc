@@ -144,6 +144,7 @@ pub use instant::world::{
     CircuitCheckpoint, CircuitDiff, CircuitWorld, NetDelta, NetSnapshot, NodePathChange,
 };
 pub use semantic::common::ConnDir;
+pub use semantic::validation::pwrflow::{build_pwrflow, CrownRow, FlowNode, PwrFlow, RailRow};
 
 // ── Query ──
 pub use query::search as search_api;

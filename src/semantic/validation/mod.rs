@@ -192,6 +192,7 @@ pub mod naming;
 pub mod nets;
 pub mod pins;
 pub mod ports;
+pub(crate) mod pwrflow;
 pub mod refs;
 pub mod style;
 pub mod types;
