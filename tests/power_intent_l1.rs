@@ -1245,13 +1245,16 @@ fn combine_nominal_only_output_is_clean_6020() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// PWR-4 net budget (§8, rail-contract-design.md) — sink `amp` demand vs the
-// supply root's capacity, net-local. `amp` is a sink-exclusive opt-in key on
-// the psnk `::DC` (§8.1); the budget sums declared demand over the same net a
-// capacity-bearing root (domain-rail face / psrc / psbi) governs and fires 6021
-// when Σ amp > capacity. A net with no declared capacity (or with disagreeing
-// capacity roots) is not adjudicated; converter-input push-up and cross-net
-// feed are the S-set step.
+// PWR-4 net budget (§8/§8.5, rail-contract-design.md) — sink `amp` demand vs
+// the supply root's capacity, supply-root scope. `amp` is a sink-exclusive
+// opt-in key on the psnk `::DC` (§8.1); the budget accumulates declared demand
+// onto the budget root governing each net and fires 6021 when Σ amp > capacity.
+// A net whose own capacity-bearing root (domain-rail face / psrc / psbi)
+// governs it is the net-local §8.2 case; a rootless net reached through
+// current-transparent copper / a module boundary inherits its upstream root
+// (§8.5). A net with no declared capacity (or with disagreeing capacity roots)
+// is a source boundary, not adjudicated; converter-input push-up and the
+// combine single-source-mode budget remain the deferred S-set tail.
 
 /// A regulated source whose output declares its capacity (500mA at 3.3V).
 const SRC_CAP: &str = "component SRC_CAP {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(3.3V, capacity:500mA)\n    ]\n}\n";
@@ -1264,6 +1267,10 @@ const SNK_AMP5: &str = "component SNK_AMP5 {\n    pins = [\n        psnk [1,2] =
 
 /// A 3.3V sink that draws more than the golden VDD_3V3 rail's own capacity.
 const SNK_AMP_HI: &str = "component SNK_AMP_HI {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(3.3V, amp:600mA)\n    ]\n}\n";
+
+/// A 3.3V sink drawing a share small enough that two legs stay within a 500mA
+/// root — the within-budget half of the copper split (§8.5).
+const SNK_AMP2: &str = "component SNK_AMP2 {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(3.3V, amp:200mA)\n    ]\n}\n";
 
 /// 6021 fire through a *psrc* capacity root: two 300mA sinks on a 500mA source
 /// net sum to 600mA > 500mA. amp on a sink is legal (no 6012), the nominals
@@ -1346,6 +1353,105 @@ module main {\n    conduit GND @role(main)\n    io V33\n    SRC_BAD s\n    \
     assert!(
         codes.contains(&mcc::errcodes::POWER_PIN_DECODE),
         "an amp demand key on a psrc row must fire 6012 (§8.1 sink-exclusive); got codes: {codes:?}"
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PWR-4 root-scope budget (§8.5, rail-contract-design.md) — 6021 raised from
+// net-local to supply-root scope. A capacity root governs downstream nets
+// separated from it only by current-transparent copper (a two-pin element with
+// no DC rows: fuse/ferrite/inductor) or a module-boundary junction, so a split
+// leg no longer escapes its upstream rail's budget. A rootless net reached via
+// copper accumulates onto the upstream self-root; Σ amp > capacity fires once
+// per root. The discriminating proofs live here because the real pwrint board
+// cannot host a plain leaf sink on its one copper-split net (VBUS_RAW) without
+// tripping the unchanged net-local 6019 — see §8.5 of rail-contract-design.md.
+// These locks assert only on 6021: a rootless downstream net legitimately trips
+// 6019 (SINK_NET_NO_SOURCE) under the still-net-local nominal layer, a
+// pre-existing gap this batch does not introduce and does not assert on.
+
+/// §8.5 copper split, over budget: a 500mA psrc root feeds net A (300mA sink)
+/// and, through an `FB` pass leg, a second net B (300mA sink). Net-local each
+/// leg is within budget (A: 300 ≤ 500; B: no capacity root → silent), but the
+/// root-scope sum is 600 > 500 → one 6021 on the root net. Discriminating:
+/// the §8.2 kernel stayed silent on this exact topology.
+#[test]
+fn root_scope_copper_split_over_budget_fires_once() {
+    let src = format!(
+        "{SRC_CAP}{SNK_AMP3}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io V33\n    io V33B\n    SRC_CAP s\n    SNK_AMP3 a\n    SNK_AMP3 b\n    \
+         s.OUT -> V33\n    s.GND -> GND\n    a.VDD -> V33\n    a.GND -> GND\n    \
+         V33 - fb::FB() - V33B\n    b.VDD -> V33B\n    b.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n_6021 = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::NET_BUDGET_EXCEEDED)
+        .count();
+    assert_eq!(
+        n_6021, 1,
+        "300mA + 300mA across a copper pass leg must sum to one 6021 on the 500mA root net; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 copper split, within budget: 200mA + 200mA across the same leg stays
+/// under the 500mA root → silent (the transparent leg adds no false positive).
+#[test]
+fn root_scope_copper_split_within_budget_is_silent() {
+    let src = format!(
+        "{SRC_CAP}{SNK_AMP2}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io V33\n    io V33B\n    SRC_CAP s\n    SNK_AMP2 a\n    SNK_AMP2 b\n    \
+         s.OUT -> V33\n    s.GND -> GND\n    a.VDD -> V33\n    a.GND -> GND\n    \
+         V33 - fb::FB() - V33B\n    b.VDD -> V33B\n    b.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
+        "200mA + 200mA across a copper pass leg stays within the 500mA root — no 6021; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 source boundary: a capacity-less source (nominal only) is opaque to the
+/// ascent. An amp sink reached through a copper leg off it has no budget oracle
+/// upstream → silent, exactly as a net-local capacity-less source (§8.2). The
+/// walk must NOT fabricate a capacity by stepping past the boundary.
+#[test]
+fn root_scope_capacity_less_source_boundary_stays_silent() {
+    let src = format!(
+        "{SRC5}{SNK_AMP5}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io V5\n    io V5B\n    SRC5 s\n    SNK_AMP5 k\n    \
+         s.OUT -> V5\n    s.GND -> GND\n    V5 - fb::FB() - V5B\n    k.VDD -> V5B\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
+        "an amp sink behind a capacity-less source has no budget oracle — no 6021; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 no double-count across a self-root: a declared 500mA psrc net D feeds a
+/// 300mA-capacity domain-rail net C through copper. D carries its own 300mA
+/// load, C carries a 600mA load. Each rail is self-root (a rail face is never
+/// re-rooted upstream toward the source that feeds it), so C alone fires
+/// (600 > 300) and C's load must NOT also accumulate onto D (D stays at 300 ≤
+/// 500 silent). Exactly one 6021 — the double-count guard.
+#[test]
+fn root_scope_rail_load_does_not_double_count_upstream() {
+    let src = format!(
+        "{SRC_CAP}{SNK_AMP3}{SNK_AMP_HI}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DV {{ rail [V3V3B, GND]::DC(3.3V, capacity:300mA) }}\n    \
+         io V3V3B\n    io D33\n    SRC_CAP s\n    SNK_AMP3 c\n    SNK_AMP_HI h\n    \
+         s.OUT -> D33\n    s.GND -> GND\n    c.VDD -> D33\n    c.GND -> GND\n    \
+         D33 - fb::FB() - V3V3B\n    h.VDD -> V3V3B\n    h.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n_6021 = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::NET_BUDGET_EXCEEDED)
+        .count();
+    assert_eq!(
+        n_6021, 1,
+        "the 600mA load on the 300mA rail fires once and must not also re-root onto the 500mA source net; got codes: {codes:?}"
     );
 }
 

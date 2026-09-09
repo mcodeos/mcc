@@ -32,6 +32,12 @@ pub(crate) use window::{
     check_converter_spec_incomplete, check_sink_window_mismatch,
 };
 
+// PWR-4 budget root-scope layer (rail-contract-design.md §8.5, S-set step 1).
+// budget.rs is a sibling leaf like window.rs: check_net_budget moved out of
+// this file (6021 owner re-exported under the same name for rules.rs).
+mod budget;
+pub(crate) use budget::check_net_budget;
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`
@@ -2165,100 +2171,10 @@ pub(crate) fn check_combine_output_tol(table: &InstTable, results: &mut Vec<NetC
     }
 }
 
-/// PWR-4 budget, net-local first kernel (rail-contract-design.md §8). Every
-/// net whose supply root declares a *capacity* (a domain-rail face or a
-/// `psrc`/`psbi` hot pin carrying `capacity`, §8.2) declares how much current
-/// that root may deliver; each decodable `psnk` sink on the same net may
-/// declare its instance demand via `amp` (§8.1 — sink-exclusive, opt-in). The
-/// budget compares declared demand against declared capacity: Σ amp ≤ capacity,
-/// else 6021.
-///
-/// The kernel mirrors 6011/6013/6019 exactly. A net whose supply root declares
-/// no capacity is not adjudicated (no budget oracle — PWR-4 stays silent), and
-/// a net whose supply roots declare *different* capacities is skipped (two
-/// handwritten rail roots = 6010; hard-source coexistence = 6013; the
-/// combine-merged net's single-source-mode budget is the S-set step, §6.4).
-/// Only sinks that declare `amp` count, so a capacity-bearing net whose loads
-/// draw unknown current stays silent (opt-in: a declared subset alone over
-/// capacity is still a sound over-budget). Module-boundary feed ports, copper
-/// pass-through feed, and the §7.2 converter push-up (input demand derived from
-/// output power/eff) are the later S-set step — this fires only on loads wired
-/// directly to the capacity-declaring net. Reports once per offending net at
-/// the first contributing sink's entry.
-pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    // Shared scan of the flat power face — PowerScan owns the capacity map
-    // (`rail_cap`) and comp_def table 6021 used to rebuild inline.
-    let scan = PowerScan::build(table);
-
-    for net in table.get_nets() {
-        // ── Budget roots on this net: rail capacity face first (exact name,
-        // then last dotted segment), then psrc/psbi hot pins carrying a
-        // capacity — in 6021's original encounter order. ──
-        let caps = scan.capacity_roots(table, net);
-        if caps.is_empty() {
-            continue; // no declared capacity on this net — nothing to budget
-        }
-        // Distinct capacity roots disagree → ambiguous (6010/6013 scope, or the
-        // combine-merged single-mode budget of the S-set step). Require one
-        // agreed capacity before adjudicating.
-        let cap = caps[0];
-        if caps.iter().any(|c| (*c - cap).abs() > 1e-9) {
-            continue;
-        }
-
-        // ── Demand: every decodable psnk sink on this net that declares amp. ──
-        let mut demand: f64 = 0.0;
-        let mut count: usize = 0;
-        let mut witness: Option<(u32, String)> = None;
-        for &pid in &net.points {
-            let Some(entry) = table.get_entry(pid) else {
-                continue;
-            };
-            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
-                continue;
-            }
-            let Some(comp_id) = entry.parent_id else {
-                continue;
-            };
-            let Some(def) = scan.def_of(comp_id) else {
-                continue;
-            };
-            let Some(contract) = sink_contract_for(def, entry) else {
-                continue;
-            };
-            let dec = decode_pwr_pin(contract);
-            let Some(a) = dec.amp else {
-                continue; // sink draws unknown current — not counted (opt-in)
-            };
-            demand += a;
-            count += 1;
-            if witness.is_none() {
-                witness = Some(entry_pos(entry));
-            }
-        }
-        if count == 0 || demand <= cap + 1e-9 {
-            continue;
-        }
-        let (pos, uri) = witness.unwrap_or((0, String::new()));
-        results.push(NetCheckResult {
-            check: "net-budget-exceeded",
-            severity: "error",
-            message: crate::errcodes::format_msg(
-                crate::errcodes::NET_BUDGET_EXCEEDED,
-                &[
-                    &net.name,
-                    &fmt_amps(demand),
-                    &count.to_string(),
-                    &fmt_amps(cap),
-                ],
-            ),
-            net_name: net.name.clone(),
-            code: crate::errcodes::NET_BUDGET_EXCEEDED,
-            pos,
-            uri,
-        });
-    }
-}
+/// PWR-4 budget, supply-root scope (rail-contract-design.md §8.5) — the owner
+/// moved to the sibling leaf budget.rs (root resolution + aggregation). See
+/// `budget::check_net_budget`; rules.rs keeps importing `check_net_budget` from
+/// this module via the `pub(crate) use budget::check_net_budget` re-export above.
 
 /// One resolvable "potential class" for a leg pad (conduit-equivalence §8.5):
 /// the identity a flat net's pad belongs to, resolved owner-locally against the
