@@ -168,8 +168,9 @@ impl VectorMemberInfo {
 /// declaration is `Signal` (classification-retirement-design §3 ruling ① —
 /// undeclared: never judged, never guessed). The two predicates are the module's declared ground-side
 /// coppers (conduit names ∪ DC rail `ret` members) and declared supply faces
-/// (DC rail `hot` members) — the identity set the flat split-ground partition
-/// used to exempt before its terminal retirement (v0.2 §6).
+/// (DC rail `hot` members) — the identity set the flat per-statement ground
+/// partition exempted from fragmentation before its retirement
+/// (split-ground-copper-design v0.2 §6).
 /// Callers enrich the predicates with connection-point DC pairs (port
 /// `dc_pair` at site 1, the component's own `McPwrPin` rows at the pin sites).
 ///
@@ -1002,8 +1003,9 @@ impl InstTable {
         // R1): a port member / pin func name gets an electrical role only when
         // it names this module's OWN declared copper — ground-side = every
         // `conduit` name + every declared DC rail's `ret` member (the same set
-        // the flat split-ground partition used to exempt, now retired per
-        // v0.2 §6); supply-side = every declared DC rail's
+        // the flat per-statement ground partition exempted from fragmentation,
+        // retired per split-ground-copper-design v0.2 §6); supply-side = every
+        // declared DC rail's
         // `hot` member. Shared by all three `infer_member_role` call sites in
         // this method (module port members, net-connected pins). Legacy
         // modules with no power-intent declaration → empty sets → Signal.

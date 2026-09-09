@@ -2,11 +2,11 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Split-ground terminal state (split-ground-copper-design v0.2 §6): the flat
-//! layer no longer fabricates per-statement `GND@<line>` electric fragments —
-//! a bare-`GND` net stays ONE net per distinct base, whether or not the module
-//! declares its return copper. The two cases now differ only on the identity
-//! axis (NetIslandIndex attribution):
+//! Ground-copper attribution, terminal state (split-ground-copper-design v0.2
+//! §6): the flat layer no longer fabricates per-statement `GND@<line>` electric
+//! fragments — a bare-`GND` net stays ONE net per distinct base, whether or not
+//! the module declares its return copper. The two cases now differ only on the
+//! identity axis (NetIslandIndex attribution):
 //!
 //!   - LEGACY (no power-intent declaration): the unified `GND` net is
 //!     `Signal` / `resolvable = false` — never judged, never guessed

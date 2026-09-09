@@ -64,8 +64,8 @@ fn mat_aname__normal_sequence_lock() {
 
     // Auto-name sequence: `_C1`/`_C2` before `_R1`; each device materializes
     // its two pins as child entries. The bare-`GND` statements union into the
-    // single `main.GND` net (split-ground terminal state: no `GND@<line>`
-    // fragment labels in the flat netlist).
+    // single `main.GND` net (the flat layer no longer splits ground by
+    // statement, so no `GND@<line>` fragment labels appear in the netlist).
     assert_eq!(
         paths,
         vec![

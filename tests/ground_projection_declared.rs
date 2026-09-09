@@ -2,12 +2,12 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! split-ground batch2 (viz projection face) — viz-level locks for the
+//! Declared-ground projection (viz face) — viz-level locks for the
 //! declared-identity ground retirement (classification-retirement-design §5 +
 //! split-ground-copper-design v0.2 §7.1) on the hbl fixture.
 //!
-//! The flat-layer `split_ground_nets` per-statement partition is RETIRED as of
-//! the terminal batch (v0.2 §6 — it no longer exists in builder.rs), and the
+//! The flat-layer per-statement ground partition is RETIRED as of the terminal
+//! batch (v0.2 §6 — it no longer exists in builder.rs), and the
 //! per-(copper×statement) drawing-axis glyph re-anchor is deferred to a later
 //! viz batch. What is locked here is the projection's ground classification +
 //! rule-c boundary semantics:

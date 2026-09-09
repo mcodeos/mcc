@@ -157,8 +157,9 @@ fn sub_layers_s1_s2_decoration_counts() {
         // attr-driven; a net with no declared endpoint — no connection-point DC
         // pair member, no module rail/conduit — is Signal and draws no rail).
         // Cap returns that route to a module's declared ground (header DC-pair ret
-        // copper, split-ground v0.2 criterion 2) stay on that one ground net, so a
-        // declared ground net spanning ≥2 boxes draws one real cross-box trunk.
+        // copper — the declared-copper ground anchor, split-ground-copper-design
+        // v0.2) stay on that one ground net, so a declared ground net spanning ≥2
+        // boxes draws one real cross-box trunk.
         ("MCU513", 0, 0, 1, 2),
         ("MIC", 0, 0, 1, 1),
         // LDO's header uses scalar DC ports (`in vin::DC(5V)`) with no [hot,ret]

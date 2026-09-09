@@ -27,9 +27,9 @@
 //!   — is left `resolvable = false`. No name heuristic guesses past the owning
 //!   scope (the reference-binding cross-layer merge is the deferred L3 step),
 //!   and no existing check consumes this index yet (golden residuals stay
-//!   verbatim). (The split-ground per-statement `@N` fragments were retired at
-//!   the flat layer — split-ground-copper-design v0.2 §6 — so no flat net
-//!   carries an `@owner` electric-fragment suffix.)
+//!   verbatim). (Per-statement `@N` ground fragments were retired with the
+//!   flat ground partition — split-ground-copper-design v0.2 §6 — so no flat
+//!   net carries an `@owner` electric-fragment suffix.)
 //!
 //! Role/copper carry the conduit's supply *function*, not its `@role` tag —
 //! the tag (`main`/`quiet`/`isolated`/`earth`/`protective`) is the copper's
