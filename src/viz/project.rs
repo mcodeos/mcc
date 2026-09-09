@@ -246,12 +246,13 @@ fn project_nets(
         .collect();
     let is_ground_net = |ni: usize| declared_ret[ni];
 
-    // (1) same-name union: bare ground-label nets with the SAME exact name
-    // (no '.', is_ground) merge. The merge key is the FULL net name — the
-    // pass2 ground split gives every local ground a distinct identity
-    // (`GND@42`, `GND@64`, ...), so `GND@N` nets must NOT be collapsed into
-    // one net via a stripped base. Only truly identical names (e.g. duplicate
-    // bare `GND` labels) union.
+    // (1) same-name union: bare ground-role nets (declared Ret/Reference)
+    // with the SAME exact name (no '.') merge. The merge key is the FULL net
+    // name — distinct declared copper nets (`V3V3.GND`, `V5V.GND`) share a
+    // bare base only if they are genuinely one copper, and rail-member
+    // grounds (`vin.GND`) are excluded below (strict DC rail identity). Only
+    // truly identical bare names (e.g. duplicate `GND` nets over one declared
+    // copper) union.
     {
         let mut first_by_base: HashMap<&str, usize> = HashMap::new();
         for (ni, net) in nets.iter().enumerate() {
