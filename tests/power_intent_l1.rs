@@ -1456,6 +1456,309 @@ fn root_scope_rail_load_does_not_double_count_upstream() {
     );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// PWR-4 budget, derived-demand tail (§8.5, rail-contract-design.md) — the three
+// semantics that close the budget axis on top of the root-scope copper walk
+// above. All fire 6021 only (zero new codes):
+//   * module power-output port (`psrc NAME{hot,ret}::DC(…)` in a module body) as
+//     an explicit capacity root — a parent-side load reached through a fuse leg
+//     is budgeted against the port's declared capacity;
+//   * converter push-up — a Regulator (spec.output + ≥1 Snk + ≥1 Src) draws
+//     `I_in = Σ(|V_out|·D(out)) / (|V_in|·eff)`, eff default 1.0 when the Src
+//     row omits it, charged on the root governing its input net;
+//   * OR-merge single-source mode — a Combine's merge-output demand is charged
+//     per distinct governing root of its legs, each leg covering the FULL demand
+//     (dedup when two legs share one root); recursion carries demand through
+//     nested merges (region_demand, budget_derive.rs).
+// The module-port boards load through real files + the mcode library (the
+// `::DC` port adopt needs interface DC from ifs/dc.mc and the recursive project
+// loader) — the same pipeline as the golden pwrint board. Their ret member and
+// the parent hot net are reach-unfed by design (Port faces are budget-local and
+// never leak into reach.rs), so 6019/4114 noise is tolerated; the asserts pin
+// 6021 alone, exactly like the root-scope locks above.
+
+/// A 5V source declaring an explicit `capacity` — the budget oracle for the
+/// converter-push-up / OR-merge fixtures (200mA…1A roots).
+const SRC5_CAP2: &str = "component SRC5_CAP_200 {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(5V, capacity:200mA)\n    ]\n}\n";
+const SRC5_CAP3: &str = "component SRC5_CAP_300 {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(5V, capacity:300mA)\n    ]\n}\n";
+const SRC5_CAP4: &str = "component SRC5_CAP_400 {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(5V, capacity:400mA)\n    ]\n}\n";
+const SRC5_CAP5: &str = "component SRC5_CAP_500 {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(5V, capacity:500mA)\n    ]\n}\n";
+const SRC5_CAP6: &str = "component SRC5_CAP_600 {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(5V, capacity:600mA)\n    ]\n}\n";
+const SRC5_CAP1A: &str = "component SRC5_CAP_1000 {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(5V, capacity:1000mA)\n    ]\n}\n";
+
+/// 5V amp sinks drawn by the OR-merge fixtures' final loads.
+const SNK5_500: &str = "component SNK5_500 {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(5V, amp:500mA)\n    ]\n}\n";
+const SNK5_600: &str = "component SNK5_600 {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(5V, amp:600mA)\n    ]\n}\n";
+
+/// Regulator-shaped converter (5V in → 3.3V out) whose Src row omits `eff`
+/// (default 1.0) — the eff-default half of the push-up proof.
+const CONV_BUDGET: &str = "component CONV_BUDGET {\n    pins = [\n        psnk [1,2] = [VIN, GN1]::DC(5V)\n        psrc [3,4] = [VOUT, GN2]::DC(3.3V)\n    ]\n    spec = [\n        input_req = 4.5V ~ 5.5V\n        output    = 3.2V ~ 3.4V\n    ]\n}\n";
+
+/// The same regulator with `eff:0.9` on the output Src row.
+const CONV_BUDGET_EFF: &str = "component CONV_BUDGET_EFF {\n    pins = [\n        psnk [1,2] = [VIN, GN1]::DC(5V)\n        psrc [3,4] = [VOUT, GN2]::DC(3.3V, eff:0.9)\n    ]\n    spec = [\n        input_req = 4.5V ~ 5.5V\n        output    = 3.2V ~ 3.4V\n    ]\n}\n";
+
+/// Load a module-power-port board through the golden pipeline: system library +
+/// recursive project load over real temp files (module body `psrc …::DC(…)` rows
+/// require interface DC from the mcode library, which the no-lib single-string
+/// harness above never loads). `tag` keeps each test's temp directory unique.
+fn build_project_codes(tag: &str, psu_mc: &str, main_mc: &str) -> Vec<u32> {
+    let _lock = common::lock();
+    let dir = std::env::temp_dir().join(format!("mcc-pwr4-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("psu.mc"), psu_mc).unwrap();
+    std::fs::write(dir.join("main.mc"), main_mc).unwrap();
+    let entry = dir.join("main.mc").canonicalize().unwrap();
+    let uri: McURI = entry.to_string_lossy().to_string();
+    mcc::mcc_init();
+    mcc::mcc_set_project_root(&dir);
+    mcc::mcc_load_project(&uri);
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    codes.sort_unstable();
+    let _ = std::fs::remove_dir_all(&dir);
+    codes
+}
+
+/// §8.5 module power-output port as an explicit budget root (fire): a 500mA
+/// module-body `psrc vin{V33, GND}::DC(3.3V, capacity:500mA)` port feeds, through
+/// a fuse leg in the parent, a 600mA sink. The port member is the root; the
+/// parent load reaches it over transparent copper + the module-boundary
+/// co-segment → one 6021. Discriminator: the §8.2 net-local kernel and the
+/// §8.5 copper walk both stayed silent on a module port (no capacity capture).
+#[test]
+fn module_port_psrc_capacity_root_budgets_parent_load() {
+    let psu = "module PSU()\n{\n    psrc vin{V33, GND}::DC(3.3V, capacity:500mA)\n}\n";
+    let main = format!(
+        "use ./psu.mc\n{FB}{SNK_AMP_HI}\nmodule main {{\n    conduit GND @role(main)\n    \
+         PSU psu\n    SNK_AMP_HI k\n    \
+         psu.vin -> [fb::FB(), _] -> [V33B, GND]\n    \
+         k.VDD -> V33B\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_project_codes("modport-cap", psu, &main);
+    let n_6021 = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::NET_BUDGET_EXCEEDED)
+        .count();
+    assert_eq!(
+        n_6021, 1,
+        "a 600mA parent load behind a 500mA module-power port must fire 6021 once at the port root; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 module-port root, within capacity: the same board with a 300mA sink
+/// stays under the 500mA port capacity → silent (the port root is read as the
+/// governing budget, not ignored).
+#[test]
+fn module_port_psrc_within_capacity_is_silent() {
+    let psu = "module PSU()\n{\n    psrc vin{V33, GND}::DC(3.3V, capacity:500mA)\n}\n";
+    let main = format!(
+        "use ./psu.mc\n{FB}{SNK_AMP3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         PSU psu\n    SNK_AMP3 k\n    \
+         psu.vin -> [fb::FB(), _] -> [V33B, GND]\n    \
+         k.VDD -> V33B\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_project_codes("modport-within", psu, &main);
+    assert!(
+        !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
+        "a 300mA parent load inside a 500mA module-power port stays silent — no 6021; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 module power-output port, no capacity → source boundary: the SAME 600mA
+/// parent load behind a capacity-less `psrc vin{…}::DC(3.3V)` export has no
+/// budget oracle → silent. PWR-4 does not fabricate a capacity for a port
+/// (mirrors the golden VBUS_RAW seam).
+#[test]
+fn module_port_psrc_nocap_is_source_boundary_silent() {
+    let psu = "module PSU()\n{\n    psrc vin{V33, GND}::DC(3.3V)\n}\n";
+    let main = format!(
+        "use ./psu.mc\n{FB}{SNK_AMP_HI}\nmodule main {{\n    conduit GND @role(main)\n    \
+         PSU psu\n    SNK_AMP_HI k\n    \
+         psu.vin -> [fb::FB(), _] -> [V33B, GND]\n    \
+         k.VDD -> V33B\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_project_codes("modport-nocap", psu, &main);
+    assert!(
+        !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
+        "a 600mA load behind a capacity-less module-power port has no budget oracle — no 6021; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 converter push-up over budget: a 300mA 5V root feeds a 5V→3.3V regulator
+/// whose 3.3V output net carries a 600mA amp sink. The converter's input is a
+/// derived load I_in = (3.3 × 0.6) / (5 × 1.0) = 396mA — over the 300mA root →
+/// one 6021 at the input net VIN. The output sink must NOT also fire its own
+/// bucket (VOUT is a source boundary, no self-root).
+#[test]
+fn converter_pushup_over_budget_fires_at_input_root() {
+    let src = format!(
+        "{SRC5_CAP3}{SNK_AMP_HI}{CONV_BUDGET}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VOUT\n    SRC5_CAP_300 s\n    CONV_BUDGET c\n    SNK_AMP_HI k\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    c.VOUT -> VOUT\n    c.GN2 -> GND\n    \
+         k.VDD -> VOUT\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n_6021 = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::NET_BUDGET_EXCEEDED)
+        .count();
+    assert_eq!(
+        n_6021, 1,
+        "396mA of push-up on a 300mA input root fires 6021 once at VIN (eff default 1.0); got codes: {codes:?}"
+    );
+}
+
+/// §8.5 converter within budget + the eff-default proof: the same 600mA output
+/// on a 400mA input root draws only 396mA with the default eff of 1.0 → silent.
+/// Had the missing `eff` defaulted anywhere else (or the converter's input row
+/// been counted as a declared load), this boundary would not hold.
+#[test]
+fn converter_within_budget_is_silent_and_eff_defaults_to_one() {
+    let src = format!(
+        "{SRC5_CAP4}{SNK_AMP_HI}{CONV_BUDGET}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VOUT\n    SRC5_CAP_400 s\n    CONV_BUDGET c\n    SNK_AMP_HI k\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    c.VOUT -> VOUT\n    c.GN2 -> GND\n    \
+         k.VDD -> VOUT\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
+        "396mA of push-up at eff 1.0 stays within a 400mA input root — silent; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 `eff` is read, not hard-coded: the same 400mA root + 600mA output with
+/// `eff:0.9` on the converter's Src row draws I_in = 3.3×0.6/(5×0.9) = 440mA —
+/// over the 400mA root → fires. Together with the eff-default lock this pins
+/// the denominator exactly (eff present vs absent moves the boundary).
+#[test]
+fn converter_eff_below_one_raises_input_draw_fires() {
+    let src = format!(
+        "{SRC5_CAP4}{SNK_AMP_HI}{CONV_BUDGET_EFF}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VOUT\n    SRC5_CAP_400 s\n    CONV_BUDGET_EFF c\n    SNK_AMP_HI k\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    c.VOUT -> VOUT\n    c.GN2 -> GND\n    \
+         k.VDD -> VOUT\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n_6021 = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::NET_BUDGET_EXCEEDED)
+        .count();
+    assert_eq!(
+        n_6021, 1,
+        "440mA of push-up at eff 0.9 on a 400mA input root fires 6021 once at VIN; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 OR-merge single-source mode, weakest leg: two 5V sources (1A and 200mA)
+/// feed the two input groups of an OR2 combine whose output rail carries a 500mA
+/// amp sink. Each leg is a distinct governing root that single-source mode makes
+/// cover the FULL 500mA merge demand → the 200mA leg fires once (net VB); the 1A
+/// leg stays silent.
+#[test]
+fn combine_single_source_fires_on_weakest_leg() {
+    let src = format!(
+        "{SRC5_CAP1A}{SRC5_CAP2}{SNK5_500}{OR2}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VA\n    io VB\n    io VMAIN\n    SRC5_CAP_1000 a\n    SRC5_CAP_200 b\n    \
+         OR2 o\n    SNK5_500 k\n    \
+         a.OUT -> VA\n    a.GND -> GND\n    b.OUT -> VB\n    b.GND -> GND\n    \
+         o.IN1 -> VA\n    o.G1 -> GND\n    o.IN2 -> VB\n    o.G2 -> GND\n    \
+         o.OUT -> VMAIN\n    o.G3 -> GND\n    \
+         k.VDD -> VMAIN\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n_6021 = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::NET_BUDGET_EXCEEDED)
+        .count();
+    assert_eq!(
+        n_6021, 1,
+        "the weakest combine leg (200mA < full 500mA merge demand) must fire once; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 OR-merge, every leg covers the full demand: both source roots (1A and
+/// 600mA) hold ≥ the 500mA merge demand → silent (no false positive from the
+/// merge output's own lack of capacity).
+#[test]
+fn combine_both_legs_cover_is_silent() {
+    let src = format!(
+        "{SRC5_CAP1A}{SRC5_CAP6}{SNK5_500}{OR2}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VA\n    io VB\n    io VMAIN\n    SRC5_CAP_1000 a\n    SRC5_CAP_600 b\n    \
+         OR2 o\n    SNK5_500 k\n    \
+         a.OUT -> VA\n    a.GND -> GND\n    b.OUT -> VB\n    b.GND -> GND\n    \
+         o.IN1 -> VA\n    o.G1 -> GND\n    o.IN2 -> VB\n    o.G2 -> GND\n    \
+         o.OUT -> VMAIN\n    o.G3 -> GND\n    \
+         k.VDD -> VMAIN\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
+        "both combine legs (1A, 600mA) cover the 500mA merge demand — no 6021; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 OR-merge shared-root dedupe: ONE 600mA source feeds BOTH combine input
+/// nets through two copper legs, so the legs resolve to a single governing root.
+/// Single-source mode must charge the 500mA merge demand ONCE on that root (≤
+/// 600mA → silent); a naive per-leg double count (1000mA > 600mA) would fire.
+#[test]
+fn combine_shared_root_dedupes_to_one_charge() {
+    let src = format!(
+        "{SRC5_CAP6}{SNK5_500}{OR2}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VS\n    io VA\n    io VB\n    io VMAIN\n    SRC5_CAP_600 s\n    \
+         OR2 o\n    SNK5_500 k\n    \
+         s.OUT -> VS\n    s.GND -> GND\n    \
+         VS - fa::FB() - VA\n    VS - fb::FB() - VB\n    \
+         o.IN1 -> VA\n    o.G1 -> GND\n    o.IN2 -> VB\n    o.G2 -> GND\n    \
+         o.OUT -> VMAIN\n    o.G3 -> GND\n    \
+         k.VDD -> VMAIN\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::NET_BUDGET_EXCEEDED),
+        "two legs sharing one 600mA root charge the 500mA merge demand once — silent; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 nested merges, two recursion hops: a top OR2 merge (1A + 500mA legs) on
+/// VMAIN passes through copper into a SECOND OR2 merge's first input net VX; the
+/// second merge's output carries the 600mA sink. region_demand(VMAIN) recurses
+/// into the second merge (its input hangs on the top merge's output copper), so
+/// the top legs must each independently cover the full 600mA → the 500mA top leg
+/// fires once (net VB). Discriminator: the recursion that carries a merge demand
+/// through a downstream merge back to an upstream weak leg.
+#[test]
+fn combine_nested_two_hops_fires_on_top_weak_leg() {
+    let src = format!(
+        "{SRC5_CAP1A}{SRC5_CAP5}{SNK5_600}{OR2}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VA\n    io VB\n    io VMAIN\n    io VX\n    io VD\n    io VFINAL\n    \
+         SRC5_CAP_1000 a\n    SRC5_CAP_500 b\n    SRC5_CAP_1000 d\n    \
+         OR2 c1\n    OR2 c2\n    SNK5_600 k\n    \
+         a.OUT -> VA\n    a.GND -> GND\n    b.OUT -> VB\n    b.GND -> GND\n    \
+         c1.IN1 -> VA\n    c1.G1 -> GND\n    c1.IN2 -> VB\n    c1.G2 -> GND\n    \
+         c1.OUT -> VMAIN\n    c1.G3 -> GND\n    \
+         VMAIN - fb::FB() - VX\n    \
+         c2.IN1 -> VX\n    c2.G1 -> GND\n    d.OUT -> VD\n    d.GND -> GND\n    \
+         c2.IN2 -> VD\n    c2.G2 -> GND\n    \
+         c2.OUT -> VFINAL\n    c2.G3 -> GND\n    \
+         k.VDD -> VFINAL\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n_6021 = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::NET_BUDGET_EXCEEDED)
+        .count();
+    assert_eq!(
+        n_6021, 1,
+        "600mA pushed through two merges fires the 500mA top leg once (2-hop recursion); got codes: {codes:?}"
+    );
+}
+
 /// §8.5 return-path completeness (6022, conduit-equivalence-design.md §8.5;
 /// first NetIslandIndex consumer, net-island-attribution §7 L2). Two quiet
 /// rail-return coppers (GNDA, GNDB) are each DC-bridged to the main GND (golden

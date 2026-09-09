@@ -312,6 +312,11 @@ impl McModule {
                         // words, so identity-bearing rows are re-captured here
                         // (design §13 groundwork; no rule consumes them yet).
                         self.pi.parse_port(&clause);
+                        // Power-output port rows (`psrc NAME{hot,ret}::DC(…)`)
+                        // carry a full ::DC contract the flatten layer records
+                        // only as a written pair — capture capacity/eff here for
+                        // the PWR-4 budget axis (§8.5 budget face).
+                        self.pi.parse_port_pwr(&clause);
                     }
 
                     MCAST_NET => {
