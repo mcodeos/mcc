@@ -1404,15 +1404,16 @@ fn declared_return_legs_stay_silent_on_6022() {
     );
 }
 
-/// §8.5 first-layer boundary (data-gap 2): exemption is per *declared net
-/// pair*, not per leg carrier. A second bare leg paralleling an already-declared
-/// pair (GNDA ↔ GND declared once, a duplicate return ferrite left bare) is
-/// exempt — its physical carrier cannot yet be matched to the @bridge
-/// statement (L1Edge holds endpoints+span, not the leg), so a deliberately
-/// parallel return path must carry its own declaration to be visible. Locking
-/// the accepted granularity so the deferral reads as intent, not as a miss.
+/// §8.5 v1.2 unified predicate — exemption is PER-LEG (data-gap 2 closed). A
+/// bare second leg paralleling an already-declared pair (GNDA ↔ GND declared
+/// once by `ba`, a duplicate return ferrite `rr` left bare on its OWN
+/// statement) is no longer covered by the pair: the physical carrier must carry
+/// its own declaration. Parallel reading — a @bridge elsewhere on the pair does
+/// not exempt this leg (the golden FB_agnd/FB_agnd2 pair stays silent because
+/// *each* carrier is declared on its own statement, see
+/// `two_declared_parallel_legs_on_one_pair_stay_silent_6022`).
 #[test]
-fn bare_parallel_leg_on_declared_pair_stays_exempt_6022() {
+fn bare_parallel_leg_on_declared_pair_fires_6022() {
     let src = format!(
         "{FB}\nmodule main {{\n    conduit GND  @role(main) @star\n    \
          conduit GNDA @role(quiet)\n    \
@@ -1421,9 +1422,33 @@ fn bare_parallel_leg_on_declared_pair_stays_exempt_6022() {
          GNDA - rr::FB() - GND\n}}\n"
     );
     let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::RETURN_LEG_UNDECLARED)
+        .count();
+    assert_eq!(
+        n, 1,
+        "the bare parallel leg on its own statement must fire 6022 (per-leg); got codes: {codes:?}"
+    );
+}
+
+/// Per-leg span discriminator control (golden FB_agnd/FB_agnd2 shape): two
+/// *declared* parallel legs on one pair, each carrier on its own `@bridge`
+/// statement, are each self-declared by their own clause span — 6022 is silent
+/// even though the net pair is shared.
+#[test]
+fn two_declared_parallel_legs_on_one_pair_stay_silent_6022() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main) @star\n    \
+         conduit GNDA @role(quiet)\n    \
+         domain AV {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         GNDA - p1::FB() - GND @bridge(GNDA, GND)\n    \
+         GNDA - p2::FB() - GND @bridge(GNDA, GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
     assert!(
         !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
-        "a bare leg on an already-declared net pair is exempt at L2 (data-gap 2); got codes: {codes:?}"
+        "each declared leg is covered by its own clause span → no 6022; got codes: {codes:?}"
     );
 }
 
@@ -1443,6 +1468,285 @@ fn decoupling_legs_across_hot_return_are_not_audited() {
     assert!(
         !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
         "hot↔return legs are decoupling, not undeclared return relations; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 v1.2 — the hot plane is judged too (data-gap 5). A bare two-terminal leg
+/// between the hot faces of two *different* declared rails (VDD_3V3 of DVDD,
+/// VDDA of AVDD) is a (1,0) cross-plane DC relation (conduit-equivalence §5: a
+/// supply ferrite and a return ferrite are the same bridge, just drawn on the
+/// other side of the identity graph) whose classes share no rail world — it
+/// must carry its own `@bridge`.
+#[test]
+fn undeclared_hotplane_supply_bead_fires_6022() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main) @star\n    \
+         conduit GNDA @role(quiet)\n    \
+         domain DV {{ rail [VDD_3V3, GND]::DC(3V3) }}\n    \
+         domain AV {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         VDD_3V3 - h::FB() - VDDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::RETURN_LEG_UNDECLARED)
+        .count();
+    assert_eq!(
+        n, 1,
+        "a bare hot↔hot supply leg across two rail faces must fire 6022; got codes: {codes:?}"
+    );
+}
+
+/// Declared control for the hot-plane shape — the same bead carrying its own
+/// `@bridge(VDD_3V3, VDDA)` is self-declared (its own clause span) and silent.
+#[test]
+fn declared_hotplane_supply_bead_stays_silent_6022() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main) @star\n    \
+         conduit GNDA @role(quiet)\n    \
+         domain DV {{ rail [VDD_3V3, GND]::DC(3V3) }}\n    \
+         domain AV {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         VDD_3V3 - h::FB() - VDDA @bridge(VDD_3V3, VDDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
+        "the declared supply bead is covered by its own clause → no 6022; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 v1.2 identity arm ② — a rail ret *member net name* is a class even when
+/// no same-name conduit exists (attribution keeps role Ret, copper None). A bare
+/// leg from such a member (RTN, DVDD's declared return face) to a different
+/// rail's return (GNDA of AVDD) is cross-plane and fires; the declared
+/// GNDA↔GND leg is silent.
+#[test]
+fn ret_member_without_conduit_still_judged_6022() {
+    let src = format!(
+        "{FB}\nmodule main {{\n    conduit GND  @role(main) @star\n    \
+         conduit GNDA @role(quiet)\n    \
+         domain DV {{ rail [VDD_3V3, RTN]::DC(3V3) }}\n    \
+         domain AV {{ rail [VDDA, GNDA]::DC(3V3) }}\n    \
+         GNDA - g::FB() - GND @bridge(GNDA, GND)\n    \
+         GNDA - q::FB() - RTN\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::RETURN_LEG_UNDECLARED)
+        .count();
+    assert_eq!(
+        n, 1,
+        "a bare leg off a rail-ret member with no conduit must fire 6022; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 v1.2 identity arm ③ — the A′ boundary read (golden C_y shape). A
+/// two-terminal leg inside a child module between a local conduit copper
+/// (ESDGND) and the child's own out-port member (P) — where P's net is Signal
+/// in the child scope but co-resides across the module-boundary junction with
+/// the parent's `EARTH` conduit — resolves P to the parent class through the
+/// junction and fires: the child "forgot" the declaration even though it only
+/// ever sees its own net names (the far copper identity comes from the parent
+/// binding, exactly conduit-equivalence §8.5's boundary model).
+#[test]
+fn boundary_out_member_reaching_parent_copper_fires_6022() {
+    let src = format!(
+        "{FB}\nmodule CHILD() {{\n    conduit ESDGND\n    out P\n    \
+         ESDGND - cy::FB() - P\n}}\nmodule main {{\n    \
+         conduit EARTH @role(earth)\n    CHILD u\n    u.P -> EARTH\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::RETURN_LEG_UNDECLARED)
+        .count();
+    assert_eq!(
+        n, 1,
+        "a bare leg inside a child between a local copper and a parent-bound out member must fire 6022; got codes: {codes:?}"
+    );
+}
+
+/// Declared control for the boundary shape — the child leg carries its own
+/// `@couple(ESDGND, P)` (endpoint names are the child-scope net names; the far
+/// EARTH identity rides the port, not the clause) → self-declared and silent.
+/// This is exactly the golden fix in `mcs/pwrint/src/power-usb.mc` (C_y).
+#[test]
+fn boundary_out_member_leg_with_own_couple_stays_silent_6022() {
+    let src = format!(
+        "{FB}\nmodule CHILD() {{\n    conduit ESDGND\n    out P\n    \
+         ESDGND - cy::FB() - P @couple(ESDGND, P)\n}}\nmodule main {{\n    \
+         conduit EARTH @role(earth)\n    CHILD u\n    u.P -> EARTH\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
+        "the child leg with its own @couple is covered → no 6022; got codes: {codes:?}"
+    );
+}
+
+/// §8.5 v1.2 identity arm ③ multi-hop — the A′ boundary walk crosses two
+/// module boundaries (GRAND → CHILD → main) before it reaches the anchoring
+/// copper. A bare leg inside GRAND between its local conduit H and its own out
+/// member (whose net is Signal at every interior scope and only becomes the
+/// parent `EARTH` copper two junctions out) still fires; the recursion is
+/// depth-generic, not one-hop.
+#[test]
+fn boundary_deep_multihop_leg_fires_6022() {
+    let src = format!(
+        "{FB}\nmodule GRAND() {{\n    conduit H\n    out P2\n    \
+         H - cy::FB() - P2\n}}\nmodule CHILD() {{\n    GRAND g\n    out P\n    \
+         g.P2 -> P\n}}\nmodule main {{\n    \
+         conduit EARTH @role(earth)\n    CHILD u\n    u.P -> EARTH\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::RETURN_LEG_UNDECLARED)
+        .count();
+    assert_eq!(
+        n, 1,
+        "a bare leg reaching the anchor copper across two module boundaries must fire 6022; got codes: {codes:?}"
+    );
+}
+
+// ============================================================================
+// §8.6 device reference-pin cross-plane (6027, conduit-equivalence-design.md
+// §8.6) — the ≥3-pin functional sibling of 6022. A device whose DC-pair
+// *return* pins resolve to two disjoint potential classes silently DC-joins
+// them through the die/substrate unless ① a net-level @bridge/@couple covers
+// the class pair (uc/GND↔GNDA) or ② a declared isolation structure does — one
+// return class is an @role(isolated) copper carried by a source-side contract
+// AND another return class is sink-side (iso5/DC.ISO_SRC; both conditions).
+// ============================================================================
+
+/// A two-sink digital+analog device (uc-like): two `psnk` rows, two *distinct*
+/// return members G1/G2. Whether 6027 fires depends entirely on the board — on
+/// which two coppers the returns land and whether a declaration covers the span.
+const DEV2R: &str = "component DEV2R {\n    pins = [\n        psnk [1,2] = [VDD, G1]::DC(3.3V)\n        psnk [3,4] = [AVDD, G2]::DC(3.3V)\n    ]\n}\n";
+
+/// An isolated power source (iso5-like): one sink row on the primary side, one
+/// source row whose return is the isolated side's reference.
+const ISODC: &str = "component ISODC {\n    pins = [\n        psnk [1,2] = [PRI, G]::DC(5V)\n        psrc [3,4] = [SEC, GI]::DC(5V)\n    ]\n}\n";
+
+/// A sink-only device whose *both* returns are sink-fed — one on an isolated
+/// copper, one on a main/quiet copper (a load straddling an isolation boundary).
+const ISOAMP: &str = "component ISOAMP {\n    pins = [\n        psnk [1,2] = [VDD, GI]::DC(3.3V)\n        psnk [3,4] = [AVDD, G]::DC(3.3V)\n    ]\n}\n";
+
+/// §8.6 fire — the real defect: a uc-like digital+analog part (both returns
+/// sink-side) whose AGND/GND return pins land on two disjoint quiet coppers with
+/// no net-level bridge. The die silently bridges the analog and digital ground
+/// planes — the exact AGND/PGND straddle 6027 exists to catch.
+#[test]
+fn device_sink_returns_across_two_quiet_planes_fire_6027() {
+    let src = format!(
+        "{DEV2R}\nmodule main {{\n    conduit GNDA @role(quiet)\n    \
+         conduit GNDB @role(quiet)\n    \
+         domain AD {{ rail [VA, GNDA]::DC(3.3V) }}\n    \
+         domain BD {{ rail [VB, GNDB]::DC(3.3V) }}\n    \
+         DEV2R s\n    s.VDD -> VA\n    s.G1 -> GNDA\n    \
+         s.AVDD -> VB\n    s.G2 -> GNDB\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::DEVICE_RETURN_SPAN_UNDECLARED)
+        .count();
+    assert_eq!(
+        n, 1,
+        "two sink-side returns on two disjoint unbridged quiet planes must fire 6027; got codes: {codes:?}"
+    );
+}
+
+/// §8.6 exemption ① — the uc/GND↔GNDA control: the *same* straddle is covered
+/// by a net-level `@bridge(GNDA, GNDB)`, so the device's return span is declared
+/// at the net layer and 6027 (and 6022 on the declared ferrite leg) are silent.
+#[test]
+fn device_sink_return_span_covered_by_net_bridge_stays_silent_6027() {
+    let src = format!(
+        "{DEV2R}{FB}\nmodule main {{\n    conduit GNDA @role(quiet)\n    \
+         conduit GNDB @role(quiet)\n    \
+         domain AD {{ rail [VA, GNDA]::DC(3.3V) }}\n    \
+         domain BD {{ rail [VB, GNDB]::DC(3.3V) }}\n    \
+         DEV2R s\n    s.VDD -> VA\n    s.G1 -> GNDA\n    \
+         s.AVDD -> VB\n    s.G2 -> GNDB\n    \
+         GNDA - fb::FB() - GNDB @bridge(GNDA, GNDB)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::DEVICE_RETURN_SPAN_UNDECLARED),
+        "a net-level @bridge on the class pair exempts the device return span; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
+        "the declared ferrite leg itself stays covered on 6022; got codes: {codes:?}"
+    );
+}
+
+/// Control (not a misfire): the *normal* multi-supply shape — two supply rails
+/// that genuinely share one return net (G1/G2 both land on main GND). A single
+/// return class spans nothing, so a multi-row part is not a candidate.
+#[test]
+fn multi_supply_single_return_stays_silent_6027() {
+    let src = format!(
+        "{DEV2R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain AD {{ rail [VA, GND]::DC(3.3V) }}\n    \
+         domain BD {{ rail [VB, GND]::DC(3.3V) }}\n    \
+         DEV2R s\n    s.VDD -> VA\n    s.G1 -> GND\n    \
+         s.AVDD -> VB\n    s.G2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::DEVICE_RETURN_SPAN_UNDECLARED),
+        "two supply rails sharing one return net span nothing → no 6027; got codes: {codes:?}"
+    );
+}
+
+/// §8.6 exemption ② — the iso5/DC.ISO_SRC control: the primary return is
+/// sink-side on main GND, the secondary return is source-side (`psrc`) on the
+/// `@role(isolated)` copper. The device is the isolator that defines the
+/// isolated world (both conditions), so the return span is the isolation — 6027
+/// stays silent exactly as golden iso5 must.
+#[test]
+fn isolated_source_return_span_stays_silent_6027() {
+    let src = format!(
+        "{ISODC}\nmodule main {{\n    conduit GND  @role(main)\n    \
+         conduit GISO @role(isolated)\n    \
+         domain DV {{ rail [VMAIN, GND]::DC(5V) }}\n    \
+         domain ISO {{ rail [VSEC, GISO]::DC(5V) }}\n    \
+         ISODC d\n    d.PRI -> VMAIN\n    d.G -> GND\n    \
+         d.SEC -> VSEC\n    d.GI -> GISO\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::DEVICE_RETURN_SPAN_UNDECLARED),
+        "isolated source-side return + sink-side primary return is the declared isolation → no 6027; got codes: {codes:?}"
+    );
+}
+
+/// §8.6 "both conditions" — isolation ALONE is not enough. A sink-only device
+/// (both `psnk`) returning on an `@role(isolated)` copper AND on a main/quiet
+/// copper is the hidden DC bridge into the isolated world the role forbids: its
+/// isolated return is sink-fed, not source-fed, so no isolation structure covers
+/// the span → 6027 fires.
+#[test]
+fn sink_only_isolated_return_straddle_fires_6027() {
+    let src = format!(
+        "{ISOAMP}\nmodule main {{\n    conduit GNDA @role(quiet)\n    \
+         conduit GISO @role(isolated)\n    \
+         domain AD {{ rail [VA, GNDA]::DC(3.3V) }}\n    \
+         domain ISO {{ rail [VIS, GISO]::DC(3.3V) }}\n    \
+         ISOAMP a\n    a.VDD -> VIS\n    a.GI -> GISO\n    \
+         a.AVDD -> VA\n    a.G -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::DEVICE_RETURN_SPAN_UNDECLARED)
+        .count();
+    assert_eq!(
+        n, 1,
+        "an isolated copper alone does not exempt a sink-only span (both conditions required) → 6027 ×1; got codes: {codes:?}"
     );
 }
 
