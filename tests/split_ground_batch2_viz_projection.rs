@@ -6,9 +6,11 @@
 //! declared-identity ground retirement (classification-retirement-design §5 +
 //! split-ground-copper-design v0.2 §7.1) on the hbl fixture.
 //!
-//! The flat layer (`split_ground_nets` legacy partition) and the drawing-axis
-//! glyph contract are NOT covered here (out of batch scope). What is locked is
-//! the projection's ground classification + rule-c boundary semantics:
+//! The flat-layer `split_ground_nets` per-statement partition is RETIRED as of
+//! the terminal batch (v0.2 §6 — it no longer exists in builder.rs), and the
+//! per-(copper×statement) drawing-axis glyph re-anchor is deferred to a later
+//! viz batch. What is locked here is the projection's ground classification +
+//! rule-c boundary semantics:
 //!
 //! ① Declared ground nets merge / classify as Ground through `detect_net_attr`
 //!    (Ret/Reference), never by the net name — the `main` ground conductor
