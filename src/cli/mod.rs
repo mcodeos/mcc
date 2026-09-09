@@ -443,6 +443,17 @@ pub struct ShowArgs {
     #[arg(long)]
     pub ids: bool,
 
+    /// `show pwrflow`: widen the rail-contract table to full detail
+    /// (nominal + tol/capacity/eff/gen) instead of the compact default
+    /// (`domain [hot/ret] voltage world`).
+    #[arg(long)]
+    pub full: bool,
+
+    /// `show pwrflow`: unfold decoupler annotations (`(×n decaps)` → one row
+    /// per decoupling two-pad element) instead of the default folded count.
+    #[arg(long)]
+    pub decaps: bool,
+
     /// Definition layers to show: file (default) | use | system | all.
     /// `file` anchors on the -F target; without a file every loaded layer is
     /// shown. `show defs` defaults to every loaded layer (all) instead.
@@ -500,6 +511,17 @@ pub enum ShowTarget {
     // cross-module unions (shared GND / a rail fan-out). Companion of
     // `show dianlu` (structure) — see also `show erc` for the rule findings.
     Pwr,
+    // Top-level power-flow single view (Pass2, uses --top): the *generative*
+    // twin of `show pwr` — one screen of "how this board's power flows":
+    // world crowns (return copper × conduit role), the rail contract table,
+    // and the supply tree (source / merge / trunk / converter / domain rail /
+    // load), with world crosses (an edge whose producer return copper differs
+    // from its own) marked where a supply edge crosses return copper. Derived
+    // from one flat build + NetIslandIndex (cross-module
+    // pass-through propagation — the view-only first consumer of the deferred
+    // S-set step); facts stay in `show pwr`, this reports the generated flow.
+    // `--full` widens the rail contract columns, `--decaps` unfolds decouplers.
+    Pwrflow,
     // Dump LSP lapper intervals for a file (semantic tokens + symbols)
     Lapper,
     // Print AST tree for a file

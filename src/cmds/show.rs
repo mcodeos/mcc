@@ -17,6 +17,9 @@
 //!   * debug    : `dump` / `lapper` / `ast`
 //!   * power    : `pwr` (recursive power-intent tree: planes / DC faces /
 //!                rail-member nets + component power contracts)
+//!              : `pwrflow` (top-level power-flow single view derived from one
+//!                flat build: world crowns / rail contract table / supply tree;
+//!                `--full` widens the rail contract, `--decaps` unfolds decaps)
 //!
 //! Top-level name lists live in `mcc list` (see cmds/list.rs).
 
@@ -93,7 +96,7 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
             }
             Some(("show.net", json!({ "name": args.name })))
         }
-        ShowTarget::Dianlu | ShowTarget::Pwr => {
+        ShowTarget::Dianlu | ShowTarget::Pwr | ShowTarget::Pwrflow => {
             // local-only: walks the Pass2 McModuleInst tree / flat InstTable
             // (sections render from live object data, no RPC method exists)
             return None;
@@ -168,6 +171,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         },
         ShowTarget::Dianlu => show_dianlu(args),
         ShowTarget::Pwr => show_pwr(args),
+        ShowTarget::Pwrflow => show_pwrflow(args),
 
         // ── drill-down ─────────────────────────────────────────────────────
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -240,9 +244,11 @@ fn target_path(args: &ShowArgs) -> Option<&str> {
         return args.file.as_deref();
     }
     match args.target {
-        ShowTarget::All | ShowTarget::Defs | ShowTarget::Dianlu | ShowTarget::Pwr => {
-            args.name.as_deref()
-        }
+        ShowTarget::All
+        | ShowTarget::Defs
+        | ShowTarget::Dianlu
+        | ShowTarget::Pwr
+        | ShowTarget::Pwrflow => args.name.as_deref(),
         _ => None,
     }
 }
@@ -1143,7 +1149,340 @@ fn show_pwr(args: &ShowArgs) -> Result<()> {
     output(&data, args.span)
 }
 
-/// One net the module's own rail endpoints aggregate onto.
+// ============================================================================
+// `show pwrflow` — derived power-flow single view
+// ============================================================================
+
+/// Render `mcc show pwrflow`: the compiler-generated top-level power-flow
+/// single view (`semantic/validation/pwrflow.rs`; design
+/// `mcd/doc/power-signal/power-flow-single-view-design.md`). Text mode emits
+/// the three projected sections — §1 world crowns, §2 rail contract table,
+/// §3 supply tree — with `--full` widening rail contract columns and `--decaps`
+/// unfolding folded decoupler annotations; JSON mode emits the whole typed view
+/// under `{"type":"pwrflow","format":"power-flow/v1",…}` for tooling.
+fn show_pwrflow(args: &ShowArgs) -> Result<()> {
+    // Top-module resolution mirrors `show_pwr` (file/dir positional with `-F`
+    // override; `--top` selects the module within the loaded set).
+    let (entry_uri, top) = if let Some(f) = target_path(args) {
+        let p = Path::new(f);
+        if p.is_dir() {
+            crate::cmds::common::load_target(
+                Some(f),
+                mcc::cli::globals().top.as_deref(),
+                mcc::cli::globals().entry.as_deref(),
+            )
+            .unwrap_or_else(|e| {
+                error!(target: "mcc::show", "directory target: {:#}", e);
+                std::process::exit(1);
+            })
+        } else {
+            let path = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(p)
+            };
+            (path.to_string_lossy().to_string(), None)
+        }
+    } else {
+        (String::new(), None)
+    };
+    let top = crate::cmds::common::resolve_top_module(&entry_uri, top).unwrap_or_else(|| {
+        error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
+        std::process::exit(1);
+    });
+    let uri = mcc::mcb_iter_modules()
+        .iter()
+        .find(|(n, _)| *n == top)
+        .map(|(_, u)| mcc::McURI::from(u.as_str()))
+        .unwrap_or_else(|| mcc::McURI::from(top.clone()));
+
+    let (tree, table, arena, store) =
+        mcc::mcc_build_flat_with_arena(&mcc::McIds::from(top.clone()), &uri, 1000).unwrap_or_else(
+            |e| {
+                error!(target: "mcc::show", "{e}");
+                std::process::exit(1);
+            },
+        );
+    // Only the flat table feeds the derived view; the modeling tree/arena are
+    // kept alive for the build's lifetime but not rendered here.
+    let _ = (&tree, &arena, &store);
+
+    let flow = mcc::build_pwrflow(&table, &top).unwrap_or_else(|e| {
+        error!(target: "mcc::show", "pwrflow: {e}");
+        std::process::exit(1);
+    });
+
+    if matches!(mcc::cli::globals().format, OutputFormat::Text) {
+        let mut lines = Vec::new();
+        render_pwrflow_sections(&flow, args, &mut lines);
+        let rendered = lines.join("\n");
+        if let Some(path) = &mcc::cli::globals().output {
+            std::fs::write(path, rendered)?;
+        } else {
+            println!("{rendered}");
+        }
+        return Ok(());
+    }
+
+    let data = pwrflow_json(&flow);
+    output(&data, args.span)
+}
+
+/// §5 three-section text projection. Section order and column meaning follow
+/// the design doc's target output; every line is derived, none hand-written.
+fn render_pwrflow_sections(flow: &mcc::PwrFlow, args: &ShowArgs, lines: &mut Vec<String>) {
+    lines.push(format!("===== Power Flow: {} =====", flow.top));
+    lines.push(String::new());
+
+    // ── [1] world crowns ───────────────────────────────────────────────────
+    lines.push("── [1] World crowns (role → return copper; EARTH carries no DC) ──".to_string());
+    for c in &flow.crown {
+        let star = if c.star { "*" } else { "" };
+        lines.push(format!(
+            "  {:<10} {}{:<14} {}",
+            c.world,
+            c.copper,
+            star,
+            crown_hint(c)
+        ));
+    }
+    lines.push(String::new());
+
+    // ── [2] rail contract table ───────────────────────────────────────────
+    lines.push("── [2] Rail contracts ──────────────────────────────────".to_string());
+    if args.full {
+        lines.push(format!(
+            "  {:<8} {:<20} {:<20} {:<18} {:<10} loads",
+            "rail", "hot/ret", "gen", "contract", "world"
+        ));
+        for r in &flow.rails {
+            lines.push(format!(
+                "  {:<8} {:<20} {:<20} {:<18} {:<10} {}",
+                r.domain,
+                format!("{} / {}", r.hot, r.ret),
+                r.gen,
+                rail_contract_text(r, args.full),
+                r.world,
+                rail_suffix(r, args)
+            ));
+        }
+    } else {
+        lines.push(format!(
+            "  {:<8} {:<20} {:<20} {:<12} {:<10} {}",
+            "rail", "hot/ret", "gen", "contract", "world", "note"
+        ));
+        for r in &flow.rails {
+            lines.push(format!(
+                "  {:<8} {:<20} {:<20} {:<12} {:<10} {}",
+                r.domain,
+                format!("{} / {}", r.hot, r.ret),
+                r.gen,
+                rail_contract_text(r, false),
+                r.world,
+                rail_suffix(r, args)
+            ));
+        }
+    }
+    lines.push(String::new());
+
+    // ── [3] supply tree ───────────────────────────────────────────────────
+    lines.push("── [3] Supply tree (fan-out indent; cross-world = return change) ──".to_string());
+    if flow.roots.is_empty() {
+        lines.push("  (no supply roots derived)".to_string());
+    }
+    for (i, root) in flow.roots.iter().enumerate() {
+        if i > 0 {
+            lines.push(String::new());
+        }
+        render_flow_node(root, "", true, lines);
+    }
+    lines.push(String::new());
+}
+
+/// Rail `contract` column: `DC {v_text}` plus `±tol` / capacity / eff when
+/// `--full` (design §4 trim ruling: default trimmed, detail back to `show pwr`).
+fn rail_contract_text(r: &mcc::RailRow, full: bool) -> String {
+    let mut s = format!("DC {}", r.v_text);
+    if full {
+        if let Some(t) = r.tol {
+            s.push_str(&format!(" ±{t}%"));
+        }
+        if let Some(c) = r.capacity_amps {
+            s.push_str(&format!(" {c}A"));
+        }
+        if let Some(e) = r.eff {
+            s.push_str(&format!(" eff {e}"));
+        }
+    }
+    s
+}
+
+/// Trailing annotation of a rail row: world cross + loads + decaps.
+fn rail_suffix(r: &mcc::RailRow, args: &ShowArgs) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if r.cross_world {
+        parts.push("cross-world".to_string());
+    }
+    if args.decaps && !r.decaps.is_empty() {
+        parts.push(format!("(decaps: {})", r.decaps.join(", ")));
+    } else if !r.decaps.is_empty() {
+        parts.push(format!("(×{} decaps)", r.decaps.len()));
+    }
+    if args.full && !r.loads.is_empty() {
+        parts.push(format!("loads: {}", r.loads.join(", ")));
+    }
+    parts.join(" ")
+}
+
+/// One-line hint for a crown row (what this return copper carries).
+fn crown_hint(c: &mcc::CrownRow) -> &'static str {
+    match c.world.as_str() {
+        "quiet" => "analog sub-plane",
+        "isolated" => "isolated secondary",
+        "earth" => "chassis",
+        "protective" => "protective",
+        _ => {
+            if c.rail_return {
+                "digital main reference"
+            } else {
+                ""
+            }
+        }
+    }
+}
+
+/// Recursive fan-out text for one tree node (`│  ` / `├─ ` / `└─ ` scaffold).
+fn render_flow_node(node: &mcc::FlowNode, prefix: &str, last: bool, lines: &mut Vec<String>) {
+    let arm = if last { "└─ " } else { "├─ " };
+    let mut label = node.label.clone();
+    let mut tags: Vec<String> = Vec::new();
+    if let Some(v) = &node.via {
+        label = format!("{v} ─→ {label}");
+    }
+    if let Some(w) = &node.world {
+        tags.push(format!("world {w}"));
+    }
+    if node.cross_world {
+        tags.push("cross-world".to_string());
+    }
+    if !node.note.is_empty() {
+        tags.push(node.note.clone());
+    }
+    if !tags.is_empty() {
+        label = format!("{label}  ({})", tags.join(", "));
+    }
+    lines.push(format!("{prefix}{arm}{label}"));
+
+    let child_prefix = format!("{prefix}{}", if last { "   " } else { "│  " });
+    let n = node.children.len();
+    for (i, child) in node.children.iter().enumerate() {
+        render_flow_node(child, &child_prefix, i + 1 == n, lines);
+    }
+}
+
+/// §5 JSON projection: the same typed view under `power-flow/v1`, with the
+/// §3 forest emitted as nested nodes (each with class/return-world/via + the
+/// rail/bus/load kind tags the tooling needs).
+fn pwrflow_json(flow: &mcc::PwrFlow) -> Value {
+    json!({
+        "type": "pwrflow",
+        "format": "power-flow/v1",
+        "top": flow.top,
+        "crown": flow
+            .crown
+            .iter()
+            .map(|c| json!({
+                "copper": c.copper,
+                "world": c.world,
+                "star": c.star,
+                "rail_return": c.rail_return,
+            }))
+            .collect::<Vec<_>>(),
+        "rails": flow
+            .rails
+            .iter()
+            .map(|r| json!({
+                "domain": r.domain,
+                "hot": r.hot,
+                "ret": r.ret,
+                "world": r.world,
+                "v_text": r.v_text,
+                "v": r.v,
+                "tol": r.tol,
+                "capacity_amps": r.capacity_amps,
+                "eff": r.eff,
+                "gen": r.gen,
+                "cross_world": r.cross_world,
+                "loads": r.loads,
+                "decaps": r.decaps,
+            }))
+            .collect::<Vec<_>>(),
+        // §5: the tree serializes flat — `nodes` carry class/identity/world,
+        // `edges` (parent→child) carry the transition `via` and `cross_world`.
+        "tree": flow_tree_json(&flow.roots, &flow.rails),
+    })
+}
+
+/// §5 flat projection of the §3 forest: DFS-indexed `nodes` + `edges`. A rail
+/// node additionally carries its declared contract (`domain`, nominal, budget)
+/// joined from the rail rows by hot-net name.
+fn flow_tree_json(roots: &[mcc::FlowNode], rails: &[mcc::RailRow]) -> Value {
+    let mut nodes: Vec<Value> = Vec::new();
+    let mut edges: Vec<Value> = Vec::new();
+    let mut index = 0usize;
+
+    fn walk(
+        node: &mcc::FlowNode,
+        parent: Option<usize>,
+        rails: &[mcc::RailRow],
+        nodes: &mut Vec<Value>,
+        edges: &mut Vec<Value>,
+        index: &mut usize,
+    ) {
+        let my = *index;
+        *index += 1;
+        let mut v = json!({
+            "index": my,
+            "class": node.class,
+            "id": node.id,
+            "label": node.label,
+            "world": node.world,
+            "note": node.note,
+        });
+        if node.class == "rail" {
+            if let Some(r) = rails.iter().find(|r| r.hot == node.id) {
+                v["contract"] = json!({
+                    "domain": r.domain,
+                    "v_text": r.v_text,
+                    "v": r.v,
+                    "tol": r.tol,
+                    "capacity_amps": r.capacity_amps,
+                    "eff": r.eff,
+                });
+            }
+        }
+        nodes.push(v);
+        if let Some(p) = parent {
+            edges.push(json!({
+                "from": p,
+                "to": my,
+                "via": node.via,
+                "cross_world": node.cross_world,
+            }));
+        }
+        for child in &node.children {
+            walk(child, Some(my), rails, nodes, edges, index);
+        }
+    }
+
+    for root in roots {
+        walk(root, None, rails, &mut nodes, &mut edges, &mut index);
+    }
+    json!({ "nodes": nodes, "edges": edges })
+}
+
 struct PwrNetAgg {
     name: String,
     members: Vec<Value>, // {member: rel path, role}
