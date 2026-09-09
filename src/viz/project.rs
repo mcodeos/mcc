@@ -227,8 +227,9 @@ fn project_nets(
     // Rail member grounds (`va.GND` / `vb.GND`) never merge by name (strict DC rail
     // identity); only (2) / (3) may merge them, through a real wiring tie.
     //
-    // ★ split-ground batch2 (classification-retirement-design §5): only nets that
-    // resolve to a DECLARED return/ref copper participate in ground merging —
+    // ★ declared-return ground projection (classification-retirement-design §5):
+    // only nets that resolve to a DECLARED return/ref copper participate in
+    // ground merging —
     // resolvable Ground-side identity, same resolver as the per-output-net
     // `detect_net_attr`, so the merge gate and the carried attr agree by
     // construction. Undeclared power-named nets (LDO `vin.GND`, legacy bare GND)

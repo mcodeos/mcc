@@ -81,8 +81,8 @@ fn rail_hot_and_return_nets_anchor_to_declared_supply_faces() {
     // copper no rail returns to is a worldless Reference.
     //
     // (The flat layer no longer re-partitions bare ground labels into
-    // per-line `@N` fragments — split-ground terminal state — so bare and
-    // rail-member grounds alike reach the index as intact nets; the
+    // per-line `@N` fragments, so bare and rail-member grounds alike reach
+    // the index as intact nets; the
     // quiet/protective names below are the real-board hand-check in the
     // mcd/log.)
     let src = format!(

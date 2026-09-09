@@ -2275,8 +2275,8 @@ pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResu
 /// L2 adjudicates the identity-stable region only: both leg nets must resolve
 /// against their owning scope's declarations (role `Ret`/`Reference`, distinct
 /// coppers). Decoupling legs (hot↔return), same-copper shunts, and any leg
-/// touching an unresolvable net (split-ground fragment, dotted pass-through,
-/// derived supply face) are not judged. Exemption is at the *declared
+/// touching an unresolvable net (dotted pass-through, derived supply face) are
+/// not judged. Exemption is at the *declared
 /// net-pair* granularity — one `@bridge`/`@couple` between the two coppers
 /// exempts every leg on that pair, so a second deliberately-paralleled return
 /// leg is 6007's declared-loop / §8.5 data-gap-2 boundary, not this rule's
