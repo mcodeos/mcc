@@ -480,6 +480,38 @@ pub(crate) fn pwr_row_counts(def: &McComponent) -> (usize, usize) {
     (n_snk, n_src)
 }
 
+/// Budget-derive class of a power-bearing component def (rail-contract-design.md
+/// §8.5 — which of its written DC rows are *declared* loads and which belong to
+/// a device whose demand is *derived* from its output-region load). The shape
+/// axis mirrors [`WindowDeriv::resolve_driver`] (§6.1/§6.2), counted from the
+/// written rows + the `spec` block — never from names:
+/// * `spec.output` present + ≥1 Snk input row + ≥1 Src row → **Regulator**: the
+///   input draw is a push-up of the output-region demand, so the input rows are
+///   never declared `amp` sinks of their own.
+/// * no `spec.output` + ≥2 Snk input legs + ≥1 Src row → **Combine** (OR-merge):
+///   each leg's governing budget root must independently cover the full
+///   merge-output-region demand (single-source mode, §6.3).
+/// * anything else → **Load** (a plain declared sink / leaf source / pass row):
+///   the rows stay exactly as written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SupplyClass {
+    Regulator,
+    Combine,
+    Load,
+}
+
+pub(crate) fn classify_supply_def(def: &McComponent) -> SupplyClass {
+    let spec = decode_component_spec(def);
+    let (n_snk, n_src) = pwr_row_counts(def);
+    if spec.output.is_some() && n_snk >= 1 && n_src >= 1 {
+        return SupplyClass::Regulator;
+    }
+    if spec.output.is_none() && n_snk >= 2 && n_src >= 1 {
+        return SupplyClass::Combine;
+    }
+    SupplyClass::Load
+}
+
 /// Render a window for diagnostics: a point writes one value, an interval the
 /// `lo~hi` pair (composed fresh — never re-parsed).
 pub(crate) fn window_text(w: PwrWindow) -> String {

@@ -24,6 +24,8 @@
 //! The demand of each net is then accumulated onto its resolved root's bucket
 //! and 6021 fires once per over-capacity root at the first contributing sink.
 
+use super::budget_derive::BudgetLoadScan;
+use super::window::{classify_supply_def, SupplyClass};
 use super::NetCheckResult;
 use crate::instant::insttab::{InstKind, InstTable, NetEntry};
 use crate::semantic::common::IOType;
@@ -32,7 +34,7 @@ use std::collections::{HashMap, HashSet};
 
 /// Budget-root outcome for one flat net.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum BudgetRoot {
+pub(super) enum BudgetRoot {
     /// The net itself carries one agreed capacity — its own root. `cap` is the
     /// governing budget; downstream rootless nets may be attributed to it, but
     /// it is never ascended past toward an upstream source.
@@ -48,16 +50,18 @@ enum BudgetRoot {
 
 /// Recursive root-of-net engine (module-level note). One engine per flat run,
 /// memoized and cycle-guarded like the window.rs `WindowDeriv` engine — the
-/// shared `PowerScan` face maps stay in the parent module.
-struct BudgetScan<'a> {
-    table: &'a InstTable,
-    scan: super::PowerScan,
+/// shared `PowerScan` face maps stay in the parent module. `pub(super)` so the
+/// sibling `budget_derive` leaf reuses the same `root_of` classification (its
+/// derived charges must never disagree with this file's root resolution).
+pub(super) struct BudgetScan<'a> {
+    pub(super) table: &'a InstTable,
+    pub(super) scan: super::PowerScan,
     memo: HashMap<u32, BudgetRoot>,
     stack: HashSet<u32>,
 }
 
 impl<'a> BudgetScan<'a> {
-    fn new(table: &'a InstTable) -> BudgetScan<'a> {
+    pub(super) fn new(table: &'a InstTable) -> BudgetScan<'a> {
         BudgetScan {
             table,
             scan: super::PowerScan::build(table),
@@ -68,7 +72,7 @@ impl<'a> BudgetScan<'a> {
 
     /// Budget-root state of a net — memoized, cycle-guarded. Re-entering a net
     /// already on this stack is a cycle → `Opaque` (never fabricate a root).
-    fn root_of(&mut self, net_id: u32) -> BudgetRoot {
+    pub(super) fn root_of(&mut self, net_id: u32) -> BudgetRoot {
         if let Some(r) = self.memo.get(&net_id) {
             return *r;
         }
@@ -109,9 +113,9 @@ impl<'a> BudgetScan<'a> {
         self.resolve_rootless(net)
     }
 
-    /// A rail guarantee face or a psrc/psbi hot pin on the net — the §8.5
-    /// source-boundary test (a net that supplies without declaring capacity is
-    /// not a budget root and not a pass-through).
+    /// A rail guarantee face, a psrc/psbi hot pin, or a module-power source port
+    /// face on the net — the §8.5 source-boundary test (a net that supplies
+    /// without declaring capacity is not a budget root and not a pass-through).
     fn has_supply_face(&self, net: &NetEntry) -> bool {
         if self.scan.rail_face(net).is_some() {
             return true;
@@ -130,6 +134,16 @@ impl<'a> BudgetScan<'a> {
                 continue;
             };
             if super::source_contract_for(def, entry).is_some() {
+                return true;
+            }
+        }
+        // Module power-output (Src/Bi) port face without capacity — also an
+        // opaque source boundary (usb.vin-style supply export, §8.5).
+        for &pid in &net.points {
+            let Some(entry) = self.table.get_entry(pid) else {
+                continue;
+            };
+            if self.scan.port_source_of(entry).is_some() {
                 return true;
             }
         }
@@ -244,7 +258,10 @@ pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResu
         };
 
         // ── This net's own declared amp demand: every decodable psnk sink on
-        //    the net that declares amp (the §8.2 gather, unchanged). ──
+        //    the net that declares amp. The input rows of a Regulator/Combine
+        //    def are *derived*, not declared (budget_derive.rs folds their
+        //    push-up / single-source charge instead) — skipping them keeps a
+        //    converter's draw from being counted twice on its input net. ──
         let mut demand: f64 = 0.0;
         let mut count: usize = 0;
         let mut witness: Option<(u32, String)> = None;
@@ -261,6 +278,9 @@ pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResu
             let Some(def) = eng.scan.def_of(comp_id) else {
                 continue;
             };
+            if !matches!(classify_supply_def(def), SupplyClass::Load) {
+                continue; // device input/leg rows are derived elsewhere (§8.5)
+            }
             let Some(contract) = super::sink_contract_for(def, entry) else {
                 continue;
             };
@@ -291,6 +311,31 @@ pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResu
         bucket.count += count;
         if bucket.witness.is_none() {
             bucket.witness = witness;
+        }
+    }
+
+    // ── Derived-demand fold (§8.5): converter push-up and OR-merge
+    //    single-source charges on top of the declared gather, folded into the
+    //    buckets of the roots that govern each device's input/leg nets. A root
+    //    bucket with no declared sink is opened with the device input pin as
+    //    its witness; over-capacity roots fire exactly as declared ones do in
+    //    the report pass below. ──
+    let mut load = BudgetLoadScan::new(table);
+    for ch in load.derived_charges() {
+        let bucket = buckets.entry(ch.root).or_insert_with(|| {
+            order.push(ch.root);
+            let w = ch.witness.clone();
+            Bucket {
+                cap: ch.cap,
+                demand: 0.0,
+                count: 0,
+                witness: Some(w),
+            }
+        });
+        bucket.demand += ch.demand;
+        bucket.count += ch.count;
+        if bucket.witness.is_none() {
+            bucket.witness = Some(ch.witness.clone());
         }
     }
 

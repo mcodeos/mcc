@@ -19,7 +19,7 @@ use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::McAttrVal;
 use crate::semantic::component::mc_pins::{McPinPort, McPwrPin, PwrDir};
 use crate::semantic::component::McComponent;
-use crate::semantic::module::pi::{decode_pwr_pin, McPowerDecls};
+use crate::semantic::module::pi::{decode_pwr_pin, L1PwrPin, McPowerDecls};
 use crate::semantic::validation::finding::CheckFinding;
 use std::collections::HashSet;
 
@@ -37,6 +37,11 @@ pub(crate) use window::{
 // this file (6021 owner re-exported under the same name for rules.rs).
 mod budget;
 pub(crate) use budget::check_net_budget;
+
+// PWR-4 budget derived-demand leaf (§8.5 — converter push-up + OR-merge
+// single-source charging on top of the declared-amp gather). budget.rs owns the
+// 6021 buckets/report and folds budget_derive::BudgetLoadScan charges into them.
+mod budget_derive;
 
 // PWR-1/PWR-2 supply reach (net-island-attribution-design.md §7 L4 — the
 // nominal face of the S-set step): reach.rs closes 6011/6019's "copper
@@ -806,14 +811,22 @@ pub(crate) fn check_power_nets(table: &InstTable, results: &mut Vec<NetCheckResu
         }
     }
     if count > 10 {
+        // This is a whole-design summary, not a per-net problem: anchor it at
+        // the built module's own `module <name>` header (recorded at flatten
+        // time) so it does not collapse onto file:1:1. `None` only when no root
+        // span was recorded — then fall back to the historical pos 0.
+        let (pos, uri) = match table.root_span() {
+            Some(sp) => (sp.offset, sp.uri.clone()),
+            None => (0, String::new()),
+        };
         results.push(NetCheckResult {
             check: "power-net-count",
             severity: "info",
             message: format!("Design has {} power nets. Review for consolidation.", count),
             net_name: String::new(),
             code: crate::errcodes::NET_POWER_NET_COUNT,
-            pos: 0,
-            uri: String::new(),
+            pos,
+            uri,
         });
     }
 }
@@ -1254,6 +1267,15 @@ struct PowerScan {
     /// class table (module-boundary/library faces stay out — exactly the
     /// membership 6011/6013/6019 relied on).
     comp_def: std::collections::HashMap<u32, std::sync::Arc<McComponent>>,
+    /// Module *instance* entry id → its declared power-output (Src/Bi) port
+    /// source contracts `(hot member, decoded)` — rail-contract-design.md §8.5
+    /// budget face. A module-body `psrc NAME{hot,ret}::DC(v, capacity:…)` row
+    /// flattens to a `Port`-kind point whose `parent_id` is this instance id
+    /// and whose path tail is `hot`, so the budget axis can recognize the
+    /// exported supply face as an explicit capacity root. Budget-local: the
+    /// nominal consumers (`source_faces`/`net_nominal`/`has_source_root`) never
+    /// read ports — 6011/6019/window skip module-interior sources by design.
+    port_src: std::collections::HashMap<u32, Vec<(String, L1PwrPin)>>,
 }
 
 impl PowerScan {
@@ -1305,10 +1327,27 @@ impl PowerScan {
             .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, d.clone())))
             .collect();
 
+        // Module power-output (Src/Bi) port contracts, per module *instance* id
+        // (power_decls is keyed by the same instance entry a Port point's
+        // `parent_id` carries — power-intent-design.md §5.2 / §8.5 budget face).
+        let port_src: std::collections::HashMap<u32, Vec<(String, L1PwrPin)>> = table
+            .power_decls()
+            .iter()
+            .filter_map(|(id, pi)| {
+                let sources = pi.l1_port_sources();
+                if sources.is_empty() {
+                    None
+                } else {
+                    Some((*id, sources))
+                }
+            })
+            .collect();
+
         PowerScan {
             guarantee,
             rail_cap,
             comp_def,
+            port_src,
         }
     }
 
@@ -1442,9 +1481,30 @@ impl PowerScan {
         false
     }
 
-    /// The capacity roots on a net — rail capacity face plus every source pin
-    /// carrying a capacity — in 6021's encounter order (6021 then requires the
-    /// roots to agree before budgeting).
+    /// The declared power-output (Src/Bi) port contract this flat point names,
+    /// when the point is a module-power `Port` member (rail-contract-design.md
+    /// §8.5 budget face). Budget-local recognition: a point is a budget source
+    /// face only when its `parent_id` resolves to a module instance that
+    /// declares a source port whose hot member label matches the point's path
+    /// tail (the `PortInst.dc_pair` hot member spelling). Sink (`psnk`) port
+    /// rows never decode as sources.
+    fn port_source_of(&self, entry: &InstEntry) -> Option<L1PwrPin> {
+        if !matches!(entry.kind, InstKind::Port) || !matches!(entry.io_type, IOType::Power) {
+            return None;
+        }
+        let module_id = entry.parent_id?;
+        let member = entry.path.rsplit('.').next().unwrap_or("");
+        let sources = self.port_src.get(&module_id)?;
+        sources
+            .iter()
+            .find(|(hot, _)| hot == member)
+            .map(|(_, s)| s.clone())
+    }
+
+    /// The capacity roots on a net — rail capacity face, every source pin
+    /// carrying a capacity, and every module-power source port face carrying a
+    /// capacity — in 6021's encounter order (6021 then requires the roots to
+    /// agree before budgeting).
     fn capacity_roots(&self, table: &InstTable, net: &NetEntry) -> Vec<f64> {
         let mut caps: Vec<f64> = Vec::new();
         if let Some(c) = self.rail_cap_face(net) {
@@ -1469,6 +1529,17 @@ impl PowerScan {
             let dec = decode_pwr_pin(contract);
             if let Some(c) = dec.capacity_amps {
                 caps.push(c);
+            }
+        }
+        // Module-power source port faces (budget root scope §8.5).
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if let Some(s) = self.port_source_of(entry) {
+                if let Some(c) = s.capacity_amps {
+                    caps.push(c);
+                }
             }
         }
         caps

@@ -46,7 +46,7 @@ use crate::ast::macros::*;
 use crate::ast::node::AstNode;
 use crate::ast::sem::Span;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute, McAttributes};
-use crate::semantic::component::mc_pins::{McPwrPin, PwrDir};
+use crate::semantic::component::mc_pins::{McPwrPin, PwrDir, PwrParam};
 use std::ops::Range;
 
 /// All power-intent declarations collected from one module body.
@@ -63,6 +63,16 @@ pub struct McPowerDecls {
     /// design §5.1 unified slot. The generic net reader registers the port
     /// operands but drops the trailing words, so they are re-captured here.
     pub ports: Vec<McPortDecl>,
+    /// Module **power-output port rows** — `psrc/psnk/psbi NAME{hot,ret}::DC(…)`
+    /// declared in the module body (a bounded/exported supply face such as
+    /// `psrc vin{VBUS_5V,GND}::DC(5V, capacity:…)`). The flatten layer records
+    /// only the written DC pair on the resulting `PortInst`; the full contract
+    /// (capacity / eff budget params) is captured here so the PWR-4 budget axis
+    /// can treat the exported supply face as an explicit capacity root
+    /// (rail-contract-design.md §8.5). Deliberately a separate vector from
+    /// [`McPowerDecls::ports`] — `l1_ports()` is the stable JSON identity view
+    /// and must not see power rows.
+    pub pwr_ports: Vec<McPortPwr>,
 }
 
 impl McPowerDecls {
@@ -99,6 +109,33 @@ impl McPowerDecls {
         if let Some(p) = McPortDecl::from_node(node) {
             self.ports.push(p);
         }
+    }
+
+    /// Capture a module power-output port row (`psrc/psnk/psbi NAME{hot,ret}
+    /// ::DC(…)`) — the §8.5 budget-face capture complementing [`Self::parse_port`]
+    /// (identity rows). The flatten layer keeps only the written pair on the
+    /// `PortInst`; this keeps the full `::DC` contract (capacity / eff).
+    pub fn parse_port_pwr(&mut self, node: &AstNode) {
+        if let Some(p) = McPortPwr::from_node(node) {
+            self.pwr_ports.push(p);
+        }
+    }
+
+    /// Project the module's declared power-output (Src/Bi) port rows into typed
+    /// supply contracts — `(hot member, decoded)`, hot member verbatim (the
+    /// label the flat Port point's path tail carries). Sink (`psnk`) port rows
+    /// are captured structurally but are demand, never a budget source, so they
+    /// are excluded here (rail-contract-design.md §8.1: a source declares
+    /// capacity; its own input draw is derived).
+    pub fn l1_port_sources(&self) -> Vec<(String, L1PwrPin)> {
+        let mut out = Vec::new();
+        for p in &self.pwr_ports {
+            if p.dir == PwrDir::Snk {
+                continue;
+            }
+            out.push((p.hot.clone(), decode_port_pwr(p)));
+        }
+        out
     }
 
     /// Decode the module's `conduit` declarations into the L1 identity view
@@ -614,6 +651,147 @@ impl McPortDecl {
             span: clause_span(node),
         })
     }
+}
+
+/// One module power-output port row — `psrc NAME{hot, ret}::DC(…)` /
+/// `psbi …` / `psnk …` declared in the module body (design §5.2 direction
+/// family, rail-contract-design.md §8.5 budget face). Structurally mirrors the
+/// component [`McPwrPin`] (an `McPwrPin`-shaped slice is enough to reuse
+/// [`decode_pwr_pin`]): direction keyword, written hot/ret member labels
+/// verbatim (the flat `PortInst.dc_pair` spelling — bus prefix dropped), and the
+/// `::DC` ctor params held as [`McRailParam`] text for typed decode.
+#[derive(Debug, Clone)]
+pub struct McPortPwr {
+    pub dir: PwrDir,
+    /// Written hot member label (`VBUS_5V`), verbatim.
+    pub hot: String,
+    /// Written return member label (`GND`), when the row declares a pair.
+    pub ret: Option<String>,
+    pub params: Vec<McRailParam>,
+    pub span: Span,
+}
+
+impl McPortPwr {
+    fn from_node(node: &AstNode) -> Option<Self> {
+        // MCAST_NET_PORTS.sub = [ IOTYPE keyword carrier,
+        //                         (MCAST_DECLARE ::<iface>(params))*,
+        //                         (INSTANCE name side {hot,ret} | [hot,ret])* ]
+        let head = node.get_sub_node()?;
+        // Direction keyword: carrier sub type 97/98/99 (psrc/psnk/psbi).
+        let dir = head
+            .iter()
+            .find(|c| c.get_type() == MCAST_IOTYPE)?
+            .get_sub_node()
+            .and_then(|sub| match sub.get_type() {
+                MCAST_IOTYPE_PSRC => Some(PwrDir::Src),
+                MCAST_IOTYPE_PSNK => Some(PwrDir::Snk),
+                MCAST_IOTYPE_PSBI => Some(PwrDir::Bi),
+                _ => None,
+            })?;
+
+        // The `::DC(params)` contract (only the DC axis decodes here — AC/nature
+        // port contracts belong to the later AC-axis step, as with component pins).
+        let declare = head.iter().find(|c| c.get_type() == MCAST_DECLARE)?;
+        let mut iface = String::new();
+        let mut params = Vec::new();
+        if let Some(class) = child_of_type(&declare, MCAST_CLASS) {
+            if let Some(ch) = class.get_sub_node() {
+                for c in ch.iter() {
+                    if c.is_type(MCAST_IDS) {
+                        iface = id_text(&c)?;
+                    } else if c.is_type(MCAST_PARAMS) {
+                        params = read_params(&c);
+                    }
+                }
+            }
+        }
+        if iface != "DC" {
+            return None;
+        }
+
+        // Written hot/ret member labels from the name side (curly `NAME{h,r}` or
+        // bracket `[h, r]`), in source order.
+        let mut members = Vec::new();
+        for c in head.iter() {
+            collect_member_labels(&c, &mut members);
+            if members.len() >= 2 {
+                break;
+            }
+        }
+        let hot = members.first()?.clone();
+        let ret = members.get(1).cloned();
+
+        Some(Self {
+            dir,
+            hot,
+            ret,
+            params,
+            span: clause_span(node),
+        })
+    }
+}
+
+/// Collect written member labels from the first curly-bus / square-vector group
+/// reachable under `node` (bounded descent past OPD / INSTANCE wrappers).
+/// Curly members (`{VBUS_5V, GND}`) are read verbatim; square operands
+/// (`[A, B]`) via [`net_name`]. A row whose name side is a scalar (no written
+/// group) yields nothing.
+fn collect_member_labels(node: &AstNode, out: &mut Vec<String>) {
+    if out.len() >= 2 {
+        return;
+    }
+    let Some(first) = node.get_sub_node() else {
+        return;
+    };
+    for c in first.iter() {
+        match c.get_type() {
+            MCAST_OPD_CURLY => {
+                if let Some(m0) = c.get_sub_node() {
+                    for m in m0.iter() {
+                        if let Some(t) = leaf_text(&m) {
+                            out.push(t);
+                        }
+                    }
+                }
+            }
+            MCAST_OPD_SQUARE_VEC => {
+                if let Some(m0) = c.get_sub_node() {
+                    for m in m0.iter() {
+                        if let Some(t) = net_name(&m) {
+                            out.push(t);
+                        }
+                    }
+                }
+            }
+            _ => collect_member_labels(&c, out),
+        }
+        if out.len() >= 2 {
+            return;
+        }
+    }
+}
+
+/// Decode one captured [`McPortPwr`] through the shared pin-contract reader by
+/// bridging it onto a temporary [`McPwrPin`] (same value language as rails —
+/// [`decode_pwr_pin`] already owns `tol`/`capacity`/`eff`/`amp` discipline).
+fn decode_port_pwr(p: &McPortPwr) -> L1PwrPin {
+    let pin = McPwrPin {
+        dir: p.dir,
+        iface: "DC".to_string(),
+        hot: p.hot.clone(),
+        ret: p.ret.clone(),
+        params: p
+            .params
+            .iter()
+            .map(|r| PwrParam {
+                key: r.key.clone(),
+                text: r.text.clone(),
+            })
+            .collect(),
+        span: (p.span.start as usize)..(p.span.end as usize),
+        attrs: McAttributes::new(),
+    };
+    decode_pwr_pin(&pin)
 }
 
 /// One decoded identity-bearing port member — the typed projection of
@@ -1481,6 +1659,111 @@ module main {
             bad.contains("mandatory"),
             "expected the mandatory-nominal message, got: {bad}"
         );
+    }
+
+    // ── module power-output port capture (rail-contract-design.md §8.5) ─────
+
+    const SRC_PWR_PORTS: &str = r#"module main {
+    psrc vin{VBUS_5V, GND}::DC(5V, capacity:2A, eff:0.9)
+    psrc [C, D]::DC(5V, capacity:1A)
+    psbi pb{B, GND}::DC(5V, capacity:300mA)
+    psnk pin{PVIN, GND}::DC(5V)
+    out shield_to_earth @bind_role(earth)   // non-power row untouched
+    io  SEL
+}
+"#;
+
+    #[test]
+    fn captures_module_power_port_rows() {
+        // §8.5 budget face: psrc/psbi/psnk module port rows are captured with
+        // their full ::DC contract — the flatten layer keeps only the pair.
+        let pi = parse_pi(SRC_PWR_PORTS);
+        assert_eq!(pi.pwr_ports.len(), 4, "pwr_ports: {:#?}", pi.pwr_ports);
+        // The ordinary identity rows stay in `ports`, none leak in.
+        assert_eq!(pi.ports.len(), 1, "identity rows only");
+        assert_eq!(pi.ports[0].names, vec!["shield_to_earth".to_string()]);
+
+        let vin = pi
+            .pwr_ports
+            .iter()
+            .find(|p| p.hot == "VBUS_5V")
+            .expect("psrc vin row");
+        assert_eq!(vin.dir, PwrDir::Src);
+        assert_eq!(vin.ret.as_deref(), Some("GND"));
+        // params kept as text: [nominal 5V, capacity, eff]
+        assert_eq!(vin.params.len(), 3, "params: {:?}", vin.params);
+
+        let cd = pi
+            .pwr_ports
+            .iter()
+            .find(|p| p.hot == "C")
+            .expect("bare bracket row");
+        assert_eq!(cd.dir, PwrDir::Src);
+        assert_eq!(cd.ret.as_deref(), Some("D"));
+        assert_eq!(cd.params.len(), 2);
+
+        let pb = pi.pwr_ports.iter().find(|p| p.hot == "B").expect("psbi");
+        assert_eq!(pb.dir, PwrDir::Bi);
+        let pin = pi
+            .pwr_ports
+            .iter()
+            .find(|p| p.hot == "PVIN")
+            .expect("psnk row captured structurally");
+        assert_eq!(pin.dir, PwrDir::Snk);
+    }
+
+    #[test]
+    fn l1_port_sources_decode_supply_contracts_only() {
+        // psrc/psbi decode their source budget (capacity/eff); psnk and plain
+        // identity rows never appear as a budget source.
+        let pi = parse_pi(SRC_PWR_PORTS);
+        let sources = pi.l1_port_sources();
+        assert_eq!(sources.len(), 3, "Src/Bi only: {sources:#?}");
+
+        let (hot, vin) = sources
+            .iter()
+            .find(|(h, _)| h == "VBUS_5V")
+            .expect("vin source");
+        assert_eq!(hot, "VBUS_5V");
+        assert_eq!(vin.dir, PwrDir::Src);
+        assert_eq!(vin.v, Some(5.0));
+        assert_eq!(vin.capacity_amps, Some(2.0), "capacity:2A → 2.0");
+        assert_eq!(vin.eff, Some(0.9));
+        assert!(vin.bad.is_none(), "vin decode: {:?}", vin.bad);
+
+        let cd = sources
+            .iter()
+            .find(|(h, _)| h == "C")
+            .expect("bare bracket source");
+        assert_eq!(cd.1.capacity_amps, Some(1.0));
+
+        let pb = sources
+            .iter()
+            .find(|(h, _)| h == "B")
+            .expect("psbi conditional source");
+        assert_eq!(pb.1.dir, PwrDir::Bi);
+        assert_eq!(pb.1.capacity_amps, Some(0.3), "300mA → 0.3A");
+
+        assert!(
+            sources.iter().all(|(_, s)| s.dir != PwrDir::Snk),
+            "psnk port rows must not project as budget sources"
+        );
+    }
+
+    #[test]
+    fn decode_port_pwr_source_budget_flags_mirror_pins() {
+        // Non-current capacity / source-exclusive discipline decode exactly like
+        // component pin rows (same decode_pwr_pin value language).
+        const BAD: &str = r#"module main {
+    psrc vin{VBUS_5V, GND}::DC(5V, capacity:1.5V)
+}
+"#;
+        let pi = parse_pi(BAD);
+        assert_eq!(pi.pwr_ports.len(), 1);
+        let src = pi.l1_port_sources();
+        assert_eq!(src.len(), 1);
+        let bad = src[0].1.bad.as_deref().expect("bad capacity flagged");
+        assert!(bad.contains("not a DC current"), "got: {bad}");
     }
 
     /// The member-bus spelling `VIN{Vin, GND}` (golden LDO/DCDC/BAT rows) is
