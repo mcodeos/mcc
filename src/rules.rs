@@ -750,9 +750,9 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
     // E-PWR-001 (§4.4 mandatory-nominal check / §11): a psnk sink on a net must
     // require that net's derived supply nominal S — the canonical P3 case: a
     // ::DC(3.3V) sink wired onto a 5V rail is a wrong hookup. S comes from the
-    // net's handwritten roots (§4.3): a declared rail
-    // face or a psrc/psbi hot directly on the net; copper pass-through
-    // propagation (S crossing a fuse/inductor/ferrite) is the later S-set step.
+    // net's handwritten roots (§4.3) or, for a root-less net, the upstream root
+    // it is fed to through transparent copper / a module boundary (net-island
+    // §7 L4 reach.rs); converter re-anchoring is the still-later S-set step.
     declare_flat_erc_rule! {
         code = crate::errcodes::POWER_SINK_NOMINAL_MISMATCH,
         name = "sink-nominal-mismatch",
@@ -873,9 +873,11 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
     },
     // PWR-1 no-source face (power-intent-design.md §11 / §13 landing 3): a flat
     // net carrying component psnk sinks with no supply root on the net itself —
-    // no declared domain-rail face, no decodable psrc/psbi hot pin. Net-local,
-    // mirroring 6011/6013: module boundary feed ports and copper pass-through
-    // feed stay the S-set step.
+    // no declared domain-rail face, no decodable psrc/psbi hot pin — is reported
+    // unless it is fed to an upstream root through transparent copper / a module
+    // boundary (net-island §7 L4 reach.rs), where 6011 adjudicates it; module
+    // boundary feed ports stay structurally invisible (only Component parents
+    // decode as sinks).
     declare_flat_erc_rule! {
         code = crate::errcodes::SINK_NET_NO_SOURCE,
         name = "undriven-sink-net",
