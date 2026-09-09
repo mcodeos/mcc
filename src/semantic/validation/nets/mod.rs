@@ -28,7 +28,8 @@ use std::collections::HashSet;
 // the 6023/6024/6025 owners added in the window batch.
 mod window;
 pub(crate) use window::{
-    check_converter_gate_window, check_converter_spec_incomplete, check_sink_window_mismatch,
+    check_converter_gate_window, check_converter_output_rail_window,
+    check_converter_spec_incomplete, check_sink_window_mismatch,
 };
 
 /// Run all electrical net checks and return diagnostics.

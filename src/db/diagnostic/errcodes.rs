@@ -1494,6 +1494,17 @@ pub const POWER_SINK_WINDOW_MISMATCH: u32 = 6024;
 /// flagged.
 pub const POWER_CONVERTER_SPEC_INCOMPLETE: u32 = 6025;
 
+/// §6.7 converter output vs same-net rail window (rail-contract-design.md §6.7,
+/// window-notes batch) — a regulator's `spec.output` is the window it promises
+/// to hold on its Src output net. When that net is a *declared rail face*, the
+/// rail's own window is the scope's promise for the net (§4.1 priority 1, the
+/// rail wins even over a converter landing on it). A converter that guarantees a
+/// window the rail does not cover can deliver outside the rail's declared
+/// tolerance → Error. A Src landing on a plain driven node (buck `LX` → filter
+/// → rail net), or a degenerate rail face (a bare nominal with no ±tol — no
+/// allowed spread is declared) is not checked.
+pub const POWER_CONVERTER_OUTPUT_RAIL_WINDOW: u32 = 6026;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -1873,6 +1884,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(POWER_CONVERTER_GATE, "A regulator's declared input window excludes the supply window on its input net.", "regulator '{2}' declares input window {1}, but the supply window riding its input net is {0} — S(input) ⊄ input_req: the rail or source feeding it sags or soars outside its operating pre-condition, so the declared output guarantee cannot be trusted. Fix the feed (or the input_req if it is mis-declared); a net whose supply window cannot be derived is not adjudicated (rail-contract-design.md §6.1 gate)"),
     entry!(POWER_SINK_WINDOW_MISMATCH, "A load's declared acceptable window excludes the actual supply window on its net.", "load '{2}' accepts supply only within {1}, but the supply window actually riding its net is {0} — S(net) ⊄ input_req: the rail or source can over- or under-volt the load outside what it tolerates. Fix the feed, or correct the load's declared window; a net whose supply window cannot be derived is not adjudicated (rail-contract-design.md §6.3 sink window)"),
     entry!(POWER_CONVERTER_SPEC_INCOMPLETE, "A spec block on a power-output component declares only one of input_req / output.", "component '{0}' has a psrc/psbi output row and a spec block, but declares only '{1}' — a regulator needs both windows of the Hoare triple for the gate (6023) and sink-window (6024) checks to judge it. The written side still decodes (an output-only regulator is treated as guaranteeing that output; an input_req-only one as an un-gated feed), it just cannot be gated: add the missing '{2}' (rail-contract-design.md §6.1)"),
+    entry!(POWER_CONVERTER_OUTPUT_RAIL_WINDOW, "A converter's declared output guarantee is not covered by the declared rail window of the rail net it drives.", "converter '{2}' guarantees output {0} on rail net '{3}', but the rail's declared window is only {1} — the guarantee escapes the rail's allowed window: the converter can deliver outside what the scope declares on that net. Fix the spec.output, or the rail tolerance if the rail is mis-declared (rail-contract-design.md §6.7)"),
     // ---- section ----
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
