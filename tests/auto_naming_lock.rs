@@ -63,14 +63,14 @@ fn mat_aname__normal_sequence_lock() {
     let (paths, nets, codes) = build_all(&src);
 
     // Auto-name sequence: `_C1`/`_C2` before `_R1`; each device materializes
-    // its two pins as child entries; the ground label `GND@7` (line 7 of the
-    // fixture) carries the split-ground suffix path.
+    // its two pins as child entries. The bare-`GND` statements union into the
+    // single `main.GND` net (split-ground terminal state: no `GND@<line>`
+    // fragment labels in the flat netlist).
     assert_eq!(
         paths,
         vec![
             "main",
             "main.GND",
-            "main.GND@7",
             "main.VDD",
             "main._C1",
             "main._C1.1",
@@ -85,24 +85,23 @@ fn mat_aname__normal_sequence_lock() {
         "auto-name Normal sequence changed (P0.5 lock)"
     );
 
-    // Net table: both caps bridge VDD -> the GND@7 group; the resistor pulls
-    // VDD into its pin 2 (pin 1 left floating).
+    // Net table: both caps bridge VDD -> the single unified `GND` net (both
+    // returns + the `main.GND` port share one copper); the resistor pulls VDD
+    // into its pin 2 (pin 1 left floating).
     assert_eq!(
         nets,
         vec![
-            "GND@7 <= [main.GND@7, main._C1.2]",
-            "GND@7 <= [main.GND@7, main._C2.2]",
+            "GND <= [main.GND, main._C1.2, main._C2.2]",
             "VDD <= [main.VDD, main._C1.1, main._C2.1, main._R1.2]",
         ],
         "net table around auto-named instances changed (P0.5 lock)"
     );
 
     // 5641 (unused ctor param cap/res) x2, 4116 (one pin of _R1 unconnected).
-    // `main.GND` is a top-level grouping header whose real wiring runs through
-    // the `GND@7` split-ground label; under the A′-scope the instance floats
-    // (4117/4114) never fire on top-module ports or on grouping headers, so
-    // the former 4117 row is gone. Set-equal check — diagnostic insertion
-    // order is not part of the naming contract.
+    // `main.GND` is a real unified net (port + both cap returns); floating
+    // (4117/4114) never fire on top-module ports, so only _R1's lone pin 1
+    // reports 4116. Set-equal check — diagnostic insertion order is not part
+    // of the naming contract.
     assert_eq!(
         codes,
         vec![4116, 5641, 5641],

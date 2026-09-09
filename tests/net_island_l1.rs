@@ -14,8 +14,8 @@
 //! L1 scope is deliberately narrow (design §7 L1 bullet): identity is anchored
 //! only on owning-scope declarations — a net whose name equals an owning-scope
 //! `conduit` (copper) or a declared rail `hot`/`ret` member (supply face).
-//! Everything else (derived supply faces, split-ground fragments, dotted
-//! pass-through members, signal/anonymous wires) stays `resolvable = false`;
+//! Everything else (derived supply faces, dotted pass-through members, bare
+//! undeclared grounds, signal/anonymous wires) stays `resolvable = false`;
 //! the index never guesses past the owning scope, and no rule consumes it yet
 //! (golden residuals stay verbatim).
 
@@ -80,12 +80,11 @@ fn rail_hot_and_return_nets_anchor_to_declared_supply_faces() {
     // domain, rail returns get their return copper + domain, and a named
     // copper no rail returns to is a worldless Reference.
     //
-    // (Bare `GND`/`EARTH` *labels* are re-partitioned into per-line `@N`
-    // fragments by split_ground when they hang only a local passive, so the
-    // assertions here exercise the return/copper kernel on the non-fragmented
-    // quiet/protective names — the intact golden `GND`/`EARTH` nets are the
-    // real-board hand-check in the mcd/log, where rail-member dotted points
-    // exempt them from the re-partition.)
+    // (The flat layer no longer re-partitions bare ground labels into
+    // per-line `@N` fragments — split-ground terminal state — so bare and
+    // rail-member grounds alike reach the index as intact nets; the
+    // quiet/protective names below are the real-board hand-check in the
+    // mcd/log.)
     let src = format!(
         "{FB}\n\
          module main {{\n\
@@ -132,10 +131,10 @@ fn rail_hot_and_return_nets_anchor_to_declared_supply_faces() {
 
 #[test]
 fn same_net_name_in_parent_and_child_resolves_per_owning_scope() {
-    // Parent and child each carry a net named V5V (a rail hot — not a ground
-    // leaf, so split_ground leaves both intact). The index must key each by
-    // its own `NetEntry.module` and resolve it against that module's *own*
-    // decl set — no global-name collision, no `remove` on ambiguity.
+    // Parent and child each carry a net named V5V (a rail hot). The index must
+    // key each by its own `NetEntry.module` and resolve it against that
+    // module's *own* decl set — no global-name collision, no `remove` on
+    // ambiguity.
     let src = format!(
         "{FB}\n\
          module power {{\n\

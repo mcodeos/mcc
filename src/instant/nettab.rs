@@ -6,12 +6,12 @@
 //! Phase D/E): string net tables (Phase D) and overlay fragments (Phase E).
 //!
 //! The `NetPoint` tables produced by construction-time `build_net_table`
-//! (union-find merged nets, ground re-partition) are the projection layer's
-//! source data — they feed `InstTable::flatten_nets` and the string-net
-//! consumers (ERC / tree JSON / print / export / viz). They never live on
-//! `McModuleInst` (the modelling tree); a build freezes them here, keyed by
-//! canonical module path (`main`, `main.ldo`, ...), and the projection plus
-//! the flat consumers read them from the frozen store. Invariant B: the
+//! (union-find merged nets) are the projection layer's source data — they
+//! feed `InstTable::flatten_nets` and the string-net consumers (ERC / tree
+//! JSON / print / export / viz). They never live on `McModuleInst` (the
+//! modelling tree); a build freezes them here, keyed by canonical module path
+//! (`main`, `main.ldo`, ...), and the projection plus the flat consumers read
+//! them from the frozen store. Invariant B: the
 //! projection output is byte-identical to the pre-refactor form.
 //!
 //! Phase E adds the overlay fragments — each module's label registry and bus
