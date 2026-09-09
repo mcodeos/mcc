@@ -22,12 +22,14 @@
 //! - a net whose name equals an owning-scope declared rail `hot`/`ret` member
 //!   → that supply face (`Hot`/`Ret`) and its declaring domain(s);
 //! - a named copper that no rail returns to (`EARTH`, `ESDGND`) → `Reference`;
-//! - everything else — derived supply faces (`VMAIN_5V`), split-ground
-//!   fragments (`GND@45`), dotted pass-through members (`vin.GND`), signal and
-//!   anonymous wires — is left `resolvable = false`. No name heuristic guesses
-//!   past the owning scope (split provenance reverse-query and the
-//!   reference-binding cross-layer merge are the deferred L3 step), and no
-//!   existing check consumes this index yet (golden residuals stay verbatim).
+//! - everything else — derived supply faces (`VMAIN_5V`), dotted pass-through
+//!   members (`vin.GND`), bare undeclared grounds, signal and anonymous wires
+//!   — is left `resolvable = false`. No name heuristic guesses past the owning
+//!   scope (the reference-binding cross-layer merge is the deferred L3 step),
+//!   and no existing check consumes this index yet (golden residuals stay
+//!   verbatim). (The split-ground per-statement `@N` fragments were retired at
+//!   the flat layer — split-ground-copper-design v0.2 §6 — so no flat net
+//!   carries an `@owner` electric-fragment suffix.)
 //!
 //! Role/copper carry the conduit's supply *function*, not its `@role` tag —
 //! the tag (`main`/`quiet`/`isolated`/`earth`/`protective`) is the copper's
@@ -50,7 +52,7 @@ pub enum NetRole {
     /// (`EARTH`, a protective `ESDGND`, a quiet reference without a rail …).
     Reference,
     /// No owning-scope identity anchor — signal wire, anonymous `_net{N}`,
-    /// derived supply face, split-ground fragment, pass-through member.
+    /// derived supply face, dotted pass-through member.
     /// `resolvable` is `false` and consumers must not judge it.
     Signal,
 }

@@ -116,8 +116,10 @@ fn dispatch__slice_arg_member_aligned_zip() {
         !res4.iter().any(|p| p == "c1.1"),
         "c1.1 NOT on net res4; got {res4:?}"
     );
-    // The scalar lane gnd is a shared arg net on both caps' pin 2.
-    let gnd = net_paths("gnd@7");
+    // The scalar lane gnd is a shared arg net on both caps' pin 2. Terminal
+    // state: the bare `gnd` statement label unions into a single `gnd` net
+    // (no per-statement `gnd@<line>` fragment, so the base name is `gnd`).
+    let gnd = net_paths("gnd");
     assert!(
         gnd.iter().any(|p| p == "c1.2") && gnd.iter().any(|p| p == "c2.2"),
         "gnd net holds both caps' pin 2; got {gnd:?}"
