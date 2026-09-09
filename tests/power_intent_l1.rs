@@ -67,6 +67,20 @@
 //!   whose spec block writes only one of input_req / output cannot be gated
 //!   (advisory Info). A pure load with no output row legitimately writes
 //!   input_req alone.
+//! * **§6.6 module-boundary feed** (`rail-contract-design.md` §6.6,
+//!   window-notes batch) — a net that reaches only a submodule port is not
+//!   dead: the same copper across the boundary is a second NetEntry in the
+//!   child scope (A′ junction, `module` differs). When that co-segment has
+//!   resolved a supply window (a genuine child-source feed), `WindowDeriv`
+//!   forwards it instead of leaving the net NoSupply; a rootless child-sink
+//!   co-segment recursing back is Unresolved and stays skipped. Consumers like
+//!   6023 then gate the regulator fed across the boundary.
+//! * **§6.7 output vs rail window** (`POWER_CONVERTER_OUTPUT_RAIL_WINDOW` =
+//!   6026, rail-contract-design.md §6.7) — a regulator's `spec.output`
+//!   guarantee must sit inside the declared rail window of the rail net its Src
+//!   row drives; a guarantee a genuine (non-degenerate) rail window does not
+//!   cover can deliver outside the rail → Error. A Src landing on a plain
+//!   driven node, or a bare-nominal rail with no ±tol, is not cross-checked.
 //!
 //! Golden board (`mcs/pwrint/src/main.mc`) shape: GND carries `@star`, so its
 //! two parallel `@bridge(GND, GNDA)` legs are discharged (that island holds the
@@ -1654,5 +1668,125 @@ fn input_req_only_load_never_fires_6025() {
     assert!(
         !codes.contains(&mcc::errcodes::POWER_CONVERTER_SPEC_INCOMPLETE),
         "a load's input_req-only spec is its own — no 6025; got codes: {codes:?}"
+    );
+}
+
+// ============================================================================
+// Window-notes batch (rail-contract-design.md §6.6/§6.7) — module-boundary S
+// feed forwarding + the converter-output-vs-rail-window cross-check (6026).
+// ============================================================================
+
+/// A submodule that contains its own 5V `psrc` source and exports it through an
+/// `io` member — the A′ module-boundary feed §6.6's forward arm carries. The
+/// source is top-level `SRC5` (component defs are file-scoped and visible to
+/// module bodies, as in the golden POWER_USB / net-island fixtures).
+const FEED: &str = "module FEED {\n    conduit GND @role(main)\n    io V5_OUT\n    \
+                    SRC5 s\n    s.OUT -> V5_OUT\n    s.GND -> GND\n}\n";
+
+/// §6.6 module-boundary feed — fixture: main's regulator CONV (input_req
+/// 5.5V~6.0V) draws its input net from the child FEED's exported 5V source
+/// across the boundary. Without the forward arm the main input net is a
+/// module-boundary leave (NoSupply) and 6023 stays silent; §6.6 forwards the
+/// Resolved 5V point from the child co-segment so the gate adjudicates and
+/// fires (5V ⊄ 5.5V~6.0V).
+#[test]
+fn module_boundary_feed_resolves_regulator_input_fires_6023() {
+    let src = format!(
+        "{SRC5}{FEED}{CONV}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VOUT\n    FEED f\n    CONV c\n    SINK3 k\n    \
+         f.V5_OUT -> VIN\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    \
+         c.VOUT -> VOUT\n    c.GN2 -> GND\n    \
+         k.VDD -> VOUT\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_CONVERTER_GATE),
+        "a child-fed 5V point across the module boundary must forward to the regulator input and fire 6023 (S(input)=5V ⊄ input_req 5.5V~6.0V); got codes: {codes:?}"
+    );
+}
+
+/// §6.6 control — the same boundary feed into a regulator whose input_req
+/// covers 5V: the forwarded window is adjudicated and passes (no 6023).
+#[test]
+fn module_boundary_feed_inside_input_req_is_clean_6023() {
+    let src = format!(
+        "{SRC5}{FEED}{CONV_WIDE}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VOUT\n    FEED f\n    CONV_WIDE c\n    SINK3 k\n    \
+         f.V5_OUT -> VIN\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    \
+         c.VOUT -> VOUT\n    c.GN2 -> GND\n    \
+         k.VDD -> VOUT\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_CONVERTER_GATE),
+        "a child-fed 5V point inside a 4.5V~5.5V input window must pass 6023; got codes: {codes:?}"
+    );
+}
+
+/// A regulator whose output guarantee `[4.5V, 5.5V]` is a genuine interval a
+/// ±1% rail window ([4.95, 5.05]) does not cover — the §6.7 mismatch target.
+/// The input_req is wide, so the feed side (6023) stays quiet.
+const REG_OFF: &str = "component REG_OFF {\n    pins = [\n        psnk [1,2] = [VIN, GN1]::DC(5V)\n        psrc [3,4] = [VOUT, GN2]::DC(5V)\n    ]\n    spec = [\n        input_req = 4.5V ~ 5.5V\n        output    = 4.5V ~ 5.5V\n    ]\n}\n";
+
+/// The same regulator whose output guarantee `[4.98V, 5.02V]` sits inside the
+/// ±1% rail window.
+const REG_OK: &str = "component REG_OK {\n    pins = [\n        psnk [1,2] = [VIN, GN1]::DC(5V)\n        psrc [3,4] = [VOUT, GN2]::DC(5V)\n    ]\n    spec = [\n        input_req = 4.5V ~ 5.5V\n        output    = 4.98V ~ 5.02V\n    ]\n}\n";
+
+/// 6026 — fixture (5): the regulator drives its Src output straight onto a
+/// declared rail face whose ±1% window [4.95, 5.05] does not cover the
+/// guaranteed [4.5, 5.5] → the converter can deliver outside the rail.
+#[test]
+fn converter_output_escaping_rail_window_fires_6026() {
+    let src = format!(
+        "{SRC5}{REG_OFF}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±1%) }}\n    \
+         io V5R\n    io VIN\n    SRC5 s\n    REG_OFF c\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    \
+         c.VOUT -> V5R\n    c.GN2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_CONVERTER_OUTPUT_RAIL_WINDOW),
+        "an output guarantee [4.5, 5.5] on a ±1% rail window [4.95, 5.05] must fire 6026; got codes: {codes:?}"
+    );
+}
+
+/// 6026 — control: the same rail, an output guarantee inside it → clean.
+#[test]
+fn converter_output_inside_rail_window_is_clean_6026() {
+    let src = format!(
+        "{SRC5}{REG_OK}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±1%) }}\n    \
+         io V5R\n    io VIN\n    SRC5 s\n    REG_OK c\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    \
+         c.VOUT -> V5R\n    c.GN2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_CONVERTER_OUTPUT_RAIL_WINDOW),
+        "an output guarantee [4.98, 5.02] inside a ±1% rail window must pass 6026; got codes: {codes:?}"
+    );
+}
+
+/// 6026 — non-trigger: the Src output lands on a plain driven net (no declared
+/// rail face) — there is no scope-level window to cross-check. Mirrors the buck
+/// `LX` → filter → rail net case.
+#[test]
+fn converter_output_on_plain_driven_net_never_fires_6026() {
+    let src = format!(
+        "{SRC5}{REG_OFF}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io V5R\n    io VIN\n    SRC5 s\n    REG_OFF c\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    \
+         c.VOUT -> V5R\n    c.GN2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_CONVERTER_OUTPUT_RAIL_WINDOW),
+        "a Src output on a net with no declared rail face must not fire 6026; got codes: {codes:?}"
     );
 }

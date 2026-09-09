@@ -168,9 +168,12 @@ fn window_of_attr(attr: &McAttribute) -> Option<(PwrWindow, String)> {
 //          contention scope, deferred like the nominal layer);
 //   3. no rail and no source face → copper pass-through (§6.3): a 2-pin io
 //      device with no DC rows (fuse / inductor / ferrite) forwards its other
-//      net's window verbatim; a net that only reaches a submodule-boundary
-//      port, or an un-driven sink face, stays NoSupply (the module-boundary
-//      leave taken by 6011/6019 — the window layer resolves inside one scope).
+//      net's window verbatim; then a module-boundary feed (§6.6): a net that
+//      reaches a submodule port forwards the first Resolved window of a
+//      cross-boundary co-segment (A′: the child-scope NetEntry shares the
+//      junction point id and `module` differs). With no Resolved co-segment
+//      and no driver the net stays NoSupply (the shared 6011/6019 leave for
+//      un-driven sink faces).
 //
 // Recursion is memoized per net id and guarded against cycles (a revisited net
 // on the current stack is Unresolved). A3 lands the engine ahead of the 6023/
@@ -418,6 +421,32 @@ impl<'a> WindowDeriv<'a> {
                 return self.window_of_net(onet);
             }
         }
+        // Module-boundary feed (rail-contract-design.md §6.6): a net that only
+        // reaches a submodule port is not yet adjudicated — across the boundary
+        // the SAME physical copper is a second NetEntry owned by the child scope
+        // (A′: both share the junction point id, `module` differs). If that
+        // co-segment already resolved a window, forward it verbatim. Cycle-safe:
+        // a rootless child-sink co-segment recursing back to this net hits the
+        // in_progress guard and is Unresolved, so it is skipped and this net
+        // stays NoSupply; only a genuinely Resolved child-source feed wins.
+        if let Some(m) = net.module {
+            for &pid in &net.points {
+                for &cid in self.table.nets_of(pid) {
+                    if cid == net.id {
+                        continue;
+                    }
+                    let Some(co) = self.table.get_net(cid) else {
+                        continue;
+                    };
+                    if co.module.is_none() || co.module == Some(m) {
+                        continue; // same-scope segment, not a module boundary
+                    }
+                    if let WindowState::Resolved(w) = self.window_of_net(cid) {
+                        return WindowState::Resolved(w);
+                    }
+                }
+            }
+        }
         // Module-boundary / un-driven sink net — the shared 6011/6019 leave.
         WindowState::NoSupply
     }
@@ -613,6 +642,72 @@ pub(crate) fn check_converter_spec_incomplete(
             pos,
             uri,
         });
+    }
+}
+
+/// 6026 POWER_CONVERTER_OUTPUT_RAIL_WINDOW — §6.7 converter output vs the rail
+/// promise of the net it drives (rail-contract-design.md §6.7, window-notes
+/// batch). A regulator's `spec.output` guarantee must sit inside the declared
+/// rail window of the net its Src row lands on: the rail is that net's promise
+/// (§4.1 priority 1 — the rail wins even when a converter drives the same
+/// copper), so a converter guaranteeing a window the rail does not cover can
+/// deliver outside what the scope allows on that net. Only Src rows landing on
+/// a *declared rail face* are judged; a Src on a plain driven node (buck `LX`
+/// → filter → rail net), or a degenerate rail face (a bare nominal with no ±tol
+/// — no allowed spread is declared), is not — the rail promise lives on the
+/// rail net and the feed side is 6023's gate.
+pub(crate) fn check_converter_output_rail_window(
+    table: &InstTable,
+    results: &mut Vec<NetCheckResult>,
+) {
+    let deriv = WindowDeriv::new(table);
+    for comp in table.get_components() {
+        if comp.synthetic || comp.unselected || comp.not_fitted {
+            continue;
+        }
+        let Some(def) = deriv.scan.def_arc(comp.id) else {
+            continue;
+        };
+        let spec = decode_component_spec(&def);
+        let Some((out, out_text)) = spec.output.as_ref() else {
+            continue; // no output guarantee → nothing to cross-check
+        };
+        for pin in deriv.table.get_pins_of(comp.id) {
+            if super::source_contract_for(&def, pin).is_none() {
+                continue; // not a Src output row
+            }
+            let Some(net) = deriv.table.get_net_of(pin.id) else {
+                continue;
+            };
+            // Only a declared rail face on the Src net carries a scope-level
+            // window to cross-check (§6.7); a plain driven net's window is the
+            // upstream converter's own guarantee and is not double-judged.
+            let Some((rail, rail_text)) = deriv.rail_face(net) else {
+                continue;
+            };
+            // A degenerate rail window (a bare nominal, no ±tol → [v, v]) is a
+            // declaration of *no* allowed spread — the tolerance lives with the
+            // converters feeding it, so there is no window to cross-check.
+            if (rail.hi - rail.lo).abs() < 1e-9 {
+                continue;
+            }
+            if rail.covers(out) {
+                continue;
+            }
+            let (pos, uri) = super::entry_pos(comp);
+            results.push(NetCheckResult {
+                check: "converter-output-rail-window",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::POWER_CONVERTER_OUTPUT_RAIL_WINDOW,
+                    &[out_text, &rail_text, &comp.path, &net.name],
+                ),
+                net_name: net.name.clone(),
+                code: crate::errcodes::POWER_CONVERTER_OUTPUT_RAIL_WINDOW,
+                pos,
+                uri,
+            });
+        }
     }
 }
 
