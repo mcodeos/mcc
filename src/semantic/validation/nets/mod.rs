@@ -38,6 +38,13 @@ pub(crate) use window::{
 mod budget;
 pub(crate) use budget::check_net_budget;
 
+// PWR-1/PWR-2 supply reach (net-island-attribution-design.md §7 L4 — the
+// nominal face of the S-set step): reach.rs closes 6011/6019's "copper
+// pass-through feed = later S-set step" gap. No re-export — the two owners
+// (6011 check_sink_nominal_mismatch, 6019 check_undriven_sink_net) live in
+// this file and construct reach::ReachScan directly.
+mod reach;
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`
@@ -1394,7 +1401,11 @@ impl PowerScan {
             None => {
                 let mut it = src_nominal.iter();
                 let Some((first, first_text)) = it.next() else {
-                    return None; // no supply root on this net — intermediate (S-set later)
+                    // no supply root on this net — a *reached* upstream root is
+                    // net-island §7 L4 reach.rs's job (6011 goes through
+                    // ReachScan::nominal_of, which ascends transparent copper /
+                    // module boundaries before calling back in here)
+                    return None;
                 };
                 if it.any(|(sv, _)| (*sv - *first).abs() > 1e-9) {
                     return None; // two sources, different nominals — defer
@@ -1480,23 +1491,28 @@ impl PowerScan {
 ///     (e.g. ORing `OUT` psrc feeding VMAIN_5V in the golden).
 /// If the roots on one net disagree in nominal, the net is left un-adjudicated
 /// (source contention is PWR-3 OR-merge territory, deferred) rather than judged
-/// against an arbitrary pick. Copper pass-through propagation (S crossing a fuse
-/// / inductor / ferrite §4.3) and converter re-anchoring are the later S-set
-/// step; this rule compares only sinks on nets that carry a direct root.
+/// against an arbitrary pick. Copper/module-boundary reach (S crossing a fuse /
+/// inductor / ferrite / submodule port — net-island §7 L4) is implemented by
+/// reach.rs: a root-less sink net *fed* to an upstream root is adjudicated
+/// against that root's nominal. Converter re-anchoring is still the later S-set
+/// step; for a net with no direct or reached root this rule stays silent.
 /// A root whose own nominal failed to decode is reported by the decl-local
 /// decode ERC (rail: 6009; pin: 6012), never adjudicated here; likewise a
 /// sink whose nominal does not decode is skipped rather than compared blind.
 pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    // Shared scan of the flat power face: PowerScan owns the guarantee /
-    // capacity maps and the comp_def table (each check used to rebuild them
-    // inline) and the workspace Arcs that keep the def borrows alive.
-    let scan = PowerScan::build(table);
+    // Shared reach engine over the flat power face — PowerScan (guarantee /
+    // capacity / comp_def tables) plus the island role index for §7 L4 copper /
+    // module-boundary ascent. `eng.scan` keeps the parent tables reachable to
+    // the fire loop below.
+    let mut eng = reach::ReachScan::new(table);
 
     for net in table.get_nets() {
-        // ── Derive S(net) from its handwritten supply roots (design §4.3). ──
-        // `None` = no agreed root on this net — the net is intermediate /
-        // un-adjudicated (6010/PWR-3 territory), same skip as the inlined S.
-        let Some((v_supply, supply_text)) = scan.net_nominal(table, net) else {
+        // ── Derive S(net): a handwritten supply root on the net (design §4.3),
+        //    or the upstream root it is fed from through transparent copper / a
+        //    module boundary (§7 L4 reach). ──
+        // `None` = no agreed root (direct or reached) on this net — intermediate
+        // / un-adjudicated (6010/PWR-3 territory), same skip as the inlined S.
+        let Some((v_supply, supply_text)) = eng.nominal_of(net.id) else {
             continue;
         };
 
@@ -1511,7 +1527,7 @@ pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<N
             let Some(comp_id) = entry.parent_id else {
                 continue;
             };
-            let Some(def) = scan.def_of(comp_id) else {
+            let Some(def) = eng.scan.def_of(comp_id) else {
                 continue;
             };
             let Some(contract) = sink_contract_for(def, entry) else {
@@ -1552,29 +1568,31 @@ pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<N
 /// supply root on the net itself — neither a declared domain-rail face
 /// (`guarantee`, §4.1) nor a `psrc`/`psbi` hot pin whose nominal decodes (§4.3)
 /// — is a face whose loads draw from nothing. This is the complement of 6011's
-/// "no supply root on this net — intermediate (S-set later)" skip: a root-less
-/// net is only a *legal intermediate* when it carries no demand, so a root-less
-/// net that does carry a sink is reported. The kernel is net-local and mirrors
-/// 6011/6013 exactly: only parents resolved through the component class table
-/// count, so module boundary feed ports (an inlet module's `psnk` port is where
-/// an external supply enters the netlist, e.g. a connector feed) never
-/// false-fire, and copper pass-through feed (S crossing an inductor/ferrite/
-/// fuse from a neighbouring net) stays the later S-set step, documented the
-/// same way as in 6011/6013. Reports once per offending net at the first sink
-/// terminal's entry.
+/// "no agreed root" skip: a root-less net is only a *legal intermediate* when
+/// it carries no demand, so a root-less net that does carry a sink is reported
+/// unless it is *fed* to an upstream root through transparent copper or a
+/// module boundary (§7 L4 reach.rs) — such a net is adjudicated by 6011, not a
+/// PWR-1 orphan. The kernel still mirrors 6011/6013 exactly: only parents
+/// resolved through the component class table count, so module boundary feed
+/// ports (an inlet module's `psnk` port is where an external supply enters the
+/// netlist, e.g. a connector feed) never false-fire. Copper pass-through feed
+/// (S crossing an inductor/ferrite/fuse from a neighbouring net) is reach.rs's
+/// copper arm; converter re-anchoring stays the later S-set step. Reports once
+/// per offending net at the first sink terminal's entry.
 pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    // Shared scan of the flat power face (guarantee/comp_def — 6011's tables).
-    let scan = PowerScan::build(table);
+    // Shared reach engine over the flat power face (guarantee/comp_def —
+    // 6011's tables, plus the island role index for §7 L4 ascent).
+    let mut eng = reach::ReachScan::new(table);
 
     for net in table.get_nets() {
         // ── Supply root on this net? ──
         // Rail face first (exact name, then last dotted segment), then a
         // psrc/psbi hot pin whose nominal decodes — mirroring 6011's S(net)
         // so a "root-less" net here is exactly the net 6011 defers.
-        if scan.rail_face(net).is_some() {
+        if eng.scan.rail_face(net).is_some() {
             continue;
         }
-        if scan.has_source_root(table, net) {
+        if eng.scan.has_source_root(table, net) {
             continue; // a source drives this net — 6013's contention scope, not PWR-1
         }
 
@@ -1614,6 +1632,14 @@ pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCh
             continue;
         }
 
+        // ── §7 L4 reach-fed: a root-less net *fed* through transparent copper
+        //    / a module boundary to an upstream supply root is adjudicated
+        //    there by 6011 — not a PWR-1 orphan. The Port exemption above and
+        //    the direct-root checks before it still win. ──
+        if eng.has_supply_of(net.id) {
+            continue;
+        }
+
         // ── Root-less net: report if it still carries a component psnk sink. ──
         for &pid in &net.points {
             let Some(entry) = table.get_entry(pid) else {
@@ -1625,7 +1651,7 @@ pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCh
             let Some(comp_id) = entry.parent_id else {
                 continue;
             };
-            let Some(def) = scan.def_of(comp_id) else {
+            let Some(def) = eng.scan.def_of(comp_id) else {
                 continue;
             };
             let Some(_contract) = sink_contract_for(def, entry) else {

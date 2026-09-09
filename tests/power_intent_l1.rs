@@ -1366,9 +1366,10 @@ module main {\n    conduit GND @role(main)\n    io V33\n    SRC_BAD s\n    \
 // per root. The discriminating proofs live here because the real pwrint board
 // cannot host a plain leaf sink on its one copper-split net (VBUS_RAW) without
 // tripping the unchanged net-local 6019 — see §8.5 of rail-contract-design.md.
-// These locks assert only on 6021: a rootless downstream net legitimately trips
-// 6019 (SINK_NET_NO_SOURCE) under the still-net-local nominal layer, a
-// pre-existing gap this batch does not introduce and does not assert on.
+// These locks assert only on 6021. Their far downstream nets (V5B / V33B /
+// V3V3B) are *reach-fed* to the root by §7 L4 reach (net-island-attribution-
+// design.md; reach.rs) once the net-island L4 batch lands, so 6011/6019 stay
+// silent on them — the individual asserts pin 6021 alone.
 
 /// §8.5 copper split, over budget: a 500mA psrc root feeds net A (300mA sink)
 /// and, through an `FB` pass leg, a second net B (300mA sink). Net-local each
@@ -2198,5 +2199,133 @@ fn converter_output_on_plain_driven_net_never_fires_6026() {
     assert!(
         !codes.contains(&mcc::errcodes::POWER_CONVERTER_OUTPUT_RAIL_WINDOW),
         "a Src output on a net with no declared rail face must not fire 6026; got codes: {codes:?}"
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Net-island L4 supply reach (net-island-attribution-design.md §7 L4) — 6011/
+// 6019 close the "copper pass-through feed = later S-set step" gap through
+// reach.rs. A root-less sink net *fed* to an upstream supply root through a
+// current-transparent two-pin element (fuse/inductor/ferrite/decoupling cap)
+// or a module boundary is not a PWR-1 orphan (6019 silent) and is adjudicated
+// by 6011 against the reached root's nominal. Return/reference copper is never
+// a feed (a cap to GND does not supply), so 6019 still fires on genuinely
+// undriven nets even when they have a decoupling cap to the shared return.
+// These are the discriminating proofs — the real pwrint board cannot demo the
+// copper arm without tripping 4118 (see the §9 landing log).
+
+/// §7 L4 copper arm via a *psrc* root: a 5V sink on net V5B, fed from the 5V
+/// psrc net V5 through an `FB` leg. Old net-local layer: V5B is rootless with a
+/// sink → 6019 fires. Reach: V5B is fed (5V) → 6019 silent and 6011 adjudicates
+/// a match → silent.
+#[test]
+fn copper_psrc_fed_sink_net_silent_6019_l4_reach() {
+    let src = format!(
+        "{SRC5}{SNK5}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io V5\n    io V5B\n    SRC5 s\n    SNK5 k\n    \
+         s.OUT -> V5\n    s.GND -> GND\n    \
+         V5 - fb::FB() - V5B\n    k.VDD -> V5B\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE)
+            && !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "a 5V sink fed from a 5V psrc through copper must be silent on 6019 and 6011 (§7 L4 reach); got codes: {codes:?}"
+    );
+}
+
+/// §7 L4 copper arm via a *domain-rail face*: a 3.3V sink on net V3V3B, fed from
+/// the declared 3.3V rail through an `FB` leg → both 6019 and 6011 silent.
+#[test]
+fn copper_rail_fed_match_silent_6019_and_6011_l4_reach() {
+    let src = format!(
+        "{SINK3}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V3V3, GND]::DC(3.3V) }}\n    \
+         io V3V3\n    io V3V3B\n    SINK3 k\n    \
+         V3V3 - fb::FB() - V3V3B\n    k.VDD -> V3V3B\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE)
+            && !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "a 3.3V sink fed from its 3.3V rail through copper must be silent on 6019 and 6011 (§7 L4 reach); got codes: {codes:?}"
+    );
+}
+
+/// §7 L4 flagship discriminator: the *mismatch* on a copper-fed net is now
+/// adjudicated. A 5V sink on V3V3B (fed from the 3.3V rail) fired 6019 under the
+/// net-local layer and *skipped* 6011 (no root on V3V3B). Reach closes both: the
+/// net is fed, so 6019 stays silent, and 6011 compares against the reached 3.3V
+/// root → exactly one mismatch.
+#[test]
+fn copper_rail_fed_mismatch_fires_6011_l4_reach() {
+    let src = format!(
+        "{SNK5}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V3V3, GND]::DC(3.3V) }}\n    \
+         io V3V3\n    io V3V3B\n    SNK5 k\n    \
+         V3V3 - fb::FB() - V3V3B\n    k.VDD -> V3V3B\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n_6011 = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH)
+        .count();
+    assert_eq!(
+        n_6011, 1,
+        "a 5V sink reached to a 3.3V rail through copper must fire exactly one 6011 (§7 L4 reach); got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "the fed net must not also fire 6019; got codes: {codes:?}"
+    );
+}
+
+/// §7 L4 hop-exclusion guard — the decoupling-cap hazard. A genuinely undriven
+/// sink net VPROBE has a decap to the shared return GND, and the rail V3V3 has
+/// its *own* decap to that same GND (the normal golden shape). A naive engine
+/// climbs VPROBE → cap → GND → rail cap → V3V3 and false-silences an orphan;
+/// reach excludes the `Ret` hop at GND, so 6019 still fires on VPROBE.
+#[test]
+fn decap_to_return_net_is_not_a_feed_l4_reach() {
+    let src = format!(
+        "{SINK3}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V3V3, GND]::DC(3.3V) }}\n    \
+         io V3V3\n    io VPROBE\n    SINK3 k\n    \
+         k.VDD -> VPROBE\n    k.GND -> GND\n    \
+         VPROBE - ca::FB() - GND\n    \
+         V3V3 - cb::FB() - GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a decap to the shared return net must not feed an undriven net — 6019 fires (§7 L4 hop exclusion); got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "the undriven net carries no agreed nominal, so 6011 must stay silent; got codes: {codes:?}"
+    );
+}
+
+/// §7 L4 seed-exclusion guard: a sink hot wired straight onto the declared
+/// return copper GND, with the rail's decap (V3V3 – cap – GND) present. Without
+/// seed exclusion a naive engine feeds GND through the rail cap and drops the
+/// miswire; reach never *starts* on return/reference copper → 6019 fires.
+#[test]
+fn return_net_sink_not_fed_by_decap_bead_l4_reach() {
+    let src = format!(
+        "{SINK3}{FB}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V3V3, GND]::DC(3.3V) }}\n    \
+         io V3V3\n    io RTN\n    SINK3 k\n    \
+         k.VDD -> GND\n    k.GND -> RTN\n    \
+         V3V3 - ca::FB() - GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::SINK_NET_NO_SOURCE),
+        "a sink hot on the return copper is a miswire — 6019 fires even with the rail decap present (§7 L4 seed exclusion); got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
+        "return copper never carries an agreed nominal, so 6011 must stay silent; got codes: {codes:?}"
     );
 }

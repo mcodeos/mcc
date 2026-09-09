@@ -1349,10 +1349,11 @@ pub const POWER_RAIL_TWO_ROOTS: u32 = 6010;
 /// A sink (`psnk`) lands on a net whose derived supply S differs from the
 /// sink's required nominal — the §4.4 mandatory-nominal check, the canonical P3/E-PWR-001 case
 /// (power-intent-design.md §4.4/§11; e.g. a `::DC(3.3V)` sink on a 5V rail or
-/// psrc-fed net). S comes from the net's handwritten supply roots (§4.3): a
-/// declared rail face or a psrc/psbi hot directly on the net. Requirement
-/// nominal vs guarantee nominal is the comparison; window ⊆-checks (req/abs,
-/// spec-declared) are a later S-set step.
+/// psrc-fed net). S comes from the net's handwritten supply roots (§4.3) or,
+/// for a root-less net, the upstream root it is fed to through transparent
+/// copper / a module boundary (§7 L4 reach, net-island-attribution-design.md).
+/// Requirement nominal vs guarantee nominal is the comparison; window ⊆-checks
+/// (req/abs, spec-declared) are a later S-set step.
 pub const POWER_SINK_NOMINAL_MISMATCH: u32 = 6011;
 
 /// A `psrc`/`psnk`/`psbi` `::DC(…)` ctor argument does not decode to the
@@ -1430,11 +1431,12 @@ pub const ROLE_REF_MISSING_BRIDGE: u32 = 6018;
 /// PWR-1 no-source face (power-intent-design.md §11): a flat net that carries
 /// component power-sink (`psnk`) terminals but no supply root on the net itself
 /// — no declared domain-rail face and no `psrc`/`psbi` hot pin. The net's loads
-/// promise to draw from a supply that nothing on the net guarantees. Net-local
-/// kernel (mirrors 6011/6013): copper pass-through feed (S crossing an
-/// inductor/ferrite/fuse from another net) and module-boundary feed ports are
-/// the later S-set step; module ports are structurally invisible here because
-/// only `InstKind::Component` parents are decoded as sinks.
+/// promise to draw from a supply that nothing on the net guarantees. Kernel
+/// (mirrors 6011/6013): a root-less net *fed* through transparent copper or a
+/// module boundary to an upstream supply root is adjudicated there by 6011 (net-
+/// island-attribution-design.md §7 L4 reach), not a PWR-1 orphan here; module
+/// boundary feed ports are structurally invisible because only
+/// `InstKind::Component` parents are decoded as sinks.
 pub const SINK_NET_NO_SOURCE: u32 = 6019;
 
 /// §6.2③ combine-output re-anchor (rail-contract-design.md §6): a combine
@@ -1899,7 +1901,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(EARTH_DC_LEAK, "An earth reference is DC-bridged to another net (leakage).", "earth '{0}' is DC-bridged to '{1}' — the chassis/earth reference couples only through a Y-cap @couple, never a DC @bridge (§3.2 earth row); a DC tie is a leakage warning"),
     entry!(REFERENCE_ISLAND_ROOT, "A DC-bridged reference island must have exactly one @role(main) root.", "reference island '{0}' carries {1} @role(main) roots — each DC-bridged L1 island has exactly one main root: zero means the joined reference identities have no island ground to return to, more than one means two power worlds were DC-joined by a @bridge (§3.2.1)"),
     entry!(ROLE_REF_MISSING_BRIDGE, "A quiet/protective reference conduit has no declared DC @bridge.", "role conduit '{0}' carries no declared DC @bridge — an @role(quiet)/@role(protective) conduit expects exactly one bridge to its main reference; a bare zero means the declaration was never wired (conduit-equivalence-design.md §8.4)"),
-    entry!(SINK_NET_NO_SOURCE, "A net carrying power sinks (psnk) has no declared source root on it.", "net '{0}' carries component power-sink terminals but has no supply root on the net — it is neither a declared domain-rail face nor driven by a psrc/psbi hot pin, so its loads draw from nothing that guarantees power (PWR-1 no-source face). Attach the loads to a declared rail face or drive the net from a psrc source; a feed that crosses a series pass element (inductor/ferrite/fuse) from another net is not yet traced (S-set step)"),
+    entry!(SINK_NET_NO_SOURCE, "A net carrying power sinks (psnk) has no declared source root on it.", "net '{0}' carries component power-sink terminals but has no supply root on the net — it is neither a declared domain-rail face nor driven by a psrc/psbi hot pin, so its loads draw from nothing that guarantees power (PWR-1 no-source face). Attach the loads to a declared rail face or drive the net from a psrc source; a feed through a series pass element (inductor/ferrite/fuse) or a module boundary only counts once that upstream net itself carries a resolvable source root (net-island-attribution-design.md §7 L4)"),
     entry!(COMBINE_OUTPUT_TOL, "A combine element's output psrc declares a tolerance window it cannot re-anchor.", "combine element '{0}' output '{1}' declares tol {2} — a pass-through OR-merge can't guarantee tighter than its live input, so a literal OUT window over-claims under single-source states (rail-contract-design.md §6.2③); write the nominal-only ::DC(v), or add spec.output to model a regulator"),
     entry!(NET_BUDGET_EXCEEDED, "A net's declared psnk load demand exceeds its supply capacity (PWR-4).", "net '{0}' declares {1} of psnk load ({2} sinks) but its supply root declares capacity {3} — Σ amp ≤ capacity is the PWR-4 budget (rail-contract-design.md §8.2). Either the loads really overdraw the rail (cut the load / raise the source capacity / split the rail), or a sink's amp is mis-declared. Undeclared sinks draw unknown current and are not counted; converter-input push-up and cross-net feed are the S-set step"),
     entry!(RETURN_LEG_UNDECLARED, "A two-terminal DC element links two disjoint potential classes (planes) with no declared DC relation on this leg (§8.5).", "two-terminal '{2}' links planes '{0}' and '{1}' but this leg carries no @bridge/@couple — the classes are not co-resident in one declared rail loop, so the DC relation is explicit: add the forgotten single-point @bridge here, or declare the intentional bypass on this leg (conduit-equivalence-design.md §8.5)"),
