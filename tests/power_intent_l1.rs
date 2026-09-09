@@ -52,6 +52,21 @@
 //!   of 6011/6013/6019 — converter-input push-up (`I_in = ΣP_out/(|V_in|×eff)`)
 //!   and cross-net/module-boundary feed are the S-set step, and a net with no
 //!   declared capacity (or with disagreeing capacity roots) is not adjudicated.
+//! * **§6.1 regulator gate** (`POWER_CONVERTER_GATE` = 6023,
+//!   rail-contract-design.md window batch) — a regulator that writes the full
+//!   spec (input_req + output, ≥1 Snk input row, ≥1 Src output row) gates its
+//!   own input net: a Resolved supply window there must sit inside input_req
+//!   (`S(input) ⊆ input_req`). Un-derivable feeds are not adjudicated.
+//! * **§6.3 sink req window** (`POWER_SINK_WINDOW_MISMATCH` = 6024,
+//!   rail-contract-design.md window batch) — a load whose spec declares
+//!   input_req accepts supply only inside that window; a Resolved supply window
+//!   on its sink net escaping it (over/under-volts the load) is an Error. A
+//!   regulator's own input row is 6023's per-net gate, not re-judged here.
+//! * **§6.1 partial spec** (`POWER_CONVERTER_SPEC_INCOMPLETE` = 6025,
+//!   rail-contract-design.md window batch) — a def with a psrc/psbi output row
+//!   whose spec block writes only one of input_req / output cannot be gated
+//!   (advisory Info). A pure load with no output row legitimately writes
+//!   input_req alone.
 //!
 //! Golden board (`mcs/pwrint/src/main.mc`) shape: GND carries `@star`, so its
 //! two parallel `@bridge(GND, GNDA)` legs are discharged (that island holds the
@@ -1414,5 +1429,230 @@ fn decoupling_legs_across_hot_return_are_not_audited() {
     assert!(
         !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
         "hot↔return legs are decoupling, not undeclared return relations; got codes: {codes:?}"
+    );
+}
+
+// ============================================================================
+// Window batch (rail-contract-design.md §6.1/§6.3) — S(net) as a closed
+// interval, judged by spec + structure, never by name. A2/A3 landed the shared
+// `WindowDeriv::window_of_net` engine; these fixtures exercise its two first
+// consumers (6023 regulator gate, 6024 sink req window).
+// ============================================================================
+
+/// A regulator family component: one Snk input row + one Src output row, with a
+/// component-level `spec` block writing the Hoare gate (`input_req`, the input
+/// window inside which the output holds) and the `output` post-condition.
+/// Returns are per-row distinct members tied to the GND net in the board
+/// (mirrors the golden LDO/DCDC list-pair shape, no library dependency).
+const CONV: &str = "component CONV {\n    pins = [\n        psnk [1,2] = [VIN, GN1]::DC(5V)\n        psrc [3,4] = [VOUT, GN2]::DC(3.3V)\n    ]\n    spec = [\n        input_req = 5.5V ~ 6.0V\n        output    = 3.2V ~ 3.4V\n    ]\n}\n";
+
+/// Same regulator shape with an input window wide enough for a 5V point feed.
+const CONV_WIDE: &str = "component CONV_WIDE {\n    pins = [\n        psnk [1,2] = [VIN, GN1]::DC(5V)\n        psrc [3,4] = [VOUT, GN2]::DC(3.3V)\n    ]\n    spec = [\n        input_req = 4.5V ~ 5.5V\n        output    = 3.2V ~ 3.4V\n    ]\n}\n";
+
+/// A pure load that states the supply window it accepts (`input_req` only — no
+/// output post-condition, so it is a load, never a regulator).
+const LOAD_REQ: &str =
+    "component LOAD_REQ {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(5V)\n    ]\n    spec = [ input_req = 4.9V ~ 5.1V ]\n}\n";
+
+/// A psbi cell whose discharge tolerance spreads wider than ±5%.
+const BATW: &str =
+    "component BATW {\n    pins = [\n        psbi [1,2] = [BAT, GND]::DC(5V, tol:±8%)\n    ]\n}\n";
+
+/// A load accepting [4.7V, 6.0V] — the union-window target below.
+const LOAD_HI: &str =
+    "component LOAD_HI {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(5V)\n    ]\n    spec = [ input_req = 4.7V ~ 6.0V ]\n}\n";
+
+/// 6023 gate — fixture (1): a 5V point feed on the regulator's input net lies
+/// outside the declared `input_req` 5.5V~6.0V → the gate fires.
+#[test]
+fn regulator_input_point_outside_req_fires_6023() {
+    let src = format!(
+        "{SRC5}{CONV}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VOUT\n    SRC5 s\n    CONV c\n    SINK3 k\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    \
+         c.VOUT -> VOUT\n    c.GN2 -> GND\n    \
+         k.VDD -> VOUT\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_CONVERTER_GATE),
+        "a 5V point on a 5.5V~6.0V input window must fire 6023 (S(input) ⊄ input_req); got codes: {codes:?}"
+    );
+}
+
+/// 6023 gate — control: the same regulator declares `input_req` 4.5V~5.5V; the
+/// 5V point feed is inside → no gate.
+#[test]
+fn regulator_input_point_inside_req_is_clean_6023() {
+    let src = format!(
+        "{SRC5}{CONV_WIDE}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VOUT\n    SRC5 s\n    CONV_WIDE c\n    SINK3 k\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    \
+         c.VOUT -> VOUT\n    c.GN2 -> GND\n    \
+         k.VDD -> VOUT\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_CONVERTER_GATE),
+        "a 5V point inside a 4.5V~5.5V input window must pass 6023; got codes: {codes:?}"
+    );
+}
+
+/// 6024 — fixture (2): a ±5% source puts a [4.75V, 5.25V] window on the load's
+/// net; the load only accepts [4.9V, 5.1V] → the supply escapes it → fires.
+#[test]
+fn supply_window_escaping_load_req_fires_6024() {
+    let src = format!(
+        "{SRC_FULL}{LOAD_REQ}\nmodule main {{\n    conduit GND @role(main)\n    io V5\n    \
+         SRC_FULL s\n    LOAD_REQ k\n    \
+         s.OUT -> V5\n    s.GND -> GND\n    \
+         k.VDD -> V5\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_SINK_WINDOW_MISMATCH),
+        "a ±5% supply on a 4.9V~5.1V load must fire 6024 (S(net) ⊄ input_req); got codes: {codes:?}"
+    );
+}
+
+/// 6024 — control: a 5V point feed sits inside the 4.9V~5.1V accepted window →
+/// clean.
+#[test]
+fn point_supply_inside_load_req_is_clean_6024() {
+    let src = format!(
+        "{SRC5}{LOAD_REQ}\nmodule main {{\n    conduit GND @role(main)\n    io V5\n    \
+         SRC5 s\n    LOAD_REQ k\n    \
+         s.OUT -> V5\n    s.GND -> GND\n    \
+         k.VDD -> V5\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_SINK_WINDOW_MISMATCH),
+        "a 5V point inside a 4.9V~5.1V accepted window must pass 6024; got codes: {codes:?}"
+    );
+}
+
+/// 6024 through the OR-merge ∪ — fixture (3): OR2 (two psnk + a psrc, no spec)
+/// merges SRC_FULL ([4.75, 5.25]) and BATW ([4.6, 5.4]) into ∪ = [4.6, 5.4];
+/// only the union can catch that LOAD_HI's [4.7, 6.0] accepted window is
+/// escaped on the low side (an intersection or converter-re-anchor reading
+/// would return [4.75, 5.25] ⊆ [4.7, 6.0] and stay wrongly silent).
+#[test]
+fn union_window_escaping_load_req_fires_6024() {
+    let src = format!(
+        "{SRC_FULL}{BATW}{OR2}{LOAD_HI}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN1\n    io VIN2\n    io VMAIN\n    \
+         SRC_FULL a\n    BATW b\n    OR2 o\n    LOAD_HI k\n    \
+         a.OUT -> VIN1\n    a.GND -> GND\n    \
+         b.BAT -> VIN2\n    b.GND -> GND\n    \
+         o.IN1 -> VIN1\n    o.G1 -> GND\n    \
+         o.IN2 -> VIN2\n    o.G2 -> GND\n    \
+         o.OUT -> VMAIN\n    o.G3 -> GND\n    \
+         k.VDD -> VMAIN\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::POWER_SINK_WINDOW_MISMATCH),
+        "∪ [4.6, 5.4] must escape LOAD_HI's [4.7, 6.0] and fire 6024 (only the ∪ reading catches it); got codes: {codes:?}"
+    );
+}
+
+/// 6024 ∪ control: drop the OR2 merge — one ±5% source feeds VMAIN directly, so
+/// S = [4.75, 5.25] ⊆ [4.7, 6.0] → clean.
+#[test]
+fn single_source_union_control_is_clean_6024() {
+    let src = format!(
+        "{SRC_FULL}{LOAD_HI}\nmodule main {{\n    conduit GND @role(main)\n    io VMAIN\n    \
+         SRC_FULL a\n    LOAD_HI k\n    \
+         a.OUT -> VMAIN\n    a.GND -> GND\n    \
+         k.VDD -> VMAIN\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_SINK_WINDOW_MISMATCH),
+        "a single ±5% source [4.75, 5.25] inside [4.7, 6.0] must pass 6024; got codes: {codes:?}"
+    );
+}
+
+/// All-clear window board (pwrint mirror without modules): a point 5V feed → a
+/// fully-spec'd regulator (wide input window) → a declared 3.3V rail, into a
+/// nominal-only sink. Neither 6023 nor 6024 may appear.
+#[test]
+fn full_window_board_is_clean_6023_6024() {
+    let src = format!(
+        "{SRC5}{CONV_WIDE}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V3V3, GND]::DC(3.3V) }}\n    \
+         io VIN\n    io V3V3\n    SRC5 s\n    CONV_WIDE c\n    SINK3 k\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         c.VIN -> VIN\n    c.GN1 -> GND\n    \
+         c.VOUT -> V3V3\n    c.GN2 -> GND\n    \
+         k.VDD -> V3V3\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_CONVERTER_GATE),
+        "a 5V point inside a wide input window must not fire 6023; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_SINK_WINDOW_MISMATCH),
+        "a nominal-only 3.3V sink on its declared rail declares no req window — no 6024; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_CONVERTER_SPEC_INCOMPLETE),
+        "a fully-spec'd regulator writes both input_req and output — no 6025; got codes: {codes:?}"
+    );
+}
+
+// ---- 6025 partial-spec advisory -------------------------------------------
+
+/// A one-sided regulator: psnk input row + psrc output row, but the spec block
+/// writes only the `output` post-condition — no `input_req` pre-condition, so
+/// 6023 cannot gate it and 6024 cannot judge it. Advisory Info, decl-local.
+const HALF: &str = "component HALF {\n    pins = [\n        psnk [1,2] = [VIN, GN1]::DC(5V)\n        psrc [3,4] = [VOUT, GN2]::DC(3.3V)\n    ]\n    spec = [\n        output = 3.2V ~ 3.4V\n    ]\n}\n";
+
+/// 6025 — fixture (4): an output-only regulator spec is a one-sided Hoare
+/// triple → exactly one Info. The written output still decodes (so the output
+/// net is not adjudicated by 6024), and there is no input_req to gate.
+#[test]
+fn output_only_regulator_fires_one_6025() {
+    let src = format!(
+        "{SRC5}{HALF}{SINK3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         io VIN\n    io VOUT\n    SRC5 s\n    HALF h\n    SINK3 k\n    \
+         s.OUT -> VIN\n    s.GND -> GND\n    \
+         h.VIN -> VIN\n    h.GN1 -> GND\n    \
+         h.VOUT -> VOUT\n    h.GN2 -> GND\n    \
+         k.VDD -> VOUT\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::POWER_CONVERTER_SPEC_INCOMPLETE)
+        .count();
+    assert_eq!(
+        n, 1,
+        "an output-only regulator spec must fire exactly one 6025 Info; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_CONVERTER_GATE),
+        "no input_req → no 6023 gate on HALF; got codes: {codes:?}"
+    );
+}
+
+/// 6025 — control: a pure load (psnk only, no output row) writes `input_req`
+/// alone — that is its accepted window, not a half regulator → no 6025.
+#[test]
+fn input_req_only_load_never_fires_6025() {
+    let src = format!(
+        "{SRC5}{LOAD_REQ}\nmodule main {{\n    conduit GND @role(main)\n    io V5\n    \
+         SRC5 s\n    LOAD_REQ k\n    \
+         s.OUT -> V5\n    s.GND -> GND\n    \
+         k.VDD -> V5\n    k.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_CONVERTER_SPEC_INCOMPLETE),
+        "a load's input_req-only spec is its own — no 6025; got codes: {codes:?}"
     );
 }

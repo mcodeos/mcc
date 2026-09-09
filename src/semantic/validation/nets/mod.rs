@@ -23,6 +23,14 @@ use crate::semantic::module::pi::{decode_pwr_pin, McPowerDecls};
 use crate::semantic::validation::finding::CheckFinding;
 use std::collections::HashSet;
 
+// Rail-contract window layer (§2/§4.3/§6 interval decode + arithmetic). The
+// nominal checks live in this file; window.rs is a sibling leaf consumed by
+// the 6023/6024/6025 owners added in the window batch.
+mod window;
+pub(crate) use window::{
+    check_converter_gate_window, check_converter_spec_incomplete, check_sink_window_mismatch,
+};
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`
@@ -1214,6 +1222,241 @@ pub(crate) fn check_power_rail_two_roots(table: &InstTable, results: &mut Vec<Ne
     }
 }
 
+/// Shared scan of the flat power face — the per-check duplicate map builds and
+/// per-net root loops that 6011 / 6019 / 6021 used to each inline. Owning the
+/// workspace Arcs lets `def_of` borrow past the builder, so a check (or the
+/// window-layer owner) holds one `PowerScan` for the whole pass and reads the
+/// same guarantee / capacity / component maps it used to rebuild by hand.
+struct PowerScan {
+    /// Rail hot net name → (domain, nominal volts, verbatim text). Same build
+    /// as the three checks shared verbatim: two rails claiming one hot with
+    /// *different* nominals drop the entry (ambiguous scope → 6010/6013), an
+    /// equal-nominal redeclaration keeps the first.
+    guarantee: std::collections::HashMap<String, (String, f64, String)>,
+    /// Rail hot net name → declared capacity amps (6021's `rail_cap`). Same
+    /// ambiguity rule as `guarantee`, over capacity instead of nominal.
+    rail_cap: std::collections::HashMap<String, f64>,
+    /// Component instance id → def, resolved through the project workspace
+    /// class table (module-boundary/library faces stay out — exactly the
+    /// membership 6011/6013/6019 relied on).
+    comp_def: std::collections::HashMap<u32, std::sync::Arc<McComponent>>,
+}
+
+impl PowerScan {
+    fn build(table: &InstTable) -> PowerScan {
+        let mut guarantee: std::collections::HashMap<String, (String, f64, String)> =
+            std::collections::HashMap::new();
+        let mut rail_cap: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        for (pi, _uri) in power_intent_defs(table) {
+            for r in pi.l1_rails() {
+                if let Some(v) = r.v {
+                    match guarantee.get(&r.hot) {
+                        Some((_, prev, _)) if (*prev - v).abs() > 1e-9 => {
+                            guarantee.remove(&r.hot); // ambiguous scope — skip
+                        }
+                        None => {
+                            guarantee
+                                .insert(r.hot.clone(), (r.domain.clone(), v, r.v_text.clone()));
+                        }
+                        _ => {} // same nominal redeclared: keep the first
+                    }
+                }
+                if let Some(c) = r.capacity_amps {
+                    match rail_cap.get(&r.hot) {
+                        Some(prev) if (*prev - c).abs() > 1e-9 => {
+                            rail_cap.remove(&r.hot); // ambiguous scope — skip
+                        }
+                        None => {
+                            rail_cap.insert(r.hot.clone(), c);
+                        }
+                        _ => {} // same capacity redeclared: keep the first
+                    }
+                }
+            }
+        }
+
+        // Component class → def, then component-instance id → def, so every net
+        // point recovers its def contract without re-scanning the definition
+        // space. (`workspace` is folded into the Arcs owned here, so the
+        // borrowed defs stay valid for the whole scan — the same reason the
+        // inlined copies kept their `workspace` variable alive.)
+        let workspace = crate::definition_space().workspace_components();
+        let defs: std::collections::HashMap<String, std::sync::Arc<McComponent>> = workspace
+            .into_iter()
+            .map(|(sn, c)| (sn.ident.to_string(), c))
+            .collect();
+        let comp_def: std::collections::HashMap<u32, std::sync::Arc<McComponent>> = table
+            .get_components()
+            .iter()
+            .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, d.clone())))
+            .collect();
+
+        PowerScan {
+            guarantee,
+            rail_cap,
+            comp_def,
+        }
+    }
+
+    /// The def behind a flat component instance, if it resolved through the
+    /// project class table (None → a non-project face, which the nominal checks
+    /// never adjudicate).
+    fn def_of(&self, comp_id: u32) -> Option<&McComponent> {
+        self.comp_def.get(&comp_id).map(|a| a.as_ref())
+    }
+
+    /// Owned def Arc for a flat component instance — lets a caller (e.g. the
+    /// recursive window engine in window.rs) hold the def while recursing into
+    /// other nets without borrowing the scan.
+    fn def_arc(&self, comp_id: u32) -> Option<std::sync::Arc<McComponent>> {
+        self.comp_def.get(&comp_id).cloned()
+    }
+
+    /// Rail face on a net — exact net name, then the last dotted segment
+    /// (module-qualified / power-rail tier-3 spellings). Returns the guarantee
+    /// nominal + verbatim text.
+    fn rail_face(&self, net: &NetEntry) -> Option<(f64, String)> {
+        self.guarantee
+            .get(&net.name)
+            .or_else(|| {
+                net.name
+                    .rsplit('.')
+                    .next()
+                    .and_then(|l| self.guarantee.get(l))
+            })
+            .map(|(_domain, v, text)| (*v, text.clone()))
+    }
+
+    /// Capacity face on a net (rail declared capacity only — the same lookup
+    /// shape as `rail_face`).
+    fn rail_cap_face(&self, net: &NetEntry) -> Option<f64> {
+        self.rail_cap
+            .get(&net.name)
+            .or_else(|| {
+                net.name
+                    .rsplit('.')
+                    .next()
+                    .and_then(|l| self.rail_cap.get(l))
+            })
+            .copied()
+    }
+
+    /// The psrc/psbi hot pins on a net whose parent resolved to a project def
+    /// and whose nominal decodes — 6011's `src_nominal`, without the rail.
+    fn source_faces(&self, table: &InstTable, net: &NetEntry) -> Vec<(f64, String)> {
+        let mut out = Vec::new();
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = self.def_of(comp_id) else {
+                continue;
+            };
+            let Some(contract) = source_contract_for(def, entry) else {
+                continue;
+            };
+            let dec = decode_pwr_pin(contract);
+            if let Some(v) = dec.v {
+                out.push((v, dec.v_text));
+            }
+        }
+        out
+    }
+
+    /// Derived S(net) nominal — 6011's §4.3 derivation, verbatim: the rail face
+    /// first (a handwritten §4.1 root); a source pin on the net that disagrees
+    /// with the rail defers the net; no rail → one agreeing source nominal,
+    /// two disagreeing sources defers. `None` = un-adjudicated (the inlined
+    /// `continue`s this method replaces).
+    fn net_nominal(&self, table: &InstTable, net: &NetEntry) -> Option<(f64, String)> {
+        let rail_root = self.rail_face(net);
+        let src_nominal = self.source_faces(table, net);
+        match rail_root {
+            Some((v, text)) => {
+                if src_nominal.iter().any(|(sv, _)| (*sv - v).abs() > 1e-9) {
+                    return None; // a source pin on the net disagrees with the rail
+                }
+                Some((v, text))
+            }
+            None => {
+                let mut it = src_nominal.iter();
+                let Some((first, first_text)) = it.next() else {
+                    return None; // no supply root on this net — intermediate (S-set later)
+                };
+                if it.any(|(sv, _)| (*sv - *first).abs() > 1e-9) {
+                    return None; // two sources, different nominals — defer
+                }
+                Some((*first, first_text.clone()))
+            }
+        }
+    }
+
+    /// 6019's root-presence test: a decodable psrc/psbi hot pin sits directly on
+    /// the net (agreement with the rail is irrelevant here — existence alone
+    /// routes the net to 6013/6010's contention scope, not PWR-1).
+    fn has_source_root(&self, table: &InstTable, net: &NetEntry) -> bool {
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = self.def_of(comp_id) else {
+                continue;
+            };
+            let Some(contract) = source_contract_for(def, entry) else {
+                continue;
+            };
+            if decode_pwr_pin(contract).v.is_some() {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The capacity roots on a net — rail capacity face plus every source pin
+    /// carrying a capacity — in 6021's encounter order (6021 then requires the
+    /// roots to agree before budgeting).
+    fn capacity_roots(&self, table: &InstTable, net: &NetEntry) -> Vec<f64> {
+        let mut caps: Vec<f64> = Vec::new();
+        if let Some(c) = self.rail_cap_face(net) {
+            caps.push(c);
+        }
+        for &pid in &net.points {
+            let Some(entry) = table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
+                continue;
+            }
+            let Some(comp_id) = entry.parent_id else {
+                continue;
+            };
+            let Some(def) = self.def_of(comp_id) else {
+                continue;
+            };
+            let Some(contract) = source_contract_for(def, entry) else {
+                continue;
+            };
+            let dec = decode_pwr_pin(contract);
+            if let Some(c) = dec.capacity_amps {
+                caps.push(c);
+            }
+        }
+        caps
+    }
+}
+
 /// E-PWR-001 (design §4.4 mandatory-nominal check / §11): a sink (`psnk`) on
 /// a net must require that net's derived supply nominal S. The canonical §4.4
 /// case: a `::DC(3.3V)`
@@ -1237,93 +1480,17 @@ pub(crate) fn check_power_rail_two_roots(table: &InstTable, results: &mut Vec<Ne
 /// decode ERC (rail: 6009; pin: 6012), never adjudicated here; likewise a
 /// sink whose nominal does not decode is skipped rather than compared blind.
 pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    // Guarantee net name → (domain, nominal, verbatim nominal text). Two rails
-    // claiming the same hot with *different* nominals leave the net un-
-    // adjudicated (6010 reports the two-root conflict within a scope; across
-    // scopes the flat net name cannot be pinned to one guarantee).
-    let mut guarantee: std::collections::HashMap<String, (String, f64, String)> =
-        std::collections::HashMap::new();
-    for (pi, _uri) in power_intent_defs(table) {
-        for r in pi.l1_rails() {
-            let Some(v) = r.v else {
-                continue; // 6009's job
-            };
-            match guarantee.get(&r.hot) {
-                Some((_, prev, _)) if (*prev - v).abs() > 1e-9 => {
-                    guarantee.remove(&r.hot); // ambiguous scope — skip
-                }
-                None => {
-                    guarantee.insert(r.hot.clone(), (r.domain.clone(), v, r.v_text.clone()));
-                }
-                _ => {} // same nominal redeclared: keep the first
-            }
-        }
-    }
-
-    // Component class → def, then component-instance id → def, so every net
-    // point recovers its def contract without re-scanning the definition space.
-    // (`workspace` lives for the whole check so the borrowed defs stay valid.)
-    let workspace = crate::definition_space().workspace_components();
-    let defs: std::collections::HashMap<String, &McComponent> = workspace
-        .iter()
-        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
-        .collect();
-    let comp_def: std::collections::HashMap<u32, &McComponent> = table
-        .get_components()
-        .iter()
-        .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, *d)))
-        .collect();
+    // Shared scan of the flat power face: PowerScan owns the guarantee /
+    // capacity maps and the comp_def table (each check used to rebuild them
+    // inline) and the workspace Arcs that keep the def borrows alive.
+    let scan = PowerScan::build(table);
 
     for net in table.get_nets() {
         // ── Derive S(net) from its handwritten supply roots (design §4.3). ──
-        // Rail face first: exact net name, then the last dotted segment
-        // (module-qualified / power-rail tier-3 spellings).
-        let rail_root = guarantee
-            .get(&net.name)
-            .or_else(|| net.name.rsplit('.').next().and_then(|l| guarantee.get(l)))
-            .map(|(_domain, v, text)| (*v, text.clone()));
-        // Source pins: a psrc/psbi hot terminal directly on the net.
-        let mut src_nominal: Vec<(f64, String)> = Vec::new();
-        for &pid in &net.points {
-            let Some(entry) = table.get_entry(pid) else {
-                continue;
-            };
-            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
-                continue;
-            }
-            let Some(comp_id) = entry.parent_id else {
-                continue;
-            };
-            let Some(def) = comp_def.get(&comp_id).copied() else {
-                continue;
-            };
-            let Some(contract) = source_contract_for(def, entry) else {
-                continue;
-            };
-            let dec = decode_pwr_pin(contract);
-            if let Some(v) = dec.v {
-                src_nominal.push((v, dec.v_text));
-            }
-        }
-        // All roots on one net must agree on one S, else leave it un-adjudicated
-        // (source contention / cross-scope ambiguity → 6010 or PWR-3, not here).
-        let (v_supply, supply_text) = match rail_root {
-            Some((v, text)) => {
-                if src_nominal.iter().any(|(sv, _)| (*sv - v).abs() > 1e-9) {
-                    continue; // a source pin on the net disagrees with the rail
-                }
-                (v, text)
-            }
-            None => {
-                let mut it = src_nominal.iter();
-                let Some((first, first_text)) = it.next() else {
-                    continue; // no supply root on this net — intermediate (S-set later)
-                };
-                if it.any(|(sv, _)| (*sv - *first).abs() > 1e-9) {
-                    continue; // two sources, different nominals — defer
-                }
-                (*first, first_text.clone())
-            }
+        // `None` = no agreed root on this net — the net is intermediate /
+        // un-adjudicated (6010/PWR-3 territory), same skip as the inlined S.
+        let Some((v_supply, supply_text)) = scan.net_nominal(table, net) else {
+            continue;
         };
 
         // ── mandatory-nominal: every decodable psnk sink on this net must need S. ──
@@ -1337,7 +1504,7 @@ pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<N
             let Some(comp_id) = entry.parent_id else {
                 continue;
             };
-            let Some(def) = comp_def.get(&comp_id).copied() else {
+            let Some(def) = scan.def_of(comp_id) else {
                 continue;
             };
             let Some(contract) = sink_contract_for(def, entry) else {
@@ -1389,72 +1556,18 @@ pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<N
 /// same way as in 6011/6013. Reports once per offending net at the first sink
 /// terminal's entry.
 pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    // Declared domain-rail faces → (domain, nominal, verbatim), exactly 6011's
-    // `guarantee`: a rail face on the net is a handwritten source root (§4.1).
-    let mut guarantee: std::collections::HashMap<String, (String, f64, String)> =
-        std::collections::HashMap::new();
-    for (pi, _uri) in power_intent_defs(table) {
-        for r in pi.l1_rails() {
-            let Some(v) = r.v else {
-                continue; // 6009's job
-            };
-            match guarantee.get(&r.hot) {
-                Some((_, prev, _)) if (*prev - v).abs() > 1e-9 => {
-                    guarantee.remove(&r.hot); // ambiguous scope — skip
-                }
-                None => {
-                    guarantee.insert(r.hot.clone(), (r.domain.clone(), v, r.v_text.clone()));
-                }
-                _ => {} // same nominal redeclared: keep the first
-            }
-        }
-    }
-
-    let workspace = crate::definition_space().workspace_components();
-    let defs: std::collections::HashMap<String, &McComponent> = workspace
-        .iter()
-        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
-        .collect();
-    let comp_def: std::collections::HashMap<u32, &McComponent> = table
-        .get_components()
-        .iter()
-        .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, *d)))
-        .collect();
+    // Shared scan of the flat power face (guarantee/comp_def — 6011's tables).
+    let scan = PowerScan::build(table);
 
     for net in table.get_nets() {
         // ── Supply root on this net? ──
         // Rail face first (exact name, then last dotted segment), then a
         // psrc/psbi hot pin whose nominal decodes — mirroring 6011's S(net)
         // so a "root-less" net here is exactly the net 6011 defers.
-        let rail_root = guarantee
-            .get(&net.name)
-            .or_else(|| net.name.rsplit('.').next().and_then(|l| guarantee.get(l)));
-        if rail_root.is_some() {
+        if scan.rail_face(net).is_some() {
             continue;
         }
-        let mut has_src_root = false;
-        for &pid in &net.points {
-            let Some(entry) = table.get_entry(pid) else {
-                continue;
-            };
-            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
-                continue;
-            }
-            let Some(comp_id) = entry.parent_id else {
-                continue;
-            };
-            let Some(def) = comp_def.get(&comp_id).copied() else {
-                continue;
-            };
-            let Some(contract) = source_contract_for(def, entry) else {
-                continue;
-            };
-            if decode_pwr_pin(contract).v.is_some() {
-                has_src_root = true;
-                break;
-            }
-        }
-        if has_src_root {
+        if scan.has_source_root(table, net) {
             continue; // a source drives this net — 6013's contention scope, not PWR-1
         }
 
@@ -1505,7 +1618,7 @@ pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCh
             let Some(comp_id) = entry.parent_id else {
                 continue;
             };
-            let Some(def) = comp_def.get(&comp_id).copied() else {
+            let Some(def) = scan.def_of(comp_id) else {
                 continue;
             };
             let Some(_contract) = sink_contract_for(def, entry) else {
@@ -2072,72 +2185,15 @@ pub(crate) fn check_combine_output_tol(table: &InstTable, results: &mut Vec<NetC
 /// directly to the capacity-declaring net. Reports once per offending net at
 /// the first contributing sink's entry.
 pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResult>) {
-    // Budget capacity from declared domain-rail faces, keyed by rail hot net
-    // name. Ambiguity mirrors 6011's `guarantee`: a hot redeclared across
-    // scopes with a *different* capacity is dropped (6010's two-roots scope).
-    let mut rail_cap: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
-    for (pi, _uri) in power_intent_defs(table) {
-        for r in pi.l1_rails() {
-            let Some(c) = r.capacity_amps else {
-                continue;
-            };
-            match rail_cap.get(&r.hot) {
-                Some(prev) if (*prev - c).abs() > 1e-9 => {
-                    rail_cap.remove(&r.hot); // ambiguous scope — skip
-                }
-                None => {
-                    rail_cap.insert(r.hot.clone(), c);
-                }
-                _ => {} // same capacity redeclared: keep the first
-            }
-        }
-    }
-
-    // Component class → def, then component-instance id → def, so every net
-    // point recovers its def contract without re-scanning the definition space
-    // (identical to 6011/6019).
-    let workspace = crate::definition_space().workspace_components();
-    let defs: std::collections::HashMap<String, &McComponent> = workspace
-        .iter()
-        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
-        .collect();
-    let comp_def: std::collections::HashMap<u32, &McComponent> = table
-        .get_components()
-        .iter()
-        .filter_map(|e| defs.get(&e.class_name).map(|d| (e.id, *d)))
-        .collect();
+    // Shared scan of the flat power face — PowerScan owns the capacity map
+    // (`rail_cap`) and comp_def table 6021 used to rebuild inline.
+    let scan = PowerScan::build(table);
 
     for net in table.get_nets() {
-        // ── Budget roots on this net: rail face first (exact name, then the
-        // last dotted segment), then psrc/psbi hot pins carrying a capacity. ──
-        let mut caps: Vec<f64> = Vec::new();
-        if let Some(c) = rail_cap
-            .get(&net.name)
-            .or_else(|| net.name.rsplit('.').next().and_then(|l| rail_cap.get(l)))
-        {
-            caps.push(*c);
-        }
-        for &pid in &net.points {
-            let Some(entry) = table.get_entry(pid) else {
-                continue;
-            };
-            if !matches!(entry.kind, InstKind::Pin) || !matches!(entry.io_type, IOType::Power) {
-                continue;
-            }
-            let Some(comp_id) = entry.parent_id else {
-                continue;
-            };
-            let Some(def) = comp_def.get(&comp_id).copied() else {
-                continue;
-            };
-            let Some(contract) = source_contract_for(def, entry) else {
-                continue;
-            };
-            let dec = decode_pwr_pin(contract);
-            if let Some(c) = dec.capacity_amps {
-                caps.push(c);
-            }
-        }
+        // ── Budget roots on this net: rail capacity face first (exact name,
+        // then last dotted segment), then psrc/psbi hot pins carrying a
+        // capacity — in 6021's original encounter order. ──
+        let caps = scan.capacity_roots(table, net);
         if caps.is_empty() {
             continue; // no declared capacity on this net — nothing to budget
         }
@@ -2163,7 +2219,7 @@ pub(crate) fn check_net_budget(table: &InstTable, results: &mut Vec<NetCheckResu
             let Some(comp_id) = entry.parent_id else {
                 continue;
             };
-            let Some(def) = comp_def.get(&comp_id).copied() else {
+            let Some(def) = scan.def_of(comp_id) else {
                 continue;
             };
             let Some(contract) = sink_contract_for(def, entry) else {

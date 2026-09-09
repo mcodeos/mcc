@@ -58,16 +58,17 @@
 
 use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
-    check_backfeed, check_clamp_ref_role, check_combine_output_tol, check_driver_conflict,
-    check_earth_dc_leak, check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge,
-    check_nc_connected, check_net_budget, check_pin_contract_decode, check_pin_count_mismatch,
-    check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
+    check_backfeed, check_clamp_ref_role, check_combine_output_tol, check_converter_gate_window,
+    check_converter_spec_incomplete, check_driver_conflict, check_earth_dc_leak,
+    check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
+    check_net_budget, check_pin_contract_decode, check_pin_count_mismatch, check_port_io_mismatch,
+    check_power_bridge_loop, check_power_nets, check_power_rail_contract,
     check_power_rail_two_roots, check_power_source_contention, check_protective_multi_bridge,
     check_pullup_degenerate, check_reference_island_root, check_return_leg_undeclared,
     check_role_ref_missing_bridge, check_single_point_nets, check_sink_nominal_mismatch,
-    check_unconnected_outputs, check_undriven_nets, check_undriven_sink_net,
-    check_unselected_abstract, check_unused_module_ports, check_unwired_instances,
-    check_voltage_mismatch, NetCheckResult,
+    check_sink_window_mismatch, check_unconnected_outputs, check_undriven_nets,
+    check_undriven_sink_net, check_unselected_abstract, check_unused_module_ports,
+    check_unwired_instances, check_voltage_mismatch, NetCheckResult,
 };
 use crate::semantic::validation::pins::{
     check_conflicting_pins, check_unused_pins, PinCheckResult,
@@ -940,6 +941,56 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_return_leg_undeclared,
     },
+    // rail-contract-design.md §6.1 regulator gate (window batch) — a regulator
+    // declares its operating pre-condition input_req; the supply window riding
+    // its input net must sit inside it (S(input) ⊆ input_req). Resolved feeds
+    // outside that window are Error; un-derivable feeds (NoSupply/Unresolved —
+    // module-boundary, undeclared contention) are not adjudicated.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POWER_CONVERTER_GATE,
+        name = "converter-gate-window",
+        title = "regulator input window excludes the supply window on its input net",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "§6.1 regulator gate: a def writing the full regulator spec (input_req + output, ≥1 Snk input row, ≥1 Src row) claims its output post-condition holds only while S(input) ⊆ input_req. A Resolved supply window on its input net outside that declared window is an Error — the feed can push the regulator out of its operating window, so the output guarantee cannot be trusted. Nets whose window cannot be derived (NoSupply/Unresolved) are not adjudicated (rail-contract-design.md §6.1).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_converter_gate_window,
+    },
+    // rail-contract-design.md §6.3 sink req window (window batch) — a load
+    // whose spec declares input_req states the supply window it accepts; the
+    // Resolved supply window on its sink net must sit inside it. A regulator's
+    // own input row is gated per net by 6023, not re-judged here.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POWER_SINK_WINDOW_MISMATCH,
+        name = "sink-window-mismatch",
+        title = "actual supply window escapes the load's declared acceptable window",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "§6.3 sink req window (E-PWR-001 window step): a load declaring spec input_req tolerates supply only inside that window. A Resolved supply window on the sink's net outside it over- or under-volts the load and is an Error. Nets whose window cannot be derived, and regulator input rows (6023's per-net gate), stay unjudged (rail-contract-design.md §6.3).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_sink_window_mismatch,
+    },
+    // rail-contract-design.md §6.1 partial-spec advisory (window batch) — a def
+    // with a psrc/psbi output row whose spec block writes only one side of the
+    // Hoare triple (input_req / output) cannot be gated by 6023/6024. Advisory
+    // Info, decl-local: the written side still decodes, the missing side is
+    // named. A pure load (no output row) legitimately writes input_req alone.
+    declare_flat_erc_rule! {
+        code = crate::errcodes::POWER_CONVERTER_SPEC_INCOMPLETE,
+        name = "converter-spec-incomplete",
+        title = "spec block on a power-output component declares only one of input_req / output",
+        severity = Info,
+        domain = Power,
+        family = None,
+        doc = "§6.1 partial-spec advisory: a component with a psrc/psbi output row writes a spec block but declares only one of input_req or output. The regulator's gate (6023) needs both windows of the Hoare triple; a one-sided write decodes but cannot be gated. The written side still holds (an output-only regulator is treated as guaranteeing that output; an input_req-only one as an un-gated feed); add the missing side. A pure load with no output row legitimately writes input_req alone and is never flagged (rail-contract-design.md §6.1).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_converter_spec_incomplete,
+    },
 ];
 
 // ============================================================================
@@ -1504,7 +1555,8 @@ mod tests {
         NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER,
         NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_POWER_NET_COUNT,
         NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED, POWER_BRIDGE_LOOP,
-        POWER_PIN_DECODE, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS, POWER_SINK_NOMINAL_MISMATCH,
+        POWER_CONVERTER_GATE, POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE, POWER_RAIL_DECODE,
+        POWER_RAIL_TWO_ROOTS, POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH,
         POWER_SOURCE_CONTENTION, PROTECTIVE_MULTI_BRIDGE, PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT,
         RETURN_LEG_UNDECLARED, ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
     };
@@ -1512,39 +1564,42 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 32] = [
-        NET_MULTI_DRIVE,             // P1
-        NET_NO_DRIVER,               // P2
-        NET_INPUT_UNCONNECTED,       // P5
-        NET_NC_CONNECTED,            // P6
-        NET_OUTPUT_UNDRIVEN,         // P7
-        NET_BACKFEED_RISK,           // P8
-        NET_INSTANCE_UNCONNECTED,    // P9
-        NET_VOLTAGE_MISMATCH,        // P3+P4
-        NET_OUTPUTS_NO_INPUT,        // V1
-        NET_POWER_NET_COUNT,         // power net count summary
-        NET_MODULE_PORT_UNCONNECTED, // C4
-        NET_DANGLING_ENDPOINT,       // self-loop
-        NET_PARTIAL_CONNECTION,      // pin count vs definition
-        ABSTRACT_PART_UNSELECTED,    // abstract-variant
-        NET_BIDIR_UNCONNECTED,       // floating outputs
-        PULLUP_DEGENERATE,           // D7
-        POWER_BRIDGE_LOOP,           // PWR-2 (power-intent L1)
-        CLAMP_REF_NOT_PROTECTIVE,    // PWR-7 (power-intent L1)
-        POWER_RAIL_DECODE,           // rail Volt-arg decode (L2)
-        POWER_RAIL_TWO_ROOTS,        // P3 two-roots (L2)
-        POWER_SINK_NOMINAL_MISMATCH, // P3/E-PWR-001 mandatory nominal (L2)
-        POWER_PIN_DECODE,            // pin Volt-arg decode (L2, §5.2)
-        POWER_SOURCE_CONTENTION,     // PWR-3 source contention (axis ③, L3)
-        ISOLATED_DC_BRIDGE,          // §3.2 isolated zero-DC-bridge (PWR-9)
-        PROTECTIVE_MULTI_BRIDGE,     // §3.2 protective single-point (PWR-8)
-        EARTH_DC_LEAK,               // §3.2 earth Y-cap-only row (leakage warning)
-        REFERENCE_ISLAND_ROOT,       // §3.2.1 one main per DC-bridged reference island
-        ROLE_REF_MISSING_BRIDGE,     // conduit-equivalence §8.4 quiet/protective zero-bridge
-        SINK_NET_NO_SOURCE,          // PWR-1 no-source face (axis ③, L3)
-        COMBINE_OUTPUT_TOL,          // §6.2③ combine output nominal-only (rail-contract §6, L3)
-        NET_BUDGET_EXCEEDED,         // PWR-4 net budget (rail-contract §8, L3)
-        RETURN_LEG_UNDECLARED,       // §8.5 return-path completeness (net-island §7 L2)
+    const FLAT_ERC_ORDER: [u32; 35] = [
+        NET_MULTI_DRIVE,                 // P1
+        NET_NO_DRIVER,                   // P2
+        NET_INPUT_UNCONNECTED,           // P5
+        NET_NC_CONNECTED,                // P6
+        NET_OUTPUT_UNDRIVEN,             // P7
+        NET_BACKFEED_RISK,               // P8
+        NET_INSTANCE_UNCONNECTED,        // P9
+        NET_VOLTAGE_MISMATCH,            // P3+P4
+        NET_OUTPUTS_NO_INPUT,            // V1
+        NET_POWER_NET_COUNT,             // power net count summary
+        NET_MODULE_PORT_UNCONNECTED,     // C4
+        NET_DANGLING_ENDPOINT,           // self-loop
+        NET_PARTIAL_CONNECTION,          // pin count vs definition
+        ABSTRACT_PART_UNSELECTED,        // abstract-variant
+        NET_BIDIR_UNCONNECTED,           // floating outputs
+        PULLUP_DEGENERATE,               // D7
+        POWER_BRIDGE_LOOP,               // PWR-2 (power-intent L1)
+        CLAMP_REF_NOT_PROTECTIVE,        // PWR-7 (power-intent L1)
+        POWER_RAIL_DECODE,               // rail Volt-arg decode (L2)
+        POWER_RAIL_TWO_ROOTS,            // P3 two-roots (L2)
+        POWER_SINK_NOMINAL_MISMATCH,     // P3/E-PWR-001 mandatory nominal (L2)
+        POWER_PIN_DECODE,                // pin Volt-arg decode (L2, §5.2)
+        POWER_SOURCE_CONTENTION,         // PWR-3 source contention (axis ③, L3)
+        ISOLATED_DC_BRIDGE,              // §3.2 isolated zero-DC-bridge (PWR-9)
+        PROTECTIVE_MULTI_BRIDGE,         // §3.2 protective single-point (PWR-8)
+        EARTH_DC_LEAK,                   // §3.2 earth Y-cap-only row (leakage warning)
+        REFERENCE_ISLAND_ROOT,           // §3.2.1 one main per DC-bridged reference island
+        ROLE_REF_MISSING_BRIDGE,         // conduit-equivalence §8.4 quiet/protective zero-bridge
+        SINK_NET_NO_SOURCE,              // PWR-1 no-source face (axis ③, L3)
+        COMBINE_OUTPUT_TOL,              // §6.2③ combine output nominal-only (rail-contract §6, L3)
+        NET_BUDGET_EXCEEDED,             // PWR-4 net budget (rail-contract §8, L3)
+        RETURN_LEG_UNDECLARED,           // §8.5 return-path completeness (net-island §7 L2)
+        POWER_CONVERTER_GATE,            // §6.1 regulator input-window gate (window batch)
+        POWER_SINK_WINDOW_MISMATCH,      // §6.3 sink req-window ⊆ supply-window (window batch)
+        POWER_CONVERTER_SPEC_INCOMPLETE, // §6.1 one-sided spec advisory (window batch)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2078,7 +2133,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (139, 0, 3));
+        assert_eq!((strong, doc, note), (142, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
