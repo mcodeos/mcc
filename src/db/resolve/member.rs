@@ -8,6 +8,7 @@
 //! this module resolves the member (func / pin / enum value) inside the
 //! resolved class and reports where it is defined.
 
+use super::policy::same_name_cmies;
 use crate::ast::sem::{McSemSymbols, SymbolKind};
 use crate::db::resolve::Resolver;
 use crate::{McCMIE, McIds, McURI};
@@ -24,8 +25,22 @@ pub(crate) fn resolve_cmie_member_locked(
     sem: &McSemSymbols,
 ) -> Option<(McURI, std::ops::Range<usize>, SymbolKind)> {
     let ids = McIds::from(class_name);
-    let cmie = Resolver::resolve_class_locked(from_uri, &ids, sem)?;
-    member_of(&cmie, member_name)
+    let winner = Resolver::resolve_class_locked(from_uri, &ids, sem);
+    if let Some(hit) = winner.as_ref().and_then(|c| member_of(c, member_name)) {
+        return Some(hit);
+    }
+    // The winner is picked by `NameIndexCandidate::policy_key`, whose family
+    // preference ranks the enum family before the class family — so for a
+    // coexisting `component CAP` + `enum CAP` the bare name resolves to the
+    // enum (which `CAP.X5R` needs), and a *member* lookup such as
+    // `CAP(...).Cap(...)` would miss on that winner alone. A member is
+    // kind-specific, so a miss is not yet a miss: walk the whole same-name
+    // bucket in the same policy order and take the first candidate that
+    // actually declares the member. Same rule `visibility.rs` applies for
+    // P3/P4 — check the bucket, never just the winner.
+    same_name_cmies(from_uri, &ids, sem)
+        .iter()
+        .find_map(|cmie| member_of(cmie, member_name))
 }
 
 /// Match `member_name` against a resolved class definition.
