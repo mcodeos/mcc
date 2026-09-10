@@ -203,9 +203,8 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
     let mut net = if max_freq > 1 {
         build_star_topology(nid, net_name, pairs, &freq, max_freq)
     } else {
-        // `dir` (majority vote, :179 above) drives the chain start so directed
-        // nets render from the driver end.
-        build_chain_topology(nid, net_name, pairs, dir)
+        // The chain starts at its written head for every `dir` (§1.1).
+        build_chain_topology(nid, net_name, pairs)
     };
 
     // ★ Fill NetShape for all non-lane branches
@@ -336,7 +335,7 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
     };
 
     // Endpoint order: walk the chain along each pair's left→right, no order_chain start guessing
-    let chain = order_by_direction(pairs, dir)?;
+    let chain = order_by_direction(pairs)?;
     let vecs: Vec<McVec> = chain.into_iter().map(McVec::single).collect();
 
     let order = collect_unique_ordered(pairs);
@@ -358,7 +357,7 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
     Some(McVecNet::with_shape(nid, name.to_string(), vecs, shape))
 }
 
-/// ★ P7-4 [DET]: pick the chain start among degree-1 nodes.
+/// ★ P7-4 [DET]: pick a chain start among degree-1 nodes by **smallest id**.
 ///
 /// A group's pairs may form several disconnected chains (same-name net merge,
 /// e.g. a `GND` group holding both the flash decoupling chain and the mic
@@ -368,6 +367,12 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
 /// walked and the other points were dropped entirely (root cause of
 /// GND/VCC group members flipping across renders). Taking the **smallest
 /// id** among degree-1 nodes keeps both the start and the content stable.
+///
+/// This is only the **fallback** for [`written_chain_start`] (a ring, or a
+/// group whose every degree-1 node is a pair's `right`). It is deliberately
+/// *not* the primary rule: the smallest id is an arbitrary but reproducible
+/// pick, so it can name the written *tail* and draw the chain backwards —
+/// see `written_chain_start`.
 fn pick_chain_start(adj: &HashMap<i64, Vec<i64>>) -> Option<i64> {
     adj.iter()
         .filter(|(_, neighbors)| neighbors.len() == 1)
@@ -379,15 +384,19 @@ fn pick_chain_start(adj: &HashMap<i64, Vec<i64>>) -> Option<i64> {
 /// pair's `left` and never as any pair's `right`. `ConnPair.left/right` are in
 /// written source order (visit.rs builds them from the per-point ids, which
 /// follow the `Series` members for BOTH `->` and `<-` — R0/vec-dianlu.md
-/// §2.4.5), so this endpoint is the written-left end of the chain. That is
-/// where the chain must be laid out from, in both directions: §1.1 makes the
-/// written left-right arrangement correspond to the spatial x arrangement, so
-/// the arrow's direction is carried by `ConnDir` and never by walking the
-/// chain backwards. Smallest id wins for determinism (same rationale as
-/// `pick_chain_start`). Returns `None` when the net is a directed ring or
-/// every degree-1 node is a `right` — callers fall back to
-/// `pick_chain_start`.
-fn directed_chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair]) -> Option<i64> {
+/// §2.4.5), so this endpoint is the written-left end of the chain.
+///
+/// §1.1 makes the written left-right arrangement correspond to the spatial x
+/// arrangement, and it does so for **every** operator — `-` included. The
+/// arrow's direction rides on `ConnDir`, never on the walk direction, so an
+/// undirected `-` chain is not free to start at its written tail: that would
+/// simply draw the chain reversed. The start is therefore direction-free
+/// (`dir` is not a parameter here); `pick_chain_start`'s arbitrary
+/// smallest-id pick is only the fallback for a ring or an all-`right` group.
+///
+/// Smallest id wins among the qualifying heads for determinism (same
+/// rationale as `pick_chain_start`).
+fn written_chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair]) -> Option<i64> {
     let lefts: std::collections::HashSet<i64> = pairs.iter().map(|p| p.left).collect();
     let rights: std::collections::HashSet<i64> = pairs.iter().map(|p| p.right).collect();
     adj.iter()
@@ -397,20 +406,16 @@ fn directed_chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair]) -> Opt
         .min()
 }
 
-/// Direction-aware chain start: for a directed net, prefer the written head
-/// (`directed_chain_start`); undirected keeps the classic P7-4 smallest
-/// degree-1 (reproducibility unaffected by render direction).
-fn chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair], dir: ConnDir) -> Option<i64> {
-    if dir == ConnDir::Undirected {
-        pick_chain_start(adj)
-    } else {
-        directed_chain_start(adj, pairs).or_else(|| pick_chain_start(adj))
-    }
+/// Where the chain is laid out from: the written head when there is one, the
+/// P7-4 smallest degree-1 id otherwise (ring / all-`right` group).
+fn chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair]) -> Option<i64> {
+    written_chain_start(adj, pairs).or_else(|| pick_chain_start(adj))
 }
 
-/// Order the chain along directed edges: start from the written head and walk
-/// in written order (the arrow's direction rides on `ConnDir`, §1.1).
-fn order_by_direction(pairs: &[ConnPair], dir: ConnDir) -> Option<Vec<i64>> {
+/// Order the chain from its written head and walk in written order (§1.1:
+/// the layout extends in the direction the source was written; the arrow's
+/// direction rides on `ConnDir`, not on the walk).
+fn order_by_direction(pairs: &[ConnPair]) -> Option<Vec<i64>> {
     if pairs.is_empty() {
         return Some(vec![]);
     }
@@ -425,9 +430,9 @@ fn order_by_direction(pairs: &[ConnPair], dir: ConnDir) -> Option<Vec<i64>> {
         adj.entry(pair.right).or_default().push(pair.left);
     }
 
-    // Directed nets walk from the written head; undirected stays on the P7-4
-    // smallest degree-1 start (see pick_chain_start).
-    let start = chain_start(&adj, pairs, dir)?;
+    // Every chain walks from its written head; `pick_chain_start` is the
+    // fallback only (see `written_chain_start`).
+    let start = chain_start(&adj, pairs)?;
 
     let mut chain = vec![start];
     let mut visited: std::collections::HashSet<i64> = std::collections::HashSet::new();
@@ -511,16 +516,25 @@ fn build_star_topology(
 /// A ── B ── C
 /// ```
 /// → `McVecNet { nets: [McVec([A]), McVec([B]), McVec([C])] }`
-fn build_chain_topology(nid: i64, net_name: String, pairs: &[ConnPair], dir: ConnDir) -> McVecNet {
-    let chain = order_chain(pairs, dir);
+///
+/// The picture is the *shape* this orders, not the shape that reaches it: the
+/// caller dispatches on `max_freq > 1`, and a connected `A ── B ── C` shares
+/// `B` so it goes to the star branch instead (visit.rs also splits real series
+/// chains into per-segment nets, each arriving as a single pair and returning
+/// at `merge_pairs_to_vecnet`'s degenerate early-out). What lands here is a
+/// group of **disjoint** segments, which is the shape the written-head rule
+/// has to order.
+fn build_chain_topology(nid: i64, net_name: String, pairs: &[ConnPair]) -> McVecNet {
+    let chain = order_chain(pairs);
     let vecs: Vec<McVec> = chain.into_iter().map(McVec::single).collect();
     McVecNet::new(nid, net_name, vecs)
 }
 
-/// Order connection pairs into a sorted chain
+/// Order connection pairs into a chain laid out in **written order**
 ///
-/// Input: `[(A,B), (B,C)]` (may be out of order) → Output: `[A, B, C]` (sorted)
-fn order_chain(pairs: &[ConnPair], dir: ConnDir) -> Vec<i64> {
+/// Input: `[(A,B), (B,C)]` → Output: `[A, B, C]`. The start is the written
+/// head for every operator (§1.1), so `dir` is not a parameter.
+fn order_chain(pairs: &[ConnPair]) -> Vec<i64> {
     if pairs.is_empty() {
         return vec![];
     }
@@ -535,12 +549,10 @@ fn order_chain(pairs: &[ConnPair], dir: ConnDir) -> Vec<i64> {
         adj.entry(pair.right).or_default().push(pair.left);
     }
 
-    // Find the degree-1 start — ★ P7-4 [DET]: the smallest id, so HashMap
-    // iteration order cannot decide chain direction (direction affects
-    // McVec.nets order → render order). Directed nets additionally prefer the
-    // driver (source) end so a flow chain renders source→sink even when the
-    // sink's id is smaller; undirected keeps the plain P7-4 start.
-    let start = chain_start(&adj, pairs, dir);
+    // Find the start — ★ P7-4 [DET]: the written head, so HashMap iteration
+    // order cannot decide the layout direction, and the chain extends the way
+    // the source wrote it (§1.1). The smallest-id pick is the fallback only.
+    let start = chain_start(&adj, pairs);
 
     let start = match start {
         Some(s) => s,
@@ -693,26 +705,37 @@ mod tests {
 
     // ── Direction-aware ordering ─────────────────────────────────────────
 
-    /// A directed chain whose smallest degree-1 id is the written-*last* member
-    /// must still start from the written head: `[(5,3),(3,1)]` has
-    /// degree-1 = {1,5}, min id = 1, yet the written-left end (left-not-right)
-    /// is 5 → order `[5,3,1]`. Undirected keeps the P7-4 min-id start, so it
-    /// walks `[1,3,5]` — same layout, chosen by reproducibility rule.
+    /// A chain whose smallest degree-1 id is the written-*last* member must
+    /// still start from the written head: `[(5,3),(3,1)]` has degree-1 = {1,5},
+    /// min id = 1, yet the written-left end (left-not-right) is 5 → `[5,3,1]`.
+    ///
+    /// This holds for **every** operator: the layout extends the way the source
+    /// was written (§1.1), and the arrow's direction rides on `ConnDir` rather
+    /// than on the walk. So the undirected `-` chain, whose written head also
+    /// has the larger id, must give the same `[5,3,1]` — picking the min id
+    /// would silently draw it reversed.
     #[test]
-    fn vec_conn__directed_chain_starts_from_written_head_not_min_degree1() {
+    fn vec_conn__chain_starts_from_written_head_in_every_direction() {
         let pairs = vec![
             ConnPair::plain_with_dir(5, 3, ConnDir::LtoR),
             ConnPair::plain_with_dir(3, 1, ConnDir::LtoR),
         ];
         assert_eq!(
-            order_chain(&pairs, ConnDir::LtoR),
+            order_chain(&pairs),
             vec![5, 3, 1],
-            "directed chain must render in written order"
+            "chain must render in written order"
         );
+        // Same pairs, read as written: the `left`/`right` fields are what
+        // carry the written order, so swapping only `dir` cannot move the head.
+        let undirected = vec![
+            ConnPair::plain_with_dir(5, 3, ConnDir::Undirected),
+            ConnPair::plain_with_dir(3, 1, ConnDir::Undirected),
+        ];
         assert_eq!(
-            order_chain(&pairs, ConnDir::Undirected),
-            vec![1, 3, 5],
-            "undirected keeps P7-4 smallest degree-1 start"
+            order_chain(&undirected),
+            vec![5, 3, 1],
+            "an undirected chain starts at its written head too -- the min-id \
+             start would render it backwards"
         );
     }
 
@@ -722,48 +745,75 @@ mod tests {
     /// which is correct — the chain renders in written order and the leftward
     /// arrow is carried by `ConnDir::RtoL`.
     #[test]
-    fn vec_conn__directed_rtl_starts_from_written_head() {
+    fn vec_conn__rtl_chain_starts_from_written_head() {
         let pairs = vec![
             ConnPair::plain_with_dir(9, 4, ConnDir::RtoL),
             ConnPair::plain_with_dir(4, 2, ConnDir::RtoL),
         ];
-        assert_eq!(order_chain(&pairs, ConnDir::RtoL), vec![9, 4, 2]);
+        assert_eq!(order_chain(&pairs), vec![9, 4, 2]);
     }
 
-    /// A directed ring has no degree-1 node: `directed_chain_start` and
+    /// A ring has no degree-1 node: `written_chain_start` and
     /// `pick_chain_start` both return None → fall back to ordered collection
     /// with no dropped points.
     #[test]
-    fn vec_conn__directed_ring_falls_back_without_dropping() {
+    fn vec_conn__ring_falls_back_without_dropping() {
         let pairs = vec![
             ConnPair::plain_with_dir(1, 2, ConnDir::LtoR),
             ConnPair::plain_with_dir(2, 3, ConnDir::LtoR),
             ConnPair::plain_with_dir(3, 1, ConnDir::LtoR),
         ];
-        let order = order_chain(&pairs, ConnDir::LtoR);
-        assert_eq!(order.len(), 3, "no dropped points on a directed ring");
+        let order = order_chain(&pairs);
+        assert_eq!(order.len(), 3, "no dropped points on a ring");
         for id in [1, 2, 3] {
             assert!(order.contains(&id), "ring member {id} missing");
         }
     }
 
-    /// A multi-component directed group (same-name net merge, e.g. two `VCC`
-    /// chains) must keep every point: the primary component walks from its
-    /// driver, the second component is appended in first-appearance order.
+    /// A multi-component group (same-name net merge) must keep every point:
+    /// the primary component walks from its written head, the second component
+    /// is appended in first-appearance order.
     #[test]
-    fn vec_conn__directed_multi_component_no_dropped_points() {
+    fn vec_conn__multi_component_no_dropped_points() {
         let pairs = vec![
             ConnPair::plain_with_dir(5, 3, ConnDir::LtoR),
             ConnPair::plain_with_dir(3, 1, ConnDir::LtoR),
             ConnPair::plain_with_dir(8, 7, ConnDir::LtoR),
         ];
-        let order = order_chain(&pairs, ConnDir::LtoR);
+        let order = order_chain(&pairs);
         assert_eq!(order.len(), 5, "all points across both components kept");
-        assert_eq!(&order[..3], &[5, 3, 1], "first component source→sink");
+        assert_eq!(&order[..3], &[5, 3, 1], "first component written→forward");
         assert_eq!(
             &order[3..],
             &[8, 7],
-            "second component source→sink appended"
+            "second component written→forward appended"
+        );
+    }
+
+    /// The **production entry** takes the chain branch only when
+    /// `max_freq == 1`, i.e. every endpoint id is distinct — a real series
+    /// chain `A-B-C` shares `B` and is dispatched to the star branch instead
+    /// (visit.rs splits series chains into per-segment nets before this, so
+    /// each segment arrives as a single pair and returns at the degenerate
+    /// early-out above). The reachable shape here is therefore a
+    /// **multi-segment** group, and it is the one the written-head rule has to
+    /// get right: the first segment must be listed in written order even when
+    /// its written head has the larger id, which is where the old smallest-id
+    /// start drew it backwards.
+    #[test]
+    fn vec_conn__production_chain_branch_orders_segments_by_written_head() {
+        let pairs = vec![
+            ConnPair::plain_with_dir(5, 3, ConnDir::Undirected),
+            ConnPair::plain_with_dir(8, 7, ConnDir::Undirected),
+        ];
+        let net = merge_pairs_to_vecnet(7, "SEG".to_string(), &pairs);
+        let ids: Vec<i64> = net.nets.iter().map(|v| v.ids()[0]).collect();
+        assert_eq!(
+            ids,
+            vec![5, 3, 8, 7],
+            "each segment is listed in written order, headed by id 5 -- \
+             the old min-id start would have led with 3 and drawn the first \
+             segment reversed"
         );
     }
 }
