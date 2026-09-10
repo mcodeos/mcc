@@ -47,16 +47,6 @@ fn benign(c: u32) -> bool {
     matches!(c, 5641 | 5642 | 5643 | 5054)
 }
 
-/// Shape/transpose verdicts a bridge statement may be rejected with.
-fn shape_error(c: u32) -> bool {
-    matches!(
-        c,
-        mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH
-            | mcc::errcodes::CONN_PARALLEL_SHAPE_MISMATCH
-            | mcc::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH
-    )
-}
-
 /// Build `main` and return (non-benign codes sorted, net partition).
 ///
 /// The partition is normalized to a sorted list of sorted member lists: net
@@ -170,9 +160,21 @@ fn bridge__placeholder_lead_keeps_the_bridge() {
 #[test]
 fn bridge__narrow_left_operand_is_rejected() {
     let (codes, nets) = build("    R101 - R102 + C1'", "/mcc/bridge-narrow.mc");
-    assert!(
-        codes.iter().copied().any(shape_error),
-        "a non-2-wide left operand must be rejected; got {codes:?}"
+    // The verdict, and the code it arrives with. This is the observable half of
+    // "the `+` node is a `Parallel`": mcc exposes no phrase tree, so the
+    // encoding itself has no direct anchor (see the design draft's §7.1 on the
+    // AST probe). Before S2 the parser folded `X + Y'` into a `Series` and the
+    // statement died in the arm's own width gate -- 4001
+    // (`CONN_TRANSPOSE_SIZE_MISMATCH`). With the arm gone the general parallel
+    // predicate rejects it instead -- 4005 -- and 4001 is left with no producer.
+    // 3132 is the statement failing to build once the phrase returns `None`.
+    assert_eq!(
+        codes,
+        vec![
+            mcc::errcodes::CONN_STMT_PARSE_FAILED,
+            mcc::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+        ],
+        "a non-2-wide left operand is rejected by the parallel predicate; got {codes:?}"
     );
     assert!(
         nets.is_empty(),
