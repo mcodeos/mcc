@@ -346,6 +346,15 @@ pub fn try_resolve_path(table: &InstTable, path: &str, module_path: &str) -> Opt
             }
         }
     }
+    // (4) Member spelling of a declared component pin (`ldo{VIN | VOUT}` →
+    //     `VIN.Vin`): resolves to the pin registered under its pin-table key.
+    //     Without this the owner-fallback attached the net to the *component*,
+    //     drawing a phantom pin. Mirrors `InstTable::resolve_single_path`.
+    for candidate in [full_path.as_str(), path] {
+        if let Some(id) = table.member_pin_of(candidate) {
+            return Some(id as i64);
+        }
+    }
     None
 }
 
