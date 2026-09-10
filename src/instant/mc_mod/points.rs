@@ -13,7 +13,7 @@
 
 use super::funccall::FaceSide;
 use super::InstantiationBuilder;
-use crate::instant::mc_net::{InstError, NetPoint};
+use crate::instant::mc_net::{InstError, NetPoint, LEAD_PLACEHOLDER_PREFIX};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_ids::McIds;
@@ -149,7 +149,10 @@ impl InstantiationBuilder {
     ) -> Result<Vec<NetPoint>, InstError> {
         match phrase {
             McPhrase::Lead => {
-                let name = format!("(lead)_{:x}", phrase as *const McPhrase as usize);
+                let name = format!(
+                    "{LEAD_PLACEHOLDER_PREFIX}{:x}",
+                    phrase as *const McPhrase as usize
+                );
                 Ok(vec![NetPoint::new(&name, IOType::None)])
             }
 
@@ -815,7 +818,10 @@ impl InstantiationBuilder {
     ) -> Result<Vec<NetPoint>, InstError> {
         match member {
             McPhrase::Lead => {
-                let name = format!("(lead)_{:x}", member as *const McPhrase as usize);
+                let name = format!(
+                    "{LEAD_PLACEHOLDER_PREFIX}{:x}",
+                    member as *const McPhrase as usize
+                );
                 Ok(vec![NetPoint::new(&name, IOType::None)])
             }
 

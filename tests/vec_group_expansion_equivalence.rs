@@ -29,7 +29,8 @@ use mcc::{McIds, McURI};
 
 /// Two-pin resistor mirror (same declaration the `vec_series_rowzip` group-chain
 /// cell uses), pins `1 = 1` / `2 = 2`.
-const RES2: &str = "component RES2(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n";
+const RES2: &str =
+    "component RES2(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n";
 
 /// Build `main` and return (diagnostic codes sorted, net partition).
 ///

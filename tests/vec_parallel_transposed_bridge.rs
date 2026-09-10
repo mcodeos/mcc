@@ -155,10 +155,13 @@ fn bridge__written_left_lands_on_left_faces() {
 fn bridge__placeholder_lead_keeps_the_bridge() {
     let (codes, nets) = build("    [R101, _] + C1'", "/mcc/bridge-placeholder.mc");
     assert_eq!(codes, Vec::<u32>::new(), "bridge is quiet; got {codes:?}");
+    // The whole partition, not just C1.1's net: a placeholder that leaked into
+    // a connection would show up as a phantom member (or as a singleton C1.2
+    // net) and must not.
     assert_eq!(
-        net_holding(&nets, "C1.1").map(|v| v.as_slice()),
-        Some(["C1.1".to_string(), "R101.2".to_string()].as_slice()),
-        "C1.1 still bridges to the real branch's right face; got {nets:?}"
+        nets,
+        vec![vec!["C1.1".to_string(), "R101.2".to_string()]],
+        "only the real branch bridges; the `_` slot wires nothing; got {nets:?}"
     );
 }
 
