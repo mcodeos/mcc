@@ -445,6 +445,11 @@ pub const MIN_PIN_GAP_PX: f64 = 18.0;
 /// Must be called after layouter **completes all offset rearrangements** (at layout end).
 pub fn enforce_unique_offsets(graph: &mut McVecGraph) {
     for b in &mut graph.boxes {
+        // ★ Reserved interface ①: layout-fixed boxes keep the author's offsets —
+        //   re-spreading a crowded side would erase the explicit per-edge spacing.
+        if b.layout_hint.is_some() {
+            continue;
+        }
         let (bw, bh) = (b.w, b.h);
         let edge_len_of = |side: &EntrySide| -> f64 {
             match side {
@@ -528,6 +533,12 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
     // 4. Refine each pin for each box
     let mut reassigned_total = 0usize;
     for b in &mut graph.boxes {
+        // ★ Reserved interface ①: layout-fixed boxes keep side & order. The author
+        //   explicitly placed these pins with `layout = [...]`, so neighbor-driven
+        //   re-siding must not move them (see boxdef::PinLayout).
+        if b.layout_hint.is_some() {
+            continue;
+        }
         let bcx = b.x + b.w / 2.0;
         let bcy = b.y + b.h / 2.0;
         let mut reassigned_in_box = 0usize;
@@ -1048,8 +1059,10 @@ fn compute_entry_points(
 /// ★ Reserved interface ① consumer: distribute pins to four sides according to component's explicit layout.
 ///
 /// Matching rules: for each pin, use its `BoxPin.pin_id` (number) or `description` (function name) to look up side in `layout`
-/// ([`PinLayout::side_of`]). Matched pins are evenly distributed on that side following layout order;
-/// unmatched pins fall back to original heuristic (by kind), ensuring no pins are missed.
+/// ([`PinLayout::side_of`]). Listed pins are placed in the exact per-edge list
+/// order (counterclockwise package order, [`ccw_offset`]) — the author's list,
+/// not the box's pin order, decides the ordering along the edge; unmatched pins
+/// fall back to the original heuristic (by kind), ensuring no pins are missed.
 fn ep_from_layout(
     b: &McVecBox,
     pins: &[(i64, String)],
@@ -1078,10 +1091,10 @@ fn ep_from_layout(
         }
     }
 
-    // side → pins on that side (in layout order), encode side as 0/1/2/3 for BTreeMap stable sorting
-    let mut by_side: BTreeMap<u8, Vec<(i64, String)>> = BTreeMap::new();
-    let mut leftover: Vec<(i64, String)> = Vec::new();
-
+    // side → pins on that side. A pin keeps its *position inside the author's
+    // per-edge list* (`idx`), because that list order — not the box's pin order —
+    // decides where along the edge the pin lands (see `ccw_offset`).
+    // Encode side as 0/1/2/3 for a stable cross-side sort.
     let side_key = |s: &EntrySide| -> u8 {
         match s {
             EntrySide::Top => 0,
@@ -1091,43 +1104,78 @@ fn ep_from_layout(
         }
     };
 
+    let mut planned: Vec<(u8, usize, (i64, String))> = Vec::new();
+    let mut leftover: Vec<(i64, String)> = Vec::new();
+    // Per (side, match-key) next free slot, so two pins sharing a description
+    // (e.g. two `GND` pins listed by name) consume distinct list positions.
+    let mut slot_of: BTreeMap<(u8, String), usize> = BTreeMap::new();
+
     for (id, label) in pins {
-        // Two matching keys for this pin: number (pin_id) and function name (description)
-        let matched_side = b.find_pin(*id).and_then(|p| {
-            layout
-                .side_of(&p.pin_id)
-                .or_else(|| layout.side_of(&p.description))
-        });
-        match matched_side {
-            Some(s) => by_side
-                .entry(side_key(&s))
-                .or_default()
-                .push((*id, label.clone())),
-            None => leftover.push((*id, label.clone())),
+        let Some(pin) = b.find_pin(*id) else {
+            leftover.push((*id, label.clone()));
+            continue;
+        };
+        let side = match layout.side_of(&pin.pin_id) {
+            Some(s) => s,
+            None => match layout.side_of(&pin.description) {
+                Some(s) => s,
+                None => {
+                    leftover.push((*id, label.clone()));
+                    continue;
+                }
+            },
+        };
+        let entries = match side {
+            EntrySide::Left => &layout.left,
+            EntrySide::Right => &layout.right,
+            EntrySide::Top => &layout.top,
+            EntrySide::Bottom => &layout.bottom,
+        };
+        let key = if entries.iter().any(|e| e == &pin.pin_id) {
+            pin.pin_id.clone()
+        } else {
+            pin.description.clone()
+        };
+        let occ = slot_of.entry((side_key(&side), key.clone())).or_insert(0);
+        let mut seen = 0usize;
+        let mut idx = 0usize;
+        for (i, e) in entries.iter().enumerate() {
+            if e == &key {
+                if seen == *occ {
+                    idx = i;
+                    break;
+                }
+                seen += 1;
+            }
         }
+        *occ += 1;
+        planned.push((side_key(&side), idx, (*id, label.clone())));
     }
 
-    let side_from_key = |k: u8| -> EntrySide {
-        match k {
+    // Stable: group by side, then place each side's pins in list order.
+    planned.sort_by_key(|(k, idx, _)| (*k, *idx));
+    let mut side_len: BTreeMap<u8, usize> = BTreeMap::new();
+    for (k, _, _) in &planned {
+        *side_len.entry(*k).or_default() += 1;
+    }
+    let mut rank: BTreeMap<u8, usize> = BTreeMap::new();
+    let mut out = Vec::new();
+    for (k, _, (id, label)) in &planned {
+        let side = match k {
             0 => EntrySide::Top,
             1 => EntrySide::Right,
             2 => EntrySide::Bottom,
             _ => EntrySide::Left,
-        }
-    };
-
-    let mut out = Vec::new();
-    for (k, list) in &by_side {
-        let side = side_from_key(*k);
-        let n = list.len();
-        for (i, (id, label)) in list.iter().enumerate() {
-            out.push(EntryPoint {
-                pin_id: *id,
-                pin_name: label.clone(),
-                side: side.clone(),
-                offset: (i as f64 + 1.0) / (n as f64 + 1.0),
-            });
-        }
+        };
+        let r = *rank.get(&k).unwrap_or(&0);
+        let n = side_len[&k];
+        out.push(EntryPoint {
+            pin_id: *id,
+            pin_name: label.clone(),
+            side: side.clone(),
+            offset: ccw_offset(&side, r, n),
+        });
+        *rank.entry(*k).or_default() += 1;
     }
 
     // Pins not covered by layout: fall back to heuristic, avoid missed drawing. (User explicit layout path; treat remaining pins as
@@ -1142,6 +1190,19 @@ fn ep_from_layout(
         out.extend(fallback);
     }
     out
+}
+
+/// Offset along an edge for the `rank`-th listed pin (0-based, out of `n`),
+/// following **counterclockwise package order**: a side's list reads around the
+/// box — `left` top→bottom, `bottom` left→right, `right` bottom→top, `top`
+/// right→left. `pin_abs` places offset 0 at the left (Top/Bottom) / top
+/// (Left/Right) end, so Right and Top must mirror the list direction.
+fn ccw_offset(side: &EntrySide, rank: usize, n: usize) -> f64 {
+    let base = (rank as f64 + 1.0) / (n as f64 + 1.0);
+    match side {
+        EntrySide::Left | EntrySide::Bottom => base,
+        EntrySide::Right | EntrySide::Top => 1.0 - base,
+    }
 }
 
 // ============================================================================
@@ -1686,6 +1747,70 @@ mod tests {
         );
         b.set_layout_hint(PinLayout::default());
         assert!(b.layout_hint.is_none());
+    }
+
+    /// The per-edge list order decides placement, not the box's pin order; and
+    /// Right/Top edges are mirrored (counterclockwise package order) so the
+    /// list reads bottom→top / right→left on screen.
+    #[test]
+    fn layout_list_order_and_ccw_offsets() {
+        use crate::vector::graph::boxdef::{BoxPin, PinLayout, PortDir};
+        let mut b = McVecBox::new(
+            1,
+            "u".into(),
+            "chip".into(),
+            BoxKind::MultiPin,
+            6,
+            crate::vector::graph::IoSummary::new(),
+        );
+        b.set_pins(
+            (1..=6)
+                .map(|i| BoxPin {
+                    id: i,
+                    pin_id: i.to_string(),
+                    description: format!("S{i}"),
+                    io: IoDirection::Unknown,
+                    port_dir: PortDir::None,
+                })
+                .collect(),
+        );
+        // Author writes USB-style layout: right list reads bottom→top.
+        b.set_layout_hint(PinLayout {
+            left: vec!["1".into()],
+            right: vec!["4".into(), "3".into(), "2".into()],
+            bottom: vec!["5".into(), "6".into()],
+            top: vec![],
+        });
+        let pins: Vec<(i64, String)> = (1..=6).map(|i| (i, format!("S{i}"))).collect();
+        let eps = compute_entry_points(&b, &pins, &HashSet::new());
+        let ep_of = |pid: i64| {
+            eps.iter()
+                .find(|e| e.pin_id == pid)
+                .map(|e| (e.side.clone(), e.offset))
+        };
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+
+        // Left single pin sits at the middle of the edge.
+        let (side, off) = ep_of(1).unwrap();
+        assert_eq!(side, EntrySide::Left);
+        assert!(close(off, 0.5));
+
+        // Right, in list order 4 → 3 → 2: 4 at the bottom (largest offset),
+        // 2 at the top (smallest) — the list reads bottom→top.
+        let (s4, o4) = ep_of(4).unwrap();
+        let (s3, o3) = ep_of(3).unwrap();
+        let (s2, o2) = ep_of(2).unwrap();
+        assert_eq!(
+            (s4, s3, s2),
+            (EntrySide::Right, EntrySide::Right, EntrySide::Right)
+        );
+        assert!(close(o4, 0.75) && close(o3, 0.5) && close(o2, 0.25));
+
+        // Bottom, in list order 5 → 6: left→right, ascending offset.
+        let (s5, o5) = ep_of(5).unwrap();
+        let (s6, o6) = ep_of(6).unwrap();
+        assert_eq!((s5, s6), (EntrySide::Bottom, EntrySide::Bottom));
+        assert!(o5 < o6 && close(o5, 1.0 / 3.0) && close(o6, 2.0 / 3.0));
     }
 
     /// Tool: create a net connecting two pins, with specified io_type for endpoints

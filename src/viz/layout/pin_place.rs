@@ -92,6 +92,11 @@ fn align_hub_to_spokes(graph: &mut McVecGraph, root_id: i64) {
     if root_box.is_two_pin_passive() || root_box.visual_role.is_some() {
         return;
     }
+    // ★ Reserved interface ①: a layout-fixed hub keeps its authored size/offsets —
+    //   stretching it to span spokes would fight the explicit pin placement.
+    if root_box.layout_hint.is_some() {
+        return;
+    }
 
     let flag_ids: HashSet<i64> = graph
         .boxes
@@ -182,6 +187,13 @@ fn desired_side_pass(
 
     for b in &mut graph.boxes {
         if is_rail_box(b) {
+            continue;
+        }
+
+        // ★ Reserved interface ①: a layout-fixed box is entirely governed by its
+        //   `layout = [...]` (listed pins keep their authored side; any unlisted
+        //   pins keep the coarse fallback). Connectivity must not re-side it.
+        if b.layout_hint.is_some() {
             continue;
         }
 
@@ -429,6 +441,16 @@ fn straighten_facing_pairs(graph: &mut McVecGraph) {
 
     let mut aligned = 0usize;
     for (box_id, pin_id, new_offset) in adjustments {
+        // ★ Reserved interface ①: never move a layout-fixed box's pin — its offset
+        //   is authored (CCW list order). The free end of a facing pair is still
+        //   pulled onto the authored pin, keeping the wire straight.
+        let is_layout_box = graph
+            .boxes
+            .iter()
+            .any(|b| b.id == box_id && b.layout_hint.as_ref().is_some_and(|l| !l.is_empty()));
+        if is_layout_box {
+            continue;
+        }
         if let Some(ep) = find_entry_mut(graph, box_id, pin_id) {
             ep.offset = new_offset;
             aligned += 1;
@@ -477,6 +499,12 @@ fn order_pins_per_side(graph: &mut McVecGraph) {
 
     for b in &mut graph.boxes {
         if is_rail_box(b) {
+            continue;
+        }
+        // ★ Reserved interface ①: order & spacing on a layout-fixed box come from
+        //   the author's per-edge list (ep_from_layout already placed them CCW);
+        //   crossing-minimizing reorder would scramble that list order.
+        if b.layout_hint.is_some() {
             continue;
         }
         for side in [

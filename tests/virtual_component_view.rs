@@ -285,6 +285,79 @@ component CONN12
 }
 
 #[test]
+fn component_view_layout_places_pins_on_edges_ccw() {
+    // A component `layout = [...]` must drive the virtual view: each listed
+    // member lands on its edge, in counterclockwise order (right list reads
+    // bottom→top → descending offsets, left reads top→bottom → ascending).
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let (path, uri) = fixture(
+        "layout",
+        r#"
+component DIP6
+{
+    pins = [
+        1 = P1
+        2 = P2
+        3 = P3
+        4 = P4
+        5 = P5
+        6 = P6
+    ]
+    layout = [
+        left = [1, 2]
+        right = [4, 3]
+        top = [5]
+        bottom = [6]
+    ]
+}
+"#,
+    );
+    setup(&uri);
+
+    let targets = mcc::mcc_virtual_resolve_targets(&uri, None).expect("resolve targets");
+    let (inst, table, arena, store) =
+        mcc::mcc_virtual_build_flat(&targets[0], &uri, 1000).expect("virtual build must succeed");
+    let block = mcc::build_mc_vec(&inst, &table, &arena, &store);
+    let graph =
+        mcc::mcc_virtual_prepare_graph(mcc::build_mc_vec_graph(&block, &table), &targets[0]);
+    let b = graph
+        .boxes
+        .iter()
+        .find(|b| b.pins.len() == 6 && b.class_name == "DIP6")
+        .expect("DIP6 device box must be in the graph");
+
+    let side_of = |pid: &str| {
+        b.entry_points
+            .iter()
+            .find(|ep| b.pins.iter().any(|p| p.id == ep.pin_id && p.pin_id == pid))
+            .map(|ep| ep.side.clone())
+    };
+    use mcc::vector::graph::EntrySide;
+    assert_eq!(side_of("1"), Some(EntrySide::Left));
+    assert_eq!(side_of("2"), Some(EntrySide::Left));
+    assert_eq!(side_of("4"), Some(EntrySide::Right));
+    assert_eq!(side_of("3"), Some(EntrySide::Right));
+    assert_eq!(side_of("5"), Some(EntrySide::Top));
+    assert_eq!(side_of("6"), Some(EntrySide::Bottom));
+
+    // Offsets follow counterclockwise package order.
+    let off_of = |pid: &str| {
+        b.entry_points
+            .iter()
+            .find(|ep| b.pins.iter().any(|p| p.id == ep.pin_id && p.pin_id == pid))
+            .map(|ep| ep.offset)
+    };
+    // Left column reads top→bottom.
+    assert!(off_of("1").unwrap() < off_of("2").unwrap());
+    // Right column reads bottom→top (mirrored).
+    assert!(
+        off_of("4").unwrap() > off_of("3").unwrap(),
+        "right list 4,3 must run bottom→top"
+    );
+    fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
 fn group_range_bus_pins_all_register() {
     // Regression: `io [4:11] = IO0{0:7}` must register 8 pins (IO00..IO07).
     // as_bus() used to ignore the numeric range inside curly braces, so the
