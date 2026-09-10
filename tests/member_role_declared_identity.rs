@@ -247,3 +247,103 @@ module main {
         "component DC row hot pin must be Power, got: {roles:?}"
     );
 }
+
+/// A **scalar** `::DC` port (`in vin::DC(5V)`, i.e. no pair written on the row)
+/// carries the same declared face pair as the written forms. The faces come
+/// from the DC interface's own pin table, positionally — so the port's members
+/// get roles whichever of the two equivalent spellings the author used.
+///
+/// The interface here declares `ALPHA`/`BETA`, deliberately NOT GND/VDD-shaped
+/// words: a pass proves the role is the *position* (1st = supply face, 2nd =
+/// declared return), never the name. This is the spelling-independence lock —
+/// the written forms are covered by `module_header_dc_pair_ret_member_is_ground`
+/// above, and a `::DC` row that writes its own pair still has those names
+/// override the interface's (`extract_port_bus_members` prefers the written
+/// members, and the pair decode reads the same source).
+#[test]
+fn scalar_dc_port_carries_its_declared_face_pair() {
+    const SCALAR_DC: &str = r#"
+interface DC {
+    pins = [ 1 = ALPHA; 2 = BETA ]
+}
+module main {
+    in vin::DC(5V)
+    out vout::DC(3.3V)
+}
+"#;
+    let roles = flat_roles(SCALAR_DC, &|p| {
+        p.ends_with(".vin.ALPHA")
+            || p.ends_with(".vin.BETA")
+            || p.ends_with(".vout.ALPHA")
+            || p.ends_with(".vout.BETA")
+    });
+    for port in ["vin", "vout"] {
+        let hot = roles
+            .iter()
+            .find(|(p, _)| p.ends_with(&format!(".{port}.ALPHA")))
+            .unwrap_or_else(|| panic!("expected main.{port}.ALPHA member, got: {roles:?}"));
+        assert_eq!(
+            hot.1,
+            format!("{:?}", MemberRole::Power),
+            "scalar ::DC port '{port}': 1st interface face is the supply face → Power, got: {roles:?}"
+        );
+        let ret = roles
+            .iter()
+            .find(|(p, _)| p.ends_with(&format!(".{port}.BETA")))
+            .unwrap_or_else(|| panic!("expected main.{port}.BETA member, got: {roles:?}"));
+        assert_eq!(
+            ret.1,
+            format!("{:?}", MemberRole::Ground),
+            "scalar ::DC port '{port}': 2nd interface face is the declared return → Ground, got: {roles:?}"
+        );
+    }
+}
+
+/// The pair is a `::DC` property, not "an interface with two members": a port
+/// on any other interface declares no supply/return faces, so its members stay
+/// Signal (ruling ① — no declaration, no role; never name-guessed). This is the
+/// exact boundary of the scalar-DC change.
+#[test]
+fn non_dc_interface_port_declares_no_faces() {
+    const OTHER: &str = r#"
+interface WIRE2 {
+    pins = [ 1 = ALPHA; 2 = BETA ]
+}
+module main {
+    io bus::WIRE2()
+}
+"#;
+    let roles = flat_roles(OTHER, &|p| {
+        p.ends_with(".bus.ALPHA") || p.ends_with(".bus.BETA")
+    });
+    assert_eq!(roles.len(), 2, "expected both bus members, got: {roles:?}");
+    for (path, role) in &roles {
+        assert_eq!(
+            role, "none",
+            "non-DC interface member {path} must stay Signal (no face pair declared), got {role:?}"
+        );
+    }
+}
+
+#[test]
+fn probe_dc_member_names() {
+    const SRC: &str = r#"
+module main {
+    in vin::DC(5V)
+    out vout::DC(3.3V)
+}
+"#;
+    let _lock = common::lock();
+    common::reset();
+    let uri: mcc::McURI = "/mcc/probe-dc.mc".to_string();
+    mcc::mcc_load_from_string(&uri, SRC);
+    let _ = mcc::mcc_build(&McIds::from("main"), &uri);
+    let entry = McSpaceName {
+        ident: McIds::from("main"),
+        uri: mcc::uri_intern(&uri),
+    };
+    let (_, table) = mcc::mcb_pass2_flat(&entry, 1).expect("pass2");
+    for (_, e) in table.iter() {
+        eprintln!("P2 {} kind={:?}", e.path, e.kind);
+    }
+}

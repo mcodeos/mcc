@@ -162,9 +162,12 @@ fn sub_layers_s1_s2_decoration_counts() {
         // boxes draws one real cross-box trunk.
         ("MCU513", 0, 0, 1, 2),
         ("MIC", 0, 0, 1, 1),
-        // LDO's header uses scalar DC ports (`in vin::DC(5V)`) with no [hot,ret]
-        // pair → no declared supply identity → its supply nets are Signal.
-        ("LDO", 0, 0, 0, 0),
+        // LDO's header uses scalar DC ports (`in vin::DC(5V)` / `out vout::DC(3.3V)`).
+        // A `::DC` port declares a supply face and a return face positionally,
+        // whether the two are written on the row or brought over from the DC
+        // interface's own pin table — so the scalar spelling declares the same
+        // identity as `[VDD_3V3, GND]::DC(3.3V)` and LDO draws like its siblings.
+        ("LDO", 0, 0, 1, 2),
         ("DCDC", 0, 0, 1, 2),
         ("SPK", 0, 0, 1, 1),
         ("USB", 0, 0, 1, 0),

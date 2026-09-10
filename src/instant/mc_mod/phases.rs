@@ -208,32 +208,43 @@ impl InstantiationBuilder {
             let inject_inst = inst.clone();
 
             // Model-A connection-point DC pair (classification-retirement-design
-            // §4, C full capture): the row is a DC pair only when the interface
-            // is `::DC` AND the pair was WRITTEN on the row (`[hot, ret]` or
-            // `base{hot, ret}`) — a scalar `x::DC(v)` whose members are expanded
-            // from the DC base pins is not a written pair, so it stays `None`.
+            // §4, C full capture). The pair is a property of the DECLARATION, not
+            // of the spelling: a `::DC` contract with two faces declares a supply
+            // face and a return face, and the faces sit at the declared positions.
+            // Written members (`[hot, ret]` / `base{hot, ret}`) name them; a scalar
+            // `x::DC(v)` brings the same two faces over from the interface's own
+            // pin table, in the same order — so it carries the same pair. Reading
+            // only the written form made identity depend on which of the two
+            // equivalent spellings the author happened to use.
             // Positional decode: 1st member=hot (supply side), 2nd=ret (declared
             // return / ground side); names are copper labels only (a member is ret
             // because it sits second, not because it is named GND) — no-hardcoding.
             let dc_pair: Option<(String, String)> = match inst {
                 McInstance::Interface(iface) if iface.base_name() == "DC" => {
                     // Written members: curly `base{hot, ret}` (as_bus) or
-                    // bracket `[hot, ret]` (list_members). A scalar `x::DC(v)`
-                    // has neither (its members would come from base pins).
-                    if let Some((_prefix, members)) = iface.name.as_bus() {
-                        if members.len() == 2 {
+                    // bracket `[hot, ret]` (list_members).
+                    let written = iface
+                        .name
+                        .as_bus()
+                        .map(|(_prefix, members)| members)
+                        .or_else(|| iface.name.list_members());
+                    match written {
+                        Some(members) if members.len() == 2 => {
                             Some((members[0].clone(), members[1].clone()))
-                        } else {
-                            None
                         }
-                    } else if let Some(members) = iface.name.list_members() {
-                        if members.len() == 2 {
-                            Some((members[0].clone(), members[1].clone()))
-                        } else {
-                            None
+                        None => {
+                            // Scalar `x::DC(v)`: not written, so the pair comes
+                            // from the interface's own declared pin order — the
+                            // same source `extract_port_bus_members` expands the
+                            // members from, hence the same order.
+                            let faces = iface.base.pins.member_names();
+                            if faces.len() == 2 {
+                                Some((faces[0].clone(), faces[1].clone()))
+                            } else {
+                                None
+                            }
                         }
-                    } else {
-                        None
+                        Some(_) => None,
                     }
                 }
                 _ => None,
