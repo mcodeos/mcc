@@ -499,6 +499,11 @@ impl InstantiationBuilder {
                 bindings,
                 expansion_ctx,
             ))),
+            McPhrase::Reversed(inner) => McPhrase::Reversed(Box::new(Self::substitute_phrase(
+                inner,
+                bindings,
+                expansion_ctx,
+            ))),
             McPhrase::Lead => phrase.clone(),
             // --- Iter-2.3 ------------------------------------------------
             // Previously Endpoint::Single(Label/Bus/List) was returned as-is -- as a result

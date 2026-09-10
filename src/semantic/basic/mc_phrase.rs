@@ -105,6 +105,13 @@ pub enum McPhrase {
     Multiple(Vec<McPhrase>),
     Group(McGroup),
     Transposed(Box<McPhrase>),
+    /// Postfix `^` (vec-dianlu.md §2.4.4): a **wrapper**, not a tree rewrite.
+    /// The operand survives structurally underneath; the reversal is applied
+    /// when the expression is *evaluated* (§2.4.5), by swapping the operand's
+    /// two faces. Operands that carry no order to reverse (parallel groupings,
+    /// transposed operands) evaluate to themselves — that decision lives here
+    /// at eval, not at parse.
+    Reversed(Box<McPhrase>),
     Closure(McClosure),
     FuncCall(McFuncCall),
     Member(Box<McPhrase>, McEndpoint),
@@ -2436,64 +2443,32 @@ impl McPhrase {
 
             MCAST_OPD_CARET => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
-                match McPhrase::new(&opd1_node, context)? {
-                    McPhrase::Series(ref mut phrases, _) => {
-                        phrases.reverse();
-                        Some(McPhrase::Series(phrases.clone(), ConnDir::Undirected))
-                    }
-                    // ── P5: E2903 — reverse `^` on a vector operand is a no-op ──
-                    // Parallel (`A + B`), transposed (`X'`) and parenthesized
-                    // vector groupings (`(A + B)`) carry no order to reverse
-                    // (eval.md §5.6 / examples L180: `...'^`).
-                    opd1 if is_reverse_noop_operand(&opd1) => {
-                        dlog_warning(
-                            crate::errcodes::SHAPE_REVERSE_NOOP,
-                            node,
-                            &crate::errcodes::format_msg(
-                                crate::errcodes::SHAPE_REVERSE_NOOP,
-                                &[&opd1],
-                            ),
-                        );
-                        Some(opd1)
-                    }
-                    // §6.3: reversing a node swaps its left/right ports (the
-                    // single-element Series wrapper below would be a no-op).
-                    opd1 @ McPhrase::Endpoint(McEndpoint::Node { .. }) => {
-                        let mut node = opd1;
-                        node.reverse();
-                        Some(node)
-                    }
-                    // §6.3: reversing a two-pin component (a 1*2 row vector)
-                    // swaps its two pins — `R101^` presents pin 2 on the left
-                    // and pin 1 on the right (vec-arch.md §5.2). The
-                    // single-element Series wrapper below is a no-op for a lone
-                    // component, so the swap is done here at the phrase level.
-                    ref opd1 @ McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                        base: McInstance::Component(ref c),
-                        ..
-                    })) => {
-                        if matches!(shape_defaults(c).kind, PinShapeKind::TwoPin) {
-                            let inst_name = c.name.to_string();
-                            Some(McPhrase::Endpoint(McEndpoint::Node {
-                                input: vec![McEndpoint::Single(McInstanceRef::new(
-                                    McInstance::Bus(McBus::new(&format!("{inst_name}.2"))),
-                                ))],
-                                output: vec![McEndpoint::Single(McInstanceRef::new(
-                                    McInstance::Bus(McBus::new(&format!("{inst_name}.1"))),
-                                ))],
-                            }))
-                        } else {
-                            let mut phrases = vec![opd1.clone()];
-                            phrases.reverse();
-                            Some(McPhrase::Series(phrases, ConnDir::Undirected))
-                        }
-                    }
-                    opd1 => {
-                        let mut phrases = vec![opd1];
-                        phrases.reverse();
-                        Some(McPhrase::Series(phrases, ConnDir::Undirected))
-                    }
+                let opd1 = McPhrase::new(&opd1_node, context)?;
+                // ── P5: E2903 — reverse `^` on a vector operand is a no-op ──
+                // The judgement is the **shape** one (vec-dianlu.md §6.3 /
+                // eval.md §5.6): `^` swaps the operand's two faces, so it is a
+                // no-op exactly when they are the same element list —
+                // `Point` / `Column`. It is deliberately *not* a syntactic
+                // test on the node kind: `A + B` (two bare labels) collapses to
+                // a point and is a no-op, while `R101 + R102` (two two-pin
+                // parts) stacks into a `1*2` node whose faces differ and whose
+                // reversal is real. The no-op itself is applied at eval, where
+                // `Reversed` passes such an operand through unchanged (§2.4.5 —
+                // semantics act on the evaluation result).
+                if OpdShape::of(&opd1, context).is_degenerate() {
+                    dlog_warning(
+                        crate::errcodes::SHAPE_REVERSE_NOOP,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::SHAPE_REVERSE_NOOP, &[&opd1]),
+                    );
                 }
+                // §2.4.4: `^` **wraps**. The operand must survive structurally
+                // underneath rather than being rewritten into the operator:
+                // swapping a node's ports, swapping a two-pin component's pins
+                // and reversing a chain's members are all evaluated *from* this
+                // wrapper (get_left/get_right/eval_port_elems), never written
+                // into the tree.
+                Some(McPhrase::Reversed(Box::new(opd1)))
             }
 
             MCAST_OPD_FCALL => {
@@ -3077,14 +3052,39 @@ fn shape_defaults(c: &Mc2Component) -> CompPinShape {
     CompPinShape { kind, static_count }
 }
 
-/// Whether a phrase carries no order to reverse: parallel groupings,
-/// transposed operands and parenthesized vector groupings are vectors, so
-/// `^` on them is a no-op (eval.md §5.6). Series chains are reversible and
-/// are excluded here.
+/// Whether an operand carries no order for `^` to reverse — i.e. whether its
+/// two faces are the same element list (vec-dianlu.md §6.3 / eval.md §5.6).
+///
+/// This is the **representative-level** form of the shape test: `get_left` /
+/// `get_right` have no `context`, so they cannot ask `OpdShape::of`. It is
+/// therefore deliberately *conservative* — it answers `true` only where the
+/// operand is degenerate whatever the unresolved widths turn out to be — and
+/// it must never claim degeneracy for a lane that has a left/right of its own,
+/// or the reversal would be silently dropped. Where the lane-level truth
+/// matters (`eval_port_elems`, and the E2903 diagnostic) the shape itself is
+/// read instead.
+///
+/// The `+` case is why the test cannot be syntactic: two bare labels stack into
+/// a point (`1*1 + 1*1 = 1*1`) and are a no-op, while two two-pin parts stack
+/// into a `1*2` node whose faces differ and whose reversal is real.
 fn is_reverse_noop_operand(p: &McPhrase) -> bool {
     match p {
-        McPhrase::Parallel(_) | McPhrase::Transposed(_) => true,
-        McPhrase::Group(g) => g.opds.iter().any(is_reverse_noop_operand),
+        // `'` presents a column on both faces (vec-dianlu.md §6.2).
+        McPhrase::Transposed(_) => true,
+        // A `[...]` list is a bundle: degenerate iff every lane is.
+        McPhrase::Multiple(opds) => opds.iter().all(is_reverse_noop_operand),
+        // `+` stacks lanes without consuming ports (vec-dianlu.md §1.4), so the
+        // result keeps two distinct faces exactly when some lane carries one.
+        McPhrase::Parallel(opds) => opds.iter().all(is_reverse_noop_operand),
+        McPhrase::Group(g) => g.opds.iter().all(is_reverse_noop_operand),
+        // A single reference is degenerate exactly when its own two faces are
+        // the same list: a bare label is a point, a two-pin component is
+        // pin1 | pin2. Ask the endpoint rather than re-deriving it here.
+        McPhrase::Endpoint(ep) => ep.get_left() == ep.get_right(),
+        // A reversed operand has nothing to reverse exactly when what it
+        // wraps has nothing to reverse: `^^` is the identity, so it must not
+        // drift the face.
+        McPhrase::Reversed(inner) => is_reverse_noop_operand(inner),
         _ => false,
     }
 }
@@ -3117,6 +3117,14 @@ fn check_inst_plusminus(opd: &McPhrase) -> Option<(String, usize)> {
 // ============================================================================
 
 impl McPhrase {
+    /// Whether `^` on this phrase is a no-op (eval.md §5.6): the operand
+    /// carries no order to reverse, so the reversal degenerates to the operand
+    /// itself. Exposed so the point-level walkers can apply the same rule as
+    /// `get_left` / `get_right` / `eval_port_elems`.
+    pub(crate) fn reverse_is_noop(&self) -> bool {
+        is_reverse_noop_operand(self)
+    }
+
     pub(crate) fn get_left(&self) -> Vec<McBus> {
         use IOType;
         match self {
@@ -3237,6 +3245,19 @@ impl McPhrase {
                 input.iter().flat_map(|e| e.get_left()).collect()
             }
             McPhrase::Transposed(mc_line) => mc_line.get_right(),
+            // §2.4.5: `^` is applied to the *evaluated* operand, so the
+            // reversal lives here rather than in the parse tree. A reversed
+            // expression presents the operand's right face on the left. An
+            // operand with no order to reverse (parallel grouping, transposed
+            // operand) degenerates to itself — the same no-op the parser used
+            // to bake in, now decided at eval (eval.md §5.6, E2903).
+            McPhrase::Reversed(mc_line) => {
+                if is_reverse_noop_operand(mc_line) {
+                    mc_line.get_left()
+                } else {
+                    mc_line.get_right()
+                }
+            }
             // ★ P4.1 / func-return-design v2.1 §1: consume the resolved return
             // shape (eval.md §8.1). The return face is a symmetric stereo node:
             // case ② `Label{bus}` → BOTH left and right mouths expose the return
@@ -3360,6 +3381,15 @@ impl McPhrase {
                 output.iter().flat_map(|e| e.get_right()).collect()
             }
             McPhrase::Transposed(mc_line) => mc_line.get_left(),
+            // §2.4.5: mirror of `get_left` — the reversed view's right face is
+            // the operand's left face (identity for order-less operands).
+            McPhrase::Reversed(mc_line) => {
+                if is_reverse_noop_operand(mc_line) {
+                    mc_line.get_right()
+                } else {
+                    mc_line.get_left()
+                }
+            }
             // ★ P4.1: consume the resolved return shape (eval.md §8.1).
             // `Label` → right = the return value's buses ([0|N]).
             McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
@@ -3386,6 +3416,9 @@ impl McPhrase {
                 inner.reverse();
                 inner.set_right_out();
             }
+            // `set_left_in(T)` ≡ `set_right_out(reverse(T))`; reversing a
+            // reversed expression cancels (§2.4.5), so the role swaps.
+            McPhrase::Reversed(ref mut inner) => inner.set_right_out(),
             McPhrase::Parallel(ref mut opds) => {
                 for opd in opds.iter_mut() {
                     opd.set_left_in();
@@ -3425,6 +3458,9 @@ impl McPhrase {
                 inner.set_right_out();
                 inner.reverse();
             }
+            // Mirror of `set_left_in` above: the reversed view's right face is
+            // the operand's left face.
+            McPhrase::Reversed(ref mut inner) => inner.set_left_in(),
             McPhrase::Parallel(ref mut opds) => {
                 for opd in opds.iter_mut() {
                     opd.set_right_out();
@@ -3456,6 +3492,12 @@ impl McPhrase {
             McPhrase::Series(ref mut phrases, _) => phrases.reverse(),
             McPhrase::Transposed(ref mut inner) => {
                 inner.reverse();
+            }
+            // Reversing a reversed expression cancels the reversal (§2.4.5):
+            // `^` twice is the identity, so unwrap instead of nesting (and
+            // instead of falling into the no-op log below).
+            McPhrase::Reversed(ref mut inner) => {
+                *self = (**inner).clone();
             }
             McPhrase::Parallel(ref mut opds) => {
                 for opd in opds.iter_mut() {
@@ -3526,6 +3568,12 @@ impl McPhrase {
         }
 
         match self {
+            // Member access through the reversal wrapper: resolve against the
+            // operand and keep the wrapper, so the reversal is still applied
+            // at eval and the operand is never rewritten here (§2.4.4).
+            McPhrase::Reversed(inner) => (*inner)
+                .dot_or_curly(member_names)
+                .map(|p| McPhrase::Reversed(Box::new(p))),
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Component(c),
                 ..
@@ -4034,6 +4082,9 @@ fn needs_paren_for_priority(phrase: &McPhrase) -> bool {
     match phrase {
         McPhrase::Parallel(_) => true,
         McPhrase::Transposed(_) => true,
+        // `x^` binds tighter than every operator, so as an operand it needs
+        // its own parentheses to keep the operand boundary.
+        McPhrase::Reversed(_) => true,
         McPhrase::Multiple(_) => true,
         McPhrase::Series(phrases, _) => {
             if phrases.is_empty() {
@@ -4055,6 +4106,10 @@ fn needs_paren_for_series(phrase: &McPhrase) -> bool {
         // `Transposed` renders with self-delimiting parentheses (`({p})'`),
         // so extra parentheses are redundant (`(({p})')` -> `({p})'`).
         McPhrase::Transposed(_) => false,
+        // `x^` is postfix with the tightest binding, so it is **not**
+        // self-delimiting as a series item: `a -> b^` re-parses as
+        // `a -> (b^)`. Keep the parentheses.
+        McPhrase::Reversed(_) => true,
         // `Multiple` renders with self-delimiting brackets (`[a, b]`),
         // so extra parentheses are redundant (`([a, b])` -> `[a, b]`).
         _ => false,
@@ -4123,6 +4178,17 @@ impl std::fmt::Display for McPhrase {
                     }
                 }
                 write!(f, "({p})'")
+            }
+            McPhrase::Reversed(p) => {
+                // `^` is postfix and binds tighter than any operator, so the
+                // operand keeps its own parentheses (`(a -> b)^`); same
+                // single-Group de-doubling as `Transposed` above.
+                if let McPhrase::Group(g) = p.as_ref() {
+                    if g.opds.len() == 1 {
+                        return write!(f, "({})^", g.opds[0]);
+                    }
+                }
+                write!(f, "({p})^")
             }
             McPhrase::Multiple(phrases) => {
                 // Flatten nested `Multiple` so a source `[dio[1:2]::DIO(...)]`
@@ -4650,6 +4716,19 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
         // a transposed head/tail is transposed to its full-width column first
         // (the pre-transpose single port of e.g. `A -> CAP'` must not be fed to
         // opcheck as the chain's right port).
+        // §2.4.5: `^` acts on the evaluation result. Read the operand's
+        // **opposite** face, recursing so the inner arm still supplies the
+        // width it alone knows (a multi-member interface, a module port
+        // vector, a func return shape). An operand whose two faces are the same
+        // element list carries no order to reverse and degenerates to itself
+        // (vec-dianlu.md §6.3 / eval.md §5.6).
+        McPhrase::Reversed(inner) => {
+            if OpdShape::of(inner, context).is_degenerate() {
+                eval_port_elems(inner, right, context)
+            } else {
+                eval_port_elems(inner, !right, context)
+            }
+        }
         McPhrase::Series(phrases, _) => {
             let edge = if right {
                 phrases.last()

@@ -162,8 +162,15 @@ impl OpdShape {
     /// ports where they are independent (row vector / node), and is an
     /// identity for point / column / unknown.
     ///
-    /// Not yet wired into a production path; kept as tested semantic API
-    /// (see the `reverse_*` tests below).
+    /// Deliberately **not** the production path for `^`. Reversing is applied
+    /// in `eval_port_elems` by reading the operand's opposite side
+    /// (`eval_port_elems(inner, !right)`), because that reuses the operand's
+    /// own arm — which is where the widths only it knows live (a multi-member
+    /// interface, a module port vector, a resolved func return shape).
+    /// Going through a shape here would also disagree with the symbol-level
+    /// `get_left` / `get_right` on a `Parallel`, which expose `opds[0]`'s face
+    /// rather than every lane. Kept as tested semantic API (see the `reverse_*`
+    /// tests below).
     #[allow(dead_code)]
     pub fn reverse(&self) -> OpdShape {
         match self {

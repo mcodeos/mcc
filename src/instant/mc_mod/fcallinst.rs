@@ -2175,6 +2175,9 @@ impl InstantiationBuilder {
             McPhrase::Transposed(inner) => {
                 McPhrase::Transposed(Box::new(self.expand_bus_labels(inner)))
             }
+            McPhrase::Reversed(inner) => {
+                McPhrase::Reversed(Box::new(self.expand_bus_labels(inner)))
+            }
             McPhrase::Group(g) => McPhrase::Group(McGroup {
                 opds: g.opds.iter().map(|p| self.expand_bus_labels(p)).collect(),
                 left_match: g.left_match,
@@ -2364,6 +2367,9 @@ impl InstantiationBuilder {
                 })
             }
             McPhrase::Transposed(inner) => McPhrase::Transposed(Box::new(
+                Self::prefix_instance_phrase_with_skip(inner, inst_name, skip),
+            )),
+            McPhrase::Reversed(inner) => McPhrase::Reversed(Box::new(
                 Self::prefix_instance_phrase_with_skip(inner, inst_name, skip),
             )),
             McPhrase::Lead => phrase.clone(),

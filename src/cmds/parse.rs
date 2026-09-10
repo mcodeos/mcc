@@ -1196,6 +1196,11 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             "label": "",
             "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
         }),
+        McPhrase::Reversed(inner) => json!({
+            "kind": "Reversed",
+            "label": "",
+            "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
+        }),
         McPhrase::Member(inner, ep) => json!({
             "kind": "Member",
             "label": format!(".{}", ep),

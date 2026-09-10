@@ -364,7 +364,7 @@ pub(crate) fn collect_referenced_names(phrase: &McPhrase, names: &mut HashSet<St
                 collect_referenced_names(item, names);
             }
         }
-        McPhrase::Transposed(p) => collect_referenced_names(p, names),
+        McPhrase::Transposed(p) | McPhrase::Reversed(p) => collect_referenced_names(p, names),
         McPhrase::Closure(c) => {
             for line in &c.body {
                 collect_referenced_names(line, names);
@@ -410,7 +410,7 @@ pub(crate) fn collect_net_label_names(phrase: &McPhrase, names: &mut HashSet<Str
                 collect_net_label_names(item, names);
             }
         }
-        McPhrase::Transposed(p) => collect_net_label_names(p, names),
+        McPhrase::Transposed(p) | McPhrase::Reversed(p) => collect_net_label_names(p, names),
         McPhrase::Closure(c) => {
             for line in &c.body {
                 collect_net_label_names(line, names);
