@@ -9,7 +9,7 @@ use super::super::{
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
     basic::mc_fcall::{check_ctor_bind, McFuncCall, ReturnShape},
     basic::mc_group::McGroup,
-    common::{representative, ConnDir, ConnOp, IOType, McCMIE, Shape},
+    common::{ConnDir, ConnOp, IOType, McCMIE},
     component::Mc2Component,
     mc_func::HasFindInst,
     mc_inst::McInstance,
@@ -2538,11 +2538,13 @@ impl McPhrase {
                 }
 
                 // Infer shapes and upgrade phrases before checking connectivity
-                // ★ P4.3 single-port representative rule:
-                //   - `+` / `-` / `<-`: op1 is the shape representative (left side dominant)
-                //   - `->`: op2 is the shape representative (right side is destination)
-                //   This is enforced through check_inst_plusminus for op1 and already
-                //   implicit in how get_left/get_right shape inference works.
+                // ★ P4.3 single-port representative rule: which operand is the
+                //   shape representative is `common::representative`'s decision
+                //   (`-` / `->` take the `rhs` argument, `<-` / `+` the `lhs`
+                //   one), not this comment's. Since the `<-` handler passes its
+                //   operands swapped, every Series operator resolves to the
+                //   written **op2**, and `+` to the written **op1** (the
+                //   parallel result is left-anchored).
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 // ── P1.3: inst 1*1/1*2 constraint for +/- ──
@@ -2569,12 +2571,15 @@ impl McPhrase {
                     return None;
                 }
 
-                // §5.1 parallel `+` is left-aligned: the left ports must always
-                // match one-to-one. A transposed operand is first transposed to
-                // its full-width column (its effective port is the merged inner
-                // left + right element list), and the §5.1 left-alignment check
-                // runs on that transposed result — there is no transpose
-                // carve-out (opcheck is shared with Pass2).
+                // §5.1 parallel `+`: the paired ports must match one-to-one.
+                // The pairing side is derived from `(opd1, opd2)` alone
+                // (opcheck): a degenerate right operand attaches to the left
+                // operand's right face -- the side it was written against --
+                // and when both operands are non-degenerate both faces pair.
+                // A transposed operand is first transposed to its full-width
+                // column (its effective port is the merged inner left + right
+                // element list) and the pairing runs on that result — there is
+                // no transpose carve-out (opcheck is shared with Pass2).
                 let opd1_shape = OpdShape::of(&opd1, context);
                 let opd2_shape = OpdShape::of(&opd2, context);
                 if check_list_column_width_mixed([&opd1, &opd2], node, context) {
@@ -2585,35 +2590,7 @@ impl McPhrase {
                     ConnDir::Undirected,
                     &opd1_shape,
                     &opd2_shape,
-                    crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
-                    dlog_error(
-                        crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
-                        node,
-                        &crate::errcodes::format_msg(
-                            crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
-                            &[],
-                        ),
-                    );
-                    return None;
-                }
-                // The right ports only need to align when BOTH sides carry an
-                // independent right port (row vector / node, left != right).
-                // When only one side does (single node / column vector, left ==
-                // right), the right side merges into the result without
-                // alignment (vec-dianlu.md §5.1). A transposed operand is a
-                // column after transposition (left == right), so it never
-                // carries an independent right port.
-                if opd1_shape.port_left() != opd1_shape.port_right()
-                    && opd2_shape.port_left() != opd2_shape.port_right()
-                    && !is_connectable(
-                        ConnOp::Parallel,
-                        ConnDir::Undirected,
-                        &opd1_shape,
-                        &opd2_shape,
-                        crate::semantic::opcheck::ParallelAlign::Right,
-                    )
-                {
                     dlog_error(
                         crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
                         node,
@@ -2746,7 +2723,6 @@ impl McPhrase {
                     ConnDir::Undirected,
                     &opd1_shape,
                     &opd2_shape,
-                    crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
@@ -2810,7 +2786,6 @@ impl McPhrase {
                     ConnDir::LtoR,
                     &opd1_shape,
                     &opd2_shape,
-                    crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
@@ -2888,7 +2863,6 @@ impl McPhrase {
                     ConnDir::RtoL,
                     &opd2_shape,
                     &opd1_shape,
-                    crate::semantic::opcheck::ParallelAlign::Left,
                 ) {
                     dlog_error(
                         crate::errcodes::CONN_LEFT_ARROW_SHAPE_MISMATCH,
@@ -4482,21 +4456,6 @@ fn infer_shape_and_upgrade(
     }
 }
 
-/// Infer the vector shape from a set of endpoints (Pass1 stage, eval.md §1/§2).
-///
-/// - Empty set → [`Shape::unknown`] (unresolved, e.g. a FuncCall return value);
-/// - Each `McBus` element is one row; a bus with members (`RS485{A,B}`) counts as N rows;
-/// - At the endpoint stage the column count is always 1: a 2-pin device's
-///   `get_left/right` only exposes a single point, so the `1*2` row-vector shape is
-///   invisible at the phrase layer and only fully expanded in Pass2.
-fn shape_of_bus_list(elems: &[McBus]) -> Shape {
-    if elems.is_empty() {
-        return Shape::unknown();
-    }
-    let rows: usize = elems.iter().map(|e| e.size()).sum();
-    Shape::new(rows.max(1))
-}
-
 /// Pass1 transpose safety guard (eval.md §5.5 / vec-arch.md §5.2): the operand
 /// being transposed may only carry a shape whose strict math transpose has a
 /// connectable expression — a column or node side wider than 2 rows has none.
@@ -5373,79 +5332,22 @@ enum ColumnKind {
 ///   carve-out), reported by the operator handlers (E4007) unless the side
 ///   count is unknown.
 /// - Parallel single point (1 row) vs N-row (N ≥ 2) → **row-count mismatch**,
-///   reported by the operator handlers (E4005) — the §5.1 left-alignment rule.
+///   reported by the operator handlers (E4005) — the §5.1 paired-face rule.
 ///   A transposed operand is first transposed to its full-width column by the
 ///   caller ([`eval_port_elems`]) before this check runs, so there is no
 ///   transpose carve-out here.
-fn is_connectable(
-    op: ConnOp,
-    dir: ConnDir,
-    lhs: &OpdShape,
-    rhs: &OpdShape,
-    align: crate::semantic::opcheck::ParallelAlign,
-) -> bool {
-    // The contact side depends on the operator (vec-arch.md §5.3): series
-    // touches `lhs.right x rhs.left`, parallel touches the `align`-selected
-    // side. Selecting it here keeps the side-selection local to this call;
-    // opcheck re-derives the same side from the full shape internally.
-    let (lhs_side, rhs_side): (Vec<McBus>, Vec<McBus>) = match op {
-        ConnOp::Series => (lhs.port_right(), rhs.port_left()),
-        ConnOp::Parallel => match align {
-            crate::semantic::opcheck::ParallelAlign::Left => (lhs.port_left(), rhs.port_left()),
-            crate::semantic::opcheck::ParallelAlign::Right => (lhs.port_right(), rhs.port_right()),
-        },
+fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &OpdShape, rhs: &OpdShape) -> bool {
+    // The contact sides depend on the operator (vec-arch.md §5.3) and, for
+    // parallel, on the face-side law (vec-dianlu.md §1.4 / §5.1): series
+    // touches `lhs.right x rhs.left`; parallel pairs the left faces, except
+    // that a degenerate right operand attaches to the left operand's right
+    // face, the side it was written against. The pairing decision has a single
+    // source (`opcheck`), so the parser needs no hand-written face check.
+    let verdict = match op {
+        ConnOp::Series => crate::semantic::opcheck::check_series(dir, lhs, rhs),
+        ConnOp::Parallel => crate::semantic::opcheck::check_parallel(dir, lhs, rhs),
     };
-
-    // Empty shape means "unknown/unresolved" (e.g. FuncCall return value), treated as connectable
-    if lhs_side.is_empty() || rhs_side.is_empty() {
-        return true;
-    }
-
-    // Shapes containing error/placeholder markers are also treated as connectable
-    if lhs_side.iter().any(|b| b.name.contains("<error"))
-        || rhs_side.iter().any(|b| b.name.contains("<error"))
-    {
-        return true;
-    }
-
-    let lhs_shape = shape_of_bus_list(&lhs_side);
-    let rhs_shape = shape_of_bus_list(&rhs_side);
-
-    // §4 single-port (1*1) representative rule (eval.md §4 note): a single-port
-    // connection has no left/right distinction, so one representative is chosen —
-    // `+`/`-`/`<-` take operand 1 (op1), `->` takes operand 2 (op2).
-    // Consistent with the Pass2 anchoring: `+` anchors `wire_parallel_internal`
-    // opd[0], `-` anchors the Series head opd1, `<-` anchors the RtoL chain tail
-    // op1 (after the swap op1 lands at the tail), `->` anchors the LtoR chain tail op2.
-    if lhs_shape.rows == 1 && rhs_shape.rows == 1 {
-        mcc_dbg!(
-            "sem::conds",
-            "[vec] single-port representative: dir={dir:?} lhs={lhs_shape} rhs={rhs_shape} rep={rep}",
-            rep = representative(op, dir, lhs_shape, rhs_shape)
-        );
-        return true;
-    }
-
-    // §5 legal-operation table (opcheck — shared with Pass2):
-    // - Series (§5.2): lhs.right x rhs.left row counts must match; unequal
-    //   rows (including `1*1` vs `N*1`) are rejected — no broadcast carve-out.
-    // - Parallel (§5.1): the `align` side (left ports, or the right ports
-    //   when both operands carry an independent right port) must have equal
-    //   rows; no broadcast carve-out.
-    match op {
-        ConnOp::Series => {
-            matches!(
-                crate::semantic::opcheck::check_series(lhs, rhs),
-                crate::semantic::opcheck::OpCheck::Legal(_)
-            )
-        }
-        ConnOp::Parallel => {
-            matches!(
-                crate::semantic::opcheck::check_parallel(lhs, rhs, align),
-                crate::semantic::opcheck::OpCheck::Legal(_)
-            )
-        }
-    }
+    matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_))
 }
 
 // ============================================================================

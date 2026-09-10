@@ -44,8 +44,8 @@ impl OpdShape {
     /// The row count is the **leaf** count (`sum of each McBus::size`), not the
     /// `Vec` length: a single `McBus` carrying several members (e.g. a
     /// `Bus("UART0", ["TX", "RX"])` that `eval_port_elems` returns unflattened)
-    /// still counts as one row per member, matching `shape_of_bus_list` and the
-    /// Pass2 lane expansion.
+    /// still counts as one row per member, matching `opcheck::port_row_shape`
+    /// and the Pass2 lane expansion.
     pub fn size_left(&self) -> usize {
         match self {
             OpdShape::Point(e) => e.size(),
@@ -99,6 +99,23 @@ impl OpdShape {
     /// via an explicit empty guard, not by this accessor).
     pub fn is_unknown(&self) -> bool {
         matches!(self, OpdShape::Unknown)
+    }
+
+    /// Whether the operand is **degenerate**: it carries no left/right
+    /// distinction of its own, i.e. its two ports are the same element list.
+    /// True for `Point` (`1*1`) and `Column` (`N*1`); false for `Row` (`1*2`)
+    /// and `Node` (`M*1, N*1`), which expose genuinely different ports.
+    ///
+    /// This is the hinge of the §5.1 face-side law (vec-dianlu.md §1.4 /
+    /// §5.1): parallel consumes no port, so a degenerate operand has to pick
+    /// one face to attach to, and only its written side can decide which.
+    /// `Unknown` is not degenerate -- it is a wildcard handled by the caller's
+    /// empty guard, not an operand that owns a face.
+    pub fn is_degenerate(&self) -> bool {
+        match self {
+            OpdShape::Point(_) | OpdShape::Column(_) => true,
+            OpdShape::Row(_, _) | OpdShape::Node(_, _) | OpdShape::Unknown => false,
+        }
     }
 
     /// Strict math transpose (vec-arch.md §5.2 / §6.2): a column vector
