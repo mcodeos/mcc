@@ -1340,10 +1340,8 @@ impl InstantiationBuilder {
                 for p in phrases {
                     match p {
                         McPhrase::Multiple(inner) => {
-                            let transformed_inner: Vec<McPhrase> = inner
-                                .iter()
-                                .flat_map(|ip| self.phrase_to_members(ip))
-                                .collect();
+                            let transformed_inner: Vec<McPhrase> =
+                                self.normalize_multiple_lanes(inner);
                             if !result.is_empty() {
                                 gaps.push(*d);
                             }
@@ -1362,57 +1360,35 @@ impl InstantiationBuilder {
                     }
                 }
 
-                // ── Iter-6.S5.1 P0-2 scenario C ─────────────────────────
-                // merge adjacent same-name single-member Bus phrases.
+                // ── Iter-6.S5.1 P0-2 scenario C: the "curly-split" fix-up ──
+                // A pre-pass (`merge_adjacent_curly_split`) used to live here. It
+                // merged two adjacent same-name single-member Bus phrases into
+                // one, to repair a parser defect where `MIC{P,N}` at statement
+                // start came out as `[Bus(MIC,[P]), Bus(MIC,[N])]` — which the
+                // adjacency wiring then shorted together.
                 //
-                // Background: parser for `Name{a, b, ...}` in certain scenarios (especially stmt
-                // start position + Name is io/out/in declared Label-type port) expansion
-                // is inconsistent — expected to produce ONE Bus(Name, [a, b, ...]), actually
-                // produces [Bus(Name, [a]), Bus(Name, [b]), ...] multiple adjacent
-                // phrases entering Series.
+                // It has been **retired** (R0 A6, `vec-dianlu.md` §2.4, ban 2:
+                // an operator is encoded, never rewritten).
+                // Two reasons:
                 //
-                // Verified case (main.mc:147):
-                //   `MIC{P,N} -> cap[4:5]::CAP(1uF) -> uC.ADC{P,N}`
-                //   - stmt end `uC.ADC{P,N}` parsed correctly: Bus(uC.ADC, [P, N]) single
-                //     phrase (variants log: Bus(name='uC.ADC' members=[P,N]))
-                //   - stmt start `MIC{P,N}` parsed incorrectly: split into two phrases
-                //     [Bus(MIC, [P]), Bus(MIC, [N])]
-                //   - chain total members from expected 3 becomes 4
-                //   - adjacency wiring rules treat chain[0] = MIC.P ↔ chain[1] = MIC.N
-                //     as "normal pair", **shorting P and N together**
-                //     (Net Table: `MIC.P : MIC.P ~ MIC.N`)
+                // * It rewrote the tree without looking at `gaps`, so whenever the
+                //   user *did* write an operator between two same-name
+                //   single-member Buses the operator was erased together with the
+                //   boundary — `R101.1 -> R101.2` and `vout.VCC -> vout.GND` were
+                //   silently merged into one Bus and the `->` disappeared.
+                // * The parser defect it repaired no longer reproduces: probing
+                //   every real board (hbl / pwrint / hs / hbl1) found **no**
+                //   adjacent same-name Bus pair at all, and no synthetic
+                //   `Name{a,b}` form splits either. Multi-member Buses are built
+                //   upstream and reach the `Endpoint(Bus)` arms below (and the
+                //   Label arms) intact.
                 //
-                // Fix: after phrase_to_members flattens result Series, do
-                // one pass fix-up — only for **fully recognizable parser split traces**:
-                //   prev and curr are both Endpoint::Single(Bus(_)) and outer
-                //   members empty, same name, curr exactly 1 member, prev at least
-                //   1 member (allows cascading accumulation).
-                //
-                // This rule **won't** falsely hit legitimate cases:
-                //   - `MIC.P -> MIC.N` (dot access): names are "MIC.P" / "MIC.N"
-                //     different names, won't trigger.
-                //   - `mic{1,2} -> CAP(_).Cap(_) -> MIC{P,N}` (parser already
-                //     correctly handles stmt-end curly as single Bus(MIC, [P, N])): adjacent phrase
-                //     name different (mic vs MIC), won't trigger.
-                //   - `mcu{ MIC | DAC_OUT, SPK_MUTE }` (Node form): not
-                //     Single(Bus), won't trigger.
-                //   - `[VDD_3V3, GND]` (List/Multiple form): not Single(Bus),
-                //     won't trigger.
-                //
-                // **Only possible false hit**: user writes `MIC{P} -> MIC{N}` wanting P direct-connect N.
-                // This would be merged into Bus(MIC, [P, N]) single phrase, losing P↔N adjacency.
-                // This notation is virtually non-existent in engineering practice — standard
-                // notation for P↔N direct connection is `MIC.P -> MIC.N` (dot not curly), latter won't trigger
-                // this rule.
-                //
-                // Note: the long-term correct fix is to fix parser/`dot_or_curly` for Label/Port
-                // handling consistency (mc_phrase.rs:1462-1470). But parser chain involves
-                // upstream AST input and symbol table interaction, large change surface; doing fix-up
-                // at phrase_to_members layer is surgical and can be rolled back cost-free after parser fix.
-                Self::merge_adjacent_curly_split(&mut result, &mut gaps);
+                // So the surgical fix-up outlived its defect and all that was left
+                // was the operator erasure. `R101.1 -> R101.2` is now an ordinary
+                // chain again.
 
-                // ── M11.5: expand merged multi-member Buses to Multiple ──
-                // After merge_adjacent_curly_split, Buses like dc{VDD_3V3, GND}
+                // ── M11.5: expand multi-member Buses to Multiple ──
+                // Buses like dc{VDD_3V3, GND}
                 // may have multiple members.  Expand them to Multiple so
                 // lane-by-lane wiring can handle each lane independently.
                 // Count-neutral (remove+insert one member), so gap indices stay aligned.
@@ -1828,10 +1804,7 @@ impl InstantiationBuilder {
                 // Multiple statement has no serial operator, so every boundary is
                 // Undirected (matches the pre-fix chain-level default for a
                 // non-Series phrase).
-                let mut result = Vec::new();
-                for p in inner {
-                    result.extend(self.phrase_to_members(p));
-                }
+                let result = self.normalize_multiple_lanes(inner);
                 let gaps = vec![ConnDir::Undirected; result.len().saturating_sub(1)];
                 (result, gaps)
             }
@@ -1888,102 +1861,37 @@ impl InstantiationBuilder {
         }
     }
 
-    /// ── Iter-6.S5.1 helper ─────────────────────────────────────────────
-    /// Merge adjacent same-name single-member Bus phrases. See `phrase_to_members` Series branch
-    /// Iter-6.S5.1 comment block for details.
+    /// Normalize the inner phrases (**lanes**) of a `Multiple`.
     ///
-    /// Trigger conditions (all must be satisfied):
-    ///   1. prev and curr are both `Endpoint::Single(Bus(_))`;
-    ///   2. McInstanceRef outer `members` field both empty (no additional outer
-    ///      member modifier);
-    ///   3. prev_bus and curr_bus same name;
-    ///   4. curr_bus exactly 1 member (this is parser split trace fingerprint);
-    ///   5. prev_bus at least 1 member (allows cascading accumulation: 1-1 → 2, 2-1 → 3, ...).
+    /// Every lane normalizes to a single member, except two cases:
     ///
-    /// Behavior: merge curr_bus member into prev_bus, delete curr. Continue from same
-    /// index position forward, achieving chain accumulation.
-    ///
-    /// `gaps` (if present) is trimmed in lockstep: deleting `members[i]` removes
-    /// the boundary `gaps[i-1]` that connected it to `members[i-1]`, keeping the
-    /// gap vector index-aligned with the surviving members. The gapped Series
-    /// flatten (`series_members_gapped`) passes the real gaps; flat member-only
-    /// projections never call this with gap data of their own (the Series arm
-    /// is the single flattening source).
-    fn merge_adjacent_curly_split(members: &mut Vec<McPhrase>, gaps: &mut Vec<ConnDir>) {
-        debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
-        if members.len() < 2 {
-            return;
-        }
-        let mut i = 1;
-        while i < members.len() {
-            // immutable borrow scope: extract data to be merged from curr to prev
-            let merge_data = {
-                let prev = &members[i - 1];
-                let curr = &members[i];
-                Self::extract_curly_split_merge_data(prev, curr)
-            };
-            if let Some((mem, full)) = merge_data {
-                // Now do mutable borrow, merge into prev
-                if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                    base: McInstance::Bus(prev_bus_mut),
-                    ..
-                })) = &mut members[i - 1]
-                {
-                    prev_bus_mut.member.extend(mem);
-                    prev_bus_mut.full_members.extend(full);
+    /// * a nested `Multiple` concatenates into the lane list — a lane list of
+    ///   lane lists is the same lane list (`get_left_points` of a `Multiple`
+    ///   already recurses that way);
+    /// * a `Series` lane stays **one lane**, recursively normalized. Flattening
+    ///   it would be information destruction: `get_left_points` /
+    ///   `get_right_points` read a chain as its first / last member
+    ///   (`points.rs`), so a chain is a *single* lane with one face on each
+    ///   side. Flattening would expose every member as its own lane face and,
+    ///   with `gaps` dropped, erase the chain's internal operator directions
+    ///   (R0 `vec-dianlu.md` §2.4.5 corollary — the member list is the written
+    ///   order). A lane list is parallel, so there is no gap *between* lanes.
+    fn normalize_multiple_lanes(&self, inner: &[McPhrase]) -> Vec<McPhrase> {
+        let mut out = Vec::new();
+        for ip in inner {
+            match ip {
+                McPhrase::Series(members, d) => {
+                    out.push(McPhrase::Series(self.normalize_multiple_lanes(members), *d));
                 }
-                members.remove(i);
-                // The merged-away boundary (members[i-1]~members[i]) is gone:
-                // drop its gap so indices stay aligned for the cascade below.
-                if !gaps.is_empty() {
-                    debug_assert!(i - 1 < gaps.len());
-                    gaps.remove(i - 1);
-                }
-                // Don't increment i, allow cascading merge (the new members[i]
-                // will be compared again with the extended members[i-1])
-            } else {
-                i += 1;
+                _ => out.extend(self.phrase_to_members(ip)),
             }
         }
-        debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
-    }
-
-    /// Pure check + data extraction part of `merge_adjacent_curly_split`.
-    /// Returns `Some((curr.member.clone(), curr.full_members.clone()))` to
-    /// indicate should merge; `None` to indicate should not merge.
-    fn extract_curly_split_merge_data(
-        prev: &McPhrase,
-        curr: &McPhrase,
-    ) -> Option<(Vec<String>, Vec<String>)> {
-        let (prev_bus, prev_outer) = match prev {
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Bus(b),
-                members,
-            })) => (b, members),
-            _ => return None,
-        };
-        let (curr_bus, curr_outer) = match curr {
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Bus(b),
-                members,
-            })) => (b, members),
-            _ => return None,
-        };
-        if prev_outer.is_empty()
-            && curr_outer.is_empty()
-            && !prev_bus.member.is_empty()
-            && curr_bus.member.len() == 1
-            && prev_bus.name == curr_bus.name
-        {
-            Some((curr_bus.member.clone(), curr_bus.full_members.clone()))
-        } else {
-            None
-        }
+        out
     }
 
     /// ── M11.5: expand multi-member Buses into Multiple ──────────────────
-    /// After merge_adjacent_curly_split, Buses may have multiple members
-    /// (e.g. dc{VDD_3V3, GND}).  Expand them to Multiple so lane-by-lane
+    /// Buses may have multiple members (e.g. `dc{VDD_3V3, GND}`).  Expand them
+    /// to Multiple so lane-by-lane
     /// wiring can handle each lane independently.
     fn expand_multi_member_buses(members: &mut Vec<McPhrase>) {
         let mut i = 0;

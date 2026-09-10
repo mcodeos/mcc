@@ -415,10 +415,14 @@ fn def_ercode__record_error_surfaces_as_located_error_diagnostic() {
 /// periph.mc:67 chain-loss root cause).
 ///
 /// Fixture mirrors the original periph.mc shape: the LHS sits on a *different*
-/// bus (`_LDO ldo` component) than `vout`, so `merge_adjacent_curly_split`
-/// never collapses the two endpoints — a same-owner dot access like
-/// `vout.VCC -> vout.VCC1V2` would be merged into `vout{VCC, VCC1V2}` before
-/// the member check runs (a pre-existing gap, tracked separately).
+/// bus (`_LDO ldo` component) than `vout`.
+///
+/// The same-owner shape (`vout.VCC -> vout.VCC1V2`) used to be *hidden* from
+/// this check by `merge_adjacent_curly_split`, which folded the two Buses into
+/// `vout{VCC, VCC1V2}` before the member check ran. That pre-pass has since
+/// been retired (R0 A6 — it erased the written operator); the same-owner case
+/// is now locked in
+/// [`vec_r0_operator_fidelity`](vec_r0_operator_fidelity.rs).
 #[test]
 fn def_ercode__undeclared_bus_member_reference_fires_e3181() {
     let _lock = common::lock();
