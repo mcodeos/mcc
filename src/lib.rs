@@ -1143,6 +1143,9 @@ pub enum StmtMemberInfo {
     Transposed {
         inner: Box<StmtInfo>,
     },
+    Reversed {
+        inner: Box<StmtInfo>,
+    },
     FuncCall {
         caller: Option<Box<StmtInfo>>,
         func_name: String,
@@ -1225,6 +1228,11 @@ fn phrase_to_info(phrase: &McPhrase) -> StmtInfo {
         },
         McPhrase::Transposed(phrase) => StmtInfo {
             members: vec![StmtMemberInfo::Transposed {
+                inner: Box::new(phrase_to_info(phrase)),
+            }],
+        },
+        McPhrase::Reversed(phrase) => StmtInfo {
+            members: vec![StmtMemberInfo::Reversed {
                 inner: Box::new(phrase_to_info(phrase)),
             }],
         },
@@ -1332,6 +1340,9 @@ fn print_member_info_indent(member: &StmtMemberInfo, indent: usize, idx: usize) 
         }
         StmtMemberInfo::Transposed { inner: _ } => {
             mcc_dbg!("parse::phrase", "{pad}[{idx}] Transposed:");
+        }
+        StmtMemberInfo::Reversed { inner: _ } => {
+            mcc_dbg!("parse::phrase", "{pad}[{idx}] Reversed:");
         }
         StmtMemberInfo::FuncCall {
             func_name, params, ..

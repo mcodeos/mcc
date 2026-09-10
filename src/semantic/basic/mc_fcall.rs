@@ -1802,7 +1802,9 @@ impl McFuncCall {
                     Self::fill_return_shapes(o, scope);
                 }
             }
-            McPhrase::Transposed(inner) => Self::fill_return_shapes(inner, scope),
+            McPhrase::Transposed(inner) | McPhrase::Reversed(inner) => {
+                Self::fill_return_shapes(inner, scope)
+            }
             McPhrase::Closure(c) => {
                 for line in &mut c.body {
                     Self::fill_return_shapes(line, scope);

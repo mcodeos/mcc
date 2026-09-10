@@ -96,6 +96,7 @@ impl InstantiationBuilder {
                 McPhrase::Parallel(_) => "Parallel",
                 McPhrase::Group(_) => "Group",
                 McPhrase::Transposed(_) => "Transposed",
+                McPhrase::Reversed(_) => "Reversed",
                 McPhrase::Closure(_) => "Closure",
                 McPhrase::Lead => "Lead",
                 McPhrase::Member(_, _) => "Member",

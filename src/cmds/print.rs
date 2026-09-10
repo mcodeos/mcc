@@ -148,6 +148,11 @@ pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
             print_phrase_members(p, "");
             println!(")");
         }
+        McPhrase::Reversed(p) => {
+            print!("{}(reversed: ", prefix);
+            print_phrase_members(p, "");
+            println!(")");
+        }
         McPhrase::Lead => {
             // §1 P5.1: a standalone operand `_` is a passthrough
             println!("{}(lead: passthrough)", prefix);

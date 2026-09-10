@@ -232,6 +232,11 @@ pub(crate) fn print_phrase_internal(
             print_phrase_internal(inner, "");
             println!(")");
         }
+        McPhrase::Reversed(inner) => {
+            print!("{prefix}(reversed: ");
+            print_phrase_internal(inner, "");
+            println!(")");
+        }
         McPhrase::Lead => {
             // §1 P5.1: a standalone operand `_` is a passthrough
             println!("{prefix}(lead: passthrough)");

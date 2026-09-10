@@ -829,9 +829,9 @@ fn phrase_contains_funccall(p: &mcc::McPhrase) -> bool {
         | mcc::McPhrase::Multiple(ps) => ps.iter().any(phrase_contains_funccall),
         mcc::McPhrase::Group(g) => g.opds.iter().any(phrase_contains_funccall),
         mcc::McPhrase::Closure(c) => c.body.iter().any(phrase_contains_funccall),
-        mcc::McPhrase::Transposed(inner) | mcc::McPhrase::Member(inner, _) => {
-            phrase_contains_funccall(inner)
-        }
+        mcc::McPhrase::Transposed(inner)
+        | mcc::McPhrase::Reversed(inner)
+        | mcc::McPhrase::Member(inner, _) => phrase_contains_funccall(inner),
         mcc::McPhrase::Lead | mcc::McPhrase::Endpoint(_) => false,
     }
 }

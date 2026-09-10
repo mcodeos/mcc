@@ -50,6 +50,7 @@ fn find_funccall<'a>(stmts: &'a [mcc::McPhrase], name: &str) -> Option<&'a mcc::
             }
             mcc::McPhrase::Group(g) => g.opds.iter().find_map(|e| walk(e, name)),
             mcc::McPhrase::Transposed(inner) => walk(inner, name),
+            mcc::McPhrase::Reversed(inner) => walk(inner, name),
             mcc::McPhrase::Member(p, _) => walk(p, name),
             mcc::McPhrase::Closure(c) => c.body.iter().find_map(|e| walk(e, name)),
             mcc::McPhrase::Lead | mcc::McPhrase::Endpoint(_) => None,

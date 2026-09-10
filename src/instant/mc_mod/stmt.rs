@@ -699,6 +699,9 @@ impl InstantiationBuilder {
                 // Transposed 2-pin components expose each pin as a lane
                 2
             }
+            // `^` is a view of the same expression, so it presents exactly
+            // the lanes its operand does.
+            McPhrase::Reversed(inner) => self.member_lane_width(inner),
             // ── M11.5: handle Bus with multiple members as multi-lane ──
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Bus(ref bus),
@@ -1397,6 +1400,24 @@ impl InstantiationBuilder {
                 vec![McPhrase::Transposed(Box::new((**inner).clone()))],
                 Vec::new(),
             ),
+            // §2.4.5: `^` is a view, not a tree rewrite. Walk the operand's
+            // chain the other way — the member list reverses and every
+            // directed gap flips — and re-wrap each member so its own faces
+            // swap too (get_left_points / get_right_points read through the
+            // wrapper). That re-wrap is what lets a **single**-member operand
+            // such as `mcu{A, B | C, D}^` reverse at all; a no-op operand
+            // (parallel / transposed) passes through unchanged because the
+            // wrapper's face accessors are no-ops for it.
+            McPhrase::Reversed(inner) => {
+                let (members, gaps) = self.phrase_to_members_gapped(inner);
+                let members: Vec<McPhrase> = members
+                    .into_iter()
+                    .rev()
+                    .map(|m| McPhrase::Reversed(Box::new(m)))
+                    .collect();
+                let gaps: Vec<ConnDir> = gaps.into_iter().rev().map(ConnDir::flipped).collect();
+                (members, gaps)
+            }
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Component(c),
                 members,
@@ -3013,6 +3034,25 @@ impl InstantiationBuilder {
                     }
                 }
             }
+            // §2.4.5: `^` is a view over the same expression, so instantiate
+            // the operand in place — keeping its original pointer in
+            // auto_inst_map — exactly as the `Transposed` arm above does.
+            McPhrase::Reversed(inner) => match inner.as_ref() {
+                McPhrase::Series(elems, d) => {
+                    self.process_series_branch_inplace(elems, *d)?;
+                }
+                McPhrase::FuncCall(_)
+                | McPhrase::Endpoint(_)
+                | McPhrase::Transposed(_)
+                | McPhrase::Reversed(_)
+                | McPhrase::Lead
+                | McPhrase::Member(_, _) => {
+                    self.process_member_internal(inner)?;
+                }
+                _ => {
+                    self.process_stmt(inner)?;
+                }
+            },
             McPhrase::Closure(ref c) => {
                 // Phase 3.3: Closure instantiation (closure parameter binding)
                 for param_decl in c.params.iter() {
@@ -3804,6 +3844,9 @@ impl InstantiationBuilder {
             McPhrase::Transposed(ref mut inner) => {
                 Self::assign_phrase_ids(inner, next_id);
             }
+            McPhrase::Reversed(ref mut inner) => {
+                Self::assign_phrase_ids(inner, next_id);
+            }
             McPhrase::Closure(ref mut c) => {
                 for p in &mut c.body {
                     Self::assign_phrase_ids(p, next_id);
@@ -3841,6 +3884,9 @@ impl InstantiationBuilder {
             McPhrase::Transposed(ref mut inner) => {
                 Self::reset_phrase_ids(inner);
             }
+            McPhrase::Reversed(ref mut inner) => {
+                Self::reset_phrase_ids(inner);
+            }
             McPhrase::Closure(ref mut c) => {
                 for p in &mut c.body {
                     Self::reset_phrase_ids(p);
@@ -3858,6 +3904,9 @@ impl InstantiationBuilder {
     pub(super) fn member_key(member: &McPhrase) -> u32 {
         match member {
             McPhrase::FuncCall(f) => f.id,
+            // `^` wraps without changing which call it refers to, so the key
+            // must still find the operand's entry in auto_inst_map.
+            McPhrase::Reversed(inner) => Self::member_key(inner),
             _ => 0,
         }
     }
@@ -4050,7 +4099,9 @@ impl InstantiationBuilder {
                 .opds
                 .iter()
                 .any(|opd| Self::phrase_contains_failed_class(opd, failed)),
-            McPhrase::Transposed(inner) => Self::phrase_contains_failed_class(inner, failed),
+            McPhrase::Transposed(inner) | McPhrase::Reversed(inner) => {
+                Self::phrase_contains_failed_class(inner, failed)
+            }
             McPhrase::Member(inner, _) => Self::phrase_contains_failed_class(inner, failed),
             _ => false,
         }

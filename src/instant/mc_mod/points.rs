@@ -361,6 +361,17 @@ impl InstantiationBuilder {
                 }
             }
 
+            // §2.4.5: `^` evaluates to the operand's **other** face. An
+            // operand with no order to reverse passes through unchanged, the
+            // same rule `get_left` / `eval_port_elems` apply (eval.md §5.6).
+            McPhrase::Reversed(inner) => {
+                if inner.reverse_is_noop() {
+                    self.get_left_points(inner)
+                } else {
+                    self.get_right_points(inner)
+                }
+            }
+
             McPhrase::Transposed(inner_line) => {
                 // ── func-return-design §6.2: Transposed(FuncCall) face ─────
                 // The connection face comes from the unified FuncCall face
@@ -989,6 +1000,17 @@ impl InstantiationBuilder {
                     self.get_right_points(last)
                 } else {
                     Ok(Vec::new())
+                }
+            }
+
+            // §2.4.5: mirror of get_left_points — the reversed view's right
+            // face is the operand's left face (identity for order-less
+            // operands).
+            McPhrase::Reversed(inner) => {
+                if inner.reverse_is_noop() {
+                    self.get_right_points(inner)
+                } else {
+                    self.get_left_points(inner)
                 }
             }
 
