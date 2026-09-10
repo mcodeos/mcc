@@ -55,18 +55,21 @@ pub trait BoxShape {
 /// When `is_root` is true, sub-module boxes use root layer block-diagram styling
 /// (solid lines, centered name, no + corner).
 pub fn render_box(b: &McVecBox, is_root: bool) -> String {
-    // Root (block) layer: user-provided custom symbols take priority over the
-    // P9-B block-diagram fallback (fixture: svg_symbol_project expects J1/J2 on
-    // the root).
+    // ★ The manifest's custom symbol is the author's own drawing of the part, so it
+    // wins in **every** layer — block diagram and device schematic alike. A part then
+    // looks the same whether it is opened on its own or expanded inside its project;
+    // the picture never depends on the scope it was reached from.
+    //
+    // This supersedes the earlier per-layer split (R-S discipline 26: "device layers
+    // render by device category, never by a manifest SVG"). Only the component *body*
+    // changes here — pin anchors still come from `entry_points`, so the custom symbol
+    // never moves an electrical anchor.
+    if let Some(cs) = &b.custom_symbol {
+        return render_custom_symbol(b, cs);
+    }
     if is_root {
-        if let Some(cs) = &b.custom_symbol {
-            return render_custom_symbol(b, cs);
-        }
         return render_sub_module_root(b);
     }
-    // Device layers: the symbol is determined by device category, not by a
-    // custom SVG from the manifest (R-S discipline 26) — usbsock & co. render as
-    // their rectangular multi-pin device, not as a pictographic icon.
     match b.symbol {
         Symbol::Resistor => ResistorShape.render(b),
         Symbol::Capacitor | Symbol::PolarCapacitor => CapacitorShape.render(b),
@@ -294,10 +297,11 @@ mod tests {
         b
     }
 
-    /// ★ R-S (discipline 26): custom_symbol does NOT override system symbol.
-    /// A resistor with a custom SVG still renders as a resistor zigzag.
+    /// ★ The manifest's custom symbol wins in every layer, including device layers
+    /// (`is_root = false`). A resistor given a custom SVG draws that SVG, so a part
+    /// looks the same standalone and inside its project.
     #[test]
-    fn custom_symbol_does_not_override_system_symbol() {
+    fn custom_symbol_overrides_system_symbol_in_device_layers() {
         let mut b = mk(Symbol::Resistor, BoxKind::TwoPin);
         b.set_custom_symbol(CustomSymbol {
             source: "MyR".into(),
@@ -310,10 +314,9 @@ mod tests {
             },
         });
         let svg = render_box(&b, false);
-        // R-S: system symbol (resistor zigzag) is used, not custom SVG
-        assert!(!svg.contains(r#"class="comp custom""#));
-        assert!(!svg.contains(r#"data-symbol-source="MyR""#));
-        assert!(!svg.contains(r#"class="my-sym""#));
+        assert!(svg.contains(r#"class="comp custom""#));
+        assert!(svg.contains(r#"data-symbol-source="MyR""#));
+        assert!(svg.contains(r#"class="my-sym""#));
     }
 
     #[test]
