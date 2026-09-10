@@ -14,6 +14,7 @@ use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, Position};
 use crate::refdef::types::ChainSegment;
 use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
+use crate::semantic::component::mc_layout::McLayout;
 use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::McFuncReturn;
@@ -35,6 +36,10 @@ use self::pi::McPowerDecls;
 pub struct McModule {
     pub name: McIds,
     pub params: McParamDeclares,
+    /// `layout = [ ... ]` boundary-port placement hint. Takes effect where this
+    /// module is instantiated as a child box (SubModule); port names are listed
+    /// per edge in counterclockwise package order.
+    pub layout: McLayout,
     pub insts: McInstances,
     pub stmts: Vec<McPhrase>,
     /// Source span for each connection stmt in `stmts` (parallel array).
@@ -102,6 +107,7 @@ impl McModule {
             let mut module = Self {
                 name: module_name,
                 params: McParamDeclares::new(),
+                layout: McLayout::default(),
                 funcs: McFunctions::new(),
                 pi: McPowerDecls::new(),
                 insts: McInstances::new(),
@@ -154,6 +160,7 @@ impl McModule {
         Self {
             name: McIds::from(name),
             params: McParamDeclares::new(),
+            layout: McLayout::default(),
             insts: McInstances::new(),
             stmts: Vec::new(),
             stmt_spans: Vec::new(),
@@ -422,6 +429,24 @@ impl McModule {
                                 &[],
                             ),
                         );
+                    }
+                    MCAST_ATTRIBUTE => {
+                        // `layout = [ ... ]` — boundary-port placement for this
+                        // module when it is instantiated as a child box. Any
+                        // other attribute in a module body stays an unexpected
+                        // clause (E3081), as before.
+                        if let Some(layout) = McLayout::new(&clause) {
+                            self.layout = layout;
+                        } else {
+                            dlog_error(
+                                crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                                &clause,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                                    &[],
+                                ),
+                            );
+                        }
                     }
                     MCAST_ATTRIBUTE_PIN | MCAST_ATTRIBUTE_PINADD => {
                         dlog_error(

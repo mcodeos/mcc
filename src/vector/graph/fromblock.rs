@@ -15,8 +15,10 @@
 //! migrating the `from_table.rs` legacy builder (P03 doesn't touch it for now).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::instant::insttab::{InstEntry, InstKind, InstTable, MemberRole};
+use crate::semantic::module::McModule;
 
 use super::super::model::netshape::{GroupRole, NetShape};
 use super::super::model::{AttrRole, ConnectionType, McVecBlock, McVecNet, NetAttrMirror};
@@ -150,15 +152,26 @@ fn placeholder_pins(box_id: i64, pin_count: usize) -> Vec<BoxPin> {
         .collect()
 }
 
-/// ★ Unified wiring point for component pin-layout and project SVG overrides.
+/// ★ Unified wiring point for component/module pin-layout and project SVG
+/// overrides. SubModule boxes look up a *module* `layout = [ ... ]` (their pins
+/// are the module's boundary ports); Component boxes a component pin layout.
 fn apply_reserved_overrides(b: &mut McVecBox) {
+    let is_module = b.kind == BoxKind::SubModule;
     let cls = b.class_name.clone();
-    if let Some(layout) = component_pin_layout(&cls) {
+    let layout = if is_module {
+        module_pin_layout(&cls)
+    } else {
+        component_pin_layout(&cls)
+    };
+    if let Some(layout) = layout {
         b.set_layout_hint(layout);
         b.pin_constraint = PinConstraint::FixedOrder;
     }
-    if let Some(sym) = resolve_custom_symbol(&cls) {
-        b.set_custom_symbol(sym);
+    if !is_module {
+        // Project custom symbols stay a component-only override (unchanged).
+        if let Some(sym) = resolve_custom_symbol(&cls) {
+            b.set_custom_symbol(sym);
+        }
     }
 }
 
@@ -174,28 +187,67 @@ fn extract_component_value(_class_name: &str, _symbol: &Symbol) -> Option<String
 
 /// ★ Reserved interface ①: query a component class's custom pin layout.
 ///
-/// Looks up the component by class_name in workspace + global tables, reads `comp.layout`
-/// (core `McLayout{left,right,top,bottom}`) and converts each edge's `Vec<u32>` pin numbers
-/// to `Vec<String>` for drawing-side [`PinLayout`].
+/// Looks up the component by class_name in workspace + global tables, reads
+/// `comp.layout` (core `McLayout{left,right,top,bottom}`) and hands each edge's
+/// member strings (pin numbers and/or function names) to drawing-side
+/// [`PinLayout`] unchanged — matching downstream is plain string equality
+/// against `pin_id` or the pin description.
 ///
 /// Returns `None` when the component is not found or all four layout edges are
 /// empty (the caller falls back to the default pin-arrangement heuristic).
 pub(crate) fn component_pin_layout(class_name: &str) -> Option<PinLayout> {
     let comp = crate::db::cmie::tables::WORKSPACE.component_by_class(class_name)?;
     let layout = &comp.layout;
-    if layout.left.is_empty()
-        && layout.right.is_empty()
-        && layout.top.is_empty()
-        && layout.bottom.is_empty()
-    {
+    if layout.is_empty() {
         return None;
     }
     Some(PinLayout {
-        left: layout.left.iter().map(|n| n.to_string()).collect(),
-        right: layout.right.iter().map(|n| n.to_string()).collect(),
-        top: layout.top.iter().map(|n| n.to_string()).collect(),
-        bottom: layout.bottom.iter().map(|n| n.to_string()).collect(),
+        left: layout.left.clone(),
+        right: layout.right.clone(),
+        top: layout.top.clone(),
+        bottom: layout.bottom.clone(),
     })
+}
+
+/// ★ Module variant of the reserved-interface ① lookup: query a module class's
+/// boundary-port layout. SubModule boxes carry this hint so their ports land on
+/// the requested edges when the module is instantiated. Mirrors
+/// [`component_pin_layout`] over `workspace_modules()` + the defregistry system
+/// module fallback.
+fn module_pin_layout(class_name: &str) -> Option<PinLayout> {
+    let module = module_by_class(class_name)?;
+    let layout = &module.layout;
+    if layout.is_empty() {
+        return None;
+    }
+    Some(PinLayout {
+        left: layout.left.clone(),
+        right: layout.right.clone(),
+        top: layout.top.clone(),
+        bottom: layout.bottom.clone(),
+    })
+}
+
+/// Look a module up by its class-name ident string — workspace view first,
+/// then the defregistry system-module name index (mirror of
+/// `component_by_class`).
+fn module_by_class(class_name: &str) -> Option<Arc<McModule>> {
+    for (sn, module) in crate::definition_space().workspace_modules() {
+        if sn.ident.to_string() == class_name {
+            return Some(module);
+        }
+    }
+    for hit in crate::db::defregistry::system_name_hits(class_name) {
+        if hit.kind != crate::db::defregistry::DefKind::Module {
+            continue;
+        }
+        if let Some((_, def)) = crate::db::defregistry::live_entry_by_id(hit.id) {
+            if let crate::db::defregistry::DefValue::Module(m) = def {
+                return Some(m);
+            }
+        }
+    }
+    None
 }
 
 /// ★ Project SVG interface: query the validated project-local symbol registry by class name.
@@ -283,6 +335,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 scope_chain,
             );
             b.set_pins(box_pins);
+            apply_reserved_overrides(&mut b); // ★ Reserved: module port layout
             b.synthetic = entry.synthetic;
             Some(b)
         }
@@ -496,6 +549,7 @@ fn build_mc_vec_graph_inner(
                     scope_chain,
                 );
                 b.set_pins(box_pins);
+                apply_reserved_overrides(&mut b); // ★ Reserved: module port layout
                 graph.boxes.push(b);
                 box_ids_set.insert(id);
             }

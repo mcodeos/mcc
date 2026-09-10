@@ -416,10 +416,9 @@ fn synthesize_pin_entry_points(b: &mut crate::vector::graph::McVecBox) {
     if n == 0 {
         return;
     }
-    let pin_ids: Vec<String> = b.pins.iter().map(|p| p.pin_id.clone()).collect();
 
     if let Some(layout) = crate::vector::graph::fromblock::component_pin_layout(&b.class_name) {
-        assign_by_layout(b, &layout, &pin_ids);
+        assign_by_layout(b, &layout);
         return;
     }
 
@@ -467,51 +466,69 @@ fn synthesize_pin_entry_points(b: &mut crate::vector::graph::McVecBox) {
 
 /// Assign pins to edges according to the component's `layout` attribute.
 /// Pins missing from the layout fall back to the left edge.
+///
+/// A layout entry is a pin **number** (`pin_id`) or a pin **function name**
+/// (`description`); both are matched with plain string equality, mirroring the
+/// flat-graph consumer (`entry_points::ep_from_layout`). Each edge places its
+/// listed pins in the order written, in **counterclockwise package order** —
+/// `left`/`bottom` read outward from the offset-0 corner, `right`/`top` are
+/// mirrored (`1 - base`) because offset 0 sits at the box's top/left there.
 fn assign_by_layout(
     b: &mut crate::vector::graph::McVecBox,
     layout: &crate::vector::graph::boxdef::PinLayout,
-    pin_ids: &[String],
 ) {
+    use crate::vector::graph::boxdef::BoxPin;
     use crate::vector::graph::{EntryPoint, EntrySide};
     let mut used = std::collections::HashSet::new();
-    let mut push = |side: EntrySide, ids: &[String], acc: &mut Vec<EntryPoint>| {
-        let mut rank = 0usize;
-        let mut count = 0usize;
+
+    // First match each listed entry to a distinct physical pin (an entry is
+    // consumed by pin_id or description; a pin listed twice is placed once).
+    let mut by_side: [Vec<&BoxPin>; 4] = Default::default();
+    let sides: [(usize, EntrySide, &Vec<String>); 4] = [
+        (0, EntrySide::Left, &layout.left),
+        (1, EntrySide::Right, &layout.right),
+        (2, EntrySide::Top, &layout.top),
+        (3, EntrySide::Bottom, &layout.bottom),
+    ];
+    for (slot, _, ids) in sides {
         for pid in ids {
-            if pin_ids.iter().any(|p| p == pid) {
-                count += 1;
-            }
-        }
-        if count == 0 {
-            return;
-        }
-        for pid in ids {
-            if let Some(p) = b.pins.iter().find(|p| &p.pin_id == pid) {
+            if let Some(p) = b
+                .pins
+                .iter()
+                .find(|p| !used.contains(&p.id) && (&p.pin_id == pid || &p.description == pid))
+            {
                 used.insert(p.id);
-                let offset = (rank as f64 + 1.0) / (count as f64 + 1.0);
-                acc.push(EntryPoint {
-                    pin_id: p.id,
-                    pin_name: p.description.clone(),
-                    side,
-                    offset,
-                });
-                rank += 1;
+                by_side[slot].push(p);
             }
         }
-    };
+    }
 
     let mut eps = Vec::new();
-    push(EntrySide::Left, &layout.left, &mut eps);
-    push(EntrySide::Right, &layout.right, &mut eps);
-    push(EntrySide::Top, &layout.top, &mut eps);
-    push(EntrySide::Bottom, &layout.bottom, &mut eps);
+    for (slot, side, _) in sides {
+        let matched = std::mem::take(&mut by_side[slot]);
+        if matched.is_empty() {
+            continue;
+        }
+        let count = matched.len();
+        for (rank, p) in matched.into_iter().enumerate() {
+            let base = (rank as f64 + 1.0) / (count as f64 + 1.0);
+            let offset = match side {
+                EntrySide::Left | EntrySide::Bottom => base,
+                EntrySide::Right | EntrySide::Top => 1.0 - base,
+            };
+            eps.push(EntryPoint {
+                pin_id: p.id,
+                pin_name: p.description.clone(),
+                side: side.clone(),
+                offset,
+            });
+        }
+    }
 
     // Unassigned pins: spread on the left edge below the declared ones.
-    let mut rank = 0usize;
-    let unassigned: Vec<&crate::vector::graph::boxdef::BoxPin> =
-        b.pins.iter().filter(|p| !used.contains(&p.id)).collect();
+    let unassigned: Vec<&BoxPin> = b.pins.iter().filter(|p| !used.contains(&p.id)).collect();
     let count = unassigned.len();
-    for p in unassigned {
+    for (rank, p) in unassigned.into_iter().enumerate() {
         let offset = 1.0 - (rank as f64 + 1.0) / (count as f64 + 1.0);
         eps.push(EntryPoint {
             pin_id: p.id,
@@ -519,7 +536,6 @@ fn assign_by_layout(
             side: EntrySide::Left,
             offset,
         });
-        rank += 1;
     }
 
     b.entry_points = eps;
