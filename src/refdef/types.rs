@@ -377,7 +377,12 @@ impl NameIndexCandidate {
     /// keeps kind-blind consumers (`get_def`) returning the enum for a
     /// coexisting `component CAP` + `enum CAP`, which the coexistence
     /// regression (`tests/enum_component_same_name.rs`) pins down.
-    fn policy_key(&self) -> (u8, u8, u32, u32, u32) {
+    ///
+    /// A kind-specific consumer must not read the winner blind: the family
+    /// preference can rank a def that does not carry what the caller wants
+    /// (a member lookup on the enum-typed `CAP`). Such consumers walk the
+    /// whole bucket in this same key order — see `same_name_cmies`.
+    pub(crate) fn policy_key(&self) -> (u8, u8, u32, u32, u32) {
         let family = match self.entry.def_kind {
             SymbolKind::EnumDef | SymbolKind::EnumRef => 0,
             SymbolKind::ClassDef | SymbolKind::ClassRef => 1,

@@ -18,6 +18,7 @@ use crate::ast::sem::McSemSymbols;
 use crate::db::cmie::tables as workspace;
 use crate::db::defregistry::{DefKind, DefValue};
 use crate::db::infra::init::interface_lookup;
+use crate::refdef::types::RefDefEntry;
 use crate::semantic::common::{uri_intern, UriId};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use tracing::trace;
@@ -157,6 +158,65 @@ fn lookup_cmie_by_kind(cmie_kind: u8, space_name: &McSpaceName) -> Option<McCMIE
     }
 }
 
+/// Resolve one `RefDefMap` candidate entry to its live CMIE, by exact key.
+///
+/// §5.4.6 A3: the entry must match a live table entry by exact key — a stale
+/// map is an inconsistency to report, not a reason to fall through to a
+/// name-only scan. The map's interned file URIs can carry the raw path form
+/// (e.g. /tmp vs /private/tmp on macOS) while workspace keys are canonical, so
+/// canonicalize the def URI before the exact-key lookup.
+///
+/// T11 (N3): the bucket key is the name visible in F (an alias such as
+/// `use tgt as t`), while the def's registry key is its real declared name
+/// (`entry.def_name`, e.g. the target's first CMIE). Look the live def up by
+/// its real name so an aliased class resolves to its
+/// module/component/interface/enum. `fallback_name` is the name as written at
+/// the reference site, used only when the entry carries no def name.
+pub(crate) fn cmie_from_entry(entry: &RefDefEntry, fallback_name: &McIds) -> Option<McCMIE> {
+    let def_uri = crate::semantic::common::uri_of_file_id(entry.def_loc.file_id).to_string();
+    let def_ident: &McIds = if entry.def_name.is_empty() {
+        fallback_name
+    } else {
+        &crate::McIds::from(entry.def_name.as_str())
+    };
+    let space_name = if def_uri.is_empty() {
+        McSpaceName::new(def_ident, def_uri.clone())
+    } else {
+        McSpaceName::new(
+            def_ident,
+            crate::build::pass1::canonicalize_project_uri(&def_uri),
+        )
+    };
+    lookup_cmie_by_kind(entry.cmie_kind, &space_name)
+}
+
+/// Every same-name CMIE visible from `from_uri`, in name-policy order — the
+/// deterministic winner (`RefDefMap::name_winner`) first, then the rest of
+/// the bucket by `NameIndexCandidate::policy_key`.
+///
+/// A **kind-specific** consumer cannot stop at the winner: the family
+/// preference ranks the enum family before the class family, so a coexisting
+/// `component CAP` + `enum CAP` resolves the bare name to the enum, and a
+/// caller asking for a *member* of `CAP` would miss. Visibility is a property
+/// of the whole bucket (see `RefDefMap::name_candidates`); this is the
+/// ordered form of that same rule for callers whose question is kind-specific.
+/// Empty when `from_uri` has no consolidated RefDefMap or no such name is
+/// visible.
+pub(crate) fn same_name_cmies(from_uri: &McURI, name: &McIds, sem: &McSemSymbols) -> Vec<McCMIE> {
+    let Some(map) = sem.ref_def_map.as_ref() else {
+        return Vec::new();
+    };
+    let mut cands: Vec<_> = map
+        .name_candidates(from_uri, &name.to_string())
+        .iter()
+        .collect();
+    cands.sort_by_key(|c| c.policy_key());
+    cands
+        .into_iter()
+        .filter_map(|c| cmie_from_entry(&c.entry, name))
+        .collect()
+}
+
 /// Extract the defining URI from a resolved CMIE. The definition itself is
 /// the single source of truth — never re-resolve its URI by name.
 pub(crate) fn cmie_uri(cmie: &McCMIE) -> Option<String> {
@@ -260,31 +320,7 @@ impl Resolver {
                 let def_uri =
                     crate::semantic::common::uri_of_file_id(entry.def_loc.file_id).to_string();
                 trace!(target: "mcc::mcb_get_cmie", name = %name_str, def_uri = %def_uri, cmie_kind = entry.cmie_kind, "RefDefMap hit");
-                // §5.4.6 A3: the RefDefMap entry must match a live table entry
-                // by exact key — a stale map is an inconsistency to report, not
-                // a reason to fall through to a name-only scan. The map's
-                // interned file URIs can carry the raw path form (e.g. /tmp vs
-                // /private/tmp on macOS) while workspace keys are canonical, so
-                // canonicalize the def URI before the exact-key lookup.
-                // T11 (N3): the bucket key is the name visible in F (an alias
-                // such as `use tgt as t`), while the def's registry key is its
-                // real declared name (`entry.def_name`, e.g. the target's first
-                // CMIE). Look the live def up by its real name so an aliased
-                // class resolves to its module/component/interface/enum.
-                let def_ident: &McIds = if entry.def_name.is_empty() {
-                    name
-                } else {
-                    &crate::McIds::from(entry.def_name.as_str())
-                };
-                let space_name = if def_uri.is_empty() {
-                    McSpaceName::new(def_ident, def_uri.clone())
-                } else {
-                    McSpaceName::new(
-                        def_ident,
-                        crate::build::pass1::canonicalize_project_uri(&def_uri),
-                    )
-                };
-                if let Some(cmie) = lookup_cmie_by_kind(entry.cmie_kind, &space_name) {
+                if let Some(cmie) = cmie_from_entry(entry, name) {
                     return Some(cmie);
                 }
             }
