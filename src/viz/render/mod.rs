@@ -144,6 +144,16 @@ impl SvgRenderer {
                 svg.push_str(&shape::render_box(b, false));
             }
 
+            // ── ★ Module-port drawing: the module's own boundary ──
+            // A module drawn as its own layer shows its ports as drawn objects on
+            // a dashed frame, named by the port (`vin`) — never by the net the
+            // wire carries (`V5V`), which stays on the wire. The frame geometry
+            // comes from the `module_frame` layout pass; nothing is recomputed
+            // here (see module-port-drawing-design.md).
+            if let Some(mf) = &graph.module_frame {
+                svg.push_str(&render_module_frame(mf));
+            }
+
             // ── ★ P7-3: rail terminal decorations (pin render attributes, not boxes, discipline 11) ──
             // ★ C1b: disabled — equipotential trees handle all power/ground symbols
             // (Power dots above the pin, ground symbols below the pin).
@@ -152,6 +162,71 @@ impl SvgRenderer {
         svg.push_str("</svg>\n");
         svg
     }
+}
+
+/// Draw a module's boundary frame: the dashed rect, its title, and the ports on
+/// it.
+///
+/// A port is a drawn object — a stub tick plus a dot at the anchor the layout
+/// pass chose, with the port's name just outside the frame. The name is the
+/// **port's** (`vin`); the net it carries keeps its own name on the wire, so one
+/// place carries one identity. Colour follows the structurally-carried supply
+/// axis (never the port or net name): supply ports take the rail red the device
+/// layer already paints power with, signals the signal blue.
+fn render_module_frame(mf: &crate::vector::graph::ModuleFrame) -> String {
+    use crate::vector::graph::EntrySide;
+
+    let mut svg = format!(
+        r##"  <g class="module-frame">
+    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="8" ry="8"
+          fill="none" stroke="#616161" stroke-width="1.5" stroke-dasharray="8,4"/>
+    <text x="{tx:.1}" y="{ty:.1}" font-size="14" font-weight="600" fill="#616161"
+          dominant-baseline="auto">{title}</text>
+"##,
+        x = mf.x,
+        y = mf.y,
+        w = mf.w,
+        h = mf.h,
+        tx = mf.x,
+        ty = mf.y - 8.0,
+        title = escape_xml(&mf.title),
+    );
+
+    for p in &mf.ports {
+        let color = if p.is_supply { "#C0392B" } else { "#2980B9" };
+        // The stub points from the frame inward, so the port reads as a terminal
+        // ON the boundary rather than a floating label.
+        const TICK: f64 = 9.0;
+        let (sx, sy, ex, ey, ax, ay, anchor) = match p.side {
+            EntrySide::Left => (p.x, p.y, p.x + TICK, p.y, p.x - 6.0, p.y, "end"),
+            EntrySide::Right => (p.x, p.y, p.x - TICK, p.y, p.x + 6.0, p.y, "start"),
+            EntrySide::Top => (p.x, p.y, p.x, p.y + TICK, p.x, p.y - 6.0, "middle"),
+            EntrySide::Bottom => (p.x, p.y, p.x, p.y - TICK, p.x, p.y + 12.0, "middle"),
+        };
+        svg.push_str(&format!(
+            r##"    <g class="port" data-port="{name}">
+    <line x1="{sx:.1}" y1="{sy:.1}" x2="{ex:.1}" y2="{ey:.1}"
+          stroke="{color}" stroke-width="2.0"/>
+    <circle cx="{px:.1}" cy="{py:.1}" r="3.0" fill="{color}"/>
+    <text x="{ax:.1}" y="{ay:.1}" text-anchor="{anchor}" font-size="11"
+          font-weight="600" fill="{color}" dominant-baseline="central">{name}</text>
+  </g>
+"##,
+            name = escape_xml(&p.name),
+            sx = sx,
+            sy = sy,
+            ex = ex,
+            ey = ey,
+            px = p.x,
+            py = p.y,
+            ax = ax,
+            ay = ay,
+            anchor = anchor,
+            color = color,
+        ));
+    }
+    svg.push_str("  </g>\n");
+    svg
 }
 
 /// Render block edges for the root layer block diagram.

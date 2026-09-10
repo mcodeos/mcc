@@ -158,6 +158,13 @@ pub struct VizNet {
     /// `McVecNet.shape` by fromblock. Lets the frontend draw the net using
     /// the same coarse-level semantics as the coarse `port_trunks`.
     pub shape: Option<crate::vector::model::netshape::NetShape>,
+    /// ★ Module-port drawing: the module port this net crosses, when the net is a
+    /// boundary net of its layer. Copied by fromblock from `McVecNet.boundary`.
+    ///
+    /// The module-frame pass reads it to name the layer's own boundary by its
+    /// **port** (`vin`) rather than by the net it carries (`V5V`). `None` = this
+    /// net does not cross the layer's boundary.
+    pub boundary: Option<super::super::model::net::BoundaryInfo>,
 }
 
 impl VizNet {
@@ -182,6 +189,7 @@ impl VizNet {
             trunk: None,
             trunk_ref: None,
             shape: None,
+            boundary: None,
         }
     }
 

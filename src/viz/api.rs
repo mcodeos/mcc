@@ -255,16 +255,23 @@ fn render_layer_recursive(
         // (including negative-x West trunks and upward-reading vertical labels)
         // into the SVG viewBox, starting at the TRUE content top.
         let cv = crate::viz::layout::equipotential_tree::fit_content_to_canvas(&mut graph);
+        // ★ Module-port drawing: a module's own layer gets its boundary drawn —
+        // a dashed frame with the module's ports on it. Drawn from `BoundaryInfo`,
+        // named by the port. No-op for layers that are not a module's schematic.
+        let (vx, vy, vw, vh) = crate::viz::layout::module_frame::layout_module_frame(
+            &mut graph,
+            (cv.0, cv.1, cv.2, cv.3),
+        );
         crate::vlog!(
             "[viz::api] layer {} '{}' device canvas={}x{} origin=({},{})",
             bid,
             name,
-            cv.2 as i32,
-            cv.3 as i32,
-            cv.0 as i32,
-            cv.1 as i32
+            vw as i32,
+            vh as i32,
+            vx as i32,
+            vy as i32
         );
-        ((cv.2, cv.3), (cv.0, cv.1))
+        ((vw, vh), (vx, vy))
     } else {
         let layouter_name = candidates.first().map(|c| c.name()).unwrap_or("none");
 

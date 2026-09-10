@@ -101,6 +101,51 @@ pub enum EntrySide {
 }
 
 // ============================================================================
+// BoundaryPort -- the module port a boundary entry point belongs to
+// ============================================================================
+
+/// The module port that a box's boundary entry point belongs to.
+///
+/// A module boundary is not a bare rectangle edge: a connection crosses it at a
+/// **port** (`vin`, `vout`, `SPI`), and the port — not the net it happens to
+/// carry — is what the boundary is named by. `McVecBox.entry_points` carries the
+/// *net* identity of each crossing (`EntryPoint.pin_name` is the net label,
+/// which routing matches on); this list carries the **port** identity alongside
+/// it, so renderers can label a boundary by its port without disturbing any
+/// anchor.
+///
+/// One entry per instant-table port entry of the box's module — the group itself
+/// and every one of its members, all under the same port name. Built once by
+/// `fromblock::boundary_ports_of`, structurally (path-prefix grouping), never by
+/// name.
+///
+/// Only the facts a `SubModule` box's own `pins` can supply are carried here: the
+/// port name and the crossing's electrical direction. The declared port keyword
+/// (`in` / `out` / `io` / `ps`) and a rail's voltage live on the instant table's
+/// port entries, which a box no longer holds; a caller that needs them reads the
+/// opened module's own layer (where `McVecGraph.module_ports` carries the full
+/// triple) rather than a parent's box. Deliberately not reconstructed by guess,
+/// so nothing downstream can mistake a derived value for a declared one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundaryPort {
+    /// `EntryPoint.pin_id` this port identity belongs to.
+    pub entry_pin_id: i64,
+    /// The module port's name, e.g. `vin` (the port group's leaf segment).
+    pub port_name: String,
+    /// Electrical direction of the crossing.
+    pub io: IoDirection,
+}
+
+impl BoundaryPort {
+    /// True when this port carries a supply rather than a signal.
+    ///
+    /// Structural: the port's own declared io type says so — never its name.
+    pub fn is_supply(&self) -> bool {
+        matches!(self.io, IoDirection::Power | IoDirection::Ground)
+    }
+}
+
+// ============================================================================
 // BoxPin -- box's pin (from mcode parsing, not related to wiring)
 // ============================================================================
 
@@ -439,6 +484,13 @@ pub struct McVecBox {
     /// ★ C1b F1: Pin slots — single source of truth for pin positions.
     /// Set by layout, read by renderer and geometry.
     pub slots: Vec<PinSlot>,
+
+    /// Module ports behind this box's boundary entry points (see [`BoundaryPort`]).
+    ///
+    /// Filled once by `fromblock::boundary_ports_of` when the box is built;
+    /// read-only afterwards. Empty for boxes that are not a module box. Purely
+    /// additive to `entry_points` — anchors keep coming from `entry_points`.
+    pub boundary_ports: Vec<BoundaryPort>,
 }
 
 /// ★ C1b F1: Pin slot — single source of truth for pin positions.
@@ -563,6 +615,7 @@ impl McVecBox {
             provenance: BoxProvenance::Declared,
             source_span: None,
             slots: Vec::new(),
+            boundary_ports: Vec::new(),
         }
     }
 
@@ -586,6 +639,19 @@ impl McVecBox {
     /// Find the physical pin by pin_id (for render to query pin number / name)
     pub fn find_pin(&self, pin_id: i64) -> Option<&BoxPin> {
         self.pins.iter().find(|p| p.id == pin_id)
+    }
+
+    /// The module port that a boundary entry point crosses, by its name (`vin`).
+    ///
+    /// `None` when this entry point is not a module port crossing — a component's
+    /// own pin, or a crossing with no port identity resolved. Callers that label a
+    /// boundary should use this in preference to `EntryPoint.pin_name`, which is
+    /// the *net* label the wire carries (`V5V`), not the port it crosses.
+    pub fn boundary_port_name(&self, entry_pin_id: i64) -> Option<&str> {
+        self.boundary_ports
+            .iter()
+            .find(|p| p.entry_pin_id == entry_pin_id)
+            .map(|p| p.port_name.as_str())
     }
 
     /// ★ R-C2: return physical pins that are not connected to any net (NC pins).
@@ -646,6 +712,55 @@ impl McVecBox {
     pub fn display_label(&self) -> &str {
         self.designator.as_deref().unwrap_or(&self.name)
     }
+}
+
+// ============================================================================
+// ModuleFrame — the boundary frame of a module drawn as its own layer
+// ============================================================================
+
+/// The boundary of a module **drawn as its own layer**: a dashed frame around the
+/// content with the module's ports sitting on it.
+///
+/// A module's ports are drawn objects. In a parent's block diagram they are the
+/// sub-module box's leads, named by the port each wire crosses (see
+/// [`McVecBox::boundary_ports`]); in the module's own layer they are the terminals
+/// on this frame. Same module, same boundary, same name — the picture of a module
+/// never depends on whether it was opened on its own or expanded in its project.
+///
+/// Filled by the post-layout `module_frame` pass; read-only afterwards. Structural
+/// throughout: the rect is the content's bbox, the ports come from the nets'
+/// `BoundaryInfo` markers. The renderer draws it as-is and recomputes nothing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModuleFrame {
+    /// Frame rect in layer coordinates (dashed rounded rect).
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    /// The frame's title — the layer's own module name.
+    pub title: String,
+    /// The ports sitting on the frame, one per crossing.
+    pub ports: Vec<FramePort>,
+}
+
+/// One module port drawn on a [`ModuleFrame`].
+///
+/// Named by the **port** it is (`vin`) — never by the net it happens to carry
+/// (`V5V`). The net name stays on the wire, where it belongs: one name per place.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FramePort {
+    /// The port's name, e.g. `vin`.
+    pub name: String,
+    /// Absolute anchor on the frame edge.
+    pub x: f64,
+    pub y: f64,
+    /// Which frame edge the anchor sits on.
+    pub side: EntrySide,
+    /// The port carries a supply rather than a signal.
+    ///
+    /// Carried from the net's declared identity (`BoundaryInfo.is_supply`), never
+    /// re-derived downstream from the port's name.
+    pub is_supply: bool,
 }
 
 // ============================================================================

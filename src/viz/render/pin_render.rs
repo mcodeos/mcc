@@ -106,6 +106,23 @@ fn io_type_label(io: IoDirection) -> &'static str {
 /// Parameter `b` is used to look up the box's (x, y, w, h), and based on ep.side + ep.offset
 /// compute the pin's absolute coordinates (cx, cy).
 pub fn render_pin(b: &McVecBox, ep: &EntryPoint, opts: PinRenderOpts) -> String {
+    render_pin_named(b, ep, opts, None)
+}
+
+/// [`render_pin`], but the name drawn inside the box is `name` rather than the
+/// one the box's own pins imply.
+///
+/// Used where the drawn identity is not this pin's `(pin_id, description)` pair:
+/// a module boundary is named by the **port** the lead crosses (`vin`), which
+/// lives on the box's `boundary_ports` — the boundary entry point itself carries
+/// only the *net* label (`V5V`) that routing anchors on. When `name` is given it
+/// is the only text drawn; the pin number belongs to the pin, not to the port.
+pub fn render_pin_named(
+    b: &McVecBox,
+    ep: &EntryPoint,
+    opts: PinRenderOpts,
+    name: Option<&str>,
+) -> String {
     let (cx, cy) = pin_position(b, ep);
 
     // The physical pin for this lead (BoxPin: pin_id=number/common name, description=function name, io=direction)
@@ -137,33 +154,38 @@ pub fn render_pin(b: &McVecBox, ep: &EntryPoint, opts: PinRenderOpts) -> String 
     // When there is a function name, draw both: outside number + inside function name — **even if the two are identical** (a pure numeric lead `1=1`
     // must also print both 1s). When there is no function name (placeholder lead / unnamed lead), draw the number only once, placed inside.
     // When find_pin returns nothing (synthetic endpoint / rail flag), fall back to ep.pin_name as the inside name, skipping `(rail)`.
-    let (outside_number, inside_name): (Option<String>, Option<String>) = match pin {
-        Some(p) => {
-            let id = p.pin_id.trim();
-            let desc = p.description.trim();
-            if !desc.is_empty() {
-                let out = if id.is_empty() {
-                    None
+    // A caller-supplied `name` (a module port) replaces both: it is the identity
+    // the boundary is drawn by, and it is not this pin's.
+    let (outside_number, inside_name): (Option<String>, Option<String>) = match name {
+        Some(n) => (None, Some(n.to_string())),
+        None => match pin {
+            Some(p) => {
+                let id = p.pin_id.trim();
+                let desc = p.description.trim();
+                if !desc.is_empty() {
+                    let out = if id.is_empty() {
+                        None
+                    } else {
+                        Some(id.to_string())
+                    };
+                    (out, Some(desc.to_string()))
                 } else {
-                    Some(id.to_string())
-                };
-                (out, Some(desc.to_string()))
-            } else {
-                let single = if !id.is_empty() {
-                    Some(id.to_string())
+                    let single = if !id.is_empty() {
+                        Some(id.to_string())
+                    } else {
+                        None
+                    };
+                    (None, single)
+                }
+            }
+            None => {
+                if !ep.pin_name.is_empty() && !is_synthetic_pin_name(&ep.pin_name) {
+                    (None, Some(ep.pin_name.clone()))
                 } else {
-                    None
-                };
-                (None, single)
+                    (None, None)
+                }
             }
-        }
-        None => {
-            if !ep.pin_name.is_empty() && !is_synthetic_pin_name(&ep.pin_name) {
-                (None, Some(ep.pin_name.clone()))
-            } else {
-                (None, None)
-            }
-        }
+        },
     };
 
     // Outside number (small, on the stub). Only boxes (parts) with `show_number` draw it; sub-module ports do not draw the number.
