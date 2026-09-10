@@ -4,11 +4,19 @@
 //
 // The shape-level `representative` (common.rs) only names the single-point
 // label; the physical pairing is done independently by Pass2. These tests
-// verify the Pass2 anchoring end-to-end:
-//   `+`  → wire_parallel_internal anchors opd[0] (op1)
-//   `-`  → Series chain head is opd1 (op1)
-//   `<-` → Series(RtoL) swaps to [opd2, opd1], op1 lands on the chain tail
-//   `->` → Series(LtoR) chain tail (op2) is the output (set_right_out)
+// verify the Pass2 anchoring end-to-end.
+//
+// Per vec-dianlu.md §1.4 a series junction is **positional**: the written-left
+// operand's right face meets the written-right operand's left face, and that
+// is identical for `-`, `->` and `<-`. The direction word never enters the
+// wiring — it is carried by `ConnDir` alone (§2.4.5). So all three pair the
+// same way and differ only in the direction they record, and in which single
+// label names the resulting net (`representative`, §5.2):
+//   `+`  → Parallel, wire_parallel_internal anchors opd[0] (op1)
+//   `-`  → Series(Undirected), connections Undirected
+//   `->` → Series(LtoR), representative is op2 (the chain tail)
+//   `<-` → Series(RtoL), representative is op1 (the chain head); the arrow is
+//          drawn leftward over the same written left-to-right layout (§1.1)
 //
 // NOTE: These tests share global mcc state, so a mutex serializes them.
 
@@ -150,11 +158,13 @@ module main
     );
 }
 
-// ── `<-` takes op1: after the RtoL swap, op1 lands on the chain tail ──────
+// ── `<-` pairs positionally like every other series ──────────────────────
 
 #[test]
-fn leftarrow_keeps_operand_one_as_target() {
-    // VEXT <- R1 <- GND: data flows from GND through R1 to VEXT (op1 target net).
+fn leftarrow_pairs_by_written_position() {
+    // VEXT <- R1 <- GND is laid out left-to-right and wired by position, so the
+    // pairs are the same as for `-` and `->`: VEXT↔R1.1 and R1.2↔GND. The
+    // leftward arrow is carried by `ConnDir::RtoL`, not by reordering operands.
     let inst = build(
         r#"
 component RES2()
@@ -172,8 +182,8 @@ module main
 "#,
     );
     let got = pairs(&inst);
-    assert_paired(&got, "VEXT", "R1.2");
-    assert_paired(&got, "R1.1", "GND");
+    assert_paired(&got, "VEXT", "R1.1");
+    assert_paired(&got, "R1.2", "GND");
     // `<-` chains must carry the RtoL direction
     assert!(
         inst.connections.iter().any(|c| c.dir == mcc::ConnDir::RtoL),

@@ -375,13 +375,18 @@ fn pick_chain_start(adj: &HashMap<i64, Vec<i64>>) -> Option<i64> {
         .min()
 }
 
-/// Degree-1 endpoint that is a flow **source**: it appears as some pair's
-/// `left` and never as any pair's `right`. `ConnPair.left/right` are always
-/// source-first (visit.rs builds them from source-first points for BOTH `->`
-/// and `<-`), so this endpoint is the driver end of a directed chain.
-/// Smallest id wins for determinism (same rationale as `pick_chain_start`).
-/// Returns `None` when the net is a directed ring or every degree-1 node is a
-/// sink — callers fall back to `pick_chain_start`.
+/// Degree-1 endpoint that is the chain's **written head**: it appears as some
+/// pair's `left` and never as any pair's `right`. `ConnPair.left/right` are in
+/// written source order (visit.rs builds them from the per-point ids, which
+/// follow the `Series` members for BOTH `->` and `<-` — R0/vec-dianlu.md
+/// §2.4.5), so this endpoint is the written-left end of the chain. That is
+/// where the chain must be laid out from, in both directions: §1.1 makes the
+/// written left-right arrangement correspond to the spatial x arrangement, so
+/// the arrow's direction is carried by `ConnDir` and never by walking the
+/// chain backwards. Smallest id wins for determinism (same rationale as
+/// `pick_chain_start`). Returns `None` when the net is a directed ring or
+/// every degree-1 node is a `right` — callers fall back to
+/// `pick_chain_start`.
 fn directed_chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair]) -> Option<i64> {
     let lefts: std::collections::HashSet<i64> = pairs.iter().map(|p| p.left).collect();
     let rights: std::collections::HashSet<i64> = pairs.iter().map(|p| p.right).collect();
@@ -392,7 +397,7 @@ fn directed_chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair]) -> Opt
         .min()
 }
 
-/// Direction-aware chain start: for a directed net, prefer the driver end
+/// Direction-aware chain start: for a directed net, prefer the written head
 /// (`directed_chain_start`); undirected keeps the classic P7-4 smallest
 /// degree-1 (reproducibility unaffected by render direction).
 fn chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair], dir: ConnDir) -> Option<i64> {
@@ -403,7 +408,8 @@ fn chain_start(adj: &HashMap<i64, Vec<i64>>, pairs: &[ConnPair], dir: ConnDir) -
     }
 }
 
-/// Order the chain along directed edges: start from the driver end, walk left→right.
+/// Order the chain along directed edges: start from the written head and walk
+/// in written order (the arrow's direction rides on `ConnDir`, §1.1).
 fn order_by_direction(pairs: &[ConnPair], dir: ConnDir) -> Option<Vec<i64>> {
     if pairs.is_empty() {
         return Some(vec![]);
@@ -419,8 +425,8 @@ fn order_by_direction(pairs: &[ConnPair], dir: ConnDir) -> Option<Vec<i64>> {
         adj.entry(pair.right).or_default().push(pair.left);
     }
 
-    // Directed nets walk from the driver (source) end; undirected stays on the
-    // P7-4 smallest degree-1 start (see pick_chain_start).
+    // Directed nets walk from the written head; undirected stays on the P7-4
+    // smallest degree-1 start (see pick_chain_start).
     let start = chain_start(&adj, pairs, dir)?;
 
     let mut chain = vec![start];
@@ -687,11 +693,13 @@ mod tests {
 
     // ── Direction-aware ordering ─────────────────────────────────────────
 
-    /// A directed LtoR chain whose smallest degree-1 id is the SINK must start
-    /// from the DRIVER end: `[(5,3),(3,1)]` has degree-1 = {1,5}, min id = 1 =
-    /// sink, yet the flow source (left-not-right) is 5 → order `[5,3,1]`.
+    /// A directed chain whose smallest degree-1 id is the written-*last* member
+    /// must still start from the written head: `[(5,3),(3,1)]` has
+    /// degree-1 = {1,5}, min id = 1, yet the written-left end (left-not-right)
+    /// is 5 → order `[5,3,1]`. Undirected keeps the P7-4 min-id start, so it
+    /// walks `[1,3,5]` — same layout, chosen by reproducibility rule.
     #[test]
-    fn vec_conn__directed_ltr_starts_from_driver_not_min_degree1() {
+    fn vec_conn__directed_chain_starts_from_written_head_not_min_degree1() {
         let pairs = vec![
             ConnPair::plain_with_dir(5, 3, ConnDir::LtoR),
             ConnPair::plain_with_dir(3, 1, ConnDir::LtoR),
@@ -699,7 +707,7 @@ mod tests {
         assert_eq!(
             order_chain(&pairs, ConnDir::LtoR),
             vec![5, 3, 1],
-            "directed chain must render source→sink"
+            "directed chain must render in written order"
         );
         assert_eq!(
             order_chain(&pairs, ConnDir::Undirected),
@@ -708,10 +716,13 @@ mod tests {
         );
     }
 
-    /// RtoL pairs are source-first too (visit.rs swaps), so the driver end is
-    /// still a left-not-right endpoint: `[(9,4),(4,2)]` → `[9,4,2]`.
+    /// RtoL pairs are in written order too (R0: the parser no longer swaps
+    /// operands), so the chain still starts at a left-not-right endpoint:
+    /// `[(9,4),(4,2)]` → `[9,4,2]`. For `<-` that endpoint is the *load* end,
+    /// which is correct — the chain renders in written order and the leftward
+    /// arrow is carried by `ConnDir::RtoL`.
     #[test]
-    fn vec_conn__directed_rtl_starts_from_driver() {
+    fn vec_conn__directed_rtl_starts_from_written_head() {
         let pairs = vec![
             ConnPair::plain_with_dir(9, 4, ConnDir::RtoL),
             ConnPair::plain_with_dir(4, 2, ConnDir::RtoL),

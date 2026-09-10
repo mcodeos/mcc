@@ -31,9 +31,9 @@ enum LaneItem<'a> {
 
 /// PWR-10 (6028) judged-position expectation for a power terminal in its own
 /// connection chain: a `Out` position is the supply/OUT end (a source must lead),
-/// an `In` position the load/IN end (a sink must trail). Members are stored
-/// source-first regardless of the arrow glyph (semantic/common.rs), so the
-/// position is judged on the flattened member order.
+/// an `In` position the load/IN end (a sink must trail). Members are stored in
+/// written source order (R0 §2.4.5 corollary), so which end a member is comes
+/// from the direction of the gap touching it — see [`McModInst::chain_end_role`].
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum DirExpect {
     Out,
@@ -98,16 +98,16 @@ impl InstantiationBuilder {
         );
 
         // ── PWR-10 (6028): direction-word terminal at the wrong end of its own
-        // connection chain (power-intent-design.md §5.3.2). Members are always
-        // stored source-first (the parser swaps operands for `<-`), so the
-        // position table is arrow-glyph independent: chain head = OUT/supply
-        // end, chain tail = IN/load end, a `{L|R}` through's left face = DC-in,
-        // right face = DC-out. Only directed ops are adjudicated (`-`/`+`
-        // parallel joins claim no flow); psbi and direction-word-less terminals
-        // never warn; a module wiring its own body into its own exported power
-        // rows is internal and exempt. The direction word stays authoritative
-        // for the semantic rules — this Warning only tells the author the chain
-        // disagrees with the declared direction contract.
+        // connection chain (power-intent-design.md §5.3.2). Members are stored
+        // in **written source order** (R0 §2.4.5 corollary — the reversal lives
+        // in `ConnDir` alone), so which end is the supply/OUT end is read off
+        // the gap direction at that end, not off the member index: `->` leads
+        // left-to-right, `<-` is the mirror. Only directed ops are adjudicated
+        // (`-`/`+` parallel joins claim no flow); psbi and direction-word-less
+        // terminals never warn; a module wiring its own body into its own
+        // exported power rows is internal and exempt. The direction word stays
+        // authoritative for the semantic rules — this Warning only tells the
+        // author the chain disagrees with the declared direction contract.
         self.audit_dc_binding_dir(&members, &gaps);
 
         // unified-twopin-no-builtin v2.0 §2.4: no chain-shunt special-case. A
@@ -133,43 +133,72 @@ impl InstantiationBuilder {
         if n < 2 {
             return;
         }
-        // Chain head member[0] is the supply / OUT end iff the first op is
-        // directed; chain tail member[n-1] is the load / IN end iff the last is.
+        // Members are stored in **written source order** (R0 §2.4.5 corollary),
+        // so a chain end's role is read off the direction of the gap touching
+        // it, never assumed from its index: `->` (`LtoR`) leads left-to-right
+        // (left member = OUT/supply end, right member = IN/load end), `<-`
+        // (`RtoL`) is the mirror.
         if gaps[0].is_directed() {
-            self.judge_dc_terms(
-                &members[0],
-                DirExpect::Out,
-                "the head (the source / OUT end)",
-            );
+            let (expect, position) = Self::chain_end_role(gaps[0], true);
+            self.judge_dc_terms(&members[0], expect, position);
         }
         if gaps[n - 2].is_directed() {
-            self.judge_dc_terms(
-                &members[n - 1],
-                DirExpect::In,
-                "the tail (the sink / IN end)",
-            );
+            let (expect, position) = Self::chain_end_role(gaps[n - 2], false);
+            self.judge_dc_terms(&members[n - 1], expect, position);
         }
-        // Interior `{L|R}` through members: the input (left) face is the DC-in
-        // side (expects a sink), the output (right) face the DC-out side
-        // (expects a source). Judged when the chain asserts a flow around the
+        // Interior `{L|R}` through members: the upstream face is the DC-in side
+        // (expects a sink), the downstream face the DC-out side (expects a
+        // source). Upstream is the side the surrounding flow *arrives* from, so
+        // it is derived from the directed flank's direction rather than fixed
+        // to the left face. Judged when the chain asserts a flow around the
         // through (a directed op on either flank).
         for i in 1..n - 1 {
-            if !(gaps[i - 1].is_directed() || gaps[i].is_directed()) {
-                continue;
-            }
+            let upstream_is_left = match (gaps[i - 1].is_directed(), gaps[i].is_directed()) {
+                // The left flank carries the flow: `->` feeds forward (left
+                // face upstream), `<-` feeds backward (right face upstream).
+                (true, _) => gaps[i - 1] != ConnDir::RtoL,
+                // Only the right flank is directed: `->` leaves through the
+                // right face (left face upstream), `<-` the mirror.
+                (false, true) => gaps[i] == ConnDir::RtoL,
+                (false, false) => continue,
+            };
             let McPhrase::Endpoint(McEndpoint::Node { input, output }) = &members[i] else {
                 continue;
             };
-            self.judge_dc_face(
-                input,
-                DirExpect::In,
-                "the input (left) face of a {L|R} through",
-            );
-            self.judge_dc_face(
-                output,
-                DirExpect::Out,
-                "the output (right) face of a {L|R} through",
-            );
+            let (upstream, downstream, up_pos, down_pos) = if upstream_is_left {
+                (
+                    input,
+                    output,
+                    "the input (left) face of a {L|R} through",
+                    "the output (right) face of a {L|R} through",
+                )
+            } else {
+                (
+                    output,
+                    input,
+                    "the output (right) face of a {L|R} through",
+                    "the input (left) face of a {L|R} through",
+                )
+            };
+            self.judge_dc_face(upstream, DirExpect::In, up_pos);
+            self.judge_dc_face(downstream, DirExpect::Out, down_pos);
+        }
+    }
+
+    /// Role of the chain end touching `gap` — `head` selects `members[0]`
+    /// (the head) over `members[n-1]` (the tail). `LtoR` makes the left member
+    /// the OUT end and the right member the IN end; `RtoL` is the mirror.
+    /// `Undirected` never reaches here (callers guard with `is_directed`).
+    fn chain_end_role(gap: ConnDir, head: bool) -> (DirExpect, &'static str) {
+        let out = match gap {
+            ConnDir::RtoL => !head,
+            _ => head,
+        };
+        match (head, out) {
+            (true, true) => (DirExpect::Out, "the head (the source / OUT end)"),
+            (true, false) => (DirExpect::In, "the head (the sink / IN end)"),
+            (false, true) => (DirExpect::Out, "the tail (the source / OUT end)"),
+            (false, false) => (DirExpect::In, "the tail (the sink / IN end)"),
         }
     }
 
@@ -1245,11 +1274,11 @@ impl InstantiationBuilder {
     /// Convert McPhrase to expanded McPhrase list **with edge-level directions**.
     ///
     /// Returns `(members, gaps)` where `gaps[i]` is the operator direction
-    /// connecting `members[i]`~`members[i+1]` (source-first member order; a
-    /// nested Series whose direction differs from its parent contributes its
-    /// own internal gaps, see the Series arm below). For any non-Series
-    /// phrase there is no serial operator direction, so members carry
-    /// `ConnDir::Undirected` gaps (single-member → empty).
+    /// connecting `members[i]`~`members[i+1]` (members in **written source
+    /// order**, R0 §2.4.5 corollary; a nested Series whose direction differs
+    /// from its parent contributes its own internal gaps, see the Series arm
+    /// below). For any non-Series phrase there is no serial operator direction,
+    /// so members carry `ConnDir::Undirected` gaps (single-member → empty).
     fn phrase_to_members_gapped(&self, phrase: &McPhrase) -> (Vec<McPhrase>, Vec<ConnDir>) {
         let disc = std::mem::discriminant(phrase);
         mcc_dbg!(
@@ -2338,7 +2367,12 @@ impl InstantiationBuilder {
         dir: ConnDir,
     ) -> Result<(), InstError> {
         // ★ P9-A2: extract trunk from source code context.
-        // Prefer the left member (driver side), fall back to the right member.
+        // Prefer the left (written-first) member, fall back to the right
+        // (written-second). Members are in written source order and the pairing
+        // is positional (R0), so the tie-break follows the written order rather
+        // than any flow direction: the "driver" side is the right member for
+        // `<-` and the left one for `->`, and both are already ordered by
+        // position below (`left_member.right` x `right_member.left`).
         // RAII (§7.11(2)): the group is restored on every exit path (including
         // early `Err` returns), so it can never leak into the next connection.
         //
