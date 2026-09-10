@@ -2737,20 +2737,12 @@ impl McPhrase {
                     Series(phrases, ConnDir::LtoR) => phrases,
                     other => vec![other],
                 };
-                // Set right side of ret_line as output
-                if let Some(last) = ret_line.last_mut() {
-                    last.set_right_out();
-                }
 
                 // line2: the second operand
-                let mut line2 = match opd2 {
+                let line2 = match opd2 {
                     Series(phrases, ConnDir::LtoR) => phrases,
                     other => vec![other],
                 };
-                // Set left side of line2 as input
-                if let Some(first) = line2.first_mut() {
-                    first.set_left_in();
-                }
 
                 ret_line.extend(line2);
                 let result = Series(ret_line, ConnDir::LtoR);
@@ -2758,28 +2750,39 @@ impl McPhrase {
             }
 
             MCAST_OPD_LEFTARROW => {
-                // Left arrow: opd1 <- opd2 means data flows from opd2 to opd1
-                // i.e. opd2.right connects to opd1.left
-                // Result line order: [opd2, opd1]
+                // Left arrow: `opd1 <- opd2`.
+                //
+                // §1.4 / §5.2 — the series junction is **positional**: the left
+                // operand's right face joins the right operand's left face,
+                // identically for `-`, `->` and `<-`. The three differ only in
+                // the recorded `ConnDir` and in the result **anchor** (§5.2:
+                // `-`/`->` take the right operand, `<-` takes the left one).
+                //
+                // So the member list stays in **written source order** and the
+                // reversal is carried by `ConnDir::RtoL` alone — §2.4.5's
+                // corollary: "direction lives in `ConnDir`, a `Series`'s member
+                // list always equals the written source order; the reversal is
+                // expressed by the direction, not by reordering members."
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
                 let mut opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
 
-                // ★ Eager return-shape resolution (§3.2): fill the ORIGINAL opd1
-                // (the left operand) before the swap + opcheck below — mirroring
-                // the `->` site. opd2 is typically the source/Label in the
-                // `y.Setup(VSS) <- ...` trigger; unresolved calls stay None and
-                // fall back, exactly as before.
+                // ★ Eager return-shape resolution (§3.2): fill opd1 (the left
+                // operand) before the opcheck below — mirroring the `->` site.
+                // opd2 is typically the source/Label in the `y.Setup(VSS) <- ...`
+                // trigger; unresolved calls stay None and fall back, exactly as
+                // before.
                 if let McPhrase::FuncCall(fc) = &mut opd1 {
                     McFuncCall::fill_return_shape(fc, context);
                 }
 
-                // Note: swap order here for shape inference, because data flow is opd2 -> opd1
-                let (opd2, opd1) = infer_shape_and_upgrade(opd2, opd1, context);
+                let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
-                // §4.4 series evaluation (leftward): opd2.right ↔ opd1.left (<- is RtoL, take op1).
+                // §4.4 series evaluation (leftward): `representative(RtoL)` is
+                // the **left** operand, so the check takes written order —
+                // same argument order as the `->` site.
                 // A transposed operand is first transposed to its full-width
                 // column, then the §5.2 check runs on the transposed result —
                 // no transpose carve-out.
@@ -2788,7 +2791,7 @@ impl McPhrase {
                 if check_list_column_width_mixed([&opd1, &opd2], node, context) {
                     return None;
                 }
-                if !is_connectable(ConnOp::Series, ConnDir::RtoL, &opd2_shape, &opd1_shape) {
+                if !is_connectable(ConnOp::Series, ConnDir::RtoL, &opd1_shape, &opd2_shape) {
                     dlog_error(
                         crate::errcodes::CONN_LEFT_ARROW_SHAPE_MISMATCH,
                         node,
@@ -2800,29 +2803,19 @@ impl McPhrase {
                     return None;
                 }
 
-                // opd2 is source, its right is output.
                 // Only flatten a chain whose direction matches `<-` (RtoL); an
                 // embedded `-`/`->` chain keeps its own direction.
-                let mut ret_line: Vec<McPhrase> = match opd2 {
+                let mut line: Vec<McPhrase> = match opd1 {
                     Series(phrases, ConnDir::RtoL) => phrases,
                     other => vec![other],
                 };
-                if let Some(last) = ret_line.last_mut() {
-                    last.set_right_out();
-                }
-
-                // opd1 is the target, its left side is input
-                let mut line1: Vec<McPhrase> = match opd1 {
+                let line2: Vec<McPhrase> = match opd2 {
                     Series(phrases, ConnDir::RtoL) => phrases,
                     other => vec![other],
                 };
-                if let Some(first) = line1.first_mut() {
-                    first.set_left_in();
-                }
 
-                // Connection: opd2 -> opd1
-                ret_line.extend(line1);
-                Some(Series(ret_line, ConnDir::RtoL))
+                line.extend(line2);
+                Some(Series(line, ConnDir::RtoL))
             }
 
             // When MCAST_INSTANCE appears in an expression context (usually as a child node of MCAST_OPD
@@ -3399,166 +3392,6 @@ impl McPhrase {
             McPhrase::Lead => vec![McBus::new("(lead)")],
             McPhrase::Endpoint(ref ep) => ep.get_right(),
             McPhrase::Member(_, ep) => ep.get_right(),
-        }
-    }
-
-    /// Set the left side as input
-    pub(crate) fn set_left_in(&mut self) {
-        match self {
-            McPhrase::Series(ref mut phrases, _) => {
-                // Series: set the first phrase's left side as input
-                if let Some(first) = phrases.first_mut() {
-                    first.set_left_in();
-                }
-            }
-            McPhrase::Transposed(ref mut inner) => {
-                // Transpose: swap left and right and then set
-                inner.reverse();
-                inner.set_right_out();
-            }
-            // `set_left_in(T)` ≡ `set_right_out(reverse(T))`; reversing a
-            // reversed expression cancels (§2.4.5), so the role swaps.
-            McPhrase::Reversed(ref mut inner) => inner.set_right_out(),
-            McPhrase::Parallel(ref mut opds) => {
-                for opd in opds.iter_mut() {
-                    opd.set_left_in();
-                }
-            }
-            McPhrase::Closure(ref mut c) => {
-                // Set the first line of the closure body left side as input
-                if let Some(first) = c.body.first_mut() {
-                    first.set_left_in();
-                }
-            }
-            McPhrase::Group(ref mut g) => {
-                for opd in g.opds.iter_mut() {
-                    opd.set_left_in();
-                }
-            }
-            McPhrase::Multiple(ref mut opds) => {
-                if let Some(first) = opds.first_mut() {
-                    first.set_left_in();
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Set the right side as output
-    pub(crate) fn set_right_out(&mut self) {
-        match self {
-            McPhrase::Series(ref mut phrases, _) => {
-                // Series: set the last phrase's right side as output
-                if let Some(last) = phrases.last_mut() {
-                    last.set_right_out();
-                }
-            }
-            McPhrase::Transposed(ref mut inner) => {
-                // Transpose: set as output and then swap
-                inner.set_right_out();
-                inner.reverse();
-            }
-            // Mirror of `set_left_in` above: the reversed view's right face is
-            // the operand's left face.
-            McPhrase::Reversed(ref mut inner) => inner.set_left_in(),
-            McPhrase::Parallel(ref mut opds) => {
-                for opd in opds.iter_mut() {
-                    opd.set_right_out();
-                }
-            }
-            McPhrase::Closure(ref mut c) => {
-                // Set the last line of the closure body right side as output
-                if let Some(last) = c.body.last_mut() {
-                    last.set_right_out();
-                }
-            }
-            McPhrase::Group(ref mut g) => {
-                for opd in g.opds.iter_mut() {
-                    opd.set_right_out();
-                }
-            }
-            McPhrase::Multiple(ref mut opds) => {
-                if let Some(last) = opds.last_mut() {
-                    last.set_right_out();
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Reverse the connection direction
-    pub(crate) fn reverse(&mut self) {
-        match self {
-            McPhrase::Series(ref mut phrases, _) => phrases.reverse(),
-            McPhrase::Transposed(ref mut inner) => {
-                inner.reverse();
-            }
-            // Reversing a reversed expression cancels the reversal (§2.4.5):
-            // `^` twice is the identity, so unwrap instead of nesting (and
-            // instead of falling into the no-op log below).
-            McPhrase::Reversed(ref mut inner) => {
-                *self = (**inner).clone();
-            }
-            McPhrase::Parallel(ref mut opds) => {
-                for opd in opds.iter_mut() {
-                    opd.reverse();
-                }
-                opds.reverse();
-            }
-            McPhrase::Closure(ref mut c) => {
-                for line in c.body.iter_mut() {
-                    line.reverse();
-                }
-                c.body.reverse();
-            }
-            McPhrase::Group(ref mut g) => {
-                for opd in g.opds.iter_mut() {
-                    opd.reverse();
-                }
-            }
-            McPhrase::Multiple(ref mut opds) => {
-                for opd in opds.iter_mut() {
-                    opd.reverse();
-                }
-            }
-            McPhrase::Member(ref mut phrase, _) => {
-                phrase.reverse();
-            }
-            // §6.3: reversing a node swaps its left/right ports.
-            McPhrase::Endpoint(McEndpoint::Node { input, output }) => {
-                std::mem::swap(input, output);
-            }
-            // §6.3 / vec-arch §5.2: reversing a two-pin component (a 1*2 row
-            // vector) swaps its two pins — `R101^` presents pin 2 on the left
-            // and pin 1 on the right. Mirror the MCAST_OPD_CARET parse handler
-            // so reverse() reached from any context (Transposed inner via
-            // set_left_in / set_right_out, recursive reversal) does the same
-            // swap instead of silently no-op'ing.
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Component(ref c),
-                ..
-            })) if matches!(shape_defaults(c).kind, PinShapeKind::TwoPin) => {
-                let inst_name = c.name.to_string();
-                *self = McPhrase::Endpoint(McEndpoint::Node {
-                    input: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
-                        McBus::new(&format!("{inst_name}.2")),
-                    )))],
-                    output: vec![McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
-                        McBus::new(&format!("{inst_name}.1")),
-                    )))],
-                });
-            }
-            // Point / column operands (Single-pin components, labels, buses,
-            // lists, interfaces, unresolved) carry no order to reverse — a
-            // genuine no-op. Log it in debug so new phrase variants can't fall
-            // through silently.
-            _ => {
-                mcc_dbg!(
-                    "sem::conds",
-                    "[REVERSE-NOOP] variant {:?} has no order to reverse; kept as-is",
-                    std::mem::discriminant(self)
-                );
-            }
         }
     }
 

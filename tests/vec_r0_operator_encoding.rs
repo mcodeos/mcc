@@ -21,8 +21,7 @@
 //! `+`⇒`Parallel`, `-`⇒`Series(_, Undirected)`, `->`⇒`Series(_, LtoR)`,
 //! `<-`⇒`Series(_, RtoL)`, plus §2.4.3's ordering law (same-kind chains
 //! flatten in source order, mixed directions do not flatten) and §2.4.4's
-//! wrapping rule. Cells that record a **known violation as a baseline** say so
-//! in their name and doc comment; they are not compliance claims.
+//! wrapping rule.
 
 // Family naming `{family}__{essence}` uses a doubled underscore (matrix §1).
 #![allow(non_snake_case)]
@@ -149,7 +148,7 @@ fn arrow__is_series_l_to_r() {
 }
 
 /// `<-` ⇒ `Series(_, RtoL)` — the direction half of the encoding. The operand
-/// order is a separate question and is pinned by the baseline cell below.
+/// order is pinned by `back_arrow__keeps_written_operand_order` below.
 #[test]
 fn back_arrow__is_series_r_to_l() {
     let s = only("R101 <- R102");
@@ -299,46 +298,32 @@ fn caret__double_reverse_nests() {
     assert_eq!(only("R101^^"), "Reversed(Reversed(R101))");
 }
 
-// ── recorded baselines (known R0 violations — not compliance claims) ────────
+// ── §2.4.5 corollary: direction alone carries the reversal ─────────────────
 
-/// **BASELINE, not compliance.** `<-` reorders its operands: the parser's
-/// left-arrow arm builds the line as `[opd2, opd1]` (`mc_phrase.rs`, the
-/// `MCAST_OPD_LEFTARROW` arm — its own comment reads "Result line order:
-/// `[opd2, opd1]`").
-///
-/// §2.4.5's corollary rules the other way (vec-dianlu.md: direction is carried
-/// by `ConnDir` alone, and a `Series`'s member list always equals the written
-/// source order) — so `R101 <- R102` should be `Series(RtoL)[R101, R102]`,
-/// with the reversal carried by the direction alone. Today it is
-/// `[R102, R101]`, i.e. the reversal is encoded **twice** (direction *and*
-/// order), which is §2.4.2 prohibition 1.
-///
-/// This is **not** a mechanical fix: the members being in flow order is
-/// load-bearing. `audit_dc_binding_dir` (6028, `dc_binding_arrow_dir.rs`)
-/// judges the direction word's position "arrow-glyph independent" *because*
-/// `<-` swaps operands — its doc comment says so. Adjudication is open; this
-/// cell pins the current shape so whichever way it is decided, the change is
-/// visible.
+/// `<-` keeps its operands in **written source order** — the reversal is
+/// carried by `ConnDir::RtoL` alone (§2.4.5's corollary: "direction lives in
+/// `ConnDir`, a `Series`'s member list always equals the written source
+/// order"). This cell used to be a recorded baseline: the parser's
+/// left-arrow arm built the line as `[opd2, opd1]`, encoding the reversal
+/// **twice** (direction *and* order) — §2.4.2 prohibition 1.
 #[test]
-fn back_arrow__operand_order_BASELINE_reorders() {
+fn back_arrow__keeps_written_operand_order() {
     assert_eq!(
         only("R101 <- R102"),
-        "Series(RtoL)[R102, R101]",
-        "current parser product: operands reordered, direction also set"
+        "Series(RtoL)[R101, R102]",
+        "the reversal is carried by the direction, not by reordering members"
     );
 }
 
-/// **BASELINE, not compliance.** `<-` also calls the parse-time tree
-/// rewriters `set_left_in` / `set_right_out` (A2), which is why the operand
-/// order above and the direction encoding come out of two separate mechanisms.
-/// Retiring them is batch 2.
+/// No parse-time tree rewriter survives (§2.4.5 corollary): the two arrows
+/// encode as the *same* node kind and the *same* member order, and differ
+/// only in `ConnDir`. That is the whole point — the `(node kind, direction)`
+/// pair is the operator's complete encoding (§2.4.1), so nothing else may
+/// carry it.
 #[test]
-fn arrow__still_drives_parse_time_rewriters() {
-    // Both directions encode as `Series(_, dir)`; the difference between them
-    // is carried by the direction, and — for `<-` — *additionally* by the
-    // operand order. Batch 2 removes the second mechanism.
+fn arrow__and_back_arrow_differ_only_in_direction() {
     assert_eq!(only("R101 -> R102"), "Series(LtoR)[R101, R102]");
-    assert_eq!(only("R101 <- R102"), "Series(RtoL)[R102, R101]");
+    assert_eq!(only("R101 <- R102"), "Series(RtoL)[R101, R102]");
 }
 
 /// A transposed operand is classified by the shape it **transposes to**

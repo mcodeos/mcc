@@ -51,8 +51,9 @@ use super::trunk::{TrunkCtx, TrunkKind};
 // `conn_dir_to_pair_dir`.
 // - `->` directed series -> [`ConnDir::LtoR`]
 // - `<-` reversed -> [`ConnDir::RtoL`] — a first-class mirror of `LtoR`:
-//   the parser swaps operands so member/point order is source-first in both
-//   directions; `NetShape::ltr_view`/`driver_load` recover the LTR render view.
+//   member/point order stays in **written source order** for both directions
+//   (the reversal lives in the direction alone, R0 §2.4.5); the flow ends are
+//   recovered by `NetShape::driver_load` and the draw order by `ltr_view`.
 // - `-` series / `+` parallel -> [`ConnDir::Undirected`]
 
 // ============================================================================
@@ -209,13 +210,19 @@ impl NetShape {
 
     /// Driver (source) and load (sink) endpoints of a **directed** net.
     ///
-    /// `order` is source-first (the parser swapped `<-` operands and ConnPair
-    /// points are source-first in both directions), so the driver is always
-    /// `order[0]` and the load `order.last()`. Returns `None` for undirected
-    /// nets or chains with a single endpoint.
+    /// `order` is in **written source order** (R0 §2.4.5 corollary: the
+    /// reversal lives in `ConnDir`, never in a member/point reordering), and
+    /// the drawing follows the written order (§1.1 code left/right maps to
+    /// circuit x). So `->` (`LtoR`) flows left-to-right and the driver leads,
+    /// while `<-` (`RtoL`) is the mirror and the driver is `order.last()`.
+    /// Returns `None` for undirected nets or chains with a single endpoint.
     pub fn driver_load(&self) -> Option<(i64, i64)> {
         if self.dir.is_directed() && self.order.len() >= 2 {
-            Some((self.order[0], *self.order.last().unwrap()))
+            let (first, last) = (self.order[0], *self.order.last().unwrap());
+            Some(match self.dir {
+                ConnDir::RtoL => (last, first),
+                _ => (first, last),
+            })
         } else {
             None
         }
@@ -224,20 +231,14 @@ impl NetShape {
     /// Left-to-right **render** view of a directed net: `(leftmost, rightmost,
     /// arrow-as-drawn)`.
     ///
-    /// - `LtoR` already draws driver→load → `(driver, load, LtoR)`.
-    /// - `RtoL` is flipped to the LTR orientation → `(load, driver, LtoR)`; the
-    ///   operand/pair swap is exactly the case `ConnDir::flipped()` documents
-    ///   ("reverse direction (used when swapping a pair's left/right)").
-    /// - `Undirected` → `None`.
+    /// The drawing follows the written order for both arrows (§1.1), so the
+    /// leftmost endpoint is the first-written one and only the glyph differs:
+    /// `->` points right, `<-` points left. `Undirected` → `None`.
     pub fn ltr_view(&self) -> Option<(i64, i64, ConnDir)> {
-        let (driver, load) = self.driver_load()?;
-        match self.dir {
-            ConnDir::LtoR => Some((driver, load, ConnDir::LtoR)),
-            // The pair-swap mirror: re-reading an RtoL pair left-to-right is
-            // exactly `ConnDir::flipped()`'s documented use.
-            ConnDir::RtoL => Some((load, driver, ConnDir::RtoL.flipped())),
-            ConnDir::Undirected => None,
+        if !self.dir.is_directed() || self.order.len() < 2 {
+            return None;
         }
+        Some((self.order[0], *self.order.last().unwrap(), self.dir))
     }
 }
 
@@ -456,16 +457,16 @@ mod tests {
 
     #[test]
     fn vec_netshape__directed_accessors_rtl() {
-        // RtoL: order is still source-first, so driver = order[0]; ltr_view
-        // flips to the pair-swap mirror `(load, driver, LtoR)` (the case
-        // `ConnDir::flipped()` documents).
+        // RtoL: order is written source order, so the chain is drawn
+        // left-to-right as written while the flow runs right-to-left — the
+        // driver (source) is therefore `order.last()`.
         let s = NetShape {
             dir: ConnDir::RtoL,
             order: vec![9, 2],
             ..Default::default()
         };
-        assert_eq!(s.driver_load(), Some((9, 2)));
-        assert_eq!(s.ltr_view(), Some((2, 9, ConnDir::LtoR)));
+        assert_eq!(s.driver_load(), Some((2, 9)));
+        assert_eq!(s.ltr_view(), Some((9, 2, ConnDir::RtoL)));
     }
 
     #[test]

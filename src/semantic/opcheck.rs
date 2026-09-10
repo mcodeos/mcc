@@ -117,10 +117,12 @@ pub fn port_row_shape(elems: &[McBus]) -> Shape {
 
 /// §4 single-port (1*1) representative note (eval.md §4): a single-port
 /// connection has no left/right distinction, so one representative is chosen —
-/// `-` / `->` / `<-` take the second operand, `+` the first. Consistent with
-/// the Pass2 anchoring (`+` anchors `wire_parallel_internal` opd[0], `-` the
-/// Series head opd1, and `->` / `<-` their chain tail, which the `<-` handler
-/// reaches by passing its operands swapped).
+/// `-` / `->` take the **second** written operand, `<-` the **first**, `+` the
+/// first. That is `representative`'s own rule (`semantic/common.rs`), decided
+/// from the operator and its direction over written-order operands; Pass2
+/// reaches the same label under the written order used everywhere, so no
+/// operand reordering is involved (`<-` names its net after op1 — the chain
+/// head — not after a swapped tail).
 ///
 /// A 1-row x 1-row pair is legal on the row-count rule anyway; this only makes
 /// the chosen representative observable.

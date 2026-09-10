@@ -64,10 +64,12 @@ impl IOType {
 ///
 /// Maps to mcrule.md §10.1:
 /// - `->` → [`ConnDir::LtoR`]
-/// - `<-` → [`ConnDir::RtoL`] — a first-class mirror of `LtoR`, not a
-///   placeholder: the parser swaps operands (`A <- B` → members `[B, A]`,
-///   source-first), so per-pair points and member order are source-first in
-///   both directions and `flipped()` recovers the render orientation.
+/// - `<-` → [`ConnDir::RtoL`] — a first-class mirror of `LtoR`, and the
+///   **only** thing that carries the arrow. The parser keeps the operands in
+///   written source order for both arrows (R0 / vec-dianlu.md §2.4.5), so a
+///   `Series` member list and the per-pair points always equal the written
+///   order; the direction is never encoded by reordering, and the render
+///   orientation needs no recovery step.
 /// - `-` / `+` → [`ConnDir::Undirected`]
 ///
 /// §8.9.2: unified with the vector-layer `PairDir` in §8.9.7-F — the former
