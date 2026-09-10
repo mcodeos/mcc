@@ -51,7 +51,7 @@ pub fn pin_place_pipeline(
     hub_keep_semantic: bool,
 ) {
     // A: Connectivity-first desired side
-    desired_side_pass(graph, hub_id, hub_keep_semantic, lr_only);
+    desired_side_pass(graph, hub_id, hub_keep_semantic, lr_only, true);
 
     // B: Order pins per side — sorts connected pins by target coords, then unconnected by pin_id,
     //    and evenly distributes offsets. Runs FIRST so relative order is set.
@@ -72,6 +72,24 @@ pub fn pin_place_pipeline(
     }
 
     // E: Enforce unique offsets (hard guard) — the final EntryPoint writer.
+    enforce_unique_offsets(graph);
+}
+
+/// Root-layer entry-point pass — same connectivity/direction policy as
+/// [`pin_place_pipeline`], minus the hub-stretching step.
+///
+/// The root layer places boxes with `place_radial`, whose facade writes
+/// direction-driven entry points for boxes that own signal/bus edges. Boxes the
+/// facade skips (a module face fed by one DC pair, say) would keep the coarse
+/// index-parity side from `assign_entry_points_coarse` — so the root layer never
+/// saw the flow direction its wires actually follow. Run the same
+/// neighbour-centroid rule everywhere, with all four sides available (radial
+/// spreads devices over the full ring), but **without** `align_hub_to_spokes`:
+/// the radial hub's geometry is already final and must not be stretched.
+pub fn root_direction_pass(graph: &mut McVecGraph, hub_id: Option<i64>, hub_keep_semantic: bool) {
+    // All four sides (radial spreads boxes over the full ring) and no
+    // unconnected-pin toss (see `desired_side_pass`).
+    desired_side_pass(graph, hub_id, hub_keep_semantic, false, false);
     enforce_unique_offsets(graph);
 }
 
@@ -178,6 +196,7 @@ fn desired_side_pass(
     hub_id: Option<i64>,
     hub_keep_semantic: bool,
     lr_only: bool,
+    toss_unconnected: bool,
 ) {
     let pin_neighbors = collect_pin_neighbors(graph);
     let box_centers = collect_box_centers(graph);
@@ -282,6 +301,16 @@ fn desired_side_pass(
                 // ★ iter 7: toss unconnected pins to the side with the fewest connected pins
                 // (with two components that's the side opposite the main direction; with three
                 // or four it degrades to "the emptiest side"), no longer the semantic default.
+                //
+                // Off at the root layer: "no neighbour" there means the pin carries no
+                // pin-level identity (a module face is emitted with `pin_id == 0`, which
+                // `collect_pin_neighbors` cannot key on), NOT that the pin is unconnected.
+                // Tossing those to `least_side` would blind-move every module face to the
+                // same side and undo the radial facade's flow-directed placement — so the
+                // root keeps the facade's side and only refines pins the pass can see.
+                if !toss_unconnected {
+                    continue;
+                }
                 if least_side != ep.side {
                     ep.side = least_side.clone();
                     moved += 1;

@@ -18,7 +18,7 @@ use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, ConnOp, IOType, Shape};
-use crate::semantic::component::mc_pins::McPinPort;
+use crate::semantic::component::mc_pins::{McPinPort, PwrDir};
 use crate::semantic::mc_inst::McInstance;
 use crate::vector::model::trunk::TrunkKind;
 use std::collections::HashSet;
@@ -27,6 +27,24 @@ use std::collections::HashSet;
 enum LaneItem<'a> {
     Series(&'a McPhrase),
     Bridge(NetPoint),
+}
+
+/// PWR-10 (6028) judged-position expectation for a power terminal in its own
+/// connection chain: a `Out` position is the supply/OUT end (a source must lead),
+/// an `In` position the load/IN end (a sink must trail). Members are stored
+/// source-first regardless of the arrow glyph (semantic/common.rs), so the
+/// position is judged on the flattened member order.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum DirExpect {
+    Out,
+    In,
+}
+
+/// Base name of a port row, stripping a trailing `{…}` member group
+/// (`vin{V5V, GND}` → `vin`); used to compare a reference's owner/token against
+/// port-row names that may keep their written member group.
+fn brace_plain(s: &str) -> &str {
+    s.split_once('{').map(|(h, _)| h).unwrap_or(s)
 }
 
 impl InstantiationBuilder {
@@ -79,12 +97,249 @@ impl InstantiationBuilder {
             gaps.len()
         );
 
+        // ── PWR-10 (6028): direction-word terminal at the wrong end of its own
+        // connection chain (power-intent-design.md §5.3.2). Members are always
+        // stored source-first (the parser swaps operands for `<-`), so the
+        // position table is arrow-glyph independent: chain head = OUT/supply
+        // end, chain tail = IN/load end, a `{L|R}` through's left face = DC-in,
+        // right face = DC-out. Only directed ops are adjudicated (`-`/`+`
+        // parallel joins claim no flow); psbi and direction-word-less terminals
+        // never warn; a module wiring its own body into its own exported power
+        // rows is internal and exempt. The direction word stays authoritative
+        // for the semantic rules — this Warning only tells the author the chain
+        // disagrees with the declared direction contract.
+        self.audit_dc_binding_dir(&members, &gaps);
+
         // unified-twopin-no-builtin v2.0 §2.4: no chain-shunt special-case. A
         // `.Cap([a, b])` member is an ordinary FuncCall whose connection face
         // comes from the library func's return; the normal member loop +
         // adjacent pairing wire the pass-through lanes. `[2×1] -> CAP(1×2) ->
         // [2×1]` is a shape error reported by the series-row check.
         self.process_series_members(&members, &gaps)
+    }
+
+    // ── PWR-10 (6028): arrow/direction-word consistency audit ──
+    // power-intent-design.md §5.3.2. A direction-word power terminal (module
+    // power-port row or leaf-component power pin) must sit at the end of its own
+    // connection chain its direction word claims: a source (psrc) face leads the
+    // chain / the right of a `{L|R}` through, a sink (psnk) trails it / sits on
+    // the left. Warning only — the direction word stays authoritative for the
+    // semantic rules (6011/6019/6021/pwrflow).
+
+    /// Walk the flattened member/gap vectors and flag direction-word terminals
+    /// on the wrong side of their chain.
+    fn audit_dc_binding_dir(&mut self, members: &[McPhrase], gaps: &[ConnDir]) {
+        let n = members.len();
+        if n < 2 {
+            return;
+        }
+        // Chain head member[0] is the supply / OUT end iff the first op is
+        // directed; chain tail member[n-1] is the load / IN end iff the last is.
+        if gaps[0].is_directed() {
+            self.judge_dc_terms(
+                &members[0],
+                DirExpect::Out,
+                "the head (the source / OUT end)",
+            );
+        }
+        if gaps[n - 2].is_directed() {
+            self.judge_dc_terms(
+                &members[n - 1],
+                DirExpect::In,
+                "the tail (the sink / IN end)",
+            );
+        }
+        // Interior `{L|R}` through members: the input (left) face is the DC-in
+        // side (expects a sink), the output (right) face the DC-out side
+        // (expects a source). Judged when the chain asserts a flow around the
+        // through (a directed op on either flank).
+        for i in 1..n - 1 {
+            if !(gaps[i - 1].is_directed() || gaps[i].is_directed()) {
+                continue;
+            }
+            let McPhrase::Endpoint(McEndpoint::Node { input, output }) = &members[i] else {
+                continue;
+            };
+            self.judge_dc_face(
+                input,
+                DirExpect::In,
+                "the input (left) face of a {L|R} through",
+            );
+            self.judge_dc_face(
+                output,
+                DirExpect::Out,
+                "the output (right) face of a {L|R} through",
+            );
+        }
+    }
+
+    /// Judge the single-face member at a chain end (head/tail).
+    fn judge_dc_terms(&mut self, member: &McPhrase, expect: DirExpect, position: &str) {
+        let mut refs = Vec::new();
+        Self::member_refs(member, &mut refs);
+        for (owner, tokens) in refs {
+            self.warn_conflicting_terms(&owner, &tokens, expect, position);
+        }
+    }
+
+    /// Judge one face of an interior `{L|R}` through.
+    fn judge_dc_face(&mut self, face: &[McEndpoint], expect: DirExpect, position: &str) {
+        for ep in face {
+            let McEndpoint::Single(iref) = ep else {
+                continue;
+            };
+            let Some((owner, tokens)) = Self::iref_tokens(iref) else {
+                continue;
+            };
+            // Only a *written* through face (member tokens present) is a
+            // direction claim. A bare module reference the net builder split
+            // into a Node (P1-A2) has member-less, path-dotted buses and no
+            // direction contract of its own — stay silent there.
+            if tokens.is_empty() {
+                continue;
+            }
+            self.warn_conflicting_terms(&owner, &tokens, expect, position);
+        }
+    }
+
+    /// Resolve each written terminal of a reference and warn on those whose
+    /// direction word contradicts the judged position.
+    fn warn_conflicting_terms(
+        &mut self,
+        owner: &str,
+        tokens: &[String],
+        expect: DirExpect,
+        position: &str,
+    ) {
+        for token in tokens {
+            let Some((label, dir)) = self.pwr_dir_of_ref(owner, token) else {
+                continue; // exempt self-wiring, psbi-unsupported shape, or net label
+            };
+            let conflict = match expect {
+                DirExpect::Out => dir == PwrDir::Snk, // a sink cannot lead the chain
+                DirExpect::In => dir == PwrDir::Src,  // a source cannot trail it
+            };
+            if !conflict {
+                continue;
+            }
+            let word = match dir {
+                PwrDir::Src => "psrc",
+                PwrDir::Snk => "psnk",
+                PwrDir::Bi => "psbi",
+            };
+            let args: Vec<&dyn std::fmt::Display> = vec![&label, &word, &position];
+            let msg = crate::errcodes::format_msg(crate::errcodes::DC_BINDING_DIR_MISMATCH, &args);
+            self.log_global_diag(
+                crate::errcodes::DC_BINDING_DIR_MISMATCH,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                msg,
+            );
+        }
+    }
+
+    /// Direction word a connection reference names, when the reference resolves
+    /// to an authoritative non-exempt power terminal in *this* module's scope:
+    /// - a leaf component pin under `owner` (def pwr-row hot pin) — always judged;
+    /// - a child submodule power-port row (`owner.<port>`, matched by the
+    ///   port's written members against `def.pi.pwr_ports`) — judged;
+    /// - this module's own exported power-port row — a module wiring its own
+    ///   body into its own power face is internal implementation (the direction
+    ///   word is the contract to the *parent* frame): exempt (`None`).
+    /// A plain net label / unresolved owner resolves to `None` too (never judged).
+    fn pwr_dir_of_ref(&self, owner: &str, token: &str) -> Option<(String, PwrDir)> {
+        // 1. Leaf component under the module being built. Power rows capture the
+        // hot member *verbatim* — dotted for a named group (`psrc VOUT{Vout, GND}`
+        // → hot `VOUT.Vout`, matching the pin net), bare for an anonymous pair
+        // (`[1,2]=[IN,GND]` → hot `IN`). The judged token is that same spelling,
+        // so compare whole tokens, never a last-segment split.
+        if let Some(comp) = self.find_component(owner) {
+            if let Some(row) = comp.def.pins.pwr.iter().find(|r| r.hot == token) {
+                return Some((format!("{owner}.{token}"), row.dir));
+            }
+            return None;
+        }
+        // 2. Child submodule power-port row.
+        if let Some(sub) = self.find_submodule(owner) {
+            let port = sub.ports.iter().find(|p| {
+                p.iotype == IOType::Power && brace_plain(&p.name) == brace_plain(token)
+            })?;
+            let bm = &port.bus_members;
+            if bm.is_empty() {
+                return None;
+            }
+            let row = sub.def.pi.pwr_ports.iter().find(|r| {
+                r.hot == bm[0]
+                    && match (&r.ret, bm.get(1)) {
+                        (None, _) => true,
+                        (Some(rh), Some(rm)) => rh == rm,
+                        (Some(_), None) => false,
+                    }
+            })?;
+            return Some((format!("{owner}.{token}"), row.dir));
+        }
+        // 3. Self's own exported port row → exempt.
+        if self
+            .ports
+            .iter()
+            .any(|p| brace_plain(&p.name) == brace_plain(owner))
+        {
+            return None;
+        }
+        None
+    }
+
+    /// Collect every `(owner, member-tokens)` reference reachable in a judged
+    /// end member (through nodes at chain ends are not terminals and are
+    /// intentionally not descended).
+    fn member_refs<'x>(member: &'x McPhrase, out: &mut Vec<(String, Vec<String>)>) {
+        match member {
+            McPhrase::Endpoint(ep) => Self::endpoint_refs(ep, out),
+            McPhrase::Multiple(inner) | McPhrase::Series(inner, _) | McPhrase::Parallel(inner) => {
+                for p in inner {
+                    Self::member_refs(p, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn endpoint_refs<'x>(ep: &'x McEndpoint, out: &mut Vec<(String, Vec<String>)>) {
+        match ep {
+            McEndpoint::Single(iref) => {
+                if let Some(t) = Self::iref_tokens(iref) {
+                    out.push(t);
+                }
+            }
+            McEndpoint::List(items) => {
+                for e in items {
+                    Self::endpoint_refs(e, out);
+                }
+            }
+            McEndpoint::Node { .. } => {} // two-face members judged at the face level
+        }
+    }
+
+    /// A single instance reference and its member tokens. A member-ful bus keeps
+    /// its tokens (`USB{vin}` → "USB", ["vin"]); a bare bus splits a trailing
+    /// dotted path (`USB.vin` → "USB", ["vin"]); a plain net label has neither
+    /// members nor a dot → `None`.
+    fn iref_tokens(iref: &McInstanceRef) -> Option<(String, Vec<String>)> {
+        let (owner, mut tokens) = match &iref.base {
+            McInstance::Bus(bus) => (bus.name().to_string(), bus.get_full_members().clone()),
+            _ => return None,
+        };
+        // Member tokens sometimes ride the instance-ref member lists instead of
+        // the bus (parse-path dependent) — merge both.
+        for ml in &iref.members {
+            tokens.extend(ml.expand());
+        }
+        if tokens.is_empty() {
+            if let Some((o, m)) = owner.rsplit_once('.') {
+                return Some((o.to_string(), vec![m.to_string()]));
+            }
+            return None; // plain net label — no owner, nothing to adjudicate
+        }
+        Some((owner, tokens))
     }
 
     /// Process a flattened series' members: P2-5 expansion, normal member loop,
@@ -233,8 +488,17 @@ impl InstantiationBuilder {
             // so the AST-layer group context is never established there.
             // Extract it from the chain members (driver side first, then the
             // far side) and wire inside it, so bus member lanes carry their
-            // trunk identity and render as a trunk.
-            let trunk = Self::extract_trunk_group(&members[0])
+            // trunk identity and render as a trunk. The written-pair rule
+            // applies here too (§5.2, same as try_connect_adjacent): a chain
+            // that spells its DC pair at an end (`usb.vin -> [F1::FUSE(), _]
+            // -> [VBUS_RAW, GND]`) is named by that pair, not by the instance
+            // name the far-side terminal would otherwise leak.
+            let tail: Vec<&McPhrase> = members[1..].iter().collect();
+            let head: Vec<&McPhrase> = members[..members.len() - 1].iter().collect();
+            let trunk = self
+                .end_pair_trunk(&members[0], &tail)
+                .or_else(|| self.end_pair_trunk(&members[members.len() - 1], &head))
+                .or_else(|| Self::extract_trunk_group(&members[0]))
                 .or_else(|| members.iter().rev().find_map(Self::extract_trunk_group));
             let trunk_kind = Self::extract_trunk_kind(&members[0])
                 .or_else(|| members.iter().rev().find_map(Self::extract_trunk_kind))
@@ -1839,6 +2103,111 @@ impl InstantiationBuilder {
         None
     }
 
+    /// §5.2 / §8.9.6.7: the literal spelling of a *written scalar pair list*
+    /// (`[V5V, GND]`), when the member is exactly that — at least two distinct
+    /// bare net names and no bus / interface group identity.
+    ///
+    /// The spelling is rebuilt from the AST names (never from a rendered
+    /// display string) so it matches the source: `[V5V, GND]`.
+    fn written_pair_name(member: &McPhrase) -> Option<String> {
+        let McPhrase::Multiple(items) = member else {
+            return None;
+        };
+        if items.len() < 2 {
+            return None;
+        }
+        let mut names: Vec<String> = Vec::with_capacity(items.len());
+        for it in items {
+            let McPhrase::Endpoint(McEndpoint::Single(ir)) = it else {
+                return None;
+            };
+            // Bare scalar only: a member-carrying bus (`MIC{P,N}`) or a dotted
+            // path carries group identity of its own and is not a plain pair.
+            let name = match &ir.base {
+                McInstance::Bus(b)
+                    if b.member.is_empty()
+                        && b.full_members.is_empty()
+                        && !b.name().contains('.') =>
+                {
+                    b.name().to_string()
+                }
+                McInstance::Label(label) if !label.contains('.') => label.clone(),
+                _ => return None,
+            };
+            names.push(name);
+        }
+        // Two *distinct* nets: a repeated member is a lane list, not a pair.
+        let mut distinct = names.clone();
+        distinct.sort();
+        distinct.dedup();
+        if distinct.len() < 2 {
+            return None;
+        }
+        Some(format!("[{}]", names.join(", ")))
+    }
+
+    /// The written DC pair at one end of a chain names that chain's trunk,
+    /// provided some member of `others` reaches an authoritative power
+    /// terminal (`[V5V, GND]` beside `USB.vin`). `None` when the end is not a
+    /// plain pair or the far end is not a supply — both callers then fall back
+    /// to the bus / interface group derivation.
+    fn end_pair_trunk(&self, end: &McPhrase, others: &[&McPhrase]) -> Option<String> {
+        let pair = Self::written_pair_name(end)?;
+        others
+            .iter()
+            .any(|m| self.has_power_terminal(m))
+            .then_some(pair)
+    }
+
+    /// Does this end member reach an authoritative power terminal — a module
+    /// power port or a leaf component power pin in *this* module's scope? Used
+    /// to tell a DC supply pair from an arbitrary net list. Two-face `Node`
+    /// members are descended: `LDO{vin | vout}` names its terminals on the
+    /// faces, not on the member itself.
+    fn has_power_terminal(&self, member: &McPhrase) -> bool {
+        let mut refs: Vec<(String, Vec<String>)> = Vec::new();
+        Self::member_refs_deep(member, &mut refs);
+        refs.iter().any(|(owner, tokens)| {
+            tokens
+                .iter()
+                .any(|t| self.pwr_dir_of_ref(owner, t).is_some())
+        })
+    }
+
+    /// `member_refs` plus two-face `Node` descent — `member_refs` stops at
+    /// nodes because the 6028 audit judges those faces separately.
+    fn member_refs_deep<'x>(member: &'x McPhrase, out: &mut Vec<(String, Vec<String>)>) {
+        match member {
+            McPhrase::Endpoint(ep) => Self::endpoint_refs_deep(ep, out),
+            McPhrase::Multiple(inner) | McPhrase::Series(inner, _) | McPhrase::Parallel(inner) => {
+                for p in inner {
+                    Self::member_refs_deep(p, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn endpoint_refs_deep<'x>(ep: &'x McEndpoint, out: &mut Vec<(String, Vec<String>)>) {
+        match ep {
+            McEndpoint::Single(iref) => {
+                if let Some(t) = Self::iref_tokens(iref) {
+                    out.push(t);
+                }
+            }
+            McEndpoint::List(items) => {
+                for e in items {
+                    Self::endpoint_refs_deep(e, out);
+                }
+            }
+            McEndpoint::Node { input, output } => {
+                for e in input.iter().chain(output.iter()) {
+                    Self::endpoint_refs_deep(e, out);
+                }
+            }
+        }
+    }
+
     /// ★ §8.9.4: Extract the coarse `TrunkKind` of a trunk group phrase, mirroring
     /// `extract_trunk_group`'s traversal so `Trunk.kind` never needs to be
     /// re-derived downstream.
@@ -1951,7 +2320,20 @@ impl InstantiationBuilder {
         // Prefer the left member (driver side), fall back to the right member.
         // RAII (§7.11(2)): the group is restored on every exit path (including
         // early `Err` returns), so it can never leak into the next connection.
-        let trunk = Self::extract_trunk_group(left_member)
+        //
+        // Declaration face first (§5.2): a written DC pair `[V5V, GND]` beside a
+        // declared power terminal is itself the trunk — its literal spelling
+        // names it. Without this the instance name on the *other* side leaks in
+        // as the trunk (the parser carries `USB.vin` as `Bus{name:"USB",
+        // member:["vin"]}`, so the port token is not the group identity, the
+        // owner instance name is). A bus / interface group on the far side
+        // still wins, and only the *name* is overridden: the trunk's existence
+        // keeps its original derivation, so no new trunk appears and no
+        // downstream classification shifts.
+        let trunk = self
+            .end_pair_trunk(left_member, &[right_member])
+            .or_else(|| self.end_pair_trunk(right_member, &[left_member]))
+            .or_else(|| Self::extract_trunk_group(left_member))
             .or_else(|| Self::extract_trunk_group(right_member));
         let trunk_kind = Self::extract_trunk_kind(left_member)
             .or_else(|| Self::extract_trunk_kind(right_member))

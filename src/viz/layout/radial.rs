@@ -23,7 +23,7 @@
 //! ## Constants
 //! COL_STEP=280, ROW_STEP=140, BOX_W=160, BOX_H=80, HUB_W=200.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::vector::graph::{EntrySide, McVecBox, McVecGraph};
 
@@ -35,6 +35,8 @@ const ROW_STEP: f64 = 140.0;
 const BOX_W: f64 = 160.0;
 const BOX_H: f64 = 80.0;
 const HUB_W: f64 = 200.0;
+/// Horizontal gap between sibling boxes laid in the same row on the N/S side.
+const ROW_GAP: f64 = 32.0;
 
 /// Run the radial layout pipeline for the root layer.
 ///
@@ -386,6 +388,55 @@ fn compute_hub_height(
 // Step 5: Coordinate assignment (§4.5)
 // ============================================================================
 
+/// Supply rank of a W-column box: 0 for a supply root, `rank(child) =
+/// max(rank(parent)) + 1` over `Power` driver→consumer block edges whose **both**
+/// ends sit in the W column. The W column is then ordered upstream→downstream so
+/// the root supply takes the top slot and each downstream stage below it.
+///
+/// Only boxes participating in an intra-W power edge get a rank; every other box
+/// is left out of the map and keeps its previous ordering (caller falls back to
+/// the hub entry-point offset). The direction comes straight from the block edges
+/// `decide_edges` derived from each net's `rail.driver_pin` — this function does
+/// no name/frequency guessing. Cycles (a legal but odd DC loop) leave the residual
+/// nodes at rank 0 rather than spinning.
+fn power_supply_rank(edges: &[BlockEdge], w_boxes: &HashSet<i64>) -> HashMap<i64, usize> {
+    let mut adj: HashMap<i64, Vec<i64>> = HashMap::new();
+    let mut indeg: HashMap<i64, usize> = HashMap::new();
+    for e in edges {
+        if e.kind != EdgeKind::Power
+            || e.from_box == e.to_box
+            || !w_boxes.contains(&e.from_box)
+            || !w_boxes.contains(&e.to_box)
+        {
+            continue;
+        }
+        adj.entry(e.from_box).or_default().push(e.to_box);
+        indeg.entry(e.from_box).or_insert(0);
+        *indeg.entry(e.to_box).or_insert(0) += 1;
+    }
+    let mut rank: HashMap<i64, usize> = indeg.keys().map(|&k| (k, 0usize)).collect();
+    let mut queue: std::collections::VecDeque<i64> = indeg
+        .iter()
+        .filter(|(_, &d)| d == 0)
+        .map(|(&k, _)| k)
+        .collect();
+    while let Some(u) = queue.pop_front() {
+        let ru = rank[&u];
+        if let Some(vs) = adj.get(&u) {
+            for &v in vs {
+                let rv = rank.entry(v).or_insert(0);
+                *rv = (*rv).max(ru + 1);
+                let d = indeg.get_mut(&v).expect("target in indeg");
+                *d -= 1;
+                if *d == 0 {
+                    queue.push_back(v);
+                }
+            }
+        }
+    }
+    rank
+}
+
 /// Assign box coordinates matching the golden table in §4.5.
 ///
 /// Layout:
@@ -463,6 +514,12 @@ fn assign_coordinates(
         })
         .unwrap_or_default();
 
+    // Supply rank (W upstream→downstream): the root supply takes the top W slot,
+    // each downstream stage below it. Rank is the primary key within a sector; the
+    // hub entry-point offset stays the tie-break for equal-rank / unranked boxes.
+    let w_set: HashSet<i64> = w_ring1.iter().map(|(id, _)| *id).collect();
+    let ranks = power_supply_rank(edges, &w_set);
+
     w_ring1.sort_by(|a, b| {
         let order = |s: Sector| match s {
             Sector::WestUpper => 0,
@@ -472,6 +529,13 @@ fn assign_coordinates(
         let sec_cmp = order(a.1).cmp(&order(b.1));
         if sec_cmp != std::cmp::Ordering::Equal {
             return sec_cmp;
+        }
+        // Same sector: supply rank first (ranked boxes ahead of unranked).
+        match (ranks.get(&a.0).copied(), ranks.get(&b.0).copied()) {
+            (Some(ra), Some(rb)) if ra != rb => return ra.cmp(&rb),
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            _ => {}
         }
         // Within same sector, sort by hub entry_point offset (y position).
         // Find the edge connecting each box to the hub, then find the hub's
@@ -566,37 +630,48 @@ fn assign_coordinates(
         }
     }
 
-    // Place N-column boxes (mic)
+    // Place N-column boxes (mic / signal inputs into the hub). A sector may hold
+    // several boxes (e.g. multiple sources feeding the hub): lay them out as a
+    // single centered row above the hub instead of writing every member to the
+    // same slot (which stacked them invisibly on top of each other). With one
+    // box the row collapses back to the historic single-slot position.
     let n_boxes: Vec<i64> = sectors
         .iter()
         .filter(|(&id, &s)| id != hub_id && s == Sector::North)
         .map(|(&id, _)| id)
         .collect();
-
-    for (_i, &box_id) in n_boxes.iter().enumerate() {
-        if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) {
-            b.x = hub_x + 20.0;
-            b.y = hub_y - ROW_STEP; // above hub, top edge at hub_y - ROW_STEP
-            b.w = BOX_W;
-            b.h = BOX_H;
-            b.geom_locked = true;
+    if !n_boxes.is_empty() {
+        let total_w = n_boxes.len() as f64 * BOX_W + (n_boxes.len() - 1) as f64 * ROW_GAP;
+        let row_left = (hub_x + HUB_W / 2.0) - total_w / 2.0; // center row on hub
+        for (i, &box_id) in n_boxes.iter().enumerate() {
+            if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) {
+                b.x = row_left + i as f64 * (BOX_W + ROW_GAP);
+                b.y = hub_y - ROW_STEP; // above hub, top edge at hub_y - ROW_STEP
+                b.w = BOX_W;
+                b.h = BOX_H;
+                b.geom_locked = true;
+            }
         }
     }
 
-    // Place S-column boxes (speaker)
+    // Place S-column boxes (speaker / signal outputs from the hub). Same rule as
+    // N: spread multiple members into one centered row below the hub.
     let s_boxes: Vec<i64> = sectors
         .iter()
         .filter(|(&id, &s)| id != hub_id && s == Sector::South)
         .map(|(&id, _)| id)
         .collect();
-
-    for (_i, &box_id) in s_boxes.iter().enumerate() {
-        if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) {
-            b.x = hub_x;
-            b.y = hub_y + hub_h + 80.0; // below hub with 80px gap
-            b.w = HUB_W;
-            b.h = 100.0;
-            b.geom_locked = true;
+    if !s_boxes.is_empty() {
+        let total_w = s_boxes.len() as f64 * HUB_W + (s_boxes.len() - 1) as f64 * ROW_GAP;
+        let row_left = (hub_x + HUB_W / 2.0) - total_w / 2.0;
+        for (i, &box_id) in s_boxes.iter().enumerate() {
+            if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) {
+                b.x = row_left + i as f64 * (HUB_W + ROW_GAP);
+                b.y = hub_y + hub_h + 80.0; // below hub with 80px gap
+                b.w = HUB_W;
+                b.h = 100.0;
+                b.geom_locked = true;
+            }
         }
     }
 }
@@ -1082,5 +1157,56 @@ mod tests {
             "got {}",
             right.offset
         );
+    }
+
+    /// Supply rank: root supply 0, each downstream stage `max(parent)+1`, computed
+    /// only over intra-W Power edges. A chain buck→ldo→dac ranks 0/1/2; a box with
+    /// no intra-W power edge stays unranked (old ordering preserved); a consumer
+    /// outside the W column is ignored.
+    #[test]
+    fn power_supply_rank_orders_supply_chain() {
+        let edge = |from: i64, to: i64, kind: EdgeKind| BlockEdge {
+            from_box: from,
+            to_box: to,
+            label: "V".into(),
+            lane_count: 1,
+            kind,
+            source_span: None,
+            trunk: None,
+            bidirectional: false,
+        };
+        let edges = vec![
+            edge(1, 2, EdgeKind::Power),  // buck → ldo
+            edge(2, 3, EdgeKind::Power),  // ldo  → dac
+            edge(3, 9, EdgeKind::Power),  // dac  → hub consumer (outside W)
+            edge(4, 5, EdgeKind::Signal), // signal edges never rank
+        ];
+        let w: HashSet<i64> = [1, 2, 3, 4].into_iter().collect();
+        let ranks = power_supply_rank(&edges, &w);
+        assert_eq!(ranks.get(&1), Some(&0), "buck is the supply root");
+        assert_eq!(ranks.get(&2), Some(&1), "ldo downstream of buck");
+        assert_eq!(ranks.get(&3), Some(&2), "dac downstream of ldo");
+        assert!(!ranks.contains_key(&4), "no intra-W power edge → unranked");
+        assert!(!ranks.contains_key(&9), "non-W box never ranked");
+    }
+
+    /// Cycle safety: a DC loop must not hang the rank pass (residual nodes stay 0).
+    #[test]
+    fn power_supply_rank_terminates_on_cycle() {
+        let e = |from: i64, to: i64| BlockEdge {
+            from_box: from,
+            to_box: to,
+            label: "V".into(),
+            lane_count: 1,
+            kind: EdgeKind::Power,
+            source_span: None,
+            trunk: None,
+            bidirectional: false,
+        };
+        let edges = vec![e(1, 2), e(2, 1)];
+        let w: HashSet<i64> = [1, 2].into_iter().collect();
+        let ranks = power_supply_rank(&edges, &w);
+        assert_eq!(ranks.get(&1), Some(&0));
+        assert_eq!(ranks.get(&2), Some(&0));
     }
 }

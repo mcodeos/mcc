@@ -21,6 +21,7 @@ use super::mc_mod::McModuleInst;
 use super::mc_net::NetPoint;
 use crate::instant::nettab::NetTableStore;
 use crate::semantic::common::IOType;
+use crate::semantic::component::mc_pins::PwrDir;
 use crate::semantic::module::pi::McPowerDecls;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -203,6 +204,34 @@ pub fn infer_member_role(
     (MemberRole::Signal, false)
 }
 
+/// The component `pins.pwr` contract row that owns the flat pin registered
+/// under `pin_id` (the `comp.pins` table key — a pin number for `pin [5,2]`,
+/// or a name for a plain `in 3 = CE`).
+///
+/// The row's `hot` stores the member spelling **verbatim**, dotted for a named
+/// group (`psrc [5,2] = VOUT{Vout, GND}` → `VOUT.Vout`) and bare for an
+/// anonymous pair. That spelling is what `McPin::names` holds, so the match is
+/// made against the pin's declared names — the same equality the canonical
+/// [`crate::semantic::validation::nets::source_contract_for`] /
+/// `sink_contract_for` matchers use. Never split or re-spell the token.
+pub(crate) fn pwr_row_for_pin<'a>(
+    comp: &'a crate::instant::mc_comp::McComponentInst,
+    pin_id: &str,
+) -> Option<&'a crate::semantic::component::mc_pins::McPwrPin> {
+    let names: Vec<&str> = comp
+        .def
+        .pins
+        .pins
+        .get(pin_id)
+        .map(|p| p.names.iter().map(|n| n.as_str()).collect())
+        .unwrap_or_default();
+    comp.def
+        .pins
+        .pwr
+        .iter()
+        .find(|c| names.iter().any(|n| *n == c.hot))
+}
+
 /// Check if a name looks like Ground.
 pub(crate) fn is_ground_name(s: &str) -> bool {
     let u = s.to_uppercase();
@@ -335,6 +364,20 @@ pub struct InstEntry {
     pub def_uri: String,
     /// ★ Member role and voltage (for interface members / power pins)
     pub member_info: Option<MemberInfo>,
+    /// ★ Typed direction carry for a **component** power pin (`InstKind::Pin`):
+    /// the `PwrDir` of the `McPwrPin` row whose `hot` member this pin's function
+    /// name matches, recorded at flatten time from the component def's own
+    /// `pins.pwr` rows (same equality test [`infer_member_role`] uses to recover
+    /// the role — no name heuristic, no io-type guess).
+    ///
+    /// Motivation: a component's power face loses its direction on the flat
+    /// `io_type` (`IOType::Power` for every member), so a viz/rule consumer
+    /// cannot tell `psrc` from `psnk` from the flat entry alone. The module-level
+    /// equivalent already exists (`power_decls[].pwr_ports[].dir`); this is the
+    /// leaf-component counterpart. `None` for every other kind (Port/Pin of a
+    /// module, Label, Bus, Module, Component, …) and for a power pin whose
+    /// function name matches no `hot` row.
+    pub pwr_dir: Option<PwrDir>,
     /// ★ §11.1: vector member projection — the declared vector group this
     /// flattened component entry belongs to (None for scalar / non-vector).
     /// Populated during `flatten_module` from the modeling-layer `vectors`
@@ -450,6 +493,15 @@ pub struct InstTable {
     /// instance's prefixed path. Store-only threading: the L1 checks (PWR-2 /
     /// PWR-7) consume this; the edges never merge L0 copper.
     power_decls: BTreeMap<u32, McPowerDecls>,
+
+    /// Declared semantics of every component power pin, keyed by the **member
+    /// spelling** a net point uses (`main.ldo33.VOUT.Vout`), captured at the
+    /// component flatten site. A wiring that names a pin by its group member
+    /// (`ldo33{VOUT}`) registers an on-the-fly endpoint entry under that
+    /// spelling, which carries no io / role / direction of its own; this map
+    /// lets [`Self::flatten_nets`] hand it the declared contract instead of
+    /// manufacturing a semantics-less pin.
+    member_pin_sem: HashMap<String, (IOType, Option<MemberInfo>, Option<PwrDir>)>,
 }
 
 impl InstTable {
@@ -465,6 +517,7 @@ impl InstTable {
             bridge_passive_paths: HashSet::new(),
             net_table: Rc::new(RefCell::new(NetTableStore::new())),
             power_decls: BTreeMap::new(),
+            member_pin_sem: HashMap::new(),
         }
     }
 
@@ -675,6 +728,7 @@ impl InstTable {
             fallback_pos: None,
             def_uri,
             member_info: None,
+            pwr_dir: None,
             vector_info: None,
             not_fitted: false,
             unselected: false,
@@ -692,6 +746,39 @@ impl InstTable {
     pub fn set_member_info(&mut self, id: u32, member_info: MemberInfo) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.member_info = Some(member_info);
+        }
+    }
+
+    /// Set the typed direction carry for a component power pin by ID (see
+    /// [`InstEntry::pwr_dir`]). Component flatten sites only.
+    pub fn set_pwr_dir(&mut self, id: u32, dir: PwrDir) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.pwr_dir = Some(dir);
+        }
+    }
+
+    /// Record the declared semantics of one flat component pin under every
+    /// member spelling a net point may use for it (see
+    /// [`Self::member_pin_sem`]). `comp_path` is the component's flat path;
+    /// `pin_name` is the `comp.pins` key.
+    #[allow(clippy::too_many_arguments)]
+    fn record_member_pin_sem(
+        &mut self,
+        comp: &crate::instant::mc_comp::McComponentInst,
+        pin_name: &str,
+        comp_path: &str,
+        io: IOType,
+        info: Option<MemberInfo>,
+        dir: Option<PwrDir>,
+    ) {
+        let Some(pin) = comp.def.pins.pins.get(pin_name) else {
+            return;
+        };
+        let target = self.get_id_by_path(&format!("{comp_path}.{pin_name}"));
+        for name in &pin.names {
+            let spelling = format!("{comp_path}.{name}");
+            self.member_pin_sem
+                .insert(spelling.clone(), (io.clone(), info.clone(), dir));
         }
     }
 
@@ -1343,9 +1430,36 @@ impl InstTable {
                         &is_comp_ground,
                         &is_comp_power,
                     );
-                    if !matches!(role, MemberRole::Signal) {
-                        self.set_member_info(pin_id, MemberInfo::new(role, None));
+                    let info =
+                        (!matches!(role, MemberRole::Signal)).then(|| MemberInfo::new(role, None));
+                    if let Some(info) = &info {
+                        self.set_member_info(pin_id, info.clone());
                     }
+                    // ★ Typed direction carry: the contract row that owns this
+                    // pin carries its `psrc`/`psnk`/`psbi` energy direction —
+                    // which the flat `io_type` (always `IOType::Power`) cannot
+                    // express. The row's `hot` is the member verbatim (dotted
+                    // for a named group `= VOUT{Vout, GND}`, bare for an
+                    // anonymous pair), so it matches either the pin table key
+                    // (`comp.pins`, the wiring spelling) or the physical
+                    // function name.
+                    let dir = pwr_row_for_pin(comp, pin_name).map(|row| row.dir);
+                    if let Some(dir) = dir {
+                        self.set_pwr_dir(pin_id, dir);
+                    }
+                    // Record the declared contract under every member spelling
+                    // the net table may use for this pin (`ldo33{VOUT}` →
+                    // `ldo33.VOUT.Vout`), so `flatten_nets` folds that spelling
+                    // onto the declaration instead of manufacturing a
+                    // semantics-less on-the-fly pin.
+                    self.record_member_pin_sem(
+                        comp,
+                        pin_name,
+                        &comp_path,
+                        net_point.iotype.clone(),
+                        info,
+                        dir,
+                    );
                 }
             }
         }
@@ -1474,9 +1588,29 @@ impl InstTable {
                         &is_comp_ground,
                         &is_comp_power,
                     );
-                    if !matches!(role, MemberRole::Signal) {
-                        self.set_member_info(pin_id, MemberInfo::new(role, None));
+                    let info =
+                        (!matches!(role, MemberRole::Signal)).then(|| MemberInfo::new(role, None));
+                    if let Some(info) = &info {
+                        self.set_member_info(pin_id, info.clone());
                     }
+                    // ★ Typed direction carry (same rule as pass 1).
+                    let dir = pwr_row_for_pin(comp, pin_name).map(|row| row.dir);
+                    if let Some(dir) = dir {
+                        self.set_pwr_dir(pin_id, dir);
+                    }
+                    // Record the declared contract under every member spelling
+                    // the net table may use for this pin (`ldo33{VOUT}` →
+                    // `ldo33.VOUT.Vout`), so `flatten_nets` folds that spelling
+                    // onto the declaration instead of manufacturing a
+                    // semantics-less on-the-fly pin.
+                    self.record_member_pin_sem(
+                        comp,
+                        pin_name,
+                        &comp_path,
+                        net_point.iotype.clone(),
+                        info,
+                        dir,
+                    );
                 }
             }
         }
@@ -1707,15 +1841,35 @@ impl InstTable {
                         let full_path = format!("{module_path}.{}", np.path);
                         let owner_full = format!("{module_path}.{owner_name}");
                         if let Some(parent_id) = self.get_id_by_path(&owner_full) {
+                            // A wiring may name a component power pin by its
+                            // group member (`ldo33{VOUT}` → `ldo33.VOUT.Vout`)
+                            // while the pin itself is registered under its
+                            // declaration key. Inherit the contract recorded at
+                            // the component flatten site so the endpoint keeps
+                            // its io / role / `psrc|psnk|psbi` direction rather
+                            // than reading as an anonymous pin.
+                            let carried = self.member_pin_sem.get(&full_path).cloned();
+                            let io = carried
+                                .as_ref()
+                                .map(|c| c.0.clone())
+                                .unwrap_or_else(|| np.iotype.clone());
                             let pin_id = self.register(
                                 full_path,
                                 InstKind::Pin,
                                 Some(parent_id),
                                 String::new(),
-                                np.iotype.clone(),
+                                io,
                                 np.src_pos.clone(),
                                 String::new(),
                             );
+                            if let Some((_, info, dir)) = carried {
+                                if let Some(info) = info {
+                                    self.set_member_info(pin_id, info);
+                                }
+                                if let Some(dir) = dir {
+                                    self.set_pwr_dir(pin_id, dir);
+                                }
+                            }
                             ids.push(pin_id);
                         }
                     }

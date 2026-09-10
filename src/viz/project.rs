@@ -156,19 +156,24 @@ fn pseudo_entry_with_ancestor(
     // parent is a Module entry) from being treated as pseudo endpoints of the
     // parent layer (discipline 13: hierarchy checks must reach fixed point).
     let mut current = e;
-    let mut ancestor = e;
     for _ in 0..MAX_HOPS {
         if current.parent_id == Some(bid as u32) {
-            return Some((e, ancestor));
+            // ★ Module-port drawing: the parent chain cannot name the group.
+            // The instant table is **flat** for module ports — a group
+            // (`POWER_LDO.vin`) and each of its members (`POWER_LDO.vin.V5V`) are
+            // siblings whose parent is the module itself, so the walk above returns
+            // straight from the member. Grouping lives in the dotted path alone;
+            // recover it structurally, by longest strict dotted-path prefix, the
+            // same rule `fromblock::boundary_ports_of` applies to a sub-module box.
+            // Without this the boundary is named after the member (`V5V`) — a net
+            // — instead of the port it crosses (`vin`).
+            return Some((e, port_group_of(e, bid, table).unwrap_or(e)));
         }
         match current.parent_id {
             Some(pid) => {
                 if let Some(parent) = table.get_entry(pid) {
                     if !matches!(parent.kind, InstKind::Port | InstKind::Label) {
                         return None; // stop at Module / Component boundary
-                    }
-                    if matches!(parent.kind, InstKind::Port) {
-                        ancestor = parent; // nearest port-group ancestor
                     }
                     current = parent;
                 } else {
@@ -179,6 +184,30 @@ fn pseudo_entry_with_ancestor(
         }
     }
     None
+}
+
+/// The port group a module-port entry belongs to, recovered from the dotted path.
+///
+/// Returns the entry whose path is the **longest strict dotted prefix** of `e`'s
+/// among this module's ports — `…vin` for `…vin.V5V`, so a member resolves to its
+/// group and a group (or a plain declaration with no members) resolves to itself
+/// via the caller's `unwrap_or(e)`. Pure structure: ids and paths only, never a
+/// name lookup.
+fn port_group_of<'a>(
+    e: &'a crate::instant::insttab::InstEntry,
+    bid: i64,
+    table: &'a InstTable,
+) -> Option<&'a crate::instant::insttab::InstEntry> {
+    table
+        .get_ports_of(bid as u32)
+        .into_iter()
+        .filter(|g| {
+            g.id != e.id
+                && e.path.len() > g.path.len() + 1
+                && e.path.starts_with(&g.path)
+                && e.path.as_bytes()[g.path.len()] == b'.'
+        })
+        .max_by_key(|g| g.path.len())
 }
 
 fn project_nets(
@@ -465,14 +494,29 @@ fn project_nets(
         let mut boundary: Option<BoundaryInfo> = None;
         for &pid in &all_ids {
             if let Some((e, ancestor)) = pseudo_entry_with_ancestor(pid, bid, table) {
+                // §5⑥: a pseudo endpoint is a name, not a connection point, so a
+                // rail group's are dropped from `real` — but the *port* it crosses
+                // is still a port, and a boundary drawn around this module must
+                // show it like any other. Record the identity (below) without
+                // letting the endpoint back into `real`.
                 if group_is_rail {
                     dropped_c.push(e);
-                } else if boundary.is_none() {
-                    // Non-rail (Signal) pseudo endpoint → mark as Boundary (port-group level)
+                }
+                // ★ Module-port drawing: only a **port** declaration makes this net a
+                // boundary crossing. The pseudo-endpoint test above is deliberately
+                // loose — it also catches the layer's own bare net names and its
+                // internal rail / conduit declarations (`MIC.VMIC`, `MIC.GNDA`,
+                // `POWER_USB.ESDGND`, `main.GND`), which are names, not ports, and
+                // must not appear on a boundary drawn around this module. A declared
+                // port (and every member of one) carries an IO direction; a bare name
+                // carries none. Structural — the direction, never the spelling.
+                if boundary.is_none() && e.io_type != crate::semantic::common::IOType::None {
                     let io = match e.io_type {
                         crate::semantic::common::IOType::In => IoDirection::Input,
                         crate::semantic::common::IOType::Out => IoDirection::Output,
                         crate::semantic::common::IOType::InOut => IoDirection::Bidir,
+                        crate::semantic::common::IOType::Power => IoDirection::Power,
+                        crate::semantic::common::IOType::Return => IoDirection::Ground,
                         _ => IoDirection::Passive,
                     };
                     let port_name = last_segment(&ancestor.path);
@@ -480,6 +524,7 @@ fn project_nets(
                         port_group_id: ancestor.id as i64,
                         port_name,
                         io,
+                        is_supply: group_is_rail,
                     });
                 }
             }
@@ -517,7 +562,7 @@ fn project_nets(
             continue;
         }
 
-        // ── Audit of (c) rail pseudo endpoints (removed) ─
+        // ── Audit of (c) rail pseudo endpoints (removed from real) ─
         for e in &dropped_c {
             log.records.push(ProjectionRecord {
                 layer: layer.to_string(),
@@ -527,7 +572,7 @@ fn project_nets(
                 note: "rail boundary declaration of this layer (Port/Label), not an electrical connection point".to_string(),
             });
         }
-        // ── Audit of non-rail pseudo endpoints (kept as Boundary) ─
+        // ── Audit of pseudo endpoints kept as a boundary (both axes) ─
         if let Some(ref bi) = boundary {
             log.records.push(ProjectionRecord {
                 layer: layer.to_string(),
@@ -535,7 +580,8 @@ fn project_nets(
                 net: name_src.clone(),
                 endpoint: bi.port_name.clone(),
                 note: format!(
-                    "non-rail boundary port group (id={}), kept as PortTerminal marker",
+                    "{} boundary port group (id={}), kept as PortTerminal marker",
+                    if bi.is_supply { "supply" } else { "non-rail" },
                     bi.port_group_id
                 ),
             });
@@ -698,6 +744,7 @@ fn last_two_segments(path: &str) -> String {
 // ============================================================================
 
 use crate::semantic::common::IOType;
+use crate::semantic::component::mc_pins::PwrDir;
 use crate::vector::model::{AttrRole, NetAttrMirror, RailClass, RailSpec};
 
 /// Resolve the power net spec from a group's pseudo endpoint roles + real endpoint
@@ -709,6 +756,8 @@ fn detect_rail_spec(
     table: &InstTable,
     layer: &str,
 ) -> Option<RailSpec> {
+    // ── Pass 1 (unchanged): the layer's own declared copper — a Ground/Power role
+    // on a pseudo Port/Label boundary endpoint (parent == bid). ──
     let mut has_ground = false;
     let mut has_power = false;
     let mut volt: Option<String> = None;
@@ -728,8 +777,54 @@ fn detect_rail_spec(
             }
         }
     }
+
+    // ── Pass 2 (parent-layer supply): a *parent*-layer power net whose DC identity
+    // arrives solely on a **real** endpoint — a child module's power port (member
+    // role set at flatten from the `::DC` decode) — is invisible to the pseudo scan
+    // above (`pseudo_entry` stops at the Module boundary). hbl `main.V5V` is exactly
+    // this: USB.vin psrc / LDO.vin psnk, no main-level pseudo role.
+    //
+    // Classify such a net ONLY when a structural driver actually resolves, so a
+    // driver-less supply keeps today's shared-net drawing instead of being deleted
+    // by the top-level R-1 branch (§ R-2s keeps a driver-ful one shared; R-1 would
+    // drop a driver-less one). Ground is never inferred here: return-copper identity
+    // must stay on an explicit pseudo boundary/declaration, never on a stray real
+    // member role. ──
     if !has_ground && !has_power {
-        return None; // ordinary signal net
+        let real_power = all_ids.iter().any(|&pid| {
+            table
+                .get_entry(pid as u32)
+                .filter(|e| e.alias_of.is_none())
+                .and_then(|e| e.member_info.as_ref())
+                .map_or(false, |mi| mi.role == MemberRole::Power)
+        });
+        if !real_power {
+            return None; // ordinary signal net
+        }
+        let Some(dp) = resolve_power_driver(real, block, table) else {
+            return None; // supply with no resolvable source: leave the shared net alone
+        };
+        let who = table
+            .get_entry(dp as u32)
+            .map(|e| e.path.clone())
+            .unwrap_or_else(|| format!("{dp}"));
+        crate::vlog!(
+            "[project] layer '{layer}': parent-layer power rail driver={who} (real-endpoint arm)"
+        );
+        let volt = all_ids.iter().find_map(|&pid| {
+            table
+                .get_entry(pid as u32)
+                .filter(|e| e.alias_of.is_none())
+                .and_then(|e| e.member_info.as_ref())
+                .filter(|mi| mi.role == MemberRole::Power)
+                .and_then(|mi| mi.voltage.as_ref())
+                .map(|v| v.to_string())
+        });
+        return Some(RailSpec {
+            class: RailClass::Power,
+            driver_pin: Some(dp),
+            volt,
+        });
     }
     let class = if has_ground {
         RailClass::Ground
@@ -776,6 +871,87 @@ fn resolve_power_driver(real: &[i64], block: &McVecBlock, table: &InstTable) -> 
         return Some(*by_out.iter().min().unwrap());
     }
 
+    // (a2) A child-module psrc power port — an endpoint whose owner block's declared
+    // power face exports this hot member as PwrDir::Src. Deterministic and stronger
+    // than (b)'s sub-layer passives heuristic: a module's exported supply face *is*
+    // the generation side regardless of what the child does internally (hbl V5V's
+    // driver is USB.vin because POWER_USB declares `psrc vin{V5V,…}`). Unique
+    // source wins; several sources (DRC anomaly) → ambiguous, no driver.
+    let mut by_modsrc: Vec<i64> = real
+        .iter()
+        .copied()
+        .filter(|&pid| is_child_module_psrc_port(pid, table))
+        .collect();
+    by_modsrc.dedup();
+    match by_modsrc.len() {
+        1 => return Some(by_modsrc[0]),
+        0 => {}
+        _ => {
+            crate::vlog!(
+                "[project] rail has {} child-module psrc ports (ambiguous), treating as no driver",
+                by_modsrc.len()
+            );
+            return None;
+        }
+    }
+
+    // (a3) A leaf component's `psrc`/`psbi` power pin — the flat entry carries
+    // the declared energy direction (`InstEntry::pwr_dir`, recorded at flatten
+    // from the component def's own `pins.pwr` rows). This is the leaf
+    // counterpart of (a2): on a board whose supply faces are component pins
+    // (pwrint's `usb.vin`/`ldo.VIN`), the direction was previously dropped with
+    // the io type, so only this arm can name the generation side. `psbi` counts
+    // as a source root, exactly as it does for the canonical
+    // `nets::source_contract_for` (its `::DC(v)` is the discharge guarantee).
+    // Hot member only — a `ret`/ground pin never sources. Unique source wins;
+    // several → ambiguous.
+    let mut by_compsrc: Vec<i64> = real
+        .iter()
+        .copied()
+        .filter(|&pid| endpoint_is_component_pwr_source(pid, table))
+        .collect();
+    by_compsrc.dedup();
+    match by_compsrc.len() {
+        1 => return Some(by_compsrc[0]),
+        0 => {}
+        _ => {
+            crate::vlog!(
+                "[project] rail has {} component power source pins (ambiguous), treating as no driver",
+                by_compsrc.len()
+            );
+            return None;
+        }
+    }
+
+    // (a4) A passive series element fed from an already-driven net — the second
+    // half of the leaf-supply reading. VDD_3V3's driver (arm a3) reaches VDDA
+    // only *through* the bead `FB_a`, and VCC_1V2 only through `_L1`; those
+    // rails carry no source pin of their own, so without this arm their supply
+    // face stays invisible and the whole branch is drawn as plain mesh. The
+    // element must be a two-terminal component with no declared power face
+    // (a converter is not a hop), and its *far* terminal must sit on a net that
+    // already exposes a source. One hop only — never recursive, so the
+    // resolution stays deterministic and terminating. The reported driver is
+    // this net's own terminal of the element, keeping the drawn chain
+    // source -> element -> load.
+    let mut by_passive: Vec<i64> = real
+        .iter()
+        .copied()
+        .filter(|&pid| endpoint_is_fed_passive_hop(pid, table))
+        .collect();
+    by_passive.dedup();
+    match by_passive.len() {
+        1 => return Some(by_passive[0]),
+        0 => {}
+        _ => {
+            crate::vlog!(
+                "[project] rail has {} fed passive hops (ambiguous), treating as no driver",
+                by_passive.len()
+            );
+            return None;
+        }
+    }
+
     // (b) For each Power member endpoint (io != In) do a sub-layer generation-side check;
     //     only a unique source counts
     let mut sources: Vec<i64> = Vec::new();
@@ -819,6 +995,111 @@ fn endpoint_is_out_power(pid: i64, table: &InstTable) -> bool {
                     .as_ref()
                     .map_or(false, |m| m.role == MemberRole::Power)
         })
+}
+
+/// ★ resolve_power_driver arm (a3): a real endpoint is a leaf-component source
+/// pin when it is a `Pin` whose owner is a `Component`, carries the hot member
+/// role, and was flattened with `PwrDir::Src` or `PwrDir::Bi` (typed carry from
+/// the component def's `pins.pwr` row). Pure declaration — no topology, no name
+/// table. Module ports never qualify (kind is Port; they ride arm (a2)).
+fn endpoint_is_component_pwr_source(pid: i64, table: &InstTable) -> bool {
+    let Some(e) = (pid >= 0).then(|| table.get_entry(pid as u32)).flatten() else {
+        return false;
+    };
+    if e.kind != InstKind::Pin || !matches!(e.pwr_dir, Some(PwrDir::Src) | Some(PwrDir::Bi)) {
+        return false;
+    }
+    e.member_info
+        .as_ref()
+        .map_or(false, |m| m.role == MemberRole::Power)
+        && e.parent_id
+            .and_then(|p| table.get_entry(p))
+            .map_or(false, |p| p.kind == InstKind::Component)
+}
+
+/// ★ resolve_power_driver arm (a4): this endpoint is a terminal of a **fed
+/// passive** — a two-terminal component carrying no declared power face of its
+/// own (no pin with a power io type or a member role), whose other terminal sits
+/// on a net that already exposes a source. Structural end to end: two-terminal
+/// count and per-pin silence come from the flat table, and the far side is
+/// judged with the same three source predicates the earlier arms use. Exactly
+/// one hop, never recursive.
+fn endpoint_is_fed_passive_hop(pid: i64, table: &InstTable) -> bool {
+    let Some(e) = (pid >= 0).then(|| table.get_entry(pid as u32)).flatten() else {
+        return false;
+    };
+    if e.kind != InstKind::Pin {
+        return false;
+    }
+    let Some(comp_id) = e.parent_id else {
+        return false;
+    };
+    if table
+        .get_entry(comp_id)
+        .map_or(true, |c| c.kind != InstKind::Component)
+    {
+        return false;
+    }
+    let pins = table.get_pins_of(comp_id);
+    // A declared power face means the element converts rather than passes
+    // through — never a hop.
+    if pins.iter().any(|p| {
+        matches!(p.io_type, IOType::Power)
+            || p.member_info
+                .as_ref()
+                .map_or(false, |m| !matches!(m.role, MemberRole::Signal))
+    }) {
+        return false;
+    }
+    if pins.len() != 2 {
+        return false;
+    }
+    let Some(far) = pins.iter().find(|p| p.id != e.id) else {
+        return false;
+    };
+    table.nets_of(far.id).iter().any(|&nid| {
+        table.get_net(nid).map_or(false, |net| {
+            net.points.iter().any(|&q| {
+                q != far.id
+                    && (endpoint_is_out_power(q as i64, table)
+                        || is_child_module_psrc_port(q as i64, table)
+                        || endpoint_is_component_pwr_source(q as i64, table))
+            })
+        })
+    })
+}
+
+/// ★ resolve_power_driver arm (a2): a real endpoint is a child-module source port
+/// when its owner instance is a module whose declared power face
+/// (`power_decls[parent].pwr_ports`) exports this endpoint's hot-member leaf as
+/// `PwrDir::Src`. Pure declaration — no topology, no name table. Component power
+/// pins never qualify (kind is Pin, and `pwr_ports` is a module-header structure);
+/// leaf-component sources stay with arm (a) (`io == Out && member == Power`).
+fn is_child_module_psrc_port(pid: i64, table: &InstTable) -> bool {
+    let Some(e) = (pid >= 0).then(|| table.get_entry(pid as u32)).flatten() else {
+        return false;
+    };
+    if e.kind != InstKind::Port {
+        return false;
+    }
+    let Some(parent) = e.parent_id else {
+        return false;
+    };
+    let member_power = e
+        .member_info
+        .as_ref()
+        .map_or(false, |m| m.role == MemberRole::Power);
+    if !member_power {
+        return false;
+    }
+    let Some(decls) = table.power_decls().get(&parent) else {
+        return false;
+    };
+    let leaf = last_segment(&e.path);
+    decls
+        .pwr_ports
+        .iter()
+        .any(|p| p.dir == PwrDir::Src && p.hot == leaf)
 }
 
 /// ★ §4 (classification-retirement-design): resolve the declared supply
