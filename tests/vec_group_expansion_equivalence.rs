@@ -140,3 +140,38 @@ fn group_expansion__branch_mismatch_still_reports() {
         "a divergent branch must still be reported; got {codes:?}"
     );
 }
+
+/// Unequal branch counts are legal and expand to the **Cartesian product**
+/// (vec-dianlu.md §7.3 rule 4): `(A, B) op (C, D, E)` pairs every branch of one
+/// group with every branch of the other, N×M = 6 statements here, each judged
+/// independently by §5. Locked by equivalence with the handwritten product,
+/// mirroring the sibling cell above.
+///
+/// This path used to fail silently — `infer_shape_and_upgrade` cleared both
+/// operand lists when the counts differed, so the expander saw a zero-branch
+/// group and wired nothing at all.
+#[test]
+fn group_expansion__unequal_branch_counts_take_the_cartesian_product() {
+    let (group_codes, group_nets) = build(
+        "    (R101, R102) - (R103, R104, R105)",
+        "/mcc/group-cartesian.mc",
+    );
+    let (flat_codes, flat_nets) = build(
+        "    R101 - R103\n    R101 - R104\n    R101 - R105\n    R102 - R103\n    R102 - R104\n    R102 - R105",
+        "/mcc/group-cartesian-flat.mc",
+    );
+
+    assert_eq!(
+        group_codes, flat_codes,
+        "group form and handwritten form must report the same diagnostics"
+    );
+    assert_eq!(
+        group_nets, flat_nets,
+        "group form and handwritten form must produce the same net partition"
+    );
+    // Guard against a vacuous pass: the equivalence must not be "both empty".
+    assert!(
+        group_nets.iter().flatten().count() >= 5,
+        "expected a real net partition, got {group_nets:?}"
+    );
+}
