@@ -167,6 +167,17 @@ impl Region {
         }
     }
 
+    /// Inverse of [`Region::entry_side`] — the region whose trunk leaves the
+    /// box through this edge.
+    pub fn from_entry_side(side: EntrySide) -> Region {
+        match side {
+            EntrySide::Top => Region::North,
+            EntrySide::Left => Region::West,
+            EntrySide::Right => Region::East,
+            EntrySide::Bottom => Region::South,
+        }
+    }
+
     /// The box edge a pin in this region lives on.
     pub fn entry_side(self) -> EntrySide {
         match self {
@@ -1169,7 +1180,65 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
             topo.lane.region = Region::East;
         }
     }
+
+    // ★ Unified layout policy: a net that leaves through a LAYOUT-DECLARED edge
+    // runs its trunk there. Without this the region keeps its topology answer
+    // (e.g. West for a net fed from the left) while the author put the pin on the
+    // right, so every wire would have to cross the body to reach its own pin.
+    apply_layout_regions(graph, topos);
+
     fallback
+}
+
+/// Region of the declared side the author's layout puts a net's anchor pins on.
+/// Ground keeps its South rail (the ground pass owns it — see the region Pass 0)
+/// and a box without a layout keeps its topology region.
+fn apply_layout_regions(graph: &McVecGraph, topos: &mut [NetTopology]) {
+    for t in topos.iter_mut() {
+        if t.net_kind == NetKind::Ground {
+            continue;
+        }
+        let Some(anchor_box) = graph.boxes.iter().find(|b| b.id == t.anchor) else {
+            continue;
+        };
+        if !anchor_box.has_pin_layout() {
+            continue;
+        }
+        // Majority declared side over the anchor's pins on this net (a net that
+        // spans two declared edges can only hold one region — see the design
+        // note on the pin-5 tooth). Every group of the anchor is counted, not
+        // just the first: a net also reaches other parts of the layer, and the
+        // FIRST group is not necessarily the one on the layout box.
+        const SIDES: [EntrySide; 4] = [
+            EntrySide::Left,
+            EntrySide::Bottom,
+            EntrySide::Right,
+            EntrySide::Top,
+        ];
+        let mut counts = [0usize; 4];
+        for g in t.groups.iter().filter(|g| g.box_id == t.anchor) {
+            for &pid in &g.pin_ids {
+                if let Some(ep) = anchor_box.find_entry(pid) {
+                    if let Some(k) = SIDES.iter().position(|s| *s == ep.side) {
+                        counts[k] += 1;
+                    }
+                }
+            }
+        }
+        let Some(k) = (0..4).max_by_key(|&k| counts[k]).filter(|&k| counts[k] > 0) else {
+            continue;
+        };
+        let region = Region::from_entry_side(SIDES[k]);
+        if region != t.lane.region {
+            crate::vlog!(
+                "[region] layout: net '{}' {:?} → {:?} (declared edge)",
+                t.net_name,
+                t.lane.region,
+                region
+            );
+            t.lane.region = region;
+        }
+    }
 }
 
 /// The layer anchor: the box referenced by the most topologies as anchor.
@@ -1655,6 +1724,14 @@ fn box_pin_name(b: &crate::vector::graph::McVecBox, pid: i64) -> String {
 /// Mirror `slots` onto `entry_points` (the renderer draws pins from them),
 /// synthesising them when the device graph left them empty.
 fn sync_entry_points(b: &mut crate::vector::graph::McVecBox, connected: &BTreeSet<i64>) {
+    // ★ Unified layout policy: a layout-declared box's entry points come from
+    // the author, not from `slots`-of-the-moment. It is already in sync by
+    // construction (`seed_layout_boxes` derives both from one source), and the
+    // empty-branch below would only re-add connected pins — dropping the
+    // declared-but-unconnected ones the author explicitly listed.
+    if b.has_pin_layout() {
+        return;
+    }
     let placed: Vec<(i64, EntrySide, f64)> = b
         .slots
         .iter()
@@ -1701,6 +1778,13 @@ fn satellite_plan_for(
     let mut comps: Vec<CompView> = Vec::new();
     for b in &graph.boxes {
         if b.pins.len() < 3 {
+            continue;
+        }
+        // ★ Unified layout policy: a layout-declared box is never a satellite.
+        // Satellites get their pins re-sided and their rows snapped onto the
+        // parent's; the author's list is frozen, so it drops to a plain member
+        // and keeps the declared placement.
+        if b.has_pin_layout() {
             continue;
         }
         let mut pins: Vec<(i64, usize)> = Vec::new();
@@ -3016,19 +3100,29 @@ pub(crate) fn assign_rows(
     let mut ic_bottom = BASE_Y + 120.0;
     for _ in 0..=band_nets.len() {
         let side_rows: Vec<f64> = pin_band.values().map(|&b| band_y[b]).collect();
-        let (t, b) = side_row_extent(&side_rows).unwrap_or((BASE_Y, BASE_Y + 120.0));
+        // ★ Unified layout policy: a layout-declared layer anchor already has its
+        // final rect (`seed_layout_boxes`), so the rails hug the AUTHOR's box
+        // instead of a row-derived extent that knows nothing about the declared
+        // pins — an unlisted pin sitting on an edge would otherwise leave the
+        // rail inside the body.
+        let (t, b) = layout_anchor_rect(graph, layer_anchor)
+            .unwrap_or_else(|| side_row_extent(&side_rows).unwrap_or((BASE_Y, BASE_Y + 120.0)));
         ic_top = t;
         ic_bottom = b;
         // The box grows below `ic_bottom` for pin count and NC pins; the
         // South rail must clear the FINAL bottom edge, not the row span.
-        let box_bottom = final_box_bottom(
-            ic_top,
-            ic_bottom,
-            &per_side,
-            &pin_band,
-            &band_y,
-            &pin_plan.unassigned,
-        );
+        let box_bottom = layout_anchor_rect(graph, layer_anchor)
+            .map(|(_, bottom)| bottom)
+            .unwrap_or_else(|| {
+                final_box_bottom(
+                    ic_top,
+                    ic_bottom,
+                    &per_side,
+                    &pin_band,
+                    &band_y,
+                    &pin_plan.unassigned,
+                )
+            });
         let mut rail_rows: Vec<(f64, Region)> = Vec::new();
         for region in [Region::North, Region::South] {
             let Some(list) = per_side.get(&region) else {
@@ -3101,14 +3195,18 @@ pub(crate) fn assign_rows(
     // the box below the connected rows' extent for pin count and NC pins, so
     // `ic_bottom + RAIL_GAP` would land inside the box body and the filled
     // box would hide the whole ground tree.
-    let box_bottom = final_box_bottom(
-        ic_top,
-        ic_bottom,
-        &per_side,
-        &pin_band,
-        &band_y,
-        &pin_plan.unassigned,
-    );
+    let box_bottom = layout_anchor_rect(graph, layer_anchor)
+        .map(|(_, bottom)| bottom)
+        .unwrap_or_else(|| {
+            final_box_bottom(
+                ic_top,
+                ic_bottom,
+                &per_side,
+                &pin_band,
+                &band_y,
+                &pin_plan.unassigned,
+            )
+        });
     for region in [Region::North, Region::South] {
         let Some(list) = per_side.get(&region) else {
             continue;
@@ -4345,6 +4443,10 @@ fn assign_shunt_slots(
     entry_pin_id: i64,
     entry_side: EntrySide,
 ) {
+    // ★ Unified layout policy: a layout-declared box keeps its author slots.
+    if b.has_pin_layout() {
+        return;
+    }
     let exit_side = opposite_side(entry_side);
     let connected: std::collections::HashSet<i64> =
         b.entry_points.iter().map(|ep| ep.pin_id).collect();
@@ -4492,16 +4594,25 @@ fn place_members_for_topo(
             .expect("member box exists");
         let partner = partner_info(topos, idx, group);
         let role = tap_role(member_box, topo, partner, layer_anchor);
-        let (w, h) = match &role {
-            TapRole::Series { .. } => (TWO_PIN_SYMBOL_W, TWO_PIN_SYMBOL_H),
-            TapRole::Bridge { .. } | TapRole::Drop { .. } => (TWO_PIN_SYMBOL_H, TWO_PIN_SYMBOL_W),
-            TapRole::InlineEnd => (member_box.w.max(40.0), member_box.h.max(20.0)),
-            // ★ M7.6: a Sink is a real component — size it from its labels here
-            // so the column allocator reserves the right width for it (otherwise
-            // it reserves 80 against a box drawn 180 wide and overlaps a neighbour).
-            TapRole::Sink => {
-                let (t, bm, _) = sink_pin_sides(member_box, topos);
-                sink_box_size(member_box, &t, &bm)
+        let (w, h) = if member_box.has_pin_layout() {
+            // ★ Unified layout policy: reserve the AUTHOR-driven extent for a
+            // layout-declared member so the column allocator does not reserve
+            // against a box that will be drawn wider (same reasoning as Sink).
+            layout_box_dims(member_box)
+        } else {
+            match &role {
+                TapRole::Series { .. } => (TWO_PIN_SYMBOL_W, TWO_PIN_SYMBOL_H),
+                TapRole::Bridge { .. } | TapRole::Drop { .. } => {
+                    (TWO_PIN_SYMBOL_H, TWO_PIN_SYMBOL_W)
+                }
+                TapRole::InlineEnd => (member_box.w.max(40.0), member_box.h.max(20.0)),
+                // ★ M7.6: a Sink is a real component — size it from its labels here
+                // so the column allocator reserves the right width for it (otherwise
+                // it reserves 80 against a box drawn 180 wide and overlaps a neighbour).
+                TapRole::Sink => {
+                    let (t, bm, _) = sink_pin_sides(member_box, topos);
+                    sink_box_size(member_box, &t, &bm)
+                }
             }
         };
         let partner_y = match &role {
@@ -4551,6 +4662,23 @@ fn place_members_for_topo(
             continue;
         };
         if member_box.geom_locked {
+            continue;
+        }
+        // ★ Unified layout policy: a layout-declared member keeps the author's
+        // sides/offsets and its author-driven extent. Its tap role still decides
+        // where the BODY sits (row y / column x), but no slot writer runs — the
+        // roles below would re-side every pin onto the trunk-facing edge.
+        if member_box.has_pin_layout() {
+            let (w, h) = layout_box_dims(member_box);
+            member_box.w = w;
+            member_box.h = h;
+            member_box.x = line_x - w / 2.0;
+            member_box.y = if on_side {
+                axis + LEAD
+            } else {
+                axis + dy * MEMBER_GAP
+            };
+            member_box.geom_locked = true;
             continue;
         }
         match &view.role {
@@ -4735,6 +4863,14 @@ fn assign_anchor_slots(
     let Some(anchor_box) = graph.boxes.iter_mut().find(|b| b.id == anchor_id) else {
         return;
     };
+
+    // ★ Unified layout policy: a layout-declared anchor already has its rect and
+    // its slots from `seed_layout_boxes` (author's sides and CCW list order).
+    // Re-bucketing by net region and re-spreading the offsets from the rows
+    // would overwrite exactly what the author asked for.
+    if anchor_box.has_pin_layout() {
+        return;
+    }
 
     // pin_id → EntrySide, from the nets this pin belongs to. The row y is NOT
     // duplicated here — it lives in `plan.pin_rows`.
@@ -4948,6 +5084,10 @@ fn assign_side_slots(
 /// ★ E1: Generate PinSlots for every physical pin on a box.
 /// This is the single source of truth for pin geometry — renderers read only slots.
 fn assign_pin_slots(b: &mut crate::vector::graph::McVecBox, side: EntrySide) {
+    // ★ Unified layout policy: a layout-declared box keeps its author slots.
+    if b.has_pin_layout() {
+        return;
+    }
     let n = b.pins.len();
     if n == 0 {
         return;
@@ -5051,6 +5191,10 @@ fn assign_sink_slots(
     bottom: &[i64],
     connected: &BTreeSet<i64>,
 ) {
+    // ★ Unified layout policy: a layout-declared box keeps its author slots.
+    if b.has_pin_layout() {
+        return;
+    }
     let pin_name = |b: &crate::vector::graph::McVecBox, pid: i64| {
         b.pins
             .iter()
@@ -6473,6 +6617,106 @@ fn build_symbols(topo: &NetTopology, lane: Lane, graph: &McVecGraph) -> Vec<Tree
 // Main entry points
 // ============================================================================
 
+/// Top-left corner a layout-declared layer anchor is pinned to. Mirrors
+/// `assign_anchor_slots` (x = 80.0, y = `plan.ic_top`) — the first band row sits
+/// at `BASE_Y` = 100 and `side_row_extent` subtracts `PIN_MARGIN` = 20.
+const LAYOUT_ANCHOR_X: f64 = 80.0;
+const LAYOUT_ANCHOR_Y: f64 = 80.0;
+
+/// Box extent for a layout-declared box. A listed pin sits at the ratio
+/// `(k+1)/(n+1)` along its edge (`ccw_offset`), so a side carrying n pins needs
+/// `(n+1)*PIN_PITCH` of edge to keep them a pitch apart. The author's spacing is
+/// frozen — `enforce_unique_offsets` never re-spreads a layout box — so the box
+/// has to be big enough up front. `assign_anchor_slots` derives the same dims
+/// from pin counts for an automatic box; this is the same formula, with the
+/// layout's own sides as the counts.
+fn layout_box_dims(b: &crate::vector::graph::McVecBox) -> (f64, f64) {
+    let ids_on = |side: EntrySide| -> Vec<i64> {
+        b.slots
+            .iter()
+            .filter(|s| s.side == side)
+            .map(|s| s.pin_id)
+            .collect()
+    };
+    let left = ids_on(EntrySide::Left);
+    let right = ids_on(EntrySide::Right);
+    let top = ids_on(EntrySide::Top);
+    let bottom = ids_on(EntrySide::Bottom);
+    let lr = left.len().max(right.len());
+    let tb = top.len().max(bottom.len());
+    let w = ((tb + 1) as f64 * PIN_PITCH)
+        .max(side_label_width(b, &left) + side_label_width(b, &right) + 3.0 * LABEL_PAD)
+        .max(MIN_BOX_W);
+    let h = ((lr + 1) as f64 * PIN_PITCH).max(120.0);
+    (w, h)
+}
+
+/// ★ Unified layout policy — seed a `layout=[...]` box's pins BEFORE any
+/// topology slot writer runs.
+///
+/// The author's layout outranks the automatic flow on **every** layer: the
+/// listed pins (connected or not) take the declared side and the declared
+/// per-edge list order (counterclockwise, shared with `circuit_flow` through
+/// `layout_entry_points_for`), and both `entry_points` (what the pin renderer
+/// draws) and `slots` (where `realize` attaches wires) are derived from that ONE
+/// source — seeding only the entry points would draw stubs and wires in
+/// different places. The layer anchor additionally gets its rect fixed here,
+/// because `assign_anchor_slots` — which owns the anchor rect — is skipped for
+/// a layout box.
+///
+/// Boxes without a layout are not touched at all.
+fn seed_layout_boxes(graph: &mut McVecGraph, topos: &[NetTopology], layer_anchor: i64) {
+    if !graph.boxes.iter().any(|b| b.has_pin_layout()) {
+        return;
+    }
+    let net_pins = super::entry_points::collect_pins_per_box(graph);
+    let mut connected: BTreeSet<i64> = BTreeSet::new();
+    for t in topos {
+        for g in &t.groups {
+            connected.extend(g.pin_ids.iter().copied());
+        }
+    }
+    for b in &mut graph.boxes {
+        if !b.has_pin_layout() {
+            continue;
+        }
+        let empty: Vec<(i64, String)> = Vec::new();
+        let pins = net_pins.get(&b.id).unwrap_or(&empty);
+        let Some(eps) = super::entry_points::layout_entry_points_for(b, pins) else {
+            continue;
+        };
+        b.slots = eps
+            .iter()
+            .enumerate()
+            .map(|(i, ep)| PinSlot {
+                pin_id: ep.pin_id,
+                number: i as u32,
+                name: ep.pin_name.clone(),
+                side: ep.side,
+                offset: ep.offset,
+                connected: connected.contains(&ep.pin_id),
+            })
+            .collect();
+        b.entry_points = eps;
+        if b.id == layer_anchor {
+            let (w, h) = layout_box_dims(b);
+            b.x = LAYOUT_ANCHOR_X;
+            b.y = LAYOUT_ANCHOR_Y;
+            b.w = w;
+            b.h = h;
+            b.geom_locked = true;
+        }
+    }
+}
+
+/// The seeded rect of a layout-declared layer anchor, as `(top, bottom)`.
+/// `assign_rows` uses it so the North/South rails hug the AUTHOR's box instead
+/// of the row-derived extent (which knows nothing about the declared pins).
+fn layout_anchor_rect(graph: &McVecGraph, layer_anchor: i64) -> Option<(f64, f64)> {
+    let b = graph.boxes.iter().find(|b| b.id == layer_anchor)?;
+    (b.has_pin_layout() && b.geom_locked).then_some((b.y, b.y + b.h))
+}
+
 /// ★ E2: Layout device layer — topology + placement.
 /// Called during the layout phase (before render). Writes x/y/w/h and
 /// PinSlots on boxes, sets geom_locked = true.
@@ -6487,6 +6731,11 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
         topos.len(),
         graph.boxes.len(),
     );
+    // ★ Unified layout policy: author `layout=[...]` outranks the automatic
+    // flow, on this layer as on every other — seed the declared pins before any
+    // topology slot writer runs (see `seed_layout_boxes`).
+    let layer_anchor = layer_anchor_id(&topos);
+    seed_layout_boxes(graph, &topos, layer_anchor);
     place_by_topology(graph, &mut topos);
     // Log topology regions (assigned by P1 inside place_by_topology).
     for t in &topos {
@@ -6533,9 +6782,19 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
                 // 24-pin DIP viewed via virtual instantiation) does not cram all
                 // pins onto a fixed 120x60 box. 20 px per pin + `PIN_MARGIN` on
                 // each edge; width from the longest pin name.
-                let (max_per_side, label_w) = fallback_box_dims(b);
-                b.w = label_w.max(MIN_BOX_W);
-                b.h = (max_per_side as f64 * 20.0 + 2.0 * PIN_MARGIN).max(60.0);
+                // ★ Unified layout policy: a layout-declared box keeps the
+                // extent the author's pin distribution asks for (and the
+                // slots/entry points seeded earlier — the `slots.is_empty()`
+                // block below therefore never runs for it).
+                if b.has_pin_layout() {
+                    let (w, h) = layout_box_dims(b);
+                    b.w = w;
+                    b.h = h;
+                } else {
+                    let (max_per_side, label_w) = fallback_box_dims(b);
+                    b.w = label_w.max(MIN_BOX_W);
+                    b.h = (max_per_side as f64 * 20.0 + 2.0 * PIN_MARGIN).max(60.0);
+                }
                 b.geom_locked = true;
                 // ★ M6.5: a box that is ONLY the anchor of a terminal-only net
                 // (e.g. a lone testpoint in a per-consumer ground net) is placed
@@ -7342,6 +7601,80 @@ mod tests {
     }
 
     /// ★ Assertion 6 (device_layout_v2.md §7.6): the `[region] fallback` path is
+    /// ★ Unified layout policy: inside a DEVICE layer (every module sub-layer),
+    /// a `layout=[...]` box keeps the author's sides and per-edge order for
+    /// EVERY listed pin — including pins with no net at all — and the automatic
+    /// slot writers leave it alone. This is the gap that let `USB.MINI_B` in
+    /// `hbl` render unconnected `D+/D-/ID` as NC crosses on the wrong edges.
+    #[test]
+    fn layout_box_seeded_in_device_layer() {
+        use crate::vector::graph::boxdef::PinLayout;
+
+        let mut g = McVecGraph::new(100, "test".into());
+        g.layer_style = LayerStyle::Device;
+        // 4-pin IC; `mk_ic` numbers the pins "1".."4" for ids 11..14.
+        let mut ic = mk_ic(1, 4, &[11, 12, 13, 14]);
+        ic.set_layout_hint(PinLayout {
+            left: vec![],
+            // Author order, counterclockwise: pin 4 lowest on the right edge.
+            right: vec!["4".into(), "3".into()],
+            top: vec![],
+            bottom: vec!["2".into(), "1".into()],
+        });
+        g.boxes.push(ic);
+        g.boxes.push(mk_two_pin(2, "CAP_1", &[21, 22]));
+        // Only pins 11 and 12 are wired; 13/14 are unconnected.
+        g.nets
+            .push(mk_net(201, "PWR", NetKind::Power, &[(1, 11), (2, 21)]));
+        g.nets.push(mk_net(202, "GND", NetKind::Ground, &[(1, 12)]));
+
+        let mut topos = build_topology(&g);
+        let anchor = layer_anchor_id(&topos);
+        seed_layout_boxes(&mut g, &topos, anchor);
+
+        let ic = g.boxes.iter().find(|b| b.id == 1).unwrap();
+        assert_eq!(ic.slots.len(), 4, "every physical pin gets a slot");
+        assert_eq!(
+            ic.entry_points.len(),
+            4,
+            "declared-but-unconnected pins are drawn, not turned into NC crosses"
+        );
+        assert!(ic.nc_pins().is_empty());
+
+        let slot = |pid: i64| ic.slots.iter().find(|s| s.pin_id == pid).unwrap();
+        assert_eq!(slot(13).side, EntrySide::Right);
+        assert_eq!(slot(14).side, EntrySide::Right);
+        assert_eq!(slot(11).side, EntrySide::Bottom);
+        assert_eq!(slot(12).side, EntrySide::Bottom);
+        assert!(slot(11).connected, "pin 11 is on the PWR net");
+        assert!(!slot(13).connected, "pin 13 has no net");
+        // Right edge: the author list reads bottom→top, so its FIRST entry gets
+        // the far end of the edge (`offset 0` is the top edge of a side).
+        assert!((slot(14).offset - 2.0 / 3.0).abs() < 1e-9);
+        assert!((slot(13).offset - 1.0 / 3.0).abs() < 1e-9);
+        // Bottom edge: author list order reads left→right.
+        assert!((slot(12).offset - 1.0 / 3.0).abs() < 1e-9);
+        assert!((slot(11).offset - 2.0 / 3.0).abs() < 1e-9);
+        // The layer anchor's rect comes from the author's pin distribution,
+        // with one PIN_PITCH per ratio step.
+        assert!(ic.geom_locked);
+        assert!(ic.h >= 3.0 * PIN_PITCH && ic.w >= 3.0 * PIN_PITCH);
+
+        // The automatic writers must not re-side or re-space it.
+        place_by_topology(&mut g, &mut topos);
+        let ic = g.boxes.iter().find(|b| b.id == 1).unwrap();
+        assert_eq!(ic.x, LAYOUT_ANCHOR_X);
+        assert_eq!(ic.slots.len(), 4);
+        assert_eq!(
+            ic.slots.iter().find(|s| s.pin_id == 14).unwrap().side,
+            EntrySide::Right,
+            "assign_anchor_slots must leave a layout box alone"
+        );
+        assert!(
+            (ic.slots.iter().find(|s| s.pin_id == 11).unwrap().offset - 2.0 / 3.0).abs() < 1e-9
+        );
+    }
+
     /// never hit — every net resolves to a definite Region by a direct rule or
     /// inheritance.
     #[test]

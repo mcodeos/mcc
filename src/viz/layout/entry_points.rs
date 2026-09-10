@@ -447,7 +447,7 @@ pub fn enforce_unique_offsets(graph: &mut McVecGraph) {
     for b in &mut graph.boxes {
         // ★ Reserved interface ①: layout-fixed boxes keep the author's offsets —
         //   re-spreading a crowded side would erase the explicit per-edge spacing.
-        if b.layout_hint.is_some() {
+        if b.has_pin_layout() {
             continue;
         }
         let (bw, bh) = (b.w, b.h);
@@ -536,7 +536,7 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
         // ★ Reserved interface ①: layout-fixed boxes keep side & order. The author
         //   explicitly placed these pins with `layout = [...]`, so neighbor-driven
         //   re-siding must not move them (see boxdef::PinLayout).
-        if b.layout_hint.is_some() {
+        if b.has_pin_layout() {
             continue;
         }
         let bcx = b.x + b.w / 2.0;
@@ -983,7 +983,7 @@ fn side_clearance(
 /// ## ★ P03 (S1) changes
 /// Previously read both `graph.edges` (old binary) + `graph.nets` (new), P03 removed edges path,
 /// now only traverses nets. `McVecEdge` field kept but no longer populated, this function no longer scans it.
-fn collect_pins_per_box(graph: &McVecGraph) -> HashMap<i64, Vec<(i64, String)>> {
+pub(crate) fn collect_pins_per_box(graph: &McVecGraph) -> HashMap<i64, Vec<(i64, String)>> {
     let mut out: HashMap<i64, Vec<(i64, String)>> = HashMap::new();
     let mut seen: HashMap<i64, HashSet<i64>> = HashMap::new();
 
@@ -1005,6 +1005,27 @@ fn collect_pins_per_box(graph: &McVecGraph) -> HashMap<i64, Vec<(i64, String)>> 
     out
 }
 
+/// Entry points a box receives from its author `layout=[...]`, over **all** its
+/// physical pins — connected or not. `None` when the box has no usable hint.
+///
+/// This is the single layout-first seeder shared by every layer pipeline
+/// (flat/`circuit_flow` and the device sub-layer pipeline), so both apply
+/// byte-identical matching (pin_id or description), per-edge list order and
+/// counterclockwise offsets. Unlisted pins still fall back to the kind
+/// heuristic inside `ep_from_layout` — an author layout is a hint ceiling, not
+/// a gate that drops pins.
+pub(crate) fn layout_entry_points_for(
+    b: &McVecBox,
+    net_pins: &[(i64, String)],
+) -> Option<Vec<EntryPoint>> {
+    let layout = b.layout_hint.as_ref()?;
+    if layout.is_empty() {
+        return None;
+    }
+    let merged = merge_box_pins(net_pins, &b.pins);
+    Some(ep_from_layout(b, &merged, layout))
+}
+
 // ============================================================================
 // Internal: dispatch by BoxKind
 // ============================================================================
@@ -1016,8 +1037,7 @@ fn compute_entry_points(
 ) -> Vec<EntryPoint> {
     // ★ M0-3: if pin_constraint != Free, layout_hint must be non-empty
     debug_assert!(
-        b.pin_constraint == crate::vector::graph::PinConstraint::Free
-            || b.layout_hint.as_ref().is_some_and(|l| !l.is_empty()),
+        b.pin_constraint == crate::vector::graph::PinConstraint::Free || b.has_pin_layout(),
         "box#{} '{}' pin_constraint={:?} but layout_hint is empty — cannot honor constraint",
         b.id,
         b.name,

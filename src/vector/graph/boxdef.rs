@@ -599,6 +599,14 @@ impl McVecBox {
             .collect()
     }
 
+    /// True when the author declared a non-empty `layout=[...]` for this box.
+    /// `set_layout_hint` never stores an empty layout, so this is equivalent to
+    /// `layout_hint.is_some()` today; it is the single predicate every
+    /// layout-first code path should read (all layers share one policy).
+    pub fn has_pin_layout(&self) -> bool {
+        self.layout_hint.as_ref().is_some_and(|l| !l.is_empty())
+    }
+
     /// ★ Reserved interface ①: set component custom pin layout (empty layout considered not set, still goes through heuristic).
     pub fn set_layout_hint(&mut self, layout: PinLayout) {
         if !layout.is_empty() {
