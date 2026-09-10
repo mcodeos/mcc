@@ -1302,10 +1302,12 @@ impl InstTable {
 
                 // Set member_info role (Ground/Power) — consumed by the viz
                 // projection layer for rail classification, not for net merging.
-                // A connection-point DC pair (`::DC` [hot,ret] written on this
-                // port) is decoded positionally and outranks everything: the
-                // 2nd member is the declared return (ground side), the 1st is
-                // the supply face (classification-retirement-design §4, C).
+                // A connection-point DC pair declared on this port is decoded
+                // positionally and outranks everything: the 2nd member is the
+                // declared return (ground side), the 1st is the supply face
+                // (classification-retirement-design §4, C). The pair is carried
+                // by the declaration, so a scalar `x::DC(v)` row claims the
+                // same two faces as a written `[hot, ret]` row does.
                 let (role, _inferred) = if let Some((hot, ret)) = &port.dc_pair {
                     if member == ret {
                         (MemberRole::Ground, false)

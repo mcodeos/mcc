@@ -475,13 +475,16 @@ pub struct PortInst {
     pub node_id: Option<NodeId>,
 
     /// Model-A connection-point DC pair (classification-retirement-design §4,
-    /// C full capture): `Some((hot, ret))` when this port row's OWN written
-    /// syntax is a 2-member `[hot, ret]` / `base{hot, ret}` list on a `::DC`
-    /// interface. **Positional** — member[0]=hot (supply side), member[1]=ret
-    /// (declared return / ground side); member names are copper labels only.
-    /// Scalar `x::DC(v)` (members expanded from the DC base pins, not written),
-    /// non-`DC` interfaces, and >2-member `::DC` rows carry `None`. Set at
-    /// `instantiate_interface`; flatten reads it for member roles.
+    /// C full capture): `Some((hot, ret))` when this port row declares a 2-face
+    /// `::DC` contract. **Positional** — member[0]=hot (supply side),
+    /// member[1]=ret (declared return / ground side); member names are copper
+    /// labels only. The pair is a property of the DECLARATION, not of the
+    /// spelling: a written `[hot, ret]` / `base{hot, ret}` list names the two
+    /// faces; a scalar `x::DC(v)` brings the same two faces over from the DC
+    /// interface's own pin table, so it carries the same pair. Only a
+    /// non-`DC` interface or a `::DC` row that does not yield exactly two
+    /// faces carries `None`. Set at `instantiate_interface`; flatten reads it
+    /// for member roles.
     pub dc_pair: Option<(String, String)>,
 }
 

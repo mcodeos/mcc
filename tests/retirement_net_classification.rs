@@ -6,6 +6,10 @@
 //!
 //! Rulings locked here:
 //! ① no declaration → the net stays `Signal` — even when its **name** is `VCC`/`GND`.
+//!    (The hbl fixture no longer carries that specimen: its once-undeclared scalar
+//!    `::DC` header now declares its faces. The name-trap lock lives at unit level
+//!    in `member_role_declared_identity::legacy_members_have_no_role`, where the
+//!    member really is named `GND`/`VDD` — a stronger specimen than a leaf spelling.)
 //! ③ the drawing side's power/ground classification is driven by the net's declared
 //!    `attr` role, never by re-guessing the name; `attr: None` ⇒ never `Ground`/`Power`.
 //!
@@ -64,35 +68,64 @@ fn net<'a>(g: &'a McVecGraph, name: &str) -> &'a mcc::vector::graph::VizNet {
         .unwrap_or_else(|| panic!("layer '{}' should contain net '{}'", g.name, name))
 }
 
-/// Ruling ① at the net level: the LDO body (an IC whose `vin{VCC,GND}` header group is a
-/// non-DC IO group and which declares no conduit/rail) has three power-**named** nets. Without
-/// a declaration they must all stay `Signal` / `attr: None` — and nothing in that layer may be
-/// judged Ground/Power by name.
+/// Ruling ③ at the net level, on the LDO body whose header is a **scalar**
+/// `::DC` port pair (`in vin::DC(5V)` / `out vout::DC(3.3V)`).
+///
+/// A `::DC` contract declares a supply face and a return face, and the faces
+/// sit at the declared positions in the interface's own pin table — so these
+/// nets are *declared*, and their classification follows the declared face,
+/// never the net's leaf spelling. Identity is spelling-independent: the same
+/// contract written `[VCC, GND]::DC(3.3V)` declares the same two faces.
 #[test]
-fn undeclared_power_named_nets_are_signal() {
+fn scalar_dc_header_faces_are_declared_not_name_guessed() {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let graph = build_graph();
     let ldo = find_layer(&graph, "LDO").expect("hbl has an LDO sub-layer");
 
-    for want in ["vin.VCC", "vout.VCC", "vin.GND"] {
+    let expected = [
+        ("vin.VCC", AttrRole::Hot, NetKind::Power),
+        ("vout.VCC", AttrRole::Hot, NetKind::Power),
+        ("vin.GND", AttrRole::Ret, NetKind::Ground),
+    ];
+    for (want, role, kind) in expected {
         let n = net(ldo, want);
         assert_eq!(
-            n.kind,
-            NetKind::Signal,
-            "net '{want}': a power-NAME net with no declaration must stay Signal (ruling ①)"
+            n.kind, kind,
+            "net '{want}': kind must follow its declared ::DC face"
+        );
+        let a = n
+            .attr
+            .as_ref()
+            .unwrap_or_else(|| panic!("net '{want}': a declared ::DC face anchors an attr"));
+        assert_eq!(
+            a.role, role,
+            "net '{want}': the declared face position decides the role, not the leaf name"
         );
         assert!(
-            n.attr.is_none(),
-            "net '{want}': attr must be None when no declaration anchors the net"
+            a.resolvable,
+            "net '{want}': attr mirror is produced resolvable"
         );
     }
 
+    // Every classified net in the LDO layer is one of the declared faces — no
+    // net in this layer is judged Ground/Power without a declaration behind it.
     for n in &ldo.nets {
-        assert!(
-            !matches!(n.kind, NetKind::Ground | NetKind::Power),
-            "LDO layer net '{}': nothing may be judged Ground/Power without a declaration",
-            n.name
-        );
+        match n.attr.as_ref().map(|a| &a.role) {
+            None => assert!(
+                !matches!(n.kind, NetKind::Ground | NetKind::Power),
+                "LDO layer net '{}': no declaration -> must not be Ground/Power (ruling ①/③)",
+                n.name
+            ),
+            Some(AttrRole::Ret) | Some(AttrRole::Reference) => {
+                assert_eq!(n.kind, NetKind::Ground, "LDO net '{}'", n.name)
+            }
+            Some(AttrRole::Hot) => {
+                assert_eq!(n.kind, NetKind::Power, "LDO net '{}'", n.name)
+            }
+            Some(AttrRole::Signal) => {
+                assert_eq!(n.kind, NetKind::Signal, "LDO net '{}'", n.name)
+            }
+        }
     }
 }
 
@@ -104,8 +137,12 @@ fn declared_rails_kind_follows_attr_role() {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let graph = build_graph();
 
-    // Declared ground side -> NetKind::Ground, attr role Ret.
-    let gnd = net(&graph, "V3V3.GND");
+    // Declared ground side -> NetKind::Ground, attr role Ret. Every return in
+    // this design is the same copper inside the modules that face each other
+    // (the LDO's `vin` and `vout` both declare their 2nd face the return), so
+    // main has ONE ground conductor, carrying the bare `GND` label it is named
+    // by — not one per rail.
+    let gnd = net(&graph, "GND");
     assert_eq!(gnd.kind, NetKind::Ground);
     let a: &NetAttrMirror = gnd
         .attr
@@ -114,15 +151,24 @@ fn declared_rails_kind_follows_attr_role() {
     assert_eq!(a.role, AttrRole::Ret);
     assert!(a.resolvable);
 
-    // Declared hot sides -> NetKind::Power, attr role Hot. (V3V3.VCC's declared copper is
-    // VDD_3V3 — a different name — proving kind comes from the declaration, not the net label.)
+    // Declared hot sides -> NetKind::Power, attr role Hot. The net label
+    // (`V3V3.VCC`) and the declared copper are different names, proving kind
+    // comes from the declaration, not the net label.
+    //
+    // Fidelity gap (found here, not fixed here): the copper is the DC
+    // interface's GENERIC face spelling `VCC`, where the call site's argument
+    // selects a more precise one. A scalar `x::DC(v)` port takes its member
+    // names from `iface.base.pins` — the interface class *before* its
+    // parameters are bound, i.e. whichever `pins = […]` branch is last in the
+    // body (ifs/dc.mc's final `else`, the generic fallback) — rather than the
+    // branch the argument selects (`VCC3V3`). The names were decorative while
+    // the members had no role; now that a scalar `::DC` port declares its
+    // faces, they land in identity. Binding the interface before reading its
+    // pin table is a separate change outside the drawing batch.
     let vcc = net(&graph, "V3V3.VCC");
     assert_eq!(vcc.kind, NetKind::Power);
     assert_eq!(vcc.attr.as_ref().expect("attr").role, AttrRole::Hot);
-    assert_eq!(
-        vcc.attr.as_ref().unwrap().copper.as_deref(),
-        Some("VDD_3V3")
-    );
+    assert_eq!(vcc.attr.as_ref().unwrap().copper.as_deref(), Some("VCC"));
 
     let v1v2 = net(&graph, "V1V2.VCC");
     assert_eq!(v1v2.kind, NetKind::Power);

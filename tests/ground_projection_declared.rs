@@ -13,19 +13,23 @@
 //! rule-c boundary semantics:
 //!
 //! ① Declared ground nets merge / classify as Ground through `detect_net_attr`
-//!    (Ret/Reference), never by the net name — the `main` ground conductor
-//!    `V3V3.GND` is one projected Ground net (rule-a union of the bare `GND` +
-//!    `V1V2.GND` + `V3V3.GND` raw nets).
-//! ② Undeclared power-NAME nets never classify Ground and never pull a rail into
-//!    the conductor — the scalar-header LDO body (`in vin::DC(5V)` ports carry no
-//!    member role) keeps `vin.GND`/`vout.VCC` as plain Signal, and its sub-block
-//!    ground tie is no longer guessed by name: `V5V.GND` stays a separate declared
-//!    Ground net rather than merging into `V3V3.GND` (§7.1 accepted consequence —
-//!    migrates back once the LDO boundary is declared as a ::DC pair, cf. mcs hbl).
+//!    (Ret/Reference), never by the net name — the `main` ground conductor `GND`
+//!    is one projected Ground net (rule-a union of the bare `GND` + `V1V2.GND` +
+//!    `V3V3.GND` + `V5V.GND` raw nets). `V5V.GND` is IN this conductor: its
+//!    tie closed when the LDO boundary became a declared `::DC` pair. See ②.
+//! ② The §7.1 accepted consequence has MIGRATED BACK, as the design predicted
+//!    ("migrates back once the LDO boundary is declared as a ::DC pair, cf. mcs
+//!    hbl"). A `::DC` face pair is a property of the declaration, not of the
+//!    spelling: the scalar header `in vin::DC(5V)` / `out vout::DC(3.3V)` brings
+//!    the same supply/return faces over from the DC interface's own pin table
+//!    that `psnk vin{V5V, GND}::DC(5V)` writes out, so the LDO body's nets are
+//!    declared and the sub-block ground tie holds structurally — no name guess.
 //! ③ Rule (c): a pseudo endpoint is dropped (rail boundary declaration) iff the
 //!    GROUP resolves to a declared supply identity; Signal groups keep their
 //!    pseudo endpoints as Boundary / PortTerminal markers (§5⑥ — a scalar
-//!    power-name port like `in VDD_3V3` projects to Signal + Boundary, not rail).
+//!    power-name port like `in VDD_3V3` projects to Signal + Boundary, not rail;
+//!    a *port* of a declared rail net keeps its boundary frame, which is why the
+//!    sub-layers' rail nets carry one while main's `GND` pseudo label does not).
 
 use std::path::PathBuf;
 
@@ -66,37 +70,24 @@ fn net<'a>(layer: &'a McVecBlock, name: &str) -> &'a mcc::vector::model::McVecNe
 
 /// ① + ②: the projection's ground classification is declared-identity, never name.
 ///
-/// main's ground plane is exactly two declared Ground nets after the batch:
-/// the merged `V3V3.GND` conductor (bare `GND` + `V1V2.GND` + `V3V3.GND` — the
-/// 3.3V/1.2V return copper) and a separate `V5V.GND` (5V return). The sub-block
-/// tie that used to glue V5V.GND into V3V3.GND ran through the LDO body, whose
-/// scalar header exposes no declared ground member — with name guessing retired,
-/// that tie is no longer asserted (§7.1). Both nets carry the Ret mirror.
+/// main's ground plane is exactly ONE declared Ground net: the merged `GND`
+/// conductor (bare `GND` + `V1V2.GND` + `V3V3.GND` + `V5V.GND`). The 5V return
+/// is in it because the sub-block tie that used to be unassertable is now a
+/// declaration: the LDO's scalar header `in vin::DC(5V)` declares its return
+/// face, which is the same copper its `vout` face returns on. This is the §7.1
+/// migration the design predicted for this fixture (cf. mcs hbl, which had
+/// already migrated to the written-pair spelling).
 #[test]
 fn main_ground_plane_is_declared_return_nets_only() {
     let (main, table) = build_projected();
-
-    let v33 = net(&main, "V3V3.GND");
+    let gnd = net(&main, "GND");
     assert_eq!(
-        v33.attr.as_ref().expect("declared rail attr").role,
-        AttrRole::Ret
-    );
-    let v5 = net(&main, "V5V.GND");
-    assert_eq!(
-        v5.attr.as_ref().expect("declared rail attr").role,
+        gnd.attr.as_ref().expect("declared rail attr").role,
         AttrRole::Ret
     );
 
-    // The raw bare `GND` label net was absorbed into V3V3.GND (rule-a union),
-    // so no un-merged bare `GND` net survives on main, and no net is named from
-    // a bare ground keyword that has no declaration behind it.
-    assert!(
-        main.nets.iter().all(|n| n.name != "GND"),
-        "bare 'GND' net must have been merged into the V3V3.GND conductor"
-    );
-
-    // Every Ground/Ret net on main is a *declared* return — and exactly the two
-    // expected ones (never a name-guessed third).
+    // Every Ground/Ret net on main is a *declared* return — and exactly the one
+    // expected conductor (never a name-guessed second).
     let grounds: Vec<&str> = main
         .nets
         .iter()
@@ -110,17 +101,27 @@ fn main_ground_plane_is_declared_return_nets_only() {
         .collect();
     assert_eq!(
         grounds,
-        vec!["V3V3.GND", "V5V.GND"],
-        "main ground-plane roster must be exactly [V3V3.GND, V5V.GND]"
+        vec!["GND"],
+        "main ground-plane roster must be exactly [GND] — one return copper"
     );
+
+    // The per-rail return spellings are all the SAME copper now, so none of
+    // them survives as a net of its own.
+    for absorbed in ["V3V3.GND", "V5V.GND", "V1V2.GND"] {
+        assert!(
+            main.nets.iter().all(|n| n.name != absorbed),
+            "per-rail return '{absorbed}' must have merged into the single GND conductor"
+        );
+    }
     let _ = table;
 }
 
-/// ②: the scalar-header LDO body (power-NAME ports, no member role, no conduit/
-/// rail declaration of its own) has zero Ground/Power nets — its `vin.GND`
-/// stays a plain Signal even though the leaf says "GND".
+/// ②: the scalar-header LDO body now DECLARES its faces. Its nets are classified
+/// by the declared `::DC` face each one is — and the roles come from the face's
+/// position in the interface's pin table, so the layer classifies identically
+/// whichever spelling declared it.
 #[test]
-fn undeclared_ldo_power_names_are_signal_not_ground() {
+fn scalar_ldo_header_declares_its_faces() {
     let (main, _table) = build_projected();
     let ldo = main
         .blocks
@@ -128,44 +129,61 @@ fn undeclared_ldo_power_names_are_signal_not_ground() {
         .find(|b| b.name == "LDO")
         .expect("hbl has an LDO sub-layer");
 
-    for want in ["vin.VCC", "vout.VCC", "vin.GND"] {
+    let expected = [
+        ("vin.VCC", AttrRole::Hot),
+        ("vout.VCC", AttrRole::Hot),
+        ("vin.GND", AttrRole::Ret),
+    ];
+    for (want, role) in expected {
         let n = net(ldo, want);
-        assert!(
-            n.attr.is_none(),
-            "net '{want}': scalar power-name port with no declaration must stay Signal (no attr)"
+        assert_eq!(
+            n.attr.as_ref().map(|a| a.role.clone()),
+            Some(role),
+            "net '{want}': a scalar ::DC header declares its faces"
         );
     }
-    assert!(
-        ldo.nets.iter().all(|n| n.attr.is_none()),
-        "nothing in the LDO layer may be classified rail without a declaration"
+    // Nothing here is judged by its name: the layer declares exactly its faces
+    // and nothing else. (`kind` ↔ `attr` agreement across every layer is the
+    // global invariant in tests/retirement_net_classification.rs.)
+    let classified: Vec<&str> = ldo
+        .nets
+        .iter()
+        .filter(|n| n.attr.is_some())
+        .map(|n| n.name.as_str())
+        .collect();
+    assert_eq!(
+        classified,
+        vec!["vin.VCC", "vout.VCC", "vin.GND"],
+        "LDO's classified nets must be exactly its declared ::DC faces"
     );
 }
 
 /// ③ (rule c / §5⑥): a pseudo endpoint is dropped as a rail boundary only when
-/// the GROUP is a declared supply identity. Declared rail nets (main's V5V.VCC,
-/// MIC's dc.GND) drop their pseudo boundary → boundary None. Signal groups keep
-/// their pseudo endpoints as Boundary / PortTerminal markers — including the
-/// LDO's scalar power-NAME ports (`vin.GND`, `vout.VCC`), which are the §5⑥
-/// specimen: they project to Signal + Boundary, never to a rail net.
+/// the GROUP is a declared supply identity. Declared rail nets drop the pseudo
+/// endpoints that are the layer's own *names*; a declared rail net reached
+/// through a real **port** keeps its boundary frame — the port is a port, and a
+/// boundary drawn around this module must show it.
 #[test]
-fn scalar_power_name_boundary_is_portterminal_and_rail_drops_pseudo() {
+fn rail_nets_drop_pseudo_endpoints_but_keep_port_frames() {
     let (main, _table) = build_projected();
 
     // Declared rail nets drop every pseudo endpoint (net name, not connection).
-    for rail_net in ["V5V.VCC", "V3V3.VCC", "V1V2.VCC", "V3V3.GND", "V5V.GND"] {
+    // main's return is one conductor now, named by the bare `GND` label.
+    for rail_net in ["V5V.VCC", "V3V3.VCC", "V1V2.VCC", "GND"] {
         assert!(
             net(&main, rail_net).boundary.is_none(),
             "declared rail net '{rail_net}' must not carry a PortTerminal boundary"
         );
     }
 
-    // §5⑥: scalar power-NAME boundary ports stay Signal + Boundary (PortTerminal).
+    // The LDO's named ports are real ports of a declared rail net — the frame
+    // stays (their endpoints are Port members, not the layer's own bare names).
     let ldo = main.blocks.iter().find(|b| b.name == "LDO").expect("LDO");
     for want in ["vin.VCC", "vout.VCC", "vin.GND"] {
         let n = net(ldo, want);
         assert!(
             n.boundary.is_some(),
-            "LDO scalar power-name net '{want}' must keep its pseudo endpoint as a Boundary (PortTerminal), got none"
+            "LDO declared rail net '{want}' must keep the boundary frame for its port, got none"
         );
     }
 }
