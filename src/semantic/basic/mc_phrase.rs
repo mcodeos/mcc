@@ -128,21 +128,6 @@ impl McPhrase {
         McPhrase::ep(McInstanceRef::new(McInstance::Label(name)))
     }
 
-    /// Create list endpoint
-    pub fn ep_list(eps: Vec<McPhrase>) -> Self {
-        McPhrase::Endpoint(McEndpoint::list(
-            eps.into_iter().map(|p| p.into_endpoint()).collect(),
-        ))
-    }
-
-    /// Create pair endpoint
-    pub fn ep_node(input: Vec<McPhrase>, output: Vec<McPhrase>) -> Self {
-        McPhrase::Endpoint(McEndpoint::node(
-            input.into_iter().map(|p| p.into_endpoint()).collect(),
-            output.into_iter().map(|p| p.into_endpoint()).collect(),
-        ))
-    }
-
     /// Series (auto-flatten)
     pub fn series(phrases: Vec<McPhrase>) -> Self {
         let mut flat = Vec::new();
@@ -284,17 +269,6 @@ impl McPhrase {
             }
         }
         flat
-    }
-
-    /// Convert to endpoint
-    pub fn into_endpoint(self) -> McEndpoint {
-        match self {
-            McPhrase::Endpoint(ep) => ep,
-            McPhrase::Lead => {
-                McEndpoint::single(McInstanceRef::new(McInstance::Label("(lead)".to_string())))
-            }
-            other => McEndpoint::single(McInstanceRef::new(McInstance::Label(other.to_string()))),
-        }
     }
 
     pub(crate) fn new(node: &AstNode, context: &mut dyn HasFindInst) -> Option<Self> {
@@ -4185,17 +4159,25 @@ fn infer_shape_and_upgrade(
                     }),
                 )
             } else {
-                dlog_trace(1220, &crate::errcodes::format_msg(1220, &[]));
+                // Unequal arm counts are a legal group statement
+                // (vec-dianlu.md §7.3 rule 4): the statement expands to the
+                // Cartesian product of the two groups' branches, and each
+                // expanded statement is then judged independently by §5. There
+                // is no pairwise arm correspondence to upgrade, so both groups
+                // pass through untouched for `expand_group_statements` to
+                // expand. Clearing them here (the old behavior) destroyed the
+                // members before the expander could see them, leaving a
+                // zero-branch group that wired nothing.
                 (
                     Group(McGroup {
-                        opds: Vec::new(),
-                        left_match: false,
-                        right_match: false,
+                        opds: lhs,
+                        left_match: lhs_lm,
+                        right_match: lhs_rm,
                     }),
                     Group(McGroup {
-                        opds: Vec::new(),
-                        left_match: false,
-                        right_match: false,
+                        opds: rhs,
+                        left_match: rhs_lm,
+                        right_match: rhs_rm,
                     }),
                 )
             }

@@ -2557,8 +2557,13 @@ impl InstantiationBuilder {
                     .iter()
                     .map(|item| {
                         let phrase = McPhrase::Endpoint(item.clone());
-                        Self::prefix_instance_phrase_with_skip(&phrase, inst_name, skip)
-                            .into_endpoint()
+                        match Self::prefix_instance_phrase_with_skip(&phrase, inst_name, skip) {
+                            McPhrase::Endpoint(ep) => ep,
+                            // `prefix_instance_phrase_with_skip` is
+                            // variant-preserving and the input here is always an
+                            // `Endpoint`, so no other arm is reachable.
+                            _ => unreachable!(),
+                        }
                     })
                     .collect();
                 McPhrase::Endpoint(McEndpoint::list(prefixed_items))
