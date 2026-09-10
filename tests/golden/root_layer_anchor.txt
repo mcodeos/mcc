@@ -1,0 +1,77 @@
+# Root-layer drawing anchor — see tests/root_layer_anchor.rs for why.
+# geometry: normalised <rect>/<line> coordinate tuples (sorted set)
+# text: <text> (x, y, content) triples (sorted set)
+[geometry]
+line 220.0 380.0 228.0 380.0
+line 220.0 380.0 340.0 380.0
+line 340.0 380.0 332.0 380.0
+line 500.0 256.8 508.0 256.8
+line 500.0 256.8 640.0 256.8
+line 500.0 380.0 508.0 380.0
+line 500.0 380.0 580.0 380.0
+line 500.0 500.0 508.0 500.0
+line 500.0 500.0 640.0 500.0
+line 500.0 540.0 508.0 540.0
+line 546.7 250.8 546.7 262.8
+line 580.0 100.0 580.0 750.0
+line 580.0 100.0 660.0 100.0
+line 580.0 240.0 500.0 240.0
+line 580.0 410.0 640.0 410.0
+line 580.0 540.0 500.0 540.0
+line 580.0 750.0 640.0 750.0
+line 593.3 250.8 593.3 262.8
+line 640.0 256.8 632.0 256.8
+line 740.0 140.0 740.0 148.0
+line 740.0 140.0 740.0 200.0
+line 740.0 200.0 740.0 192.0
+line 740.0 620.0 740.0 628.0
+line 740.0 620.0 740.0 700.0
+line 740.0 700.0 740.0 692.0
+line 746.0 160.0 734.0 160.0
+line 746.0 180.0 734.0 180.0
+line 746.0 646.7 734.0 646.7
+line 746.0 673.3 734.0 673.3
+rect 340.0 200.0 160.0 80.0
+rect 340.0 340.0 160.0 80.0
+rect 340.0 480.0 160.0 80.0
+rect 60.0 340.0 160.0 80.0
+rect 640.0 200.0 200.0 420.0
+rect 640.0 700.0 200.0 100.0
+rect 660.0 60.0 160.0 80.0
+[text]
+text 140.0 380.0 USB
+text 140.0 396.0 POWER_USB
+text 214.0 380.0 vin
+text 280.0 370.0 USB
+text 346.0 380.0 vin
+text 420.0 240.0 FLASH
+text 420.0 256.0 FLASH.GD25Q32E
+text 420.0 380.0 LDO
+text 420.0 396.0 POWER_LDO
+text 420.0 520.0 DCDC
+text 420.0 536.0 POWER_DCDC
+text 494.0 256.8 _CS
+text 494.0 380.0 vout
+text 494.0 500.0 VCC_1V2
+text 494.0 540.0 VDD_3V3
+text 504.0 249.8 1
+text 540.0 230.0 V3V3
+text 540.0 370.0 V3V3
+text 540.0 530.0 V3V3
+text 570.0 246.8 SPI [4]
+text 570.0 490.0 V1V2
+text 575.0 425.0 V3V3
+text 610.0 400.0 V3V3
+text 610.0 740.0 V3V3
+text 620.0 90.0 V3V3
+text 740.0 100.0 MIC
+text 740.0 116.0 MIC_SIP
+text 740.0 160.0 MIC [2]
+text 740.0 212.0 MIC
+text 740.0 410.0 MCU513
+text 740.0 426.0 US513
+text 740.0 614.0 DAC_OUT
+text 740.0 650.0 SPK [2]
+text 740.0 712.0 DAC_OUT
+text 740.0 750.0 SPK
+text 740.0 766.0 SPEAKER_M
