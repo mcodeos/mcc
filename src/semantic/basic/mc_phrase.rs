@@ -2781,12 +2781,7 @@ impl McPhrase {
                 if check_list_column_width_mixed([&opd1, &opd2], node, context) {
                     return None;
                 }
-                if !is_connectable(
-                    ConnOp::Series,
-                    ConnDir::LtoR,
-                    &opd1_shape,
-                    &opd2_shape,
-                ) {
+                if !is_connectable(ConnOp::Series, ConnDir::LtoR, &opd1_shape, &opd2_shape) {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
                         node,
@@ -2858,12 +2853,7 @@ impl McPhrase {
                 if check_list_column_width_mixed([&opd1, &opd2], node, context) {
                     return None;
                 }
-                if !is_connectable(
-                    ConnOp::Series,
-                    ConnDir::RtoL,
-                    &opd2_shape,
-                    &opd1_shape,
-                ) {
+                if !is_connectable(ConnOp::Series, ConnDir::RtoL, &opd2_shape, &opd1_shape) {
                     dlog_error(
                         crate::errcodes::CONN_LEFT_ARROW_SHAPE_MISMATCH,
                         node,

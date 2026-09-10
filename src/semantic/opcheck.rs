@@ -299,7 +299,11 @@ mod tests {
             })
         );
         assert_eq!(
-            check_series(ConnDir::Undirected, &column(&["A", "B", "C"]), &point("GND")),
+            check_series(
+                ConnDir::Undirected,
+                &column(&["A", "B", "C"]),
+                &point("GND")
+            ),
             OpCheck::Illegal(OpIllegal::SeriesRowsMismatch {
                 lhs: Shape::vvec(3),
                 rhs: Shape::node(),
@@ -311,7 +315,11 @@ mod tests {
     fn sem_opcheck__series_rows_mismatch_illegal() {
         // column 2*1 - column 3*1: not a §5 combo, no broadcast (both >= 2).
         assert_eq!(
-            check_series(ConnDir::Undirected, &column(&["A", "B"]), &column(&["C", "D", "E"])),
+            check_series(
+                ConnDir::Undirected,
+                &column(&["A", "B"]),
+                &column(&["C", "D", "E"])
+            ),
             OpCheck::Illegal(OpIllegal::SeriesRowsMismatch {
                 lhs: Shape::vvec(2),
                 rhs: Shape::vvec(3),
@@ -322,11 +330,19 @@ mod tests {
     #[test]
     fn sem_opcheck__series_unknown_wildcard() {
         assert!(matches!(
-            check_series(ConnDir::Undirected, &OpdShape::Unknown, &column(&["A", "B", "C", "D"])),
+            check_series(
+                ConnDir::Undirected,
+                &OpdShape::Unknown,
+                &column(&["A", "B", "C", "D"])
+            ),
             OpCheck::Legal(_)
         ));
         assert!(matches!(
-            check_series(ConnDir::Undirected, &column(&["A", "B", "C", "D"]), &OpdShape::Unknown),
+            check_series(
+                ConnDir::Undirected,
+                &column(&["A", "B", "C", "D"]),
+                &OpdShape::Unknown
+            ),
             OpCheck::Legal(_)
         ));
     }
@@ -337,7 +353,10 @@ mod tests {
     fn sem_opcheck__series_empty_left_contact_wildcard() {
         let ret = node(&[], &["OUT"]);
         assert_eq!(ret.size_left(), 0);
-        assert!(matches!(check_series(ConnDir::Undirected, &point("X"), &ret), OpCheck::Legal(_)));
+        assert!(matches!(
+            check_series(ConnDir::Undirected, &point("X"), &ret),
+            OpCheck::Legal(_)
+        ));
     }
 
     // ---- §5.1 parallel (`+`) ----
@@ -396,11 +415,7 @@ mod tests {
             })
         );
         assert!(matches!(
-            check_parallel(
-                und,
-                &node(&["A.1"], &["A.2", "A.3"]),
-                &column(&["B", "C"])
-            ),
+            check_parallel(und, &node(&["A.1"], &["A.2", "A.3"]), &column(&["B", "C"])),
             OpCheck::Legal(_)
         ));
 
@@ -464,11 +479,19 @@ mod tests {
     fn sem_opcheck__parallel_column_column_ok() {
         // column N*1 + column N*1 (same rows N) -- both degenerate.
         assert!(matches!(
-            check_parallel(ConnDir::Undirected, &column(&["A", "B", "C"]), &column(&["D", "E", "F"])),
+            check_parallel(
+                ConnDir::Undirected,
+                &column(&["A", "B", "C"]),
+                &column(&["D", "E", "F"])
+            ),
             OpCheck::Legal(_)
         ));
         assert!(matches!(
-            check_parallel(ConnDir::Undirected, &column(&["A", "B"]), &column(&["C", "D"])),
+            check_parallel(
+                ConnDir::Undirected,
+                &column(&["A", "B"]),
+                &column(&["C", "D"])
+            ),
             OpCheck::Legal(_)
         ));
     }
@@ -485,7 +508,11 @@ mod tests {
         );
         // column N*1 + column M*1, N != M.
         assert!(matches!(
-            check_parallel(ConnDir::Undirected, &column(&["A", "B"]), &column(&["C", "D", "E"])),
+            check_parallel(
+                ConnDir::Undirected,
+                &column(&["A", "B"]),
+                &column(&["C", "D", "E"])
+            ),
             OpCheck::Illegal(_)
         ));
     }
@@ -499,14 +526,22 @@ mod tests {
         // 2 x 2 -> LEGAL. The old rule compared left faces (1 x 2) and
         // rejected a legal form.
         assert!(matches!(
-            check_parallel(ConnDir::Undirected, &node(&["A.1"], &["A.2", "A.3"]), &column(&["B", "C"])),
+            check_parallel(
+                ConnDir::Undirected,
+                &node(&["A.1"], &["A.2", "A.3"]),
+                &column(&["B", "C"])
+            ),
             OpCheck::Legal(_)
         ));
         // node N*1,M*1 + column 2*1 with N=2, M=1: the written side pairs
         // 1 x 2 -> ILLEGAL. The old rule compared left faces (2 x 2) and
         // accepted an illegal form.
         assert_eq!(
-            check_parallel(ConnDir::Undirected, &node(&["A.1", "A.2"], &["A.3"]), &column(&["B", "C"])),
+            check_parallel(
+                ConnDir::Undirected,
+                &node(&["A.1", "A.2"], &["A.3"]),
+                &column(&["B", "C"])
+            ),
             OpCheck::Illegal(OpIllegal::ParallelPairedMismatch {
                 lhs: Shape::node(),
                 rhs: Shape::vvec(2),
@@ -519,7 +554,11 @@ mod tests {
         // Both operands non-degenerate: the left faces pair (1 x 1) but the
         // right faces do not (2 x 1) -> illegal on the second face.
         assert_eq!(
-            check_parallel(ConnDir::Undirected, &node(&["A.1"], &["A.2", "A.3"]), &row("B.1", "B.2")),
+            check_parallel(
+                ConnDir::Undirected,
+                &node(&["A.1"], &["A.2", "A.3"]),
+                &row("B.1", "B.2")
+            ),
             OpCheck::Illegal(OpIllegal::ParallelPairedMismatch {
                 lhs: Shape::vvec(2),
                 rhs: Shape::node(),
@@ -527,11 +566,19 @@ mod tests {
         );
         // Equal right rows -> legal on both faces.
         assert!(matches!(
-            check_parallel(ConnDir::Undirected, &node(&["A.1"], &["A.2", "A.3"]), &node(&["B.1"], &["B.2", "B.3"])),
+            check_parallel(
+                ConnDir::Undirected,
+                &node(&["A.1"], &["A.2", "A.3"]),
+                &node(&["B.1"], &["B.2", "B.3"])
+            ),
             OpCheck::Legal(_)
         ));
         assert!(matches!(
-            check_parallel(ConnDir::Undirected, &node(&["A.1"], &["A.2"]), &row("B.1", "B.2")),
+            check_parallel(
+                ConnDir::Undirected,
+                &node(&["A.1"], &["A.2"]),
+                &row("B.1", "B.2")
+            ),
             OpCheck::Legal(_)
         ));
     }
@@ -599,21 +646,37 @@ mod tests {
     fn sem_opcheck__tri_state_semantics() {
         // Known(n): equal rows legal, unequal rows illegal.
         assert!(matches!(
-            check_series(ConnDir::Undirected, &column(&["A", "B"]), &column(&["C", "D"])),
+            check_series(
+                ConnDir::Undirected,
+                &column(&["A", "B"]),
+                &column(&["C", "D"])
+            ),
             OpCheck::Legal(_)
         ));
         assert!(matches!(
-            check_series(ConnDir::Undirected, &column(&["A", "B"]), &column(&["C", "D", "E"])),
+            check_series(
+                ConnDir::Undirected,
+                &column(&["A", "B"]),
+                &column(&["C", "D", "E"])
+            ),
             OpCheck::Illegal(_)
         ));
 
         // Deferred: Unknown wildcard-passes on either side.
         assert!(matches!(
-            check_series(ConnDir::Undirected, &OpdShape::Unknown, &column(&["A", "B", "C"])),
+            check_series(
+                ConnDir::Undirected,
+                &OpdShape::Unknown,
+                &column(&["A", "B", "C"])
+            ),
             OpCheck::Legal(_)
         ));
         assert!(matches!(
-            check_series(ConnDir::Undirected, &column(&["A", "B", "C"]), &OpdShape::Unknown),
+            check_series(
+                ConnDir::Undirected,
+                &column(&["A", "B", "C"]),
+                &OpdShape::Unknown
+            ),
             OpCheck::Legal(_)
         ));
 

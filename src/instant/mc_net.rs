@@ -129,7 +129,24 @@ pub struct NetPoint {
     pub same_name_pads: Vec<NetPoint>,
 }
 
+/// Sentinel prefix of an unresolved `_` placeholder lead, produced by the
+/// point collectors in `instant/mc_mod/points.rs`. Such a point occupies a
+/// **width slot** (it is what makes `[R101, _]` two columns wide) but is not a
+/// real endpoint: it must never end up as a member of a net. If it fails to
+/// resolve it is reported as `FLOATING_PLACEHOLDER` (D2 in
+/// `vector/builder/visit.rs`). Kept here as the single source of the literal.
+pub const LEAD_PLACEHOLDER_PREFIX: &str = "(lead)_";
+
 impl NetPoint {
+    /// Is this the unresolved `_` placeholder sentinel?
+    ///
+    /// Placeholder points are width fillers, not endpoints. Callers that turn
+    /// a point list into a connection must drop them (a lane left with fewer
+    /// than two real points is not a connection at all).
+    pub fn is_lead_placeholder(&self) -> bool {
+        self.path.starts_with(LEAD_PLACEHOLDER_PREFIX)
+    }
+
     /// Create a simple net point (port/label)
     ///
     /// ★ Patch 2-1: literal reference → quarantine, no panic.

@@ -2603,9 +2603,23 @@ impl InstantiationBuilder {
 
             if is_transposed {
                 // Transposed bridge element: lp already contains all pins
-                // (left+right merged). Push to left_net for lane-slice
-                // distribution; do NOT push to right_net (rp == lp).
-                left_net.extend(lp.iter().cloned());
+                // (left+right merged; rp == lp, so it is pushed exactly once).
+                //
+                // Which net it joins follows the face-side law (vec-dianlu.md
+                // §1.4 / §5.1): parallel consumes no port, so a degenerate
+                // operand attaches to the face on its **written** side. Written
+                // as the first operand it bridges the parallel's entry face;
+                // written after another operand it bridges the exit face.
+                // Pushing to left_net unconditionally put every `X + Y'` bridge
+                // on the entry face, so writing the cap after the branches
+                // flipped the bridge (see tests/vec_parallel_transposed_bridge.rs,
+                // cell `bridge__written_right_lands_on_right_faces`).
+                let bridge_net = if i == 0 {
+                    &mut left_net
+                } else {
+                    &mut right_net
+                };
+                bridge_net.extend(lp.iter().cloned());
             } else if opd_single {
                 // Single-end opd (a bare label / test point / single-pin net
                 // node, e.g. TP1 in `(VBUS -> USB_VBUS) + TP1`, spk.N in
@@ -2709,8 +2723,13 @@ impl InstantiationBuilder {
                 // Slice N lanes by position
                 let lanes = left_net.len() / anchor_dim;
                 for i in 0..anchor_dim {
+                    // `_` placeholders hold their width slot but are not
+                    // endpoints: drop them here, so a lane they occupied
+                    // collapses below the 2-point floor and emits nothing
+                    // (`[R101, _] + CAP'` must bridge only the real branch).
                     let lane: Vec<NetPoint> = (0..lanes)
                         .map(|j| left_net[j * anchor_dim + i].clone())
+                        .filter(|p| !p.is_lead_placeholder())
                         .collect();
                     if lane.len() >= 2 {
                         let id = self.next_conn_id();
@@ -2742,8 +2761,10 @@ impl InstantiationBuilder {
             if right_dim >= 2 && right_net.len() % right_dim == 0 {
                 let lanes = right_net.len() / right_dim;
                 for i in 0..right_dim {
+                    // Same placeholder rule as the left net above.
                     let lane: Vec<NetPoint> = (0..lanes)
                         .map(|j| right_net[j * right_dim + i].clone())
+                        .filter(|p| !p.is_lead_placeholder())
                         .collect();
                     if lane.len() >= 2 {
                         let id = self.next_conn_id();
