@@ -24,6 +24,15 @@
   from the language rather than extending the list. (Example: P2-5 lane
   expansion decided by `fc_params_reference_bus_in_set`, not by "is this
   method called Pullup".)
+- **Never run the full test suite by default.** Run only the test targets the
+  change can actually affect (`cargo test --test <target> --test <target> …` in
+  `mcc` / `mcs`). A whole-workspace `cargo test` (or `cargo nextest run` with no
+  filter) is run **only when the user explicitly asks for it**. Compiling the
+  ~85 `mcc` test targets plus `mcs`'s suites dominates the wall-clock, and an
+  unintended full run also drags in the known-red `repro_*` family and its
+  poisoned-lock cascade, drowning the signal from the suites that matter.
+  Pick the targets from the code you touched; if you are unsure which those are,
+  say so and run the nearest family rather than everything.
 - **Parsing derives structure from the AST, never from string re-parsing.**
   In parsing, rely on the AST as ground truth — do not do your own string
   searching. Never re-derive language structure by rendering an `McPhrase` /
