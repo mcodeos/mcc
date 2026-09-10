@@ -520,6 +520,79 @@ fn assign_coordinates(
     let w_set: HashSet<i64> = w_ring1.iter().map(|(id, _)| *id).collect();
     let ranks = power_supply_rank(edges, &w_set);
 
+    // Final tie-break key for every placed row: source_span offset asc, then box
+    // id asc.
+    //
+    // Every other key can tie completely -- same sector, same rank, same hub
+    // offset, same edge label, as when three boxes hang off the hub through a
+    // single net. Without a total order the row order silently falls back to the
+    // iteration order of `sectors`, which is a HashMap, making the whole root
+    // layer's geometry nondeterministic run to run (measured on pwrint: 5 distinct
+    // row orders in 6 runs, 35 of 39 lines moving).
+    //
+    // This key is not just a tie-break -- it is the ONLY order the N row, the S
+    // row and the W ring-2+ column have. They are collected straight off that same
+    // HashMap with no sort at all, so all three rows drift (measured on hbl: 3
+    // distinct root drawings in 5 runs, 34 of the 47 text elements moving -- the
+    // rect set stays identical because the swapped boxes are the same size).
+    //
+    // NOTE: the source offset is unset for many boxes (`source_span` is None), so
+    // this degenerates to box id ascending. That is stable but arbitrary -- it is
+    // instance-table order, NOT declaration order and NOT hub-pin order. Ordering
+    // rows by where the net actually attaches on the hub requires endpoint
+    // identity on `BlockEdge`, which is P0.
+    // See mcd/doc/viz/edge-anchor-design.md (P0'/R0).
+    let row_key: HashMap<i64, (u32, i64)> = graph
+        .boxes
+        .iter()
+        .map(|bx| {
+            let line = bx
+                .source_span
+                .as_ref()
+                .map(|p| p.offset)
+                .unwrap_or(u32::MAX);
+            (bx.id, (line, bx.id))
+        })
+        .collect();
+
+    // Row key = where this box's net attaches on the hub's WEST face (its y
+    // position there). The key is the hub pin's own id, taken from the edge's
+    // endpoint identity (`BlockEdge::from_pins`/`to_pins`, §5/L1). It used to
+    // compare `ep.pin_name` (a pin's name, e.g. "1"/"5"/"GND") against `e.label`
+    // (a net or trunk label, e.g. "[VMAIN_5V, GND]") -- two disjoint namespaces, so
+    // it matched 0 times out of 5 on pwrint and the key was dead (design R5).
+    // Never go back to matching endpoints by display strings.
+    //
+    // Returns (offset on the hub's west face, label fallback, resolved pin id). An
+    // unresolved pin id means "no direct hub edge, or that hub pin is not on the
+    // west face"; the offset is then the neutral 0.5, as it always was, and the row
+    // log below keeps that visible.
+    let hub_west = |box_id: i64| -> (f64, String, Option<i64>) {
+        let (mut label, mut hub_pins): (String, &[i64]) = (String::new(), &[]);
+        for e in edges {
+            let (other, pins) = if e.from_box == hub_id {
+                // Hub is the source here, so the hub's own pins are the `from` end.
+                (e.to_box, e.from_pins.as_slice())
+            } else if e.to_box == hub_id {
+                // Hub is the target, so the hub's own pins are the `to` end.
+                (e.from_box, e.to_pins.as_slice())
+            } else {
+                continue;
+            };
+            if other == box_id {
+                label = e.label.clone();
+                hub_pins = pins;
+                break;
+            }
+        }
+        for &pin in hub_pins {
+            if let Some(ep) = hub_entry_points.iter().find(|ep| ep.pin_id == pin) {
+                return (ep.offset, String::new(), Some(pin));
+            }
+        }
+        (0.5, label, None)
+    };
+
     w_ring1.sort_by(|a, b| {
         let order = |s: Sector| match s {
             Sector::WestUpper => 0,
@@ -537,39 +610,48 @@ fn assign_coordinates(
             (None, Some(_)) => return std::cmp::Ordering::Greater,
             _ => {}
         }
-        // Within same sector, sort by hub entry_point offset (y position).
-        // Find the edge connecting each box to the hub, then find the hub's
-        // entry_point for that pin, and sort by offset.
-        // Fallback: sort by edge label in reverse alphabetical order.
-        let hub_offset = |box_id: i64| -> (f64, String) {
-            for e in edges {
-                let other = if e.from_box == hub_id {
-                    e.to_box
-                } else if e.to_box == hub_id {
-                    e.from_box
-                } else {
-                    continue;
-                };
-                if other == box_id {
-                    // Find the hub entry_point matching this edge's label
-                    for ep in &hub_entry_points {
-                        if ep.pin_name == e.label {
-                            return (ep.offset, String::new());
-                        }
-                    }
-                    // Fallback: use edge label for deterministic ordering
-                    return (0.5, e.label.clone());
-                }
-            }
-            (0.5, String::new()) // fallback: middle of hub
-        };
-        let (off_a, label_a) = hub_offset(a.0);
-        let (off_b, label_b) = hub_offset(b.0);
+        // Within same sector, order by the box's hub-west attachment point
+        // (see `hub_west` above for why this is a pin id and not a label).
+        let (off_a, label_a, _) = hub_west(a.0);
+        let (off_b, label_b, _) = hub_west(b.0);
         off_a
             .partial_cmp(&off_b)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| label_b.cmp(&label_a)) // reverse alphabetical: V3V3 > V1V2
+            .then_with(|| {
+                let ka = row_key.get(&a.0).copied().unwrap_or((u32::MAX, a.0));
+                let kb = row_key.get(&b.0).copied().unwrap_or((u32::MAX, b.0));
+                ka.cmp(&kb)
+            })
     });
+
+    // Row provenance (§3.1: an unresolved key must be visible, never silent).
+    let mut w_identity_missing = 0usize;
+    for (i, (box_id, _)) in w_ring1.iter().enumerate() {
+        let (off, _, pin) = hub_west(*box_id);
+        if pin.is_none() {
+            w_identity_missing += 1;
+        }
+        crate::vlog!(
+            "[radial] W row {}: box={} hub_pin={:?} offset={:.3}{}",
+            i,
+            box_id,
+            pin,
+            off,
+            if pin.is_none() {
+                "  <- no hub-west pin identity; key degraded"
+            } else {
+                ""
+            }
+        );
+    }
+    if w_identity_missing > 0 {
+        crate::vlog!(
+            "[radial] W row order: {}/{} rows had no hub-west pin identity and fell back to label+declaration order",
+            w_identity_missing,
+            w_ring1.len()
+        );
+    }
 
     let w_x = 340.0;
 
@@ -585,7 +667,7 @@ fn assign_coordinates(
     }
 
     // Place ring ≥ 2 W boxes: same y as ring-1 neighbor, x = neighbor_x - COL_STEP
-    let w_ring2plus: Vec<i64> = sectors
+    let mut w_ring2plus: Vec<i64> = sectors
         .iter()
         .filter(|(&id, &s)| {
             id != hub_id
@@ -594,6 +676,9 @@ fn assign_coordinates(
         })
         .map(|(&id, _)| id)
         .collect();
+    // Collected off a HashMap: without a sort the placement below (which takes the
+    // FIRST ring-1 neighbor it finds, and `adj` is a HashMap too) drifts run to run.
+    w_ring2plus.sort_by_key(|id| row_key.get(id).copied().unwrap_or((u32::MAX, *id)));
 
     for &box_id in &w_ring2plus {
         // Find ring-1 neighbor via actual edges, preferring W-column boxes.
@@ -635,11 +720,12 @@ fn assign_coordinates(
     // single centered row above the hub instead of writing every member to the
     // same slot (which stacked them invisibly on top of each other). With one
     // box the row collapses back to the historic single-slot position.
-    let n_boxes: Vec<i64> = sectors
+    let mut n_boxes: Vec<i64> = sectors
         .iter()
         .filter(|(&id, &s)| id != hub_id && s == Sector::North)
         .map(|(&id, _)| id)
         .collect();
+    n_boxes.sort_by_key(|id| row_key.get(id).copied().unwrap_or((u32::MAX, *id)));
     if !n_boxes.is_empty() {
         let total_w = n_boxes.len() as f64 * BOX_W + (n_boxes.len() - 1) as f64 * ROW_GAP;
         let row_left = (hub_x + HUB_W / 2.0) - total_w / 2.0; // center row on hub
@@ -656,11 +742,12 @@ fn assign_coordinates(
 
     // Place S-column boxes (speaker / signal outputs from the hub). Same rule as
     // N: spread multiple members into one centered row below the hub.
-    let s_boxes: Vec<i64> = sectors
+    let mut s_boxes: Vec<i64> = sectors
         .iter()
         .filter(|(&id, &s)| id != hub_id && s == Sector::South)
         .map(|(&id, _)| id)
         .collect();
+    s_boxes.sort_by_key(|id| row_key.get(id).copied().unwrap_or((u32::MAX, *id)));
     if !s_boxes.is_empty() {
         let total_w = s_boxes.len() as f64 * HUB_W + (s_boxes.len() - 1) as f64 * ROW_GAP;
         let row_left = (hub_x + HUB_W / 2.0) - total_w / 2.0;
@@ -704,8 +791,8 @@ const FAN_SPAN: f64 = 0.4;
 fn setup_facade_entry_points(graph: &mut McVecGraph, edges: &[BlockEdge]) {
     use crate::vector::graph::EntryPoint;
 
-    // box_id -> Vec<(pin_name, side, neighbour_id, base_offset)>
-    let mut per_box: HashMap<i64, Vec<(String, EntrySide, i64, f64)>> = HashMap::new();
+    // box_id -> Vec<(pin_name, side, neighbour_id, base_offset, real_pin_id)>
+    let mut per_box: HashMap<i64, Vec<(String, EntrySide, i64, f64, i64)>> = HashMap::new();
 
     for edge in edges {
         if edge.kind != EdgeKind::Signal && edge.kind != EdgeKind::Bus {
@@ -724,10 +811,26 @@ fn setup_facade_entry_points(graph: &mut McVecGraph, edges: &[BlockEdge]) {
 
         for (this, other) in [(a, b), (b, a)] {
             let (side, base) = facing_side_and_offset(this, other);
-            per_box
-                .entry(this.id)
-                .or_default()
-                .push((edge.label.clone(), side, other.id, base));
+            // ★ R4/L1: carry the *real* pin id this net lands on at this box. The
+            // previous `0` was a synthesized id that nothing can resolve: the box's
+            // own port table is keyed by the real id (`boundary_port_name`), so a
+            // lead built on `0` had no port name and no pin to anchor to. Primary
+            // pin rule (design §5.2): lowest id on this box for this net; `0` only
+            // when the edge genuinely names no real pin at this end.
+            let pin_id = if this.id == edge.from_box {
+                edge.from_pins.first()
+            } else {
+                edge.to_pins.first()
+            }
+            .copied()
+            .unwrap_or(0);
+            per_box.entry(this.id).or_default().push((
+                edge.label.clone(),
+                side,
+                other.id,
+                base,
+                pin_id,
+            ));
         }
     }
 
@@ -738,17 +841,17 @@ fn setup_facade_entry_points(graph: &mut McVecGraph, edges: &[BlockEdge]) {
         // A net that fans out to several boxes is still one pin: keep the first name.
         let mut seen_names: std::collections::HashSet<String> = Default::default();
         let mut names: Vec<String> = Vec::new();
-        let mut kept: Vec<(EntrySide, i64, f64)> = Vec::new();
-        for (name, side, nid, base) in raw {
+        let mut kept: Vec<(EntrySide, i64, f64, i64)> = Vec::new();
+        for (name, side, nid, base, pin) in raw {
             if seen_names.insert(name.clone()) {
                 names.push(name);
-                kept.push((side, nid, base));
+                kept.push((side, nid, base, pin));
             }
         }
 
         // Group pin indices by (side, neighbour) so only same-target pins fan out.
         let mut groups: HashMap<(EntrySide, i64), Vec<usize>> = HashMap::new();
-        for (i, &(side, nid, _)) in kept.iter().enumerate() {
+        for (i, &(side, nid, _, _)) in kept.iter().enumerate() {
             groups.entry((side, nid)).or_default().push(i);
         }
 
@@ -766,7 +869,7 @@ fn setup_facade_entry_points(graph: &mut McVecGraph, edges: &[BlockEdge]) {
                 let offset =
                     (base - FAN_SPAN / 2.0 + f * FAN_SPAN).clamp(EDGE_INSET, 1.0 - EDGE_INSET);
                 eps.push(EntryPoint {
-                    pin_id: 0,
+                    pin_id: kept[i].3,
                     pin_name: names[i].clone(),
                     side,
                     offset,
@@ -909,6 +1012,9 @@ mod tests {
             BlockEdge {
                 from_box: 1,
                 to_box: 2,
+                from_pins: vec![],
+                to_pins: vec![],
+                driver_box: None,
                 label: "SIG".into(),
                 lane_count: 1,
                 kind: EdgeKind::Signal,
@@ -919,6 +1025,9 @@ mod tests {
             BlockEdge {
                 from_box: 1,
                 to_box: 3,
+                from_pins: vec![],
+                to_pins: vec![],
+                driver_box: None,
                 label: "VCC".into(),
                 lane_count: 1,
                 kind: EdgeKind::Power,
@@ -942,6 +1051,9 @@ mod tests {
             BlockEdge {
                 from_box: 1,
                 to_box: 2,
+                from_pins: vec![],
+                to_pins: vec![],
+                driver_box: None,
                 label: "A".into(),
                 lane_count: 1,
                 kind: EdgeKind::Signal,
@@ -952,6 +1064,9 @@ mod tests {
             BlockEdge {
                 from_box: 2,
                 to_box: 3,
+                from_pins: vec![],
+                to_pins: vec![],
+                driver_box: None,
                 label: "B".into(),
                 lane_count: 1,
                 kind: EdgeKind::Power,
@@ -998,6 +1113,9 @@ mod tests {
             BlockEdge {
                 from_box: 1,
                 to_box: 2,
+                from_pins: vec![],
+                to_pins: vec![],
+                driver_box: None,
                 label: "DATA".into(),
                 lane_count: 1,
                 kind: EdgeKind::Signal,
@@ -1008,6 +1126,9 @@ mod tests {
             BlockEdge {
                 from_box: 1,
                 to_box: 3,
+                from_pins: vec![],
+                to_pins: vec![],
+                driver_box: None,
                 label: "OUT".into(),
                 lane_count: 1,
                 kind: EdgeKind::Signal,
@@ -1018,6 +1139,9 @@ mod tests {
             BlockEdge {
                 from_box: 3,
                 to_box: 1,
+                from_pins: vec![],
+                to_pins: vec![],
+                driver_box: None,
                 label: "STAT".into(),
                 lane_count: 1,
                 kind: EdgeKind::Signal,
@@ -1028,6 +1152,9 @@ mod tests {
             BlockEdge {
                 from_box: 4,
                 to_box: 1,
+                from_pins: vec![],
+                to_pins: vec![],
+                driver_box: None,
                 label: "VCC".into(),
                 lane_count: 1,
                 kind: EdgeKind::Power,
@@ -1107,6 +1234,9 @@ mod tests {
         let edges = vec![BlockEdge {
             from_box: 1,
             to_box: 2,
+            from_pins: vec![],
+            to_pins: vec![],
+            driver_box: None,
             label: "DATA".into(),
             lane_count: 1,
             kind: EdgeKind::Signal,
@@ -1168,6 +1298,9 @@ mod tests {
         let edge = |from: i64, to: i64, kind: EdgeKind| BlockEdge {
             from_box: from,
             to_box: to,
+            from_pins: vec![],
+            to_pins: vec![],
+            driver_box: None,
             label: "V".into(),
             lane_count: 1,
             kind,
@@ -1196,6 +1329,9 @@ mod tests {
         let e = |from: i64, to: i64| BlockEdge {
             from_box: from,
             to_box: to,
+            from_pins: vec![],
+            to_pins: vec![],
+            driver_box: None,
             label: "V".into(),
             lane_count: 1,
             kind: EdgeKind::Power,
