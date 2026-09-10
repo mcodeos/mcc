@@ -1370,6 +1370,7 @@ mod m11_diagnostic_tests {
             trunk: None,
             trunk_ref: None,
             shape: None,
+            boundary: None,
         }
     }
 

@@ -34,6 +34,7 @@ pub mod flow;
 pub mod islands;
 pub mod ladder_model;
 pub mod ladder_place;
+pub mod module_frame;
 pub mod normalize;
 pub mod optimize;
 pub mod overlap;

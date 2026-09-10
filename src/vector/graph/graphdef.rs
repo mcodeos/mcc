@@ -24,7 +24,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use super::boxdef::{McVecBox, PortDir, ZoneBorder};
+use super::boxdef::{McVecBox, ModuleFrame, PortDir, ZoneBorder};
 use super::netdef::{McVecEdge, NetRole, VizNet};
 use crate::vector::model::trunk::Trunk;
 
@@ -97,6 +97,11 @@ pub struct McVecGraph {
     pub is_root: bool,
     /// ★ C1b: rendering style for this layer.
     pub layer_style: LayerStyle,
+    /// ★ Module-port drawing: the boundary frame of a module drawn as its own
+    /// layer — a dashed rect with the module's ports on it. `None` when this layer
+    /// is not a module's own schematic. Filled by the post-layout `module_frame`
+    /// pass; the renderer draws it verbatim.
+    pub module_frame: Option<ModuleFrame>,
 }
 
 /// ★ C1b F0: rendering style — determines which pipeline a layer uses.
@@ -181,6 +186,7 @@ impl McVecGraph {
             islands_total: 0,
             module_ports: vec![],
             zone_borders: vec![],
+            module_frame: None,
             canvas_hint: None,
             is_submodule: false,
             rail_decorations: vec![],

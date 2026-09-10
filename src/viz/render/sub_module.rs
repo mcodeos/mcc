@@ -14,10 +14,9 @@
 //! thicker stroke, instance name centered inside the box, no + corner
 //! marker but keeps onclick drill-down.
 
-use crate::vector::graph::McVecBox;
-use crate::vector::graph::{BoxKind, Symbol};
+use crate::vector::graph::{BoxKind, EntryPoint, McVecBox, Symbol};
 
-use super::pin_render::{render_pin, PinRenderOpts, PinStyle};
+use super::pin_render::{render_pin, render_pin_named, PinRenderOpts, PinStyle};
 
 /// Pin render options for sub-module ports.
 ///
@@ -29,13 +28,39 @@ use super::pin_render::{render_pin, PinRenderOpts, PinStyle};
 ///
 /// Difference from IC: **physical pin numbers are not shown** — the `pin_id` of sub-module ports is
 /// mostly a high-bit id synthesized in layout (see `promote_synthetic_pins`), and showing it would be meaningless.
+///
+/// ★ Module-port drawing: the boundary is named by the **port** the lead crosses
+/// (`vin`), not by the net it happens to carry (`V5V`). The net name is still on
+/// the wire — the wire label is the net's, and stays the net's. One name per
+/// place: port on the boundary, net on the line.
 fn submodule_pin_opts() -> PinRenderOpts {
     PinRenderOpts {
         style: PinStyle::Stub,
         show_number: false,
-        show_name: false, // ★ P-3: one name per edge, on the line only
+        show_name: false,
         show_io: false,
     }
+}
+
+/// Render one sub-module lead, named by the module port it crosses.
+///
+/// The port identity lives on the box (`boundary_ports`), not on the entry point
+/// — an entry point is a *net* crossing, and its `pin_name` is that net's label.
+/// Handing the port name to [`render_pin_named`] labels the boundary by its port
+/// while leaving the box's own `entry_points` untouched: every anchor and every
+/// routed wire end stays exactly where it was.
+///
+/// The name appears **only** where an entry point resolves to a port. An entry
+/// point that is not a port crossing — an aggregated interface trunk, a synthetic
+/// rail pin — draws nothing here and keeps whatever the wire itself is labeled;
+/// naming it after its net would put a second, wrong identity on the boundary.
+fn render_submodule_pin(b: &McVecBox, ep: &EntryPoint) -> String {
+    let port = b.boundary_port_name(ep.pin_id);
+    let opts = PinRenderOpts {
+        show_name: port.is_some(),
+        ..submodule_pin_opts()
+    };
+    render_pin_named(b, ep, opts, port)
 }
 
 /// Render a sub-module box (sub-layer, dashed style with + expand marker).
@@ -60,17 +85,17 @@ fn render_sub_module_impl(b: &McVecBox, is_root: bool) -> String {
         .entry_points
         .iter()
         .map(|ep| {
-            let opts = if b.symbol == Symbol::Module || b.kind == BoxKind::SubModule {
-                submodule_pin_opts()
+            if b.symbol == Symbol::Module || b.kind == BoxKind::SubModule {
+                render_submodule_pin(b, ep)
             } else {
-                PinRenderOpts {
+                let opts = PinRenderOpts {
                     style: PinStyle::Stub,
                     show_number: true,
                     show_name: true,
                     show_io: false,
-                }
-            };
-            render_pin(b, ep, opts)
+                };
+                render_pin(b, ep, opts)
+            }
         })
         .collect();
 

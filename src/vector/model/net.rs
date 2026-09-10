@@ -173,6 +173,15 @@ pub struct BoundaryInfo {
     pub port_name: String,
     /// IO direction of the port.
     pub io: crate::vector::graph::netdef::IoDirection,
+    /// The group this port crosses is a **declared supply** rather than a signal.
+    ///
+    /// Supply ports and signal ports reach this marker by different routes: a
+    /// rail group's pseudo endpoints are dropped from `real` (they name the net,
+    /// they are not connection points) while a signal group's stay and become the
+    /// PortTerminal connections. The distinction is real and consumers need it —
+    /// but it must never be re-derived downstream from the port's *name*, so it is
+    /// carried here, from the net's declared attr.
+    pub is_supply: bool,
 }
 
 impl McVecNet {

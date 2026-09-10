@@ -7088,7 +7088,7 @@ pub fn fit_content_to_canvas(graph: &mut McVecGraph) -> (f64, f64, f64, f64) {
 /// and symbols (with the symbol glyph extents — ground bars, bus circles, and
 /// `text_side`-anchored label text — so a left-anchored label or a ground
 /// symbol cannot hang off the canvas edge).
-fn content_bbox(graph: &McVecGraph, trees: &[EquiTree]) -> Option<(f64, f64, f64, f64)> {
+pub(crate) fn content_bbox(graph: &McVecGraph, trees: &[EquiTree]) -> Option<(f64, f64, f64, f64)> {
     let mut min_x = f64::MAX;
     let mut min_y = f64::MAX;
     let mut max_x = f64::MIN;

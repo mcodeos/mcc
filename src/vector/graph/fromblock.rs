@@ -23,8 +23,8 @@ use crate::semantic::module::McModule;
 use super::super::model::netshape::{GroupRole, NetShape};
 use super::super::model::{AttrRole, ConnectionType, McVecBlock, McVecNet, NetAttrMirror};
 use super::boxdef::{
-    BoxPin, CustomSymbol, EntryPoint, EntrySide, IoSummary, McVecBox, PinConstraint, PinLayout,
-    PortDir, VisualRole,
+    BoundaryPort, BoxPin, CustomSymbol, IoSummary, McVecBox, PinConstraint, PinLayout, PortDir,
+    VisualRole,
 };
 use super::detect::{
     compute_io, compute_scope_chain, detect_kind, detect_symbol, extract_designator,
@@ -148,6 +148,65 @@ fn placeholder_pins(box_id: i64, pin_count: usize) -> Vec<BoxPin> {
                 io: IoDirection::Unknown,
                 port_dir: PortDir::None,
             }
+        })
+        .collect()
+}
+
+/// Build the module-port identities behind a module box's boundary.
+///
+/// A module's ports reach us as a **flat** list under the module's own id: a port
+/// group (`main.LDO.vin`) and its members (`main.LDO.vin.V5V`,
+/// `main.LDO.vin.GND`) are siblings with no parent link between them — the
+/// grouping is carried by the dotted path alone. A port's identity is therefore
+/// recovered structurally: the entry whose path is a *strict dotted prefix* of
+/// another's is that one's group, and the group's leaf segment is the port name
+/// the boundary is labeled with.
+///
+/// Every entry — group *and* each member — is emitted under the same port name,
+/// so whichever of those ids a net endpoint happens to carry resolves to the same
+/// port. Pure structure: ids and paths only, never a name heuristic.
+fn boundary_ports_of(ports: &[&InstEntry]) -> Vec<BoundaryPort> {
+    // An entry's group is the *longest* other entry whose path is a strict dotted
+    // prefix of it, so `A.B` wins over `A` for `A.B.C`.
+    let group_of = |e: &InstEntry| -> Option<&InstEntry> {
+        ports
+            .iter()
+            .filter(|g| {
+                g.id != e.id
+                    && e.path.len() > g.path.len() + 1
+                    && e.path.starts_with(&g.path)
+                    && e.path.as_bytes()[g.path.len()] == b'.'
+            })
+            .max_by_key(|g| g.path.len())
+            .copied()
+    };
+
+    ports
+        .iter()
+        .filter_map(|e| {
+            let group = group_of(e).unwrap_or(e);
+            let port_name = extract_last_segment(&group.path);
+            if port_name.is_empty() {
+                return None;
+            }
+            // The group's own io type is the port's declared direction. When the
+            // declaration sits on the members instead (`psnk vin{V5V, GND}` — the
+            // group entry carries no io type, the members do), read it from the
+            // first member that declares one, so every id of the port agrees.
+            let mut io = translate_io_type(&group.io_type);
+            if io == IoDirection::Unknown {
+                io = ports
+                    .iter()
+                    .filter(|m| group_of(m).map(|g| g.id) == Some(group.id))
+                    .map(|m| translate_io_type(&m.io_type))
+                    .find(|d| *d != IoDirection::Unknown)
+                    .unwrap_or(IoDirection::Unknown);
+            }
+            Some(BoundaryPort {
+                entry_pin_id: e.id as i64,
+                port_name,
+                io,
+            })
         })
         .collect()
 }
@@ -335,6 +394,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 scope_chain,
             );
             b.set_pins(box_pins);
+            b.boundary_ports = boundary_ports_of(&ports);
             apply_reserved_overrides(&mut b); // ★ Reserved: module port layout
             b.synthetic = entry.synthetic;
             Some(b)
@@ -549,6 +609,7 @@ fn build_mc_vec_graph_inner(
                     scope_chain,
                 );
                 b.set_pins(box_pins);
+                b.boundary_ports = boundary_ports_of(&ports);
                 apply_reserved_overrides(&mut b); // ★ Reserved: module port layout
                 graph.boxes.push(b);
                 box_ids_set.insert(id);
@@ -724,8 +785,16 @@ fn build_mc_vec_graph_inner(
     // Root layer only has declared boxes; no virtual border, no synthesized boxes. ──
 
     // ── Phase 1.5: supplement missing boxes from block.nets endpoints ──
-    // ★ P9-B: skip for root layer — root only has declared boxes.
-    if !is_top_level {
+    //
+    // ★ Module-port drawing: the gate is `!is_block_diagram`, not `!is_top_level`.
+    // A root layer is a block diagram only when it actually contains sub-module
+    // boxes — the identical predicate api.rs computes before choosing a layouter.
+    // A module opened on its own has a root that is *not* a block diagram; it is
+    // the same schematic as the same module reached as a sub-layer, so it takes
+    // the same boundary treatment. One strategy: the picture of a module never
+    // depends on whether it was opened on its own or expanded inside its project.
+    let is_block_diagram = is_top_level && graph.boxes.iter().any(|b| b.kind == BoxKind::SubModule);
+    if !is_block_diagram {
         //
         // ## Key: 3 cases when endpoint doesn't belong to a known box
         //
@@ -997,13 +1066,17 @@ fn build_mc_vec_graph_inner(
                 }
 
                 // ★ §5③ (classification-retirement-design): this endpoint is the net's
-                // P7-8 boundary port-group — P7-8 later creates the PortTerminal box for
-                // exactly this id (`port_group_id`). Synthesizing a PowerRail here too would
-                // double-box the same id. Defer to the PortTerminal.
+                // boundary port group. It is a **name on the module's boundary**, not a
+                // supply this layer consumes, so it is never drawn as a rail symbol
+                // inside the layer. The boundary draws it instead — the parent box's
+                // lead, or the module frame of the layer's own drawing (module-port
+                // drawing, `mcd/doc/viz/module-port-drawing-design.md`). P7-8 used to
+                // mint a `PortTerminal` box for exactly this id; that producer is
+                // retired, so skipping here is the whole answer rather than a deferral.
                 if let Some(ref bi) = net.boundary {
                     if bi.port_group_id == u as i64 {
                         crate::velog!(
-                            "[graph] ✓ PowerLabel deferred to P7-8 PortTerminal: {} (id={})",
+                            "[graph] ✓ PowerLabel skipped: boundary port group '{}' (id={}) drawn by the module boundary",
                             entry.path,
                             u
                         );
@@ -1042,7 +1115,7 @@ fn build_mc_vec_graph_inner(
                 box_ids_set.insert(u);
             }
         }
-    } // ★ P9-B: end of !is_top_level guard for Phase 1.5
+    } // ★ Module-port drawing: end of !is_block_diagram guard for Phase 1.5
 
     let mut count_by_kind = [0usize; 6]; // TwoPin/MultiPin/SubModule/PowerLabel/Dot/PortTerminal
     for b in &graph.boxes {
@@ -1075,85 +1148,31 @@ fn build_mc_vec_graph_inner(
         );
     }
 
-    // ── ★ P7-8: PortTerminal creation from BoundaryInfo markers ──────────────────────
-    // Replaces Phase 1.45 (deleted) and Phase E.1 (merged into this step).
-    // For each projected net with a BoundaryInfo marker (non-rail pseudo endpoint),
-    // create one PortTerminal box per port group. The PortTerminal box's id equals
-    // the port_group_id so that build_point_to_box maps all member endpoints to it.
-    // ★ P9-B: skip for root layer.
-    if !is_top_level {
-        {
-            let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
-            let mut count = 0usize;
-            for net in &block.nets {
-                if let Some(ref bi) = net.boundary {
-                    if seen.insert(bi.port_group_id) {
-                        let port_name = bi.port_name.clone();
-                        let io = bi.io;
-                        // PortTerminal: 1 pin, small fixed size, placed at canvas edge by layout
-                        let mut io_summary = IoSummary::new();
-                        match io {
-                            IoDirection::Input => io_summary.inputs += 1,
-                            IoDirection::Output => io_summary.outputs += 1,
-                            _ => io_summary.other += 1,
-                        }
-                        let inst_path = table
-                            .get_entry(bi.port_group_id as u32)
-                            .map(|e| e.path.clone())
-                            .unwrap_or_default();
-                        let scope_chain = compute_scope_chain(&inst_path);
-                        let mut b = McVecBox::new_v2(
-                            bi.port_group_id,
-                            port_name.clone(),
-                            String::new(),
-                            BoxKind::PortTerminal,
-                            Symbol::PortTerminal { io },
-                            None,
-                            None,
-                            1,
-                            io_summary,
-                            inst_path,
-                            scope_chain,
-                        );
-                        // Single pin named after the port group
-                        b.entry_points = vec![EntryPoint {
-                            pin_id: bi.port_group_id,
-                            pin_name: port_name.clone(),
-                            side: match io {
-                                IoDirection::Input => EntrySide::Left,
-                                IoDirection::Output => EntrySide::Right,
-                                _ => EntrySide::Right,
-                            },
-                            offset: 0.5,
-                        }];
-                        b.set_pins(vec![BoxPin {
-                            id: bi.port_group_id,
-                            pin_id: bi.port_group_id.to_string(),
-                            description: String::new(),
-                            io,
-                            port_dir: PortDir::None,
-                        }]);
-                        crate::velog!(
-                            "[graph] ✓ P7-8 PortTerminal: '{}' (id={}, io={:?})",
-                            b.name,
-                            b.id,
-                            io
-                        );
-                        graph.boxes.push(b);
-                        box_ids_set.insert(bi.port_group_id as u32);
-                        count += 1;
-                    }
-                }
-            }
-            if count > 0 {
-                crate::velog!(
-                    "[graph] P7-8: created {} PortTerminal box(es) across {} boundary net(s)",
-                    count,
-                    block.nets.iter().filter(|n| n.boundary.is_some()).count()
-                );
-            }
-        }
-    } // ★ P9-B: end of !is_top_level guard for PortTerminal
+    // ── ★ P7-8: PortTerminal creation — retired (module-port drawing) ────────────
+    //
+    // This step used to mint one `BoxKind::PortTerminal` per boundary port group of
+    // every **non-root** layer. It was written when a sub-layer was itself drawn as
+    // a block diagram; C1b then moved every sub-layer to the device (equipotential
+    // tree) pipeline (`api.rs`), which paints tree symbols and never a box — so the
+    // boxes it kept minting were invisible, while still taking a layout slot and
+    // inflating the canvas bbox.
+    //
+    // Measured on hbl, LDO layer: 875px of canvas around 350px of content, and — the
+    // defect the module-port strategy exists to kill — the *same* module drawn
+    // standalone came out 366px. Same module, two drawings.
+    //
+    // The module's boundary is drawn now, by design, in the two places it is seen
+    // (`mcd/doc/viz/module-port-drawing-design.md`):
+    //   * the **parent's** block diagram — the sub-module box's leads, named by the
+    //     port each wire crosses (`McVecBox::boundary_ports` + `render/sub_module.rs`);
+    //   * the module's **own** layer — the dashed boundary frame with the ports on it
+    //     (`viz::layout::module_frame`, from the same `BoundaryInfo` marker).
+    // A root block diagram is not covered by either, and minting its own ports here
+    // (main's ports have nothing above them to be the boundary of) put a dozen
+    // terminals at the canvas origin with colliding labels — measured on pwrint main.
+    // So no layer mints one today; `BoxKind::PortTerminal` survives as a rendering
+    // kind with no producer, which is the honest state until a root boundary frame
+    // is designed.
 
     // ── Phase 2: build point_to_box mapping ──
     let point_to_box = build_point_to_box(table, &graph.boxes);
@@ -1818,6 +1837,12 @@ fn generate_viznets_from_block(
         }
         if let Some(shape) = &net.shape {
             out.last_mut().unwrap().shape = Some(shape.clone());
+        }
+        // ★ Module-port drawing: the boundary marker travels with the net. The
+        // module-frame pass reads it to name a layer's own boundary by the port
+        // the net crosses. Like `attr`, a split net does not mirror it.
+        if let Some(bi) = &net.boundary {
+            out.last_mut().unwrap().boundary = Some(bi.clone());
         }
     }
 
