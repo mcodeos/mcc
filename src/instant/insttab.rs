@@ -519,6 +519,20 @@ pub struct InstTable {
     /// lets [`Self::flatten_nets`] hand it the declared contract instead of
     /// manufacturing a semantics-less pin.
     member_pin_sem: HashMap<String, (IOType, Option<MemberInfo>, Option<PwrDir>)>,
+
+    /// ★ Member-spelling → physical pin id. A wiring that names a component
+    /// power pin by its *declared member name* — the `{L|R}` through face
+    /// `ldo{VIN | VOUT}`, or the plain dotted form `ldo.VIN.Vin` — spells the
+    /// pin as its flat member identity (`VIN.Vin`), while the entry is
+    /// registered under the pin-table key (`main.LDO.ldo.1`). Keyed by the
+    /// full flat spelling (`main.LDO.ldo.VIN.Vin`). Consulted by the path
+    /// resolvers (`InstTable::resolve_single_path`, `vector::builder::resolve::
+    /// try_resolve_path`) so the reference lands on the declared pin instead of
+    /// materialising a phantom pin under the member spelling — a phantom left
+    /// the real pin unconnected (drawn as an X) and added a duplicate pin to
+    /// the symbol, and made the two pipelines disagree (the block builder's
+    /// owner-fallback attached the net to the *component* instead).
+    member_pin_alias: HashMap<String, u32>,
 }
 
 impl InstTable {
@@ -537,6 +551,7 @@ impl InstTable {
             net_origin: BTreeMap::new(),
             root_span: None,
             member_pin_sem: HashMap::new(),
+            member_pin_alias: HashMap::new(),
         }
     }
 
@@ -566,6 +581,14 @@ impl InstTable {
     /// Module-scope net origin offsets (see [`Self::net_origin`]).
     pub(crate) fn net_origin(&self) -> &BTreeMap<u32, std::collections::HashMap<String, u32>> {
         &self.net_origin
+    }
+
+    /// The declared pin a *member spelling* names (see [`Self::member_pin_alias`]).
+    /// `path` is the flat spelling without module prefix handling — callers pass
+    /// the same `module_path.path` / bare `path` candidates they try against the
+    /// path index. Returns `None` when the spelling names no declared pin.
+    pub(crate) fn member_pin_of(&self, path: &str) -> Option<u32> {
+        self.member_pin_alias.get(path).copied()
     }
 
     /// Recursively generate flattened instance table from McModuleInst tree.
@@ -805,10 +828,14 @@ impl InstTable {
         let Some(pin) = comp.def.pins.pins.get(pin_name) else {
             return;
         };
+        let target = self.get_id_by_path(&format!("{comp_path}.{pin_name}"));
         for name in &pin.names {
             let spelling = format!("{comp_path}.{name}");
             self.member_pin_sem
                 .insert(spelling.clone(), (io.clone(), info.clone(), dir));
+            if let Some(target) = target {
+                self.member_pin_alias.insert(spelling, target);
+            }
         }
     }
 
@@ -2122,6 +2149,16 @@ impl InstTable {
                 if let Some(&id) = self.path_index.get(&bus_style) {
                     return Some(self.fold_alias(id));
                 }
+            }
+        }
+        // (4) ★ Member spelling of a declared component pin (`ldo{VIN | VOUT}` /
+        //     `ldo.VIN.Vin` → the pin registered under its pin-table key). Tried
+        //     last: a real entry at either candidate path always wins. Without
+        //     this, `flatten_nets` manufactures a semantics-less on-the-fly pin
+        //     for the spelling and the renderer draws it beside the real one.
+        for candidate in [full_path.as_str(), path] {
+            if let Some(id) = self.member_pin_alias.get(candidate) {
+                return Some(self.fold_alias(*id));
             }
         }
         // ★ A′: every lookup path (dotted member, slash lane, bare member label,

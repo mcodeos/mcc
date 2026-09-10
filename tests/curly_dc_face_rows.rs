@@ -226,12 +226,14 @@ fn curly_dc__row_members_and_group_lanes_wire() {
 
     // Mechanism A — bracket-row face `[IN1, GND]`: GND must NOT be dropped from
     // the row (the old SQUARE_VEC flatten bug kept only the row lead `IN1`).
+    // The face member resolves onto the row's pin (`IN1` = row pin 1, `OUT` =
+    // row pin 5), so the endpoint is named by the pin path.
     assert_eq!(
-        net_of(&pairs, "oring.IN1"),
+        net_of(&pairs, "oring.1"),
         "VBUS_RAW",
-        "oring IN1 should join VBUS_RAW"
+        "oring IN1 (row pin 1) should join VBUS_RAW"
     );
-    assert_eq!(net_of(&pairs, "oring.OUT"), "VMAIN_5V");
+    assert_eq!(net_of(&pairs, "oring.5"), "VMAIN_5V");
 
     // Mechanism B — whole-group face `VIN | VOUT`: each face must expand to its
     // member pins (pins 1 and 3 land on their nets; shared pin 2 is the return),
@@ -282,25 +284,26 @@ fn curly_dc__power_row_whole_group_face_wires_full_pair() {
         "whole-DC-pair faces on psnk/psrc rows must not fire E3152; got codes: {codes:?}"
     );
 
-    // Wiring: the expanded dotted members, not the bare head or a pin number.
+    // Wiring: the face member spelling (`ldo.VIN.Vin`) folds onto the declared
+    // pin it names — VIN hot is row pin 1, VOUT hot is row pin 3, and the `GND`
+    // member both rows share is the one physical return pin 2. So the wiring
+    // lands on pin paths, and the shared return is a single entry, not two.
     let pairs = net_pairs(SRC_PWR);
     assert_eq!(
-        net_of(&pairs, "ldo.VIN.Vin"),
+        net_of(&pairs, "ldo.1"),
         "VMAIN_5V",
         "VIN hot member (pin1) should join the input hot vector"
     );
     assert_eq!(
-        net_of(&pairs, "ldo.VOUT.Vout"),
+        net_of(&pairs, "ldo.3"),
         "VDD_3V3",
         "VOUT hot member (pin3) should join the output hot vector"
     );
-    for suffix in ["ldo.VIN.GND", "ldo.VOUT.GND"] {
-        let n = net_of(&pairs, suffix);
-        assert!(
-            n.starts_with("GND"),
-            "{suffix} return member should be on a return net; got {n}"
-        );
-    }
+    let ret = net_of(&pairs, "ldo.2");
+    assert!(
+        ret.starts_with("GND"),
+        "the shared return member (pin2) should be on a return net; got {ret}"
+    );
 }
 
 /// Regression 4 — a whole DC-pair endpoint (`b.BAT`) feeding a 2×2 oring face
@@ -323,15 +326,16 @@ fn curly_dc__whole_pair_endpoint_wires_both_lanes() {
     );
 
     let pairs = net_pairs(SRC_ORPWR);
-    // Battery hot (pin1) joins the IN2 face's hot; oring output reaches the main pair.
-    let n_in2 = net_of(&pairs, "o.IN2");
+    // Battery hot (pin1) joins the IN2 face's hot (row pin 3); oring output
+    // (row pin 5) reaches the main pair.
+    let n_in2 = net_of(&pairs, "o.3");
     assert_eq!(
         net_of(&pairs, "b.1"),
         n_in2,
         "battery hot pin1 must join oring IN2; pairs: {pairs:?}"
     );
     assert_eq!(
-        net_of(&pairs, "o.OUT"),
+        net_of(&pairs, "o.5"),
         "VMAIN_5V",
         "oring OUT must join VMAIN_5V"
     );
@@ -377,11 +381,11 @@ fn curly_dc__sink_whole_hang_wires_both_members() {
 /// vector (`- [el, _] ->`, golden main.mc buck12 spelling) must keep the
 /// through-device's return members wired. The chain contains a `_` lead, so it
 /// is routed through `wire_chain_lane_by_lane`, where the curly Node used to be
-/// placed on lane 0 only: the hot lane wired (VIN.Vin, LX.Lx through the
+/// placed on lane 0 only: the hot lane wired (the VIN/LX hot members through the
 /// element) but the device's shared GND return was silently dropped — zero
 /// explicit error, just NET_PARTIAL_CONNECTION and a missing current path.
-/// `stmt.rs` now places the Node on every face lane, so VIN.GND and LX.GND both
-/// land on the return net.
+/// `stmt.rs` now places the Node on every face lane, so the shared return pin
+/// (pin 2) lands on the return net.
 const SRC_LANE: &str = r#"
 component BUCK2
 {
@@ -421,14 +425,15 @@ fn curly_dc__lane_series_keeps_through_device_return() {
     );
 
     let pairs = net_pairs(SRC_LANE);
-    // Hot lane: VIN.Vin on the input rail; LX.Lx is the switching node (must
-    // NOT sit on VCC_1V2 — the IND element in between isolates it, §4.3).
+    // Hot lane: the VIN hot member (row pin 1) sits on the input rail; the LX
+    // hot member (row pin 3) is the switching node (must NOT sit on VCC_1V2 —
+    // the IND element in between isolates it, §4.3).
     assert_eq!(
-        net_of(&pairs, "bk.VIN.Vin"),
+        net_of(&pairs, "bk.1"),
         "VMAIN_5V",
         "buck VIN hot joins the input rail"
     );
-    let lx = net_of(&pairs, "bk.LX.Lx");
+    let lx = net_of(&pairs, "bk.3");
     assert_ne!(
         lx, "VCC_1V2",
         "buck switching node must sit on its own net through the IND, not VCC_1V2"
@@ -441,13 +446,12 @@ fn curly_dc__lane_series_keeps_through_device_return() {
             .any(|(p, n)| n == "VCC_1V2" && p.contains("IND2") && p.ends_with(".2")),
         "IND element output pin must reach VCC_1V2: {pairs:?}"
     );
-    // Return lane (the regression): both VIN.GND and LX.GND must be present and
-    // unify on a GND net — pre-fix they were silently absent (net_of panics).
-    let vg = net_of(&pairs, "bk.VIN.GND");
-    let lg = net_of(&pairs, "bk.LX.GND");
-    assert_eq!(vg, lg, "shared buck return must be one net");
+    // Return lane (the regression): both faces' `GND` members name the same
+    // physical return pin 2, so the return is present once and sits on a GND net
+    // — pre-fix the return members were silently absent (net_of panics).
+    let ret = net_of(&pairs, "bk.2");
     assert!(
-        vg.starts_with("GND"),
-        "the shared return must be a GND net; got {vg}"
+        ret.starts_with("GND"),
+        "the shared return must be a GND net; got {ret}"
     );
 }
