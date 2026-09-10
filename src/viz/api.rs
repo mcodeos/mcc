@@ -201,11 +201,40 @@ fn render_layer_recursive(
     let sub_graphs = std::mem::take(&mut graph.sub_graphs);
     let clickable_subs: Vec<i64> = sub_graphs.iter().map(|sg| sg.bid).collect();
 
-    let candidates = if is_root {
+    // ★ A root layer is a *block diagram* only when it actually contains sub-module
+    // boxes. Those sub-modules are the blocks; the block-diagram rules — C5 top-level
+    // passive drop (rails::drop_top_passives), R-B ground hide, radial supply
+    // fan-out — exist to keep a module's internals from drowning that block graph.
+    //
+    // A root layer with **no** sub-module box is the *schematic of a single module*:
+    // every box is a real component and there is nothing to fold internals into.
+    //
+    // That module is not a special case — inside a project it is exactly one of the
+    // sub-layers, and the recursion below paints every sub-layer with the device
+    // (equipotential tree) pipeline. A file-scope preview of the same module must be
+    // the *same drawing*, so it takes that same pipeline here. One strategy: the
+    // picture of a module never depends on whether it was opened on its own or
+    // expanded inside its project.
+    //
+    // Structural — no module or file names are consulted.
+    let has_sub_boxes = graph
+        .boxes
+        .iter()
+        .any(|b| b.kind == crate::vector::graph::BoxKind::SubModule);
+    let is_block_diagram = is_root && has_sub_boxes;
+
+    if is_root && !has_sub_boxes {
+        graph.layer_style = crate::vector::graph::LayerStyle::Device;
+    }
+
+    let candidates = if is_block_diagram {
         top_candidates
     } else {
         sub_candidates
     };
+    // flow / radial / facade read the graph field (not the parameter) to decide
+    // block-diagram vs schematic behaviour; keep the two in step.
+    graph.is_root = is_block_diagram;
 
     // ── Phase 1–2: layout + route via the single-layouter pipeline ──
     // `canvas` is the SVG viewBox SIZE `(w, h)` (consumed by label placement,
@@ -260,7 +289,7 @@ fn render_layer_recursive(
         // its only reader is the (default-off) v2 branch in FlowLayouter::layout,
         // which now sets it itself from `is_sub_layout`.
         let _tl = std::time::Instant::now();
-        graph = layout_best(graph, candidates, is_root, Some(schematic_model));
+        graph = layout_best(graph, candidates, is_block_diagram, Some(schematic_model));
         tracing::info!(target: "mcc::perf", step = "layout_best", ms = _tl.elapsed().as_millis() as u64, "render step");
 
         // ── Phase 1.46b: Adjust Virtual Top Module Border position/size ──
