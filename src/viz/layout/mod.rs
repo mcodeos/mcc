@@ -46,6 +46,7 @@ pub mod select;
 pub mod size;
 pub mod sp_model;
 pub mod sp_place;
+pub mod supply_bundle;
 pub mod two_lane_ladder;
 pub mod v2;
 pub use flow::FlowLayouter;
