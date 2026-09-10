@@ -2602,69 +2602,29 @@ impl McPhrase {
                     return None;
                 }
 
-                use McPhrase::*;
-                match (opd1, opd2) {
-                    (opd1 @ Transposed(_), opd2 @ Transposed(_)) => {
-                        Some(Series(vec![opd1, opd2], ConnDir::Undirected))
-                    }
-                    (opd1 @ Transposed(_), opd2) => {
-                        // ── B: width via OpdShape (declared members), not
-                        // get_left() (symbol-level fallback returns 1 for a bare
-                        // port label even when it declares 2 members). Same
-                        // unified source as is_connectable / opcheck. ──
-                        if OpdShape::of(&opd2, context).size_left() != 2 {
-                            dlog_error(
-                                crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
-                                node,
-                                &crate::errcodes::format_msg(
-                                    crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
-                                    &[],
-                                ),
-                            );
-                            return None;
-                        }
-                        let mut ret_line_members = vec![opd1];
-                        if let Series(line, _) = opd2 {
-                            ret_line_members.extend(line);
-                        } else {
-                            ret_line_members.push(opd2);
-                        }
-                        Some(Series(ret_line_members, ConnDir::Undirected))
-                    }
-                    (opd1, opd2 @ Transposed(_)) => {
-                        // ── B: width via OpdShape (declared members), not
-                        // get_right() (symbol-level fallback returns 1 for a
-                        // bare port label even when it declares 2 members). ──
-                        if OpdShape::of(&opd1, context).size_right() != 2 {
-                            dlog_error(
-                                crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
-                                node,
-                                &crate::errcodes::format_msg(
-                                    crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
-                                    &[],
-                                ),
-                            );
-                            return None;
-                        }
-                        if let Series(mut line, _) = opd1 {
-                            line.push(opd2);
-                            Some(Series(line, ConnDir::Undirected))
-                        } else {
-                            Some(Series(vec![opd1, opd2], ConnDir::Undirected))
-                        }
-                    }
-                    (opd1, opd2) => {
-                        let mut ret_opds = match opd1 {
-                            McPhrase::Parallel(opds) => opds,
-                            _ => vec![opd1],
-                        };
-                        match opd2 {
-                            McPhrase::Parallel(opds) => ret_opds.extend(opds),
-                            _ => ret_opds.push(opd2),
-                        }
-                        Some(McPhrase::Parallel(ret_opds))
-                    }
+                // R0 (source order and operator fidelity): `+` IS `Parallel`,
+                // for every operand shape. There is deliberately no
+                // `Transposed` carve-out here any more -- rewriting `X + Y'`
+                // into a `Series` changed the operator the source wrote. How a
+                // transposed operand attaches is the face-side law's business
+                // (vec-dianlu.md §1.4 / §5.1), applied by the engine in
+                // `instant/mc_mod/stmt.rs`; the parser only records `Parallel`.
+                // The shape verdict above already covers the transpose case
+                // (`is_connectable` transposes to the full-width column first),
+                // so this fold needs no width gate of its own.
+                //
+                // Flattening a nested `Parallel` is the one transform §2.4
+                // allows: same node kind, source order preserved, no member
+                // inserted or dropped.
+                let mut ret_opds = match opd1 {
+                    McPhrase::Parallel(opds) => opds,
+                    _ => vec![opd1],
+                };
+                match opd2 {
+                    McPhrase::Parallel(opds) => ret_opds.extend(opds),
+                    _ => ret_opds.push(opd2),
                 }
+                Some(McPhrase::Parallel(ret_opds))
             }
 
             MCAST_OPD_MINUS => {
