@@ -598,7 +598,11 @@ impl Layouter for FlowLayouter {
         }
 
         // ── Phase 4 · PinPlacement: sole writer of EntryPoint + sole finalizer of hub geometry ──
-        // ★ B2: skip for root — radial layout already placed all boxes with geom_locked.
+        // Sub-layers run the full pipeline (placement + hub alignment). The root layer runs
+        // the same direction policy but keeps the radial hub geometry: `place_radial` already
+        // fixed every box position and the facade only wrote sides for boxes that own a
+        // signal/bus edge, so power-only faces would otherwise keep their coarse index-parity
+        // side and ignore the flow direction their wires actually follow.
         if !graph.is_root {
             let g_snap = graph.geom_snapshot();
             super::pin_place::pin_place_pipeline(
@@ -609,6 +613,10 @@ impl Layouter for FlowLayouter {
             );
             graph.claim_geom_changes(&g_snap, "7.pin_place");
             probe_degenerate_boxes(graph, "after pin_place");
+        } else {
+            let g_snap = graph.geom_snapshot();
+            super::pin_place::root_direction_pass(graph, Some(root_id), self.hub_keep_semantic);
+            graph.claim_geom_changes(&g_snap, "7.pin_place.root_dir");
         }
 
         // ★ Island dispatcher: skip for root — radial layout already placed all boxes.

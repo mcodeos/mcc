@@ -23,6 +23,18 @@
 //!      (dot + net name, pointing up).
 //! ```
 //!
+//! ## ★ R-2s · top level keeps one shared equipotential rail (model A)
+//! Under power-intent model A the root block diagram draws each supply as **one
+//! shared Power net** spanning driver + all consumers (the fan-out to each load is
+//! connection truth carried by netdiff, not by per-net drawing edges). So a
+//! driver-ful Power rail at the top level is **kept intact** instead of being
+//! replaced by per-consumer driver segments — the original R-2/P9-B root fan-out
+//! ("keep every driver→consumer pair") predates model A and is superseded by it.
+//! Direction for layout (radial W supply order) is not lost: `decide_edges` reads
+//! the kept net's `rail.driver_pin` and emits driver→consumer Power *edges* for
+//! ordering without touching the net set. Sub-layers are unchanged — the device
+//! view still wants one routed supply segment per consumer (R-2/R-3).
+//!
 //! ## Terminals are not boxes (discipline 11)
 //! All R-1/R-3 symbols go into `graph.rail_decorations` (pin render attributes):
 //! zero layout cost, zero routing cost, never in `graph.boxes`.
@@ -116,6 +128,22 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         let Some(spec) = net.rail.clone() else {
             continue;
         };
+
+        // ★ R-2s: top level keeps a driver-ful Power rail as one shared equipotential
+        // net (model A). The net already spans driver + every consumer, so replacing
+        // it with per-consumer driver segments (the F2-era P9-B fan-out) would split
+        // one drawing edge into N and regress the block-diagram contract. Keep it;
+        // decide_edges reads rail.driver_pin later for radial ordering.
+        if is_top && spec.class == RailClass::Power && spec.driver_pin.is_some() {
+            crate::vlog!(
+                "[layout::rails] R-2s: top shared power rail '{}' kept (driver_pin={:?}, {} endpoint(s))",
+                net.name,
+                spec.driver_pin,
+                net.endpoints.len()
+            );
+            continue; // keep[idx] stays true
+        }
+
         keep[idx] = false; // the original rail net is always replaced (edges/decorations/deletion)
 
         // First endpoint per box as representative (multiple pins in one box = duplicate endpoints of the same consumer)
@@ -222,8 +250,11 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         if net.rail.is_none() {
             continue; // only process rail nets
         }
-        // R-1 (no driver): only sub-layers get anchors
-        if net.rail.as_ref().map_or(true, |s| s.driver_pin.is_none()) && is_top {
+        // ★ R-2s: no top-level rail net is ever *replaced* any more (driver-ful
+        // Power rails are kept shared; driver-less ones are deleted outright by
+        // R-1), so deletion never strands a top box — nothing to anchor. Anchors
+        // remain a sub-layer device-view concern.
+        if is_top {
             continue;
         }
         // Deduplicate endpoints per box
@@ -620,17 +651,85 @@ mod tests {
         assert!(g.rail_decorations.iter().all(|d| d.is_ground));
     }
 
+    /// ★ R-2s (model A): a driver-ful Power rail at the top level is kept as one
+    /// shared equipotential net — never split into per-consumer driver segments.
+    /// The fixture is the seven-line checklist rail (driver modldo → 3 consumers);
+    /// after classification the net must survive intact, with no driver edges added,
+    /// no symbols, and no new nets.
     #[test]
-    fn r2_edges_only_to_power_domain_and_hub() {
-        // Distillation of the seven-line checklist: V3V3 = driver modldo → {moddcdc(power
-        // domain✓), mcu513(hub✓), speaker(✗), flash(✗)} → exactly 2 driver edges;
-        // R-3 top level places no symbols
+    fn r2_top_keeps_shared_power_rail() {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_mod(1, "modldo")); // driver (VCC Out)
-        g.boxes.push(mk_mod(2, "moddcdc")); // power-domain node (VCC_1V2 Out is on another rail)
-        g.boxes.push(mk_mod(3, "mcu513")); // hub (8 signal nets → 2 here is already the max)
+        g.boxes.push(mk_mod(2, "moddcdc")); // power-domain node
+        g.boxes.push(mk_mod(3, "mcu513")); // hub
         g.boxes.push(mk_mod(4, "speaker"));
-        // Signal nets: make mcu513 the hub
+        g.nets.push(VizNet::new(
+            20,
+            "S1".into(),
+            NetKind::Signal,
+            NetRole::Signal,
+            vec![
+                EndpointRef::with_io(3, 31, "S", IoDirection::Output),
+                EndpointRef::with_io(4, 41, "S", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(rail_net(
+            11,
+            "V1V2",
+            RailClass::Power,
+            Some(22),
+            vec![(2, 22, IoDirection::Output), (3, 33, IoDirection::Input)],
+        ));
+        g.nets.push(rail_net(
+            10,
+            "V3V3",
+            RailClass::Power,
+            Some(11),
+            vec![
+                (1, 11, IoDirection::Output), // modldo.VCC = driver
+                (2, 21, IoDirection::Input),
+                (3, 34, IoDirection::Bidir),
+                (4, 43, IoDirection::Input),
+            ],
+        ));
+        let before = g.nets.len();
+        classify_rails(&mut g, /*is_top=*/ true);
+
+        assert_eq!(g.nets.len(), before, "no net added or removed at top");
+        assert!(
+            !g.nets.iter().any(|n| n.nid >= DRIVER_NET_ID_BASE),
+            "top keeps the shared net — no per-consumer driver segments"
+        );
+        let v33 = g.nets.iter().find(|n| n.name == "V3V3").expect("V3V3 kept");
+        assert_eq!(
+            v33.endpoints.len(),
+            4,
+            "the shared rail keeps every consumer endpoint"
+        );
+        assert!(
+            v33.rail
+                .as_ref()
+                .map_or(false, |s| s.driver_pin == Some(11)),
+            "driver_pin stays on the kept net for decide_edges/radial"
+        );
+        assert!(
+            g.rail_decorations.is_empty(),
+            "top level places no rail symbols"
+        );
+    }
+
+    /// R-2 filter (sub-layer, device view): with a driver, the driver→consumer
+    /// edge is drawn only when the consumer is a power-domain node (Out endpoint
+    /// on a Power rail) or the layer hub; the rest get R-3 terminals. This is the
+    /// behaviour the old top-level explosion test used to cover — kept here on the
+    /// layer where it is still live.
+    #[test]
+    fn r2_sub_edges_only_to_power_domain_and_hub() {
+        let mut g = McVecGraph::new(0, "modLDO".into());
+        g.boxes.push(mk_mod(1, "modldo"));
+        g.boxes.push(mk_mod(2, "moddcdc"));
+        g.boxes.push(mk_mod(3, "mcu513"));
+        g.boxes.push(mk_mod(4, "speaker"));
         g.nets.push(VizNet::new(
             20,
             "S1".into(),
@@ -651,7 +750,6 @@ mod tests {
                 EndpointRef::with_io(4, 42, "S", IoDirection::Input),
             ],
         ));
-        // moddcdc's power-domain qualification: an Out endpoint on another Power rail (V1V2 is driven by it)
         g.nets.push(rail_net(
             11,
             "V1V2",
@@ -659,53 +757,47 @@ mod tests {
             Some(22),
             vec![(2, 22, IoDirection::Output), (3, 33, IoDirection::Input)],
         ));
-        // Rail under test: V3V3
         g.nets.push(rail_net(
             10,
             "V3V3",
             RailClass::Power,
             Some(11),
             vec![
-                (1, 11, IoDirection::Output), // modldo.VCC = driver
-                (2, 21, IoDirection::Input),  // moddcdc consumes
-                (3, 34, IoDirection::Bidir),  // mcu513 consumes
-                (4, 43, IoDirection::Input),  // speaker consumes
+                (1, 11, IoDirection::Output),
+                (2, 21, IoDirection::Input),
+                (3, 34, IoDirection::Bidir),
+                (4, 43, IoDirection::Input),
             ],
         ));
-        classify_rails(&mut g, /*is_top=*/ true);
+        classify_rails(&mut g, /*is_top=*/ false);
 
-        // V1V2: driver moddcdc(2) → mcu513(3, hub) 1 edge; V3V3: modldo(1) →
-        // {moddcdc(2 power domain), mcu513(3 hub), speaker(4)} 3 edges (P9-B:
-        // root layer keeps every driver→consumer pair).
+        // V1V2: moddcdc(2) → mcu513(3, hub) = 1 edge.
+        // V3V3: modldo(1) → {moddcdc(2 power domain), mcu513(3 hub)} = 2 edges;
+        //       speaker(4) unqualified → R-3 terminal.
         let power_edges: Vec<&VizNet> = g
             .nets
             .iter()
             .filter(|n| matches!(n.kind, NetKind::Power))
             .collect();
-        assert_eq!(
-            power_edges.len(),
-            4,
-            "V1V2 1 edge + V3V3 3 edges = 4 driver edges"
-        );
+        assert_eq!(power_edges.len(), 3, "2 V3V3 + 1 V1V2 driver edges");
         let v33: Vec<(i64, i64)> = power_edges
             .iter()
             .filter(|n| n.name == "V3V3")
             .map(|n| (n.endpoints[0].box_id, n.endpoints[1].box_id))
             .collect();
+        assert!(v33.contains(&(1, 2)), "modldo→moddcdc (power domain)");
+        assert!(v33.contains(&(1, 3)), "modldo→mcu513 (hub)");
         assert!(
-            v33.contains(&(1, 2)),
-            "modldo→moddcdc (power domain): {v33:?}"
+            !v33.iter().any(|&(_, t)| t == 4),
+            "speaker is not a power-domain node nor the hub"
         );
-        assert!(v33.contains(&(1, 3)), "modldo→mcu513 (hub): {v33:?}");
-        assert!(v33.contains(&(1, 4)), "modldo→speaker (P9-B): {v33:?}");
-        assert!(
-            v33.len() == 3,
-            "exactly 3 V3V3 driver edges expected: {v33:?}"
+        assert_eq!(
+            g.rail_decorations.len(),
+            1,
+            "speaker gets one R-3 rail terminal"
         );
-        assert!(
-            g.rail_decorations.is_empty(),
-            "top-level R-3 places no symbols"
-        );
+        assert_eq!(g.rail_decorations[0].box_id, 4);
+        assert!(!g.rail_decorations[0].is_ground);
     }
 
     #[test]

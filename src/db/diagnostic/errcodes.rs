@@ -1529,6 +1529,18 @@ pub const POWER_CONVERTER_OUTPUT_RAIL_WINDOW: u32 = 6026;
 /// exempts it.
 pub const DEVICE_RETURN_SPAN_UNDECLARED: u32 = 6027;
 
+/// §5.3.2 arrow-direction consistency (power-intent-design.md §5.3.2, PWR-10,
+/// adjudicated 2026-09-10) — a direction-word terminal (module power port or
+/// leaf component power pin) sitting at the wrong end of its own connection
+/// chain. A `psrc` source face must lead the chain (first member / right side
+/// of a `{L|R}` through), a `psnk` sink must trail it (last member / left side
+/// of a `{L|R}` through); a module wiring its own body into its own face is
+/// internal implementation and exempt (the direction word is the contract to
+/// the *parent* frame). The direction word stays authoritative for semantic
+/// rules (6011/6019/6021/pwrflow); this Warning tells the author the arrow /
+/// terminal order disagrees with the declared direction contract.
+pub const DC_BINDING_DIR_MISMATCH: u32 = 6028;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // ---- section ----
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -1910,6 +1922,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(POWER_CONVERTER_SPEC_INCOMPLETE, "A spec block on a power-output component declares only one of input_req / output.", "component '{0}' has a psrc/psbi output row and a spec block, but declares only '{1}' — a regulator needs both windows of the Hoare triple for the gate (6023) and sink-window (6024) checks to judge it. The written side still decodes (an output-only regulator is treated as guaranteeing that output; an input_req-only one as an un-gated feed), it just cannot be gated: add the missing '{2}' (rail-contract-design.md §6.1)"),
     entry!(POWER_CONVERTER_OUTPUT_RAIL_WINDOW, "A converter's declared output guarantee is not covered by the declared rail window of the rail net it drives.", "converter '{2}' guarantees output {0} on rail net '{3}', but the rail's declared window is only {1} — the guarantee escapes the rail's allowed window: the converter can deliver outside what the scope declares on that net. Fix the spec.output, or the rail tolerance if the rail is mis-declared (rail-contract-design.md §6.7)"),
     entry!(DEVICE_RETURN_SPAN_UNDECLARED, "A device's DC return pins span disjoint return classes (planes) with no declared relation covering the span.", "device '{2}' returns across planes '{0}' and '{1}' but no net-level @bridge/@couple and no declared isolation structure covers the span — its return-side pins silently DC-join the two classes through the die/substrate: add a net-level @bridge/@couple between the return nets, or check whether one return is an @role(isolated) source-side copper the device legitimately feeds (conduit-equivalence-design.md §8.6)"),
+    entry!(DC_BINDING_DIR_MISMATCH, "A direction-word power terminal sits at the wrong end of its own connection chain.", "'{0}' is declared {1} but occupies {2} — the wrong end of its own connection chain: a source (psrc) face must lead the chain (first member / right of a {L|R} through), a sink (psnk) must trail it (last member / left of a {L|R} through). The direction word stays authoritative (6011/6019/6021/pwrflow): flip the arrow or move the terminal so the chain direction agrees with the declared direction contract (power-intent-design.md §5.3.2, PWR-10)"),
     // ---- section ----
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
