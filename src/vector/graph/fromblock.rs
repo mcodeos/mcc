@@ -1645,17 +1645,87 @@ fn generate_viznets_from_block(
                 // Fire when a net endpoint can't be mapped to any box in the
                 // current layer. This includes placeholder pins (id ≥ 8e9) and
                 // pins whose InstTable entry exists but isn't mapped to any box.
-                crate::db::diagnostic::diagnostic::diagnostic_log(
+                let msg = crate::errcodes::format_msg(
                     crate::errcodes::GHOST_PORT,
-                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                    0,
-                    1,
-                    &crate::errcodes::format_msg(
-                        crate::errcodes::GHOST_PORT,
-                        &[&net.name, &pid as &dyn std::fmt::Display],
-                    ),
-                    &[],
+                    &[&net.name, &pid as &dyn std::fmt::Display],
                 );
+                // Anchor at the failing endpoint's own source position (the
+                // declared pin/port/net) instead of pos 0 (renders as file:1:1,
+                // un-navigable). The endpoint may live in a *different* file
+                // than the block being drawn — a module-boundary pin declared in
+                // the child module's file — so use the entry's explicit
+                // SourcePos when it has one (the graph build's current_uri is
+                // only an approximation). Wiring site wins, declaration site is
+                // the fallback; if the entry is synthesized with no position,
+                // anchor on the net's own origin span before giving up.
+                let entry = table.get_entry(pid as u32);
+                // ── D4b: module-net origin override ─────────────────────────
+                // When the failing endpoint is the module's OWN net pseudo
+                // entry (a Bus/Label child of this block — the net has no
+                // physical box anywhere in the layer), the wiring/declaration
+                // chain below can only reach a *statement head* token (all the
+                // segment nets of a series statement share it), which may be a
+                // different net's name on the same line or an unrelated line.
+                // Prefer the net's defining token: its declaration (conduit
+                // `ref`, io/port bus-member row) when declared, else its
+                // earliest net-name reference (a usage-born `[A, B]` label's
+                // own token). Real boundary-crossing pins keep the chain.
+                let module_net_origin = {
+                    // Any Bus/Label pseudo entry under this block is the net's
+                    // own non-physical marker (direct net label, or a declared
+                    // bus member child of a Bus) — real physical pins / ports
+                    // are Pin/Port kinds and never match. Gate on the net name
+                    // resolving in this module's origin map: a boundary pin
+                    // ghost (e.g. `usb.vin/GND`) never appears there, so those
+                    // keep the wiring/declaration chain below.
+                    let is_net_pseudo = entry.as_ref().is_some_and(|e| {
+                        matches!(
+                            e.kind,
+                            crate::instant::insttab::InstKind::Bus
+                                | crate::instant::insttab::InstKind::Label
+                        )
+                    });
+                    let uri = entry
+                        .as_ref()
+                        .map(|e| e.def_uri.clone())
+                        .or_else(|| net.source_span.as_ref().map(|s| s.uri.clone()))
+                        .unwrap_or_default();
+                    if is_net_pseudo {
+                        table
+                            .net_origin()
+                            .get(&(block.bid as u32))
+                            .and_then(|m| m.get(&net.name))
+                            .map(|off| crate::semantic::common::SourcePos::new(uri, *off))
+                    } else {
+                        None
+                    }
+                };
+                let anchor = module_net_origin
+                    .or_else(|| {
+                        entry
+                            .and_then(|e| e.src_pos.clone())
+                            .or_else(|| entry.and_then(|e| e.fallback_pos.clone()))
+                    })
+                    .or_else(|| net.source_span.clone());
+                match anchor {
+                    Some(sp) => crate::db::diagnostic::diagnostic::diagnostic_log_at(
+                        crate::errcodes::GHOST_PORT,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        sp.uri.clone(),
+                        sp.offset,
+                        1,
+                        &msg,
+                        &[],
+                    ),
+                    None => crate::db::diagnostic::diagnostic::diagnostic_log(
+                        crate::errcodes::GHOST_PORT,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        0,
+                        1,
+                        &msg,
+                        &[],
+                    ),
+                }
             }
         }
 

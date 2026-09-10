@@ -522,8 +522,9 @@ fn dlu_flatchk__outputs_power_no_input_locked() {
 }
 
 /// 4118 NET_POWER_NET_COUNT: twelve `ps` pins on twelve separate io rails
-/// exceed the power-net consolidation threshold. The 4118 diagnostic anchors
-/// at file offset 0 (design scope, no single site).
+/// exceed the power-net consolidation threshold. This is a whole-design
+/// summary with no single per-net site, so it anchors at the built module's
+/// own `module <name>` header (byte 61 = `main` below) instead of file:1:1.
 #[test]
 fn dlu_flatchk__power_net_count_threshold_locked() {
     let mut src =
@@ -546,7 +547,7 @@ fn dlu_flatchk__power_net_count_threshold_locked() {
             "/mcc/flat-diag.mc",
             "Component 'PSU': power pin 'P' (1) has no associated voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
         ),
-        (4118, 0, "/mcc/flat-diag.mc", "Design has 12 power nets. Review for consolidation."),
+        (4118, 61, "/mcc/flat-diag.mc", "Design has 12 power nets. Review for consolidation."),
     ];
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
 }

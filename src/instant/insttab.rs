@@ -494,6 +494,23 @@ pub struct InstTable {
     /// PWR-7) consume this; the edges never merge L0 copper.
     power_decls: BTreeMap<u32, McPowerDecls>,
 
+    /// Module-scope net origin offsets, keyed by module entry id: net name →
+    /// byte offset of that net's **defining token** in the module's file.
+    /// "Defining" = declaration (conduit `ref` decl / declared port bus-member
+    /// decl) when the net is declared, else its earliest net-name reference
+    /// (first use). Threaded at flatten time from the owning def's power-intent
+    /// decls + LSP net-ref spans so the GHOST_PORT(4055) anchor for a
+    /// module-scope Label/Bus pseudo endpoint can point at the net's own token
+    /// instead of an unrelated statement head. Store-only: no semantics.
+    net_origin: BTreeMap<u32, std::collections::HashMap<String, u32>>,
+
+    /// ★ Root declaration span: byte range of the built module's own
+    /// `module <name>` header in its def file, captured at flatten time from the
+    /// root `McModuleInst.def.span`. Gives design-scope FlatErc summaries (4118
+    /// power-net count) a real anchor at the module header instead of
+    /// `file:1:1` — the net checks themselves only see the flat table.
+    root_span: Option<crate::semantic::common::SourcePos>,
+
     /// Declared semantics of every component power pin, keyed by the **member
     /// spelling** a net point uses (`main.ldo33.VOUT.Vout`), captured at the
     /// component flatten site. A wiring that names a pin by its group member
@@ -517,8 +534,17 @@ impl InstTable {
             bridge_passive_paths: HashSet::new(),
             net_table: Rc::new(RefCell::new(NetTableStore::new())),
             power_decls: BTreeMap::new(),
+            net_origin: BTreeMap::new(),
+            root_span: None,
             member_pin_sem: HashMap::new(),
         }
+    }
+
+    /// The flattened root module's own declaration span (its `module <name>`
+    /// header). `None` when the table has no root span recorded (defensive —
+    /// every flatten starts from a real module inst, so this is normally `Some`).
+    pub fn root_span(&self) -> Option<&crate::semantic::common::SourcePos> {
+        self.root_span.as_ref()
     }
 
     /// The circuit-wide frozen string net-table store (Phase D). Tree-level
@@ -535,6 +561,11 @@ impl InstTable {
     /// resolves, so a check can recover the module's `path`/`def_uri`.
     pub(crate) fn power_decls(&self) -> &BTreeMap<u32, McPowerDecls> {
         &self.power_decls
+    }
+
+    /// Module-scope net origin offsets (see [`Self::net_origin`]).
+    pub(crate) fn net_origin(&self) -> &BTreeMap<u32, std::collections::HashMap<String, u32>> {
+        &self.net_origin
     }
 
     /// Recursively generate flattened instance table from McModuleInst tree.
@@ -774,7 +805,6 @@ impl InstTable {
         let Some(pin) = comp.def.pins.pins.get(pin_name) else {
             return;
         };
-        let target = self.get_id_by_path(&format!("{comp_path}.{pin_name}"));
         for name in &pin.names {
             let spelling = format!("{comp_path}.{name}");
             self.member_pin_sem
@@ -1080,11 +1110,52 @@ impl InstTable {
             None,
             inst.def_uri.to_string(),
         );
+        // ★ Root header anchor: record the built module's own `module <name>`
+        // declaration span so design-scope net-check summaries (4118 power-net
+        // count) can anchor at the module header instead of file:1:1. Only the
+        // outermost flatten call carries parent_id == None; sub-module
+        // registrations do not overwrite it.
+        if parent_id.is_none() {
+            self.root_span = Some(crate::semantic::common::SourcePos::new(
+                inst.def.uri.clone(),
+                inst.def.span.start as u32,
+            ));
+        }
         // Power-intent L1 threading: capture the owning def's declarations so
         // FlatErc can run the per-module relation-edge checks against this
         // instance. Cloned per instance (defs are shared across instances);
         // the L1 checks dedupe by def below.
         self.power_decls.insert(my_id, inst.def.pi.clone());
+
+        // Module-scope net origin map (decl-or-first-ref), store-only
+        // threading for GHOST_PORT(4055) anchoring. Definition wins over
+        // first use: conduit `ref` declarations, then declared port
+        // bus-members (io MIC{P,N} → members anchor on the io row), then the
+        // earliest net-name reference from the LSP net-ref spans (usage-born
+        // nets such as a bare `[VBUS_RAW, GND]` label keep their own token).
+        let mut net_origin_map: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
+        for r in &inst.def.pi.refs {
+            net_origin_map.insert(r.name.clone(), r.span.start as u32);
+        }
+        for port in &inst.ports {
+            if port.bus_members.is_empty() {
+                continue;
+            }
+            if let Some(span) = Self::port_decl_span_of(inst, &port.name) {
+                let base = span.start as u32;
+                for m in &port.bus_members {
+                    net_origin_map.insert(m.clone(), base);
+                    net_origin_map.insert(format!("{}.{}", port.name, m), base);
+                }
+            }
+        }
+        for (span, name, _scope) in inst.def.insts.iter_net_refs() {
+            net_origin_map
+                .entry(name.clone())
+                .or_insert(span.start as u32);
+        }
+        self.net_origin.insert(my_id, net_origin_map);
 
         // Model-A declared member identity (classification-retirement batch2
         // R1): a port member / pin func name gets an electrical role only when
