@@ -94,7 +94,7 @@ fn align_hub_to_spokes(graph: &mut McVecGraph, root_id: i64) {
     }
     // ★ Reserved interface ①: a layout-fixed hub keeps its authored size/offsets —
     //   stretching it to span spokes would fight the explicit pin placement.
-    if root_box.layout_hint.is_some() {
+    if root_box.has_pin_layout() {
         return;
     }
 
@@ -193,7 +193,7 @@ fn desired_side_pass(
         // ★ Reserved interface ①: a layout-fixed box is entirely governed by its
         //   `layout = [...]` (listed pins keep their authored side; any unlisted
         //   pins keep the coarse fallback). Connectivity must not re-side it.
-        if b.layout_hint.is_some() {
+        if b.has_pin_layout() {
             continue;
         }
 
@@ -447,7 +447,7 @@ fn straighten_facing_pairs(graph: &mut McVecGraph) {
         let is_layout_box = graph
             .boxes
             .iter()
-            .any(|b| b.id == box_id && b.layout_hint.as_ref().is_some_and(|l| !l.is_empty()));
+            .any(|b| b.id == box_id && b.has_pin_layout());
         if is_layout_box {
             continue;
         }
@@ -504,7 +504,7 @@ fn order_pins_per_side(graph: &mut McVecGraph) {
         // ★ Reserved interface ①: order & spacing on a layout-fixed box come from
         //   the author's per-edge list (ep_from_layout already placed them CCW);
         //   crossing-minimizing reorder would scramble that list order.
-        if b.layout_hint.is_some() {
+        if b.has_pin_layout() {
             continue;
         }
         for side in [

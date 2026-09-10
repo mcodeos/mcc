@@ -1,0 +1,12 @@
+[project]
+name = "layout_dev"
+version = "0.1.0"
+entry = "src/main.mc"
+top_module = "main"
+
+[dependencies]
+mcode = "*"
+
+[config.trace]
+enabled = false
+ast = true
