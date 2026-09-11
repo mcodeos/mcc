@@ -32,6 +32,7 @@ mod phases;
 mod points;
 mod stmt;
 mod subst;
+mod vexpr;
 
 pub(crate) use builder::InstantiationBuilder;
 

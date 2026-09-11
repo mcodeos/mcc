@@ -1279,7 +1279,10 @@ impl InstantiationBuilder {
     /// from its parent contributes its own internal gaps, see the Series arm
     /// below). For any non-Series phrase there is no serial operator direction,
     /// so members carry `ConnDir::Undirected` gaps (single-member → empty).
-    fn phrase_to_members_gapped(&self, phrase: &McPhrase) -> (Vec<McPhrase>, Vec<ConnDir>) {
+    pub(super) fn phrase_to_members_gapped(
+        &self,
+        phrase: &McPhrase,
+    ) -> (Vec<McPhrase>, Vec<ConnDir>) {
         let disc = std::mem::discriminant(phrase);
         mcc_dbg!(
             "inst::mod",

@@ -29,7 +29,8 @@ mod common;
 
 use mcc::{McIds, McURI};
 
-const DECLS: &str = "component VOUT(res::INT) {\n    pins = [\n        VCC = 1\n        GND = 2\n    ]\n}\n";
+const DECLS: &str =
+    "component VOUT(res::INT) {\n    pins = [\n        VCC = 1\n        GND = 2\n    ]\n}\n";
 
 /// Build `main` and return (diagnostic codes sorted, net partition).
 ///
@@ -104,8 +105,7 @@ fn curly_merge__different_owner_still_chains() {
         "only the unused-member warnings"
     );
     assert!(
-        nets
-            .iter()
+        nets.iter()
             .any(|n| n.contains(&"d1.VCC".to_string()) && n.contains(&"d2.GND".to_string())),
         "d1.VCC and d2.GND must share one net; got {nets:?}"
     );
