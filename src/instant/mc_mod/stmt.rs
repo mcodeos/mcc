@@ -6,7 +6,7 @@
 //!
 //! - `process_stmt`: single stmt expansion + member/adjacent connection dispatch
 //! - `phrase_to_members`: expand Series etc aggregate forms to member sequence
-//! - `try_connect_adjacent`: adjacent member pairing connections
+//! - `connect_adjacent_pair`: adjacent member pairing connections
 //! - `process_member_internal`: single member internal processing (FuncCall / Closure / Group …)
 
 use super::funccall::FuncCallInst;
@@ -17,14 +17,14 @@ use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::{ConnDir, ConnOp, IOType, Shape};
+use crate::semantic::common::{ConnDir, ConnOp, IOType};
 use crate::semantic::component::mc_pins::{McPinPort, PwrDir};
 use crate::semantic::mc_inst::McInstance;
 use crate::vector::model::trunk::TrunkKind;
 use std::collections::HashSet;
 
 // ── M11.4: lane item for position-aware bridge pin collection ──
-enum LaneItem<'a> {
+pub(super) enum LaneItem<'a> {
     Series(&'a McPhrase),
     Bridge(NetPoint),
 }
@@ -128,7 +128,7 @@ impl InstantiationBuilder {
 
     /// Walk the flattened member/gap vectors and flag direction-word terminals
     /// on the wrong side of their chain.
-    fn audit_dc_binding_dir(&mut self, members: &[McPhrase], gaps: &[ConnDir]) {
+    pub(super) fn audit_dc_binding_dir(&mut self, members: &[McPhrase], gaps: &[ConnDir]) {
         let n = members.len();
         if n < 2 {
             return;
@@ -391,7 +391,7 @@ impl InstantiationBuilder {
         // own pins, NOT independent signals — do NOT expand.
         let mut i: usize = 0;
         // Track which member indices were consumed by P2-5 expansion, so the
-        // downstream try_connect_adjacent loop doesn't re-process them and
+        // downstream connect_adjacent_pair loop doesn't re-process them and
         // create shorting connections (e.g. SCL-SDA bridge).
         let mut p25_consumed: std::collections::HashSet<usize> = std::collections::HashSet::new();
         while i < members.len() {
@@ -443,7 +443,7 @@ impl InstantiationBuilder {
                 );
 
                 // Mark these indices as consumed so they won't be re-processed
-                // by the downstream try_connect_adjacent loop.
+                // by the downstream connect_adjacent_pair loop.
                 p25_consumed.insert(multiple_idx);
                 p25_consumed.insert(fc_idx);
 
@@ -513,12 +513,12 @@ impl InstantiationBuilder {
             .iter()
             .any(|m| Self::member_contains_lead(m) || matches!(m, McPhrase::Transposed(_)));
         if needs_lane_by_lane {
-            // §8.9.6.7: the lane-by-lane path bypasses try_connect_adjacent,
+            // §8.9.6.7: the lane-by-lane path bypasses connect_adjacent_pair,
             // so the AST-layer group context is never established there.
             // Extract it from the chain members (driver side first, then the
             // far side) and wire inside it, so bus member lanes carry their
             // trunk identity and render as a trunk. The written-pair rule
-            // applies here too (§5.2, same as try_connect_adjacent): a chain
+            // applies here too (§5.2, same as connect_adjacent_pair): a chain
             // that spells its DC pair at an end (`usb.vin -> [F1::FUSE(), _]
             // -> [VBUS_RAW, GND]`) is named by that pair, not by the instance
             // name the far-side terminal would otherwise leak.
@@ -539,7 +539,7 @@ impl InstantiationBuilder {
                     .find_map(|m| self.extract_trunk_iface(m))
             });
             return self.with_trunk(trunk, trunk_kind, trunk_iface, |this| {
-                this.wire_chain_lane_by_lane(&members, gaps)
+                this.vexpr_lane_chain(&members, gaps).map(|_| ())
             });
         }
 
@@ -554,7 +554,7 @@ impl InstantiationBuilder {
 
             // Edge-level: this pair's operator is the gap at the left index.
             let gap_dir = gaps[i];
-            if let Err(e) = self.try_connect_adjacent(left_member, right_member, gap_dir) {
+            if let Err(e) = self.connect_adjacent_pair(left_member, right_member, gap_dir) {
                 self.record_warning(
                     crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
                     crate::errcodes::format_msg(
@@ -606,7 +606,7 @@ impl InstantiationBuilder {
         }
     }
 
-    fn member_contains_lead(member: &McPhrase) -> bool {
+    pub(super) fn member_contains_lead(member: &McPhrase) -> bool {
         match member {
             McPhrase::Multiple(inner) => inner.iter().any(|p| matches!(p, McPhrase::Lead)),
             McPhrase::Parallel(stmts) => stmts.iter().any(|l| Self::member_contains_lead(l)),
@@ -710,13 +710,13 @@ impl InstantiationBuilder {
     }
 
     // ── M11.2: determine lane count for a chain member ──
-    // Lane-wiring only (the `num_lanes` loop in `wire_chain_lane_by_lane`):
+    // Lane-wiring only (the `num_lanes` loop in `vexpr_lane_chain`):
     // how many independent parallel lanes a member spans. NOT a §5 port-width
     // source — width legality now goes through the unified
     // `get_left_points`/`get_right_points` → `Shape::vvec` → `check_series_rows`
     // chain (vec-arch.md stage D). A bare port label here is `1` lane, which is
     // correct for lane wiring even when the port declares multiple members.
-    fn member_lane_width(&self, member: &McPhrase) -> usize {
+    pub(super) fn member_lane_width(&self, member: &McPhrase) -> usize {
         match member {
             McPhrase::Multiple(inner) => inner.len(),
             McPhrase::Parallel(stmts) => stmts
@@ -764,310 +764,12 @@ impl InstantiationBuilder {
         n.max(1)
     }
 
-    // ── M11.1 / M11.2 / M11.4: Lane-by-lane wiring for chains containing
-    // pass-through (_) or bridge passives (CAP').
-    //
-    // Each lane is wired independently. Lead elements are pass-through identity.
-    // Transposed elements (standalone or inside Parallel) act as bridge passives:
-    // each pin is attached to its corresponding lane net at the correct position
-    // in the chain.
-    //
-    // Example: [a.P, a.N] -> [RES, _] -> [b.P, b.N]
-    //   Lane 0: a.P → RES.1 → RES.2 → b.P
-    //   Lane 1: a.N → b.N  (pass-through, _ skipped)
-    //
-    // Example: [a.P, a.N] -> [RES, _] + CAP' -> [b.P, b.N]
-    //   Lane 0: a.P → RES.1 → RES.2 → b.P, CAP.1 on RES.2~b.P net
-    //   Lane 1: a.N → b.N, CAP.2 on a.N~b.N net
-    //
-    // Example: [a.P, a.N] -> [RES, _] -> CAP' -> [RES, RES] -> [b.P, b.N]
-    //   Lane 0: a.P → RES.1 → RES.2 → b.P, CAP.1 on RES.2~RES net
-    //   Lane 1: a.N → RES → b.N, CAP.2 on a.N~RES net
-    fn wire_chain_lane_by_lane(
-        &mut self,
-        members: &[McPhrase],
-        gaps: &[ConnDir],
-    ) -> Result<(), InstError> {
-        debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
-        let num_lanes = members
-            .iter()
-            .map(|m| self.member_lane_width(m))
-            .max()
-            .unwrap_or(0);
-        crate::vlog!("[lane-by-lane] num_lanes={num_lanes}");
-        if num_lanes == 0 {
-            return Ok(());
-        }
-
-        // Pre-instantiate FuncCalls inside Transposed members.
-        // In normal flow, process_member_internal handles Transposed by
-        // instantiating its inner FuncCall. But lane-by-lane wiring skips
-        // the normal adjacency loop, so Transposed-inner FuncCalls never
-        // get instantiated → get_transposed_lane_pin returns empty.
-        for member in members {
-            if let McPhrase::Transposed(_) = member {
-                if let Err(e) = self.process_member_internal(member) {
-                    self.record_warning(
-                        crate::errcodes::INST_LANE_TRANSPOSED_FAILED,
-                        crate::errcodes::format_msg(
-                            crate::errcodes::INST_LANE_TRANSPOSED_FAILED,
-                            &[&e],
-                        ),
-                    );
-                }
-            }
-        }
-
-        // ── Strict §5 transpose-bridge legality (vec-dianlu.md §5.3) ──
-        // A transposed operand is first transposed to its full-width column —
-        // `get_left_points` / `get_right_points` merge the inner left + right
-        // pins, which is already the transposed result — and the §5.2 series
-        // check runs on that result. There is no pair-by-min / lane-hang
-        // carve-out: each adjacent pair must span the same width. Any width
-        // mismatch is an illegal operation (E4007) and the chain generates no
-        // connections.
-        //
-        // Unified width source (vec-arch.md stage D): this check uses the same
-        // chain as `try_connect_adjacent` — `get_left_points` / `get_right_points`
-        // (internally unified via `expand_port_lanes`, which resolves a bare
-        // port label against the module's declared port members) → `Shape::vvec`
-        // → `check_series_rows` (opcheck, shared Pass1/Pass2). The previous
-        // `member_port_width` / `member_lane_width` self-computed widths were a
-        // third, drifting source: `member_lane_width` returned 1 for a bare
-        // port label (`Endpoint(Single(Bus))` with empty `bus.member`) even
-        // when the port declares 2 members, causing a false E4007 on
-        // `dc -> [RES, _] + CAP' -> ...` (periph.mc). A zero width (unresolved
-        // side / empty expansion) skips the pair.
-        let has_transposed = members.iter().any(|m| Self::phrase_contains_transposed(m));
-        if has_transposed {
-            for i in 0..members.len().saturating_sub(1) {
-                // §5.2 contact side: left member's right port vs right member's
-                // left port.
-                let lpts = self.get_right_points(&members[i])?;
-                let rpts = self.get_left_points(&members[i + 1])?;
-                if lpts.is_empty() || rpts.is_empty() {
-                    continue;
-                }
-                let lhs_shape = Shape::vvec(lpts.len());
-                let rhs_shape = Shape::vvec(rpts.len());
-                let verdict = crate::semantic::opcheck::check_series_rows(lhs_shape, rhs_shape);
-                if !matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_)) {
-                    self.record_error(
-                        crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
-                        crate::errcodes::format_msg(
-                            crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
-                            &[],
-                        ),
-                    );
-                    return Ok(());
-                }
-            }
-        }
-
-        for lane in 0..num_lanes {
-            // Collect lane items: series elements and bridge pins in order,
-            // each tagged with the member index that produced it (`origins`).
-            let items = self.collect_lane_items(members, lane);
-
-            // Extract series elements and their bridge pins.
-            // bridges_at[i] = bridge pins to attach to the net between series[i] and series[i+1].
-            let mut series_elems: Vec<&McPhrase> = Vec::new();
-            let mut series_origins: Vec<usize> = Vec::new();
-            let mut bridges_at: Vec<Vec<NetPoint>> = Vec::new();
-            let mut pending_bridges: Vec<NetPoint> = Vec::new();
-
-            for (origin, item) in items {
-                match item {
-                    LaneItem::Series(elem) => {
-                        series_elems.push(elem);
-                        series_origins.push(origin);
-                        // Bridge pins collected before this series element belong to
-                        // the gap between the previous series element and this one.
-                        bridges_at.push(std::mem::take(&mut pending_bridges));
-                    }
-                    LaneItem::Bridge(pin) => {
-                        pending_bridges.push(pin.clone());
-                    }
-                }
-            }
-
-            // Edge-level dir for a member-boundary index `g`, clamped so uniform
-            // chains (every gap equal) reproduce the pre-fix single `dir` exactly
-            // (the phase-1 golden invariant). For interior element gaps this is
-            // the exact operator leaving `series_origins[i]`; for chain-head /
-            // chain-tail artifact nets (no real source-member boundary) it is the
-            // nearest real boundary — the documented approximation.
-            let lane_gap_dir = |g: usize| -> ConnDir {
-                if gaps.is_empty() {
-                    ConnDir::Undirected
-                } else {
-                    gaps[g.min(gaps.len() - 1)]
-                }
-            };
-            // Trailing bridges (collected after the last series element) stay
-            // in `pending_bridges`; §11 strict vector order: a chain-tail
-            // bridge (`A -> CAP'`) is written after the last series element,
-            // so its pins attach after that element's right points — not into
-            // the last gap.
-
-            // Instantiate FuncCall elements before resolving points.
-            // When lane-by-lane wiring skips the normal process_member_internal
-            // loop, FuncCall elements (e.g. CAP(18pF) in setup chains) are
-            // never instantiated → get_left_points/get_right_points return
-            // empty because auto_inst_map has no entries.
-            for elem in &series_elems {
-                if matches!(elem, McPhrase::FuncCall(_)) {
-                    if let Err(e) = self.process_member_internal(elem) {
-                        self.record_warning(
-                            crate::errcodes::INST_LANE_FUNCCALL_FAILED,
-                            crate::errcodes::format_msg(
-                                crate::errcodes::INST_LANE_FUNCCALL_FAILED,
-                                &[&e],
-                            ),
-                        );
-                    }
-                    // P2-7 debug: trace FuncCall instantiation in lane-by-lane
-                    if let McPhrase::FuncCall(fc) = elem {
-                        let key = Self::member_key(elem);
-                        let inst_name = self.auto_inst_map.get(&key).cloned();
-                        let left_pts = self.get_left_points(elem).unwrap_or_default();
-                        mcc_dbg!("inst::mod", 
-                            "[LL-DBG] module={} lane={lane} FuncCall(fn={}, id={}) key={key:?} inst={inst_name:?} left_pts={left_pts:?}",
-                            self.name, fc.func_name, fc.id
-                        );
-                    }
-                }
-            }
-
-            // Single series element (or none): the main gap loop below is
-            // `0..n-1`, so it naturally no-ops; chain-head / chain-tail
-            // bridges are still handled by the leading / trailing branches,
-            // keeping their semantic position (§11 strict vector order).
-
-            // Wire series elements in order. Bridge pins at position i+1 are
-            // attached to the net between series[i] and series[i+1].
-            // bridges_at[0] = leading bridges, bridges_at[k] = gap between series[k-1] and series[k]
-            let n = series_elems.len();
-
-            // ── P2-7: handle leading bridges (bridges_at[0]) ──
-            // Attach leading bridges to the first series element's left points.
-            // §11 strict vector order: a chain-head bridge (`CAP' -> A`) is
-            // written before A, so its pins come first: `CAP.1 -> A.left`,
-            // not `A.left -> CAP.1`.
-            if let Some(leading) = bridges_at.first() {
-                if !leading.is_empty() {
-                    let first_left = self.get_left_points(series_elems[0]).unwrap_or_default();
-                    if let Some(lp) = Self::pick_lane_point(&first_left, lane) {
-                        let mut all_pts = Vec::with_capacity(leading.len() + 1);
-                        all_pts.extend(leading.iter().cloned());
-                        all_pts.push(lp);
-                        if all_pts.len() >= 2 {
-                            let id = self.next_conn_id();
-                            // Chain-head artifact net: dir is the boundary entering
-                            // the first present element's member.
-                            let head_dir = lane_gap_dir(series_origins[0].saturating_sub(1));
-                            self.add_connection(self.make_conn_with_provenance(
-                                id,
-                                all_pts,
-                                head_dir,
-                                Some(lane as u16),
-                            ));
-                        }
-                    }
-                }
-            }
-
-            for i in 0..n.saturating_sub(1) {
-                let left_pts = self.get_right_points(series_elems[i]).unwrap_or_default();
-                let right_pts = self
-                    .get_left_points(series_elems[i + 1])
-                    .unwrap_or_default();
-                if left_pts.is_empty() || right_pts.is_empty() {
-                    continue;
-                }
-
-                let bridge_pins = if i + 1 < bridges_at.len() {
-                    &bridges_at[i + 1]
-                } else {
-                    continue;
-                };
-
-                let lp = match Self::pick_lane_point(&left_pts, lane) {
-                    Some(p) => p,
-                    None => continue,
-                };
-                let rp = match Self::pick_lane_point(&right_pts, lane) {
-                    Some(p) => p,
-                    None => continue,
-                };
-
-                // Edge-level: this element gap is the operator leaving
-                // `series_origins[i]`'s member. (Adjacent members → exact gap;
-                // a member skipped on this lane (Lead / non-matching lane) is a
-                // passthrough, carrying the same boundary dir.)
-                let gap_dir = lane_gap_dir(series_origins[i]);
-                if !bridge_pins.is_empty() {
-                    // §11 strict vector order: the bridge is a series element
-                    // between the left and right elements, so its pins belong
-                    // in the gap — the expanded point order must match the
-                    // chain evaluation order
-                    // (`A -> CAP' -> B` → `A.1, CAP.1, B.1`, not `A.1, B.1, CAP.1`).
-                    let mut all_pts = vec![lp.clone()];
-                    all_pts.extend(bridge_pins.iter().cloned());
-                    all_pts.push(rp.clone());
-                    let id = self.next_conn_id();
-                    self.add_connection(self.make_conn_with_provenance(
-                        id,
-                        all_pts,
-                        gap_dir,
-                        Some(lane as u16),
-                    ));
-                } else {
-                    self.create_connection(vec![lp], vec![rp], gap_dir, Some(lane as u16))?;
-                }
-            }
-
-            // ── M11.4: handle trailing bridges (after the last series element) ──
-            // §11 strict vector order: a chain-tail bridge (`A -> CAP'`) is
-            // written after the last series element, so its pins follow that
-            // element's right points: `B.right -> CAP.1`.
-            if !pending_bridges.is_empty() {
-                if let Some(last_elem) = series_elems.last() {
-                    let last_right = self.get_right_points(last_elem).unwrap_or_default();
-                    if let Some(rp) = Self::pick_lane_point(&last_right, lane) {
-                        let mut all_pts = Vec::with_capacity(pending_bridges.len() + 1);
-                        all_pts.push(rp);
-                        all_pts.extend(pending_bridges.iter().cloned());
-                        if all_pts.len() >= 2 {
-                            let id = self.next_conn_id();
-                            // Chain-tail artifact net: dir is the boundary leaving
-                            // the last present element's member (clamped).
-                            let tail_dir = if let Some(&last_origin) = series_origins.last() {
-                                lane_gap_dir(last_origin)
-                            } else {
-                                ConnDir::Undirected
-                            };
-                            self.add_connection(self.make_conn_with_provenance(
-                                id,
-                                all_pts,
-                                tail_dir,
-                                Some(lane as u16),
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Pick the lane-specific point from a list of points.
     /// For multi-pin endpoints (e.g. XTAL interface with 2 pins),
     /// get_left_points/get_right_points returns all points. This helper
     /// picks the point at index `lane`, falling back to index 0 if the
     /// lane index is out of bounds.
-    fn pick_lane_point(pts: &[NetPoint], lane: usize) -> Option<NetPoint> {
+    pub(super) fn pick_lane_point(pts: &[NetPoint], lane: usize) -> Option<NetPoint> {
         if pts.is_empty() {
             None
         } else if lane < pts.len() {
@@ -1082,7 +784,7 @@ impl InstantiationBuilder {
     // the caller can map a lane element back to its member-boundary gap dir
     // (a member may be skipped on a lane — e.g. a Lead `_` — so the element
     // index within a lane is not the member index).
-    fn collect_lane_items<'a>(
+    pub(super) fn collect_lane_items<'a>(
         &mut self,
         members: &'a [McPhrase],
         lane: usize,
@@ -1176,7 +878,7 @@ impl InstantiationBuilder {
             }
             // ── P2-7: bus endpoint (e.g. XTAL interface with 2 pins) ──
             // Treat as multi-lane series element: each lane gets its own pin.
-            // The lane-specific pin is picked in wire_chain_lane_by_lane via
+            // The lane-specific pin is picked in vexpr_lane_chain via
             // pick_lane_point.
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Bus(ref bus),
@@ -2263,39 +1965,43 @@ impl InstantiationBuilder {
         }
     }
 
-    /// Try to connect adjacent members
+    /// Wire one adjacent pair of chain members (unified-core §7.3 L4).
     ///
-    /// Helper method extracted from `process_stmt`, handling Group / normal
-    /// member connection dispatch. On failure the caller `process_stmt` catches
-    /// and records the diagnosis.
+    /// The `->` leg itself is no longer implemented here: the operand faces and
+    /// the §5.2 pairing come from the fold
+    /// ([`InstantiationBuilder::vexpr_fold_member`] /
+    /// [`InstantiationBuilder::vexpr_step`]), which is the single
+    /// implementation of the leg. What stays here is production
+    /// **orchestration** — the trunk context and the `Group`-as-chain-member
+    /// dispatch:
+    ///
+    /// - **Trunk.** Prefer the left (written-first) member, fall back to the
+    ///   right (written-second). Members are in written source order and the
+    ///   pairing is positional (R0), so the tie-break follows the written order
+    ///   rather than any flow direction. RAII (§7.11(2)): the group is restored
+    ///   on every exit path (including early `Err` returns), so it can never
+    ///   leak into the next connection.
+    ///
+    ///   Declaration face first (§5.2): a written DC pair `[V5V, GND]` beside a
+    ///   declared power terminal is itself the trunk — its literal spelling
+    ///   names it. Without this the instance name on the *other* side leaks in
+    ///   as the trunk (the parser carries `USB.vin` as `Bus{name:"USB",
+    ///   member:["vin"]}`, so the port token is not the group identity, the
+    ///   owner instance name is). A bus / interface group on the far side still
+    ///   wins, and only the *name* is overridden.
+    /// - **`Group`.** The fold deliberately has no `Group` arm: the law for
+    ///   "Group as a chain member" is still an open semantic item (unified-core
+    ///   §7.6 step 0 (3)), so that one shape is delegated to
+    ///   [`InstantiationBuilder::connect_to_group`].
     ///
     /// Also re-links bracket-form array instance references (`cap[4:5] -> ...`)
     /// to the already-declared instances; see the re-link block in the body.
-    fn try_connect_adjacent(
+    fn connect_adjacent_pair(
         &mut self,
         left_member: &McPhrase,
         right_member: &McPhrase,
         dir: ConnDir,
     ) -> Result<(), InstError> {
-        // ★ P9-A2: extract trunk from source code context.
-        // Prefer the left (written-first) member, fall back to the right
-        // (written-second). Members are in written source order and the pairing
-        // is positional (R0), so the tie-break follows the written order rather
-        // than any flow direction: the "driver" side is the right member for
-        // `<-` and the left one for `->`, and both are already ordered by
-        // position below (`left_member.right` x `right_member.left`).
-        // RAII (§7.11(2)): the group is restored on every exit path (including
-        // early `Err` returns), so it can never leak into the next connection.
-        //
-        // Declaration face first (§5.2): a written DC pair `[V5V, GND]` beside a
-        // declared power terminal is itself the trunk — its literal spelling
-        // names it. Without this the instance name on the *other* side leaks in
-        // as the trunk (the parser carries `USB.vin` as `Bus{name:"USB",
-        // member:["vin"]}`, so the port token is not the group identity, the
-        // owner instance name is). A bus / interface group on the far side
-        // still wins, and only the *name* is overridden: the trunk's existence
-        // keeps its original derivation, so no new trunk appears and no
-        // downstream classification shifts.
         let trunk = self
             .end_pair_trunk(left_member, &[right_member])
             .or_else(|| self.end_pair_trunk(right_member, &[left_member]))
@@ -2308,30 +2014,6 @@ impl InstantiationBuilder {
             .extract_trunk_iface(left_member)
             .or_else(|| self.extract_trunk_iface(right_member));
         self.with_trunk(trunk, trunk_kind, trunk_iface, |this| {
-            // ── P1-diag: detailed adjacent wiring diagnostic ─────────────────────────────────
-            let _l_kind = match left_member {
-                McPhrase::FuncCall(f) => format!(
-                    "FuncCall(fn={}, caller={}, right_n={})",
-                    f.func_name,
-                    f.caller
-                        .as_ref()
-                        .map(|c| format!("{:?}", std::mem::discriminant(c.as_ref())))
-                        .unwrap_or("None".into()),
-                    f.right.len()
-                ),
-                McPhrase::Endpoint(e) => format!("Endpoint({e:?})"),
-                McPhrase::Parallel(v) => format!("Parallel(len={})", v.len()),
-                McPhrase::Group(g) => format!("Group(opds={})", g.opds.len()),
-                _ => format!("{:?}", std::mem::discriminant(left_member)),
-            };
-            let _r_kind = match right_member {
-                McPhrase::FuncCall(f) => {
-                    format!("FuncCall(fn={}, right_n={})", f.func_name, f.right.len())
-                }
-                McPhrase::Endpoint(e) => format!("Endpoint({e:?})"),
-                _ => format!("{:?}", std::mem::discriminant(right_member)),
-            };
-
             // ── Array-form operands fall through to the general row gate below ──
             // Whole declared arrays in plain Series statements (`cap[4:5] -> PWR{VCC,GND}`,
             // `cap[4] -> GND`) are NOT re-linked member-by-member here. Each member is a
@@ -2344,60 +2026,16 @@ impl InstantiationBuilder {
             // `resolve_array_caller_to_existing` is retained solely for the FuncCall
             // dispatch (`@@ARRAY`, below), where per-member invocation is the legal
             // iterated layer (vec-dianlu §7.6).
-            let left_is_group = matches!(left_member, McPhrase::Group { .. });
-            let right_is_group = matches!(right_member, McPhrase::Group { .. });
-
-            if right_is_group {
+            if matches!(right_member, McPhrase::Group { .. }) {
                 let external_points = this.get_right_points(left_member)?;
                 this.connect_to_group(external_points, right_member, true, dir)?;
-            } else if left_is_group {
+            } else if matches!(left_member, McPhrase::Group { .. }) {
                 let external_points = this.get_left_points(right_member)?;
                 this.connect_to_group(external_points, left_member, false, dir)?;
             } else {
-                let left_points = this.get_right_points(left_member)?;
-                let right_points = this.get_left_points(right_member)?;
-                // Explicit empty-port guard: a single-ended member or an
-                // `<error` endpoint expands to an empty point list. This is not
-                // an "unknown shape" to wildcard through opcheck — there is
-                // simply nothing to connect (`create_connection` no-ops on an
-                // empty side). Return early so `Shape::vvec` only receives
-                // `len >= 1` and never relies on the `Shape::vvec(0) ==
-                // Shape::unknown` coincidence as an implicit wildcard.
-                if left_points.is_empty() || right_points.is_empty() {
-                    return Ok(());
-                }
-                let lhs_shape = Shape::vvec(left_points.len());
-                let rhs_shape = Shape::vvec(right_points.len());
-                // ── §5.2 series legality (vec-dianlu.md): unified check shared
-                // with Pass1 (`opcheck`), so the two passes can never drift.
-                // A transposed member is first transposed to its full-width
-                // column — its point list (`get_right_points` /
-                // `get_left_points` merge the inner left + right pins) is
-                // already the transposed result — so this check runs on the
-                // transposed result with no pair-by-min / lane-hang carve-out.
-                // Legal: equal rows only. Illegal: unequal rows — including the
-                // `1×1`-vs-`N×1` scalar-to-lanes mismatch (`X -> [A, B]`,
-                // §5.3.1-abolished single-point broadcast) and any transposed
-                // mismatch — report the error and generate no connection
-                // statement (no truncation / pair-by-min recovery).
-                let verdict = crate::semantic::opcheck::check_series_rows(lhs_shape, rhs_shape);
-                if matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_)) {
-                    // Row counts match: pair the whole group (create_connection
-                    // does 1:1 / interface expansion internally).
-                    this.create_connection(left_points, right_points, dir, None)?;
-                } else {
-                    // Illegal §5.2 operation (unequal rows — including the
-                    // `1×1`-vs-`N×1` scalar-to-lanes mismatch and transposed
-                    // mismatches): report the error and generate no statement —
-                    // the row mismatch is not truncated into a partial pairing.
-                    this.record_error(
-                        crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
-                        crate::errcodes::format_msg(
-                            crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
-                            &[],
-                        ),
-                    );
-                }
+                let left_opd = this.vexpr_fold_member(left_member)?;
+                let right_opd = this.vexpr_fold_member(right_member)?;
+                this.vexpr_step(&left_opd, &right_opd, dir)?;
             }
             Ok(())
         })
@@ -2453,7 +2091,7 @@ impl InstantiationBuilder {
                 opd_rights.push(Vec::new());
                 continue;
             }
-            // ── Use the same rule as try_connect_adjacent to get endpoints ───────────
+            // ── Use the same rule as connect_adjacent_pair to get endpoints ───────────
             // i.e. call self.get_left_points / get_right_points (top-level version,
             // going through auto_inst_map), not _from_phrase, so that stubs /
             // already-instantiated anonymous 2-pin elements can be correctly resolved.
@@ -2797,7 +2435,7 @@ impl InstantiationBuilder {
             let rn = self.normalize_branch_elem(&elems[k + 1]);
             let lref: &McPhrase = ln.as_ref().unwrap_or(&elems[k]);
             let rref: &McPhrase = rn.as_ref().unwrap_or(&elems[k + 1]);
-            if let Err(err) = self.try_connect_adjacent(lref, rref, dir) {
+            if let Err(err) = self.connect_adjacent_pair(lref, rref, dir) {
                 self.record_warning(
                     crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
                     crate::errcodes::format_msg(
@@ -2911,7 +2549,7 @@ impl InstantiationBuilder {
                 // process_member_internal on the cloned elements —— FuncCall's
                 // auto_inst_map key falls on the **cloned pointer**.
                 //
-                // While the outer chain's adjacent wiring (try_connect_adjacent:
+                // While the outer chain's adjacent wiring (connect_adjacent_pair:
                 // RES_5 -> Group) goes get_left_points(Group) → iterates
                 // **this Group's g.opds[i]** (same as here), for the FuncCall
                 // inside it uses g.opds[i]'s original pointer to query
@@ -2924,7 +2562,7 @@ impl InstantiationBuilder {
                 //   - Series branch: process_member_internal(&series[k])
                 //     element by element (FuncCall instantiated on original
                 //     pointer), then use the same batch of original pointers for
-                //     internal adjacent try_connect_adjacent.
+                //     internal adjacent connect_adjacent_pair.
                 //   - Non-Series branch (FuncCall/Parallel/Endpoint etc.): directly
                 //     process_member_internal(branch), pointer is g.opds[i] itself.
                 // This way outer get_left_points(g.opds[i]) querying auto_inst_map
@@ -4014,7 +3652,10 @@ impl InstantiationBuilder {
     }
 
     /// Recursively scan a McPhrase for FuncCall nodes referencing a failed component class.
-    fn phrase_contains_failed_class(phrase: &McPhrase, failed: &HashSet<String>) -> bool {
+    pub(super) fn phrase_contains_failed_class(
+        phrase: &McPhrase,
+        failed: &HashSet<String>,
+    ) -> bool {
         match phrase {
             McPhrase::FuncCall(fc) => {
                 let name = fc.func_name.to_string();

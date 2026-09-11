@@ -2,15 +2,15 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Shadow vector-expression evaluator — the L1/L2 foundation of the unified
-//! connection core (`vector-conn-unified-core-design.md` §7.3 / §7.7).
+//! The unified connection core — operand algebra for vector expressions
+//! (`vector-conn-unified-core-design.md` §7.3 / §7.6 step 4).
 //!
-//! This module is **test-only**: it re-derives the operand / port algebra on
-//! top of the existing building blocks (`get_left_points` / `get_right_points`,
-//! `OpdShape`, `opcheck`) but is **never wired into the production path**. Its
-//! purpose is to give the shadow comparison an independent, letter-accurate
-//! model of what a vector expression reduces to, so that any divergence from
-//! the current engine is a signal rather than a silent drift.
+//! This module is the **production** home of the `->` leg: the statement
+//! orchestrator ([`super::stmt::process_series_members`]) folds each adjacent
+//! pair here instead of carrying its own copy of the rule. The fold re-derives
+//! the operand / port algebra on top of the existing building blocks
+//! (`get_left_points` / `get_right_points`, `OpdShape`, `opcheck`), so the
+//! faces and the §5.2 legality have exactly one implementation.
 //!
 //! It lives under `mc_mod` because `reduce` wraps the builder's
 //! `get_left_points` / `get_right_points`, which are `pub(super)` on
@@ -24,16 +24,24 @@
 //!   `Reversed` / `Parallel` / `Group`.
 //! - **S2** `Parallel` folding by the §5.1 face-side law ([`fold::fold_parallel`]).
 //! - **S3** `Group` is a *statement-level* construct — it is expanded before
-//!   the fold and therefore has no arm here (vec-dianlu §7.3).
+//!   the fold, and a `Group` used as a chain member is still delegated to the
+//!   engine's `connect_to_group` (the law is an open item), so there is no arm
+//!   for it in either place (vec-dianlu §7.3).
 //! - **S4** `_` Lead + `Transposed` + `Reversed` + lane production.
 //!
 //! Everything here mirrors the §7.7 blueprint's plain-data shapes verbatim;
 //! the legality rule is **imported from `opcheck`**, never re-written (a second
 //! copy of a rule is a second drift source — the design's hard requirement).
-#![allow(dead_code)] // test-only shadow foundation: driven by unit tests only.
+//!
+//! Some of the pure-algebra pieces (the I1 assertion, the full `BodyConn`
+//! classification, `fold_parallel`'s pair) are exercised by the unit tests and
+//! the design's shape checks but are not all consumed by the production legs
+//! yet, so the module keeps a local `dead_code` allowance.
+#![allow(dead_code)]
 
 pub mod eval;
 pub mod fold;
+pub mod lane;
 
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
@@ -162,6 +170,21 @@ impl ConcreteOpd {
         eps.iter().map(|e| bus_of(&e.point)).collect()
     }
 
+    /// §6.3 directional reverse (`^`): swap the two faces where they are
+    /// independent. The shape is reversed through [`OpdShape::reverse`], never
+    /// re-derived from the swapped faces — re-deriving would lose the
+    /// multi-member element encoding (`Bus("UART0", ["TX"])`) that the expanded
+    /// point list cannot reproduce.
+    pub fn reversed(&self) -> ConcreteOpd {
+        ConcreteOpd {
+            left: self.right.clone(),
+            right: self.left.clone(),
+            kind: self.kind.reverse(),
+            body: self.body.clone(),
+            lane: self.lane,
+        }
+    }
+
     /// Re-derive the [`OpdShape`] from this operand's two faces.
     pub(super) fn shape_from_faces(left: &[Ep], right: &[Ep]) -> OpdShape {
         OpdShape::from_sides(Self::buses_of(left), Self::buses_of(right))
@@ -177,7 +200,7 @@ use super::builder::InstantiationBuilder;
 impl InstantiationBuilder {
     /// §7.7 `reduce`: wrap the two existing face accessors into a
     /// [`ConcreteOpd`]. The face accessors are `pub(super)` on this builder,
-    /// which is why the shadow evaluator lives inside `mc_mod`.
+    /// which is why the fold lives inside `mc_mod`.
     pub(super) fn vexpr_reduce(&mut self, phrase: &McPhrase) -> Result<ConcreteOpd, InstError> {
         let left = self.get_left_points(phrase)?;
         let right = self.get_right_points(phrase)?;
@@ -354,6 +377,34 @@ mod tests {
         assert_eq!(paths(&fold.result.right), vec!["VCC"]);
         assert_eq!(paths(&fold.pair.0), vec!["VCC"]);
         assert_eq!(paths(&fold.pair.1), vec!["GND"]);
+    }
+
+    #[test]
+    fn reversed__swaps_the_two_faces_and_reverses_the_shape() {
+        // A two-pin row vector: `^` exchanges pin 1 / pin 2 (vec-arch §6.3).
+        let r101 = opd(
+            vec![pin("R101.1", "R101", "1")],
+            vec![pin("R101.2", "R101", "2")],
+        );
+        let flipped = r101.reversed();
+        assert_eq!(paths(&flipped.left), vec!["R101.2"]);
+        assert_eq!(paths(&flipped.right), vec!["R101.1"]);
+        assert!(matches!(flipped.kind, OpdShape::Row(_, _)));
+        assert!(flipped.check_i1().is_ok());
+    }
+
+    #[test]
+    fn reversed__is_an_identity_for_degenerate_operands() {
+        // A point / column has no order of its own, so reversing it is a no-op.
+        for operand in [
+            opd(vec![label("VCC")], vec![label("VCC")]),
+            opd(vec![label("A"), label("B")], vec![label("A"), label("B")]),
+        ] {
+            let flipped = operand.reversed();
+            assert_eq!(paths(&flipped.left), paths(&operand.left));
+            assert_eq!(paths(&flipped.right), paths(&operand.right));
+            assert_eq!(flipped.kind, operand.kind);
+        }
     }
 
     #[test]

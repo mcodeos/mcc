@@ -234,6 +234,47 @@ fn def_ercode__transpose_shape_limit_emitted_and_legal_transposes_pass() {
     );
 }
 
+/// A transposed `FuncCall` whose `return` carries N >= 3 lanes must be rejected
+/// with E2902 at Pass1. The `'` guard (`check_transpose_allowed`) runs during the
+/// body parse, before the "Pass1b" return-shape hook, so it must resolve the
+/// call's return shape first (mirroring the `+` site); otherwise the call still
+/// shows its parse-time receiver width and the wide return slips through to a
+/// `Transposed` node that Pass2 then silently ignores.
+#[test]
+fn def_ercode__wide_funccall_return_transpose_is_reported_at_pass1() {
+    let _lock = common::lock();
+    common::reset();
+    let src = "\
+component SRC
+{
+    pins = [
+        1 = P1
+        2 = P2
+        3 = P3
+    ]
+
+    func wide()
+    {
+        P1 -> P2
+        return [P1, P2, P3]
+    }
+}
+
+module main
+{
+    SRC s1
+    s1.wide()'
+}";
+    let uri = "/mcc/transpose-wide-return.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&mcc::errcodes::SHAPE_TRANSPOSE_LIMIT),
+        "a wide `FuncCall` return transposed must be reported at Pass1; got {codes:?}"
+    );
+}
+
 /// List-literal transpose (`[A,B]'`) now parses and connects as a node whose
 /// members are transposed row vectors (vec-arch.md §5.2). Regression for the
 /// `STRING_SQ` lexer rule that used to swallow `]'` into a single-quoted

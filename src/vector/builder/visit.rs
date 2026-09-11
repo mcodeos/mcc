@@ -43,10 +43,10 @@ use super::report::{
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 
 use super::super::model::netshape::{LaneRef, ShapeStats};
-use super::connection::{merge_pairs_to_vecnet, ConnPair, NetGroupMap};
+use super::connection::{majority_of, merge_pairs_to_vecnet, ConnPair, NetGroupMap};
 use super::debug;
 use super::resolve::resolve_netpoint_v2;
-use crate::semantic::common::{ConnDir, ConnOp};
+use crate::semantic::common::ConnOp;
 
 /// Attach per-connection provenance to a ConnPair: the source operator
 /// (`ConnectionInst.op`, series `-`/`->`/`<-` vs parallel `+`) plus source
@@ -1205,14 +1205,10 @@ impl<'a> McVecBuilder<'a> {
                             let right = trunk_end_from_id(self.inst_table, pairs[0].right, &base);
                             let mut trunk = Trunk::new(id, base.clone(), kind, left, right);
                             trunk.op = pairs.iter().find_map(|p| p.op);
-                            // Net-level approximation: a trunk's overall dir is its
-                            // first pair's (the source end of the chain). Since the
-                            // edge-granularity change every pair carries its own
-                            // edge-level dir, so a mixed-direction trunk (I1->I2<-I3)
-                            // keeps the first pair's dir here while each member lane
-                            // below takes the pair that produced it (§8.9.5 per-member
-                            // dir).
-                            trunk.dir = pairs.first().map(|p| p.dir).unwrap_or(ConnDir::Undirected);
+                            // §4.6 C-3: `trunk.dir` is NOT taken from `pairs.first()`.
+                            // The per-lane directions are the truth, so the trunk-level
+                            // direction is computed as their majority in the post-pass
+                            // below, once every member lane is known.
                             // §8.9.4: carry the standardized interface class
                             // (e.g. "UART.TTL") onto both trunk ends; Bus/List/
                             // Plain trunks have no class (None).
@@ -1237,9 +1233,11 @@ impl<'a> McVecBuilder<'a> {
                             .iter()
                             .any(|m| m.lane == lane && m.member == member)
                         {
-                            // §8.9.5: lane's own arrow direction comes from the
-                            // pair that produced it (per-member dir may differ).
-                            let lane_dir = pairs[0].dir;
+                            // §8.9.5/§4.6 C-3: the lane's own arrow direction comes
+                            // from the edges that produced this net (its majority,
+                            // matching that net's `NetShape.dir`) — never from an
+                            // arbitrary first pair.
+                            let lane_dir = majority_of(pairs.iter().map(|p| p.dir));
                             // §8.9.4 member access chain: re-structure the lopd member's
                             // dotted net path (uC.I2C0.SCL -> Ida/Dot chain).
                             let left_entry = self.inst_table.get_entry(pairs[0].left as u32);
@@ -1290,6 +1288,10 @@ impl<'a> McVecBuilder<'a> {
         // parallel left-alignment anchor, filled after all members are known.
         for trunk in trunks.iter_mut() {
             trunk.order = trunk.members.iter().map(|m| m.lane).collect();
+            // §4.6 C-3: the trunk-level direction is the majority over its member
+            // lanes — a projection computed from the per-lane truth, so it can
+            // never stand in for a lane's own direction.
+            trunk.dir = majority_of(trunk.members.iter().map(|m| m.dir));
             trunk.anchor = if trunk.op == Some(ConnOp::Parallel) {
                 trunk.members.first().map(|m| m.left_pin)
             } else {

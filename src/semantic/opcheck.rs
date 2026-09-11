@@ -197,7 +197,7 @@ pub fn check_parallel(dir: ConnDir, lhs: &OpdShape, rhs: &OpdShape) -> OpCheck {
 /// Pass2 series entry: the operands have already been expanded to concrete
 /// point lists whose lengths are the real (known) row counts — there is no
 /// `Deferred`/unknown state left at this stage (vec-arch.md §5.3). The
-/// explicit empty guard lives in the caller (`try_connect_adjacent`), so this
+/// explicit empty guard lives in the caller (`connect_adjacent_pair`), so this
 /// only receives `len >= 1`.
 pub fn check_series_rows(lhs: Shape, rhs: Shape) -> OpCheck {
     if lhs.is_unknown() || rhs.is_unknown() {
@@ -636,7 +636,7 @@ mod tests {
     ///   wildcard-passes because the symbol layer genuinely does not know the
     ///   width yet (shape-by-use port / unresolved FuncCall return).
     /// - `Error` = an empty expansion / `<error` endpoint — Pass2 skips opcheck
-    ///   entirely via the explicit empty guard in `try_connect_adjacent`, so it
+    ///   entirely via the explicit empty guard in `connect_adjacent_pair`, so it
     ///   is never represented as a row count fed into opcheck.
     ///
     /// The final asserts lock the structural fact that motivates that guard:

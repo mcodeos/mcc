@@ -172,6 +172,30 @@ fn plus__is_parallel_not_series() {
     );
 }
 
+/// The `+ X'` violation was a **family of three** parser arms — both sides
+/// transposed, right side only, left side only (`mc_phrase.rs:2631` /
+/// `:2649-2655` / `:2672-2677`). Fixing only the registered one would have left
+/// the other two, so all three are pinned here from the one landing: no arm may
+/// fold `+` into a `Series` again.
+#[test]
+fn plus_transpose_family__all_three_arms_stay_parallel() {
+    assert_eq!(
+        only("R101' + R102'"),
+        "Parallel[Transposed(R101), Transposed(R102)]",
+        "both sides transposed"
+    );
+    assert_eq!(
+        only("[R101, R102] + C1'"),
+        "Parallel[Multiple[R101, R102], Transposed(C1)]",
+        "right side transposed"
+    );
+    assert_eq!(
+        only("C1' + [R101, R102]"),
+        "Parallel[Transposed(C1), Multiple[R101, R102]]",
+        "left side transposed"
+    );
+}
+
 /// §2.4.2 prohibition 1: `+` keeps its operands in **written** order, both
 /// ways round. The shunted operand's face is derived from which side it was
 /// written on (§5.1), so a swap of the written order must show up here.
