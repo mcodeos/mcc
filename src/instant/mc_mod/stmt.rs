@@ -27,6 +27,12 @@ use std::collections::HashSet;
 pub(super) enum LaneItem<'a> {
     Series(&'a McPhrase),
     Bridge(NetPoint),
+    /// A `_` lead sitting at this lane position. The placeholder is dropped
+    /// from the wiring (it holds a width slot, not an endpoint), which leaves
+    /// the lane's two neighbours adjacent and wires them straight through.
+    /// The marker survives so the wiring can tell *why* they met — an ideal
+    /// wire — and warn when they are two different nets (vec-dianlu §5.4).
+    Lead,
 }
 
 /// PWR-10 (6028) judged-position expectation for a power terminal in its own
@@ -807,7 +813,9 @@ impl InstantiationBuilder {
             McPhrase::Multiple(inner) => {
                 if lane < inner.len() {
                     let p = &inner[lane];
-                    if !matches!(p, McPhrase::Lead) {
+                    if matches!(p, McPhrase::Lead) {
+                        items.push((member_idx, LaneItem::Lead));
+                    } else {
                         items.push((member_idx, LaneItem::Series(p)));
                     }
                 }
@@ -818,7 +826,9 @@ impl InstantiationBuilder {
                         McPhrase::Multiple(inner) => {
                             if lane < inner.len() {
                                 let p = &inner[lane];
-                                if !matches!(p, McPhrase::Lead) {
+                                if matches!(p, McPhrase::Lead) {
+                                    items.push((member_idx, LaneItem::Lead));
+                                } else {
                                     items.push((member_idx, LaneItem::Series(p)));
                                 }
                             }
@@ -848,16 +858,6 @@ impl InstantiationBuilder {
                     items.push((member_idx, LaneItem::Bridge(pin)));
                 }
                 self.try_record_bridge_passive(inner);
-            }
-            McPhrase::Group(g) => {
-                // M11.4: expand Group's opds per lane, same as Multiple.
-                // Each opd is a lane item (e.g. (RES(),RES()) gives RES1 to lane 0,
-                // RES2 to lane 1). Lead (_) elements are skipped.
-                if let Some(p) = g.opds.get(lane) {
-                    if !matches!(p, McPhrase::Lead) {
-                        items.push((member_idx, LaneItem::Series(p)));
-                    }
-                }
             }
             // ── whole-DC-pair curly face (model A §5.3) ──────────────────
             // `ldo{VIN | VOUT}` / `buck{VIN | LX}` expands to a Node whose
@@ -1984,10 +1984,13 @@ impl InstantiationBuilder {
     ///   member:["vin"]}`, so the port token is not the group identity, the
     ///   owner instance name is). A bus / interface group on the far side still
     ///   wins, and only the *name* is overridden.
-    /// - **`Group`.** The fold deliberately has no `Group` arm: the law for
-    ///   "Group as a chain member" is still an open semantic item (unified-core
-    ///   §7.6 step 0 (3)), so that one shape is delegated to
-    ///   [`InstantiationBuilder::connect_to_group`].
+    /// - **`Group`.** A `Group` needs no arm of its own. A multi-statement
+    ///   group is expanded into statements at `process_stmt` entry, so the only
+    ///   `Group` that survives into a chain is one-element, and a one-element
+    ///   group is *see-through*: `get_left_points` / `get_right_points` read it
+    ///   as the single operand it parenthesizes. The general
+    ///   `vexpr_fold_member` / `vexpr_step` path below therefore handles it
+    ///   unchanged (unified-core §7.6 step 0 (3), settled 2026-09-11).
     ///
     /// Also re-links bracket-form array instance references (`cap[4:5] -> ...`)
     /// to the already-declared instances; see the re-link block in the body.
@@ -2021,17 +2024,9 @@ impl InstantiationBuilder {
             // `resolve_array_caller_to_existing` is retained solely for the FuncCall
             // dispatch (`@@ARRAY`, below), where per-member invocation is the legal
             // iterated layer (vec-dianlu §7.6).
-            if matches!(right_member, McPhrase::Group { .. }) {
-                let external_points = this.get_right_points(left_member)?;
-                this.connect_to_group(external_points, right_member, true, dir)?;
-            } else if matches!(left_member, McPhrase::Group { .. }) {
-                let external_points = this.get_left_points(right_member)?;
-                this.connect_to_group(external_points, left_member, false, dir)?;
-            } else {
-                let left_opd = this.vexpr_fold_member(left_member)?;
-                let right_opd = this.vexpr_fold_member(right_member)?;
-                this.vexpr_step(&left_opd, &right_opd, dir)?;
-            }
+            let left_opd = this.vexpr_fold_member(left_member)?;
+            let right_opd = this.vexpr_fold_member(right_member)?;
+            this.vexpr_step(&left_opd, &right_opd, dir)?;
             Ok(())
         })
     }

@@ -16,7 +16,9 @@
 //!   into separate lanes and dropped its gaps. A chain is **one** lane
 //!   (`get_left_points` / `get_right_points` read it as its first / last
 //!   member), so the flatten changed the lane faces as well as the direction.
-//!   `normalize_multiple_lanes` now keeps it whole.
+//!   `normalize_multiple_lanes` now keeps it whole. Locked end-to-end by the
+//!   `series_lane__*` cells below, whose left operand is a `[...]` vector
+//!   whose first lane is a chain — the shape the four real boards never write.
 //!
 //! The locks below are end-to-end, on the net partition: the claim is what the
 //! two points *are*, not how the phrase tree looks.
@@ -32,17 +34,21 @@ use mcc::{McIds, McURI};
 const DECLS: &str =
     "component VOUT(res::INT) {\n    pins = [\n        VCC = 1\n        GND = 2\n    ]\n}\n";
 
-/// Build `main` and return (diagnostic codes sorted, net partition).
+/// Two-pin resistor mirror for the A7 cells (`R101` → row `R101.1 * R101.2`).
+const RES2: &str =
+    "component RES2(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n";
+
+/// Build a complete source string and return (diagnostic codes sorted, net
+/// partition).
 ///
 /// The partition is normalized to a sorted list of sorted member lists: net
 /// *names* are not part of the claim (they are synthesized), the **grouping of
 /// points** is.
-fn build(statements: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+fn build_src(src: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
     let _lock = common::lock();
     common::reset();
-    let src = format!("{DECLS}module main {{\n    VOUT d1(1), d2(1)\n{statements}\n}}\n");
     let u = McURI::from(uri);
-    mcc::mcc_load_from_string(&u, &src);
+    mcc::mcc_load_from_string(&u, src);
     let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
     let mut codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
     codes.sort_unstable();
@@ -62,6 +68,24 @@ fn build(statements: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
         .unwrap_or_default();
     partition.sort();
     (codes, partition)
+}
+
+/// [`build_src`] over the `VOUT d1, d2` header used by the A6 cells.
+fn build(statements: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    build_src(
+        &format!("{DECLS}module main {{\n    VOUT d1(1), d2(1)\n{statements}\n}}\n"),
+        uri,
+    )
+}
+
+/// [`build_src`] over the `RES2 R101..R105` header used by the A7 cells.
+fn build_res(statements: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    build_src(
+        &format!(
+            "{RES2}module main {{\n    RES2 R101(1), R102(1), R103(1), R104(1), R105(1)\n{statements}\n}}\n"
+        ),
+        uri,
+    )
 }
 
 /// A6: `d1.VCC -> d1.GND` is a **chain of two members of one instance**, so
@@ -128,5 +152,69 @@ fn curly_merge__undeclared_member_is_reported() {
     assert!(
         codes.contains(&mcc::errcodes::BUS_MEMBER_UNDECLARED),
         "E3181 must fire for vout.VCC1V2; got {codes:?}"
+    );
+}
+
+/// A7: a `Series` lane inside a `Multiple` stays **one** lane. The engine's own
+/// face accessors read a chain as its first / last member
+/// (`get_left_points` / `get_right_points` in `points.rs`), so `[R101 - R102,
+/// R103]` is a **two**-lane vector, not a three-lane one.
+///
+/// The pre-A7 `flat_map(phrase_to_members)` exposed `R101` and `R102` as
+/// separate lanes: the vector became three lanes wide and failed the pairwise
+/// shape check against the two-lane right side — E4007 and **zero** nets.
+/// Verified by temporarily restoring the flattening arm and re-running this
+/// cell (it then reports E4007 and an empty partition). Kept whole, the two
+/// lanes zip 1:1.
+#[test]
+fn series_lane__chain_stays_one_lane_in_a_lane_vector() {
+    let (codes, nets) = build_res(
+        "    [R101 - R102, R103] - [R104, R105]",
+        "/mcc/r0-a7-lane-width.mc",
+    );
+
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH)
+            && !codes.contains(&mcc::errcodes::CONN_PARALLEL_SHAPE_MISMATCH),
+        "a chain lane must not widen the vector; got {codes:?}"
+    );
+    let has = |a: &str, b: &str| {
+        nets.iter()
+            .any(|n| n.iter().any(|p| p == a) && n.iter().any(|p| p == b))
+    };
+    assert!(
+        has("R102.2", "R104.1"),
+        "the chain lane's right face must zip with the first right lane; got {nets:?}"
+    );
+    assert!(
+        has("R103.2", "R105.1"),
+        "the second lane must zip with the second right lane; got {nets:?}"
+    );
+}
+
+/// A7: the face a chain lane presents is its **last member's** face. This is
+/// the cell that distinguishes "keep the chain whole" from "flatten it": with
+/// the chain flattened, the lane face came from the chain's **first** member
+/// (`R101.2`); kept whole it comes from the last (`R102.2`) — the same
+/// `get_right_points(Series)` claim as the cell above, read off the partition
+/// directly. Verified against the temporarily-flattened arm.
+#[test]
+fn series_lane__lane_face_comes_from_the_chains_last_member() {
+    let (_, nets) = build_res(
+        "    [R101 - R102, R103] - [R104, _]",
+        "/mcc/r0-a7-lane-face.mc",
+    );
+
+    let has = |a: &str, b: &str| {
+        nets.iter()
+            .any(|n| n.iter().any(|p| p == a) && n.iter().any(|p| p == b))
+    };
+    assert!(
+        has("R102.2", "R104.1"),
+        "the lane face must come from the chain's last member; got {nets:?}"
+    );
+    assert!(
+        !nets.iter().any(|n| n.iter().any(|p| p == "R101.2")),
+        "the chain's first member must not become the lane face; got {nets:?}"
     );
 }

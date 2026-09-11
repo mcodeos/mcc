@@ -207,6 +207,33 @@ fn group_expansion__unary_group_is_see_through_in_a_lane_chain() {
     );
 }
 
+/// The same boundary on the **plain adjacent leg** (no lane trigger), on either
+/// side of the operator. `connect_adjacent_pair` used to hand a `Group` operand
+/// to `connect_to_group`; with that dispatch retired the fold reads the group
+/// through `get_left_points` / `get_right_points`. A one-element group is
+/// see-through, so the grouped and bare forms must wire identically
+/// (unified-core §7.6 step 0 (3), settled 2026-09-11).
+#[test]
+fn group_expansion__unary_group_is_see_through_on_the_adjacent_leg() {
+    for (grouped_src, plain_src, uri) in [
+        ("R101 - (R102)", "R101 - R102", "/mcc/group-unary-adj-r.mc"),
+        ("(R101) - R102", "R101 - R102", "/mcc/group-unary-adj-l.mc"),
+    ] {
+        let (grouped, grouped_nets) = build(&format!("    {grouped_src}"), uri);
+        let (plain, plain_nets) = build(&format!("    {plain_src}"), &format!("{uri}.flat"));
+
+        assert_eq!(grouped, plain, "same diagnostics for {grouped_src}");
+        assert_eq!(
+            grouped_nets, plain_nets,
+            "same net partition for {grouped_src}"
+        );
+        assert!(
+            grouped_nets.iter().flatten().count() >= 2,
+            "expected a real net partition for {grouped_src}, got {grouped_nets:?}"
+        );
+    }
+}
+
 /// The same boundary on the other side: a **multi-statement** group is a
 /// statement list everywhere, including when its branches carry `_` leads that
 /// force the lane-by-lane path, so it expands to statements before member

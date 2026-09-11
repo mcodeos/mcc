@@ -33,9 +33,10 @@
 //!
 //! # `Group` as a chain member
 //!
-//! The fold deliberately has no `Group` arm: the law for "Group as a chain
-//! member" is still an open semantic item (unified-core §7.6 step 0 (3)), so
-//! the adjacent path keeps delegating that one shape to `connect_to_group`.
+//! The fold deliberately has no `Group` arm: a multi-statement group is
+//! expanded at statement level before the fold runs, and a one-element group is
+//! see-through, so no `Group` shape survives to reach the fold
+//! (unified-core §7.6 step 0 (3), settled 2026-09-11).
 
 use super::fold::{fold_parallel, fold_parallel_chain, fold_series};
 use super::{BodyConn, ConcreteOpd, Ep};
@@ -59,9 +60,9 @@ pub struct LaneOutcome {
 impl InstantiationBuilder {
     /// Fold one chain member: `Parallel` (S2), the operand transforms `^` / `'`
     /// and the `_` lead (S4), and otherwise the plain reduction through the
-    /// production face accessors. `Group` cannot appear here (either it was
-    /// expanded at statement level or the adjacent path routes it to
-    /// `connect_to_group`), so there is deliberately no arm for it.
+    /// production face accessors. `Group` cannot appear here (a multi-statement
+    /// group is expanded at statement level and a one-element group is
+    /// see-through), so there is deliberately no arm for it.
     pub(in crate::instant::mc_mod) fn vexpr_fold_member(
         &mut self,
         member: &McPhrase,

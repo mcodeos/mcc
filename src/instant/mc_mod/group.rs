@@ -2,17 +2,19 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Group / Transposed processing + connection generation
+//! Connection generation
 //!
-//! - `get_group_branch_count` / `check_group_broadcast`
-//! - `connect_to_group`             —— Connection strategy between Group and external points
 //! - `create_connection`            —— Generic connection generation (1:1 / 1:N / N:1 / N:M)
+//!
+//! `Group` as a connection shape needs no strategy of its own: a multi-statement
+//! group is expanded into statements before the wiring runs, and a one-element
+//! group is see-through, so the fold handles the surviving shape directly
+//! (unified-core §7.6 step 0 (3), settled 2026-09-11).
 
 use super::expand::expand_match;
 use super::InstantiationBuilder;
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
-use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, ConnOp};
 use crate::vector::model::trunk::{TrunkCtx, TrunkKind};
 
@@ -24,109 +26,6 @@ pub(crate) static BUS_BITS_MISMATCHED: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 impl InstantiationBuilder {
-    // ========================================================================
-    // Group processing (Iteration 6)
-    // ========================================================================
-
-    /// Get the branch count of a Group
-    fn get_group_branch_count(member: &McPhrase) -> usize {
-        match member {
-            McPhrase::Group(ref g) => g.opds.len(),
-            _ => 1,
-        }
-    }
-
-    /// Check whether a Group can safely fan an external single point onto each
-    /// branch (scalar→group / group→scalar, §7.3).
-    ///
-    /// Returns (left_allow, right_allow) — whether the branch shapes agree on
-    /// that side so a single external point may join them.
-    fn check_group_broadcast(member: &McPhrase) -> (bool, bool) {
-        match member {
-            McPhrase::Group(ref g) => (g.left_match, g.right_match),
-            _ => (true, true),
-        }
-    }
-
-    /// Handle connections between a Group and external elements
-    ///
-    /// Scenario examples:
-    /// - `VCC -> (a, b, c)`: fan-out — one shared net VCC joins each branch's
-    ///   left port (§7.3 per-branch 1:1)
-    /// - `(a, b, c) -> GND`: all branches' right ports connect to GND
-    /// - `[x, y, z] -> (a, b, c)`: per-branch corresponding connection (requires matching count)
-    pub(super) fn connect_to_group(
-        &mut self,
-        external_points: Vec<NetPoint>,
-        group_member: &McPhrase,
-        external_is_left: bool, // true: external -> group, false: group -> external
-        dir: ConnDir,
-    ) -> Result<(), InstError> {
-        let (left_match, right_match) = Self::check_group_broadcast(group_member);
-
-        let group_points = if external_is_left {
-            // external -> group: get group's left endpoints
-            self.get_left_points(group_member)?
-        } else {
-            // group -> external: get group's right endpoints
-            self.get_right_points(group_member)?
-        };
-
-        let external_size = external_points.len();
-        let group_size = group_points.len();
-        let branch_count = Self::get_group_branch_count(group_member);
-
-        // Check whether connection can be made
-        if external_size == 1 {
-            // Single point fans out to every branch (§7.3): one shared
-            // multi-terminal net.
-            self.create_connection(external_points, group_points, dir, None)?;
-        } else if external_size == branch_count {
-            // External point count equals branch count, per-branch connection
-            // This needs special handling: each external point connects to its corresponding branch
-            if external_is_left {
-                let shape_ok = left_match;
-                if !shape_ok {
-                    mcc_dbg!(
-                        "inst::mod",
-                        "Warning: Group left shapes inconsistent, connection may be incorrect"
-                    );
-                }
-            } else {
-                let shape_ok = right_match;
-                if !shape_ok {
-                    mcc_dbg!(
-                        "inst::mod",
-                        "Warning: Group right shapes inconsistent, connection may be incorrect"
-                    );
-                }
-            }
-            self.create_connection(external_points, group_points, dir, None)?;
-        } else if external_size == group_size {
-            // Point counts match exactly, connect one-to-one
-            self.create_connection(external_points, group_points, dir, None)?;
-        } else {
-            // Genuine group/external shape mismatch (vec-dianlu.md §5.3.3):
-            // report E4166 (CONN_GROUP_SHAPE_MISMATCH) and generate NO
-            // connection. The old fallback truncated both sides by min and
-            // connected the survivors — a partial pairing recovery that §5.3.3
-            // abolishes for illegal rows.
-            self.record_error(
-                crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
-                crate::errcodes::format_msg(
-                    crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
-                    &[
-                        &external_size as &dyn std::fmt::Display,
-                        &group_size as &dyn std::fmt::Display,
-                        &branch_count as &dyn std::fmt::Display,
-                    ],
-                ),
-            );
-        }
-
-        Ok(())
-    }
-
     // ========================================================================
     // Generic connection generation
     // ========================================================================
