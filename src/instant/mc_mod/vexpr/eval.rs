@@ -291,7 +291,6 @@ mod tests {
     use super::*;
     use crate::instant::mc_mod::McModuleInst;
     use crate::instant::mc_net::ConnectionInst;
-    use crate::semantic::basic::opd_shape::OpdShape;
     use crate::semantic::common::ConnOp;
     use crate::semantic::module::McModule;
     use std::sync::Arc;

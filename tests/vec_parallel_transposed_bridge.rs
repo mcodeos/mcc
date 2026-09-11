@@ -52,10 +52,16 @@ fn benign(c: u32) -> bool {
 /// The partition is normalized to a sorted list of sorted member lists: net
 /// *names* are synthesized, so the claim is about the **grouping of points**.
 fn build(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    build_with("", body, uri)
+}
+
+/// Same as [`build`], with extra instance declarations spliced into `main`
+/// before `body` (for cells that need more than the default two branches).
+fn build_with(extra_insts: &str, body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
     let _lock = common::lock();
     common::reset();
     let src = format!(
-        "{CAP2}{RES2}module main {{\n    RES2 R101\n    RES2 R102\n    CAP2 C1\n{body}\n}}\n"
+        "{CAP2}{RES2}module main {{\n    RES2 R101\n    RES2 R102\n    CAP2 C1\n{extra_insts}{body}\n}}\n"
     );
     let u = McURI::from(uri);
     mcc::mcc_load_from_string(&u, &src);
@@ -179,5 +185,39 @@ fn bridge__narrow_left_operand_is_rejected() {
     assert!(
         nets.is_empty(),
         "a rejected bridge wires nothing; got {nets:?}"
+    );
+}
+
+/// `[R101, _] + C1' - [R103, R104]` — the **chain-internal** `Parallel`: a
+/// series chain whose member is a `Parallel` that itself carries a transposed
+/// operand. This is the one form that reaches the `Transposed` arm nested in
+/// `collect_one_lane_item`'s `Parallel` branch (`stmt.rs`, "chain-internal
+/// Parallel Transposed"): the `_` inside the `+` operand is what forces the
+/// lane-by-lane path, because `member_contains_lead` recurses into a
+/// `Parallel` while `phrase_contains_transposed` alone does not trigger it.
+/// Drop the `_` (`[R101, R102] + C1' - [R103, R104]`) and the chain stays on
+/// the adjacent path — the arm is never reached and lane 1's bridge is lost.
+#[test]
+fn bridge__chain_internal_parallel_transposed_member() {
+    let (codes, nets) = build_with(
+        "    RES2 R103\n    RES2 R104\n",
+        "    [R101, _] + C1' - [R103, R104]",
+        "/mcc/bridge-in-chain.mc",
+    );
+    assert_eq!(codes, Vec::<u32>::new(), "bridge is quiet; got {codes:?}");
+    // Lane 0: C1.1 bridges R101's right face, then the lane continues to R103.
+    // Lane 1: the `_` contributes no branch pin, but the transposed member
+    // still supplies C1.2, which bridges into R104.
+    assert_eq!(
+        nets,
+        vec![
+            vec![
+                "C1.1".to_string(),
+                "R101.2".to_string(),
+                "R103.1".to_string()
+            ],
+            vec!["C1.2".to_string(), "R104.1".to_string()],
+        ],
+        "the transposed member of the chain-internal Parallel bridges per lane; got {nets:?}"
     );
 }

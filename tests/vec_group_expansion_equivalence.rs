@@ -18,6 +18,17 @@
 //! handwritten expansion must produce the same diagnostics and the same net
 //! partition. That is what it means for the expansion to be "the statements
 //! written out" — no more and no less.
+//!
+//! Two further cells pin the ruling's *boundary*, which is what decides
+//! whether a `Group` can ever be a **lane item** in the lane-by-lane wiring
+//! (`collect_one_lane_item`):
+//!
+//! - A **one-element** group is not a statement list at all — it is the
+//!   operand it writes, so it is see-through even inside a lane chain.
+//! - A **multi-statement** group still expands to statements when it sits in a
+//!   lane-triggering chain, so no multi-opd group ever reaches lane wiring.
+//!   The per-lane distribution M11.4 sketched for it is therefore dead: there
+//!   is no surviving shape for it to distribute.
 
 // Family naming `{family}__{essence}` uses a doubled underscore to separate the
 // grep-able family token from the essence (matrix §1 taxonomy).
@@ -173,5 +184,52 @@ fn group_expansion__unequal_branch_counts_take_the_cartesian_product() {
     assert!(
         group_nets.iter().flatten().count() >= 5,
         "expected a real net partition, got {group_nets:?}"
+    );
+}
+
+/// The **boundary** of the statement-list ruling, lane path: a one-element
+/// group is not a statement list (`expand_group_statements` returns `None`
+/// unless `opds.len() > 1`), so `(R105')` is the operand `R105'` written with
+/// redundant parentheses. A `_` sibling forces the lane-by-lane path, which is
+/// exactly where a group could have been mistaken for a per-lane item — the
+/// grouped and bare forms must stay identical.
+#[test]
+fn group_expansion__unary_group_is_see_through_in_a_lane_chain() {
+    let (grouped, grouped_nets) = build("    (R105') - [R101, _]", "/mcc/group-unary-lane.mc");
+    let (plain, plain_nets) = build("    R105' - [R101, _]", "/mcc/group-unary-lane-flat.mc");
+
+    assert_eq!(grouped, plain, "same diagnostics");
+    assert_eq!(grouped_nets, plain_nets, "same net partition");
+    // Guard against a vacuous pass: the lane chain must really wire.
+    assert!(
+        grouped_nets.iter().flatten().count() >= 2,
+        "expected a real net partition, got {grouped_nets:?}"
+    );
+}
+
+/// The same boundary on the other side: a **multi-statement** group is a
+/// statement list everywhere, including when its branches carry `_` leads that
+/// force the lane-by-lane path, so it expands to statements before member
+/// flattening and never becomes a lane item. Locked by equivalence with the
+/// statements written out — the `_` only forces the lane path for each
+/// expanded statement, it does not turn the group into a lane vector.
+#[test]
+fn group_expansion__multi_statement_group_expands_in_a_lane_chain() {
+    let (grouped, grouped_nets) = build(
+        "    ([R101, R102] - [R105, _], [R103, R104] - [R106, _])",
+        "/mcc/group-multi-lane.mc",
+    );
+    let (flat, flat_nets) = build(
+        "    [R101, R102] - [R105, _]\n    [R103, R104] - [R106, _]",
+        "/mcc/group-multi-lane-flat.mc",
+    );
+
+    assert_eq!(grouped, flat, "same diagnostics");
+    assert_eq!(grouped_nets, flat_nets, "same net partition");
+    // Guard against a vacuous pass: both expanded branches must really wire
+    // (the lead lane contributes no pin, so each branch wires exactly one).
+    assert!(
+        grouped_nets.iter().flatten().count() >= 2,
+        "expected a real net partition, got {grouped_nets:?}"
     );
 }
