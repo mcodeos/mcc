@@ -11,7 +11,7 @@
 //!
 //! [`opcheck`]: crate::semantic::opcheck
 
-use super::{ConcreteOpd, Ep};
+use super::{identity, ConcreteOpd, Ep};
 use crate::semantic::common::Shape;
 use crate::semantic::opcheck::{check_series_rows, OpCheck};
 
@@ -42,6 +42,7 @@ pub fn fold_series(acc: &ConcreteOpd, next: &ConcreteOpd) -> SeriesStep {
             OpCheck::Legal(_)
         );
     let (left, right) = (acc.left.clone(), next.right.clone());
+    let pair = (acc.right.clone(), next.left.clone());
     let result = ConcreteOpd {
         kind: ConcreteOpd::shape_from_faces(&left, &right),
         left,
@@ -49,8 +50,13 @@ pub fn fold_series(acc: &ConcreteOpd, next: &ConcreteOpd) -> SeriesStep {
         body: Vec::new(),
         lane: acc.lane.or(next.lane),
     };
+    // §7.5 I4, promoted to a lock 2026-09-11: every step re-satisfies I1 and
+    // conserves the identity multiset across the pair it merges. This holds for
+    // skipped / illegal steps too — a step that wires nothing still must not
+    // create or drop an element id, so the check runs unconditionally.
+    identity::enforce_i4("fold_series", &[acc, next], &result, &[&pair.0, &pair.1]);
     SeriesStep {
-        pair: (acc.right.clone(), next.left.clone()),
+        pair,
         result,
         legal,
         skipped,
@@ -230,6 +236,14 @@ pub fn fold_parallel_chain(ops: &[ConcreteOpd], transposed: &[bool]) -> Option<P
             nets.push(right_net.clone());
         }
     }
+
+    // §7.5 I3, promoted to a lock 2026-09-11: the `+` internal nets are built
+    // from the operands' own elements — a `Device` body is a shunt between the
+    // two nets, never a counting element of its own. (`+` keeps only its
+    // external faces, so this is a subset contract, not a conservation one.)
+    let op_refs: Vec<&ConcreteOpd> = ops.iter().collect();
+    let net_refs: Vec<&[Ep]> = nets.iter().map(|net| net.as_slice()).collect();
+    identity::enforce_i3("fold_parallel_chain", &op_refs, &net_refs);
 
     Some(ParallelWiring { nets, illegal })
 }
