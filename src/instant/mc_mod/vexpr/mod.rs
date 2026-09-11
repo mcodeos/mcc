@@ -22,7 +22,9 @@
 //! - **S1** `ConcreteOpd` + `reduce` + the I1 identity assertion (this file).
 //!   Coverage: plain `Series` of simple components; no `_` / `Transposed` /
 //!   `Reversed` / `Parallel` / `Group`.
-//! - **S2** `Parallel` folding by the §5.1 face-side law ([`fold::fold_parallel`]).
+//! - **S2** `Parallel` folding by the §5.1 face-side law: [`fold::fold_parallel`]
+//!   gives the operator's external faces, [`fold::fold_parallel_chain`] the
+//!   internal nets they rest on.
 //! - **S3** `Group` is a *statement-level* construct — it is expanded before
 //!   the fold, and a `Group` used as a chain member is still delegated to the
 //!   engine's `connect_to_group` (the law is an open item), so there is no arm
@@ -34,9 +36,9 @@
 //! copy of a rule is a second drift source — the design's hard requirement).
 //!
 //! Some of the pure-algebra pieces (the I1 assertion, the full `BodyConn`
-//! classification, `fold_parallel`'s pair) are exercised by the unit tests and
-//! the design's shape checks but are not all consumed by the production legs
-//! yet, so the module keeps a local `dead_code` allowance.
+//! classification) are exercised by the unit tests and the design's shape
+//! checks but are not all consumed by the production legs yet, so the module
+//! keeps a local `dead_code` allowance.
 #![allow(dead_code)]
 
 pub mod eval;
@@ -240,7 +242,7 @@ fn buses(points: &[NetPoint]) -> Vec<McBus> {
 
 #[cfg(test)]
 mod tests {
-    use super::fold::{fold_parallel, fold_series};
+    use super::fold::{fold_parallel, fold_parallel_chain, fold_series};
     use super::*;
 
     fn label(name: &str) -> NetPoint {
@@ -342,12 +344,15 @@ mod tests {
             vec![pin("R101.2", "R101", "2")],
         );
         let fold = fold_parallel(&vcc, &r101);
-        assert_eq!(paths(&fold.result.left), vec!["VCC"]);
-        assert_eq!(paths(&fold.result.right), vec!["R101.2"]);
-        assert!(matches!(fold.result.kind, OpdShape::Row(_, _)));
-        assert_eq!(paths(&fold.pair.0), vec!["VCC"]);
-        assert_eq!(paths(&fold.pair.1), vec!["R101.1"]);
-        assert!(fold.result.check_i1().is_ok());
+        assert_eq!(paths(&fold.left), vec!["VCC"]);
+        assert_eq!(paths(&fold.right), vec!["R101.2"]);
+        assert!(matches!(fold.kind, OpdShape::Row(_, _)));
+        assert!(fold.check_i1().is_ok());
+        // The internal net ties the written ends: the label to R101's left pin.
+        let wiring = fold_parallel_chain(&[vcc, r101], &[false, false]).expect("wiring");
+        assert!(!wiring.illegal);
+        assert_eq!(wiring.nets.len(), 1);
+        assert_eq!(paths(&wiring.nets[0]), vec!["VCC", "R101.1"]);
     }
 
     #[test]
@@ -360,10 +365,13 @@ mod tests {
         );
         let vcc = opd(vec![label("VCC")], vec![label("VCC")]);
         let fold = fold_parallel(&r101, &vcc);
-        assert_eq!(paths(&fold.result.left), vec!["R101.1"]);
-        assert_eq!(paths(&fold.result.right), vec!["R101.2"]);
-        assert_eq!(paths(&fold.pair.0), vec!["R101.2"]);
-        assert_eq!(paths(&fold.pair.1), vec!["VCC"]);
+        assert_eq!(paths(&fold.left), vec!["R101.1"]);
+        assert_eq!(paths(&fold.right), vec!["R101.2"]);
+        // The single label parallels the chain *exit*, i.e. R101's right pin.
+        let wiring = fold_parallel_chain(&[r101, vcc], &[false, false]).expect("wiring");
+        assert!(!wiring.illegal);
+        assert_eq!(wiring.nets.len(), 1);
+        assert_eq!(paths(&wiring.nets[0]), vec!["R101.2", "VCC"]);
     }
 
     #[test]
@@ -373,10 +381,12 @@ mod tests {
         let vcc = opd(vec![label("VCC")], vec![label("VCC")]);
         let gnd = opd(vec![label("GND")], vec![label("GND")]);
         let fold = fold_parallel(&vcc, &gnd);
-        assert_eq!(paths(&fold.result.left), vec!["VCC"]);
-        assert_eq!(paths(&fold.result.right), vec!["VCC"]);
-        assert_eq!(paths(&fold.pair.0), vec!["VCC"]);
-        assert_eq!(paths(&fold.pair.1), vec!["GND"]);
+        assert_eq!(paths(&fold.left), vec!["VCC"]);
+        assert_eq!(paths(&fold.right), vec!["VCC"]);
+        let wiring = fold_parallel_chain(&[vcc, gnd], &[false, false]).expect("wiring");
+        assert!(!wiring.illegal);
+        assert_eq!(wiring.nets.len(), 1);
+        assert_eq!(paths(&wiring.nets[0]), vec!["VCC", "GND"]);
     }
 
     #[test]

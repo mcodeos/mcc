@@ -21,12 +21,15 @@
 //!
 //! # `Parallel` internals
 //!
-//! A `+` member's internal wiring is `wire_parallel_internal`, reached through
-//! the member pre-pass ([`InstantiationBuilder::process_member_internal`]) the
-//! same way the engine reaches it. The fold therefore delivers the `+`
-//! **fold** — its true external faces and the pairing pair — and never wires
-//! the internals itself, which is what keeps a `+` edge tagged
-//! `ConnOp::Parallel` instead of `ConnOp::Series`.
+//! `+` has two halves and the fold owns both. [`vexpr_fold_parallel`] gives the
+//! operand's **external** faces (what a neighbour connects to);
+//! [`vexpr_wire_parallel`] wires the internal nets those faces rest on, reached
+//! through the member pre-pass ([`InstantiationBuilder::process_member_internal`])
+//! exactly once per `+`. The internal nets come from
+//! [`fold_parallel_chain`](super::fold::fold_parallel_chain), the §5.1 chain
+//! algorithm, and are emitted through `make_conn_with_provenance` +
+//! `add_connection` — never `create_connection` — so a `+` edge stays tagged
+//! `ConnOp::Parallel` with the operator's own Undirected direction.
 //!
 //! # `Group` as a chain member
 //!
@@ -34,14 +37,14 @@
 //! member" is still an open semantic item (unified-core §7.6 step 0 (3)), so
 //! the adjacent path keeps delegating that one shape to `connect_to_group`.
 
-use super::fold::{fold_parallel, fold_series};
+use super::fold::{fold_parallel, fold_parallel_chain, fold_series};
 use super::{BodyConn, ConcreteOpd, Ep};
 use crate::instant::mc_mod::builder::InstantiationBuilder;
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::basic::opd_shape::OpdShape;
-use crate::semantic::common::ConnDir;
+use crate::semantic::common::{ConnDir, ConnOp};
 
 /// One lane's product inside a lane chain (unified-core §4.6 C-4 / §7.7 S4b).
 /// A lane chain yields one of these per lane instead of a single statement
@@ -179,15 +182,102 @@ impl InstantiationBuilder {
     }
 
     /// §5.1 parallel: fold each `+` operand by the face-side law. The internal
-    /// wiring is production's `wire_parallel_internal` (see the module docs),
-    /// so no connection is emitted here.
+    /// wiring is [`Self::vexpr_wire_parallel`] (see the module docs), so no
+    /// connection is emitted here — this is the value a neighbour sees.
     fn vexpr_fold_parallel(&mut self, opds: &[McPhrase]) -> Result<ConcreteOpd, InstError> {
         let mut acc = self.vexpr_fold_member(&opds[0])?;
         for opd in &opds[1..] {
             let next = self.vexpr_fold_member(opd)?;
-            acc = fold_parallel(&acc, &next).result;
+            acc = fold_parallel(&acc, &next);
         }
         Ok(acc)
+    }
+
+    /// Fold one `+` operand to the faces the **internal wiring** reads.
+    ///
+    /// This is deliberately not `vexpr_fold_member`: a `+` operand's internal
+    /// attachment points are the operand's own pin ends, while the fold's
+    /// external face of a nested `+` is the *merged* port. The two contracts
+    /// are both real and must not be merged (r0 design §3.2 D1: `opds[0]` is
+    /// the external face, the full expansion is the internal attachment points).
+    ///
+    /// A `FuncCall` must be resolved on the **original phrase pointer** — that
+    /// is the `auto_inst_map` key — while every other form is normalized to its
+    /// `Bus` / `Node` member view first (a bare `Label` yields no face through
+    /// the raw accessors).
+    fn vexpr_fold_parallel_operand(&mut self, opd: &McPhrase) -> Result<ConcreteOpd, InstError> {
+        // The original pointer first: a `FuncCall` resolves through
+        // `auto_inst_map`, and a normalized clone would carry a different key.
+        let lp0 = self.get_left_points(opd).unwrap_or_default();
+        let rp0 = self.get_right_points(opd).unwrap_or_default();
+        if !lp0.is_empty() || !rp0.is_empty() {
+            return Ok(ConcreteOpd::from_sides(lp0, rp0));
+        }
+        // Forms whose raw phrase carries no side (a bare `Label`, a `Component`
+        // endpoint) normalize to their `Bus` / `Node` member view and resolve
+        // by name, so the clone is harmless there.
+        let normalized = self.phrase_to_members(opd);
+        let p = normalized.first().unwrap_or(opd);
+        Ok(ConcreteOpd::from_sides(
+            self.get_left_points(p).unwrap_or_default(),
+            self.get_right_points(p).unwrap_or_default(),
+        ))
+    }
+
+    /// Wire the internal nets of one `+` chain (§5.1) — the other half of the
+    /// operand [`Self::vexpr_fold_parallel`] exposes.
+    ///
+    /// Reached once per `+` from the member pre-pass, so the operands are the
+    /// raw written phrases (not the statement's normalized members): each is
+    /// folded with [`Self::vexpr_fold_parallel_operand`], and `_` leads are
+    /// width slots that contribute no face. The nets themselves come from
+    /// [`fold_parallel_chain`], so the §5.1 chain law has one implementation.
+    ///
+    /// The nets are emitted through `make_conn_with_provenance` +
+    /// `add_connection` — **not** `create_connection` — to keep the `+` edge
+    /// tagged `ConnOp::Parallel` with `ConnDir::Undirected` (a `create_connection`
+    /// pass would re-derive a `Series` edge and report shape errors the operator
+    /// does not have; unified-core §7.7 (6)).
+    pub(in crate::instant::mc_mod) fn vexpr_wire_parallel(
+        &mut self,
+        opds: &[McPhrase],
+    ) -> Result<(), InstError> {
+        let mut folded: Vec<ConcreteOpd> = Vec::with_capacity(opds.len());
+        let mut transposed: Vec<bool> = Vec::with_capacity(opds.len());
+        for opd in opds {
+            transposed.push(matches!(opd, McPhrase::Transposed(_)));
+            if matches!(opd, McPhrase::Lead) {
+                // A `_` holds its width slot but is not an endpoint.
+                folded.push(ConcreteOpd {
+                    left: Vec::new(),
+                    right: Vec::new(),
+                    kind: OpdShape::Unknown,
+                    body: Vec::new(),
+                    lane: None,
+                });
+                continue;
+            }
+            folded.push(self.vexpr_fold_parallel_operand(opd)?);
+        }
+
+        let Some(wiring) = fold_parallel_chain(&folded, &transposed) else {
+            return Ok(());
+        };
+        if wiring.illegal {
+            self.record_error(
+                crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+                crate::errcodes::format_msg(crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH, &[]),
+            );
+        }
+        for net in wiring.nets {
+            let points: Vec<NetPoint> = net.into_iter().map(|e| e.point).collect();
+            let id = self.next_conn_id();
+            self.add_connection(
+                self.make_conn_with_provenance(id, points, ConnDir::Undirected, None)
+                    .with_op(ConnOp::Parallel),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -264,7 +354,7 @@ mod tests {
     fn parallel__wires_its_internal_net_via_the_member_pre_pass() {
         let phrase = McPhrase::Parallel(vec![bus("VCC"), bus("GND")]);
         let conns = wired(&phrase);
-        // The internal `+` net is production's `wire_parallel_internal`, reached
+        // The internal `+` net comes from `vexpr_wire_parallel`, reached
         // through the member pre-pass — it must be a `Parallel` edge, never a
         // `Series` one (§4.6 C-1).
         assert_eq!(conns.len(), 1, "one `+` net");

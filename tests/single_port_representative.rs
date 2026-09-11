@@ -12,7 +12,7 @@
 // wiring — it is carried by `ConnDir` alone (§2.4.5). So all three pair the
 // same way and differ only in the direction they record, and in which single
 // label names the resulting net (`representative`, §5.2):
-//   `+`  → Parallel, wire_parallel_internal anchors opd[0] (op1)
+//   `+`  → Parallel, vexpr_wire_parallel anchors opd[0] (op1)
 //   `-`  → Series(Undirected), connections Undirected
 //   `->` → Series(LtoR), representative is op2 (the chain tail)
 //   `<-` → Series(RtoL), representative is op1 (the chain head); the arrow is
@@ -75,7 +75,7 @@ fn assert_net_has(got: &[Vec<String>], members: &[&str]) {
     );
 }
 
-// ── `+` takes op1: wire_parallel_internal anchors opd[0] ──────────────────
+// ── `+` takes op1: vexpr_wire_parallel anchors opd[0] ─────────────────────
 
 #[test]
 fn plus_anchors_operand_one() {
