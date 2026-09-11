@@ -463,6 +463,16 @@ pub const SHAPE_INCOMPLETE: u32 = 2906;
 /// sibling column width, so `[_, R101]` stays legal).
 pub const SHAPE_COLUMN_WIDTH_MIXED: u32 = 2907;
 
+/// Two **component bodies** with unequal port counts cannot be paralleled /
+/// series-paired (`TP + R1`: a 1-port body against a 2-port body). A body is
+/// a terminal-owning device, so `+` between two of them is a stacked body
+/// pair whose terminals must line up; a body against a non-body (a net label,
+/// a series result) is still the ordinary face-side law and stays legal --
+/// that is the `... + TP1` "hang a test point on this node" idiom.
+/// Emitted at Pass1. E2905 already rejects the 3+ port case, so the reachable
+/// violation is 1-port against 2-port.
+pub const SHAPE_INST_PORTCOUNT_PLUSMINUS: u32 = 2908;
+
 // ============================================================================
 // Pass1c: component definition (pins / attrs / units) (3000-3049)
 // ============================================================================
@@ -1870,6 +1880,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SHAPE_INST_3PIN_PLUSMINUS, "Instance with 3+ pins cannot directly participate in `+`/`-`; only 1x1/1x2 instances can (veccircuit.md).", "Instance '{0}' with {1} pins cannot directly participate in `+`/`-`. Use `->` for a pass-through connection."),
     entry!(SHAPE_INCOMPLETE, "NetShape missing; fell back to the deprecated connection_type() inference (stage 3).", "SHAPE_INCOMPLETE: net '{0}' has no NetShape provenance; fell back to connection_type() inference."),
     entry!(SHAPE_COLUMN_WIDTH_MIXED, "Column-width mix in a `[...]` list (vec-arch.md §4.1.1 R4): a single-column element among two-pin/node elements silently spans both columns.", "Column-width mix in a list: '{0}' spans both columns (single-column element among two-pin/node elements, e.g. `[A, R101]`). All elements must be single-column or all two-pin/node; use '_' to inherit the sibling column width."),
+    entry!(SHAPE_INST_PORTCOUNT_PLUSMINUS, "Two component bodies with unequal port counts cannot participate in `+`/`-` (a body pair must have matching terminals).", "Instances '{0}' ({1} ports) and '{2}' ({3} ports) cannot participate in `+`/`-`: two component bodies must have equal port counts. Use a single pin ('{0}.1') to attach one body to a net."),
     entry!(CONN_GROUP_SHAPE_MISMATCH, "Group connection shape mismatch; no connection generated.", "Group shape mismatch: {0} external points vs {1} group points ({2} branches); no connection generated"),
     entry!(INST_POWER_PORT_UNBOUND, "Sub-module DC power port is never connected (missing power argument?).", "Sub-module instance '{0}' DC power port '{1}' is never connected (missing power argument?)"),
     entry!(INST_CTOR_BODY_STMT_FAILED, "A constructor function body statement failed.", "Constructor '{0}' body statement failed: {1}"),
