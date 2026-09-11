@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 # Commit-msg hook: reject commit messages that contain non-ASCII
-# characters.
+# characters, or that embed a user-specific absolute path.
 #
-# Git passes the prepared commit message file path as $1. English-only is a
-# project rule (see AGENTS.md).
+# Git passes the prepared commit message file path as $1. Both rules are
+# project rules (see AGENTS.md).
 import re
+import subprocess
 import sys
 
+# Basic CJK + Extension A + Compatibility Ideographs (covers all common Han).
+# Written as escapes so this hook stays ASCII-only itself.
 CJK_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
 
 if len(sys.argv) < 2:
@@ -24,4 +27,18 @@ if CJK_RE.search(text):
         file=sys.stderr,
     )
     sys.exit(1)
+
+# The path rule shares one detector with the pre-commit hook.
+root = subprocess.run(
+    ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
+).stdout.strip()
+if root:
+    scanner = f"{root}/scripts/check-paths.py"
+    if subprocess.run([sys.executable, scanner, path]).returncode != 0:
+        print(
+            "commit-msg: commit message embeds a user-specific absolute path.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
 sys.exit(0)
