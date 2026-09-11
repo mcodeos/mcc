@@ -216,7 +216,7 @@ impl InstantiationBuilder {
         // Helper to create ConnectionInst with consistent lane+dir+op+provenance.
         // `create_connection` is the series-entry (all callers connect adjacent
         // phrase members with `-`/`->`/`<-`); `+` goes through
-        // `wire_parallel_internal` (stmt.rs), which tags Parallel explicitly.
+        // `vexpr_wire_parallel` (vexpr/eval.rs), which tags Parallel explicitly.
         let mk_conn = |id, pts: Vec<NetPoint>, dir: ConnDir, lane: Option<u16>| -> ConnectionInst {
             let mut conn = ConnectionInst::new(id, pts)
                 .with_dir(dir)

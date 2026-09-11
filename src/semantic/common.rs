@@ -708,7 +708,7 @@ pub enum ConnOp {
 /// onto the left main and takes **operand 1**.
 ///
 /// Where it lands:
-/// - `+`: Pass2 `wire_parallel_internal` anchors on opd[0] ("take operand 1");
+/// - `+`: Pass2 `vexpr_wire_parallel` anchors on opd[0] ("take operand 1");
 ///   this is the same left-main rule that later fills `NetShape.anchor`
 ///   (vec-dianlu.md §8.9.4) — the parallel left-alignment anchor.
 /// - `-`/`->`: the series chain head/tail, output end is the right operand;
