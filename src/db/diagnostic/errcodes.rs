@@ -148,6 +148,75 @@ pub const ENUM_MISSING_VALUES: u32 = 1058;
 pub const MALFORMED_IOTYPE: u32 = 1059;
 
 // ============================================================================
+// Pass1a: phrase member resolution (1100-1199)
+// ============================================================================
+//
+// Traces emitted by `mc_phrase.rs`'s `dot_or_curly` / `curly_mn` when a member
+// access cannot be resolved. They were previously emitted as bare numeric
+// literals against codes that had no registry entry, so `format_msg` returned
+// an empty string and every trace rendered blank.
+
+/// `dot_or_curly` on a component operand: none of the requested members
+/// matched a pin, so the access yields nothing.
+pub const PHRASE_COMPONENT_MEMBER_NOT_FOUND: u32 = 1162;
+
+/// `dot_or_curly` on a module operand: none of the requested members matched a
+/// port, so the access yields nothing.
+pub const PHRASE_MODULE_MEMBER_NOT_FOUND: u32 = 1163;
+
+/// `dot_or_curly` on an interface operand: none of the requested members
+/// matched a pin, so the access yields nothing.
+pub const PHRASE_INTERFACE_MEMBER_NOT_FOUND: u32 = 1164;
+
+/// `dot_or_curly` on a chain (`Series`) operand: a chain has no member list to
+/// index, so the access is unsupported.
+pub const PHRASE_MEMBER_ON_SERIES: u32 = 1168;
+
+/// `dot_or_curly` on a node operand: a node exposes faces, not named members,
+/// so the access is unsupported.
+pub const PHRASE_MEMBER_ON_NODE: u32 = 1169;
+
+/// `dot_or_curly` on a transposed (`'`) operand: transpose is a view over a
+/// chain, so the access is unsupported.
+pub const PHRASE_MEMBER_ON_TRANSPOSED: u32 = 1170;
+
+/// `dot_or_curly` on a `_` lead placeholder: a lead carries no member, so the
+/// access is unsupported.
+pub const PHRASE_MEMBER_ON_LEAD: u32 = 1171;
+
+/// `dot_or_curly` on a group operand: a group is expanded at statement level,
+/// so the access is unsupported.
+pub const PHRASE_MEMBER_ON_GROUP: u32 = 1172;
+
+/// `dot_or_curly` on a closure whose output interface is empty: there is no
+/// interface to search for the requested member.
+pub const PHRASE_CLOSURE_EMPTY_OUTPUT: u32 = 1173;
+
+/// `dot_or_curly` on a function call whose output interface is empty: there is
+/// no interface to search for the requested member.
+pub const PHRASE_FUNCALL_EMPTY_OUTPUT: u32 = 1174;
+
+/// `dot_or_curly` fell through to the bare `Endpoint` arm: this endpoint kind
+/// has no member list, so the access is unsupported.
+pub const PHRASE_MEMBER_ON_ENDPOINT: u32 = 1175;
+
+/// `dot_or_curly` on a `Member` phrase: a member reference has no member list
+/// of its own, so the access is unsupported.
+pub const PHRASE_MEMBER_ON_MEMBER: u32 = 1176;
+
+/// `curly_mn` was given an empty left member list: the `{a | b}` operand has
+/// nothing to pair, so the access yields nothing.
+pub const PHRASE_CURLY_EMPTY_LEFT: u32 = 1197;
+
+/// `curly_mn` was given an empty right member list: the `{a | b}` operand has
+/// nothing to pair, so the access yields nothing.
+pub const PHRASE_CURLY_EMPTY_RIGHT: u32 = 1198;
+
+/// `curly_mn` met an operand kind it cannot convert to node elements, so the
+/// `{a | b}` access yields nothing.
+pub const PHRASE_CURLY_UNSUPPORTED_OPERAND: u32 = 1199;
+
+// ============================================================================
 // Pass1b: use statements (2000-2049)
 // ============================================================================
 
@@ -906,6 +975,13 @@ pub const VECTOR_WIDTH_MISMATCH: u32 = 4180;
 /// are an error, never flattened, never member-dropped.
 pub const VECTOR_ZIP_WIDTH_MISMATCH: u32 = 4181;
 
+/// A `_` lead joins two **different** nets. The lead is an ideal wire (a body,
+/// vec-dianlu §5.4), so its two ends are meant to be the same net — a lane's
+/// left and right ends of one member. Two distinct bare nets under one lead
+/// means the wire shorts them together at zero impedance. Warning, never an
+/// error: the author may have written the jumper on purpose.
+pub const CONN_LEAD_CROSSNET: u32 = 4182;
+
 // ============================================================================
 // Pass2: AssemblyGate netlist health — R-series report rows (4200-4249)
 // ============================================================================
@@ -1559,6 +1635,22 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ENUM_MISSING_VALUES, "Enum definition is missing its values.", "Missing values for enum"),
     entry!(MALFORMED_IOTYPE, "Malformed IO type node in a pin/port declaration.", "Malformed IOTYPE node"),
     // ---- section ----
+    entry!(PHRASE_COMPONENT_MEMBER_NOT_FOUND, "Member access on a component operand matched none of the requested members against the component's pins.", "Member access on the component operand: none of the requested members matched a pin, so the access resolves to nothing."),
+    entry!(PHRASE_MODULE_MEMBER_NOT_FOUND, "Member access on a module operand matched none of the requested members against the module's ports.", "Member access on the module operand: none of the requested members matched a port, so the access resolves to nothing."),
+    entry!(PHRASE_INTERFACE_MEMBER_NOT_FOUND, "Member access on an interface operand matched none of the requested members against the interface's pins.", "Member access on the interface operand: none of the requested members matched a pin, so the access resolves to nothing."),
+    entry!(PHRASE_MEMBER_ON_SERIES, "Member access on a chain operand: a chain has no member list to index, so the access is unsupported.", "Member access on a chain (Series) operand is unsupported: a chain has no member list to index."),
+    entry!(PHRASE_MEMBER_ON_NODE, "Member access on a node operand: a node exposes faces, not named members.", "Member access on a node operand is unsupported: a node exposes faces, not named members."),
+    entry!(PHRASE_MEMBER_ON_TRANSPOSED, "Member access on a transposed operand: transpose is a view over a chain, which has no member list.", "Member access on a transposed operand is unsupported: transpose is a view over a chain."),
+    entry!(PHRASE_MEMBER_ON_LEAD, "Member access on a '_' lead placeholder: a lead carries no member.", "Member access on a '_' lead placeholder is unsupported: a lead carries no member."),
+    entry!(PHRASE_MEMBER_ON_GROUP, "Member access on a group operand: a group is expanded at statement level and has no member list.", "Member access on a group operand is unsupported: the group is expanded at statement level."),
+    entry!(PHRASE_CLOSURE_EMPTY_OUTPUT, "Member access on a closure whose output interface is empty; there is no interface to search.", "Member access on a closure with an empty output interface is unsupported."),
+    entry!(PHRASE_FUNCALL_EMPTY_OUTPUT, "Member access on a function call whose output interface is empty; there is no interface to search.", "Member access on a function call with an empty output interface is unsupported."),
+    entry!(PHRASE_MEMBER_ON_ENDPOINT, "Member access on this endpoint kind: it has no member list.", "Member access on this endpoint kind is unsupported: it has no member list."),
+    entry!(PHRASE_MEMBER_ON_MEMBER, "Member access on a member reference: it has no member list of its own.", "Member access on a member reference is unsupported: it has no member list of its own."),
+    entry!(PHRASE_CURLY_EMPTY_LEFT, "Curly member access with an empty left member list; there is nothing to pair.", "Curly member access has an empty left member list, so there is nothing to pair."),
+    entry!(PHRASE_CURLY_EMPTY_RIGHT, "Curly member access with an empty right member list; there is nothing to pair.", "Curly member access has an empty right member list, so there is nothing to pair."),
+    entry!(PHRASE_CURLY_UNSUPPORTED_OPERAND, "Curly member access met an operand kind that cannot be converted to node elements.", "Curly member access met an operand kind it cannot convert to node elements."),
+    // ---- section ----
     entry!(USE_PATH_INVALID, "Invalid path in a use statement.", "Invalid path in USE"),
     entry!(USE_URI_PREFIX_INVALID, "Unrecognized URI prefix — expected $, /, ./, or ../.", "Unrecognized URI prefix — expected $, /, ./, or ../"),
     entry!(USE_TARGET_NOT_FOUND, "The use target file was not found.", "use target not found: {0}"),
@@ -1787,6 +1879,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_PARAM_MISSING_REQUIRED, "Instance is missing a required constructor parameter; silent in dev mode, reported as a warning in strict mode (--strict). The instance is created anyway with the supplied arguments.", "Instance '{0}' ({1}) is missing required parameter '{2}'; created with the supplied arguments"),
     entry!(VECTOR_WIDTH_MISMATCH, "Argument/formal vector width mismatch in arg-to-formal binding; no implicit expansion or member dropping.", "Vector width mismatch in arg-to-formal binding: formal '{0}' expects {1} member(s), actual '{2}' provides {3}. Scalar-to-vector and unequal-width pairing are errors; pass the full vector with members paired positionally."),
     entry!(VECTOR_ZIP_WIDTH_MISMATCH, "Vector member-set mismatch in a connection; the two ends of a lane must zip positionally at equal width (no flattening, no member dropping).", "Vector pairing width mismatch: left side provides {0} member(s), right side provides {1}; one-to-one member correspondence requires equal widths. Scalar args apply per-member (the func per-member dispatch layer, vec-dianlu §7.6); a vector-slice arg must be written at the receiver's member count — no broadcast."),
+    entry!(CONN_LEAD_CROSSNET, "A '_' lead joins two different nets: an ideal wire (a body, vec-dianlu §5.4) crossing nets shorts them at zero impedance.", "Lead '_' joins two different nets: '{0}' and '{1}'. A lead is an ideal wire (vec-dianlu §5.4) — its two ends are meant to be the same net; joining distinct nets shorts them at zero impedance."),
     entry!(COMPONENT_PARAM_FUNC_CONFLICT, "Component-level parameter shares a name with the same-name constructor func parameter.", "Component '{0}' declares parameter '{1}' that also appears in constructor func '{2}' params. Class params define class behavior and constructor params declare the construction arity; they must not reuse the same name. Rename one of them."),
     // ---- section ----
     entry!(DUP_CMIE_CROSS_FILE, "Same name defined in another file (cross-file duplicate).", "Same name defined in another file (cross-file duplicate)."),

@@ -139,15 +139,19 @@ impl InstantiationBuilder {
         let mut series: Vec<&McPhrase> = Vec::new();
         let mut origins: Vec<usize> = Vec::new();
         let mut bridges_at: Vec<Vec<NetPoint>> = Vec::new();
+        let mut lead_before: Vec<bool> = Vec::new();
         let mut pending: Vec<NetPoint> = Vec::new();
+        let mut pending_lead = false;
         for (origin, item) in items {
             match item {
                 LaneItem::Series(elem) => {
                     series.push(elem);
                     origins.push(origin);
                     bridges_at.push(std::mem::take(&mut pending));
+                    lead_before.push(std::mem::replace(&mut pending_lead, false));
                 }
                 LaneItem::Bridge(pin) => pending.push(pin),
+                LaneItem::Lead => pending_lead = true,
             }
         }
 
@@ -219,6 +223,9 @@ impl InstantiationBuilder {
                 continue;
             };
             let dir = lane_gap_dir(origins[i]);
+            if lead_before.get(i + 1).copied().unwrap_or(false) {
+                self.warn_lead_crossnet(&lp, &rp);
+            }
             if bridge_pins.is_empty() {
                 self.create_connection(vec![lp], vec![rp], dir, lane_id)?;
             } else {
@@ -264,6 +271,36 @@ impl InstantiationBuilder {
             opd,
             emitted: start..self.connections.len(),
         })
+    }
+
+    /// §5.4 lead-body check: the lane just wired `lp` to `rp` through a `_`
+    /// whose placeholder the lane loop dropped. A lead is an **ideal wire** (a
+    /// body, vec-dianlu §5.4) — its two ends are meant to be one net, which is
+    /// what makes a lane's left and right ends one member. Two **different
+    /// bare nets** under one lead means the wire shorts them at zero
+    /// impedance: warn, never error — the author may have written the jumper
+    /// on purpose.
+    ///
+    /// Only bare nets (no `owner`) are compared. A pin (`R101.1`) or a
+    /// sub-module port (`sub1.CLK`) carries an owner, and a lead between two
+    /// of those is ordinary wiring, not a named-net merge; comparing path
+    /// strings across identities would invent a short that no net has.
+    fn warn_lead_crossnet(&mut self, lp: &NetPoint, rp: &NetPoint) {
+        if lp.owner.is_some() || rp.owner.is_some() {
+            return;
+        }
+        if lp.is_lead_placeholder() || rp.is_lead_placeholder() {
+            return;
+        }
+        if crate::instant::mc_net::canonicalize_path(&lp.path)
+            == crate::instant::mc_net::canonicalize_path(&rp.path)
+        {
+            return;
+        }
+        self.record_warning(
+            crate::errcodes::CONN_LEAD_CROSSNET,
+            crate::errcodes::format_msg(crate::errcodes::CONN_LEAD_CROSSNET, &[&lp.path, &rp.path]),
+        );
     }
 
     /// One lane's face point as a single-row face list (empty when the lane has

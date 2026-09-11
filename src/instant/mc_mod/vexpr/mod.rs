@@ -25,10 +25,10 @@
 //! - **S2** `Parallel` folding by the §5.1 face-side law: [`fold::fold_parallel`]
 //!   gives the operator's external faces, [`fold::fold_parallel_chain`] the
 //!   internal nets they rest on.
-//! - **S3** `Group` is a *statement-level* construct — it is expanded before
-//!   the fold, and a `Group` used as a chain member is still delegated to the
-//!   engine's `connect_to_group` (the law is an open item), so there is no arm
-//!   for it in either place (vec-dianlu §7.3).
+//! - **S3** `Group` is a *statement-level* construct — a multi-statement group
+//!   is expanded before the fold and a one-element group is see-through, so no
+//!   shape survives that would need an arm of its own
+//!   (unified-core §7.6 step 0 (3), settled 2026-09-11).
 //! - **S4** `_` Lead + `Transposed` + `Reversed` + lane production.
 //!
 //! Everything here mirrors the §7.7 blueprint's plain-data shapes verbatim;

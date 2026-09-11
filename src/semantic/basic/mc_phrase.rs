@@ -3437,7 +3437,13 @@ impl McPhrase {
                     .collect();
 
                 if result.is_empty() {
-                    dlog_trace(1162, &crate::errcodes::format_msg(1162, &[]));
+                    dlog_trace(
+                        crate::errcodes::PHRASE_COMPONENT_MEMBER_NOT_FOUND,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PHRASE_COMPONENT_MEMBER_NOT_FOUND,
+                            &[],
+                        ),
+                    );
                     None
                 } else if result.len() == 1 {
                     Some(result.remove(0))
@@ -3500,7 +3506,13 @@ impl McPhrase {
                 }
 
                 if final_results.is_empty() {
-                    dlog_trace(1163, &crate::errcodes::format_msg(1163, &[]));
+                    dlog_trace(
+                        crate::errcodes::PHRASE_MODULE_MEMBER_NOT_FOUND,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PHRASE_MODULE_MEMBER_NOT_FOUND,
+                            &[],
+                        ),
+                    );
                     None
                 } else if final_results.len() == 1 {
                     Some(final_results.remove(0))
@@ -3559,7 +3571,13 @@ impl McPhrase {
                 }
 
                 if final_results.is_empty() {
-                    dlog_trace(1164, &crate::errcodes::format_msg(1164, &[]));
+                    dlog_trace(
+                        crate::errcodes::PHRASE_INTERFACE_MEMBER_NOT_FOUND,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PHRASE_INTERFACE_MEMBER_NOT_FOUND,
+                            &[],
+                        ),
+                    );
                     None
                 } else if final_results.len() == 1 {
                     Some(final_results.remove(0))
@@ -3661,29 +3679,50 @@ impl McPhrase {
                     .collect::<Option<Vec<_>>>()?,
             )),
             McPhrase::Series(_, _) => {
-                dlog_trace(1168, &crate::errcodes::format_msg(1168, &[]));
+                dlog_trace(
+                    crate::errcodes::PHRASE_MEMBER_ON_SERIES,
+                    &crate::errcodes::format_msg(crate::errcodes::PHRASE_MEMBER_ON_SERIES, &[]),
+                );
                 None
             }
             McPhrase::Endpoint(McEndpoint::Node { .. }) => {
-                dlog_trace(1169, &crate::errcodes::format_msg(1169, &[]));
+                dlog_trace(
+                    crate::errcodes::PHRASE_MEMBER_ON_NODE,
+                    &crate::errcodes::format_msg(crate::errcodes::PHRASE_MEMBER_ON_NODE, &[]),
+                );
                 None
             }
             McPhrase::Transposed(_) => {
-                dlog_trace(1170, &crate::errcodes::format_msg(1170, &[]));
+                dlog_trace(
+                    crate::errcodes::PHRASE_MEMBER_ON_TRANSPOSED,
+                    &crate::errcodes::format_msg(crate::errcodes::PHRASE_MEMBER_ON_TRANSPOSED, &[]),
+                );
                 None
             }
             McPhrase::Lead => {
-                dlog_trace(1171, &crate::errcodes::format_msg(1171, &[]));
+                dlog_trace(
+                    crate::errcodes::PHRASE_MEMBER_ON_LEAD,
+                    &crate::errcodes::format_msg(crate::errcodes::PHRASE_MEMBER_ON_LEAD, &[]),
+                );
                 None
             }
             McPhrase::Group(_) => {
-                dlog_trace(1172, &crate::errcodes::format_msg(1172, &[]));
+                dlog_trace(
+                    crate::errcodes::PHRASE_MEMBER_ON_GROUP,
+                    &crate::errcodes::format_msg(crate::errcodes::PHRASE_MEMBER_ON_GROUP, &[]),
+                );
                 None
             }
             McPhrase::Closure(ref c) => {
                 // Phase 3: access members of the closure's output interface
                 if c.right.is_empty() {
-                    dlog_trace(1173, &crate::errcodes::format_msg(1173, &[]));
+                    dlog_trace(
+                        crate::errcodes::PHRASE_CLOSURE_EMPTY_OUTPUT,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PHRASE_CLOSURE_EMPTY_OUTPUT,
+                            &[],
+                        ),
+                    );
                     return None;
                 }
                 Self::access_node_element_members(&c.right, member_names)
@@ -3695,17 +3734,29 @@ impl McPhrase {
                 //   2. {vin|vout} -> curly_mn -> dot_or_curly(["vin"]) / dot_or_curly(["vout"])
                 //   3. Find matching port in the right interface
                 if f.right.is_empty() {
-                    dlog_trace(1174, &crate::errcodes::format_msg(1174, &[]));
+                    dlog_trace(
+                        crate::errcodes::PHRASE_FUNCALL_EMPTY_OUTPUT,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PHRASE_FUNCALL_EMPTY_OUTPUT,
+                            &[],
+                        ),
+                    );
                     return None;
                 }
                 Self::access_node_element_members(&f.right, member_names)
             }
             McPhrase::Endpoint(_ep) => {
-                dlog_trace(1175, &crate::errcodes::format_msg(1175, &[]));
+                dlog_trace(
+                    crate::errcodes::PHRASE_MEMBER_ON_ENDPOINT,
+                    &crate::errcodes::format_msg(crate::errcodes::PHRASE_MEMBER_ON_ENDPOINT, &[]),
+                );
                 None
             }
             McPhrase::Member(_, _) => {
-                dlog_trace(1176, &crate::errcodes::format_msg(1176, &[]));
+                dlog_trace(
+                    crate::errcodes::PHRASE_MEMBER_ON_MEMBER,
+                    &crate::errcodes::format_msg(crate::errcodes::PHRASE_MEMBER_ON_MEMBER, &[]),
+                );
                 None
             }
         }
@@ -3781,11 +3832,17 @@ impl McPhrase {
 
     fn curly_mn(self, right1: &[String], right2: &[String]) -> Option<McPhrase> {
         if right1.is_empty() {
-            dlog_trace(1197, &crate::errcodes::format_msg(1197, &[]));
+            dlog_trace(
+                crate::errcodes::PHRASE_CURLY_EMPTY_LEFT,
+                &crate::errcodes::format_msg(crate::errcodes::PHRASE_CURLY_EMPTY_LEFT, &[]),
+            );
             return None;
         }
         if right2.is_empty() {
-            dlog_trace(1198, &crate::errcodes::format_msg(1198, &[]));
+            dlog_trace(
+                crate::errcodes::PHRASE_CURLY_EMPTY_RIGHT,
+                &crate::errcodes::format_msg(crate::errcodes::PHRASE_CURLY_EMPTY_RIGHT, &[]),
+            );
             return None;
         }
 
@@ -3820,7 +3877,13 @@ impl McPhrase {
                     }
                 }
                 _ => {
-                    dlog_trace(1199, &crate::errcodes::format_msg(1199, &[]));
+                    dlog_trace(
+                        crate::errcodes::PHRASE_CURLY_UNSUPPORTED_OPERAND,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PHRASE_CURLY_UNSUPPORTED_OPERAND,
+                            &[],
+                        ),
+                    );
                     None
                 }
             }
