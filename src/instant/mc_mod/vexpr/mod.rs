@@ -43,6 +43,7 @@
 
 pub mod eval;
 pub mod fold;
+pub mod identity;
 pub mod lane;
 
 use crate::instant::mc_net::{InstError, NetPoint};
