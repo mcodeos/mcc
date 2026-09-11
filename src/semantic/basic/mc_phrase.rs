@@ -2390,10 +2390,18 @@ impl McPhrase {
             MCAST_OPD_APOST => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 // Normalize: keep Series branches as-is (`(A - B)'` transposes the whole series chain)
-                let opd1 = match McPhrase::new(&opd1_node, context)? {
+                let mut opd1 = match McPhrase::new(&opd1_node, context)? {
                     McPhrase::Series(phrases, _) => McPhrase::Series(phrases, ConnDir::Undirected),
                     other => other,
                 };
+                // ★ Eager return-shape resolution (§3.2, mirroring the `+` site):
+                // the safety rule below runs DURING the body parse, before the
+                // "Pass1b" hook, so a `return <expr>` call head still carries its
+                // parse-time receiver shape here. A receiver-shaped call hides the
+                // real return width, letting a wide (N >= 3) return transposed slip
+                // past the guard; resolve it first so the guard judges the actual
+                // shape.
+                McFuncCall::fill_return_shapes(&mut opd1, context);
                 // Pass1 safety rule (eval.md §5.5 / vec-arch.md §5.2): the strict
                 // math transpose must have a connectable expression. Structural
                 // forms (Bus / Multiple / Label / nested Transposed) are checked

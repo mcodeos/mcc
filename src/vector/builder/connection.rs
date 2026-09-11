@@ -293,10 +293,24 @@ fn build_net_shape(dir: ConnDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape
 // Lane-aware construction (patch 3)
 // ============================================================================
 
-/// Compute the majority direction from pairs
-fn majority_dir(pairs: &[ConnPair]) -> ConnDir {
-    let ltr = pairs.iter().filter(|p| p.dir == ConnDir::LtoR).count();
-    let rtl = pairs.iter().filter(|p| p.dir == ConnDir::RtoL).count();
+/// Majority vote over an explicit direction sequence (§4.6 C-3).
+///
+/// The single implementation of the vote: the per-edge directions are the
+/// truth, and any aggregate direction (`NetShape.dir`, `Trunk.dir`,
+/// `MemberLane.dir`) is only a **projection** of them. Keeping one function
+/// here is deliberate — a copy inside `build_from_lanes` had already drifted
+/// (the trunk-level aggregate kept claiming "majority" while reading only the
+/// first pair).
+pub(crate) fn majority_of(dirs: impl Iterator<Item = ConnDir>) -> ConnDir {
+    let mut ltr = 0usize;
+    let mut rtl = 0usize;
+    for dir in dirs {
+        match dir {
+            ConnDir::LtoR => ltr += 1,
+            ConnDir::RtoL => rtl += 1,
+            ConnDir::Undirected => {}
+        }
+    }
     if ltr > rtl {
         ConnDir::LtoR
     } else if rtl > ltr {
@@ -304,6 +318,11 @@ fn majority_dir(pairs: &[ConnPair]) -> ConnDir {
     } else {
         ConnDir::Undirected
     }
+}
+
+/// Compute the majority direction from pairs
+fn majority_dir(pairs: &[ConnPair]) -> ConnDir {
+    majority_of(pairs.iter().map(|p| p.dir))
 }
 
 /// With lane info, build groups directly from the source shape instead of guessing by frequency.
@@ -323,16 +342,8 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
 
     let lane = pairs.iter().find_map(|p| p.lane.clone())?;
 
-    // Direction: majority vote
-    let ltr = pairs.iter().filter(|p| p.dir == ConnDir::LtoR).count();
-    let rtl = pairs.iter().filter(|p| p.dir == ConnDir::RtoL).count();
-    let dir = if ltr > rtl {
-        ConnDir::LtoR
-    } else if rtl > ltr {
-        ConnDir::RtoL
-    } else {
-        ConnDir::Undirected
-    };
+    // Direction: majority vote (single implementation, §4.6 C-3)
+    let dir = majority_dir(pairs);
 
     // Endpoint order: walk the chain along each pair's left→right, no order_chain start guessing
     let chain = order_by_direction(pairs)?;

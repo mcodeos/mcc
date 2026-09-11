@@ -78,7 +78,7 @@ impl IOType {
 /// it every edge in cases like `t4_current` is Neutral, the optimal solution
 /// and its mirror image cost exactly the same, and only lexicographic order
 /// breaks the tie —— that is the true identity of the "mirror bug".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ConnDir {
     /// Left to right
     LtoR,
@@ -694,7 +694,7 @@ impl std::fmt::Display for Shape {
 /// - `->` → `Series` + [`ConnDir::LtoR`]
 /// - `<-` → `Series` + [`ConnDir::RtoL`]
 /// - `+` → `Parallel`
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConnOp {
     /// Series `-` (§4.1) / `->` (§4.3) / `<-` (§4.4)
     Series,

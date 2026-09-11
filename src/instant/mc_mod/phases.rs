@@ -20,7 +20,7 @@ use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_param_type::{McIoTy, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
-use crate::semantic::common::{ConnDir, IOType};
+use crate::semantic::common::{ConnDir, ConnOp, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
@@ -784,12 +784,19 @@ impl InstantiationBuilder {
     }
 
     /// ── P5: Deduplicate equivalent connections ──────────────────────────────────────────────
-    /// key = **unordered** set of each point's canonical path in connection (sort + dedup).
+    /// key = **unordered** set of each point's canonical path in connection (sort + dedup)
+    /// **plus** the edge `dir` and `op` (§4.6 C-3).
     /// Same set ⇒ same electrical connection (order irrelevant, duplicate points meaningless), keep only first.
     /// No-op for net aggregation result (union-find already merged), only clears redundant connections and warnings.
+    ///
+    /// The `dir`/`op` half of the key is deliberate: two connections over the same
+    /// unordered point set but written with a different arrow/operator are distinct
+    /// per-edge truths — each is a separate vote for the downstream
+    /// `majority_dir` projection (§4.6 C-3) — so deduplicating them by point set
+    /// alone would silently drop one direction.
     pub(super) fn dedup_connections(&mut self) {
         let before = self.connections.len();
-        let mut seen: HashSet<Vec<String>> = HashSet::new();
+        let mut seen: HashSet<(Vec<String>, ConnDir, Option<ConnOp>)> = HashSet::new();
         let mut kept: Vec<ConnectionInst> = Vec::with_capacity(before);
         for conn in std::mem::take(&mut self.connections) {
             let mut key: Vec<String> = conn
@@ -799,7 +806,7 @@ impl InstantiationBuilder {
                 .collect();
             key.sort();
             key.dedup();
-            if seen.insert(key) {
+            if seen.insert((key, conn.dir, conn.op)) {
                 kept.push(conn);
             }
         }

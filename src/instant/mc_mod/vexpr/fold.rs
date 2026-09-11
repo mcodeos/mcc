@@ -25,13 +25,18 @@ pub struct SeriesStep {
     /// `false` when the paired row counts differ (an illegal §5.2 operation —
     /// the caller reports it and generates no connection).
     pub legal: bool,
+    /// True when either contracted face is empty. An empty face is not
+    /// connectable, but it is **not** an illegal §5.2 operation either: the
+    /// caller skips the leg silently, the same explicit empty guard
+    /// `try_connect_adjacent` applied before its row check.
+    pub skipped: bool,
 }
 
-/// Fold one `Series` leg. Mirrors `try_connect_adjacent`: an empty face is not
-/// connectable, so the operation is illegal rather than a zero-row success.
+/// Fold one `Series` leg. Mirrors `connect_adjacent_pair`: an empty face is not
+/// connectable, so the leg is skipped rather than reported as a row mismatch.
 pub fn fold_series(acc: &ConcreteOpd, next: &ConcreteOpd) -> SeriesStep {
-    let legal = !acc.right.is_empty()
-        && !next.left.is_empty()
+    let skipped = acc.right.is_empty() || next.left.is_empty();
+    let legal = !skipped
         && matches!(
             check_series_rows(Shape::vvec(acc.right.len()), Shape::vvec(next.left.len()),),
             OpCheck::Legal(_)
@@ -48,6 +53,7 @@ pub fn fold_series(acc: &ConcreteOpd, next: &ConcreteOpd) -> SeriesStep {
         pair: (acc.right.clone(), next.left.clone()),
         result,
         legal,
+        skipped,
     }
 }
 
