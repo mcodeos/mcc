@@ -33,19 +33,27 @@
 //!
 //! # `Group` as a chain member
 //!
-//! The fold deliberately has no `Group` arm: a multi-statement group is
-//! expanded at statement level before the fold runs, and a one-element group is
-//! see-through, so no `Group` shape survives to reach the fold
-//! (unified-core §7.6 step 0 (3), settled 2026-09-11).
+//! A multi-statement group is expanded at statement level before the fold
+//! runs, so the only `Group` that reaches
+//! [`InstantiationBuilder::vexpr_fold_member`] is a one-element one. It is
+//! **see-through** (unified-core §7.6 step 0 (3), settled 2026-09-11) — but
+//! see-through to the *fold*, not to the raw accessors. `get_left_points(Group)`
+//! concatenates the branches' faces, and the flavour it reads for an inner
+//! `Parallel` is `opds[0]`; reading a one-element group that way collapses
+//! `(VDD + R1) -> GND` into a `VDD`-to-`GND` short. The group arm therefore
+//! re-enters the fold on the single operand, the same reduction the
+//! parentheses are transparent to.
 
 use super::fold::{fold_parallel, fold_parallel_chain, fold_series};
 use super::{BodyConn, ConcreteOpd, Ep};
 use crate::instant::mc_mod::builder::InstantiationBuilder;
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::basic::opd_shape::OpdShape;
 use crate::semantic::common::{ConnDir, ConnOp};
+use crate::semantic::mc_inst::McInstance;
 
 /// One lane's product inside a lane chain (unified-core §4.6 C-4 / §7.7 S4b).
 /// A lane chain yields one of these per lane instead of a single statement
@@ -60,15 +68,23 @@ pub struct LaneOutcome {
 impl InstantiationBuilder {
     /// Fold one chain member: `Parallel` (S2), the operand transforms `^` / `'`
     /// and the `_` lead (S4), and otherwise the plain reduction through the
-    /// production face accessors. `Group` cannot appear here (a multi-statement
-    /// group is expanded at statement level and a one-element group is
-    /// see-through), so there is deliberately no arm for it.
+    /// production face accessors. A multi-statement `Group` is expanded at
+    /// statement level and never reaches here; a one-element `Group` is
+    /// see-through and re-enters the fold on its single operand.
     pub(in crate::instant::mc_mod) fn vexpr_fold_member(
         &mut self,
         member: &McPhrase,
     ) -> Result<ConcreteOpd, InstError> {
         match member {
             McPhrase::Parallel(opds) => self.vexpr_fold_parallel(opds),
+            // A one-element group is see-through (L0 §3.6): the parentheses are
+            // a structural marker, transparent to evaluation. Without this arm
+            // the group falls to `vexpr_reduce`, whose `get_*_points(Group)`
+            // concatenates the branches' raw accessor faces — `opds[0]`'s for
+            // the `+` inside — so `(VCC + R1) -> GND` shorted `VCC↔GND` instead
+            // of pairing `R1.2`. A multi-statement group is expanded at
+            // statement level before the fold runs, so it cannot reach here.
+            McPhrase::Group(g) if g.opds.len() == 1 => self.vexpr_fold_member(&g.opds[0]),
             McPhrase::Reversed(inner) => self.vexpr_fold_reversed(member, inner),
             McPhrase::Transposed(inner) => self.vexpr_fold_transposed(member, inner),
             McPhrase::Lead => self.vexpr_fold_lead(member),
@@ -186,12 +202,72 @@ impl InstantiationBuilder {
     /// wiring is [`Self::vexpr_wire_parallel`] (see the module docs), so no
     /// connection is emitted here — this is the value a neighbour sees.
     fn vexpr_fold_parallel(&mut self, opds: &[McPhrase]) -> Result<ConcreteOpd, InstError> {
-        let mut acc = self.vexpr_fold_member(&opds[0])?;
+        let mut acc = self.vexpr_fold_parallel_face(&opds[0])?;
         for opd in &opds[1..] {
-            let next = self.vexpr_fold_member(opd)?;
+            let next = self.vexpr_fold_parallel_face(opd)?;
             acc = fold_parallel(&acc, &next);
         }
         Ok(acc)
+    }
+
+    /// The **external face** of one `+` operand: the fold's own
+    /// [`Self::vexpr_fold_member`] — so a nested `+` exposes its *merged* port
+    /// rather than `opds[0]` (r0 design §3.2 D1) — with the same empty-face
+    /// normalization the internal wiring applies.
+    ///
+    /// A bare `Label` / `List` / `Interface` endpoint carries no side through
+    /// the raw accessors (`get_left_points` returns an empty face for it), so
+    /// its reduction is `Unknown` with both faces empty. Feeding that to
+    /// [`fold_parallel`] takes the left-anchored branch and returns **empty
+    /// faces**, which silently swallows the next series leg: `VDD + R1 -> GND`
+    /// would drop `R1.2↔GND` with no diagnostic. Normalizing the form to its
+    /// member view resolves it by name (the clone is harmless — these forms
+    /// resolve by name, not by pointer), while `FuncCall` / `Parallel` /
+    /// `Group` / `Node` keep their original reference.
+    fn vexpr_fold_parallel_face(&mut self, opd: &McPhrase) -> Result<ConcreteOpd, InstError> {
+        let folded = self.vexpr_fold_member(opd)?;
+        if !folded.left.is_empty() || !folded.right.is_empty() {
+            return Ok(folded);
+        }
+        // A **lane stack** (`[VCC, GND]`, a multi-lane `Multiple`) is the same
+        // empty-face case one level up: every lane is a bare name, so the raw
+        // accessors return nothing for the whole stack. The operand's face is
+        // the union of its lanes' faces — that union *is* the column vector —
+        // and taking only the first lane would silently drop the rest
+        // (`[VCC, GND] + [M1.1, M1.2]` lost `GND`).
+        if let McPhrase::Multiple(lanes) = opd {
+            let mut left = Vec::new();
+            let mut right = Vec::new();
+            for lane in lanes {
+                let face = self.vexpr_fold_parallel_face(lane)?;
+                left.extend(points_of(&face.left));
+                right.extend(points_of(&face.right));
+            }
+            if !left.is_empty() || !right.is_empty() {
+                return Ok(ConcreteOpd::from_sides(left, right));
+            }
+            return Ok(folded);
+        }
+        if !matches!(
+            opd,
+            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                base: McInstance::Label(_) | McInstance::List(_) | McInstance::Interface(_),
+                ..
+            }))
+        ) {
+            return Ok(folded);
+        }
+        let normalized = self.phrase_to_members(opd);
+        let Some(p) = normalized.first() else {
+            return Ok(folded);
+        };
+        // Keep the empty result when the normalized view resolves no face
+        // either — an unresolvable name is not a licence to invent one.
+        let retried = self.vexpr_fold_member(p)?;
+        if retried.left.is_empty() && retried.right.is_empty() {
+            return Ok(folded);
+        }
+        Ok(retried)
     }
 
     /// Fold one `+` operand to the faces the **internal wiring** reads.
@@ -214,15 +290,41 @@ impl InstantiationBuilder {
         if !lp0.is_empty() || !rp0.is_empty() {
             return Ok(ConcreteOpd::from_sides(lp0, rp0));
         }
-        // Forms whose raw phrase carries no side (a bare `Label`, a `Component`
-        // endpoint) normalize to their `Bus` / `Node` member view and resolve
-        // by name, so the clone is harmless there.
-        let normalized = self.phrase_to_members(opd);
-        let p = normalized.first().unwrap_or(opd);
-        Ok(ConcreteOpd::from_sides(
+        // A **lane stack** (`[VCC, GND]`, a multi-lane `Multiple`) has no face
+        // through the raw accessors either — every lane is a bare name. Each
+        // lane contributes its own end, so the operand is the column of *all*
+        // lanes; taking only the first silently dropped the rest (`[VCC, GND]
+        // + [M1.1, M1.2]` lost `GND` and emitted one over-wide net).
+        if let McPhrase::Multiple(lanes) = opd {
+            let mut left = Vec::new();
+            let mut right = Vec::new();
+            for lane in lanes {
+                let (l, r) = self.vexpr_fold_parallel_form(lane);
+                left.extend(l);
+                right.extend(r);
+            }
+            return Ok(ConcreteOpd::from_sides(left, right));
+        }
+        let (left, right) = self.vexpr_fold_parallel_form(opd);
+        Ok(ConcreteOpd::from_sides(left, right))
+    }
+
+    /// One written form's two faces, for the internal wiring. Raw accessors
+    /// first; a form whose raw phrase carries no side (a bare `Label`, a
+    /// `Component` endpoint) normalizes to its `Bus` / `Node` member view and
+    /// resolves by name, so the clone is harmless there.
+    fn vexpr_fold_parallel_form(&mut self, form: &McPhrase) -> (Vec<NetPoint>, Vec<NetPoint>) {
+        let left = self.get_left_points(form).unwrap_or_default();
+        let right = self.get_right_points(form).unwrap_or_default();
+        if !left.is_empty() || !right.is_empty() {
+            return (left, right);
+        }
+        let normalized = self.phrase_to_members(form);
+        let p = normalized.first().unwrap_or(form);
+        (
             self.get_left_points(p).unwrap_or_default(),
             self.get_right_points(p).unwrap_or_default(),
-        ))
+        )
     }
 
     /// Wire the internal nets of one `+` chain (§5.1) — the other half of the
@@ -366,7 +468,7 @@ mod tests {
     #[test]
     fn group__is_a_statement_list_expanded_before_the_fold() {
         // `(A - B, C - D)` stands for two statements; the fold sees each one
-        // separately, which is why no `Group` arm exists (S3).
+        // separately, which is why a multi-statement group needs no arm (S3).
         let group = McPhrase::Group(crate::semantic::basic::mc_group::McGroup {
             opds: vec![
                 McPhrase::Series(vec![label("A"), label("B")], ConnDir::LtoR),
