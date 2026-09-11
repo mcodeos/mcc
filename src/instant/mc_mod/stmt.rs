@@ -387,21 +387,33 @@ impl InstantiationBuilder {
         gaps: &[ConnDir],
     ) -> Result<(), InstError> {
         debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
-        // ── P2-5: Expand builtin twopin calls adjacent to multi-member buses ──
-        // When a builtin twopin (Pullup/Pulldown) is on the RIGHT side of a Multiple
-        // with N > 1 members, iterate the FuncCall N times to create N components.
-        // e.g. I2C0 => RES(10kΩ).Pullup(_, VDD) should create 2 resistors (SCL, SDA).
+        // ── P2-5: expand a call once per lane of a multi-member bus ──
+        // `I2C0 => RES(10kΩ).Pullup(_, VDD)` with `I2C0 = {SCL, SDA}` should
+        // create 2 resistors. The call is identified by the bus appearing in
+        // its actuals; where the LANES come from depends on how the bus was
+        // written (see `plan` below):
         //
-        // Only expand when Multiple is on the LEFT (signal side). When Multiple is on
-        // the RIGHT (e.g. Cap(_) -> [VDD, GND]), the Multiple represents the component's
-        // own pins, NOT independent signals — do NOT expand.
+        //   * also written as the adjacent chain member (`BUS - C(..).M([BUS, V])`)
+        //     -> that Multiple's lanes, paired with the call as a Series member;
+        //   * only inside the call's own actuals (`BUS => C(..).M(_, V)` folds
+        //     to `C(..).M(BUS, V)`) -> the bus table's members, substituted in
+        //     place, the call standing alone.
+        //
+        // Only expand when the Multiple is on the LEFT (signal side). When the
+        // Multiple is on the RIGHT (e.g. `Cap(_) -> [VDD, GND]`), it is the
+        // component's own pins, NOT independent signals — do NOT expand.
         let mut i: usize = 0;
         // Track which member indices were consumed by P2-5 expansion, so the
         // downstream connect_adjacent_pair loop doesn't re-process them and
         // create shorting connections (e.g. SCL-SDA bridge).
         let mut p25_consumed: std::collections::HashSet<usize> = std::collections::HashSet::new();
         while i < members.len() {
-            let (should_expand, n_items, fc_is_left) = match &members[i] {
+            // Lane items to expand over, the FuncCall's index, the member
+            // indices this expansion consumes, and whether each lane is paired
+            // with the call as a Series member (the bus was also written as a
+            // chain member) or stands alone (the bus lives only inside the
+            // folded Set — the `=>` form).
+            let plan: Option<(Vec<McPhrase>, usize, Vec<usize>, bool)> = match &members[i] {
                 McPhrase::Multiple(inner) if inner.len() > 1 => {
                     if i + 1 < members.len() {
                         // ── P2-5 §8: arg-based detection — the FuncCall's
@@ -419,41 +431,56 @@ impl InstantiationBuilder {
                             _ => false,
                         };
                         if bus_actual {
-                            (true, inner.len(), false) // Multiple left, FuncCall right
+                            // Multiple left, FuncCall right.
+                            Some((inner.clone(), i + 1, vec![i, i + 1], true))
                         } else {
-                            (false, 0, false)
+                            None
                         }
                     } else {
-                        (false, 0, false)
+                        None
                     }
                 }
-                _ => {
-                    // P2-5 fix: do NOT expand when FuncCall is on the left and Multiple
-                    // is on the right. This case (e.g. Cap(_) -> [VDD, GND]) means the
-                    // Multiple is the component's own pins, not independent signals.
-                    (false, 0, false)
-                }
+                // ── P2-5 parameter face ─────────────────────────────────────
+                // The `=>` fold puts the bus INSIDE the call's actuals, so no
+                // chain member carries it: `BUS => C(..).M(_, V)` folds to
+                // `C(..).M(BUS, V)` (mc_fcall §1). The lane source is then the
+                // bus table, and each lane is substituted in place — the call
+                // stands alone, with no Series partner to pair against.
+                //
+                // The Multiple arm above already consumed any `BUS - C(..).M`
+                // pair, so reaching a FuncCall here means no chain member
+                // carried this bus.
+                McPhrase::FuncCall(fc) => match self.fc_lane_bus(fc) {
+                    Some(base_bus) => {
+                        let lanes = self.bus_lane_phrases(&base_bus);
+                        if lanes.len() > 1 {
+                            Some((lanes, i, vec![i], false))
+                        } else {
+                            None
+                        }
+                    }
+                    None => None,
+                },
+                // P2-5 fix: do NOT expand when FuncCall is on the left and Multiple
+                // is on the right. This case (e.g. Cap(_) -> [VDD, GND]) means the
+                // Multiple is the component's own pins, not independent signals.
+                _ => None,
             };
 
-            if should_expand {
-                let multiple_idx = if fc_is_left { i + 1 } else { i };
-                let fc_idx = if fc_is_left { i } else { i + 1 };
-                let inner = match &members[multiple_idx] {
-                    McPhrase::Multiple(inner) => inner.clone(),
-                    _ => unreachable!(),
-                };
+            if let Some((lane_items, fc_idx, consumed, pair_with_lane)) = plan {
                 let fc = members[fc_idx].clone();
-                mcc_dbg!("inst::mod", 
-                    "[P2-5-EXPAND] module='{}' expanding builtin twopin: n_items={}, fc_is_left={fc_is_left}, fc={fc:?}",
-                    self.name, n_items
+                mcc_dbg!("inst::mod",
+                    "[P2-5-EXPAND] module='{}' expanding builtin twopin: n_items={}, pair_with_lane={pair_with_lane}, fc={fc:?}",
+                    self.name, lane_items.len()
                 );
 
                 // Mark these indices as consumed so they won't be re-processed
                 // by the downstream connect_adjacent_pair loop.
-                p25_consumed.insert(multiple_idx);
-                p25_consumed.insert(fc_idx);
+                for idx in &consumed {
+                    p25_consumed.insert(*idx);
+                }
 
-                for item in &inner {
+                for item in &lane_items {
                     let mut fc_clone = fc.clone();
                     // ── P2-5 fix: reset FuncCall IDs so each expanded pair
                     // gets fresh unique IDs from assign_phrase_ids. Without this,
@@ -472,15 +499,18 @@ impl InstantiationBuilder {
                             Self::substitute_bus_in_fc_params(fc_ref, &base_bus, &lane_name);
                         }
                     }
-                    // The Multiple~FuncCall pair sits at members[i]~members[i+1];
-                    // their boundary operator direction is `gaps[i]` (edge-level).
-                    let gap_dir = gaps[i];
-                    let pair = if fc_is_left {
-                        McPhrase::Series(vec![fc_clone, item.clone()], gap_dir)
-                    } else {
+                    // When a chain member carried the bus, the lane sits at
+                    // `members[fc_idx - 1]` and the pair's boundary operator is
+                    // that member's gap (edge-level). Without a chain member the
+                    // lane is already inside the call's Set, so the expanded
+                    // call is the whole statement.
+                    let stmt = if pair_with_lane {
+                        let gap_dir = gaps[fc_idx - 1];
                         McPhrase::Series(vec![item.clone(), fc_clone], gap_dir)
+                    } else {
+                        fc_clone
                     };
-                    if let Err(e) = self.process_stmt(&pair) {
+                    if let Err(e) = self.process_stmt(&stmt) {
                         self.record_warning(
                             crate::errcodes::INST_BUILTIN_TWOPIN_EXPAND_FAILED,
                             crate::errcodes::format_msg(
@@ -490,7 +520,8 @@ impl InstantiationBuilder {
                         );
                     }
                 }
-                i += 2; // skip both the Multiple and the FuncCall
+                // Skip everything this expansion consumed.
+                i = consumed.iter().max().copied().unwrap_or(i) + 1;
                 continue;
             }
 
@@ -639,6 +670,69 @@ impl InstantiationBuilder {
         fc.params
             .iter()
             .any(|p| Self::param_references_bus_in_set(p, base_bus))
+    }
+
+    /// ── P2-5 parameter face: the multi-member bus a call's actuals name ──
+    ///
+    /// Under the `=>` fold (`mc_fcall.rs` §1) the bus lands *inside* the call's
+    /// actuals — `BUS => C(..).M(_, V)` folds to `C(..).M(BUS, V)` — so no
+    /// chain member carries it and the chain-adjacency trigger above can never
+    /// see it. This reads it from where it actually is.
+    ///
+    /// The trigger is structural, never a method-name list: a **declared bus
+    /// with more than one member** is lane-expanded when it shares the call's
+    /// argument list with at least one sibling — `M(BUS, V)` (bus filling a
+    /// scalar formal, `param-prefix-design.md` §5) or `M([BUS, V])` (bus as a
+    /// Set member). A bus that **is** the whole argument list is the §11.6
+    /// vector fill, not lane expansion: `.Cap(_)` with a bus prefix folds to
+    /// `Cap(BUS)` and fills the formal once.
+    fn fc_lane_bus(&self, fc: &crate::semantic::basic::mc_fcall::McFuncCall) -> Option<String> {
+        if fc.params.len() > 1 {
+            if let Some(name) = fc.params.iter().find_map(|p| self.bus_actual_name(p)) {
+                return Some(name);
+            }
+        }
+        fc.params.iter().find_map(|p| self.bus_in_set(p))
+    }
+
+    /// The bus name a single top-level actual denotes, if any.
+    fn bus_actual_name(&self, p: &McParamValue) -> Option<String> {
+        if let McParamValue::Opd(McOpd::Id(ids)) = p {
+            let name = ids.to_string();
+            if self.find_bus(&name).map(|b| b.members.len() > 1) == Some(true) {
+                return Some(name);
+            }
+        }
+        None
+    }
+
+    /// The bus name a Set actual names as one member among siblings.
+    fn bus_in_set(&self, p: &McParamValue) -> Option<String> {
+        match p {
+            McParamValue::Set(vs) if vs.len() > 1 => vs.iter().find_map(|v| match v {
+                McParamValue::Opd(McOpd::Id(_)) => self.bus_actual_name(v),
+                McParamValue::Set(_) => self.bus_in_set(v),
+                _ => None,
+            }),
+            _ => None,
+        }
+    }
+
+    /// The per-lane phrases of `base_bus`, in declaration order — the same
+    /// dotted bus endpoints `phrase_to_members`' bus-table arm and
+    /// [`Self::expand_multi_member_buses`] produce for a chain member, so a
+    /// lane read from the bus table pairs with `bus_lane_of` identically.
+    fn bus_lane_phrases(&self, base_bus: &str) -> Vec<McPhrase> {
+        self.find_bus(base_bus)
+            .map(|b| b.members.clone())
+            .unwrap_or_default()
+            .iter()
+            .map(|m| {
+                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                    McBus::new(&format!("{base_bus}.{m}")),
+                ))))
+            })
+            .collect()
     }
 
     /// True when `base_bus` appears as a Set member (not as a whole top-level
