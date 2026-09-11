@@ -10,7 +10,7 @@
 //! - `process_member_internal`: single member internal processing (FuncCall / Closure / Group …)
 
 use super::funccall::FuncCallInst;
-use super::InstantiationBuilder;
+use super::{AutoInst, InstantiationBuilder};
 use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -923,14 +923,9 @@ impl InstantiationBuilder {
         // normally happen since Transposed with FuncCall inner is handled
         // separately in process_member_internal).
         let key = Self::member_key(inner);
-        if let Some(inst_name) = self.auto_inst_map.get(&key).cloned() {
-            if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
-                for name in stripped.split(',') {
-                    self.bridge_passive_names.insert(name.to_string());
-                }
-            } else {
-                self.bridge_passive_names.insert(inst_name);
-            }
+        if let Some(auto) = self.auto_inst_map.get(&key).cloned() {
+            let names: Vec<String> = auto.instance_names().map(str::to_string).collect();
+            self.bridge_passive_names.extend(names);
         }
     }
 
@@ -2114,11 +2109,8 @@ impl InstantiationBuilder {
     fn stash_pass_through(&mut self, key: u32, inst_name: &str) {
         let return_ep =
             super::fcallinst::LAST_RETURN_ENDPOINT.with(|cell| cell.borrow_mut().take());
-        if let Some(encoded) = return_ep {
-            self.auto_inst_map.insert(key, encoded);
-        } else {
-            self.auto_inst_map.insert(key, inst_name.to_string());
-        }
+        let entry = return_ep.unwrap_or_else(|| AutoInst::Name(inst_name.to_string()));
+        self.auto_inst_map.insert(key, entry);
     }
 
     pub(super) fn process_member_internal(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
@@ -2247,14 +2239,10 @@ impl InstantiationBuilder {
                         self.process_member_internal(inner)?;
                         // ★ M11.3: record bridge passive instance names from Transposed
                         let key = Self::member_key(inner);
-                        if let Some(inst_name) = self.auto_inst_map.get(&key).cloned() {
-                            if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
-                                for name in stripped.split(',') {
-                                    self.bridge_passive_names.insert(name.to_string());
-                                }
-                            } else {
-                                self.bridge_passive_names.insert(inst_name);
-                            }
+                        if let Some(auto) = self.auto_inst_map.get(&key).cloned() {
+                            let names: Vec<String> =
+                                auto.instance_names().map(str::to_string).collect();
+                            self.bridge_passive_names.extend(names);
                         }
                     }
                     _ => {
@@ -2314,26 +2302,16 @@ impl InstantiationBuilder {
                         } => {
                             // ── Iter-1.2 ───────────────────────────────────
                             // When iterated calls produce multiple components
-                            // (e.g. `cap[4:5]::CAP()`), use the
-                            // `@@ARRAY:name1,name2` prefix to encode all
-                            // instance names into auto_inst_map's value
-                            // —— resolve_funccall_*_points after seeing the
-                            // `@@ARRAY:` prefix will return all instances'
-                            // corresponding pins, allowing
-                            // `MIC{P,N} -> cap[4:5] -> uC.ADC{P,N}` to go
+                            // (e.g. `cap[4:5]::CAP()`), record them as an
+                            // `AutoInst::Array` so the face resolver returns
+                            // all instances' corresponding pins, letting
+                            // `MIC{P,N} -> cap[4:5] -> uC.ADC{P,N}` go
                             // through the positional 2×1 vs 2×1 connection
                             // rather than being collapsed.
-                            let encoded = if new_components.len() > 1 {
-                                let names: Vec<String> =
-                                    new_components.iter().map(|c| c.name.clone()).collect();
-                                format!("@@ARRAY:{}", names.join(","))
-                            } else if let Some(comp) = new_components.first() {
-                                comp.name.clone()
-                            } else {
-                                String::new()
-                            };
-                            if !encoded.is_empty() {
-                                self.auto_inst_map.insert(key, encoded);
+                            if let Some(entry) = AutoInst::from_instance_names(
+                                new_components.iter().map(|c| c.name.clone()).collect(),
+                            ) {
+                                self.auto_inst_map.insert(key, entry);
                             }
                             // §7.9: batch-extended iterated products must not
                             // bypass the factory — push through it so any
@@ -2351,7 +2329,8 @@ impl InstantiationBuilder {
                             inst,
                             new_connections,
                         } => {
-                            self.auto_inst_map.insert(key, inst.name.clone());
+                            self.auto_inst_map
+                                .insert(key, AutoInst::Name(inst.name.clone()));
                             self.add_submodule(inst);
                             for conn in new_connections {
                                 self.add_connection(conn);
@@ -2387,20 +2366,15 @@ impl InstantiationBuilder {
                 //
                 // Here we recognize this form: caller is Bus/Label and the
                 // name contains `[N:M]` / `[a,b]`, each name after expansion
-                // can be found in self.components. On hit, use @@ARRAY: encoding
-                // to directly register auto_inst_map, skipping construction.
+                // can be found in self.components. On hit, record the resolved
+                // members directly in auto_inst_map, skipping construction.
                 if let Some(caller_box) = &fc.caller {
                     if let Some(array_names) =
                         self.resolve_array_caller_to_existing(caller_box.as_ref())
                     {
                         let key = Self::member_key(phrase);
-                        let encoded = if array_names.len() > 1 {
-                            format!("@@ARRAY:{}", array_names.join(","))
-                        } else {
-                            array_names.first().cloned().unwrap_or_default()
-                        };
-                        if !encoded.is_empty() {
-                            self.auto_inst_map.insert(key, encoded);
+                        if let Some(entry) = AutoInst::from_instance_names(array_names) {
+                            self.auto_inst_map.insert(key, entry);
                         }
                         return Ok(());
                     }
@@ -2525,10 +2499,13 @@ impl InstantiationBuilder {
                             self.find_component(nm).is_some() || self.find_submodule(nm).is_some();
                         if !known {
                             if let McPhrase::FuncCall(caller_fc) = caller_box.as_ref() {
-                                if let Some(real) = self.auto_inst_map.get(&caller_fc.id).cloned() {
-                                    if !real.starts_with("@@") {
-                                        inst_name = Some(real);
-                                    }
+                                // Only a plain instance name is dispatchable; an
+                                // array group or a func-return face is not an
+                                // instance this method can land on.
+                                if let Some(AutoInst::Name(real)) =
+                                    self.auto_inst_map.get(&caller_fc.id)
+                                {
+                                    inst_name = Some(real.clone());
                                 }
                             }
                         }
@@ -2773,7 +2750,8 @@ impl InstantiationBuilder {
                         new_connections,
                     } => {
                         if let Some(comp) = new_components.first() {
-                            self.auto_inst_map.insert(key, comp.name.clone());
+                            self.auto_inst_map
+                                .insert(key, AutoInst::Name(comp.name.clone()));
                         }
                         // §7.9: push through the factories so untagged
                         // products still receive the current expansion id.
@@ -2788,7 +2766,8 @@ impl InstantiationBuilder {
                         inst,
                         new_connections,
                     } => {
-                        self.auto_inst_map.insert(key, inst.name.clone());
+                        self.auto_inst_map
+                            .insert(key, AutoInst::Name(inst.name.clone()));
                         self.add_submodule(inst);
                         for conn in new_connections {
                             self.add_connection(conn);
@@ -2800,8 +2779,8 @@ impl InstantiationBuilder {
                         // McFuncReturn::Endpoint. Takes priority over P0-4 stub path.
                         let return_ep = super::fcallinst::LAST_RETURN_ENDPOINT
                             .with(|cell| cell.borrow_mut().take());
-                        if let Some(encoded) = return_ep {
-                            self.auto_inst_map.insert(key, encoded);
+                        if let Some(entry) = return_ep {
+                            self.auto_inst_map.insert(key, entry);
                         } else {
                             // ── P0-4 fix (enhanced) ───────────────────────────────
                             // Unrecognized FuncCall → register a unique stub name for
@@ -2947,7 +2926,7 @@ impl InstantiationBuilder {
                                     .map(|c| c.name.clone());
 
                                 if let Some(real_name) = reusable {
-                                    self.auto_inst_map.insert(key, real_name);
+                                    self.auto_inst_map.insert(key, AutoInst::Name(real_name));
                                 } else {
                                     // Genuine unresolved construction: the class is
                                     // registered (`class_looking`) but no real instance
@@ -2963,7 +2942,7 @@ impl InstantiationBuilder {
                                     );
                                     let (stub, _, _) =
                                         self.auto_name(super::AutoNameKind::Stub, &safe);
-                                    self.auto_inst_map.insert(key, stub);
+                                    self.auto_inst_map.insert(key, AutoInst::Name(stub));
                                     self.log_global_diag(
                                         crate::errcodes::UNRESOLVED_CLASS_STUB,
                                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
@@ -3269,29 +3248,32 @@ impl InstantiationBuilder {
             return None;
         }
 
-        // ── §11.3/1.6: direct vector-node lookup (was Iter-3.D sibling-probing) ──
-        // The old heuristic probed base+digit siblings (`res1` → res2, res3 ...)
-        // to reassemble an array after pass1 only expanded the first member —
-        // a digit-suffix name scan with an artificial 16-sibling bound and an
-        // `@` auto-named exclusion for its false positives.
+        // ── §11.3/1.6: a single `Component` caller is NEVER re-linked to its
+        // group ─────────────────────────────────────────────────────────────
+        // The Iter-3.D sibling-probing heuristic is gone (cffa52c): it probed
+        // base+digit siblings (`res1` → res2, res3 ...) to reassemble an array
+        // after pass1 expanded only the first member. Its successor here used
+        // to match a single `Component` caller against every vector group's
+        // `member_ids` and hand back the WHOLE group.
         //
-        // The declared member set is now a first-class modeling-layer coordinate
-        // (`self.vectors`, §11.2): a `Component(res1)` caller (pass1 resolving
-        // a bracket to a single member) is matched against the physical member
-        // id list of every vector group. Auto-named components (`@CAP1`) are
-        // never in a declared group, so the lookup simply misses — the old `@`
-        // exclusion is structurally unnecessary. Contract E single-member
-        // scalars are not in `vectors`, so they never re-link as arrays.
-        if let McPhrase::Endpoint(McEndpoint::Single(iref)) = phrase {
-            if let McInstance::Component(c) = &iref.base {
-                let cname = c.name.to_string();
-                for v in &self.vectors {
-                    if v.member_ids.iter().any(|id| id == &cname) {
-                        return Some(v.member_ids.clone());
-                    }
-                }
-            }
-        }
+        // That successor was wrong, and cffa52c's own claim — "contract-E
+        // scalars are not in `vectors`, so single-member references never
+        // re-link as arrays" — is false as written: `member_ids` holds exactly
+        // the contract-E scalar member names (`res1`, `res2`). So a scalar
+        // member used as a *FuncCall caller* (`res[2].Pullup(...)`,
+        // `res1.Pullup(...)`) matched, producer B registered `@@ARRAY:res1,
+        // res2` and returned early — **before** the Iter-2.2 method dispatch —
+        // silently dropping the call. The old lock
+        // (`member_scalar__single_index_ref_connects_only_itself`) only covers
+        // the connection form (`res[2] -> GND`), never the caller form.
+        //
+        // Arm 1 above already owns the legal array caller: pass1 resolves a
+        // declared bracket to a lane-structured `Endpoint(List)` (§11.3 ③,
+        // `vector_lane_pass1.rs`), so the whole-group re-link is reachable only
+        // through the single-`Component` form — which contract E defines as a
+        // **scalar member reference**, never an array. No legal trigger
+        // remains, so the arm is deleted rather than guarded (same precedent
+        // as the digit-suffix branch it replaced).
 
         None
     }

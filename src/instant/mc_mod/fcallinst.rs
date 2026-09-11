@@ -15,7 +15,7 @@ use super::funccall::FuncCallInst;
 use super::matching::{check_vector_width, WidthCheck};
 use super::FailedRecord;
 use super::McVectorInst;
-use super::{InstantiationBuilder, McModuleInst};
+use super::{AutoInst, InstantiationBuilder, McModuleInst};
 use crate::instant::inststore::NodeInstance;
 use crate::instant::insttab::InstOrigin;
 use crate::instant::mc_comp::McComponentInst;
@@ -45,7 +45,7 @@ use std::sync::Arc;
 // McFuncReturn::Endpoint, and stmt.rs's process_member_internal reads it
 // in the PassThrough path and registers it to auto_inst_map.
 thread_local! {
-    pub(super) static LAST_RETURN_ENDPOINT: std::cell::RefCell<Option<String>> =
+    pub(super) static LAST_RETURN_ENDPOINT: std::cell::RefCell<Option<AutoInst>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -1315,12 +1315,12 @@ impl InstantiationBuilder {
         //    both resolve to this return face (case ②, symmetric stereo node).
         //
         //    - Endpoint return naming the instance's own bus port (e.g.
-        //      `return XTAL{X1,X2}`) → `@@RETURN_EP:{inst}.{ep}`; the face
-        //      decoder expands the instance bus port's member pins.
+        //      `return XTAL{X1,X2}`) → `AutoInst::ReturnPort("{inst}.{ep}")`;
+        //      the face decoder expands the instance bus port's member pins.
         //    - Net / net-list return (e.g. `return net1`, `return [net1, net2]`)
         //      → substitute the return phrase with the same bindings the body
-        //      used, then encode `@@RETURN_NETS:{n1};{n2}`; the decoder resolves
-        //      each substituted name as a net point.
+        //      used, then record the substituted names as
+        //      `AutoInst::ReturnNets`; the decoder resolves each as a net point.
         //    - Implicit / `return this` (case ①) → the face is the instance's
         //      own default shape; no write, the instance-face fallback resolves
         //      it (left pin1 / right pin2 for a 1×2 twopin).
@@ -1372,8 +1372,8 @@ impl InstantiationBuilder {
                         _ => substituted.to_string(),
                     };
                     let ep_path = format!("{inst_name}.{port_name}");
-                    let encoded = format!("@@RETURN_EP:{ep_path}");
-                    LAST_RETURN_ENDPOINT.with(|cell| cell.replace(Some(encoded)));
+                    LAST_RETURN_ENDPOINT
+                        .with(|cell| cell.replace(Some(AutoInst::ReturnPort(ep_path))));
                 } else {
                     let bus =
                         crate::semantic::basic::mc_fcall::get_right_bus_from_phrase(&substituted);
@@ -1381,8 +1381,8 @@ impl InstantiationBuilder {
                     if names.is_empty() {
                         LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
                     } else {
-                        let encoded = format!("@@RETURN_NETS:{}", names.join(";"));
-                        LAST_RETURN_ENDPOINT.with(|cell| cell.replace(Some(encoded)));
+                        LAST_RETURN_ENDPOINT
+                            .with(|cell| cell.replace(Some(AutoInst::ReturnNets(names))));
                     }
                 }
             }
