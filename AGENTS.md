@@ -35,6 +35,21 @@ derived paths (`PathBuf::from(home)` in Rust tests), or paths relative to the
 project root (`env!("CARGO_MANIFEST_DIR")`). This applies to the whole project
 including test code and test data.
 
+This is enforced mechanically:
+
+- Pre-commit hook (`.githooks/pre-commit`) rejects staged files that embed a
+  home-directory path; the `commit-msg` hook rejects commit messages that do.
+- CI workflow (`.github/workflows/check-paths.yml`) scans every git-tracked
+  file on every push / pull request.
+- Local scanner: `python3 scripts/check-paths.py` — exit 0 clean, 1 otherwise.
+- Run `scripts/check.sh` for the full local gate (step 10).
+
+The detector is structural — it matches any `/Users/<name>/`, `/home/<name>/`
+or `C:\Users\<name>\` prefix, so it covers every account name without carrying
+a list of names. Placeholder forms (`/Users/<name>/repo`, `$HOME/...`, `~/...`,
+`./src/lib.rs`) pass untouched. A doc that must display a bad example can mark
+the line with `check-paths:allow`.
+
 ## Rule: diagnostics must carry a real source position
 
 Every diagnostic mcc emits — `--dlog` one-line output, `check`/`parse` reports,

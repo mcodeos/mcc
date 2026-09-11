@@ -1,0 +1,15 @@
+name: check-paths
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan tracked files for user-specific absolute paths
+        run: python3 scripts/check-paths.py
