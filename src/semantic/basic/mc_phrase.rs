@@ -2528,6 +2528,21 @@ impl McPhrase {
                     return None;
                 }
 
+                // ── body pair: two component bodies must have equal port counts ──
+                if let Some((l_name, l_ports, r_name, r_ports)) =
+                    check_body_pair_plusminus(&opd1, &opd2)
+                {
+                    dlog_error(
+                        crate::errcodes::SHAPE_INST_PORTCOUNT_PLUSMINUS,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_PORTCOUNT_PLUSMINUS,
+                            &[&l_name, &l_ports, &r_name, &r_ports],
+                        ),
+                    );
+                    return None;
+                }
+
                 // §5.1 parallel `+`: the paired ports must match one-to-one.
                 // The pairing side is derived from `(opd1, opd2)` alone
                 // (opcheck): a degenerate right operand attaches to the left
@@ -2621,6 +2636,21 @@ impl McPhrase {
                         &crate::errcodes::format_msg(
                             crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
                             &[&inst_name, &pin_count],
+                        ),
+                    );
+                    return None;
+                }
+
+                // ── body pair: two component bodies must have equal port counts ──
+                if let Some((l_name, l_ports, r_name, r_ports)) =
+                    check_body_pair_plusminus(&opd1, &opd2)
+                {
+                    dlog_error(
+                        crate::errcodes::SHAPE_INST_PORTCOUNT_PLUSMINUS,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_PORTCOUNT_PLUSMINUS,
+                            &[&l_name, &l_ports, &r_name, &r_ports],
                         ),
                     );
                     return None;
@@ -2973,6 +3003,7 @@ struct CompPinShape {
 }
 
 /// Shape kind per eval.md §2 rules.
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum PinShapeKind {
     /// Rule 1: 1-port label/pins → 1×1 (single bus, left=right=same name)
     Single,
@@ -3064,27 +3095,80 @@ fn is_reverse_noop_operand(p: &McPhrase) -> bool {
     }
 }
 
+/// Resolve `opd` to a bare component **body** -- an `Endpoint` holding a single
+/// `McInstance::Component` reference with no wrapping phrase -- and its default
+/// pin shape.
+///
+/// Anything else is not a body for these Pass1 constraints: a pin, a net label,
+/// a rail, a series result, a lane stack, a nested `Parallel`, a one-element
+/// `Group`, a `FuncCall`. The wrapping forms deliberately fall through to the
+/// shape layer rather than being unwrapped here.
+fn as_bare_component(opd: &McPhrase) -> Option<(&Mc2Component, CompPinShape)> {
+    match opd {
+        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Component(ref c),
+            ..
+        })) => Some((c, shape_defaults(c))),
+        _ => None,
+    }
+}
+
+/// The terminal count a body presents to `+` / `-`, for the pair message.
+fn body_arity(shape: &CompPinShape) -> usize {
+    match shape.kind {
+        PinShapeKind::Single => 1,
+        PinShapeKind::TwoPin => 2,
+        // A MultiPort body never reaches the pair check (E2905 rejects it
+        // first); report its declared pin count rather than inventing one.
+        PinShapeKind::MultiPort => shape.static_count,
+    }
+}
+
 /// Check veccircuit.md constraint: instances with 3+ pins cannot directly
 /// participate in `+` (Parallel) or `-` (Series Undirected) operations.
 /// Returns `Some((name, pin_count))` for a rejected MultiPort instance,
 /// `None` when the operand is allowed to participate.
 fn check_inst_plusminus(opd: &McPhrase) -> Option<(String, usize)> {
-    use McPhrase::*;
-    match opd {
-        Endpoint(McEndpoint::Single(McInstanceRef {
-            base: McInstance::Component(ref c),
-            ..
-        })) => {
-            let shape = shape_defaults(c);
-            if matches!(shape.kind, PinShapeKind::MultiPort) {
-                Some((c.name.to_string(), shape.static_count))
-            } else {
-                None
-            }
-        }
-        // Transposed, Group, FuncCall etc. — allowed (shape will be validated at Pass2)
-        _ => None,
+    let (c, shape) = as_bare_component(opd)?;
+    if matches!(shape.kind, PinShapeKind::MultiPort) {
+        Some((c.name.to_string(), shape.static_count))
+    } else {
+        // Transposed, Group, FuncCall etc. -- allowed (shape is validated at Pass2)
+        None
     }
+}
+
+/// Check that a **pair of component bodies** in `+` / `-` has matching port
+/// counts (`TP + R1` stacks a 1-port body against a 2-port body, and the
+/// terminals do not line up).
+///
+/// The constraint is on the **pair**, not on either operand alone: a body
+/// against a non-body is deliberately unconstrained. `VCC + R1` is the
+/// face-side law's net attach, and `(net -> LABEL) + TP1` -- hanging a test
+/// point on a node -- is live real-board usage. Only when *both* sides are
+/// bodies is `+` a stacked body pair whose terminals must match.
+///
+/// Arity comes from the shape *kind* (1x1 vs 1x2), not from `static_count`: a
+/// dynamic-pin class that resolves to two pins is `TwoPin` with a zero static
+/// count and must still pair with a static two-pin body.
+///
+/// Returns `Some((left_name, left_ports, right_name, right_ports))` for a
+/// rejected pair, `None` when the pair is allowed.
+fn check_body_pair_plusminus(
+    opd1: &McPhrase,
+    opd2: &McPhrase,
+) -> Option<(String, usize, String, usize)> {
+    let (l, lshape) = as_bare_component(opd1)?;
+    let (r, rshape) = as_bare_component(opd2)?;
+    if lshape.kind == rshape.kind {
+        return None;
+    }
+    Some((
+        l.name.to_string(),
+        body_arity(&lshape),
+        r.name.to_string(),
+        body_arity(&rshape),
+    ))
 }
 
 // ============================================================================
