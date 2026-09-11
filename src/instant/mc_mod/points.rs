@@ -12,7 +12,7 @@
 //! - `is_port` / `find_component` / `find_submodule` / `ensure_label` —— lookup helpers
 
 use super::funccall::FaceSide;
-use super::InstantiationBuilder;
+use super::{AutoInst, InstantiationBuilder};
 use crate::instant::mc_net::{InstError, NetPoint, LEAD_PLACEHOLDER_PREFIX};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -380,9 +380,10 @@ impl InstantiationBuilder {
                 // return face — resolve once, no duplication.
                 if let McPhrase::FuncCall(_) = **inner_line {
                     let key = Self::member_key(inner_line);
-                    let symmetric = self.auto_inst_map.get(&key).is_some_and(|v| {
-                        v.starts_with("@@RETURN_EP:") || v.starts_with("@@RETURN_NETS:")
-                    });
+                    let symmetric = self
+                        .auto_inst_map
+                        .get(&key)
+                        .is_some_and(AutoInst::is_return_face);
                     if symmetric {
                         return self.resolve_funccall_face(inner_line, FaceSide::Left);
                     }
@@ -1018,9 +1019,10 @@ impl InstantiationBuilder {
                 // ── func-return-design §6.2: mirror get_left_points Transposed(FuncCall) face
                 if let McPhrase::FuncCall(_) = **inner_line {
                     let key = Self::member_key(inner_line);
-                    let symmetric = self.auto_inst_map.get(&key).is_some_and(|v| {
-                        v.starts_with("@@RETURN_EP:") || v.starts_with("@@RETURN_NETS:")
-                    });
+                    let symmetric = self
+                        .auto_inst_map
+                        .get(&key)
+                        .is_some_and(AutoInst::is_return_face);
                     if symmetric {
                         return self.resolve_funccall_face(inner_line, FaceSide::Left);
                     }

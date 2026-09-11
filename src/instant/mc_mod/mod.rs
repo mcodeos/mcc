@@ -51,6 +51,72 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 // ============================================================================
+// AutoInst - what a FuncCall chain member resolved to
+// ============================================================================
+
+/// The value side of `McModuleInst::auto_inst_map`.
+///
+/// The map is keyed by phrase id and read back when a chain member's connection
+/// face is resolved (`resolve_funccall_face`) — i.e. it is the channel that
+/// carries "which instance(s) does this call denote" from the statement walker
+/// to the face resolver. It used to be a bare `String` in which four different
+/// shapes were smuggled behind prefixes — `@@ARRAY:a,b`, `@@RETURN_EP:i.p`,
+/// `@@RETURN_NETS:n1;n2`, and a plain instance name — with every reader
+/// re-deriving the shape by `strip_prefix` and re-splitting the payload. The
+/// separator was therefore a wire format with no single owner (and a second one
+/// for `@@RETURN_NETS`), so producer and consumer could drift silently.
+/// The variants name the four shapes and carry their payload already split.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum AutoInst {
+    /// A single instance name: a component, a sub-module, or a `@?` stub.
+    Name(String),
+    /// An array-form / iterated caller: one entry per member, in member order.
+    Array(Vec<String>),
+    /// A func return naming an instance bus port (`{inst}.{port}`).
+    ReturnPort(String),
+    /// A func return naming substituted nets / net-list / group members.
+    ReturnNets(Vec<String>),
+}
+
+impl AutoInst {
+    /// The entry for a resolved set of instance names: a lone instance is a
+    /// plain [`AutoInst::Name`], two or more are an [`AutoInst::Array`] in
+    /// member order. `None` when nothing is left to record (no members, or
+    /// every name blank), which callers treat as "no entry for this key".
+    pub(super) fn from_instance_names(names: Vec<String>) -> Option<Self> {
+        let mut names: Vec<String> = names.into_iter().filter(|n| !n.is_empty()).collect();
+        if names.len() > 1 {
+            Some(Self::Array(names))
+        } else {
+            names.pop().map(Self::Name)
+        }
+    }
+
+    /// Is this a func-return face (case ②)? Its two mouths are the same
+    /// symmetric stereo node, so a face read must not duplicate it.
+    pub(super) fn is_return_face(&self) -> bool {
+        matches!(self, Self::ReturnPort(_) | Self::ReturnNets(_))
+    }
+
+    /// The component instance names this entry denotes, for the
+    /// `bridge_passive_names` bookkeeping set (Transposed bridge passives).
+    ///
+    /// Only `Name` / `Array` denote instances; the two return-face variants
+    /// name faces, not instances, so they contribute nothing. (Previously the
+    /// raw sentinel string was inserted verbatim, but that set is only ever
+    /// queried with `contains(<real component name>)`, so a sentinel could
+    /// never match — the insertion was inert.)
+    pub(super) fn instance_names(&self) -> impl Iterator<Item = &str> {
+        let names: &[String] = match self {
+            Self::Name(n) => std::slice::from_ref(n),
+            Self::Array(ns) => ns,
+            Self::ReturnPort(_) | Self::ReturnNets(_) => &[],
+        };
+        names.iter().map(String::as_str)
+    }
+}
+
+// ============================================================================
 // McModuleInst - Module instance
 // ============================================================================
 
@@ -75,10 +141,10 @@ pub struct McModuleInst {
     /// Internal connections
     pub connections: Vec<ConnectionInst>,
 
-    /// Mapping from FuncCall member to auto-created component instance name.
+    /// Mapping from FuncCall member to what it resolved to (see [`AutoInst`]).
     /// Key: stable u32 ID assigned via `assign_phrase_ids()` before processing.
     /// Clone-safe: the ID is stored in McFuncCall.id and survives cloning.
-    pub(super) auto_inst_map: HashMap<u32, String>,
+    pub(super) auto_inst_map: HashMap<u32, AutoInst>,
 
     /// Instantiation diagnostic collector (non-fatal errors/warnings)
     ///

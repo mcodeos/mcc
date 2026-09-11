@@ -18,7 +18,7 @@
 //! is in `funccall_inst.rs`, and iterated call expansion is in `iterated.rs`.
 
 use super::expand::InstEntry;
-use super::{InstantiationBuilder, McModuleInst};
+use super::{AutoInst, InstantiationBuilder, McModuleInst};
 use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
@@ -632,36 +632,35 @@ impl InstantiationBuilder {
         }
 
         let key = Self::member_key(member);
-        if let Some(inst_name) = self.auto_inst_map.get(&key).cloned() {
-            // ── case ②: return face (both mouths symmetric) ────────────────
-            // instantiate_instance_method encoded the func's return value;
-            // decode it to the same point set for left and right.
-            if let Some(ep_path) = inst_name.strip_prefix("@@RETURN_EP:") {
-                return self.decode_return_endpoint(ep_path);
-            }
-            if let Some(nets) = inst_name.strip_prefix("@@RETURN_NETS:") {
-                return self.decode_return_nets(nets);
-            }
-            // ── @@ARRAY: iterated / array-form caller produces multiple
-            //    instances (left = each one's entry face, right = each one's exit face).
-            if let Some(list_str) = inst_name.strip_prefix("@@ARRAY:") {
-                return self.decode_array_face(list_str, side);
-            }
-            // ── case ①: instance own face ─────────────────────────────────
-            if let Some(comp) = self.find_component(&inst_name) {
-                return self.component_own_face(&comp, side);
-            }
-            if let Some(sub) = self.find_submodule(&inst_name) {
-                return self.submodule_own_face(&sub, side);
-            }
-            // Synthetic stub (P0-4)? Unrecognized class name FuncCall uses independent stub endpoint
-            if inst_name.starts_with("@?") {
-                let which = if side.is_left() { ".1" } else { ".2" };
-                return Ok(vec![NetPoint::with_owner(
-                    &format!("{inst_name}{which}"),
-                    &inst_name,
-                    IOType::None,
-                )]);
+        if let Some(auto) = self.auto_inst_map.get(&key).cloned() {
+            match auto {
+                // ── case ②: return face (both mouths symmetric) ────────────
+                // instantiate_instance_method recorded the func's return value;
+                // decode it to the same point set for left and right.
+                AutoInst::ReturnPort(ep_path) => return self.decode_return_endpoint(&ep_path),
+                AutoInst::ReturnNets(names) => return self.decode_return_nets(&names),
+                // ── array-form / iterated caller produces multiple instances
+                //    (left = each one's entry face, right = each one's exit face).
+                AutoInst::Array(names) => return self.decode_array_face(&names, side),
+                // ── case ①: instance own face ─────────────────────────────
+                AutoInst::Name(inst_name) => {
+                    if let Some(comp) = self.find_component(&inst_name) {
+                        return self.component_own_face(&comp, side);
+                    }
+                    if let Some(sub) = self.find_submodule(&inst_name) {
+                        return self.submodule_own_face(&sub, side);
+                    }
+                    // Synthetic stub (P0-4)? Unrecognized class name FuncCall
+                    // uses an independent stub endpoint.
+                    if inst_name.starts_with("@?") {
+                        let which = if side.is_left() { ".1" } else { ".2" };
+                        return Ok(vec![NetPoint::with_owner(
+                            &format!("{inst_name}{which}"),
+                            &inst_name,
+                            IOType::None,
+                        )]);
+                    }
+                }
             }
         }
         // ── fallback: the phrase's own interface buses (placeholder filtering) ──
@@ -703,27 +702,27 @@ impl InstantiationBuilder {
         Ok(vec![NetPoint::with_owner(ep_path, owner, IOType::None)])
     }
 
-    /// Decode a `@@RETURN_NETS:{n1};{n2}` encoded return face: each substituted
-    /// name resolves to its own net point (single-point N=1 / column vector N≥2 /
+    /// Decode an [`AutoInst::ReturnNets`] return face: each substituted name
+    /// resolves to its own net point (single-point N=1 / column vector N≥2 /
     /// group members are parallel lanes).
-    fn decode_return_nets(&mut self, nets: &str) -> Result<Vec<NetPoint>, InstError> {
+    fn decode_return_nets(&mut self, nets: &[String]) -> Result<Vec<NetPoint>, InstError> {
         let mut points = Vec::new();
-        for name in nets.split(';').filter(|s| !s.is_empty()) {
+        for name in nets.iter().filter(|s| !s.is_empty()) {
             let bus = McBus::new(name);
             points.extend(self.expand_node_element(&bus));
         }
         Ok(points)
     }
 
-    /// Decode a `@@ARRAY:{name1},{name2}` iterated / array-form caller: collect
-    /// each instance's entry face (left) or exit face (right).
+    /// Decode an [`AutoInst::Array`] iterated / array-form caller: collect each
+    /// member instance's entry face (left) or exit face (right).
     fn decode_array_face(
         &mut self,
-        list_str: &str,
+        names: &[String],
         side: FaceSide,
     ) -> Result<Vec<NetPoint>, InstError> {
         let mut points = Vec::new();
-        for n in list_str.split(',').filter(|s| !s.is_empty()) {
+        for n in names.iter().filter(|s| !s.is_empty()) {
             if let Some(comp) = self.find_component(n) {
                 if comp.is_multi_pin() && comp.has_io_annotations() {
                     if side.is_left() {

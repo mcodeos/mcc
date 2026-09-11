@@ -32,7 +32,7 @@
 use super::super::inststore::TreeView;
 use super::super::mc_net::{canonicalize_path, NetPoint};
 use super::builder::InstantiationBuilder;
-use super::McModuleInst;
+use super::{AutoInst, McModuleInst};
 use crate::semantic::common::IOType;
 use crate::semantic::mc_inst::McInstance;
 use std::sync::OnceLock;
@@ -346,21 +346,28 @@ impl InstantiationBuilder {
         // ---- auto_inst_map ----
         mcc_dbg!(
             "inst::dump",
-            "{} auto_inst_map: {} entries (FuncCall key → instance name)",
+            "{} auto_inst_map: {} entries (FuncCall key → resolved member)",
             p,
             self.auto_inst_map.len()
         );
         // Only print instance name (key is address, no readability)
         let mut kinds: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-        for inst_name in self.auto_inst_map.values() {
-            let kind = if inst_name.starts_with("@?") {
-                "stub(P0-4)"
-            } else if view.components(&self.tree).any(|c| &c.name == inst_name) {
-                "component"
-            } else if view.sub_modules(&self.tree).any(|s| &s.name == inst_name) {
-                "sub_module"
-            } else {
-                "unknown"
+        for auto in self.auto_inst_map.values() {
+            let kind = match auto {
+                AutoInst::Array(_) => "array",
+                AutoInst::ReturnPort(_) => "return_port",
+                AutoInst::ReturnNets(_) => "return_nets",
+                AutoInst::Name(inst_name) => {
+                    if inst_name.starts_with("@?") {
+                        "stub(P0-4)"
+                    } else if view.components(&self.tree).any(|c| &c.name == inst_name) {
+                        "component"
+                    } else if view.sub_modules(&self.tree).any(|s| &s.name == inst_name) {
+                        "sub_module"
+                    } else {
+                        "unknown"
+                    }
+                }
             };
             *kinds.entry(kind).or_insert(0) += 1;
         }
