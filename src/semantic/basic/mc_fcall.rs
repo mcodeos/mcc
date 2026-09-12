@@ -135,8 +135,8 @@ fn is_bare_uscore(p: &McParamValue) -> bool {
 /// `(A, B) => f(_, _)` — §2 **group prefix**: the group is not a single
 /// actual, its members fill the bare `_` slots **one-to-one in order**, so
 /// the folded call is `f(A, B)`. Applies only when every method actual is a
-/// bare `_` and the counts agree; anything else returns `None` so the
-/// single-prefix rules below run unchanged (strict arity then reports E4176).
+/// bare `_` and the counts agree; anything else returns `None`, and the
+/// caller reports E4176 through `is_multi_member_group` below.
 fn group_prefix_fill(
     prefix: &McParamValue,
     method_params: &[McParamValue],
@@ -158,6 +158,22 @@ fn group_prefix_fill(
             .iter()
             .map(|o| McParamValue::Phrase(Box::new(o.clone())))
             .collect(),
+    )
+}
+
+/// True when the `=>` prefix is a **multi-member** group (`(A, B)`).
+///
+/// A single-member group `(a)` is the plain scalar prefix — it is unwrapped
+/// upstream — so it never counts here. This is the recognition half of §2's
+/// group rule: a multi-member group prefix is well defined ONLY against an
+/// actual list of the same length that is all bare `_`. The group is never
+/// itself an actual, so when the slots do not line up there is no fallback
+/// reading to take; the caller reports E4176 and materializes nothing.
+fn is_multi_member_group(p: &McParamValue) -> bool {
+    matches!(
+        p,
+        McParamValue::Phrase(ph)
+            if matches!(ph.as_ref(), McPhrase::Group(g) if g.opds.len() >= 2)
     )
 }
 
@@ -605,6 +621,34 @@ impl McFuncCall {
                     // Must be tested before the all-placeholder rule, which would
                     // otherwise treat the whole group as the single actual.
                     filled
+                } else if is_multi_member_group(&pre_param) {
+                    // (a3) A multi-member group prefix that does NOT meet one
+                    // bare `_` per member (`(A,B) => f(_, VCC)`, `(A,B) =>
+                    // f(A, _)`, `(A,B,C) => f(_, _)`). §2 defines the group
+                    // prefix as filling `_` slots one-to-one, and the group is
+                    // never itself an actual — so there is no "stuff the whole
+                    // group into the first slot" reading to fall back on. The
+                    // spelling is a strict-arity violation: report E4176 and
+                    // materialize nothing (it used to land only member[0] and
+                    // drop the rest silently).
+                    let inst_text = instance_name
+                        .as_ref()
+                        .map(|n| n.to_string())
+                        .unwrap_or_default();
+                    let method_text = method_name_opt
+                        .as_ref()
+                        .map(|n| n.to_string())
+                        .unwrap_or_default();
+                    let reason = "group prefix fills one bare `_` per member";
+                    dlog_error(
+                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::INST_PARAM_BIND_FAILED,
+                            &[&inst_text, &method_text, &reason],
+                        ),
+                    );
+                    return None;
                 } else if all_ph {
                     // (a) `.Cap(_)` + `=>` prefix → fold the prefix into the
                     // placeholder position (parameter prefixing, §1.2).

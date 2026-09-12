@@ -216,6 +216,34 @@ fn group_prefix__arity_mismatch_is_diagnosed() {
     );
 }
 
+/// Ruling 2026-09-12 (§2): a multi-member group prefix is defined ONLY against
+/// an actual list that is exactly one bare `_` per member. Any other spelling
+/// is a strict-arity violation — E4176, nothing wired — and never "stuff the
+/// whole group into the first slot", which used to land member[0], drop
+/// member[1] and report nothing at all.
+#[test]
+fn group_prefix__non_placeholder_actuals_are_diagnosed() {
+    for body in [
+        // 2 members, 1 slot: the old silent-drop case.
+        "        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)",
+        // Already-written actual beside the slot.
+        "        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(I2C0.SCL, _)",
+    ] {
+        let codes = codes_of(&src_of(body), "/mcc/group-prefix-nonuscore.mc");
+        assert!(
+            codes.contains(&4176),
+            "a group prefix against non-`_` actuals must report E4176; body={body:?} codes={codes:?}"
+        );
+        // Anti-false-green: the old bug wired member[0] into a net and stayed
+        // silent, so an E4176-only assertion would pass on the broken engine.
+        assert_eq!(
+            partition_of(&src_of(body), "/mcc/group-prefix-nonuscore.mc"),
+            Vec::<Vec<String>>::new(),
+            "and must not wire anything; body={body:?}"
+        );
+    }
+}
+
 /// A one-member group is just its member (`(VCC)` ≡ `VCC`) — it must not be
 /// mistaken for a group prefix, and must not replicate.
 #[test]
