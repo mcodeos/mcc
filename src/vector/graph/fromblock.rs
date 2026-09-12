@@ -9,10 +9,7 @@
 //! - **Delete** Phase 3a (`generate_edges_from_net` + `edge_map`)
 //! - **Delete** Phase 3.5's `synthesize_rail_edges`, replace with `synthesize_rail_nets`
 //!   directly synthesizing `VizNet` (synthesized endpoint `pin_id = -1`)
-//! - `graph.edges` field kept but no longer populated
-//!
-//! Second phase: the entire `McVecEdge` / `EdgeType` can be deprecated, requires first
-//! migrating the `from_table.rs` legacy builder (P03 doesn't touch it for now).
+//! Single net model: `VizNet` is the only net representation the graph carries.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1214,7 +1211,6 @@ fn build_mc_vec_graph_inner(
     // ── ★ Phase 3: VizNet (only network model after P03) ──
     //
     // Keep multi-endpoint topology directly, no longer split into "pairwise" pairs.
-    // Before P03, this simultaneously filled `graph.edges` (binary) and `graph.nets`, P03 cut the former.
 
     // ★ DEBUG: print block.nets structure
     graph.nets = generate_viznets_from_block(block, &point_to_box, table, &graph.boxes);

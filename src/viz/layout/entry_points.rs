@@ -980,9 +980,7 @@ fn side_clearance(
 /// Same pin appearing in multiple nets counts only once. Synthetic "rail" endpoints with pin_id <= 0
 /// (`pin_id: -1`) don't count (they have no real pins).
 ///
-/// ## ★ P03 (S1) changes
-/// Previously read both `graph.edges` (old binary) + `graph.nets` (new), P03 removed edges path,
-/// now only traverses nets. `McVecEdge` field kept but no longer populated, this function no longer scans it.
+/// Only traverses `graph.nets`, the single net representation the graph carries.
 pub(crate) fn collect_pins_per_box(graph: &McVecGraph) -> HashMap<i64, Vec<(i64, String)>> {
     let mut out: HashMap<i64, Vec<(i64, String)>> = HashMap::new();
     let mut seen: HashMap<i64, HashSet<i64>> = HashMap::new();

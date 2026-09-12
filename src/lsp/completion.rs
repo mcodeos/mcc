@@ -85,7 +85,7 @@ struct ScopeHit {
 fn scope_hit_at_pos(uri: &str, position: usize) -> Option<ScopeHit> {
     let mc_uri = McURI::from(uri);
     let ds = crate::definition_space();
-    let mcfile = ds.source_file(&mc_uri)?;
+    let mcfile = ds.source_file_tolerant(&mc_uri)?;
     let ast = mcfile.ast.clone();
 
     // Collect all AST nodes via BFS. The stack pop condition (`node_start >=

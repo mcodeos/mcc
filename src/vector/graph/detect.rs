@@ -168,7 +168,7 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
 }
 
 // ============================================================================
-// Public helper functions (shared by detect / from_table / from_block / promote etc.)
+// Public helper functions (shared by detect / from_block / promote etc.)
 // ============================================================================
 
 /// Extract the last segment of a path

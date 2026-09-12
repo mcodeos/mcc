@@ -6,11 +6,13 @@
 //!
 //! Extracted from `rpc/handlers/defs.rs` (handle_def).
 
+use crate::db::infra::mc_code::McCode;
 use crate::query::iterators::{
     mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules,
 };
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use serde_json::{json, Value};
+use std::path::Path;
 
 /// Fast path: search RefDefMap name_index across all loaded files (§7.4).
 /// Returns (def_uri_str, def_kind_name) if found, None otherwise.
@@ -173,7 +175,20 @@ pub fn resolve_at_pos(uri: &str, offset: usize) -> Option<Value> {
 
     let mc_uri = McURI::from(uri);
     let ds = crate::definition_space();
-    let mcfile = ds.source_file(&mc_uri)?;
+    let mcfile = ds.source_file_tolerant(&mc_uri)?;
+
+    // ★ Use jump: the cursor sits on a `use`/`pub use` directive — jump to the
+    // target file the directive loads (mcext gotodef parity) instead of
+    // symbol resolution. Target is opened at (0,0), like the plugin.
+    if let Some(target) = resolve_use_jump(&mcfile, offset) {
+        return Some(json!({
+            "kind": "UseJump",
+            "uri": target,
+            "byte_start": 0,
+            "byte_end": 0,
+        }));
+    }
+
     let sym = mcfile.symbols.lock().ok()?;
     let map = sym.ref_def_map.as_ref()?;
     let hit = resolve_at(map, &sym.symbol_lapper, offset)?;
@@ -184,4 +199,209 @@ pub fn resolve_at_pos(uri: &str, offset: usize) -> Option<Value> {
         "byte_start": hit.byte_start,
         "byte_end": hit.byte_end,
     }))
+}
+
+/// Resolve the `use` directive covering `offset` to its on-disk target file.
+///
+/// The compiler's own [`McUse`] (resolved by `update_abs_path` at load time)
+/// is the source of truth — prefix rules (`./`, `../`, `/`, `$`), `@version`
+/// suffixes and module auto-completion (`conn` → `conn/conn.mc`) are all
+/// handled there. `uri` is rewritten to a canonical absolute path only when
+/// the target exists on disk (canonicalize succeeded); an unresolved `uri`
+/// (module path or relative path) is never absolute, so a missing target
+/// simply yields no jump. Returns the target's absolute path.
+fn resolve_use_jump(mcfile: &McCode, offset: usize) -> Option<String> {
+    let target = mcfile.uselist.iter().find(|u| {
+        let start = u.pos as usize;
+        let end = start + u.len as usize;
+        if offset >= start && offset < end {
+            return true;
+        }
+        // The AST node's span starts just after the `use` keyword (`use
+        // ./x` → pos 3), so the keyword itself is outside `[start, end)`.
+        // mcext jumps when the cursor is anywhere on a use-directive line;
+        // widen to the line start when the line is a `use`/`pub use`
+        // directive and the cursor precedes the statement.
+        offset < start
+            && {
+                let line_start = mcfile
+                    .content
+                    .get(..start)
+                    .and_then(|before| before.rfind('\n'))
+                    .map(|nl| nl + 1)
+                    .unwrap_or(0);
+                offset >= line_start && is_use_directive_line(&mcfile.content, line_start, start)
+            }
+    })?;
+    let path = Path::new(target.uri.as_str());
+    if path.is_absolute() && path.is_file() {
+        Some(target.uri.to_string())
+    } else {
+        None
+    }
+}
+
+/// Is the text between `line_start` and the use-statement start a bare
+/// `use` / `pub use` directive head (nothing else on the line before it)?
+fn is_use_directive_line(content: &str, line_start: usize, pos: usize) -> bool {
+    match content.get(line_start..pos) {
+        Some(head) => {
+            let head = head.trim_start();
+            head == "use" || head == "pub use"
+        }
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
+    use std::fs;
+    use std::path::PathBuf;
+
+    /// Use-jump: cursor on a `use` directive resolves to the on-disk target
+    /// file (mcext gotodef parity). Mirrors the production LSP shape — the
+    /// server proxy normalizes a workspace-relative path to `file://<abs>`
+    /// and pushes content through `mcb_add_from_string`, keying the workspace
+    /// by that URI; the compiler resolves the relative target against the
+    /// file's real directory.
+    #[test]
+    fn def_mccode__use_jump_resolves_relative_target() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-usetest-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let helper_path = dir.join("helper.mc");
+        fs::write(&helper_path, "module helper {}\n").unwrap();
+        let main_path = dir.join("main.mc");
+        let main_src = "use ./helper\n\nmodule main {}\n";
+        fs::write(&main_path, main_src).unwrap();
+
+        // The proxy sends `file://<canonical abs path>`; the server loads the
+        // file from that URI (sem string load). Canonicalize so the temp dir
+        // survives macOS `/var` → `/private/var` symlink normalization.
+        let f_uri: crate::McURI =
+            format!("file://{}", main_path.canonicalize().unwrap().display());
+        crate::mcc_load_from_string(&f_uri, main_src);
+
+        // Cursor on the use path (`./helper`) → UseJump to helper.mc.
+        let use_off = main_src.find("./helper").unwrap();
+        let d = crate::lsp::gotodef::resolve_at_pos(&f_uri, use_off).expect("use jump");
+        assert_eq!(d["kind"], "UseJump");
+        let want = helper_path.canonicalize().unwrap();
+        assert_eq!(
+            d["uri"].as_str().map(|s| PathBuf::from(s).canonicalize().unwrap()),
+            Some(want),
+            "use-jump target must be the canonical helper.mc: {d}"
+        );
+        assert_eq!(d["byte_start"].as_u64(), Some(0));
+
+        // Cursor on the `use` keyword → same jump.
+        let kw_off = main_src.find("use ").unwrap();
+        let d2 = crate::lsp::gotodef::resolve_at_pos(&f_uri, kw_off).expect("use keyword jump");
+        assert_eq!(d2["kind"], "UseJump");
+
+        // Cleanup.
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Use-jump must not shadow normal symbol goto-def: a position outside any
+    /// `use` statement still resolves through the RefDefMap (class ref → head).
+    #[test]
+    fn def_mccode__use_jump_does_not_shadow_symbol_gotodef() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let source = r#"
+enum CAP { X7R, MLCC, C0G }
+
+component CAP (diel = CAP.X7R)
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+module main
+{
+    CAP C1
+    C1.1 -> V5V
+}
+"#;
+        let uri: crate::McURI = "/mcc/gotodef-cap.mc".to_string();
+        crate::mcc_load_from_string(&uri, source);
+        crate::mcc_build(&McIds::from("main"), &uri).expect("build failed");
+
+        // `CAP` in `CAP C1` is a class reference → the component head.
+        let comp_ref = source.find("CAP C1").unwrap();
+        let d = crate::lsp::gotodef::resolve_at_pos(&uri, comp_ref).expect("goto-def at component ref");
+        assert_eq!(d["kind"], "ClassDef", "use-jump must not shadow symbol resolution: {d}");
+    }
+
+    /// Cross-file goto-def: a class reference in one file (`US513` in
+    /// hbl.mc) resolves to its definition in a sibling file (us513.mc) that
+    /// the `use` directive pulls into the definition space. Mirrors the app
+    /// shape — the server string-loads the opened file from a `file://` URI
+    /// and recursively loads its on-disk deps (hbl ↔ us513).
+    #[test]
+    fn def_mccode__cross_file_class_gotodef() {
+        let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let dir = std::env::temp_dir().join(format!("mcc-xgotodef-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let def_path = dir.join("us513.mc");
+        let def_src = r#"
+component MCU.US513_20_F
+{
+    pins = [ 1 = VDD ]
+}
+
+module US513([VDD_3V3, GND]::DC(3.3V), [VCC_1V2, GND]::DC(1.2V))
+{
+    out DAC_OUT
+}
+"#;
+        fs::write(&def_path, def_src).unwrap();
+        let main_path = dir.join("hbl.mc");
+        let main_src = "use ./us513.mc\n\nmodule main\n{\n    US513 mcu513(V3V3, V1V2)\n}\n";
+        fs::write(&main_path, main_src).unwrap();
+
+        // Production shape: proxy sends `file://<abs>`; the string load
+        // recursively pulls us513.mc from disk and mcc_load_from_string
+        // derives modules for both files, building the shared ref-def map.
+        let f_uri: crate::McURI = format!("file://{}", main_path.canonicalize().unwrap().display());
+        crate::mcc_load_from_string(&f_uri, main_src);
+
+        // `US513` in the instance declaration is a class reference → the
+        // module head in us513.mc. Component and module class heads both
+        // register as `ClassDef` in the ref-def map.
+        let off = main_src.find("US513 mcu513").unwrap();
+        let d = crate::lsp::gotodef::resolve_at_pos(&f_uri, off).expect("cross-file class goto-def");
+        assert_eq!(d["kind"], "ClassDef", "class ref must resolve to the class def: {d}");
+        let want = def_path.canonicalize().unwrap();
+        assert_eq!(
+            d["uri"].as_str().map(|s| PathBuf::from(s).canonicalize().unwrap()),
+            Some(want),
+            "US513 def must live in us513.mc: {d}"
+        );
+        assert!(
+            d["byte_start"].as_u64().is_some(),
+            "def must carry a source position: {d}"
+        );
+
+        // Cleanup.
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

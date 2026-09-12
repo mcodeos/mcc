@@ -224,6 +224,17 @@ impl McUse {
     }
 
     pub fn update_abs_path(&mut self, current_path: &Path, file_node: Option<&AstNode>) {
+        // 0. LSP string loads carry a `file://`-schemed URI as the file's key,
+        //    so the "current path" derived from it (`file://<dir>`) is not a
+        //    real filesystem path and `base_path.join(...)` could never resolve
+        //    on disk — every relative use target stayed unresolved. Strip the
+        //    scheme so use targets resolve to real absolute paths (use-jump /
+        //    LSP gotodef parity with mcext).
+        let current_path = match current_path.to_str() {
+            Some(s) if s.starts_with("file://") => Path::new(&s["file://".len()..]),
+            _ => current_path,
+        };
+
         // 1. Validate current path is absolute (log and exit on failure)
         if !current_path.is_absolute() {
             warn!(
