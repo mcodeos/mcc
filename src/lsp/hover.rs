@@ -62,7 +62,7 @@ fn resolve_at(uri: &str, offset: usize) -> Option<Value> {
 
     let mc_uri = crate::McURI::from(uri);
     let ds = crate::definition_space();
-    let mcfile = ds.source_file(&mc_uri)?;
+    let mcfile = ds.source_file_tolerant(&mc_uri)?;
     let sym = mcfile.symbols.lock().ok()?;
     let map = sym.ref_def_map.as_ref()?;
     let hit = resolve_at_shared(map, &sym.symbol_lapper, offset)?;

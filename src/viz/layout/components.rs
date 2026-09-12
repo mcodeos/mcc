@@ -20,12 +20,7 @@ use crate::vector::graph::McVecGraph;
 /// N endpoints on a net are all pairwise adjacent. Only count relationships where **both endpoints are in `graph.boxes`**,
 /// drop dangling endpoints.
 ///
-/// ## ★ P03 (S1) Changes
-/// Previously read both `graph.edges` (old binary) + `graph.nets` (new hyperedge), and de-duplicated.
-/// P03 removes the dual track, now **only reads graph.nets**. McVecEdge field still exists but is no longer populated.
-///
-/// Test fixtures (`hierarchical.rs` test) have also been migrated to push VizNet, this function's behavior after going through nets
-/// is fully equivalent to the old edges path.
+/// Reads only `graph.nets`, the single net representation the graph carries.
 pub fn build_adjacency(graph: &McVecGraph) -> HashMap<i64, Vec<i64>> {
     let id_set: HashSet<i64> = graph.boxes.iter().map(|b| b.id).collect();
     let mut adj: HashMap<i64, Vec<i64>> = HashMap::new();

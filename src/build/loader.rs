@@ -85,6 +85,28 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
 
         mcfile.parse_ast_from_string(content);
         mcfile.parse_nsp();
+        // Recursively load the on-disk `use` dependencies so definitions from
+        // other files (components, modules, enums) are present in the
+        // definition space — without this, LSP cross-file goto-def /
+        // references can never resolve a class in a sibling file (mirrors
+        // mcb_add_recursive's deps-first contract, so this file's pass1 below
+        // can look up dependency definitions). The current file is registered
+        // first so dependency cycles terminate; re-loads skip files whose
+        // pass1 is already complete.
+        {
+            let binding = &workspace::WORKSPACE.mcodes;
+            binding.insert(canonical_uri.clone(), mcfile.clone());
+            let mut loaded = HashSet::new();
+            loaded.insert(canonical_uri.clone());
+            let deps: Vec<McURI> = mcfile
+                .uselist
+                .iter()
+                .map(|u| canonicalize_project_uri(&u.uri))
+                .collect();
+            for dep_uri in deps {
+                mcb_add_recursive(&dep_uri, &mut loaded, false);
+            }
+        }
         mcfile.parse_pass1_types();
         // Module parsing is owned by mcb_parse_all_modules() (which every
         // caller of mcb_add_from_string invokes right after). Keeping the

@@ -345,6 +345,10 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
 /// ★ C5: remove two-pin passives from the top level (block-diagram granularity) and
 /// revoke their endpoints on signal nets. Nets drained to <2 endpoints (e.g. the _WP
 /// pull-up left with only flash.3) are deleted too.
+///
+/// A leaf top whose only content is passives (small module `RES R1; LED L1`) is
+/// never stripped: there is no block diagram to unclutter, and removing everything
+/// leaves the schematic blank (and panics the radial root selection in flow.rs).
 fn drop_top_passives(graph: &mut McVecGraph) {
     let passive_ids: HashSet<i64> = graph
         .boxes
@@ -353,6 +357,15 @@ fn drop_top_passives(graph: &mut McVecGraph) {
         .map(|b| b.id)
         .collect();
     if passive_ids.is_empty() {
+        return;
+    }
+    // Block-diagram granularity only applies when real block content (an IC hub or
+    // sub-modules) shares the top layer with the passives.
+    let has_block_content = graph
+        .boxes
+        .iter()
+        .any(|b| matches!(b.kind, BoxKind::MultiPin | BoxKind::SubModule));
+    if !has_block_content {
         return;
     }
     let n_boxes = passive_ids.len();
