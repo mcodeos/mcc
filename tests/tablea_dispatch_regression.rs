@@ -284,6 +284,74 @@ fn dispatch__form4_ctor_trailing_method_per_member() {
     assert_pin_side_exclusive(n2, ".2", "form4 VCC side");
 }
 
+/// Same two-pin resistor, but `Pullup` has **no** `return`. Per
+/// func-return-design §5/§6 a returnless body's connection face is the
+/// instance's own port face (implicit `this`) — *not* a bus the callee hands
+/// back. Every other fixture here returns `[net1, net2]`, i.e. a `Label`
+/// return that overrides both faces; that mask is precisely what hid the
+/// defect this lock covers (resolve-gate-design §3.3b C4).
+const RES_NORET_COMP: &str = "component RESN(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup([net1, net2]) {\n        net1 - this - net2\n    }\n}\n";
+
+#[test]
+fn dispatch__form4_returnless_implicit_this_per_member() {
+    let src = format!(
+        "{RES_NORET_COMP}component HOST {{\n    pins = [\n        1 = NET\n        2 = VCC\n    ]\n    func F() {{\n        x[1:2]::RESN(0).Pullup([NET, VCC])\n    }}\n}}\nmodule main {{\n    io VDD\n    HOST U1\n    func M() {{\n        U1.F()\n    }}\n}}\n"
+    );
+    let (paths, nets, codes) = build(&src, "/mcc/tablea-f4-noret.mc");
+    assert!(
+        paths.iter().any(|p| p == "main.x1"),
+        "x1 materialized; got {paths:?}"
+    );
+    assert!(
+        paths.iter().any(|p| p == "main.x2"),
+        "x2 materialized; got {paths:?}"
+    );
+    assert_no_path_containing(&paths, "_R1", "form4 returnless");
+    assert_no_path_containing(&paths, "x[1:2]", "form4 returnless");
+    // §3.3: the N dispatched calls are N *independent statements*. Flattening
+    // them as one chain joins the members with an undirected gap and welds
+    // every pin of every member plus both nets onto ONE net — silently, with
+    // no shape diagnostic at all (the pre-fix behaviour). Assert the silence
+    // for the *shape* codes; the wiring below carries the real teeth.
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
+        "no E4007; got {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::COMPONENT_PIN_NOT_FOUND),
+        "no E3179; got {codes:?}"
+    );
+    // D7 PULLUP_DEGENERATE fires once per dispatched member (each pullup runs
+    // between two host pins that carry no rail role) — two members, two
+    // independent pullups, two diagnostics. Not a defect of this shape.
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|c| **c == mcc::errcodes::PULLUP_DEGENERATE)
+            .count(),
+        2,
+        "one D7 per dispatched member; got {codes:?}"
+    );
+    let n1 = net_containing(&nets, "main.U1.1").expect("net on U1 pin 1");
+    assert!(
+        n1.contains("main.x1.1") && n1.contains("main.x2.1"),
+        "NET side shared by both members; got {n1}"
+    );
+    let n2 = net_containing(&nets, "main.U1.2").expect("net on U1 pin 2");
+    assert!(
+        n2.contains("main.x1.2") && n2.contains("main.x2.2"),
+        "VCC side shared by both members; got {n2}"
+    );
+    // Anti-false-green: "one net, all six pins" satisfies both `contains`
+    // checks above — that is the exact pre-fix symptom.
+    assert_ne!(
+        n1, n2,
+        "form4 returnless: NET and VCC must be distinct nets"
+    );
+    assert_pin_side_exclusive(n1, ".1", "form4 returnless NET side");
+    assert_pin_side_exclusive(n2, ".2", "form4 returnless VCC side");
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level declared array receiver (§3.5) — same semantics at module top
 // ═══════════════════════════════════════════════════════════════════════════
