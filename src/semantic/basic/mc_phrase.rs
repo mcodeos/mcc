@@ -178,6 +178,39 @@ impl McPhrase {
         Self::expand_group(self.clone())
     }
 
+    /// §3.3 per-member distribution is N **independent statements**, not a
+    /// chain. `x[1:2]::RES(0).Pullup([NET, VCC])` means "construct `x1`, `x2`,
+    /// then dispatch `Pullup` on each" — the dispatched calls each stand alone
+    /// and must not be wired to one another. The parse-time fan-out
+    /// (`mc_fcall.rs` §3.3) can only return a single phrase, so it wraps them
+    /// in a `Multiple`; flattening that as an ordinary statement joins the
+    /// members with an undirected gap and shorts them together (a returnless
+    /// `Pullup` put all four pins and both nets on ONE net).
+    ///
+    /// Recognised **structurally** — every member is a method call whose
+    /// receiver is a named ctor (`x1::RES(0).Pullup(…)`), which is exactly what
+    /// the fan-out builds. A `Multiple` that is a genuine lane stack
+    /// (`[VDD, GND]`) has plain endpoints, and a fan-out nested in a `Series`
+    /// (`A -> x[1:2]::RES(0).Pullup(…)`) is a real chain — neither matches, so
+    /// only the standalone-statement case is expanded.
+    pub fn expand_array_member_statements(&self) -> Option<Vec<McPhrase>> {
+        let McPhrase::Multiple(items) = self else {
+            return None;
+        };
+        if items.len() < 2 {
+            return None;
+        }
+        let is_fanned_member = |p: &McPhrase| {
+            matches!(p, McPhrase::FuncCall(fc)
+                if matches!(fc.caller.as_deref(),
+                    Some(McPhrase::FuncCall(ctor)) if ctor.named_ctor))
+        };
+        if !items.iter().all(is_fanned_member) {
+            return None;
+        }
+        Some(items.clone())
+    }
+
     fn expand_group(phrase: McPhrase) -> Option<Vec<McPhrase>> {
         match phrase {
             // A multi-statement group is a statement list: each branch stands alone.
