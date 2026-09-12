@@ -240,7 +240,12 @@ pub fn mcb_parse_all_modules() {
 ///
 /// Handle relative and absolute paths, return canonical path in unified format
 pub(crate) fn canonicalize_project_uri(uri: &McURI) -> String {
-    let path = Path::new(uri);
+    // LSP URIs arrive `file://`-prefixed (server proxy convention); the scheme
+    // is not part of a filesystem path, so strip it before path handling —
+    // otherwise `Path::new("file://<root>/x.mc").canonicalize()` resolves a
+    // literal "file:" directory, fails, and `load_project` loads nothing.
+    let bare = uri.strip_prefix("file://").unwrap_or(uri);
+    let path = Path::new(bare);
 
     // If absolute path, try to normalize
     if path.is_absolute() {

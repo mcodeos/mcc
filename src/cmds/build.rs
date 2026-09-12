@@ -285,6 +285,9 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     mcc::InstTable::write_known_missing(inst, "baseline/known_missing.md", &view);
 
     // ── 4. Viz generation ──
+    // ★ JSON mode: fidelity findings (below) degrade the exit code instead of
+    // suppressing the envelope — the HTML is already written by then.
+    let mut gate_failed = false;
     if args.viz {
         if targets.len() > 1 {
             // Render all targets (peer modules, or several components /
@@ -494,7 +497,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             // [P0/A2] Electrical-fidelity hard gate: a non-perfect fidelity report means
             // the drawing is electrically wrong (dropped/partial nets, unrendered pins,
-            // box/wire collisions). Fail the build so it can't pass silently.
+            // box/wire collisions). In human-oriented (text) mode this fails the build
+            // outright. In JSON mode (machine contract) the HTML is already on disk and
+            // the client needs the envelope to show it, so the failure is carried by the
+            // exit code instead — the envelope is still emitted (its summary is usually
+            // clean because fidelity findings are not per-file diagnostics).
             if !quality.is_perfect() {
                 mcc_dbg!(
                     "build",
@@ -505,7 +512,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                     .map(|v| v.trim() != "0" && !v.eq_ignore_ascii_case("false"))
                     .unwrap_or(true);
                 if gate_on {
-                    return Ok(BuildOutcome { exit_code: 1 });
+                    if mcc::cli::globals().format.is_jsonish() {
+                        gate_failed = true;
+                    } else {
+                        return Ok(BuildOutcome { exit_code: 1 });
+                    }
                 }
             }
         }
@@ -546,7 +557,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     };
     output::emit_envelope(&env, mcc::cli::globals().format, envelope_target, false)?;
     Ok(BuildOutcome {
-        exit_code: if errors > 0 { 1 } else { 0 },
+        exit_code: if errors > 0 || gate_failed { 1 } else { 0 },
     })
 }
 
