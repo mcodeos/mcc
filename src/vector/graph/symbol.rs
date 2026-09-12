@@ -5,9 +5,11 @@
 //! [`Symbol`] -- component's **symbol type** (semantic role, finer than `BoxKind`)
 //!
 //! ## Difference from `BoxKind`
-//! - [`super::kinds::BoxKind`]: coarse classification, 4 categories (TwoPin / MultiPin / SubModule / PowerLabel)
+//! - [`super::kinds::BoxKind`]: coarse classification, 4 categories (TwoPin / MultiPin / SubModule
+//! / PowerLabel)
 //!   determines the rendered **geometric shape** (rectangle / module frame / label)
-//! - `Symbol`: fine classification, determines **which symbol to draw** (resistor wave vs capacitor bars vs IC rectangle)
+//! - `Symbol`: fine classification, determines **which symbol to draw** (resistor wave vs capacitor
+//! bars vs IC rectangle)
 //!
 //! ## Source
 //! `Symbol` is computed once by [`super::detect::detect_symbol`] during the builder phase,
@@ -28,9 +30,7 @@ use std::fmt;
 
 use super::netdef::IoDirection;
 
-// ============================================================================
 // Symbol enum
-// ============================================================================
 
 /// Component symbol type
 ///
@@ -206,9 +206,7 @@ impl fmt::Display for Symbol {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

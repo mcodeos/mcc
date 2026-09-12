@@ -56,7 +56,7 @@ fn count(codes: &[u32], code: u32) -> usize {
     codes.iter().filter(|c| **c == code).count()
 }
 
-/// ── GAP2: a 0-pin net reports E4057, without double-reporting E3137 ────────
+/// GAP2: a 0-pin net reports E4057, without double-reporting E3137
 /// `uC.ADC.P -> a.b.c.d` twice: both endpoints are 3+/4-segment structured
 /// ghosts whose bases are declared nowhere. Each ghost is referenced twice, so
 /// the pass1 single-use E3137 stays quiet (multi-use). The merged net's points
@@ -78,7 +78,7 @@ fn mat_gap2__zero_pin_net_reports_gap2_once() {
     );
 }
 
-/// ── Domain split: a single-use ghost net keeps E3137, never E4057 ─────────
+/// Domain split: a single-use ghost net keeps E3137, never E4057
 /// `uC.ADC.P -> VDD`: the net keeps 1 physical point (the VDD port), so it is
 /// a stub, not 0-pin — GAP2 stays quiet. E3137 fires (single-use ghost).
 #[test]
@@ -97,7 +97,7 @@ fn mat_gap2__single_use_ghost_stub_is_e3137_not_gap2() {
     );
 }
 
-/// ── Domain split: ghost → real pin is a stub, not 0-pin ───────────────────
+/// Domain split: ghost → real pin is a stub, not 0-pin
 /// `uC.ADC.P -> r1.1`: r1.1 is a real registered pin, so the net has 1
 /// physical point → no GAP2. The single-use ghost is E3137; the orphaned pin
 /// r1.1 is the 41xx unconnected checks' domain (not asserted here).
@@ -117,7 +117,7 @@ fn mat_gap2__ghost_to_real_pin_is_stub_not_gap2() {
     );
 }
 
-/// ── Domain split: two resolvable ghost labels are a net, not 0-pin ────────
+/// Domain split: two resolvable ghost labels are a net, not 0-pin
 /// `FOO.BAR -> BAZ.QUX` (2-segment ghosts): flatten's last-dot→slash fallback
 /// resolves both to their registered ghost labels, so the net keeps 2 points —
 /// no GAP2. Each ghost is single-use, so E3137 fires twice (one per ghost).
@@ -137,7 +137,7 @@ fn mat_gap2__two_resolvable_ghost_labels_are_not_gap2() {
     );
 }
 
-/// ── Real nets never trigger GAP2 ──────────────────────────────────────────
+/// Real nets never trigger GAP2
 #[test]
 fn mat_gap2__real_net_is_quiet() {
     let src = "component CAP(cap::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([n1, n2]) {\n        n1 - this - n2\n    }\n}\nmodule main {\n    io VDD\n    io GND\n    CAP c(1)\n    c.Cap([VDD, GND])\n}";
@@ -149,7 +149,7 @@ fn mat_gap2__real_net_is_quiet() {
     );
 }
 
-/// ── GAP2 (module half): a phantom-only connection reports E4057 ───────────
+/// GAP2 (module half): a phantom-only connection reports E4057
 /// `res[1:2] -> led[3:4]` with both bases undeclared: both endpoints carry
 /// `[`, so `NetPoint::new` quarantines them as `@_phantom_<N>`, the union-find
 /// entry (`add_connection`) keeps zero physical points, and the statement is
@@ -166,7 +166,7 @@ fn mat_gap2__phantom_only_connection_reports_gap2() {
     );
 }
 
-/// ── The local `NAME[k]` alias site still fires E4057 (pass1) ──────────────
+/// The local `NAME[k]` alias site still fires E4057 (pass1)
 /// `[GPIO2] -> VDD` (single-element square bracket on an unknown name): the
 /// pass1 indexed-alias site in mc_phrase.rs reports NET_DROPPED_STATEMENT on
 /// the plain `mcc_build` path (no flat build needed) — the local half of GAP2
@@ -183,7 +183,7 @@ fn mat_gap2__namek_alias_local_site_still_fires_e4057() {
     );
 }
 
-/// ── Domain split: a 1-pin stub (phantom + real port) is not 0-pin ─────────
+/// Domain split: a 1-pin stub (phantom + real port) is not 0-pin
 /// `res[1:2] -> VDD`: the phantom `res[1:2]` is quarantined but VDD is a real
 /// port, so the connection keeps 1 physical point — not 0-pin, no GAP2. The
 /// phantom reference drops silently (no E3137 — it is a literal label, not a

@@ -86,9 +86,7 @@ fn find_funccall<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McFunc
         .unwrap_or_else(|| panic!("FuncCall '{}' not found in module stmts", name))
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Test 1: return this preserves caller shape → chaining works
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_fcallret__return_this_preserves_caller_shape_for_chaining() {
@@ -147,9 +145,7 @@ module main
     );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Test 2: implicit return (no return statement) preserves caller shape
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_fcallret__implicit_return_preserves_caller_shape() {
@@ -190,9 +186,7 @@ module main
     assert!(comp.pin_name("2").is_some(), "CATHODE pin should exist");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Test 3: return this → multiple independent function calls on same instance
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_fcallret__return_this_multiple_independent_calls() {
@@ -240,9 +234,7 @@ module main
     assert_eq!(comp.pin_count(), 4, "PASSTHROUGH should have 4 pins");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Test 4: fcall on known two-pin component (RES) with return this
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_fcallret__twopin_component_with_return_this() {
@@ -292,9 +284,7 @@ module main
     assert_eq!(comp.pin_count(), 2, "DIO should have 2 pins");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Test 5: complex chain — multiple returns + 2-pin components
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_fcallret__complex_chain_with_passives() {
@@ -339,10 +329,8 @@ module main
     assert_eq!(comp.pin_count(), 3, "FILTER_BLOCK should have 3 pins");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Test 6: known two-pin class instantiation via method chain
 //   REGULATOR.cap_in(10uF) + REGULATOR.cap_out(10uF) → CAP component auto-created
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_fcallret__twopin_instantiation_via_method_chain() {
@@ -385,10 +373,8 @@ module main
     assert_eq!(reg.pin_count(), 3, "REGULATOR should have 3 pins");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Test 7: return <label> → ReturnShape::Label (left empty, right = return value)
 //   `B.out_sig(V5V)` — func returns the label `net` → right = the label bus ([0|N])
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_fcallret__label_return_resolves_to_zero_left_n_right() {

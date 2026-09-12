@@ -5,7 +5,7 @@
 //! Centralized matching algorithms and rules.
 //!
 //! Single home for every argument<->formal / left<->right / chain-zip pairing
-//! decision in Pass2 (design: `mcd/doc/matching-rules-design.md`):
+//! decision in Pass2 (design: `matching-rules-design.md`):
 //!
 //! - vector-width checking (`check_vector_width`) — B3/B5 (P5/P6),
 //! - member<->lane positional pairing (`pair_members_to_lanes`) — B2 (P3),
@@ -18,9 +18,7 @@
 
 use crate::instant::mc_net::NetPoint;
 
-// ============================================================================
 // Vector-width check (§3.2)
-// ============================================================================
 
 /// Outcome of checking an actual argument's width against a vector formal.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,9 +55,7 @@ pub fn check_vector_width(
     }
 }
 
-// ============================================================================
 // Member <-> lane pairing (§3.1 B2 / §11.3)
-// ============================================================================
 
 /// Pair a formal's member names (declaration order) with actual argument
 /// lanes — by name first, positional fallback for the rest. Returns, in member
@@ -103,13 +99,9 @@ pub fn pair_members_to_lanes(members: &[String], arg_lanes: &[NetPoint]) -> Vec<
     result
 }
 
-// ============================================================================
 // Checked zip (§4 Z1/Z2)
-// ============================================================================
 
-// ============================================================================
 // Name helpers
-// ============================================================================
 
 /// Exact ground-name matcher on the path leaf: `GND` / `AGND` / `DGND` /
 /// `PGND` / `VSS` / `GROUND` / `EARTH`. Not a `starts_with` test — `GND_OUT`

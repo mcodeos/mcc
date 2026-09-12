@@ -7,7 +7,7 @@
 //! Exposes mcc compiler capabilities as MCP tools so AI agents can drive the
 //! design -> code -> compile -> debug -> verify loop. This binary is a thin
 //! protocol adapter: every tool delegates to the existing JSON-RPC handlers /
-//! libmcc API. See mcd/doc/mcp/mcc-mcp-server-design.md for the design.
+//! libmcc API. See `mcc-mcp-server-design.md` for the design.
 
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -18,9 +18,7 @@ use rmcp::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-// ---------------------------------------------------------------------------
 // Tool request schemas (JSON Schema is derived automatically)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ValidateRequest {
@@ -219,9 +217,7 @@ fn default_true() -> bool {
     true
 }
 
-// ---------------------------------------------------------------------------
 // Server
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct MccMcpServer {
@@ -580,9 +576,7 @@ impl ServerHandler for MccMcpServer {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /// Map a JSON-RPC handler result onto an MCP tool result.
 fn rpc_to_mcp(
@@ -599,9 +593,7 @@ fn rpc_to_mcp(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Entry point
-// ---------------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

@@ -8,10 +8,11 @@
 //! 1. **Case-insensitive**: all rules first `to_uppercase()`
 //! 2. **Conservative priority**: uncertain ones go to Unknown / Generic, don't misclassify
 //! 3. **Exact names before prefixes**: `VCC` exact match is more credible than `V*` prefix
-//! 4. **Configurable**: main vocabulary extracted as constants, can be expanded to configurable later
+//! 4. **Configurable**: main vocabulary extracted as constants, can be expanded to configurable
+//! later
 //!
 //! ## Reference relationships
-//! Previously scattered across 4 files, the naming heuristics now all forward to this module:
+//! Concentrated here from four files, the naming heuristics all forward to this module:
 //! - `detect::is_power_label`     -> `naming::is_power_rail`
 //! - `detect::is_signal_like`     -> `naming::is_signal_like`
 //! - `kinds::NetKind::classify_by_name` -> `naming::classify_net`
@@ -23,9 +24,7 @@ use crate::{McCMIE, McIds, McURI};
 
 use super::kinds::NetKind;
 
-// ============================================================================
 // Public enums
-// ============================================================================
 
 /// Role derived from a pin name (for entry-side assignment / render hints)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,9 +38,7 @@ pub enum NameRole {
     Generic,
 }
 
-// ============================================================================
 // vocabulary constants (centrally maintained)
-// ============================================================================
 
 /// Power names for whole-string match (must equal the entire string)
 const EXACT_POWER: &[&str] = &["VCC", "VDD", "VBUS", "V3P3", "V5P0", "V1P8", "VPP", "AVDD"];
@@ -72,9 +69,7 @@ const EXACT_RESET: &[&str] = &["RST", "NRST", "RESET", "RESETN"];
 /// Main chip name fragments (for `radial::find_hub`'s hub-bonus scoring)
 const MAIN_CHIP_KEYWORDS: &[&str] = &["MCU", "CPU", "SOC", "FPGA", "DSP"];
 
-// ============================================================================
 // ★ P0-2: class-name alias normalization (CMIE symbol lookup only)
-// ============================================================================
 
 /// Class name shorthand -> canonical class name actually existing in CMIE
 ///
@@ -128,7 +123,8 @@ pub fn canonicalize_class_alias(class_name: &str) -> Option<String> {
 ///
 /// **But** the bare call `PULLUP(10k)` (no caller, appearing alone as a 2-pin component) is
 /// another valid syntax, currently falls to the P0-4 stub path producing `@?PULLUP_N` -- this
-/// name doesn't exist in InstTable at all, the entire net is lost (the symptom of the example project's main
+/// name doesn't exist in InstTable at all, the entire net is lost (the symptom of the example
+/// project's main
 /// `__net_5`, failed=["@?PULLUP_1.1"]).
 ///
 /// Fix: add an additional alias fallback to `instantiate_funccall` that **only takes effect when
@@ -187,9 +183,7 @@ pub fn two_pin_class_from_def(
     None
 }
 
-// ============================================================================
 // Public API: name -> semantics
-// ============================================================================
 
 /// Whether a name is power / ground (rough screening, used for "is this a PowerLabel")
 pub fn is_power_rail(name: &str) -> bool {
@@ -290,9 +284,7 @@ pub fn classify_net(name: &str) -> NetKind {
     }
 }
 
-// ============================================================================
 // Internal helpers
-// ============================================================================
 
 #[derive(Debug)]
 enum VoltagePattern {
@@ -327,9 +319,7 @@ fn matches_role(u: &str, exact: &[&str], prefix: &[&str], suffix: &[&str]) -> bo
         || suffix.iter().any(|s| u.ends_with(s))
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -503,7 +493,7 @@ mod tests {
         assert_eq!(classify_net("_net42@62"), NetKind::Signal);
     }
 
-    // ── ★ P0-2 tests ──────────────────────────────────────────────────────
+    // ★ P0-2 tests
 
     #[test]
     fn vec_naming__alias_resolves_to_canonical() {

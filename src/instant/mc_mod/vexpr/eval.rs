@@ -9,9 +9,9 @@
 //!
 //! | part | owner |
 //! |---|---|
-//! | statement orchestration — `(,)` expansion, P2-5 expansion, member pre-pass, trunk context | `stmt::process_stmt` / `stmt::process_series_members` |
+//! | statement orchestration — `(,)` / P2-5 | `stmt::process_stmt` / `process_series_members` |
 //! | operand algebra — `reduce`, the `+` face-side fold, `^` / `'`, the `_` lead | this module |
-//! | the `->` leg — pair selection, §5.2 legality, connection emission | [`InstantiationBuilder::vexpr_step`] |
+//! | the `->` leg — pair selection, §5.2 legality | [`InstantiationBuilder::vexpr_step`] |
 //! | lane wiring — a chain holding a `_` lead or a standalone `'` | [`super::lane`] |
 //! | connection construction (1:1 / 1:N / N:M, interface expansion) | `group::create_connection` |
 //!
@@ -481,7 +481,7 @@ mod tests {
         assert_eq!(conns.len(), 2, "one connection per expanded statement");
     }
 
-    // ---- S4: operand transforms and the lead ----
+    // S4: operand transforms and the lead
 
     #[test]
     fn fold__lead_is_a_width_slot_carrying_the_lead_body() {
@@ -536,7 +536,7 @@ mod tests {
         assert_eq!(paths(&opd.right), vec!["A"]);
     }
 
-    // ---- S4b: lane chains ----
+    // S4b: lane chains
 
     #[test]
     fn lane__chain_tags_every_connection_with_its_lane() {
@@ -567,7 +567,7 @@ mod tests {
         );
     }
 
-    // ---- C-1: the fold's own R0 obligations ----
+    // C-1: the fold's own R0 obligations
 
     /// §4.6 C-1: the fold must not **reorder** the chain's members, must not
     /// **erase** a written gap's direction, and must never fold a `Parallel`

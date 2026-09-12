@@ -13,8 +13,10 @@
 //!   - Top-level components / sub-modules (IOType::None)
 //!   - Return marker (IOType::Return)
 //!   - NC placeholder (IOType::NonCon)
-//! The latter three are already displayed separately in `Components` / `Sub-modules` and other sections,
-//! repeating them as "??:" in Ports section is redundant and misleading. New version filters them directly.
+//! The latter three are already displayed separately in `Components` / `Sub-modules` and other
+//! sections,
+//! repeating them as "??:" in Ports section is redundant and misleading. New version filters them
+//! directly.
 //!
 //! ### 2) print_nets — Report the merged Pass 2 net table
 //! Connections remain the source-level segments, while the frozen string
@@ -24,9 +26,7 @@
 use mcc::cli::PinSortMode;
 use mcc::{IOType, McEndpoint, McInstance, McInstanceRef, McPhrase, MccProjectTree, TreeView};
 
-// ============================================================================
 // Print Line members (McPhrase detailed structure) — same as old version
-// ============================================================================
 
 pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
     match phrase {
@@ -160,9 +160,7 @@ pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
     }
 }
 
-// ============================================================================
 // Print Pass2 instantiation tree (FIXED)
-// ============================================================================
 
 pub fn print_module_inst(
     inst: &MccProjectTree,
@@ -177,7 +175,8 @@ pub fn print_module_inst(
     );
 
     // ── Ports: bucket by IOType, skip None / NonCon / Return ──
-    // None     → placeholder for top-level components/sub-modules (displayed separately in Components / Sub-modules section below)
+    // None     → placeholder for top-level components/sub-modules (displayed separately in
+    // Components / Sub-modules section below)
     // NonCon   → NC marker (internal detail)
     // Return   → function return marker (internal detail)
     let mut inputs = Vec::new();
@@ -246,12 +245,14 @@ pub fn print_module_inst(
     if !comps.is_empty() {
         println!("{}   Components ({}):", indent, comps.len());
         for comp in comps {
-            // For each pin id, find the "longest" interface member name in pin_id_to_names (prefer dot-separated multi-level like I2C0.SCL)
+            // For each pin id, find the "longest" interface member name in pin_id_to_names (prefer
+            // dot-separated multi-level like I2C0.SCL)
             let mut pins: Vec<String> =
                 comp.pins
                     .keys()
                     .map(|pid| {
-                        // First check cond_pin_names (conditional pin blocks), then def.pins.pin_id_to_names
+                        // First check cond_pin_names (conditional pin blocks), then
+                        // def.pins.pin_id_to_names
                         let alias =
                             comp.cond_pin_names
                                 .get(pid)
@@ -270,7 +271,8 @@ pub fn print_module_inst(
             // Sort by user-specified mode
             match sort_mode {
                 PinSortMode::PinId => {
-                    // Sort by pinid number ascending (default). Try to parse as i64; if failed, put at the end.
+                    // Sort by pinid number ascending (default). Try to parse as i64; if failed, put
+                    // at the end.
                     pins.sort_by_key(|p| {
                         p.split('(')
                             .next()
@@ -346,9 +348,7 @@ pub fn print_module_inst(
     }
 }
 
-// ============================================================================
 // Print Connections — same as old version (this function worked fine originally)
-// ============================================================================
 
 pub fn print_connections(inst: &MccProjectTree, depth: usize, view: &TreeView) {
     let indent = "  ".repeat(depth);
@@ -378,9 +378,7 @@ pub fn print_connections(inst: &MccProjectTree, depth: usize, view: &TreeView) {
     }
 }
 
-// ============================================================================
 // Print Nets — use the union-find merged Pass 2 net table
-// ============================================================================
 
 pub fn print_nets(
     inst: &MccProjectTree,
@@ -432,11 +430,10 @@ pub fn print_nets(
     }
 }
 
-// ============================================================================
 // Global summary (new) — statistics net / connection count across entire module tree
-// ============================================================================
 
-/// Total connections / total nets for entire instance tree (deduplicated by (module_path, net_name)).
+/// Total connections / total nets for entire instance tree (deduplicated by (module_path,
+/// net_name)).
 pub fn print_net_summary(inst: &MccProjectTree, view: &TreeView, net_store: &mcc::NetTableStore) {
     let mut total_conn = 0usize;
     let mut total_nets = 0usize;

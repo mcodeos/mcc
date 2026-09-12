@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! §7.5 element-identity contracts — **locked** (promoted from the shadow
-//! L1 debug assertions on 2026-09-11, `vector-conn-unified-core-design.md`
+//! L1 debug assertions on 2026-09-11, `unified-core-design.md`
 //! §7.5 / §7.3 L3).
 //!
 //! An element's identity is an [`EpKind`]: `Pin(owner, member)` (the pin ->
@@ -40,9 +40,7 @@
 use super::{ConcreteOpd, Ep, EpKind};
 use std::collections::BTreeMap;
 
-// ============================================================================
 // identity multiset
-// ============================================================================
 
 /// Canonical key for one element identity. The kind tag keeps the three
 /// namespaces apart: a pin `R101.1`, a port `R101.1` and a net `R101.1` are
@@ -95,9 +93,7 @@ fn delta(want: &BTreeMap<String, usize>, got: &BTreeMap<String, usize>) -> Strin
     parts.join("; ")
 }
 
-// ============================================================================
 // I2 / I3 / I4
-// ============================================================================
 
 /// §7.5 I2 — identity threading. The step's inputs' identity multiset equals
 /// the multiset of what survives: the result's two faces **plus** the merged
@@ -216,9 +212,7 @@ pub fn enforce_i3(label: &str, inputs: &[&ConcreteOpd], merged: &[&[Ep]]) {
     let _ = (label, inputs, merged);
 }
 
-// ============================================================================
 // tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -260,7 +254,7 @@ mod tests {
         counts.values().sum()
     }
 
-    // ---- id_key ------------------------------------------------------------
+    // id_key
 
     #[test]
     fn id_key__separates_the_three_element_namespaces() {
@@ -275,7 +269,7 @@ mod tests {
         assert_ne!(port_key, net_key);
     }
 
-    // ---- I2 ----------------------------------------------------------------
+    // I2
 
     #[test]
     fn i2__series_step_conserves_the_identity_multiset() {
@@ -398,7 +392,7 @@ mod tests {
         assert_eq!(pool.values().sum::<usize>(), 0);
     }
 
-    // ---- I3 ----------------------------------------------------------------
+    // I3
 
     #[test]
     fn i3__device_body_carries_its_pins_without_adding_a_row() {
@@ -442,7 +436,7 @@ mod tests {
         assert!(err.unwrap_err().contains("I3 violated"));
     }
 
-    // ---- I4 ----------------------------------------------------------------
+    // I4
 
     #[test]
     fn i4__every_step_of_a_series_chain_passes() {

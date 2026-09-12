@@ -3,7 +3,8 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! [`McVecNet`] —— an electrical net
-//! [`ConnectionType`] —— connection topology type (used by the drawing side to choose different rendering strategies)
+//! [`ConnectionType`] —— connection topology type (used by the drawing side to choose different
+//! rendering strategies)
 //!
 //! `McVec`s within the same `McVecNet` are connected positionally:
 //! - The i-th ID in `nets[0]` is connected to the i-th ID in `nets[1]`
@@ -19,9 +20,7 @@ use std::fmt;
 use super::trunk::TrunkRef;
 use super::vec::McVec;
 
-// ============================================================================
 // ★ P7-3: RailSpec — declaration-driven power net spec (classification + driver)
-// ============================================================================
 
 /// Power net class (from the port declaration's member_info.role, not name matching)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +34,8 @@ pub enum RailClass {
 /// The spec of one power net, resolved by the projection layer (viz/project.rs)
 /// from port declarations:
 /// * `class` —— Ground / Power
-/// * `driver_pin` —— the producing-side endpoint's pin id (InstTable entry id); `None` = no driver (R-1)
+/// * `driver_pin` —— the producing-side endpoint's pin id (InstTable entry id); `None` = no driver
+/// (R-1)
 /// * `volt` —— the `::DC(5V)` literal
 #[derive(Debug, Clone)]
 pub struct RailSpec {
@@ -44,9 +44,7 @@ pub struct RailSpec {
     pub volt: Option<String>,
 }
 
-// ============================================================================
 // ★ §4 (classification-retirement-design): NetAttrMirror — declared supply identity
-// ============================================================================
 
 /// Declared supply function of a net, resolved from endpoint declarations
 /// (classification-retirement-design §4). No variant is ever inferred from a
@@ -85,9 +83,7 @@ pub struct NetAttrMirror {
     pub resolvable: bool,
 }
 
-// ============================================================================
 // ConnectionType
-// ============================================================================
 
 /// Connection topology type, used by the drawing side to choose different rendering strategies
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,9 +118,7 @@ impl fmt::Display for ConnectionType {
     }
 }
 
-// ============================================================================
 // McVecNet
-// ============================================================================
 
 /// An electrical net, containing multiple groups of shape-aligned endpoint vectors
 #[derive(Debug, Clone)]
@@ -135,10 +129,12 @@ pub struct McVecNet {
     pub name: String,
     /// Shape-aligned endpoint groups
     pub nets: Vec<McVec>,
-    /// ★ Shape as written in the source. `None` = no provenance; downstream falls back to `connection_type()`.
+    /// ★ Shape as written in the source. `None` = no provenance; downstream falls back to
+    /// `connection_type()`.
     /// Never fill with heuristics —— the coverage is reported in the logs.
     pub shape: Option<super::netshape::NetShape>,
-    /// ★ P7-3: power net spec (None = ordinary signal net). Filled by viz/project.rs from port declarations.
+    /// ★ P7-3: power net spec (None = ordinary signal net). Filled by viz/project.rs from port
+    /// declarations.
     pub rail: Option<RailSpec>,
     /// ★ §4 (classification-retirement-design): declared supply identity mirror
     /// (copper / role / resolvable). `None` = ordinary signal net with no
@@ -208,7 +204,8 @@ impl McVecNet {
         nets: Vec<McVec>,
         shape: super::netshape::NetShape,
     ) -> Self {
-        // A fully empty shape is stored as None; don't create an intermediate state of "has a shape but no information"
+        // A fully empty shape is stored as None; don't create an intermediate state of "has a shape
+        // but no information"
         let shape = if shape.is_informative() {
             Some(shape)
         } else {

@@ -88,9 +88,7 @@ pub fn place_radial(graph: &mut McVecGraph) {
     }
 }
 
-// ============================================================================
 // Step 1: Hub selection (§4.1)
-// ============================================================================
 
 /// deg(b) = 2 × signal_edges + 1 × rail_edges
 /// Hub = argmax(deg); tie-break: total degree, then source_span line number.
@@ -154,9 +152,7 @@ fn count_kind(edges: &[BlockEdge], box_id: i64, kind: EdgeKind) -> usize {
         .count()
 }
 
-// ============================================================================
 // Step 2: Ring assignment (§4.2)
-// ============================================================================
 
 /// ring(hub)=0; ring(b) = undirected BFS hop count from hub.
 fn assign_rings(graph: &McVecGraph, edges: &[BlockEdge], hub_id: i64) -> HashMap<i64, usize> {
@@ -197,9 +193,7 @@ fn edge_neighbors(edges: &[BlockEdge], box_id: i64) -> Vec<i64> {
     neighbors
 }
 
-// ============================================================================
 // Step 3: Sector assignment (§4.3)
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Sector {
@@ -331,9 +325,7 @@ fn inherit_sector_from_ring1(
     Sector::WestLower
 }
 
-// ============================================================================
 // Step 4: Hub height (§4.4)
-// ============================================================================
 
 /// hub_h = max(west_pin_count, east_pin_count) × ROW_STEP.
 /// Each west pin occupies one row to align with W-column boxes.
@@ -384,9 +376,7 @@ fn compute_hub_height(
     pin_count as f64 * ROW_STEP
 }
 
-// ============================================================================
 // Step 5: Coordinate assignment (§4.5)
-// ============================================================================
 
 /// Supply rank of a W-column box: 0 for a supply root, `rank(child) =
 /// max(rank(parent)) + 1` over `Power` driver→consumer block edges whose **both**
@@ -541,7 +531,7 @@ fn assign_coordinates(
     // instance-table order, NOT declaration order and NOT hub-pin order. Ordering
     // rows by where the net actually attaches on the hub requires endpoint
     // identity on `BlockEdge`, which is P0.
-    // See mcd/doc/viz/edge-anchor-design.md (P0'/R0).
+    // See `edge-anchor-design.md` (P0'/R0).
     let row_key: HashMap<i64, (u32, i64)> = graph
         .boxes
         .iter()
@@ -763,9 +753,7 @@ fn assign_coordinates(
     }
 }
 
-// ============================================================================
 // Step 6: Facade entry_points setup (§4.6)
-// ============================================================================
 
 /// Normalized inset of an entry point from the edge ends [0,1] (keeps the pin
 /// stub and its label off the box corners).
@@ -997,9 +985,7 @@ fn side_order(side: EntrySide) -> u8 {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

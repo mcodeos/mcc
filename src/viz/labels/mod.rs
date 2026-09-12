@@ -25,9 +25,7 @@ use crate::vector::graph::netdef::Segment;
 use crate::vector::graph::{BoxLabelPlacement, McVecBox, McVecGraph, Symbol};
 use crate::viz::render::label_render::display_name;
 
-// ============================================================================
 // Penalty constants
-// ============================================================================
 
 const OFF_CANVAS_PENALTY: f64 = 1_000_000.0;
 const LABEL_LABEL_PENALTY: f64 = 10_000.0;
@@ -43,9 +41,7 @@ const VALUE_FONT: f64 = 10.0;
 const TEXT_WIDTH_FACTOR: f64 = 0.6;
 const TEXT_HEIGHT_FACTOR: f64 = 1.2;
 
-// ============================================================================
 // LabelKey
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LabelKey {
@@ -54,9 +50,7 @@ pub struct LabelKey {
     pub index: usize,
 }
 
-// ============================================================================
 // LabelKind
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LabelKind {
@@ -64,9 +58,7 @@ pub enum LabelKind {
     Value,
 }
 
-// ============================================================================
 // LabelPosition
-// ============================================================================
 
 #[derive(Debug, Clone, Copy)]
 pub enum LabelPosition {
@@ -124,9 +116,7 @@ impl LabelPosition {
     }
 }
 
-// ============================================================================
 // LabelRect
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LabelRect {
@@ -156,9 +146,7 @@ impl LabelRect {
     }
 }
 
-// ============================================================================
 // LabelCandidate
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LabelCandidate {
@@ -169,9 +157,7 @@ pub struct LabelCandidate {
     pub is_default: bool,
 }
 
-// ============================================================================
 // LabelPenalty
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LabelPenalty {
@@ -183,9 +169,7 @@ pub struct LabelPenalty {
     pub non_default_position: bool,
 }
 
-// ============================================================================
 // PlacedLabel
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlacedLabel {
@@ -197,9 +181,7 @@ pub struct PlacedLabel {
     pub inside_owner_box: bool,
 }
 
-// ============================================================================
 // LabelPlacementReport
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LabelPlacementReport {
@@ -210,9 +192,7 @@ pub struct LabelPlacementReport {
     pub labels_kept_default: usize,
 }
 
-// ============================================================================
 // LabelPlacementModel
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LabelPlacementModel {
@@ -348,9 +328,7 @@ impl LabelPlacementModel {
     }
 }
 
-// ============================================================================
 // collect_labels
-// ============================================================================
 
 fn collect_labels(graph: &McVecGraph) -> Vec<(LabelKey, String, f64, bool)> {
     let mut out = Vec::new();
@@ -452,9 +430,7 @@ fn collect_labels(graph: &McVecGraph) -> Vec<(LabelKey, String, f64, bool)> {
     out
 }
 
-// ============================================================================
 // generate_candidates
-// ============================================================================
 
 fn generate_candidates(
     key: &LabelKey,
@@ -605,9 +581,7 @@ fn generate_candidates(
     out
 }
 
-// ============================================================================
 // compute_rect
-// ============================================================================
 
 fn compute_rect(pos: LabelPosition, owner: &McVecBox, w: f64, h: f64, font_size: f64) -> LabelRect {
     let cx = owner.x + owner.w / 2.0;
@@ -669,9 +643,7 @@ fn compute_rect(pos: LabelPosition, owner: &McVecBox, w: f64, h: f64, font_size:
     }
 }
 
-// ============================================================================
 // score_candidate
-// ============================================================================
 
 fn score_candidate(
     rect: &LabelRect,
@@ -744,9 +716,7 @@ fn score_candidate(
     }
 }
 
-// ============================================================================
 // Geometry helpers
-// ============================================================================
 
 fn label_size(text: &str, font_size: f64) -> (f64, f64) {
     let w = text.chars().count() as f64 * font_size * TEXT_WIDTH_FACTOR;
@@ -787,9 +757,7 @@ fn rect_contains_point(rx: f64, ry: f64, rw: f64, rh: f64, px: f64, py: f64) -> 
     px >= rx && px <= rx + rw && py >= ry && py <= ry + rh
 }
 
-// ============================================================================
 // One-shot convenience
-// ============================================================================
 
 /// One-shot label placement pipeline: collect → place → write hints → report.
 pub fn label_placement_pipeline(
@@ -799,9 +767,7 @@ pub fn label_placement_pipeline(
     LabelPlacementModel::place(graph, canvas)
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

@@ -19,7 +19,7 @@
 //! an edge attaches. Every end lands on its own **lead** when the box draws one --
 //! found by endpoint pin id, never by matching a net label against a pin name --
 //! and falls back to the midpoint of the edge facing the other box, loudly. See
-//! `mcd/doc/viz/edge-anchor-design.md` §3 (L1-L4) and §6 for the batch.
+//! `edge-anchor-design.md` §3 (L1-L4) and §6 for the batch.
 
 use std::collections::HashMap;
 
@@ -124,9 +124,7 @@ pub fn plan_groups(edges: &[BlockEdge]) -> SupplyGroups {
     SupplyGroups { trunks, individual }
 }
 
-// ============================================================================
 // Geometry
-// ============================================================================
 
 /// **Fallback only** (L2). The midpoint of the box edge facing `(target_x,
 /// target_y)` — the shape the drawing used before P1-b, kept for ends that have
@@ -288,10 +286,10 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
         // all boxes in the group.
         // The driver end's identity, accumulated across the group's member edges
         // rather than taken from whichever member happens to be scanned last.
-        // R2: the stub used to be re-anchored per edge, so its start was "the last
-        // consumer edge in iteration order" -- a position decided by the loop, not
-        // by the driver. Collecting the pins and resolving once afterwards makes it
-        // a property of the driver end alone (L1/L4).
+        // R2: re-anchoring the stub per edge makes its start "the last consumer
+        // edge in iteration order" -- a position decided by the loop, not by the
+        // driver. Collecting the pins and resolving once afterwards makes it a
+        // property of the driver end alone (L1/L4).
         let mut driver_box: Option<&McVecBox> = None;
         let mut driver_pins: Vec<i64> = Vec::new();
         let mut all_box_xs: Vec<f64> = Vec::new();

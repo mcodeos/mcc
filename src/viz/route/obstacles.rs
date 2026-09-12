@@ -63,9 +63,7 @@ use std::collections::HashSet;
 
 use crate::vector::graph::{McVecBox, McVecGraph};
 
-// ============================================================================
 // Rect basic geometry
-// ============================================================================
 
 /// Axis-aligned rectangle (a rectangular obstacle area on the canvas)
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -144,9 +142,7 @@ impl Rect {
     }
 }
 
-// ============================================================================
 // ObstacleMap
-// ============================================================================
 
 /// Obstacle map for one graph layer (inflated rectangles of all non-excluded boxes)
 #[derive(Debug, Clone)]
@@ -169,7 +165,8 @@ impl ObstacleMap {
         }
     }
 
-    /// Build from graph: exclude specified boxes, all others inflated by `inflate` pixels as obstacles
+    /// Build from graph: exclude specified boxes, all others inflated by `inflate` pixels as
+    /// obstacles
     ///
     /// ## Exclusion rule
     /// When routing a net, all endpoint boxes of that net should be excluded
@@ -220,9 +217,7 @@ impl ObstacleMap {
     }
 }
 
-// ============================================================================
 // Candidate path generation + scoring (for router to call)
-// ============================================================================
 
 /// A polyline segment (4-tuple form: from_x, from_y, to_x, to_y)
 pub type Seg = (f64, f64, f64, f64);
@@ -375,9 +370,7 @@ fn corridor_offsets(center: f64, offset: f64) -> Vec<f64> {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -400,9 +393,7 @@ mod tests {
         b
     }
 
-    // ────────────────────────────────────────────────────────────────────────
     // Rect geometry
-    // ────────────────────────────────────────────────────────────────────────
 
     #[test]
     fn rect_contains_point_basic() {
@@ -465,9 +456,7 @@ mod tests {
         assert!(!r.intersects_segment(0.0, 0.0, 50.0, 50.0));
     }
 
-    // ────────────────────────────────────────────────────────────────────────
     // ObstacleMap
-    // ────────────────────────────────────────────────────────────────────────
 
     #[test]
     fn obstacle_map_excludes_endpoints() {
@@ -502,9 +491,7 @@ mod tests {
         assert!(om.first_hit(&path).is_none());
     }
 
-    // ────────────────────────────────────────────────────────────────────────
     // Candidate paths / detour
-    // ────────────────────────────────────────────────────────────────────────
 
     #[test]
     fn candidate_paths_emits_four() {

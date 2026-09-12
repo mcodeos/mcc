@@ -120,9 +120,7 @@ pub fn build_pass2_with_arena(
     }
 }
 
-// ============================================================================
 // §8.9.5 layered connection rendering (shared by `show dianlu` and `verify`)
-// ============================================================================
 
 /// One connection row for layered rendering. `dir` is the source direction
 /// tag (`"LtoR"` / `"RtoL"` / anything else = undirected, the `{:?}` form of

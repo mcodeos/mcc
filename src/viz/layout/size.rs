@@ -9,20 +9,20 @@
 //!
 //! ## ★ P05 (S3) Changes
 //! - `MultiPin` (IC) now shows each pin name (`VCC`/`RX`/`TX`...), box needs to be larger
-//! - `TwoPin` (R/C/L/D) now renders with real symbols (zigzag/parallel lines/semicircle/triangle), box is flatter and wider than before
+//! - `TwoPin` (R/C/L/D) now renders with real symbols (zigzag/parallel lines/semicircle/triangle),
+//! box is flatter and wider than before
 //! - Increased default width to make room for pin labels
 //!
 //! ## ★ P06 (S5) Changes
-//! Added [`recompute_sizes_with_pin_count`]: after the second-round refinement reassigns pins to sides,
+//! Added [`recompute_sizes_with_pin_count`]: after the second-round refinement reassigns pins to
+//! sides,
 //! the pin count on one side may grow (Generic pins switch from Left/Right to Top/Bottom, etc.),
 //! this function detects the change and updates box sizes according to the new pin distribution,
 //! **keeping the center fixed** to avoid large displacement.
 
 use crate::vector::graph::{BoxKind, EntrySide, McVecBox, McVecGraph};
 
-// ============================================================================
 // Public constants (shared by components / chain / radial)
-// ============================================================================
 
 /// Minimum spacing between boxes (overlap check + chain gap baseline)
 pub const MIN_GAP: f64 = 40.0;
@@ -33,20 +33,20 @@ pub const PIN_PITCH: f64 = 40.0;
 /// ★ R-D: margin on each end of pin row
 pub const PIN_MARGIN: f64 = 20.0;
 
-// ============================================================================
 // Main API
-// ============================================================================
 
 /// Compute (width, height) based on box kind + name + pin count
 ///
 /// ## ★ P05 Changes
 /// - TwoPin: 90×44 → **110×40** (flat-wide, accommodate zigzag/parallel lines + top/bottom labels)
-/// - MultiPin: compute height by `entry_points` per-side pin count, increase inner padding for pin name
+/// - MultiPin: compute height by `entry_points` per-side pin count, increase inner padding for pin
+/// name
 /// - PowerLabel: 64×32 → **50×40** (triangle arrow + label)
 pub fn box_size(b: &McVecBox) -> (f64, f64) {
     match b.kind {
         BoxKind::TwoPin => {
-            // P05: widened (leave room for designator above + value below, also let zigzag/parallel lines shine)
+            // P05: widened (leave room for designator above + value below, also let zigzag/parallel
+            // lines shine)
             (110.0, 40.0)
         }
         BoxKind::MultiPin => {
@@ -56,9 +56,12 @@ pub fn box_size(b: &McVecBox) -> (f64, f64) {
         }
         BoxKind::SubModule => {
             // ★ FIX (subgraph fix · step two): sub-modules also scale by port count,
-            // same metric as MultiPin (reuse ic_size: compute height by max single-side pin count in entry_points,
-            // compute width by pin name + center name; fallback to pin_count estimate when entry_points is empty).
-            // No longer hardcoded 64 height. Name/class name width as floor, height floor 84 (fits class name row).
+            // same metric as MultiPin (reuse ic_size: compute height by max single-side pin count
+            // in entry_points,
+            // compute width by pin name + center name; fallback to pin_count estimate when
+            // entry_points is empty).
+            // No longer hardcoded 64 height. Name/class name width as floor, height floor 84 (fits
+            // class name row).
             let (w_ic, h_ic) = ic_size(b);
             let center_chars = b.name.chars().count().max(b.class_name.chars().count());
             let name_w = 150.0_f64.max(center_chars as f64 * 11.0 + 36.0);
@@ -81,8 +84,10 @@ pub fn box_size(b: &McVecBox) -> (f64, f64) {
 
 /// IC size calculation (P05)
 ///
-/// Determined by entry_points: N pins on each left/right side → box height ≈ N * 18px + top/bottom margins
-/// Widened to accommodate: pin name (left/right ~30px char width each) + middle component name (40px)
+/// Determined by entry_points: N pins on each left/right side → box height ≈ N * 18px + top/bottom
+/// margins
+/// Widened to accommodate: pin name (left/right ~30px char width each) + middle component name
+/// (40px)
 fn ic_size(b: &McVecBox) -> (f64, f64) {
     if b.entry_points.is_empty() {
         // No entry_points filled (layout before P06, or 0-pin box)
@@ -118,7 +123,8 @@ fn ic_size(b: &McVecBox) -> (f64, f64) {
     let max_side_v = left_pins.max(right_pins);
     let max_side_h = top_pins.max(bottom_pins);
 
-    // Width: longest pin name on left + middle (component name / class name, take the wider) + longest pin name on right
+    // Width: longest pin name on left + middle (component name / class name, take the wider) +
+    // longest pin name on right
     let longest_pin_name = b
         .entry_points
         .iter()
@@ -126,15 +132,17 @@ fn ic_size(b: &McVecBox) -> (f64, f64) {
         .max()
         .unwrap_or(0);
     let pin_name_w = (longest_pin_name as f64) * 7.5;
-    // Middle area must accommodate: component name + class name (take the wider) + designator, with enough width
+    // Middle area must accommodate: component name + class name (take the wider) + designator, with
+    // enough width
     let center_chars = b.name.chars().count().max(b.class_name.chars().count());
     let center_w = (center_chars as f64) * 8.5 + 40.0;
     let w_from_side_pins = (pin_name_w * 2.0 + center_w).max(150.0);
     let w_from_top_pins = (top_pins.max(bottom_pins) as f64 * 34.0 + 48.0).max(150.0);
     let w = w_from_side_pins.max(w_from_top_pins);
 
-    // Height: max pin count on left/right * spacing, plus top/bottom margins + space for name/class name/designator 3 rows
-    // (previously 36 + N*18 too cramped; increased to 52 + N*20, floor 84, so pin names and middle 3 rows are not crowded)
+    // Height: max pin count on left/right * spacing, plus top/bottom margins + space for name/class
+    // name/designator 3 rows
+    // 36 + N*18 was too cramped; 52 + N*20 (floor 84) keeps pin names and the middle 3 rows apart
     let h_from_side = 52.0 + max_side_v as f64 * 20.0;
     let h_from_top = 60.0 + max_side_h as f64 * 18.0;
     let h = h_from_side.max(h_from_top).max(84.0);
@@ -156,7 +164,8 @@ fn ic_size(b: &McVecBox) -> (f64, f64) {
 
 /// Set `w` / `h` of all boxes to default values
 ///
-/// Any `Layouter` should call this once before computing coordinates, otherwise subsequent overlap checks will fail.
+/// Any `Layouter` should call this once before computing coordinates, otherwise subsequent overlap
+/// checks will fail.
 pub fn assign_default_sizes(graph: &mut crate::vector::graph::McVecGraph) {
     for b in &mut graph.boxes {
         let (w, h) = box_size(b);
@@ -165,9 +174,7 @@ pub fn assign_default_sizes(graph: &mut crate::vector::graph::McVecGraph) {
     }
 }
 
-// ============================================================================
 // ★ P06 (S5) recompute_sizes_with_pin_count
-// ============================================================================
 
 /// Recompute size after second-round refinement, keeping center fixed
 ///
@@ -219,9 +226,7 @@ pub fn recompute_sizes_with_pin_count(graph: &mut McVecGraph) -> bool {
     changed
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

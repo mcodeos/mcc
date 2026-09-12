@@ -10,13 +10,17 @@
 //!    All decorations / progress prints are muted, stdout has clean JSON-RPC envelope,
 //!    `result.pass1` / `result.pass2` / `result.viz` are sibling keys.
 //!
-//! 2. **Text mode doesn't change behavior**: Still `[Pass 1]` / `[Pass 2]` decorations + `| Ports |`
-//!    box-drawing tables go to stderr, maintaining visual compatibility. PR-3 will unify using Renderer trait.
+//! 2. **Text mode doesn't change behavior**: Still `[Pass 1]` / `[Pass 2]` decorations +
+//! `| Ports |`
+//! box-drawing tables go to stderr, maintaining visual compatibility. PR-3 will unify using
+//! Renderer trait.
 //!
-//! 3. **Diagnostics auto bucket by phase**: `PhaseTracker` collects incremental diagnostics between pass1 / pass2,
+//! 3. **Diagnostics auto bucket by phase**: `PhaseTracker` collects incremental diagnostics between
+//! pass1 / pass2,
 //!    each hanging under `pass1.diagnostics` / `pass2.diagnostics`.
 //!
-//! 4. **When top-level module not found, return [`RpcError::invalid_params`]**, no longer anyhow::bail!,
+//! 4. **When top-level module not found, return [`RpcError::invalid_params`]**, no longer
+//! anyhow::bail!,
 //!    ensures structured errors are available in JSON mode.
 
 use crate::cmds::manifest;
@@ -40,9 +44,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::Path;
 
-// ============================================================================
 // Entry point
-// ============================================================================
 
 pub fn run(args: &ParseArgs) -> Result<()> {
     // ── 0. RPC delegation (server mode) ──
@@ -302,11 +304,11 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     // ── 8. Pass2 assembly (Module only) ──
     if stages.pass2 && is_module {
-        // ─────────────────────────────────────────────────────────────────────────────
         // Top Module Selection Strategy
         //
         // Strategy 1: Module with Top (Instantiated Hierarchy)
-        //   - When a file contains modules with hierarchical instantiation (one module instantiates another),
+        // - When a file contains modules with hierarchical instantiation (one module instantiates
+        // another),
         //     use the specified --top module as the entry point.
         //
         // Priority for Top Module Selection:
@@ -320,13 +322,12 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         //     instantiated. Peer modules are not all rendered: the user observes one
         //     module at a time and each observation instantiates exactly one instance.
         //     Use --top to select a specific peer module.
-        // ─────────────────────────────────────────────────────────────────────────────
 
         // Single top-module rendering: the default module of the target file
         // (main by convention, overridable via --top). Peer modules without an
         // explicit --top are no longer all rendered — only the default module
         // is instantiated, matching the "observe one module, instantiate one
-        // instance" model (mcext-folder-parse-design.md §4.1 change 4).
+        // instance" model (folder-parse-design.md §4.1 change 4).
         renderer.pass2_header(&top_name);
 
         match mcc::mcc_build_with_arena(&ident, &uri) {
@@ -512,9 +513,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     Ok(())
 }
 
-// ============================================================================
 // Stage selection (same as original, naming maintained)
-// ============================================================================
 
 #[derive(Debug, Clone, Copy)]
 struct Stages {
@@ -548,13 +547,12 @@ impl Stages {
     }
 }
 
-// ============================================================================
 // Pass1 collector — assemble lib global table + diagnostic snapshot into Pass1Report
-// ============================================================================
 
 pub fn public_collect_pass0() -> Pass0Report {
     // Directly snapshot `mcc_diagnose_all()` full amount outside PhaseTracker:
-    // This phase hasn't established pass1/pass2 cursor yet, and we want to explicitly label lib load + C parser
+    // This phase hasn't established pass1/pass2 cursor yet, and we want to explicitly label lib
+    // load + C parser
     // errors as Pass0. tracker.new() runs after caller, so synchronous snapshot here
     // avoids the old bug of "swallowing critical C parser errors when no module".
     let diagnostics = batch_from_mcc(&mcc::mcc_diagnose_all(), Phase::Pass0);
@@ -705,9 +703,7 @@ fn group_by_uri(defs: &DefinitionsIndex) -> Vec<LoadedFile> {
     by_uri.into_values().collect()
 }
 
-// ============================================================================
 // Pass2 collector — convert MccProjectTree to InstanceNode + nets + connections
-// ============================================================================
 
 pub fn public_collect_pass2(
     top: &str,
@@ -906,9 +902,7 @@ fn walk_nets(
     }
 }
 
-// ============================================================================
 // Viz pipeline (keep as-is, add quiet/json_mode guards)
-// ============================================================================
 
 /// Combine multiple SVG strings into one large SVG, stacked vertically with module labels.
 ///
@@ -996,7 +990,8 @@ fn extract_viewbox(svg: &str) -> (f64, f64) {
     (200.0, 100.0)
 }
 
-/// Extract the inner content of an SVG (everything between the opening <svg...> and closing </svg>).
+/// Extract the inner content of an SVG (everything between the opening <svg...> and closing
+/// </svg>).
 fn extract_svg_inner(svg: &str) -> String {
     // Find the first '>' after '<svg'
     if let Some(start) = svg.find("<svg") {
@@ -1121,9 +1116,7 @@ fn run_viz(
     })
 }
 
-// ============================================================================
 // Tree → JSON value (for view mode)
-// ============================================================================
 
 fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json::Value {
     use serde_json::json;
@@ -1233,9 +1226,7 @@ fn endpoint_label(ep: &McEndpoint) -> String {
     }
 }
 
-// ============================================================================
 // Error emit helper
-// ============================================================================
 
 fn emit_error(err: RpcError, dlog: bool) -> Result<()> {
     if dlog {
@@ -1259,9 +1250,7 @@ fn emit_error(err: RpcError, dlog: bool) -> Result<()> {
     }
 }
 
-// ============================================================================
 // cmie_to_tree_json — generic tree view for component / interface / enum
-// ============================================================================
 
 /// Extract the type annotation (class/unit) from a parameter declaration.
 fn param_cls(d: &McParamDeclare) -> Option<String> {

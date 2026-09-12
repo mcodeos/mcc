@@ -25,9 +25,7 @@ pub const MIN_ZONE_SIZE: usize = 3;
 /// Maximum zone depth (more than two visual partition levels on paper is messier)
 pub const MAX_ZONE_DEPTH: usize = 2;
 
-// ============================================================================
 // Zone data structures
-// ============================================================================
 
 /// A single functional partition
 #[derive(Debug, Clone)]
@@ -53,9 +51,7 @@ pub struct ZoneTree {
     pub roots: Vec<usize>,
 }
 
-// ============================================================================
 // Internal: prefix tree node
-// ============================================================================
 
 /// Prefix tree node (used during construction)
 #[derive(Debug, Clone)]
@@ -78,9 +74,7 @@ impl TrieNode {
     }
 }
 
-// ============================================================================
 // Build
-// ============================================================================
 
 impl ZoneTree {
     /// Build the partition tree
@@ -96,7 +90,8 @@ impl ZoneTree {
             if b.kind == BoxKind::PowerLabel || b.kind == BoxKind::Dot {
                 continue;
             }
-            // M4-1B fix: TwoPin devices inside submodules have no inst_path, still need to join a zone
+            // M4-1B fix: TwoPin devices inside submodules have no inst_path, still need to join a
+            // zone
             let path = if b.inst_path.is_empty() {
                 "main".to_string()
             } else {
@@ -182,9 +177,7 @@ impl ZoneTree {
     }
 }
 
-// ============================================================================
 // Internal functions
-// ============================================================================
 
 /// Flatten: convert the prefix tree into a Zone list, merging single chains
 fn flatten_trie(root: &mut TrieNode, zones: &mut Vec<Zone>, parent: Option<usize>) {
@@ -393,9 +386,7 @@ fn log_zone_tree(zones: &[Zone], zone_id: usize, indent: usize) {
     }
 }
 
-// ============================================================================
 // Unit tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

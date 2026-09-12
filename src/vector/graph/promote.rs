@@ -26,9 +26,9 @@
 //! it does not actually move data.
 //!
 //! ## ★ P08 (S4) Changes
-//! Previously `apply_promote_in_place` hard-overwrote the `kind` of all inter-box nets to
-//! `SubModuleIO`, causing top-level nets like "VCC connects to mcu" to no longer be recognized
-//! as power nets, and the hierarchical layout's "power on top" promise failed on the spot.
+//! Hard-overwriting the `kind` of all inter-box nets to `SubModuleIO` would stop
+//! top-level nets like "VCC connects to mcu" being recognized as power nets, and
+//! the hierarchical layout's "power on top" promise fails on the spot.
 //! P08 now uses [`merge_net_kinds`] to merge: Power/Ground take priority and won't be overridden
 //! by SubModuleIO.
 //!
@@ -48,9 +48,7 @@ use super::graphdef::McVecGraph;
 use super::kinds::NetKind;
 use super::netdef::{EndpointRef, VizNet};
 
-// ============================================================================
 // Promotion result
-// ============================================================================
 
 /// Return value of `promote_to_inter_box_only`
 #[derive(Debug)]
@@ -75,9 +73,7 @@ impl PromoteResult {
     }
 }
 
-// ============================================================================
 // Main API
-// ============================================================================
 
 /// Split a layer's nets into "inter-box keep" / "intra-box drop" / "orphan"
 ///
@@ -87,17 +83,18 @@ pub fn promote_to_inter_box_only(graph: &McVecGraph) -> PromoteResult {
     classify_nets_by_box_coverage(&graph.nets, &box_ids)
 }
 
-/// Promote one layer: remove intra-box nets, merge NetKind of inter-box nets via [`merge_net_kinds`]
+/// Promote one layer: remove intra-box nets, merge NetKind of inter-box nets via
+/// [`merge_net_kinds`]
 /// (Power/Ground priority, otherwise downgraded to SubModuleIO)
 ///
 /// Does not recurse into sub-layers -- the caller decides the sub-layer handling strategy
 /// (typically each sub-layer promotes itself).
 ///
 /// ## ★ P08 (S4) Changes
-/// Previously all inter-box nets were rewritten to `NetKind::SubModuleIO`, causing VCC/GND
-/// cross-sub-module power nets to be downgraded, and hierarchical layout losing the "this is
-/// power" signal. Now [`merge_net_kinds`] merges SubModuleIO with the original kind: Power/Ground/
-/// Bus win, Signal/Unknown degrade to SubModuleIO.
+/// Rewriting all inter-box nets to `NetKind::SubModuleIO` would downgrade VCC/GND
+/// cross-sub-module power nets and lose the "this is power" signal in hierarchical
+/// layout. [`merge_net_kinds`] merges SubModuleIO with the original kind: Power/
+/// Ground/Bus win, Signal/Unknown degrade to SubModuleIO.
 ///
 /// # Side effects
 /// - `graph.nets` is replaced with only inter-box nets
@@ -114,7 +111,8 @@ pub fn apply_promote_in_place(graph: &mut McVecGraph) -> Vec<VizNet> {
     }
 
     graph.nets = kept;
-    // Orphans are discarded together (they're usually artifacts of failed builder parsing, shouldn't enter the graph)
+    // Orphans are discarded together (they're usually artifacts of failed builder parsing,
+    // shouldn't enter the graph)
     result.dropped
 }
 
@@ -130,9 +128,7 @@ pub fn apply_promote_recursive(graph: &mut McVecGraph) {
     }
 }
 
-// ============================================================================
 // ★ P08 (S4) merge_net_kinds -- merge NetKind during promote instead of hard-overwrite
-// ============================================================================
 
 /// Merge two NetKinds, priority from high to low:
 ///
@@ -144,9 +140,9 @@ pub fn apply_promote_recursive(graph: &mut McVecGraph) {
 ///
 /// ## Design motivation (P08)
 /// During the promote phase, when sub-layer nets are promoted to the top layer, the kind was
-/// previously hardcoded to `SubModuleIO`, causing the top layer's VCC/GND/I2C nets (originally
-/// Power/Ground/Bus) to be downgraded, and `HierarchicalLayouter::categorize_boxes` losing the
-/// "this is power" signal. The "power on top, ground on bottom" promise fails on the spot.
+/// hardcoded to `SubModuleIO`, which downgrades the top layer's VCC/GND/I2C nets
+/// (originally Power/Ground/Bus) and makes `HierarchicalLayouter::categorize_boxes`
+/// lose the "this is power" signal. The "power on top, ground on bottom" promise
 ///
 /// This merge rule guarantees: when the sub-layer is Power/Ground, after promotion to the top
 /// layer it remains Power/Ground, even if the caller passes `SubModuleIO` to override, Power/
@@ -189,9 +185,7 @@ pub fn merge_net_kinds(a: NetKind, b: NetKind) -> NetKind {
     NetKind::Signal
 }
 
-// ============================================================================
 // Internal classification logic
-// ============================================================================
 
 fn classify_nets_by_box_coverage(nets: &[VizNet], layer_box_ids: &HashSet<i64>) -> PromoteResult {
     let mut kept = Vec::new();
@@ -224,9 +218,7 @@ fn classify_nets_by_box_coverage(nets: &[VizNet], layer_box_ids: &HashSet<i64>) 
     }
 }
 
-// ============================================================================
 // Helper: promote endpoint to sub-module port (instead of internal pin)
-// ============================================================================
 
 /// "Promote" a net's endpoints to sub-module ports
 ///
@@ -276,9 +268,7 @@ pub fn lift_endpoints_to_layer_boxes(
         .collect()
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -353,7 +343,8 @@ mod tests {
 
     #[test]
     fn vec_promote__apply_in_place_preserves_power_kind() {
-        // ★ P08 (S4): kind=Power cross-module net remains Power after promotion, no longer overridden
+        // ★ P08 (S4): kind=Power cross-module net remains Power after promotion, no longer
+        // overridden
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_box(1, BoxKind::SubModule));
         g.boxes.push(mk_box(2, BoxKind::SubModule));
@@ -398,9 +389,7 @@ mod tests {
         assert_eq!(g.nets[0].kind, NetKind::Bus(8));
     }
 
-    // ============================================================================
     // ★ P08 (S4) merge_net_kinds unit tests
-    // ============================================================================
 
     #[test]
     fn vec_promote__merge_power_wins_over_submodule_io() {

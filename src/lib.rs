@@ -187,9 +187,7 @@ pub struct ParserResult {
 pub type McSemTokensArcCell = Arc<Mutex<McSemTokens>>;
 pub type McSemSymbolsArcCell = Arc<Mutex<McSemSymbols>>;
 
-// ============================================================================
 // Global Diagnostics (internal helper)
-// ============================================================================
 
 /// Convert a [`GlobalDiag`] (returned by `finalize()`) into a regular diagnostic
 /// logged to [`DiagnosticManager`](crate::db::diagnostic::diagnostic::DiagnosticManager).
@@ -679,7 +677,7 @@ pub fn mcc_get_interfaces_in_file(uri: &McURI) -> Vec<String> {
 }
 
 /// Resolve the build/viz targets for a file opened outside a project
-/// (mcd docs-mc 16-export-viz §6): modules → components → interfaces.
+/// (mcd spec/16-export-viz §6): modules → components → interfaces.
 pub fn mcc_virtual_resolve_targets(uri: &McURI, top: Option<&str>) -> Result<Vec<String>, String> {
     crate::build::vinst::resolve_targets(uri, top)
 }
@@ -792,7 +790,7 @@ pub fn mcc_virtual_mark_synthetic_flat_entries(table: &mut crate::instant::instt
 
 /// Prepare a virtually-instantiated component/interface graph for rendering:
 /// device pipeline (physical pins visible) + suppressed fabricated instance
-/// name (mcd docs-mc 16-export-viz §6).
+/// name (mcd spec/16-export-viz §6).
 pub fn mcc_virtual_prepare_graph(
     graph: crate::vector::graph::McVecGraph,
     target: &str,
@@ -855,7 +853,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
 
     let mut out = String::new();
 
-    // ── 1. LAPPER entries ──────────────────────────────────────────────────
+    // 1. LAPPER entries
     out.push_str("╔══════════════════════════════════════════════════════════════════╗\n");
     out.push_str("║  LAPPER ENTRIES  (all symbol intervals)                         ║\n");
     out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
@@ -882,7 +880,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         ));
     }
 
-    // ── 2. DECLARES ───────────────────────────────────────────────────────
+    // 2. DECLARES
     out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
     out.push_str("║  DECLARES  (name_to_declare_id entries)                         ║\n");
     out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
@@ -925,7 +923,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         ));
     }
 
-    // ── 3. REFERENCES ─────────────────────────────────────────────────────
+    // 3. REFERENCES
     out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
     out.push_str("║  REFERENCES  (inst_id_to_span entries)                          ║\n");
     out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
@@ -961,7 +959,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         ));
     }
 
-    // ── 4. DEF_MAP (def lookups) ──────────────────────────────────────────
+    // 4. DEF_MAP (def lookups)
     out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
     out.push_str("║  DEF_MAP  (def_kind, decl_id) → SourceLocation                  ║\n");
     out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
@@ -988,7 +986,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         ));
     }
 
-    // ── 5. REF_ENTRIES (pre-collected refs) ───────────────────────────────
+    // 5. REF_ENTRIES (pre-collected refs)
     out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
     out.push_str("║  REF_ENTRIES  (ref_kind, decl_id, span)                         ║\n");
     out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
@@ -1013,7 +1011,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         ));
     }
 
-    // ── 6. REF_DEF_MAP ────────────────────────────────────────────────────
+    // 6. REF_DEF_MAP
     out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
     out.push_str("║  REF_DEF_MAP  (ref→def resolution)                              ║\n");
     out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
@@ -1106,9 +1104,7 @@ pub fn get_module_with_diagnostics(
     builder::mcb_get_module_with_diagnostics(class_name, uri)
 }
 
-// ============================================================================
 // 🆕 StmtMemberInfo complete info extraction API (rendering side friendly format)
-// ============================================================================
 
 /// Extract structured info for all McPhrases in McModule
 pub fn get_stmts_info(module: &McModule) -> Vec<StmtInfo> {
@@ -1283,9 +1279,7 @@ fn node_element_to_info(elem: &McBus) -> NodeElementInfo {
     }
 }
 
-// ============================================================================
 // 🆕 Debug prints
-// ============================================================================
 
 /// Print all connection stmt info for module (for debugging)
 pub fn print_module_stmts(module: &McModule) {

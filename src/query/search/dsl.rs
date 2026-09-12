@@ -7,7 +7,7 @@
 //! Lives at lib root (alongside `search_api`) so the binary's `cmds/query.rs`
 //! AND the library's `rpc/handlers.rs` can both call into the same code.
 //!
-//! **v1 grammar** (see [mcc-cli-roadmap](https://example/mcc-cli-roadmap.md) §7):
+//! **v1 grammar** (see [cli-roadmap](https://example/cli-roadmap.md) §7):
 //!
 //! ```text
 //! expr        := or
@@ -36,9 +36,7 @@ use anyhow::{anyhow, Result};
 use regex::Regex;
 use serde_json::Value;
 
-// ============================================================================
 // AST
-// ============================================================================
 
 pub type Query = Expr;
 
@@ -121,9 +119,7 @@ impl Comparison {
     }
 }
 
-// ============================================================================
 // compile()
-// ============================================================================
 
 /// Parse a query expression into an AST. Errors are prefixed with `query:`
 /// and may include a byte offset.
@@ -175,9 +171,7 @@ pub fn validate_allowed_fields(query: &Query, allowed_keys: &[&str]) -> Result<(
     Ok(())
 }
 
-// ============================================================================
 // Evaluator
-// ============================================================================
 
 /// Cheap path: evaluates against name/kind/class/uri without `get_def`.
 /// Use when the AST contains no `Attr(_)` or `AttrExists`.
@@ -448,9 +442,7 @@ where
     .collect()
 }
 
-// ============================================================================
 // Parser
-// ============================================================================
 
 const RESERVED_BAREWORDS: &[&str] = &["AND", "OR", "NOT", "ATTR"];
 
@@ -918,9 +910,7 @@ fn glob_to_regex_str(glob: &str) -> String {
     out
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

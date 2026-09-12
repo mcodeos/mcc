@@ -414,7 +414,8 @@ impl McIds {
         // Handle MCAST_OPD_THIS and MCAST_OPD_PINS cases
         match node.get_type() {
             // Use McIda to handle ID and IDA processing
-            // Treat the entire IDA string as one IdsSegment::Ida to maintain consistency with McIds::from
+            // Treat the entire IDA string as one IdsSegment::Ida to maintain consistency with
+            // McIds::from
             MCAST_ID | MCAST_IDA => {
                 if let Some(ida) = McIda::new(node) {
                     segments.push(IdsSegment::Ida(Box::new(ida)));
@@ -481,7 +482,8 @@ impl McIds {
                 }
                 return None;
             }
-            // Handle cases where square bracket vectors appear directly as nodes (not inside MCAST_IDS)
+            // Handle cases where square bracket vectors appear directly as nodes (not inside
+            // MCAST_IDS)
             // Example: [VDD2, GND2] in mc_phrase
             MCAST_OPD_SQUARE_VEC => {
                 if let Some(square_seg) = Self::parse_square(node) {
@@ -519,7 +521,8 @@ impl McIds {
                             }
                         }
                         // Use McIda to handle ID and IDA processing
-                        // Treat the entire IDA string as one IdsSegment::Ida to maintain consistency with MCAST_ID/MCAST_IDA branch
+                        // Treat the entire IDA string as one IdsSegment::Ida to maintain
+                        // consistency with MCAST_ID/MCAST_IDA branch
                         MCAST_ID | MCAST_IDA => {
                             if let Some(ida) = McIda::new(&each) {
                                 new_segments.push(IdsSegment::Ida(Box::new(ida)));
@@ -812,7 +815,8 @@ impl McIds {
                 IdsSegment::Curly(_) | IdsSegment::Square(_) => break,
                 IdsSegment::Int(int) => result.push_str(&int.to_string()),
                 IdsSegment::Ida(ida) => {
-                    // For Ida, only take the original prefix before square brackets, e.g., PWR_[VDD2, GND2] -> PWR_
+                    // For Ida, only take the original prefix before square brackets, e.g.,
+                    // PWR_[VDD2, GND2] -> PWR_
                     result.push_str(ida.prefix());
                 }
                 IdsSegment::DotInt(num) => {
@@ -971,7 +975,8 @@ impl McIds {
                                         .map(|i| i.to_string())
                                         .collect()
                                 }
-                                // Other types shouldn't appear in curly braces, or need special handling
+                                // Other types shouldn't appear in curly braces, or need special
+                                // handling
                                 _ => vec![curly_seg.to_string()],
                             };
                             // Add "." before each expanded item and add to result
@@ -1068,7 +1073,8 @@ impl McIds {
         results
     }
 
-    /// Expand with parameter bindings (e.g., R[1:rows]C[1:cols] with rows=2, cols=10 -> R1C1, R1C2, ..., R2C10)
+    /// Expand with parameter bindings (e.g., R[1:rows]C[1:cols] with rows=2, cols=10 -> R1C1, R1C2,
+    /// ..., R2C10)
     pub fn expand_with_bindings(&self, bindings: &[(String, i64)]) -> Vec<String> {
         // First substitute parameters for each segment
         let substituted_segments: Vec<IdsSegment> = self
@@ -1379,7 +1385,8 @@ impl McIds {
 
     /// Detect component member access pattern (COMPONENT.MEMBER{CurlyMembers} form)
     /// e.g. uC.ADC{P,N} returns Some(("uC", "ADC", ["P", "N"]))
-    /// This pattern should not create a new instance, but should be treated as a member reference of the component
+    /// This pattern should not create a new instance, but should be treated as a member reference
+    /// of the component
     pub fn as_component_member(&self) -> Option<(String, String, Vec<String>)> {
         if self.segments.len() >= 3 {
             let last = &self.segments[self.segments.len() - 1];

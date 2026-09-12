@@ -180,14 +180,16 @@ impl McIda {
             .any(|seg| matches!(seg, IdaSegment::Square(_)))
     }
 
-    /// Check if it contains parameter references (e.g. non-numeric square bracket ranges like rows, cols)
+    /// Check if it contains parameter references (e.g. non-numeric square bracket ranges like rows,
+    /// cols)
     /// e.g.: R[1:rows]C[1:cols] contains parameter references rows and cols
     pub fn has_param_ref(&self) -> bool {
         for segment in &self.segments {
             if let IdaSegment::Square(items) = segment {
                 for item in items {
                     if let SquareItem::Range(start, end) = item {
-                        // If the range endpoint cannot be parsed as a number, it is considered a parameter reference
+                        // If the range endpoint cannot be parsed as a number, it is considered a
+                        // parameter reference
                         if start.parse::<i64>().is_err() || end.parse::<i64>().is_err() {
                             // Further check: single-character letter ranges are allowed
                             let is_letter_range = start.len() == 1
@@ -205,7 +207,8 @@ impl McIda {
         false
     }
 
-    /// Use parameter bindings to replace parameter references in square brackets, generating a new McIda
+    /// Use parameter bindings to replace parameter references in square brackets, generating a new
+    /// McIda
     /// e.g.: R[1:rows]C[1:cols] bound with rows=2, cols=10 -> R[1:2]C[1:10]
     pub fn substitute_bindings(&self, bindings: &[(String, i64)]) -> Self {
         let new_segments: Vec<IdaSegment> = self
@@ -271,7 +274,8 @@ impl McIda {
                     if expandable_segments.is_empty() {
                         base_str.push_str(id);
                     } else {
-                        // If there are already segments to expand, append the current id to the end of all existing combinations
+                        // If there are already segments to expand, append the current id to the end
+                        // of all existing combinations
                         // this ensures correct order, e.g. id[1]b -> id1b instead of idb1
                         let mut new_segments: Vec<Vec<String>> = Vec::new();
                         for existing in &expandable_segments {

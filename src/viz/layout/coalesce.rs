@@ -48,9 +48,7 @@ use crate::vector::graph::{BoxKind, McVecGraph, NetKind};
 
 use super::rails::is_rail_box;
 
-// ============================================================================
 // Public entry
-// ============================================================================
 
 /// Merge nets that share a physical pin into one multi-endpoint net.
 ///
@@ -62,7 +60,7 @@ pub fn coalesce_equipotential_nets(graph: &mut McVecGraph) -> usize {
         return 0;
     }
 
-    // ── which boxes may key a merge ─────────────────────────────────────────
+    // which boxes may key a merge
     let mergeable_box: HashMap<i64, bool> = graph
         .boxes
         .iter()
@@ -72,7 +70,7 @@ pub fn coalesce_equipotential_nets(graph: &mut McVecGraph) -> usize {
         e.pin_id >= 0 && *mergeable_box.get(&e.box_id).unwrap_or(&false)
     };
 
-    // ── union-find over net indices, keyed on (box_id, pin_id) ──────────────
+    // union-find over net indices, keyed on (box_id, pin_id)
     // ★ P7-3: Power/Ground nets do not participate in merging —— rail semantics is
     //   taken over by the triage (R-1/R-2/R-3). Multiple driver segments of the same
     //   rail deliberately share the driver pin (V3V3 = ldo→dcdc + ldo→mcu
@@ -97,7 +95,7 @@ pub fn coalesce_equipotential_nets(graph: &mut McVecGraph) -> usize {
         }
     }
 
-    // ── group members by root, keeping first-appearance order stable ────────
+    // group members by root, keeping first-appearance order stable
     let mut order: Vec<usize> = Vec::new(); // roots, in order of first member
     let mut members: HashMap<usize, Vec<usize>> = HashMap::new();
     for ni in 0..before {
@@ -112,7 +110,7 @@ pub fn coalesce_equipotential_nets(graph: &mut McVecGraph) -> usize {
         return 0; // nothing shares a pin — leave the graph byte-identical
     }
 
-    // ── rebuild ─────────────────────────────────────────────────────────────
+    // rebuild
     let old = std::mem::take(&mut graph.nets);
     let mut out: Vec<VizNet> = Vec::with_capacity(order.len());
     for root in order {
@@ -185,9 +183,7 @@ fn is_informative(name: &str) -> bool {
     !name.starts_with("__net") && !name.is_empty()
 }
 
-// ============================================================================
 // Union-find
-// ============================================================================
 
 struct Dsu {
     parent: Vec<usize>,
@@ -219,9 +215,7 @@ impl Dsu {
     }
 }
 
-// ============================================================================
 // Tests — the RAW netlist, exactly as the builder emits it
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

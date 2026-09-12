@@ -71,9 +71,7 @@ fn has_code(value: &Value, code: u64) -> bool {
         .any(|diagnostic| diagnostic["code"].as_u64() == Some(code))
 }
 
-// ============================================================================
 // 5001 DUP_CMIE_CROSS_FILE — same CMIE name in another workspace file.
-// ============================================================================
 //
 // Cross-file duplicates are a workspace-level check, so this fixture loads two
 // on-disk temp files through the library API and collects diagnostics with
@@ -129,9 +127,7 @@ fn ppdup__cmie_cross_file_duplicate_emits_5001() {
     );
 }
 
-// ============================================================================
 // 5003 DUP_ENUM_VALUE / 5401 ENUM_DUPLICATE_VALUE — duplicate enum value.
-// ============================================================================
 //
 // The dupwithin host and the enums host each sweep duplicate enum values, so a
 // single snippet fires both codes; each gets its own positive assertion.
@@ -178,9 +174,7 @@ module main
     );
 }
 
-// ============================================================================
 // 5412 ATTR_SELF_REFERENTIAL — attribute value equals its own key.
-// ============================================================================
 
 #[test]
 fn ppdup__attr_self_referential_emits_5412() {
@@ -203,9 +197,7 @@ module main
     );
 }
 
-// ============================================================================
 // 5407 RANGE_REVERSED — duplicate attribute keys (enums.rs:270/299 site).
-// ============================================================================
 //
 // The reversed range-literal site (exprs.rs:287) is not reachable through an
 // attribute value (a bare Slice value like `{5:2}` does not parse in an attr,

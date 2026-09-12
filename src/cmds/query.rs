@@ -72,7 +72,7 @@ fn run_local(args: &QueryArgs) -> Result<()> {
         return run_nets(args, &entry_uri, manifest_top.as_deref());
     }
 
-    // ── Mode selection ─────────────────────────────────────────────────
+    // Mode selection
     // Any matcher flag forces NAME mode. Without one, try the DSL: success →
     // DSL mode (historical `mcc query`); a failure that "looks like DSL" is a
     // real compile error; otherwise the value is a bare name → substring mode.

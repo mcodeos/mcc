@@ -4,7 +4,8 @@
 
 //! Iterated call expansion
 //!
-//! - `check_and_expand_iterated_call`  —— Detect iterated calls whose caller is a Vector (e.g. `cx[1:2]`)
+//! - `check_and_expand_iterated_call`  —— Detect iterated calls whose caller is a Vector (e.g.
+//! `cx[1:2]`)
 //! - `resolve_indexed_params`          —— Expand `Set` etc. in parameters by the iteration index
 
 use super::funccall::FuncCallInst;
@@ -59,7 +60,7 @@ impl InstantiationBuilder {
             }
         };
 
-        // ── Iter-11.4: lane-structured List receiver (§11.3 ③) ─────────────
+        // Iter-11.4: lane-structured List receiver (§11.3 ③)
         // Phase 1.3 pass1 vector resolution turns `c[1:2]` into
         // `Endpoint(List([Single(c1), Single(c2), ...]))` — one lane per ordered
         // member. Iterate the lanes directly; no `McIds::from(name).expand()`
@@ -115,7 +116,7 @@ impl InstantiationBuilder {
             return Ok(Some(FuncCallInst::PassThrough));
         }
 
-        // ── §11.4 GAP1: member-set alignment, per-member dispatch ────────
+        // §11.4 GAP1: member-set alignment, per-member dispatch
         // Compare the iterated receiver's member count against each
         // multi-member slice lane in the arg list (`cap[1:2].Cap([XTAL.X[1:2], gnd])`:
         // {cap1,cap2} vs {XTAL.X1,XTAL.X2} — one-to-one row alignment needs
@@ -162,7 +163,7 @@ impl InstantiationBuilder {
             // 3. Resolve indices in parameters (e.g. XTAL.X<1:2> expands to XTAL.X1, XTAL.X2)
             let resolved_params = Self::resolve_indexed_params(params, i, count);
 
-            // 3.5 ── §3.3: per-member method dispatch ─────────────────────
+            // 3.5 ── §3.3: per-member method dispatch
             // Array receiver whose members are already-materialized instances
             // (`r[1:2]::RES(0)` then `r[1:2].Pullup([net,vcc])`): each item
             // (`U1.r1`) is a real instance. Dispatch the method on it rather

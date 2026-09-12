@@ -674,9 +674,7 @@ pub struct Mc2Component {
     pub nc: bool,
 }
 
-// ============================================================================
 // Display implementation - concise format output
-// ============================================================================
 
 impl std::fmt::Display for McComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

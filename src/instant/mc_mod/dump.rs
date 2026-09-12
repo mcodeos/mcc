@@ -37,16 +37,15 @@ use crate::semantic::common::IOType;
 use crate::semantic::mc_inst::McInstance;
 use std::sync::OnceLock;
 
-// ============================================================================
 // Enable check
-// ============================================================================
 
 /// Parsed result of `MC_INST_DUMP` env var, cached once per process
 static DUMP_ENABLED: OnceLock<bool> = OnceLock::new();
 
 /// Check whether dump is enabled
 ///
-/// Enable condition: `MC_INST_DUMP` env var exists and value is not `""`/`0`/`false`/`False`/`FALSE`
+/// Enable condition: `MC_INST_DUMP` env var exists and value is not
+/// `""`/`0`/`false`/`False`/`FALSE`
 pub(super) fn dump_enabled() -> bool {
     *DUMP_ENABLED.get_or_init(|| match std::env::var("MC_INST_DUMP") {
         Ok(v) => {
@@ -57,9 +56,7 @@ pub(super) fn dump_enabled() -> bool {
     })
 }
 
-// ============================================================================
 // Internal utilities
-// ============================================================================
 
 #[inline]
 fn p1_prefix(name: &str) -> String {
@@ -78,14 +75,10 @@ fn missing_prefix(name: &str) -> String {
     format!("[P2-MISSING][{name}]")
 }
 
-// ============================================================================
 // Public API (impl McModuleInst)
-// ============================================================================
 
 impl McModuleInst {
-    // ------------------------------------------------------------------------
     // 1. Pass1 input snapshot
-    // ------------------------------------------------------------------------
 
     /// Print pass1 input snapshot (called at start of `instantiate()`)
     pub(super) fn dump_pass1_input(&self) {
@@ -97,7 +90,7 @@ impl McModuleInst {
         mcc_dbg!("inst::dump", "{} module    = {}", p, self.def.name);
         mcc_dbg!("inst::dump", "{} def_uri   = {}", p, self.def_uri);
 
-        // ---- Parameter declarations ----
+        // Parameter declarations
         let mut param_count = 0usize;
         for decl in self.def.params.iter() {
             let pname = decl.get_primary_name().unwrap_or_else(|| "<anon>".into());
@@ -112,7 +105,7 @@ impl McModuleInst {
         }
         mcc_dbg!("inst::dump", "{p} params    : {param_count} declared");
 
-        // ---- Declared instances ----
+        // Declared instances
         let mut comp_count = 0usize;
         let mut module_count = 0usize;
         let mut bus_count = 0usize;
@@ -156,7 +149,7 @@ impl McModuleInst {
             "{p} insts     : {comp_count} component(s), {module_count} module(s), {bus_count} bus/label(s), {other_count} other"
         );
 
-        // ---- Connection stmts ----
+        // Connection stmts
         mcc_dbg!(
             "inst::dump",
             "{} stmts     : {} total",
@@ -174,7 +167,7 @@ impl McModuleInst {
             mcc_dbg!("inst::dump", "{p}   stmt[{i:>3}] {truncated}");
         }
 
-        // ---- User functions ----
+        // User functions
         let mut func_count = 0usize;
         for func in self.def.funcs.iter() {
             let nparams = func.params.iter().count();
@@ -198,19 +191,16 @@ impl McModuleInst {
     }
 }
 
-// ============================================================================
 // Public API (impl InstantiationBuilder)
-// ============================================================================
 //
 // The pass2 output snapshot reads the construction-phase net table and the
 // circuit-wide frozen net store (Phase D: `McModuleInst` no longer carries
 // net tables), so it lives on the builder instead of the frozen model.
 
 impl InstantiationBuilder {
-    // ------------------------------------------------------------------------
     // 2. Pass2 output snapshot
-    // ------------------------------------------------------------------------
-    /// Print pass2 output snapshot (called at end of `instantiate()`, after net table construction).
+    /// Print pass2 output snapshot (called at end of `instantiate()`, after net table
+    /// construction).
     ///
     /// Phase C S3-D: children resolve through the builder's own arena + store
     /// (the tree's Vec fields are gone).
@@ -225,7 +215,7 @@ impl InstantiationBuilder {
             "{p} ── BEGIN ────────────────────────────────"
         );
 
-        // ---- ports ----
+        // ports
         let n_in = self
             .ports
             .iter()
@@ -251,7 +241,7 @@ impl InstantiationBuilder {
             n_io
         );
         for port in &self.ports {
-            // ── P0-1: Full print of port bus_members ──────────────────────
+            // P0-1: Full print of port bus_members
             let members_str = if port.bus_members.is_empty() {
                 String::new()
             } else {
@@ -267,7 +257,7 @@ impl InstantiationBuilder {
             );
         }
 
-        // ---- components ----
+        // components
         mcc_dbg!(
             "inst::dump",
             "{} components: {}",
@@ -283,7 +273,7 @@ impl InstantiationBuilder {
                 comp.def.name,
                 comp.pin_count()
             );
-            // ── P0-1: Full component pins printing ──────────────────────────────
+            // P0-1: Full component pins printing
             let mut pin_list: Vec<(&String, &NetPoint)> = comp.pins.iter().collect();
             pin_list.sort_by(|a, b| {
                 let na: i64 = a.0.parse().unwrap_or(i64::MAX);
@@ -302,7 +292,7 @@ impl InstantiationBuilder {
             }
         }
 
-        // ---- sub_modules ----
+        // sub_modules
         let subs: Vec<_> = view.sub_modules(&self.tree).collect();
         mcc_dbg!("inst::dump", "{} sub_modules: {}", p, subs.len());
         for sub in &subs {
@@ -325,7 +315,7 @@ impl InstantiationBuilder {
             );
         }
 
-        // ---- buses ----
+        // buses
         mcc_dbg!("inst::dump", "{} buses     : {}", p, self.buses.len());
         for (name, bus) in &self.buses {
             mcc_dbg!(
@@ -337,13 +327,13 @@ impl InstantiationBuilder {
             );
         }
 
-        // ---- labels ----
+        // labels
         mcc_dbg!("inst::dump", "{} labels    : {}", p, self.labels.len());
         for (name, point) in &self.labels {
             mcc_dbg!("inst::dump", "{p}   label   {name} → {point}");
         }
 
-        // ---- auto_inst_map ----
+        // auto_inst_map
         mcc_dbg!(
             "inst::dump",
             "{} auto_inst_map: {} entries (FuncCall key → resolved member)",
@@ -375,8 +365,8 @@ impl InstantiationBuilder {
             mcc_dbg!("inst::dump", "{p}   auto_map[{k}] = {n}");
         }
 
-        // ---- connections ----
-        // ── P0-1: Unified path resolver ──────────────────────────────────
+        // connections
+        // P0-1: Unified path resolver
         // Both Connections view and nets view go through canonicalize_path, ensuring both views
         // display consistent paths for the same physical node.
         mcc_dbg!(
@@ -419,7 +409,7 @@ impl InstantiationBuilder {
             );
         }
 
-        // ---- nets ----
+        // nets
         mcc_dbg!("inst::dump", "{} nets      : {}", p, self.net_table.len());
         for (name, points) in &self.net_table {
             let pts: Vec<String> = points.iter().map(|x| x.to_string()).collect();
@@ -432,7 +422,7 @@ impl InstantiationBuilder {
             );
         }
 
-        // ---- diagnostics ----
+        // diagnostics
         let n_total = self.diagnostics.len();
         let n_err = self
             .diagnostics
@@ -452,14 +442,10 @@ impl InstantiationBuilder {
     }
 }
 
-// ============================================================================
 // Public API (impl McModuleInst)
-// ============================================================================
 
 impl McModuleInst {
-    // ------------------------------------------------------------------------
     // 3. Pass1 ↔ Pass2 reconciliation
-    // ------------------------------------------------------------------------
 
     /// Verify pass1 → pass2 info completeness.
     ///
@@ -528,7 +514,7 @@ impl McModuleInst {
         }
 
         // 3.2 Whether each stmt produced connection / sub_module / component
-        //     Rough check only: if pass2 simultaneously has connections=0, auto_inst_map=0, sub_modules
+        // Rough check only: if pass2 simultaneously has connections=0, auto_inst_map=0, sub_modules
         //     delta also 0, then stmts>0 but no products — stmts were likely silently swallowed.
         let stmts_count = self.def.stmts.len();
         let conn_count = self.connections.len();
@@ -551,8 +537,10 @@ impl McModuleInst {
         }
 
         // 3.3 Whether user functions were called / expanded
-        //     Cannot precisely trace back, but can show "declared N user funcs, X entries in auto_inst_map".
-        //     If auto_inst_map empty but funcs non-empty, high probability all user functions were not called.
+        // Cannot precisely trace back, but can show "declared N user funcs, X entries in
+        // auto_inst_map".
+        // If auto_inst_map empty but funcs non-empty, high probability all user functions were not
+        // called.
         let func_count = self.def.funcs.iter().count();
         if func_count > 0 {
             mcc_dbg!("inst::dump", 
@@ -585,18 +573,15 @@ impl McModuleInst {
     }
 }
 
-// ============================================================================
 // Public API (impl InstantiationBuilder)
-// ============================================================================
 
 impl InstantiationBuilder {
-    // ------------------------------------------------------------------------
     // 4. Public API: one-click print three sections (for tests / external code as needed)
-    // ------------------------------------------------------------------------
 
     /// Force print entry not dependent on env var (for unit tests / IDE / debugger use).
     ///
-    /// Equivalent to calling in order: `dump_pass1_input()` + `dump_pass2_output()` + `dump_pass_diff()`.
+    /// Equivalent to calling in order: `dump_pass1_input()` + `dump_pass2_output()` +
+    /// `dump_pass_diff()`.
     /// Note: Only has complete pass2 view **after instantiation has completed**.
     ///
     /// Intentionally never called from library code paths — it is the debugger /
@@ -614,9 +599,7 @@ impl InstantiationBuilder {
     }
 }
 
-// ============================================================================
 // Helper functions
-// ============================================================================
 
 fn iotype_str(io: &IOType) -> &'static str {
     match io {

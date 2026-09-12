@@ -222,7 +222,7 @@ pub fn net_has_conflict(graph: &McVecGraph, net_index: usize) -> bool {
     false
 }
 
-// ── Geometry primitives ──────────────────────────────────────────────────────────────
+// Geometry primitives
 
 /// Whether two rectangles (each +inflate) actually overlap (area > 0)
 fn rects_overlap(
@@ -330,7 +330,7 @@ fn ranges_overlap(a0: f64, a1: f64, b0: f64, b1: f64) -> bool {
     a0 < b1 - EPS && b0 < a1 - EPS
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
+// Tests
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -305,12 +305,10 @@ impl IdentityRegistry {
         self.path_to_id.is_empty()
     }
 
-    // ========================================================================
     // D9 net identity — labeled nets get a persistent `NetId` (the label is
     // the net's name attribute; same label = same net). Same tombstone
     // discipline as node ids: ids monotonic, never reused, delete is a
     // tombstone.
-    // ========================================================================
 
     /// Deterministic interning of a net label: return the `NetId` for `label`,
     /// allocating a fresh id on first sight. A re-interned (tombstoned) label

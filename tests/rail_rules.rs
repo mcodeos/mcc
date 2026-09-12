@@ -5,7 +5,8 @@
 //! ★ P7-3 · Rail trichotomy acceptance test (MC_SCHEMATIC_ROADMAP_v6 P7-3 acceptance checklist)
 //!
 //! - main layer: GND edges = 0, rail flag boxes = 0, driver stage edges = 4,
-//!   matching the §1.2 seven-line checklist item by item (edge-table assertions live in tests/renderdiff.rs).
+//! matching the §1.2 seven-line checklist item by item (edge-table assertions live in
+//! tests/renderdiff.rs).
 //! - main layer `compute_isolated_ids` returns the empty set (USB/LDO/DCDC are no longer islands).
 //! - Sub-layers: every GND endpoint has exactly 1 ground symbol (S1),
 //!   every non-GND rail endpoint has exactly 1 rail dot (S2).
@@ -49,7 +50,8 @@ fn main_layer_isolated_set_is_empty() {
     let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut graph = build_graph();
     mcc::vector::graph::apply_promote_recursive(&mut graph);
-    // Mirror pipeline: classify_rails runs before island computation (flow.rs phase_prepare → phase_placement)
+    // Mirror pipeline: classify_rails runs before island computation (flow.rs phase_prepare →
+    // phase_placement)
     mcc::viz::layout::rails::classify_rails(&mut graph, /*is_top=*/ true);
     // hub = the box with the highest signal degree (main layer = MCU513)
     let mut degree: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();

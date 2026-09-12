@@ -4,11 +4,10 @@
 
 //! Pass2 Instantiation - Module Instance
 //!
-//! McModuleInst is the core data structure for module instantiation, representing a complete module instance.
+//! McModuleInst is the core data structure for module instantiation, representing a complete module
+//! instance.
 
-// ============================================================================
 // McBusInst - Bus Instance
-// ============================================================================
 
 /// Bus Instance
 ///
@@ -45,9 +44,7 @@ impl McBusInst {
         self.members.len()
     }
 
-    /// ========================================================================
     /// Iteration 3: Member Incremental Merge (Deduplicate Accumulate)
-    /// ========================================================================
 
     /// Merge members from `incoming` into `self.members` if they don't exist.
     ///
@@ -102,9 +99,7 @@ impl McBusInst {
     }
 }
 
-// ============================================================================
 // Unit Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -119,9 +114,7 @@ mod tests {
         assert!(!bus.has_member("SCL"));
     }
 
-    // ========================================================================
     // Iteration 3: merge_members semantics
-    // ========================================================================
 
     /// Test `merge_members` behavior
     #[test]

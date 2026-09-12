@@ -9,9 +9,7 @@
 
 use crate::vector::graph::{EndpointRef, EntrySide, McVecGraph};
 
-// ============================================================================
 // Geometry primitives
-// ============================================================================
 
 /// A 2D point with quantized key for deterministic ordering.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -32,9 +30,7 @@ impl Point2D {
     }
 }
 
-// ============================================================================
 // RenderedPin
-// ============================================================================
 
 /// A pin anchor extracted from the final rendered graph.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,9 +50,7 @@ pub struct RenderedPin {
     pub decorated: bool,
 }
 
-// ============================================================================
 // RenderedSegment
-// ============================================================================
 
 /// A wire segment extracted from the final route.
 #[derive(Debug, Clone, PartialEq)]
@@ -81,9 +75,7 @@ pub enum SegmentOrientation {
     Degenerate,
 }
 
-// ============================================================================
 // RenderedJunction
-// ============================================================================
 
 /// A junction point where segments meet.
 #[derive(Debug, Clone, PartialEq)]
@@ -109,9 +101,7 @@ pub enum JunctionKind {
     Ambiguous,
 }
 
-// ============================================================================
 // RenderedCrossing
-// ============================================================================
 
 /// A crossing between two different net segments.
 #[derive(Debug, Clone, PartialEq)]
@@ -136,9 +126,7 @@ pub enum CrossVisual {
     AmbiguousNearMiss,
 }
 
-// ============================================================================
 // RenderedHop
-// ============================================================================
 
 /// A rendered hop (bridge) at a crossing.
 #[derive(Debug, Clone, PartialEq)]
@@ -152,9 +140,7 @@ pub struct RenderedHop {
     pub source_segment_ids: Vec<usize>,
 }
 
-// ============================================================================
 // RenderedConnectivityGraph
-// ============================================================================
 
 /// A graph built from rendered geometry primitives.
 #[derive(Debug, Clone, Default)]
@@ -188,9 +174,7 @@ pub enum ConnectivityEdgeKind {
     JunctionTouchEdge,
 }
 
-// ============================================================================
 // Top-level RenderedConnectivity
-// ============================================================================
 
 /// The complete rendered connectivity model extracted from a graph.
 #[derive(Debug, Clone)]

@@ -22,7 +22,7 @@ use clap::{Parser, Subcommand, ValueEnum};
     long_about = None,
 )]
 pub struct Cli {
-    // ---------- Global options (corresponding to design doc §3) ----------
+    // Global options (corresponding to design doc §3)
     /// Verbose log: -v=info, -vv=debug, -vvv=trace
     #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
@@ -161,13 +161,15 @@ pub enum Command {
     /// Syntax/semantic check, output diagnostics (corresponding to design doc §8.3)
     Check(CheckArgs),
 
-    /// Verify Pass2 expansion against Pass1 source (instances + connections, statement by statement)
+    /// Verify Pass2 expansion against Pass1 source (instances + connections, statement by
+    /// statement)
     Verify(VerifyArgs),
 
     /// Extract various targets (corresponding to design doc §9)
     Extract(ExtractArgs),
 
-    /// Show detailed information for a definition (component/module/interface/enum) or its internals (pins/ports/nets/funcs/params/...)
+    /// Show detailed information for a definition (component/module/interface/enum) or its
+    /// internals (pins/ports/nets/funcs/params/...)
     Show(ShowArgs),
 
     /// List top-level definition names (component/module/interface/enum/nets/ports/files)
@@ -227,9 +229,7 @@ pub enum Command {
     Report(ReportArgs),
 }
 
-// ============================================================================
 // parse
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ParseArgs {
@@ -249,11 +249,12 @@ pub struct ParseArgs {
     #[arg(long, value_enum, default_value_t = PinSortMode::PinId)]
     pub sort: PinSortMode,
 
-    // ── Stage selection switches ─────────────────────────────────────────────
+    // Stage selection switches
     // Design principles:
     //   - When no stage flag is passed, default = pass1 + pass2 verbose output
-    //   - --viz / --viz-json is *additive*: enables drawing, but pass1/pass2 still printed by default
-    //   - --pass1 / --pass2 / --tree / --ast are *selectors*: after explicit specification, only run checked stages
+    // - --viz / --viz-json is *additive*: enables drawing, but pass1/pass2 still printed by default
+    // - --pass1 / --pass2 / --tree / --ast are *selectors*: after explicit specification, only run
+    // checked stages
     //   - --all is shortcut, equivalent to --pass1 --pass2 --viz
     /// Detailed print Pass1 (loaded files / all definitions / top module's ports / symbols / lines)
     #[arg(long)]
@@ -288,9 +289,7 @@ pub struct ParseArgs {
     pub depth: usize,
 }
 
-// ============================================================================
 // check
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct CheckArgs {
@@ -320,9 +319,7 @@ pub struct CheckArgs {
     pub ledger: Option<String>,
 }
 
-// ============================================================================
 // verify
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct VerifyArgs {
@@ -330,9 +327,7 @@ pub struct VerifyArgs {
     pub target: Option<String>,
 }
 
-// ============================================================================
 // Common types
-// ============================================================================
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
@@ -364,9 +359,7 @@ pub enum PinSortMode {
     Interface,
 }
 
-// ============================================================================
 // extract
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ExtractArgs {
@@ -404,9 +397,7 @@ pub enum ExtractTarget {
     Interfaces,
 }
 
-// ============================================================================
 // show
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ShowArgs {
@@ -484,7 +475,7 @@ pub enum ShowScope {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ShowTarget {
-    // ── Overview ────────────────────────────────────────────────────────────
+    // Overview
     // Overview of all definitions in scope, layered by origin
     // (file/use/system, select with --scope; -F anchors the file layer)
     All,
@@ -535,7 +526,7 @@ pub enum ShowTarget {
     // Print AST tree for a file
     Ast,
 
-    // ── Entity internals drill-down (<name> = owning entity, required) ──────
+    // Entity internals drill-down (<name> = owning entity, required)
     // Pins of a component / interface
     Pins,
     // Ports (in/out/io) of a module
@@ -560,9 +551,7 @@ pub enum ShowTarget {
     Values,
 }
 
-// ============================================================================
 // list
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ListArgs {
@@ -616,9 +605,7 @@ pub enum ListTarget {
     Files,
 }
 
-// ============================================================================
 // query  (search folded in: `mcc search <X>` = alias for a bare-name query)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct QueryArgs {
@@ -673,9 +660,7 @@ pub enum SearchKind {
     Net,
 }
 
-// ============================================================================
 // export
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ExportArgs {
@@ -704,9 +689,7 @@ pub enum ExportKind {
     KiCad,
 }
 
-// ============================================================================
 // build
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct BuildArgs {
@@ -721,14 +704,13 @@ pub struct BuildArgs {
     #[arg(long, default_value_t = false)]
     pub include_system: bool,
 
-    /// Lock to a single layouter for viz (flow|schematic_radial|schematic_sub|hierarchical|radial|layered)
+    /// Lock to a single layouter for viz
+    /// (flow|schematic_radial|schematic_sub|hierarchical|radial|layered)
     #[arg(long, value_name = "NAME")]
     pub layouter: Option<String>,
 }
 
-// ============================================================================
 // lib
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct LibArgs {
@@ -790,9 +772,7 @@ pub enum LibAction {
     },
 }
 
-// ============================================================================
 // proj
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ProjArgs {
@@ -809,9 +789,7 @@ pub enum ProjAction {
     },
 }
 
-// ============================================================================
 // start (top-level command)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct StartArgs {
@@ -864,9 +842,7 @@ pub struct StartArgs {
     pub pid_file: Option<String>,
 }
 
-// ============================================================================
 // stop (top-level command)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct StopArgs {
@@ -879,9 +855,7 @@ pub struct StopArgs {
     pub timeout: u64,
 }
 
-// ============================================================================
 // status (top-level command)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct StatusArgs {
@@ -894,9 +868,7 @@ pub struct StatusArgs {
     pub watch: bool,
 }
 
-// ============================================================================
 // config (configuration management)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ConfigArgs {
@@ -932,9 +904,7 @@ pub enum ConfigAction {
     Reset,
 }
 
-// ============================================================================
 // def (M6)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct DefArgs {
@@ -946,9 +916,7 @@ pub struct DefArgs {
     pub file: Option<String>,
 }
 
-// ============================================================================
 // refs (M6)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct RefsArgs {
@@ -960,9 +928,7 @@ pub struct RefsArgs {
     pub file: Option<String>,
 }
 
-// ============================================================================
 // report (M5b)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ReportArgs {
@@ -970,9 +936,7 @@ pub struct ReportArgs {
     pub target: Option<String>,
 }
 
-// ============================================================================
 // convert (M5b)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ConvertArgs {
@@ -984,9 +948,7 @@ pub struct ConvertArgs {
     pub to: String,
 }
 
-// ============================================================================
 // erc (M6)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ErcArgs {
@@ -994,9 +956,7 @@ pub struct ErcArgs {
     pub target: Option<String>,
 }
 
-// ============================================================================
 // explain (M6)
-// ============================================================================
 
 #[derive(Parser, Debug)]
 pub struct ExplainArgs {
@@ -1004,9 +964,7 @@ pub struct ExplainArgs {
     pub code: Option<u32>,
 }
 
-// ============================================================================
 // rules (check-rule registry §8)
-// ============================================================================
 
 /// `mcc rules` — catalog read projection + unified override write face
 /// (rule-registry design §8 / §8-5). With no subcommand, lists the catalog.

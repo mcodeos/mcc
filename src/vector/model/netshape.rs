@@ -7,15 +7,17 @@
 //! ## Why sidecar instead of restructuring
 //!
 //! `McVecNet` / `McVec` already have hundreds of call sites, with the whole islands / sp_model /
-//! ladder_model stack built on top. **Changing their shape = recompiling the whole library + invalidating every regression.**
+//! ladder_model stack built on top. **Changing their shape = recompiling the whole library +
+//! invalidating every regression.**
 //!
 //! But only three pieces of information are really lost:
-//!   1. **Which lane** this connection is in the source (the `for k in 0..max_w` loop in `visit.rs`)
+//! 1. **Which lane** this connection is in the source (the `for k in 0..max_w` loop in `visit.rs`)
 //!   2. The **arrow direction** in the source (`->` / `<-` / `-` / `+`)
 //!   3. **Which two-terminal device** this segment passes through
 //!
 //! So the approach is: add **one** `Option<NetShape>` field to `McVecNet`;
-//! when `None`, all legacy code behaves bit-for-bit identically; when set, downstream can stop reverse-engineering heuristics.
+//! when `None`, all legacy code behaves bit-for-bit identically; when set, downstream can stop
+//! reverse-engineering heuristics.
 //!
 //! ```text
 //! Surface of change:
@@ -32,7 +34,8 @@
 //! (the comment in `fromblock.rs::is_real_bus` already acknowledges this).
 //!
 //! `NetShape` is the shape **written in the source**; the two have different origins.
-//! Migration path: downstream reads `shape` first, and falls back to `connection_type()` when it is `None`.
+//! Migration path: downstream reads `shape` first, and falls back to `connection_type()` when it is
+//! `None`.
 //! Once `shape` coverage stabilizes at 95%+, mark `connection_type()` with `#[deprecated]`.
 
 use std::fmt;
@@ -41,9 +44,7 @@ use crate::semantic::common::{ConnDir, ConnOp};
 
 use super::trunk::{TrunkCtx, TrunkKind};
 
-// ============================================================================
 // ConnDir —— arrow direction in the source
-// ============================================================================
 //
 // `ConnDir` (semantic/common.rs) is the single arrow-direction type. It was
 // unified with the former vector-layer `ConnDir` (vec-dianlu.md §8.9.7-F);
@@ -56,9 +57,7 @@ use super::trunk::{TrunkCtx, TrunkKind};
 //   recovered by `NetShape::driver_load` and the draw order by `ltr_view`.
 // - `-` series / `+` parallel -> [`ConnDir::Undirected`]
 
-// ============================================================================
 // LaneRef —— which lane of the vector
-// ============================================================================
 
 /// Which lane of the vector a connection belongs to.
 ///
@@ -88,9 +87,7 @@ impl fmt::Display for LaneRef {
     }
 }
 
-// ============================================================================
 // GroupRole —— what role a group of endpoints plays in the source
-// ============================================================================
 
 /// Role of each group in `McVecNet.nets`.
 ///
@@ -131,9 +128,7 @@ impl fmt::Display for GroupRole {
     }
 }
 
-// ============================================================================
 // NetShape —— the one Option hanging on McVecNet
-// ============================================================================
 
 /// The shape of a net **as written in the source**.
 ///
@@ -155,7 +150,8 @@ pub struct NetShape {
     /// Two-terminal devices this net passes through in the source (**order is topological order**)
     ///
     /// Purpose:
-    /// - The `M4` cut-set forced rule "passive device in the belt -> always Wire" reads this directly,
+    /// - The `M4` cut-set forced rule "passive device in the belt -> always Wire" reads this
+    /// directly,
     ///   no longer reverse-engineering with the `rails.rs` `touches_passive` heuristic
     /// - `M3` quotient graph decides whether an edge is an SP belt or a direct belt
     pub series_chain: Vec<i64>,
@@ -197,7 +193,8 @@ impl NetShape {
         !self.series_chain.is_empty()
     }
 
-    /// Whether it carries any real information —— a fully empty shape is equivalent to None; don't store it.
+    /// Whether it carries any real information —— a fully empty shape is equivalent to None; don't
+    /// store it.
     /// `order` is a derived projection of the pairs (any net has endpoints), so
     /// it does not participate; only the source-written `op` does.
     pub fn is_informative(&self) -> bool {
@@ -266,9 +263,7 @@ impl fmt::Display for NetShape {
     }
 }
 
-// ============================================================================
 // Fix suggestions —— P5.4
-// ============================================================================
 
 /// Generate a fix suggestion for a vector shape mismatch (eval.md §3 / §7).
 ///
@@ -299,14 +294,13 @@ pub fn suggest_shape_fix(lhs_rows: usize, rhs_rows: usize) -> Option<String> {
     }
 }
 
-// ============================================================================
 // Coverage statistics —— the only acceptance metric for this change
-// ============================================================================
 
 /// Fill coverage of `shape`.
 ///
 /// **The criterion for "done" is not "code written", but `from_source` share ≥ 90% in this table.**
-/// Low coverage means some paths still take the old inference branch; those paths are the next batch to fix.
+/// Low coverage means some paths still take the old inference branch; those paths are the next
+/// batch to fix.
 ///
 /// ★ v4: `coverage()` = `from_source / total_nets` (nets with a shape / total nets),
 /// not `from_source / (from_source + inferred)` (that is always 100%).
@@ -401,9 +395,7 @@ impl ShapeStats {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -419,7 +411,8 @@ mod tests {
 
     #[test]
     fn vec_netshape__empty_shape_is_not_informative() {
-        // A fully empty shape should be stored as None; don't create an intermediate state of "has a shape but no information"
+        // A fully empty shape should be stored as None; don't create an intermediate state of "has
+        // a shape but no information"
         assert!(!NetShape::default().is_informative());
         let s = NetShape {
             dir: ConnDir::LtoR,

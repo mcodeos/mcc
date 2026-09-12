@@ -82,10 +82,9 @@ fn run_single(
 
     // ── Phase 1: layout ──
     // ★ P7-0 (root cause F): inject the model into the *candidate itself*,
-    // preserving its parameters (sub() vs default()). Previously this branch
-    // built `FlowLayouter { model, ..default() }`, so every layer — including
-    // all 6 sub-layers — ran with top-level parameters (480/220/recompute=false)
-    // and `FlowLayouter::sub()` was dead code.
+    // preserving its parameters (sub() vs default()). `{ model, ..default() }`
+    // here would run every layer — including all 6 sub-layers — with top-level
+    // parameters (480/220/recompute=false), leaving `FlowLayouter::sub()` dead.
     t!("flow_layout", {
         if let Some(flow) = schematic_model.and_then(|m| candidate.with_model(m)) {
             flow.layout(&mut graph);
@@ -105,8 +104,10 @@ fn run_single(
         place_series_passives(&mut graph);
         place_passive_chains(&mut graph);
         place_bridge_passives(&mut graph); // ★ P2: bridge passives (transposed CAP in two-lane series)
-                                           // ★ P7-5 S3/S4a/S5: grounded passives stand vertically (GND end down);
-                                           // transposed rungs that bridge placement couldn't reach get the rung shape.
+                                           // ★ P7-5 S3/S4a/S5: grounded passives stand vertically
+                                           // (GND end down);
+                                           // transposed rungs that bridge placement couldn't reach
+                                           // get the rung shape.
         let stood = super::passive_inline::stand_grounded_passives(&mut graph);
         if stood > 0 {
             crate::vlog!("[layout::passive_inline] stood up {stood} grounded passive(s)");
@@ -197,7 +198,7 @@ fn fidelity_gate(
     readability: &ReadabilityScore,
     is_root: bool,
 ) {
-    // ── Tier 1 · CORRECTNESS — hard veto ──────────────────────────────────
+    // Tier 1 · CORRECTNESS — hard veto
     // ★ B2 root layers use the block-edge model: entry points are synthetic
     // (pin_id=0, name-keyed) and rail pins are covered by anchors, so the
     // entry-point coverage metric structurally can't reach pins_total. Root
@@ -245,7 +246,7 @@ fn fidelity_gate(
 
     crate::vlog!("[layout-gate] layer '{}' Tier 1 CORRECTNESS ✓", layer);
 
-    // ── Tier 2 · QUALITY — ratchet ────────────────────────────────────────
+    // Tier 2 · QUALITY — ratchet
     let mut tier2_ok = true;
     if fidelity.box_box > 0 || fidelity.wire_box > 0 {
         crate::vlog!(
@@ -270,7 +271,7 @@ fn fidelity_gate(
         crate::vlog!("[layout-gate] layer '{}' Tier 2 QUALITY ✓", layer);
     }
 
-    // ── Tier 3 · INFO — never fails, only prints ─────────────────────────
+    // Tier 3 · INFO — never fails, only prints
     // Authored pin sides: only meaningful for non-model-claimed boxes.
     // Model-claimed boxes (geom_locked) intentionally override authored sides
     // for topological correctness — not a quality issue.
@@ -336,7 +337,7 @@ fn compute_fidelity(
     graph: &McVecGraph,
     col: &crate::viz::route::audit::CollisionReport,
 ) -> FidelityReport {
-    // ── Tier 1 net-level honesty (★ M0-C) ───────────────────────────────────
+    // Tier 1 net-level honesty (★ M0-C)
     // Builder-level dropped/partial counts (a net whose points resolved to <2
     // in `merge_pairs_to_vecnet`) live in `vector/builder/report.rs` and are
     // folded into the final FidelityReport by `MetricsAccumulator::finish`.
@@ -469,9 +470,7 @@ fn compute_fidelity(
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

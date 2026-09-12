@@ -26,7 +26,8 @@ impl McOpd {
             if node_type == MCAST_ID || node_type == MCAST_IDA || node_type == MCAST_IDS {
                 return Self::new_from_ids_node(node);
             } else if node_type == MCAST_INSTANCE {
-                // When MCAST_INSTANCE appears in operand context, extract instance name as McOpd::Id
+                // When MCAST_INSTANCE appears in operand context, extract instance name as
+                // McOpd::Id
                 if let Some(sub) = node.get_sub_node() {
                     if let Some(ids) = McIds::new(&sub) {
                         return Some(McOpd::Id(ids));
@@ -45,11 +46,11 @@ impl McOpd {
                 node_type,
                 MCAST_OPD_DOT | MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN
             ) {
-                // ── P1-2: top-level DOT/CURLY operands ─────────────────────
+                // P1-2: top-level DOT/CURLY operands
                 // McExpression::new routes OPD_DOT (`a.b`) / OPD_CURLY
-                // (`a{B,C}`) / OPD_CURLY_MN directly here; they previously
-                // fell through to `_ => None` and the expression was silently
-                // dropped (A3 gap). Rebuild the id chain from the sub-nodes.
+                // (`a{B,C}`) / OPD_CURLY_MN directly here; letting them fall
+                // through to `_ => None` drops the expression silently. Rebuild
+                // the id chain from the sub-nodes.
                 let mut segments = Vec::new();
                 let mut cur = node.get_sub_node();
                 while let Some(n) = cur {

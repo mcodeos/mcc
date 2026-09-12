@@ -15,7 +15,8 @@
 //!
 //! ## Compatibility with old API
 //!
-//! `mcb_init_system_lib()` preserved, internally changed to call `mcb_load_lib("mcode", mcode_dir)`.
+//! `mcb_init_system_lib()` preserved, internally changed to call
+//! `mcb_load_lib("mcode", mcode_dir)`.
 
 use crate::db::cmie::tables as workspace;
 use crate::db::defspace::LibBoundary;
@@ -170,7 +171,8 @@ pub(crate) fn file_is_system_library(path: &Path) -> bool {
 /// 1. Find `<root>/<name>.mc` entry file
 /// 2. Pre-insert empty blib entry (avoid circular lookup issues)
 /// 3. `mcb_add_recursive` load entry and all dependencies (is_system=true)
-/// 4. Collect all definitions belonging to this library from workspace tables, register to blib's spacenames
+/// 4. Collect all definitions belonging to this library from workspace tables, register to blib's
+/// spacenames
 ///
 /// Returns `true` if load succeeded.
 pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
@@ -503,9 +505,7 @@ pub fn mcb_load_lib_by_name(lib_name: &str) {
     }
 }
 
-// ============================================================================
 // Internal helper functions
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

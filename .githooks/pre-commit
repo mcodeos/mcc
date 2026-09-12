@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pre-commit hook: reject commits that are not English-only (non-ASCII), and
-# that embed a user-specific absolute path.
+# Pre-commit hook: reject commits that are not English-only (non-ASCII), that
+# embed a user-specific absolute path, or that carry non-lean code comments.
 #
 # Installed via `git config core.hooksPath .githooks` so this file is shared
 # with every developer who clones the repo (see AGENTS.md).
@@ -8,6 +8,8 @@
 # Checks:
 #   1. Staged file contents (added / copied / modified files only) — English only.
 #   2. Staged file contents — no home-directory paths (`/Users/<name>/...`).
+#   3. Staged `.rs` comments — lean-comments rule (decorative banner rules,
+#      change-diary wording, comment lines over 100 columns).
 #   (Commit-message checks live in `commit-msg`, which receives the
 #    message file path; pre-commit takes no arguments.)
 set -euo pipefail
@@ -27,6 +29,15 @@ fi
 if ! git diff --cached --name-only --diff-filter=ACM -z \
     | xargs -0 -r python3 "$ROOT/scripts/check-paths.py"; then
     echo "pre-commit: staged changes embed a user-specific absolute path." >&2
+    exit 1
+fi
+
+# ── 3. Staged `.rs` comments: lean-comments rule ────────────────────────────
+# Only *.rs is scanned (the scanner filters by extension), so a staged doc or
+# markdown file passes through untouched.
+if ! git diff --cached --name-only --diff-filter=ACM -z \
+    | xargs -0 -r python3 "$ROOT/scripts/check-comments.py"; then
+    echo "pre-commit: staged comments violate the lean-comments rule (AGENTS.md)." >&2
     exit 1
 fi
 

@@ -6,7 +6,8 @@
 //!
 //! Design highlights:
 //!
-//!   1. **Background daemon logs only to file**: old version `Writer` writes to stderr, and `server.rs` does not close child process stderr.
+//! 1. **Background daemon logs only to file**: old version `Writer` writes to stderr, and
+//! `server.rs` does not close child process stderr.
 //!      This leads to debug logs being printed to the caller's terminal.
 //!
 //!   2. **Actually honor `-q` / `-v`** Here, `_verbose` / `_quiet` are unused.
@@ -47,9 +48,7 @@ fn targets_map() -> &'static Mutex<HashMap<String, String>> {
     TARGETS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-// ============================================================================
 // Time format for logging
-// ============================================================================
 
 pub struct ShortTime;
 
@@ -120,11 +119,10 @@ fn is_leap_year(year: u32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
-// ============================================================================
 // filter construction / runtime adjustment
-// ============================================================================
 
-/// Construct default filter: `RUST_LOG` takes precedence; otherwise, assign levels based on `-q` / `-v`,
+/// Construct default filter: `RUST_LOG` takes precedence; otherwise, assign levels based on `-q` /
+/// `-v`,
 /// and disable pass1 / pass2 reports by default.
 fn base_filter(verbose: u8, quiet: bool) -> EnvFilter {
     if let Ok(f) = EnvFilter::try_from_default_env() {
@@ -203,9 +201,7 @@ pub fn set_targets(base_level: &str, targets: &[(String, String)]) -> bool {
     reload_filter(&spec)
 }
 
-// ============================================================================
 // Initialization
-// ============================================================================
 
 /// Initialize logging to stderr (foreground / no log file scenario).
 ///

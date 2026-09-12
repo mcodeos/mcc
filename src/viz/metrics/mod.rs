@@ -1,4 +1,5 @@
-//! Iteration 01 · Acceptance yardstick: electrical fidelity (hard gate) + readability score (for ranking).
+//! Iteration 01 · Acceptance yardstick: electrical fidelity (hard gate) + readability score (for
+//! ranking).
 //!
 //! - FidelityReport.is_perfect() = hard gate for all subsequent iterations.
 //! - ReadabilityScore.weighted() = score for generate-and-rank (iteration 04).
@@ -18,12 +19,11 @@ use crate::viz::render::label_render::{designator_value_label_bounds, LabelBound
 use crate::viz::route::audit::CollisionReport;
 use crate::viz::semantic::SemanticSummary;
 
-/// Alignment grid for off-grid penalty (no coordinate snapping in this codebase; soft alignment signal, tunable).
+/// Alignment grid for off-grid penalty (no coordinate snapping in this codebase; soft alignment
+/// signal, tunable).
 pub const GRID: f64 = 10.0;
 
-// ============================================================================
 // Electrical fidelity — hard gate, must be all green
-// ============================================================================
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FidelityReport {
     pub nets_total: usize,
@@ -102,9 +102,7 @@ impl FidelityReport {
     }
 }
 
-// ============================================================================
 // Readability score — lower is better, for ranking/comparison
-// ============================================================================
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ReadabilityScore {
     pub wire_wire: usize,
@@ -116,7 +114,8 @@ pub struct ReadabilityScore {
 }
 
 impl ReadabilityScore {
-    /// Single scalar for generate-and-rank (dimensions copied from obstacles::score_path: collision 1000 >> length).
+    /// Single scalar for generate-and-rank (dimensions copied from obstacles::score_path: collision
+    /// 1000 >> length).
     pub fn weighted(&self) -> f64 {
         self.wire_wire as f64 * 1000.0
             + self.total_wirelength
@@ -134,9 +133,7 @@ impl ReadabilityScore {
     }
 }
 
-// ============================================================================
 // Phase F — Engineer style soft metrics
-// ============================================================================
 
 /// Soft metrics that measure how "engineer-like" the schematic looks.
 /// These are informational only — they do NOT affect the hard gate.
@@ -457,9 +454,7 @@ fn compute_label_readability(graph: &McVecGraph) -> f64 {
     }
 }
 
-// ============================================================================
 // Unified schematic quality report — Milestone 1 acceptance report
-// ============================================================================
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BuilderQualitySummary {
     pub resolutions_total: usize,
@@ -763,9 +758,7 @@ impl SchematicQualityReport {
     }
 }
 
-// ============================================================================
 // Accumulator — passes through render_layer_recursive, accumulating per layer
-// ============================================================================
 #[derive(Debug, Clone, Default)]
 pub struct MetricsAccumulator {
     // fidelity (graph side)
@@ -1004,9 +997,7 @@ impl MetricsAccumulator {
     }
 }
 
-// ============================================================================
 // Visual quality helpers — objective soft signals for schematic readability
-// ============================================================================
 fn visual_quality_for_layer(graph: &McVecGraph, canvas: (f64, f64)) -> VisualQualityReport {
     let mut rep = VisualQualityReport {
         canvas_width: canvas.0,
@@ -1104,9 +1095,7 @@ fn segment_hits_rect_simple(s: &Segment, rx: f64, ry: f64, rw: f64, rh: f64) -> 
     sx1 >= rx && sx0 <= rx + rw && sy1 >= ry && sy0 <= ry + rh
 }
 
-// ============================================================================
 // Truth snapshot helpers — verifies routed graph still covers declared endpoints
-// ============================================================================
 const ROUTE_ENDPOINT_EPS: f64 = 1.0;
 
 fn snapshot_layer_truth(graph: &McVecGraph) -> TruthSnapshotReport {
@@ -1227,9 +1216,7 @@ fn between(v: f64, a: f64, b: f64, eps: f64) -> bool {
     v >= a.min(b) - eps && v <= a.max(b) + eps
 }
 
-// ============================================================================
 // Geometry helpers
-// ============================================================================
 pub(crate) fn route_length(route: &crate::vector::graph::netdef::Route) -> f64 {
     route
         .segments
@@ -1238,7 +1225,8 @@ pub(crate) fn route_length(route: &crate::vector::graph::netdef::Route) -> f64 {
         .sum()
 }
 
-/// Bend count ≈ number of axis changes between adjacent segments (orthogonal routing: each H↔V switch = one bend).
+/// Bend count ≈ number of axis changes between adjacent segments (orthogonal routing: each H↔V
+/// switch = one bend).
 pub(crate) fn route_bends(route: &crate::vector::graph::netdef::Route) -> usize {
     #[derive(PartialEq)]
     enum Axis {
@@ -1277,7 +1265,6 @@ pub(crate) fn off_grid(v: f64) -> f64 {
     m.min(GRID - m)
 }
 
-// ============================================================================
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1751,9 +1738,7 @@ mod tests {
     }
 }
 
-// ============================================================================
 // Milestone 4 — Stable snapshot types for regression baseline
-// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GateSnapshot {
@@ -2161,9 +2146,7 @@ impl SchematicMetricsSnapshot {
     }
 }
 
-// ============================================================================
 // Milestone 4 — Comparison report
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MetricRegression {

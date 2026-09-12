@@ -12,9 +12,7 @@
 //! The frontend switches layers by taking the corresponding `VizLayer` from
 //! `VizDocument.layers[bid]`, and simply `innerHTML`-ing the `svg` field.
 
-// ============================================================================
 // VizLayer
-// ============================================================================
 
 /// Layout + render result of a single layer
 #[derive(Debug, Clone)]

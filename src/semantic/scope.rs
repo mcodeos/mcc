@@ -46,9 +46,7 @@ use crate::semantic::mc_inst::{McInstance, McInstances};
 use crate::semantic::module::McModule;
 use crate::{McCMIE, McSpaceName, McURI};
 
-// ============================================================================
 // Core abstractions (§3.1)
-// ============================================================================
 
 /// Resolution result: semantic object + span.
 ///
@@ -116,9 +114,7 @@ impl<T> ResolveScope<T> for ScopeChain<'_, T> {
     }
 }
 
-// ============================================================================
 // Definition-layer scope units (§3.2)
-// ============================================================================
 // Each unit copies the exact hit logic of one category of the original
 // `find_inst_with_span` implementations. Spans come from the stored
 // semantic tables; nothing is re-parsed from text.
@@ -523,9 +519,7 @@ impl ResolveScope<Resolved> for FuncParamsScope<'_> {
     }
 }
 
-// ============================================================================
 // Container chain builders (§3.3) — a container is its ordered category chain
-// ============================================================================
 
 /// P2 component category chain (① params → ② scoped enum → ③ attrs →
 /// ④ pin names (whole) → ⑤ pin names (expanded) → ⑥ pin IDs →
@@ -594,9 +588,7 @@ pub fn container_scope<'a>(c: &'a ContainerRef) -> ScopeChain<'a, Resolved> {
     }
 }
 
-// ============================================================================
 // Two chains (§3.4) — instance chain (P1-P2) and class chain (P3-P5)
-// ============================================================================
 
 /// P2 delegation scope — the parent container's own category chain, reached
 /// through its `HasFindInst` implementation.
@@ -767,9 +759,7 @@ pub fn first_hop(
     inst.or_else(|| class_chain(uri).resolve(name).map(BaseResolved::Container))
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 /// Map a CMIE kind byte to a concrete `McCMIE` via the space name.
 /// All single-identity lookups route through the
@@ -796,9 +786,7 @@ fn cmie_to_container_ref(c: McCMIE) -> Option<ContainerRef> {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

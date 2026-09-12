@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Net-island attribution index — L1 (net-island-attribution-design.md §5/§7).
+//! Net-island attribution index — L1 (island-attribution-design.md §5/§7).
 //!
 //! The flat index resolves each net against *its owning module's own*
 //! declaration set (conduits + domain rails), keyed by the new
@@ -84,7 +84,7 @@ fn rail_hot_and_return_nets_anchor_to_declared_supply_faces() {
     // per-line `@N` fragments, so bare and rail-member grounds alike reach
     // the index as intact nets; the
     // quiet/protective names below are the real-board hand-check in the
-    // mcd/log.)
+    // the batch log.)
     let src = format!(
         "{FB}\n\
          module main {{\n\

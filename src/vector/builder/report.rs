@@ -22,9 +22,7 @@
 use crate::vector::model::netshape::ShapeStats;
 use std::fmt;
 
-// ============================================================================
 // BuildMode
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BuildMode {
@@ -37,9 +35,7 @@ pub enum BuildMode {
     NoDataLoss,
 }
 
-// ============================================================================
 // ResolutionRecord
-// ============================================================================
 
 /// ResolutionRecord: every resolve operation
 #[derive(Debug, Clone)]
@@ -60,7 +56,7 @@ pub enum ResolutionOutcome {
     BareLabelFallback,
     /// bracket expanded, member hit
     BracketExpanded { member: String },
-    /// ── ★ Phase D ─────────────────────────────────────────────────
+    /// ★ Phase D
     /// bare name matches a member of a bracket-form Port in this module
     /// example `path="VDD_3V3"` + `module_path="main.mcu"` hits
     /// `main.mcu.[VDD_3V3, GND]` (id=NNN), returns that Port's id.
@@ -84,9 +80,7 @@ impl fmt::Display for ResolutionOutcome {
     }
 }
 
-// ============================================================================
 // DroppedNet / PartialNet
-// ============================================================================
 /// DroppedNet: dropped net (all points failed or resolved to <2)
 #[derive(Debug, Clone)]
 pub struct DroppedNet {
@@ -109,9 +103,7 @@ pub struct PartialNet {
     pub resolved_point_count: usize,
 }
 
-// ============================================================================
 // BuilderReport
-// ============================================================================
 
 #[derive(Debug, Clone, Default)]
 pub struct BuilderReport {
@@ -220,9 +212,7 @@ impl BuilderReport {
     }
 }
 
-// ============================================================================
 // BuilderError
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub enum BuilderError {
@@ -258,9 +248,7 @@ impl BuilderError {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

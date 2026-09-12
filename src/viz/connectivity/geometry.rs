@@ -10,9 +10,7 @@
 
 use super::model::{Point2D, SegmentOrientation};
 
-// ============================================================================
 // Epsilon constants
-// ============================================================================
 
 /// Touch epsilon: points within this distance are considered touching.
 pub const TOUCH_EPSILON: f64 = 0.5;
@@ -20,9 +18,7 @@ pub const TOUCH_EPSILON: f64 = 0.5;
 /// Near-miss epsilon: points within this distance generate warnings.
 pub const NEAR_MISS_EPSILON: f64 = 2.0;
 
-// ============================================================================
 // Point-to-segment distance
-// ============================================================================
 
 /// Compute the minimum distance from a point to a line segment.
 pub fn point_to_segment_distance(p: Point2D, a: Point2D, b: Point2D) -> f64 {
@@ -57,9 +53,7 @@ pub fn point_near_miss_segment(p: Point2D, a: Point2D, b: Point2D) -> bool {
     d > TOUCH_EPSILON && d <= NEAR_MISS_EPSILON
 }
 
-// ============================================================================
 // Point-to-point distance
-// ============================================================================
 
 /// Euclidean distance between two points.
 pub fn point_distance(a: Point2D, b: Point2D) -> f64 {
@@ -73,9 +67,7 @@ pub fn points_touch(a: Point2D, b: Point2D, epsilon: f64) -> bool {
     point_distance(a, b) <= epsilon
 }
 
-// ============================================================================
 // Segment intersection
-// ============================================================================
 
 /// Determine if two segments intersect and return the intersection point if so.
 pub fn segment_intersection(a1: Point2D, a2: Point2D, b1: Point2D, b2: Point2D) -> Option<Point2D> {
@@ -161,9 +153,7 @@ pub fn segment_collinear_overlap(
     }
 }
 
-// ============================================================================
 // Segment orientation
-// ============================================================================
 
 /// Determine the orientation of a segment.
 pub fn segment_orientation(a: Point2D, b: Point2D) -> SegmentOrientation {
@@ -181,9 +171,7 @@ pub fn segment_orientation(a: Point2D, b: Point2D) -> SegmentOrientation {
     }
 }
 
-// ============================================================================
 // Point clustering
-// ============================================================================
 
 /// Cluster points that are within epsilon of each other.
 /// Returns groups of indices into the input points.
@@ -224,9 +212,7 @@ pub fn centroid(points: &[Point2D]) -> Point2D {
     Point2D::new(sum_x / n, sum_y / n)
 }
 
-// ============================================================================
 // Bounding box
-// ============================================================================
 
 /// Check if a point is within the bounding box of a segment, expanded by epsilon.
 pub fn point_in_segment_bbox(p: Point2D, a: Point2D, b: Point2D, epsilon: f64) -> bool {
@@ -237,9 +223,7 @@ pub fn point_in_segment_bbox(p: Point2D, a: Point2D, b: Point2D, epsilon: f64) -
     p.x >= min_x && p.x <= max_x && p.y >= min_y && p.y <= max_y
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

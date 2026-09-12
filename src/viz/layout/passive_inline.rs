@@ -5,29 +5,43 @@
 //! ★ Passive component "first wire, then place component" layout (wire-first passive placement)
 //!
 //! ## What problem does this file solve
-//! Old pipeline was "first layout, then wire": FlowLayouter treats R/L/C as ordinary boxes into columns, router
-//! then bends to reach them. Two-pin passive components are essentially just **symbols**, shouldn't occupy layout grid slots; they should sit on
+//! Old pipeline was "first layout, then wire": FlowLayouter treats R/L/C as ordinary boxes into
+//! columns, router
+//! then bends to reach them. Two-pin passive components are essentially just **symbols**, shouldn't
+//! occupy layout grid slots; they should sit on
 //! the **straight line** between the two large components on either side.
 //!
-//! This module **extracts** passive components from the layout graph entirely, only letting major components participate in arrangement:
-//! - [`collapse_passives`] (called **before** layout): for each series passive P where "both side neighbors are non-flag entity major components",
-//!   delete P's box + its two nets, add one A↔B **direct net** so major components align by direct connection.
+//! This module **extracts** passive components from the layout graph entirely, only letting major
+//! components participate in arrangement:
+//! - [`collapse_passives`] (called **before** layout): for each series passive P where "both side
+//! neighbors are non-flag entity major components",
+//! delete P's box + its two nets, add one A↔B **direct net** so major components align by direct
+//! connection.
 //!   Original box / original net / neighbor references temporarily stored in [`PassiveStash`].
-//! - [`reinsert_passives`] (called **after** layout, **before** routing): delete temporary direct net, place each P on the
-//!   **wire** between its two neighbors' exit points (same line orientation, offset=0.5), restore P's two original nets.
-//!   Then existing router sees "endpoints collinear" → directly draw straight line (orthogonal.rs degenerate branch).
+//! - [`reinsert_passives`] (called **after** layout, **before** routing): delete temporary direct
+//! net, place each P on the
+//! **wire** between its two neighbors' exit points (same line orientation, offset=0.5), restore P's
+//! two original nets.
+//! Then existing router sees "endpoints collinear" → directly draw straight line (orthogonal.rs
+//! degenerate branch).
 //!
 //! ## Also fixes owner-fallback pin collapse for passive components
 //! Typed two-pin components (typed-2pin) often owner-fallback to **the same pin_id**
-//! (`split_shared_pins` skips two-pin components for safety, doesn't split them). If two pins have same id, two nets will exit from same
-//! point → component looks like it lost a foot. reinsert here **forces allocation of two different pin_ids** for P's two pins,
+//! (`split_shared_pins` skips two-pin components for safety, doesn't split them). If two pins have
+//! same id, two nets will exit from same
+//! point → component looks like it lost a foot. reinsert here **forces allocation of two different
+//! pin_ids** for P's two pins,
 //! letting two wires each go to their own point.
 //!
 //! ## v1 scope of application (rest maintains original layout, zero side effects)
-//! - Only handles series components that "connect exactly 2 nets, and each net is 2-terminal (P + one non-flag non-passive neighbor)".
-//! - **Don't touch**: bypass components (to GND/power flag), series components on rails, passive-passive chains.
-//!   These are left for subsequent phases; they go through original layout + existing offset fallback.
-//! - Won't splice Power nets and Ground nets together (decoupling capacitors that kind would short, skip directly).
+//! - Only handles series components that "connect exactly 2 nets, and each net is 2-terminal (P +
+//! one non-flag non-passive neighbor)".
+//! - **Don't touch**: bypass components (to GND/power flag), series components on rails,
+//! passive-passive chains.
+//! These are left for subsequent phases; they go through original layout + existing offset
+//! fallback.
+//! - Won't splice Power nets and Ground nets together (decoupling capacitors that kind would short,
+//! skip directly).
 
 use std::collections::HashSet;
 
@@ -39,9 +53,12 @@ use super::rails::is_rail_box;
 
 /// ★ Stage 1 entry forward: Long signal nets → net labels (air wires).
 ///
-/// Implementation in `rails::apply_net_labels`; this is just forwarding. Reason: api layer (viz::api) can stably reach
-/// `super::layout::passive_inline` (all box/net operations before routing go through here), but `rails` may be
-/// layout internal private module, api layer (layout's sibling) can't reach it; passive_inline is layout's descendant,
+/// Implementation in `rails::apply_net_labels`; this is just forwarding. Reason: api layer
+/// (viz::api) can stably reach
+/// `super::layout::passive_inline` (all box/net operations before routing go through here), but
+/// `rails` may be
+/// layout internal private module, api layer (layout's sibling) can't reach it; passive_inline is
+/// layout's descendant,
 /// can stably reach `super::rails`.
 pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
     super::rails::apply_net_labels(graph)
@@ -54,9 +71,7 @@ const PASSIVE_PIN_BASE: i64 = 4_500_000_000;
 /// (`SPLIT_PIN_BASE` 4e9) and below `FLAG_ID_BASE` (9e9).
 const CHAIN_PIN_BASE: i64 = 4_800_000_000;
 
-// ============================================================================
 // ★ Stage A (A2) — Non-destructive inline placement of series two-pin passives
-// ============================================================================
 //
 // ## Why this replaces collapse/reinsert on the main path
 // The old collapse→layout→reinsert path DELETED the passive box + its two nets before
@@ -195,7 +210,8 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
             let real_box = sides[real_idx].2;
             let real_pin = sides[real_idx].3;
 
-            // From the real neighbour's exit point, extend away from the passive device's current position
+            // From the real neighbour's exit point, extend away from the passive device's current
+            // position
             let passive_box = match graph.boxes.iter().find(|b| b.id == pid) {
                 Some(b) => b,
                 None => continue,
@@ -281,7 +297,8 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
         };
 
         // P's own pin ids toward A / B. If owner-fallback collapsed them to the same id, synthesize
-        // a second one and rewrite the second net's P-endpoint, so the two wires get two exit points.
+        // a second one and rewrite the second net's P-endpoint, so the two wires get two exit
+        // points.
         let pin_a = sides[0].1;
         let mut pin_b = sides[1].1;
         if pin_a == pin_b {
@@ -301,9 +318,7 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
     }
 }
 
-// ============================================================================
 // ★ Stage A3 — inline placement for passive↔passive series chains
-// ============================================================================
 //
 // ## Gap this fills
 // `place_series_passives` requires each neighbour to be a real (non-flag, non-passive) device, and
@@ -362,7 +377,8 @@ pub fn place_passive_chains(graph: &mut McVecGraph) {
     let mut moved = 0usize;
 
     // A few settle sweeps: when a neighbour is another passive that also moves, repeating lets the
-    // positions converge. Bounded (3) and deterministic (id-sorted) → always terminates, no flicker.
+    // positions converge. Bounded (3) and deterministic (id-sorted) → always terminates, no
+    // flicker.
     for sweep in 0..3 {
         for &pid in &passive_ids {
             // A plain series element touches exactly two nets.
@@ -466,9 +482,7 @@ pub fn place_passive_chains(graph: &mut McVecGraph) {
     }
 }
 
-// ============================================================================
 // ★ v2 —— Series passives connected to power rails: place on [real neighbor]→[flag] wires
-// ============================================================================
 //
 // ## Why this no longer runs
 // The collapse→layout→reinsert legacy path (which this pass complemented) was removed in
@@ -477,10 +491,14 @@ pub fn place_passive_chains(graph: &mut McVecGraph) {
 //
 // Runs **after** layout, **before** routing. Root + sub layers.
 
-/// Place passive component `pid` on **exit direction extension line of an anchor point, right next to it** (aligned placement):
-/// near pin locked on anchor point exit point extension line → wire **straight out** from anchor into resistor; far pin faces outward,
-/// router makes one bend to opposite endpoint. Align to anchor with "horizontal exit (Left/Right)" (horizontal draw + vertical bus is clean
-/// style; if no horizontal exit, align to a). Center along axis towards opposite endpoint, slide outward if blocked / vertical fallback.
+/// Place passive component `pid` on **exit direction extension line of an anchor point, right next
+/// to it** (aligned placement):
+/// near pin locked on anchor point exit point extension line → wire **straight out** from anchor
+/// into resistor; far pin faces outward,
+/// router makes one bend to opposite endpoint. Align to anchor with "horizontal exit (Left/Right)"
+/// (horizontal draw + vertical bus is clean
+/// style; if no horizontal exit, align to a). Center along axis towards opposite endpoint, slide
+/// outward if blocked / vertical fallback.
 fn place_passive_between(
     graph: &mut McVecGraph,
     pid: i64,
@@ -500,7 +518,8 @@ fn place_passive_between(
     let short = bw.min(bh);
 
     // ── Select alignment anchor ──
-    // Prefer anchor with "horizontal exit (Left/Right)" (horizontal draw is clean); if both horizontal/both vertical → align to a.
+    // Prefer anchor with "horizontal exit (Left/Right)" (horizontal draw is clean); if both
+    // horizontal/both vertical → align to a.
     let align_a = side_is_horizontal(&side_a) || !side_is_horizontal(&side_b);
     let (anchor, aside, far_pt, near_pin, near_name, far_pin, far_name) = if align_a {
         (
@@ -524,7 +543,8 @@ fn place_passive_between(
         )
     };
 
-    // Orientation = anchor exit axis: horizontal exit → horizontal placement (w≥h); vertical exit → vertical placement (h>w).
+    // Orientation = anchor exit axis: horizontal exit → horizontal placement (w≥h); vertical exit →
+    // vertical placement (h>w).
     let horizontal = side_is_horizontal(&aside);
     let (ow, oh) = if horizontal {
         (long, short)
@@ -532,13 +552,15 @@ fn place_passive_between(
         (short, long)
     };
 
-    // ── Landing point: near pin locked on anchor exit point extension line, centered along axis towards opposite endpoint (clamp to at least GAP) ──
+    // ── Landing point: near pin locked on anchor exit point extension line, centered along axis
+    // towards opposite endpoint (clamp to at least GAP) ──
     let (px, py) = anchor;
     let (qx, qy) = far_pt;
     const GAP0: f64 = 22.0;
     let base = passive_spot_on_ray(px, py, qx, qy, &aside, ow, oh, GAP0);
 
-    // Collision avoidance: 1) slide along exit direction (maintain alignment); 2) if still blocked, move perpendicular (introduce small elbow, router connects).
+    // Collision avoidance: 1) slide along exit direction (maintain alignment); 2) if still blocked,
+    // move perpendicular (introduce small elbow, router connects).
     let mut spot = if !overlaps_any_box(graph, pid, base.0, base.1, ow, oh) {
         Some(base)
     } else {
@@ -605,9 +627,12 @@ fn side_is_horizontal(s: &EntrySide) -> bool {
     matches!(s, EntrySide::Left | EntrySide::Right)
 }
 
-/// Anchor point (px,py) exit direction side: place the ow×oh resistor on the extension line of the exit, returns top-left corner.
-/// - Perpendicular to exit direction (perp): locked at anchor coordinates → near pin (offset 0.5) lands right on anchor extension line → straight wire;
-/// - Along exit direction (along): take midpoint of anchor and opposite end, lean toward opposite end, but clamp to at least GAP (not behind anchor).
+/// Anchor point (px,py) exit direction side: place the ow×oh resistor on the extension line of the
+/// exit, returns top-left corner.
+/// - Perpendicular to exit direction (perp): locked at anchor coordinates → near pin (offset 0.5)
+/// lands right on anchor extension line → straight wire;
+/// - Along exit direction (along): take midpoint of anchor and opposite end, lean toward opposite
+/// end, but clamp to at least GAP (not behind anchor).
 fn passive_spot_on_ray(
     px: f64,
     py: f64,
@@ -638,7 +663,8 @@ fn passive_spot_on_ray(
     }
 }
 
-/// Slide the landing point outward along exit direction by d (away from anchor) —— keep near pin aligned
+/// Slide the landing point outward along exit direction by d (away from anchor) —— keep near pin
+/// aligned
 fn shift_along_ray((x, y): (f64, f64), side: &EntrySide, d: f64) -> (f64, f64) {
     match side {
         EntrySide::Right => (x + d, y),
@@ -656,7 +682,8 @@ fn shift_perp_ray((x, y): (f64, f64), side: &EntrySide, d: f64) -> (f64, f64) {
     }
 }
 
-/// Whether candidate landing point AABB hits any **other** box (major / flag / other passives), with PAD margin
+/// Whether candidate landing point AABB hits any **other** box (major / flag / other passives),
+/// with PAD margin
 fn overlaps_any_box(graph: &McVecGraph, self_id: i64, x: f64, y: f64, w: f64, h: f64) -> bool {
     const PAD: f64 = 4.0;
     graph.boxes.iter().any(|b| {
@@ -677,9 +704,7 @@ fn pin_name_of(b: &McVecBox, pin_id: i64) -> String {
         .unwrap_or_default()
 }
 
-// ============================================================================
 // Internal helpers
-// ============================================================================
 
 /// Center point of a box (returns None if not found)
 fn box_center(graph: &McVecGraph, box_id: i64) -> Option<(f64, f64)> {
@@ -690,8 +715,10 @@ fn box_center(graph: &McVecGraph, box_id: i64) -> Option<(f64, f64)> {
         .map(|b| (b.x + b.w / 2.0, b.y + b.h / 2.0))
 }
 
-/// Get the exit point of a pin on a box; if pin_id doesn't match (might have been split-modified during layout), degenerate to
-/// "midpoint of the edge towards `toward` direction". `toward` usually passes the opposite neighbor's center.
+/// Get the exit point of a pin on a box; if pin_id doesn't match (might have been split-modified
+/// during layout), degenerate to
+/// "midpoint of the edge towards `toward` direction". `toward` usually passes the opposite
+/// neighbor's center.
 fn pin_exit_facing(
     graph: &McVecGraph,
     box_id: i64,
@@ -739,14 +766,11 @@ fn is_power_ground_short(a: &NetKind, b: &NetKind) -> bool {
     )
 }
 
-// ============================================================================
 // PROBE-D′ — rail-adjacent decoupling candidate count
-// ----------------------------------------------------------------------------
 // Counts the (b)-class decoupling candidates that "should be handled" before
 // straighten_rail_passives runs. The predicate is aligned rule-by-rule with
 // straighten_rail_passives' matching logic.
 // Expect [PROBE-D'] candidates = N to equal straighten's "straightened N".
-// ============================================================================
 
 pub fn probe_rail_passive_candidates(graph: &McVecGraph) {
     if !crate::viz::debug::dump_enabled() {
@@ -819,12 +843,9 @@ pub fn probe_rail_passive_candidates(graph: &McVecGraph) {
     );
 }
 
-// ============================================================================
 // PROBE-C — census the real composition of "scattered elements" at each layer
-// ----------------------------------------------------------------------------
 // Three classes: Dot placeholders, 0-degree orphans, dangling pins.
 // Whichever class is largest is what Plan C targets.
-// ============================================================================
 
 pub fn probe_scatter_census(graph: &McVecGraph) {
     if !crate::viz::debug::dump_enabled() {
@@ -887,12 +908,9 @@ pub fn probe_scatter_census(graph: &McVecGraph) {
     );
 }
 
-// ============================================================================
 // PROBE-COLL — name-and-shame box_box collision pairs
-// ----------------------------------------------------------------------------
 // Called before audit_all; prints each overlapping box pair's name + kind + overlap amount.
 // Use it to tell whether the cause is place_flags stacking or insufficient de-overlap.
-// ============================================================================
 
 pub fn probe_box_collisions(graph: &McVecGraph) {
     if !crate::viz::debug::dump_enabled() {
@@ -931,9 +949,7 @@ pub fn probe_box_collisions(graph: &McVecGraph) {
     }
 }
 
-// ============================================================================
 // ★ P2: Bridge passive placement (transposed CAP/R in two-lane series)
-// ============================================================================
 //
 // A bridge passive is a 2-pin passive whose two pins are in *different* nets,
 // and each net has at least 1 non-passive, non-rail neighbour (anchor).
@@ -1274,9 +1290,7 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
     }
 }
 
-// ============================================================================
 // M11.0 Diagnostic helpers — detect lane semantics issues
-// ============================================================================
 
 /// Check if any net name contains `(lead)_` residue (unresolved pass-through `_`).
 pub fn has_lead_residue(nets: &[VizNet]) -> bool {
@@ -1447,9 +1461,7 @@ mod m11_diagnostic_tests {
     }
 }
 
-// ============================================================================
 // ★ P7-5 S3/S4a/S5 · stand_grounded_passives — vertical orientation pass
-// ============================================================================
 
 /// ★ P7-5: make grounded passives stand vertically, and rescue transposed
 /// rungs that `place_bridge_passives` could not place.

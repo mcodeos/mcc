@@ -28,9 +28,7 @@ use super::kinds::NetKind;
 use crate::vector::model::trunk::TrunkRef;
 use std::fmt;
 
-// ============================================================================
 // ★ NEW P03: NetTopology -- topology shape
-// ============================================================================
 
 /// A net's **topology shape** (endpoint count + driver direction), computed by `VizNet::topology()`
 ///
@@ -51,9 +49,7 @@ pub enum NetTopology {
     MultiDriver,
 }
 
-// ============================================================================
 // ★ NEW P03: IoDirection -- endpoint electrical direction
-// ============================================================================
 
 /// Simplified IOType (only keeping semantics relevant for drawing)
 ///
@@ -74,9 +70,7 @@ pub enum IoDirection {
     Unknown,
 }
 
-// ============================================================================
 // ★ M0-2: NetRole — net semantic role
-// ============================================================================
 
 /// The net's semantic role in source
 ///
@@ -109,9 +103,7 @@ impl fmt::Display for NetRole {
     }
 }
 
-// ============================================================================
 // ★ NEW: VizNet (hyperedge)
-// ============================================================================
 
 /// An electrical net (multi-endpoint hyperedge)
 ///
@@ -209,7 +201,8 @@ impl VizNet {
         self.box_ids().len() >= 2
     }
 
-    /// Whether this net is entirely within a single box (internal connection, usually doesn't need drawing)
+    /// Whether this net is entirely within a single box (internal connection, usually doesn't need
+    /// drawing)
     pub fn is_intra_box(&self) -> bool {
         self.box_ids().len() <= 1
     }
@@ -253,9 +246,7 @@ impl VizNet {
     }
 }
 
-// ============================================================================
 // ★ NEW: EndpointRef (a reference to an endpoint)
-// ============================================================================
 
 /// A net endpoint
 ///
@@ -275,7 +266,8 @@ pub struct EndpointRef {
     pub pin_id: i64,
     /// Endpoint name (used for labeling on the graph; router/render also use it)
     pub pin_name: String,
-    /// ★ P03: electrical direction (Unknown default before P01, filled from InstTable.IOType after P01)
+    /// ★ P03: electrical direction (Unknown default before P01, filled from InstTable.IOType after
+    /// P01)
     pub io_type: IoDirection,
     /// ★ P01: physical pin number (1, 2, ..., used for IC marking), None if not available
     pub pin_number: Option<u32>,
@@ -311,7 +303,8 @@ impl EndpointRef {
         }
     }
 
-    /// ★ P01: full construction (P01 uses this in from_block.rs to fill real direction + pin number)
+    /// ★ P01: full construction (P01 uses this in from_block.rs to fill real direction + pin
+    /// number)
     pub fn full(
         box_id: i64,
         pin_id: i64,
@@ -334,9 +327,7 @@ impl EndpointRef {
     }
 }
 
-// ============================================================================
 // ★ NEW: Route (route result, filled by router)
-// ============================================================================
 
 /// The concrete geometric path computed by the router
 ///

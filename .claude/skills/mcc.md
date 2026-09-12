@@ -45,6 +45,18 @@
   If a decision needs `str::contains` / `.split()` on a phrase's display
   string, the shape you are looking for is (or should be) a variant already
   present in the AST — extend the parser rather than re-parsing its output.
+- **Keep code comments lean.** A comment earns its place only by carrying
+  something the code cannot: a non-obvious *why*, an external constraint, a
+  trap. Explain why, not what (`// increment i` is noise) — if deleting it
+  loses no reason, no constraint, and no warning, delete it. No change diary
+  (`// previously…`, `// renamed from…`, `// an early version used to…`) and no
+  commented-out code: git holds the history. No `// ───── Parse ─────` banner
+  rules. Keep `///` doc comments to the contract (arguments, invariants,
+  panics, units); multi-paragraph rationale goes to a design doc under
+  `mcd/doc/` with at most a one-line pointer here. Match the file's local
+  density — appending a verbose block to a terse file is a regression even
+  when every sentence is true. Full rule: `AGENTS.md` §"keep code comments
+  lean".
 - Applies to the whole project including test code and test data.
 
 ***
@@ -1309,7 +1321,7 @@ The AI client discovers the tools automatically via `tools/list`; the tool
 name, description, and JSON schema are self-describing.
 
 - Binary: `target/debug/mcc-mcp` (source: `src/bin/mcc_mcp.rs`)
-- Design doc: `mcd/doc/mcp/mcc-mcp-server-design.md`
+- Design doc: `mcd/doc/lsp-mcp/mcc-mcp-server-design.md`
 
 ### 9.1 Connection Configuration
 

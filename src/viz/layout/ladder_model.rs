@@ -78,9 +78,7 @@ use crate::vector::graph::{McVecGraph, VisualRole};
 
 use super::rails::is_rail_box;
 
-// ============================================================================
 // Model
-// ============================================================================
 
 /// Lane index. `0` is the lane seeded by the left anchor's first pin (pin order is
 /// the tie-break, so Phase B can map lane -> y by walking the anchor's pins in the
@@ -229,9 +227,7 @@ impl std::fmt::Display for LadderBail {
     }
 }
 
-// ============================================================================
 // Public entry
-// ============================================================================
 
 /// Logging wrapper: dump the model on success, name the bail reason on failure.
 /// This is what the layouter calls.
@@ -256,7 +252,7 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
     }
     let box_nets = box_net_index(graph);
 
-    // ── 1. Anchors: non-rail, non-passive, touching >= 2 nets ────────────────
+    // 1. Anchors: non-rail, non-passive, touching >= 2 nets
     //    `main` (the SubModule boundary) touches 0 nets, so it never qualifies.
     let mut anchors: Vec<i64> = graph
         .boxes
@@ -315,7 +311,7 @@ fn build_ladder_core(
     let node_set = subset.map(|(n, _)| n);
     let edge_set = subset.map(|(_, e)| e);
 
-    // ── 2. Elements: every 2-pin passive in scope is an edge ────────────────
+    // 2. Elements: every 2-pin passive in scope is an edge
     let mut series_edges: Vec<(i64, usize, usize)> = Vec::new();
     let mut bridge_edges: Vec<(i64, usize, usize)> = Vec::new();
     for b in &graph.boxes {
@@ -349,14 +345,14 @@ fn build_ladder_core(
         return Err(LadderBail::NoBridge);
     }
 
-    // ── 3. Union-find: each bridge proves its two nets are one column ────────
+    // 3. Union-find: each bridge proves its two nets are one column
     let mut dsu = Dsu::new(n_nets);
     for &(_, a, b) in &bridge_edges {
         dsu.union(a, b);
     }
     let class_of: Vec<usize> = (0..n_nets).map(|i| dsu.find(i)).collect();
 
-    // ── 4. Lanes + BFS distance, walking SERIES edges only ──────────────────
+    // 4. Lanes + BFS distance, walking SERIES edges only
     let mut seeds: Vec<(i64, usize)> = box_nets
         .get(&left)
         .cloned()
@@ -408,7 +404,7 @@ fn build_ladder_core(
             }
         }
     }
-    // ── 4.5. Detect bridges that block BFS traversal ───────────────────────
+    // 4.5. Detect bridges that block BFS traversal
     // If a bridge connects a reachable net to an unreachable net, the bridge
     // is within the same lane — the BFS would have traversed it if it were a
     // series edge.  Report BridgeSameLane before the generic unreachable check.
@@ -434,7 +430,7 @@ fn build_ladder_core(
         }
     }
 
-    // ── 5. A rung must actually cross lanes ─────────────────────────────────
+    // 5. A rung must actually cross lanes
     for &(bid, a, b) in &bridge_edges {
         let (la, lb) = (lane_of[&a], lane_of[&b]);
         if la == lb {
@@ -445,7 +441,7 @@ fn build_ladder_core(
         }
     }
 
-    // ── 6. Orient series edges by BFS distance -> class DAG ─────────────────
+    // 6. Orient series edges by BFS distance -> class DAG
     let mut roots: Vec<usize> = class_of.clone();
     roots.sort_unstable();
     roots.dedup();
@@ -473,7 +469,7 @@ fn build_ladder_core(
         oriented.push((bid, from, to, cu, cv));
     }
 
-    // ── 7. Longest-path rank (Kahn) ─────────────────────────────────────────
+    // 7. Longest-path rank (Kahn)
     let mut rank: Vec<usize> = vec![0; k];
     let mut indeg_work = indeg.clone();
     let mut q: VecDeque<usize> = (0..k).filter(|&i| indeg_work[i] == 0).collect();
@@ -493,7 +489,7 @@ fn build_ladder_core(
         return Err(LadderBail::Cycle);
     }
 
-    // ── 8. Right-align the sinks so both lanes end on the same column ───────
+    // 8. Right-align the sinks so both lanes end on the same column
     let right_nets: Vec<usize> = box_nets
         .get(&right)
         .cloned()
@@ -541,7 +537,7 @@ fn build_ladder_core(
     }
     let n_cols = max_rank + 1;
 
-    // ── 9. Emit slots ───────────────────────────────────────────────────────
+    // 9. Emit slots
     let mut series: Vec<SeriesSlot> = oriented
         .iter()
         .map(|&(bid, from, _to, cu, cv)| SeriesSlot {
@@ -589,7 +585,7 @@ fn build_ladder_core(
         bocc.insert((b.col, b.lane_a, b.lane_b), b.box_id);
     }
 
-    // ── 10. Nothing foreign on the lanes (only for whole-graph path) ─────────
+    // 10. Nothing foreign on the lanes (only for whole-graph path)
     //    For island path, boxes outside the island are irrelevant.
     if subset.is_none() {
         let mut known: HashSet<i64> = HashSet::new();
@@ -663,9 +659,7 @@ fn pick_left_right(graph: &McVecGraph, anchors: &[i64]) -> (i64, i64) {
     (left, right)
 }
 
-// ============================================================================
 // Dump
-// ============================================================================
 
 pub fn dump(m: &LadderModel, graph: &McVecGraph) -> String {
     let name = |id: i64| -> String {
@@ -717,9 +711,7 @@ pub fn dump(m: &LadderModel, graph: &McVecGraph) -> String {
     s
 }
 
-// ============================================================================
 // Union-Find (iterative; no recursion depth risk)
-// ============================================================================
 
 struct Dsu {
     parent: Vec<usize>,
@@ -750,9 +742,7 @@ impl Dsu {
     }
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 /// box_id -> net indices it touches (deduped, ascending).
 fn box_net_index(graph: &McVecGraph) -> HashMap<i64, Vec<usize>> {
@@ -772,9 +762,7 @@ fn box_net_index(graph: &McVecGraph) -> HashMap<i64, Vec<usize>> {
     out
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -783,7 +771,7 @@ mod tests {
     use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
     use crate::vector::graph::{BoxKind, McVecBox, NetKind, Symbol};
 
-    // ---- builders ---------------------------------------------------------
+    // builders
 
     fn anchor(id: i64, name: &str, outputs: usize, inputs: usize) -> McVecBox {
         let mut io = IoSummary::new();
@@ -859,7 +847,7 @@ mod tests {
         m.bridges.iter().find(|b| b.box_id == box_id).unwrap()
     }
 
-    // ---- the real case ----------------------------------------------------
+    // the real case
 
     /// `[u1.3,u1.6] -> [RES,_] -> CAP' -> [RES,RES] -> CAP' -> [RES,RES] -> [u2.3,u2.6]`
     /// Ids and pin numbers mirror the c07_pins InstTable dump.
@@ -1000,7 +988,7 @@ mod tests {
         assert_eq!(a, b);
     }
 
-    // ---- `_` on the other lane -------------------------------------------
+    // `_` on the other lane
 
     /// ```text
     ///  u1.3 ──────── nA ──────────────── u2.3      (lane 0: no element at all)
@@ -1065,7 +1053,7 @@ mod tests {
         assert_eq!(m.net_col[&0], (0, 1));
     }
 
-    // ---- bails ------------------------------------------------------------
+    // bails
 
     #[test]
     fn no_bridge_bails() {

@@ -44,9 +44,7 @@ pub struct GridPlacement {
     pub y_row: f64,
 }
 
-// ============================================================================
 // Public entry
-// ============================================================================
 
 /// Place passives only (no terminals, no routes). Used by island band assembly
 /// so each band's passives are placed relative to the band's origin, leaving
@@ -55,13 +53,13 @@ pub fn apply_sp_model_at(graph: &mut McVecGraph, m: &SpModel, origin: Point, _x_
     let grid = place_grid(&m.root);
     let (_, root_h) = m.root.size();
 
-    // ── place the passive edges ─────────────────────────────────────────────
+    // place the passive edges
     for gp in &grid {
         let (na, nb) = span_of(&m.root, gp.box_id).expect("leaf must have a span");
         write_passive_at(graph, gp, na, nb, origin);
     }
 
-    // ── stubs ────────────────────────────────────────────────────────────────
+    // stubs
     place_stubs_at(graph, m, &grid, root_h, origin);
 }
 
@@ -74,7 +72,7 @@ pub fn apply_sp_model(graph: &mut McVecGraph, m: &SpModel) {
 
     apply_sp_model_at(graph, m, origin, x_right);
 
-    // ── place the two terminal anchors ──────────────────────────────────────
+    // place the two terminal anchors
     let (term_w, term_h) = terminal_size(graph, m.left_box, m.right_box);
     let mid_y = MARGIN + (root_h - 1.0) / 2.0 * ROW_H;
     place_terminal(
@@ -98,7 +96,7 @@ pub fn apply_sp_model(graph: &mut McVecGraph, m: &SpModel) {
         term_h,
     );
 
-    // ── wiring ────────────────────────────────────────────────────────────────
+    // wiring
     emit_sp_routes(graph, m, &place_grid(&m.root), root_w);
 }
 
@@ -122,9 +120,7 @@ fn terminal_size(graph: &McVecGraph, a: i64, b: i64) -> (f64, f64) {
     (w, h)
 }
 
-// ============================================================================
 // Pure grid placement (Phase 3 core; the golden test asserts on this)
-// ============================================================================
 
 /// Recursively assign `(x_slot, y_row)` to every leaf. Pure, deterministic.
 pub fn place_grid(root: &SpTree) -> Vec<GridPlacement> {
@@ -175,9 +171,7 @@ fn span_of(t: &SpTree, box_id: i64) -> Option<(usize, usize)> {
     }
 }
 
-// ============================================================================
 // Writers
-// ============================================================================
 
 fn write_passive_at(
     graph: &mut McVecGraph,
@@ -277,7 +271,7 @@ fn place_terminal(
     }
     b.y = cy - b.h / 2.0;
 
-    // ── pin distribution ────────────────────────────────────────────────────
+    // pin distribution
     // Connecting pin faces the block (`facing`); EVERY other pin goes to the far
     // edge and is spread evenly so nothing overlaps. This is now a shared function
     // with ladder_place so both models get the same bug-fix.
@@ -359,7 +353,8 @@ fn place_stubs_at(
     }
 }
 
-/// Place a two-terminal passive vertically: the a-side pin faces up (toward the attached node), the b-side faces down.
+/// Place a two-terminal passive vertically: the a-side pin faces up (toward the attached node), the
+/// b-side faces down.
 fn write_passive_vertical(
     graph: &mut McVecGraph,
     box_id: i64,
@@ -409,9 +404,7 @@ fn write_passive_vertical(
     b.geom_locked = true;
 }
 
-// ============================================================================
 // Wiring — emit rails / taps / leads directly into net.route
-// ============================================================================
 
 const EPS: f64 = 1e-6;
 
@@ -547,7 +540,8 @@ fn build_rail_route(taps: &[Tap]) -> Route {
             });
         }
     }
-    // ★ Junction dots only mark T joints: a tap is a three-way meeting only if it falls on the rail's **interior**;
+    // ★ Junction dots only mark T joints: a tap is a three-way meeting only if it falls on the
+    // rail's **interior**;
     // the topmost/bottommost taps on the rail are corners, dotting them would be wrong.
     if taps.len() >= 3 {
         let mut ys: Vec<f64> = Vec::new();
@@ -561,7 +555,8 @@ fn build_rail_route(taps: &[Tap]) -> Route {
                 push_unique(&mut ys, t.py);
             }
         }
-        // If a rail end has >= 2 taps at once (both sides connecting in), that end is also a real joint
+        // If a rail end has >= 2 taps at once (both sides connecting in), that end is also a real
+        // joint
         for y in [y_top, y_bot] {
             if taps.iter().filter(|t| (t.py - y).abs() < EPS).count() >= 2 {
                 push_unique(&mut ys, y);
@@ -574,9 +569,7 @@ fn build_rail_route(taps: &[Tap]) -> Route {
     route
 }
 
-// ============================================================================
 // Golden regression (Phase 5)
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -586,7 +579,7 @@ mod tests {
     use crate::vector::graph::{BoxKind, McVecBox, NetKind, Symbol};
     use crate::viz::layout::sp_model::{build_sp_model, SpBail};
 
-    // ---- builders (mirror ladder_model tests) -----------------------------
+    // builders (mirror ladder_model tests)
     fn term(id: i64, name: &str, outputs: usize) -> McVecBox {
         let mut io = IoSummary::new();
         io.outputs = outputs;
@@ -957,7 +950,8 @@ mod tests {
         }
     }
 
-    /// dump order: __net_0=B, __net_1=E, __net_2=D, __net_3=C (right terminal), __net_4=A (left terminal)
+    /// dump order: __net_0=B, __net_1=E, __net_2=D, __net_3=C (right terminal), __net_4=A (left
+    /// terminal)
     fn real_netlist() -> McVecGraph {
         let mut g = McVecGraph::new(1, "main".into());
         g.boxes.push(res(1, "R1"));

@@ -19,9 +19,7 @@
 use crate::instant::insttab::{InstEntry, InstKind, InstTable, MemberRole};
 use crate::semantic::common::IOType;
 
-// ============================================================================
 // DetectedKind -- duck typing recognition result
-// ============================================================================
 
 #[derive(Debug, PartialEq)]
 pub enum DetectedKind {
@@ -40,9 +38,7 @@ pub enum DetectedKind {
     Skip,
 }
 
-// ============================================================================
 // Main API: detect_kind
-// ============================================================================
 
 /// Detect what an `InstEntry` actually is (by checking child node structure)
 ///
@@ -66,7 +62,8 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
 
     let children = table.children_of(id);
 
-    // 2. Prefer SubModule (Iter 7 priority inversion, avoids mcu + 2 Pins being misjudged as TwoPin)
+    // 2. Prefer SubModule (Iter 7 priority inversion, avoids mcu + 2 Pins being misjudged as
+    // TwoPin)
     let port_count = children.iter().filter(|c| c.kind == InstKind::Port).count();
     let has_module_evidence = children.iter().any(|c| {
         c.kind == InstKind::Component
@@ -106,7 +103,7 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
         };
     }
 
-    // ── ★ Phase F.1: Component with no registered Pin children -> still emit box ─────────────
+    // ★ Phase F.1: Component with no registered Pin children -> still emit box
     //
     // Trigger scenario: in a typical MCU project, many "typed" chips (DCDC.sub, MCU.sub,
     // an audio amp, MICROPHONE.sub, Crystal2.sub, FLASH.sub, USB.sub,
@@ -167,9 +164,7 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
     DetectedKind::Skip
 }
 
-// ============================================================================
 // Public helper functions (shared by detect / from_block / promote etc.)
-// ============================================================================
 
 /// Extract the last segment of a path
 ///
@@ -238,9 +233,7 @@ pub fn compute_io(entries: &[&InstEntry]) -> super::boxdef::IoSummary {
     s
 }
 
-// ============================================================================
 // ★ P01 (S2): Symbol recognition / designator extraction / IOType translation
-// ============================================================================
 
 use super::kinds::BoxKind;
 use super::netdef::IoDirection;
@@ -296,7 +289,8 @@ pub fn detect_symbol(table: &InstTable, id: u32, kind: &BoxKind) -> Symbol {
 /// Extract designator from instance name (`R1` / `C5` / `U3`)
 ///
 /// Rules:
-/// - First letter in the set `{R, C, L, D, U, J, Q, Y, F, X}` (resistor/capacitor/inductor/diode/IC/connector/transistor/crystal/fuse/crystal)
+/// - First letter in the set `{R, C, L, D, U, J, Q, Y, F, X}`
+/// (resistor/capacitor/inductor/diode/IC/connector/transistor/crystal/fuse/crystal)
 /// - All remaining characters are digits
 /// - Name length >= 2
 ///
@@ -368,9 +362,7 @@ pub fn warn_if_pin_mismatch(b: &super::boxdef::McVecBox) {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

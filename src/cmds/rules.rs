@@ -93,9 +93,7 @@ pub fn run(action: Option<&RulesAction>, format: OutputFormat) -> Result<()> {
     }
 }
 
-// ============================================================================
 // read view
-// ============================================================================
 
 fn cmd_list(filter: &mcc::rules::RuleFilter, format: OutputFormat, note: &str) -> Result<()> {
     match format {
@@ -212,9 +210,7 @@ fn cmd_detail(code: &str, format: OutputFormat) -> Result<()> {
     }
 }
 
-// ============================================================================
 // write face (session store + optional project persistence)
-// ============================================================================
 
 fn cmd_set_severity(code: &str, severity: &str, write: bool) -> Result<()> {
     let code = parse_code(code)?;
@@ -342,9 +338,7 @@ fn upsert_accept(
     });
 }
 
-// ============================================================================
 // helpers
-// ============================================================================
 
 fn parse_code(code: &str) -> Result<u32> {
     store::parse_rule_code(code)

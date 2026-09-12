@@ -23,9 +23,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tracing::info;
 
-// ============================================================================
 // Status report
-// ============================================================================
 
 #[derive(Serialize)]
 struct ServerStatus {
@@ -80,9 +78,7 @@ impl ServerStatus {
     }
 }
 
-// ============================================================================
 // Dispatch subcommands for server
-// ============================================================================
 
 pub fn run_start(args: &StartArgs) -> Result<()> {
     let config = servercfg::load_config().ok();
@@ -117,7 +113,7 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
         return Err(anyhow::anyhow!("Server is already running"));
     }
 
-    // ── Foreground mode ────────────────────────────────────────────
+    // Foreground mode
     // Without -b/--background, run server in the current process, logging to stderr and --log-file,
     // Ctrl-C to exit.
     if !args.background {
@@ -139,7 +135,7 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
         return run_server_internal(&host, port, &mcc::cli::globals().lib);
     }
 
-    // ── Background mode (-b/--background) ────────────────────────────────────
+    // Background mode (-b/--background)
     // Use setsid to launch background process, detach stdout/stderr
     let exe_path = std::env::current_exe()?;
     let mut cmd = process::Command::new(&exe_path);
@@ -169,7 +165,8 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
 
     let mut child = cmd.spawn()?;
 
-    // Poll PID file for up to 10 seconds, waiting for child process to complete mcode loading and write PID
+    // Poll PID file for up to 10 seconds, waiting for child process to complete mcode loading and
+    // write PID
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut started = false;
     while Instant::now() < deadline {
@@ -211,8 +208,8 @@ pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()>
     // bypass main.)
     let _ = datadir::ensure_dirs();
     // Load system libraries (e.g. mcode) according to config (libs.load).
-    // Previously this used mcc_init_no_lib(), which skipped mcode loading and
-    // caused enum PKG (and other system symbols) to be missing for LSP gotodef.
+    // Must be the lib-loading init: the no-lib variant skips mcode, leaving enum
+    // PKG (and other system symbols) missing for LSP gotodef.
     mcc::mcc_init();
     if !libs.is_empty() {
         crate::cmds::manifest::load_libs(&crate::cmds::manifest::collect_libs(None, libs));
@@ -230,13 +227,13 @@ pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()>
         mcc::mcc_log_init(&p);
     }
 
-    // ── 1. Register all RPC methods ──────────────────────────────────────
+    // 1. Register all RPC methods
     let server = register_all(RpcServerBuilder::new().host(host).port(port)).build();
 
-    // ── 2. Write PID file for client discovery ─────────────────────────
+    // 2. Write PID file for client discovery
     write_pid_file(host, port)?;
 
-    // ── 3. Blocking run ───────────────────────────────────────────────
+    // 3. Blocking run
     let result = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -281,9 +278,7 @@ fn write_pid_file(host: &str, port: u16) -> Result<()> {
     Ok(())
 }
 
-// ============================================================================
 // Stop / Status
-// ============================================================================
 
 fn stop_server(force: bool, timeout: u64) -> Result<()> {
     let pid_file = pid_file_path();

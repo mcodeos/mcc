@@ -45,7 +45,7 @@ fn find_component<'a>(
         .unwrap_or_else(|| panic!("component '{}' not found", name))
 }
 
-// ── §2.20.1: Parameter reference form ──────────────────────────────────────
+// §2.20.1: Parameter reference form
 
 #[test]
 fn mat_dynpin__parameter_reference_expands() {
@@ -74,7 +74,7 @@ module main
     assert_eq!(comp.pin_name("5").as_deref(), Some("5"));
 }
 
-// ── §2.20.5: Static degenerate form ────────────────────────────────────────
+// §2.20.5: Static degenerate form
 
 #[test]
 fn mat_dynpin__static_nested_range_expands() {
@@ -107,7 +107,7 @@ module main
     assert_eq!(comp.pin_name("6").as_deref(), Some("R2C3"));
 }
 
-// ── §2.20.2 + §2.20.3: Expression evaluation + nested range ───────────────
+// §2.20.2 + §2.20.3: Expression evaluation + nested range
 
 #[test]
 fn mat_dynpin__expression_and_nested_range_expands() {
@@ -175,7 +175,7 @@ module main
     assert_eq!(comp.pin_name("6").as_deref(), Some("R3C2"));
 }
 
-// ─- §2.20.1: Parameter reference with different values ─────────────────────
+// §2.20.1: Parameter reference with different values
 
 #[test]
 fn mat_dynpin__parameter_reference_single_pin() {
@@ -227,7 +227,7 @@ module main
     assert_eq!(comp.pin_name("20").as_deref(), Some("20"));
 }
 
-// ── Pin usage check: unused dynamic pins detected ──────────────────────────
+// Pin usage check: unused dynamic pins detected
 
 /// Helper: build module, flatten to InstTable, run pin checks.
 fn build_and_check_pins(source: &str) -> Vec<mcc::check::pins::PinCheckResult> {
@@ -361,14 +361,14 @@ module main
     );
 }
 
-// ── Interface dynamic pins with default parameters (§2.20 + IFACE) ─────────
+// Interface dynamic pins with default parameters (§2.20 + IFACE)
 //
 // An interface whose only pins are dynamic (`1:count = 1:count`) with a
 // default parameter (`count::INT = 1`) must resolve via the default when the
-// call site passes no arguments. Previously `IO::IF_GPIO()` left `count`
-// unbound, so `1:count` could not expand and the interface was treated as
-// having no top-level pins (E3180 IFACE_NO_TOPLEVEL_PINS), even though the
-// definition declared a usable default.
+// call site passes no arguments. Leaving `count` unbound makes `1:count`
+// unable to expand, so the interface is treated as having no top-level pins
+// (E3180 IFACE_NO_TOPLEVEL_PINS) even though the definition declares a usable
+// default.
 
 #[test]
 fn mat_dynpin__interface_default_param_resolves() {

@@ -83,7 +83,7 @@ impl InstantiationBuilder {
 
         // ── G4: Skip stmts referencing failed components ──
         // If any FuncCall in the phrase references a class whose instantiation
-        // previously failed, skip the entire stmt to avoid ghost pins.
+        // already failed, skip the entire stmt to avoid ghost pins.
         if !self.failed_classes.is_empty()
             && Self::phrase_contains_failed_class(phrase, &self.failed_classes)
         {
@@ -117,7 +117,7 @@ impl InstantiationBuilder {
         );
 
         // ── PWR-10 (6028): direction-word terminal at the wrong end of its own
-        // connection chain (power-intent-design.md §5.3.2). Members are stored
+        // connection chain (intent-design.md §5.3.2). Members are stored
         // in **written source order** (R0 §2.4.5 corollary — the reversal lives
         // in `ConnDir` alone), so which end is the supply/OUT end is read off
         // the gap direction at that end, not off the member index: `->` leads
@@ -138,7 +138,7 @@ impl InstantiationBuilder {
     }
 
     // ── PWR-10 (6028): arrow/direction-word consistency audit ──
-    // power-intent-design.md §5.3.2. A direction-word power terminal (module
+    // intent-design.md §5.3.2. A direction-word power terminal (module
     // power-port row or leaf-component power pin) must sit at the end of its own
     // connection chain its direction word claims: a source (psrc) face leads the
     // chain / the right of a `{L|R}` through, a sink (psnk) trails it / sits on
@@ -453,7 +453,7 @@ impl InstantiationBuilder {
                         None
                     }
                 }
-                // ── P2-5 parameter face ─────────────────────────────────────
+                // P2-5 parameter face
                 // The `=>` fold puts the bus INSIDE the call's actuals, so no
                 // chain member carries it: `BUS => C(..).M(_, V)` folds to
                 // `C(..).M(BUS, V)` (mc_fcall §1). The lane source is then the
@@ -554,7 +554,7 @@ impl InstantiationBuilder {
         // func return face; a genuinely mis-shaped `[2×1] -> CAP(1×2) -> [2×1]`
         // chain is reported by the series-row check below.
 
-        // ── M11.1 / M11.4: Lane-by-lane wiring ────────────────────────────
+        // M11.1 / M11.4: Lane-by-lane wiring
         // Use lane-by-lane wiring when the chain contains:
         // - Lead (_) pass-through elements (e.g. [RES, _])
         // - Standalone Transposed bridge passives (e.g. CAP')
@@ -763,7 +763,7 @@ impl InstantiationBuilder {
         }
     }
 
-    /// ── P2-5 lane substitution ────────────────────────────────────────────
+    /// P2-5 lane substitution
     /// Extract (base_bus, lane_name) from a lane endpoint phrase. P2-5's
     /// `inner` Multiple holds per-member bus endpoints produced by
     /// `expand_multi_member_buses` (e.g. `Bus("uC.I2C0.SCL")` →
@@ -949,9 +949,9 @@ impl InstantiationBuilder {
                         _ => {
                             // ── P2-7-XTAL fix: assign each Parallel stmt to its matching lane ──
                             // In lane-by-lane wiring, a Parallel group like [CAP1, CAP2]
-                            // provides one element per lane. Previously, lane==0 captured
-                            // all stmts, causing duplicate component creation and leaving
-                            // other lanes without their assigned elements.
+                            // provides one element per lane. Letting lane==0 capture every
+                            // stmt duplicates component creation and leaves the other
+                            // lanes without their assigned elements.
                             if lane == stmt_idx {
                                 items.push((member_idx, LaneItem::Series(stmt)));
                             }
@@ -966,7 +966,7 @@ impl InstantiationBuilder {
                 }
                 self.try_record_bridge_passive(inner);
             }
-            // ── whole-DC-pair curly face (model A §5.3) ──────────────────
+            // whole-DC-pair curly face (model A §5.3)
             // `ldo{VIN | VOUT}` / `buck{VIN | LX}` expands to a Node whose
             // input/output faces are the port's [hot, ret] member refs,
             // spanning `node_face_lanes` lanes. The default arm below would
@@ -1095,7 +1095,7 @@ impl InstantiationBuilder {
         );
         match phrase {
             McPhrase::Series(phrases, d) => {
-                // ── P1-B ────────────────────────────────────────────────
+                // P1-B
                 // Don't flatten Multiple inside Series into chain — that would
                 // turn `MIC{P,N} -> cap[4:5] -> uC.ADC{P,N}` "both ends N-wide,
                 // middle N parallel branches" pattern, incorrectly into cap4→cap5
@@ -1103,7 +1103,7 @@ impl InstantiationBuilder {
                 // its get_left/get_right aggregates all branch endpoints as
                 // multi-point side, handled by create_connection N-to-N paired wiring.
                 //
-                // ── Iter-6.S5.2 P0-2 (B + C) ───────────────────────────
+                // Iter-6.S5.2 P0-2 (B + C)
                 // But **just keeping Multiple shell isn't enough** — inner phrase is still
                 // parser raw AST form (`Single(Component)` / `Single(Label)`
                 // / `Single(Interface)` …). These forms in points.rs
@@ -1133,7 +1133,7 @@ impl InstantiationBuilder {
                 // (e.g., inner is Series gets flattened), so use `flat_map`
                 // to collect — this is exactly what we want (flattened to several phrases sharing
                 // same Multiple wrapper).
-                // ── edge-level direction gaps ────────────────────────────
+                // edge-level direction gaps
                 // `gaps[i]` is the operator direction connecting
                 // `result[i]`~`result[i+1]`. Each top-level child is one
                 // operand: the boundary between consecutive operands carries
@@ -1236,15 +1236,17 @@ impl InstantiationBuilder {
             })) => {
                 let inst_name = c.name.to_string();
 
-                // ── P0-1 fix ──────────────────────────────────────────────
+                // P0-1 fix
                 // If user explicitly wrote member access (e.g., `dcdc{Vin, GND}` or
                 // `wm7121{2,3}`), expand these members into Bus.member, letting downstream
                 // get_left_points / get_right_points expand bus-to-bus.
                 //
-                // Otherwise (bare component reference like `R1` / `C1`), still use pin count heuristic:
+                // Otherwise (bare component reference like `R1` / `C1`), still use pin count
+                // heuristic:
                 //   0/1 pin → single-point Bus
                 //   2 pin   → 2-pin Node (left=.1, right=.2)
-                //   multi-pin → single-point Bus (fallback, pin handling delegated to FuncCall/declaration)
+                // multi-pin → single-point Bus (fallback, pin handling delegated to
+                // FuncCall/declaration)
                 let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
                 if !expanded.is_empty() {
                     return (
@@ -1255,12 +1257,10 @@ impl InstantiationBuilder {
                     );
                 }
 
-                // ── Two-pin determination (def-driven) ───────────────────
+                // Two-pin determination (def-driven)
                 // Decide from the class's *real* pin count — static pins plus
                 // any dynamic range resolved against this instance's bound
                 // params — instead of the old class-name whitelist / @-anon
-                // guess (system CAP/RES used to be dynamic-pin and needed the
-                // name list; they are static now and hit `(2, _)` directly).
                 // Static count 2 is authoritative; a dynamic-pin class is
                 // two-pin only when it really resolves to 2 (this also stops
                 // forcing every @-anonymous dynamic instance into a 2-pin
@@ -1298,7 +1298,7 @@ impl InstantiationBuilder {
             })) => {
                 let inst_name = m.name.to_string();
 
-                // ── P1-A1b ───────────────────────────────────────────────
+                // P1-A1b
                 // User explicit member access `speaker{DAC_IN, US_SPEAKER_MUTE}`:
                 // Note **cannot** directly return `Bus(name, members)` — `get_left_points`
                 // Bus branch `Vec::from(mcbus)` in member.len()==2 special path
@@ -1312,7 +1312,8 @@ impl InstantiationBuilder {
                 // Port iotype looked up from declared submodule instance `self.sub_modules`:
                 //   - In / InOut  → input  side
                 //   - Out / InOut → output side
-                // Members not found (e.g., module not declared or pass2 not yet instantiated), put on
+                // Members not found (e.g., module not declared or pass2 not yet instantiated), put
+                // on
                 // input side as fallback.
                 let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
                 if !expanded.is_empty() {
@@ -1345,7 +1346,7 @@ impl InstantiationBuilder {
                     );
                 }
 
-                // ── P1-A2 ────────────────────────────────────────────────
+                // P1-A2
                 // Bare module reference `V3V3 -> dcdc -> V1V2`: need to split module into
                 // Node (in side / out side), so `dcdc` two sides don't get
                 // union-find merged into one big net.
@@ -1422,12 +1423,14 @@ impl InstantiationBuilder {
             })) => {
                 let inst_name = i.name.to_string();
 
-                // ── P0-2 fix ──────────────────────────────────────────────
+                // P0-2 fix
                 // Interface class label defaults to "single net label" handling (same as Label).
-                // No longer auto-expand to `.1/.2` just because "interface has 2 pins" — that breaks
+                // No longer auto-expand to `.1/.2` just because "interface has 2 pins" — that
+                // breaks
                 // `V5V::DC(5V)` "attach interface type to label" top-level usage.
                 //
-                // Only expand when user **explicitly** uses `{m1, m2}` syntax to access certain members.
+                // Only expand when user **explicitly** uses `{m1, m2}` syntax to access certain
+                // members.
                 let expanded: Vec<String> = members.iter().flat_map(|ml| ml.expand()).collect();
                 if !expanded.is_empty() {
                     return (
@@ -1455,7 +1458,7 @@ impl InstantiationBuilder {
                     data.name,
                     data.member
                 );
-                // ── M11.5: expand multi-member Bus to Multiple ──────────────
+                // M11.5: expand multi-member Bus to Multiple
                 // When a Bus has multiple members (e.g. dc{VDD_3V3, GND}),
                 // expand to Multiple so lane-by-lane wiring can handle each
                 // lane independently.  Single-member buses stay as-is.
@@ -1616,7 +1619,7 @@ impl InstantiationBuilder {
                 (result, gaps)
             }
             McPhrase::Endpoint(ref ep) => {
-                // ── §11.3 lane-structured List: N independent member lanes ──────
+                // §11.3 lane-structured List: N independent member lanes
                 // `cap[4:5]` resolves at pass1 to
                 // `Endpoint(List([Single(cap4), Single(cap5), ...]))`. Do NOT
                 // collapse through get_left/get_right — those take only the
@@ -1655,11 +1658,10 @@ impl InstantiationBuilder {
             }
             McPhrase::Member(inner, member_ep) => {
                 // ── P2-4 fix: keep Member for ALL cases, not just FuncCall ──
-                // Previously only FuncCall inners kept the Member wrapper (e.g.
-                // `X6.setup(GND, NC).XTAL`), while non-FuncCall inners like
-                // `uC.XTAL` (Member(Endpoint(Component(uC)), "XTAL")) were stripped,
-                // losing the XTAL member name and causing all XTAL pins to merge
-                // into one net instead of lane-by-lane matching.
+                // Stripping a non-FuncCall inner like `uC.XTAL`
+                // (Member(Endpoint(Component(uC)), "XTAL")) loses the XTAL member
+                // name and merges all XTAL pins into one net instead of matching
+                // them lane by lane.
                 (
                     vec![McPhrase::Member(inner.clone(), member_ep.clone())],
                     Vec::new(),
@@ -1696,7 +1698,7 @@ impl InstantiationBuilder {
         out
     }
 
-    /// ── M11.5: expand multi-member Buses into Multiple ──────────────────
+    /// M11.5: expand multi-member Buses into Multiple
     /// Buses may have multiple members (e.g. `dc{VDD_3V3, GND}`).  Expand them
     /// to Multiple so lane-by-lane
     /// wiring can handle each lane independently.
@@ -2173,11 +2175,13 @@ impl InstantiationBuilder {
         elems: &[McPhrase],
         dir: ConnDir,
     ) -> Result<(), InstError> {
-        // 1) In-place instantiate each element (FuncCall registers in auto_inst_map on the original pointer)
+        // 1) In-place instantiate each element (FuncCall registers in auto_inst_map on the original
+        // pointer)
         for e in elems {
             self.process_member_internal(e)?;
         }
-        // 2) Adjacent wiring: for each pair, Label types use upgraded copy, others use original reference
+        // 2) Adjacent wiring: for each pair, Label types use upgraded copy, others use original
+        // reference
         for k in 0..elems.len().saturating_sub(1) {
             let ln = self.normalize_branch_elem(&elems[k]);
             let rn = self.normalize_branch_elem(&elems[k + 1]);
@@ -2218,11 +2222,10 @@ impl InstantiationBuilder {
     pub(super) fn process_member_internal(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
         match phrase {
             McPhrase::Parallel(stmts) => {
-                // ── P1-E1 ────────────────────────────────────────────────
-                // Each item in Parallel is an independent stmt. Previously
-                // here uniformly went through `self.process_stmt(stmt)`, but
-                // process_stmt first calls phrase_to_members to clone stmt, then
-                // does process_member_internal on the cloned elements —— the
+                // P1-E1
+                // Each item in Parallel is an independent stmt. Going through
+                // `self.process_stmt(stmt)` clones it via phrase_to_members first,
+                // so process_member_internal runs on the cloned elements —— the
                 // auto_inst_map's key falls on the cloned address.
                 //
                 // Later, in the adjacency phase, get_left_points / get_right_points
@@ -2241,7 +2244,7 @@ impl InstantiationBuilder {
                 for stmt in stmts {
                     match stmt {
                         McPhrase::Series(elems, d) => {
-                            // ── BUG4 fix (same as Group handler) ────────────────
+                            // BUG4 fix (same as Group handler)
                             // Originally process_stmt(clone) → FuncCall in Series
                             // is instantiated on the cloned pointer; but outer
                             // get_left_points(Parallel) → opds[0]=Series →
@@ -2262,7 +2265,7 @@ impl InstantiationBuilder {
                     }
                 }
 
-                // ── §5.1 `+` internal wiring ────────────────────────────
+                // §5.1 `+` internal wiring
                 // `A + B + C` generates the nets that tie the written ends
                 // together (rules §10.1): the left ends into the chain-entry
                 // net and the right ends into the chain-exit net, split per
@@ -2281,7 +2284,7 @@ impl InstantiationBuilder {
                 }
             }
             McPhrase::Group(ref g) => {
-                // ── BUG4 fix ──────────────────────────────────────────────
+                // BUG4 fix
                 // Originally called process_stmt(p) for each branch. But the
                 // first step of process_stmt, phrase_to_members, will clone the
                 // branch (Group/Series/FuncCall all cloned), then do
@@ -2321,7 +2324,7 @@ impl InstantiationBuilder {
                 }
             }
             McPhrase::Transposed(inner) => {
-                // ── P0 fix (Transposed auto_inst_map pointer mismatch) ──────
+                // P0 fix (Transposed auto_inst_map pointer mismatch)
                 // Originally process_stmt(inner) cloned the FuncCall via
                 // phrase_to_members, causing the auto_inst_map key to land on
                 // the cloned pointer. Later get_left_points / get_right_points
@@ -2402,7 +2405,7 @@ impl InstantiationBuilder {
                             new_components,
                             new_connections,
                         } => {
-                            // ── Iter-1.2 ───────────────────────────────────
+                            // Iter-1.2
                             // When iterated calls produce multiple components
                             // (e.g. `cap[4:5]::CAP()`), record them as an
                             // `AutoInst::Array` so the face resolver returns
@@ -2456,7 +2459,7 @@ impl InstantiationBuilder {
                     return Ok(());
                 }
 
-                // ── Iter-1.3 ─────────────────────────────────────────────
+                // Iter-1.3
                 // Array-form caller pointing to already-declared instances:
                 // for a call like `cap[4:5]::CAP(1uF)`, pass1 has already
                 // registered cap4/cap5 as independent components in
@@ -2482,7 +2485,7 @@ impl InstantiationBuilder {
                     }
                 }
 
-                // ── Iter-6.S4.1 ─────────────────────────────────────────────
+                // Iter-6.S4.1
                 // **Caller chain recursion (lifted from original Iter-3.F position)**
                 //
                 // Must process the inner caller once before all dispatch paths
@@ -2524,7 +2527,7 @@ impl InstantiationBuilder {
                     }
                 }
 
-                // ── Iter-2.2 ─────────────────────────────────────────────
+                // Iter-2.2
                 // Component instance method dispatch: forms like `uC.power(V3V3, V1V2)`.
                 // funccall.rs::instantiate_funccall currently only checks
                 // self.sub_modules, never dispatches methods on component instances
@@ -2540,13 +2543,13 @@ impl InstantiationBuilder {
                 // "caller is array but func is user method" extreme case
                 // (although not in the example project).
                 //
-                // ── Iter-3.A ────────────────────────────────────────────
+                // Iter-3.A
                 // `.Cap/.Pullup/.Pulldown` must reach Iter-2.2 dispatch below
                 // so the library func is the wiring source (unified-twopin-
                 // no-builtin v2.0) — never get grabbed earlier as a component
                 // instance method with an empty-shell body ("Instance method
                 // has no parsed stmts"), which would silently drop the call.
-                // ── All-`_` placeholder twopin calls ─────────────────────
+                // All-`_` placeholder twopin calls
                 // `.Cap(_)` / `.Cap([_, _])` carry no explicit endpoint;
                 // dispatching them would bind `_` to a Multiple formal and
                 // emit garbage nets. §11.6: placeholders do not implicitly
@@ -2578,7 +2581,7 @@ impl InstantiationBuilder {
                     return Ok(());
                 }
 
-                // ── Iter-2.2: ordinary instance-method dispatch ──────────
+                // Iter-2.2: ordinary instance-method dispatch
                 // Runs for ALL method calls including `.Cap/.Pullup/.Pulldown`
                 // — the library func (`func Cap([net1, net2])` etc.) is now the
                 // only implementation (unified-twopin-no-builtin v2.0). If the
@@ -2666,7 +2669,7 @@ impl InstantiationBuilder {
                             }
                         }
 
-                        // ── P1 fix: dotted scope-chain drill down ──────────────
+                        // P1 fix: dotted scope-chain drill down
                         // inst_name like "mcu.uC" → look up
                         // components["uC"].funcs["i2c"] in sub_modules["mcu"].
                         // This handles the dispatch path after `uC.i2c(0x36)` in
@@ -2724,7 +2727,7 @@ impl InstantiationBuilder {
                             }
                         }
 
-                        // ── Iter-6.S4 ────────────────────────────────────
+                        // Iter-6.S4
                         // Chained call fallback: caller has been successfully
                         // resolved as some known instance (component / sub_module),
                         // but the called method does not **exist** in that
@@ -2746,7 +2749,7 @@ impl InstantiationBuilder {
                         // (4 warnings), letting the author immediately see the
                         // complete "undefined method" list.
                         //
-                        // ── Iter-6.S4.2 removed the original auto_inst_map.insert ────────
+                        // Iter-6.S4.2 removed the original auto_inst_map.insert
                         // Originally there was a line here
                         // `self.auto_inst_map.insert(key, inst_name)`, intent was
                         // "in case this chain isn't an isolated line but participates
@@ -2804,7 +2807,7 @@ impl InstantiationBuilder {
                     }
                 }
 
-                // ── Iter-6.S4.1 ─────────────────────────────────────────
+                // Iter-6.S4.1
                 // Caller chain recursion was originally placed here, after Iter-2.2
                 // dispatch and before the generic FuncCall path. But combined with
                 // Iter-6.S4's "undefined method warning + early exit" logic, chained
@@ -2828,7 +2831,7 @@ impl InstantiationBuilder {
                 // method dispatch above or fall through to the generic path).
                 let key = Self::member_key(phrase);
 
-                // ── P2-9: prevent duplicate component creation ──────────────
+                // P2-9: prevent duplicate component creation
                 // When lane-by-lane wiring re-processes the same FuncCall
                 // elements that were already instantiated by the normal
                 // process_member_internal loop, auto_inst_map already has
@@ -2876,7 +2879,7 @@ impl InstantiationBuilder {
                         }
                     }
                     FuncCallInst::PassThrough => {
-                        // ── P2-2: check Endpoint return side channel ─────────────────
+                        // P2-2: check Endpoint return side channel
                         // instantiate_instance_method sets this when it detects
                         // McFuncReturn::Endpoint. Takes priority over P0-4 stub path.
                         let return_ep = super::fcallinst::LAST_RETURN_ENDPOINT
@@ -2884,12 +2887,12 @@ impl InstantiationBuilder {
                         if let Some(entry) = return_ep {
                             self.auto_inst_map.insert(key, entry);
                         } else {
-                            // ── P0-4 fix (enhanced) ───────────────────────────────
+                            // P0-4 fix (enhanced)
                             // Unrecognized FuncCall → register a unique stub name for
                             // each call in `auto_inst_map`, to avoid class names leaking
                             // as Labels and causing shorts.
                             //
-                            // ── P0-4 naming unification ──────────────────────────
+                            // P0-4 naming unification
                             // Unify type string normalization: `.Cap(...)` and
                             // `CAP(...)` both use the canonical class name (all caps)
                             // for auto_name, no longer one using function name and
@@ -2931,12 +2934,12 @@ impl InstantiationBuilder {
                                     && !self.is_bus(&caller_name));
 
                             if class_looking && caller_unknown {
-                                // ── P0-4 naming unification ──────────────────────
+                                // P0-4 naming unification
                                 // Normalize type name: replace '.' with '_', then
                                 // uppercase so `@?Cap_1` and `@CAP_1` normalize to
                                 // `@?CAP_1`
                                 //
-                                // ── ★ P0-2 alias normalization ─────────────────────────────
+                                // ★ P0-2 alias normalization
                                 // Further convert shorthand to the canonical class name
                                 // actually present in CMIE:
                                 //   `Esd(...)`   → canonical name `DIO.ESD`  → stub `@?DIO_ESD_N`
@@ -2956,7 +2959,7 @@ impl InstantiationBuilder {
                                     .unwrap_or_else(|| class_name.clone());
                                 let safe = canonical_class.replace('.', "_").to_ascii_uppercase();
 
-                                // ── ★ ITER-1 P0 fix: reuse real component name, eliminate @? mismatch ──────────
+                                // ★ ITER-1 P0 fix: reuse real component name, eliminate @? mismatch
                                 //
                                 // Symptom: the example mcu module's 3 decoupling caps
                                 //   `CAP_1` / `CAP_2` / `CAP_3` have already been
@@ -3085,12 +3088,10 @@ impl InstantiationBuilder {
             | McPhrase::Endpoint(McEndpoint::Node { .. })
             | McPhrase::Endpoint(_) => {}
             McPhrase::Multiple(inner) => {
-                // ── P1-B2 ────────────────────────────────────────────────
+                // P1-B2
                 // Cooperates with P1-B's "keep Multiple inside Series" rule.
-                // Previously phrase_to_members would flatten Multiple away,
-                // process_member_internal would never encounter Multiple, so
-                // here was originally no-op. After P1-B changed to keep it, if
-                // here still does nothing, inner FuncCalls (like the iterated
+                // P1-B keeps Multiple inside Series, so this arm cannot stay a
+                // no-op: doing nothing leaves the inner FuncCalls (like the iterated
                 // call `cap[4:5]::CAP(1uF)`, or member list
                 // `[CAP(10uF).Cap(...), RES(1k).Pullup(...)]`) won't be
                 // instantiated, auto_inst_map won't have corresponding keys,
@@ -3107,7 +3108,7 @@ impl InstantiationBuilder {
                 }
             }
             McPhrase::Series(_, _) => {}
-            // ── Iter-12.1c: recursively process Member's inner phrase ──────────────
+            // Iter-12.1c: recursively process Member's inner phrase
             //
             // Original code: `McPhrase::Member(_, _) => {}` (no-op)
             //
@@ -3220,9 +3221,7 @@ impl InstantiationBuilder {
         }
     }
 
-    // ────────────────────────────────────────────────────────────────────────
     // Iter-1/2 helper functions
-    // ────────────────────────────────────────────────────────────────────────
 
     /// Extract the "caller's instance name" from McPhrase.
     ///
@@ -3257,7 +3256,7 @@ impl InstantiationBuilder {
             McPhrase::Series(phrases, _) if phrases.len() == 1 => {
                 Self::extract_caller_inst_name(&phrases[0])
             }
-            // ── Iter-6.S2 ────────────────────────────────────────────────
+            // Iter-6.S2
             // Chained call support: caller is itself a FuncCall (e.g. `setup()`
             // in `mcu.setup().add_caps()` is add_caps's caller).
             //
@@ -3323,7 +3322,7 @@ impl InstantiationBuilder {
         &self,
         phrase: &McPhrase,
     ) -> Option<Vec<String>> {
-        // ── §11.3 lane-structured List (Phase 1.3) ──────────────────────────
+        // §11.3 lane-structured List (Phase 1.3)
         // `cap[4:5]` in a connection operand resolves at pass1 to
         // `Endpoint(List([Single(Component cap4), Single(Component cap5)]))`
         // (module scope → find_inst hits → Component). Extract the member
@@ -3351,7 +3350,7 @@ impl InstantiationBuilder {
         }
 
         // ── §11.3/1.6: a single `Component` caller is NEVER re-linked to its
-        // group ─────────────────────────────────────────────────────────────
+        // group
         // The Iter-3.D sibling-probing heuristic is gone (cffa52c): it probed
         // base+digit siblings (`res1` → res2, res3 ...) to reassemble an array
         // after pass1 expanded only the first member. Its successor here used

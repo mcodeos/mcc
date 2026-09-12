@@ -80,9 +80,7 @@ use super::equipotential_tree::{
     LABEL_PAD, ROW_CLEAR, SYMBOL_DROP, TOOTH_GAP,
 };
 
-// ============================================================================
 // Milestone gating
-// ============================================================================
 
 /// Which milestone an invariant is expected to hold from.
 ///
@@ -123,9 +121,7 @@ impl fmt::Display for Milestone {
     }
 }
 
-// ============================================================================
 // Layer 0: the read model — schema frozen at M0
-// ============================================================================
 
 /// Geometric orientation of a placed box, derived from `w` vs `h`.
 ///
@@ -379,9 +375,7 @@ fn box_name(graph: &McVecGraph, id: i64) -> String {
         .unwrap_or_else(|| format!("<missing id={id}>"))
 }
 
-// ============================================================================
 // Text projection
-// ============================================================================
 
 fn f(v: f64) -> String {
     format!("{v:.0}")
@@ -541,9 +535,7 @@ pub fn dump_layout_model(graph: &McVecGraph, topos: &[NetTopology]) -> String {
     build_view(graph, topos).to_string()
 }
 
-// ============================================================================
 // Layer 1: invariants A1..A8
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckStatus {
@@ -696,7 +688,7 @@ pub fn audit_equi_tree(graph: &McVecGraph, layout_topos: &[NetTopology]) -> Equi
     EquiAudit { checks }
 }
 
-// ── A1 ──────────────────────────────────────────────────────────────────────
+// A1
 
 /// A1: no trunk-bearing net fell back to an island row — `rows_fallback == 0`.
 ///
@@ -722,7 +714,7 @@ fn check_a1_rows(layout_topos: &[NetTopology]) -> Check {
     c
 }
 
-// ── A2 ──────────────────────────────────────────────────────────────────────
+// A2
 
 /// Replay the render-side pipeline (`assign_regions` → `assign_rows` →
 /// `resolve_lanes` → `envelop_lanes`) on the **fully placed** graph. The render
@@ -815,7 +807,7 @@ fn check_a2b_anchor_replay(graph: &McVecGraph, layout_topos: &[NetTopology]) -> 
     c
 }
 
-// ── A3 ──────────────────────────────────────────────────────────────────────
+// A3
 
 fn check_a3_dangling(graph: &McVecGraph, topos: &[NetTopology], trees: &[EquiTree]) -> Check {
     let mut c = Check::new("A3", "no dangling segment endpoints", Milestone::M0);
@@ -886,7 +878,7 @@ pub fn dangling_segments(topo: &NetTopology, tree: &EquiTree, graph: &McVecGraph
     dangling
 }
 
-// ── A4 ──────────────────────────────────────────────────────────────────────
+// A4
 
 /// A two-pin passive drawn horizontally (`w > h`) must carry Left/Right pins;
 /// drawn vertically (`h > w`) it must carry Top/Bottom pins. A mismatch means
@@ -960,7 +952,7 @@ fn check_a4_passive_orientation(graph: &McVecGraph) -> Check {
     c
 }
 
-// ── A5 / A6 ─────────────────────────────────────────────────────────────────
+// A5 / A6
 
 fn check_a5_col_unique() -> Check {
     Check::skipped(
@@ -980,7 +972,7 @@ fn check_a6_bridge_same_col() -> Check {
     )
 }
 
-// ── A7 ──────────────────────────────────────────────────────────────────────
+// A7
 
 /// No segment may cross a box that is not one of its own net's members.
 /// Label-kind boxes are excluded — they render as tree symbols, not rects.
@@ -1078,7 +1070,7 @@ fn is_opposite_sides(a: Region, b: Region) -> bool {
     }
 }
 
-// ── A8 ──────────────────────────────────────────────────────────────────────
+// A8
 
 /// A net with three or more tap points is a comb and must show at least one
 /// junction dot; without one it has degenerated into disconnected strokes.
@@ -1105,7 +1097,7 @@ fn check_a8_junction_present(topos: &[NetTopology], trees: &[EquiTree]) -> Check
     c
 }
 
-// ── A9 ──────────────────────────────────────────────────────────────────────
+// A9
 
 /// A9: one ground glyph per ground net.
 ///
@@ -1147,7 +1139,7 @@ fn check_a9_ground_glyphs(topos: &[NetTopology], trees: &[EquiTree]) -> Check {
     c
 }
 
-// ── A10 ─────────────────────────────────────────────────────────────────────
+// A10
 
 /// A10: same-side row exclusivity + no member invades a foreign row band.
 ///
@@ -1211,7 +1203,7 @@ fn check_a10_same_side_rows(graph: &McVecGraph, layout_topos: &[NetTopology]) ->
     c
 }
 
-// ── A11 ─────────────────────────────────────────────────────────────────────
+// A11
 
 /// A11: two trunk-bearing nets on the same row must be W/E-opposite.
 ///
@@ -1242,7 +1234,7 @@ fn check_a11_same_row_opposite(layout_topos: &[NetTopology]) -> Check {
     c
 }
 
-// ── A12 ─────────────────────────────────────────────────────────────────────
+// A12
 
 /// A12: consecutive row bands do not overlap — `y[k] + down(k) + ROW_CLEAR ≤
 /// y[k+1]` and `y[k+1] - up(k+1) - ROW_CLEAR ≥ y[k]`, a pure RowPlan self-check
@@ -1295,7 +1287,7 @@ fn check_a12_row_band_overlap(graph: &McVecGraph, layout_topos: &[NetTopology]) 
     c
 }
 
-// ── A13 ─────────────────────────────────────────────────────────────────────
+// A13
 
 /// A13: no two pin slots of the same box collapse onto the same point.
 ///
@@ -1329,7 +1321,7 @@ fn check_a13_pin_overlap(graph: &McVecGraph) -> Check {
     c
 }
 
-// ── A14 ─────────────────────────────────────────────────────────────────────
+// A14
 
 /// A14: pin labels fit inside the box. Left label max width + right label max
 /// width + `2*LABEL_PAD` must be ≤ `b.w` — M2's collapsed row span used to
@@ -1393,7 +1385,7 @@ fn check_a14_label_fit(graph: &McVecGraph) -> Check {
     c
 }
 
-// ── A15 ─────────────────────────────────────────────────────────────────────
+// A15
 
 /// A15: all Ground glyphs of the layer hang at the same y — the shared ground
 /// band (M2.5 Step 7). Before the fix, terminal-only grounds each picked a free
@@ -1435,7 +1427,7 @@ fn check_a15_ground_band(trees: &[EquiTree]) -> Check {
     c
 }
 
-// ── A16 ─────────────────────────────────────────────────────────────────────
+// A16
 
 /// A16: ground-net count conservation across the whole pipeline —
 /// `(ground nets in the graph) == (ground topologies) == (ground glyphs drawn)`.
@@ -1477,7 +1469,7 @@ fn check_a16_ground_count_conservation(
     c
 }
 
-// ── A17 / A18 ───────────────────────────────────────────────────────────────
+// A17 / A18
 
 /// M3.5 (A17): a terminal symbol's label TEXT must not overlap any box, any
 /// wire of a DIFFERENT net, nor another symbol's label text. The text bbox is
@@ -1635,7 +1627,7 @@ fn rects_overlap(x0: f64, y0: f64, w0: f64, h0: f64, x1: f64, y1: f64, w1: f64, 
     x0 < x1 + w1 && x1 < x0 + w0 && y0 < y1 + h1 && y1 < y0 + h0
 }
 
-// ── A21 / A22 / A23 ─────────────────────────────────────────────────────────
+// A21 / A22 / A23
 
 /// M4.0 (A21): no two member boxes may occupy the same place — horizontal AND
 /// vertical overlap (both > 4px) on the same row is a column collision. This is
@@ -1788,7 +1780,7 @@ fn check_a23_shunt_near_anchor_pin(graph: &McVecGraph, topos: &[NetTopology]) ->
     c
 }
 
-// ── M5.0: A24 / A25 / A26 ─────────────────────────────────────────────────
+// M5.0: A24 / A25 / A26
 
 /// M5.0 (A24): two members on the SAME side must not cross. If net A's anchor
 /// tap sits left of net B's anchor tap but A's member column lands right of
@@ -1963,7 +1955,7 @@ fn check_a26_shunt_balance(graph: &McVecGraph, topos: &[NetTopology]) -> Check {
     c
 }
 
-// ── M7.4: A27 ──────────────────────────────────────────────
+// M7.4: A27
 
 /// ★ M7.4 (A27): a West/East net's trunk row sits ON one of its layer-anchor
 /// pins.
@@ -2018,7 +2010,7 @@ fn check_a27_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> Check 
     c
 }
 
-// ── M8: A28 / A29 ───────────────────────────────────────────
+// M8: A28 / A29
 
 /// ★ M8 (A28): the two nets of an ALONG part are collinear.
 ///
@@ -2105,7 +2097,7 @@ fn check_a29_run_spans_disjoint(topos: &[NetTopology]) -> Check {
     c
 }
 
-// ── M9: A30 ─────────────────────────────────────────────────────────────────
+// M9: A30
 
 /// ★ M9 (A30): a SATELLITE component's facing pin sits on its net's row.
 ///
@@ -2204,7 +2196,7 @@ fn check_a34_every_pin_on_its_row(graph: &McVecGraph, topos: &[NetTopology]) -> 
     c
 }
 
-// ── M11: A31 / A32 ──────────────────────────────────────────────────────────
+// M11: A31 / A32
 
 /// ★ M11 (A31): a row has at most TWO horizontal ends.
 ///
@@ -2340,9 +2332,7 @@ fn check_a32_label_has_a_stub(topos: &[NetTopology], trees: &[EquiTree]) -> Chec
     c
 }
 
-// ============================================================================
 // Fixtures
-// ============================================================================
 
 /// `moddcdc` — the LP3220 buck reference used as the M0..M6 golden.
 ///
@@ -2839,9 +2829,7 @@ pub(crate) mod fixture {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

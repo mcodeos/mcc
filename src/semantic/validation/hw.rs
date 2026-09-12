@@ -37,9 +37,7 @@ impl ValidationCheck for HwCheck {
     }
 }
 
-// ============================================================================
 // HW1: Power pin without voltage/power attributes
-// ============================================================================
 
 /// Components with VCC, VDD, VSS, GND, or similar power pin names should have
 /// voltage-related attributes (e.g., `voltage`, `vcc`, `vdd`, `power`) or a
@@ -216,9 +214,7 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // HW2: Pin ID gaps in component pin definitions
-// ============================================================================
 
 /// Components with non-sequential pin IDs (e.g., pins 1,2,3,5,6 — missing 4)
 /// may indicate accidentally skipped pins or copy-paste errors. This is common
@@ -291,9 +287,7 @@ fn check_pin_id_gaps(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // HW3: Pin count extremes
-// ============================================================================
 
 /// Components with unusually many pins (>300) or zero pins (not abstract)
 /// deserve a second look. Extremely high pin counts may indicate a data error;
@@ -351,9 +345,7 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // HW5: Interface role with dangling peer reference
-// ============================================================================
 
 /// An interface role that specifies a `peer` relationship should have a
 /// corresponding peer role defined in the same interface. A dangling peer
@@ -438,9 +430,7 @@ fn peer_role_names(values: &[crate::McAttrVal]) -> Vec<String> {
     out
 }
 
-// ============================================================================
 // HW6: Component with only single-type IO pins
-// ============================================================================
 
 /// A component where ALL pins share the same IO type (all Input, all Output,
 /// or all Power) is unusual. Most real components have a mix of input,
@@ -519,9 +509,7 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // HW8: Function parameter shadows a component pin name
-// ============================================================================
 
 /// When a component function declares a parameter with the same name as a
 /// component pin, it creates ambiguity in net expressions. The function

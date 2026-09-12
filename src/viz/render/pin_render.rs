@@ -19,16 +19,15 @@
 //! ```
 //!
 //! ## Design points
-//! - `pin_number` is the physical pin number (`1`/`2`/`14`), placed **outside** the box close to the pin dot, small font
+//! - `pin_number` is the physical pin number (`1`/`2`/`14`), placed **outside** the box close to
+//! the pin dot, small font
 //! - `pin_name` is the function name (`VCC`/`RX`), placed **inside** the box, medium font
 //! - The position / text alignment of the two is computed by `label_positions` based on `EntrySide`
 
 use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{EntryPoint, EntrySide, McVecBox};
 
-// ============================================================================
 // Options
-// ============================================================================
 
 /// Pin marker style
 #[derive(Debug, Clone, Copy)]
@@ -46,8 +45,8 @@ pub struct PinRenderOpts {
     pub show_number: bool,
     pub show_name: bool,
     /// Draw the io-type label (`in`/`out`/`io`/`ps`/`gnd`) on the stub. Used
-    /// by the virtual component view where pins carry no nets (mcd docs-mc
-    /// 16-export-viz §6).
+    /// by the virtual component view where pins carry no nets
+    /// (mcd spec/16-export-viz §6).
     pub show_io: bool,
 }
 
@@ -97,9 +96,7 @@ fn io_type_label(io: IoDirection) -> &'static str {
     }
 }
 
-// ============================================================================
 // Main API: render_pin
-// ============================================================================
 
 /// Output SVG for an `EntryPoint`
 ///
@@ -125,11 +122,13 @@ pub fn render_pin_named(
 ) -> String {
     let (cx, cy) = pin_position(b, ep);
 
-    // The physical pin for this lead (BoxPin: pin_id=number/common name, description=function name, io=direction)
+    // The physical pin for this lead (BoxPin: pin_id=number/common name, description=function name,
+    // io=direction)
     let pin = b.find_pin(ep.pin_id);
     let io_dir = pin.map(|p| p.io).unwrap_or(IoDirection::Unknown);
 
-    // Marker (dot or stub). On a stub, overlay the IO direction arrow (in points into box / out points out of box / io diamond).
+    // Marker (dot or stub). On a stub, overlay the IO direction arrow (in points into box / out
+    // points out of box / io diamond).
     let marker = match opts.style {
         PinStyle::Dot => format!(r##"<circle cx="{cx:.1}" cy="{cy:.1}" r="2.5" fill="#222"/>"##),
         PinStyle::Stub => {
@@ -146,14 +145,18 @@ pub fn render_pin_named(
 
     // ── A single lead draws at most two things: number (outside) + function name (inside) ──
     //
-    // Source `io B = Base`: the `B` on the left of `=` is number/common name → drawn **on the outside stub** (small);
-    //                      the `Base` on the right of `=` is the function name   → drawn **inside**, prominent (medium).
+    // Source `io B = Base`: the `B` on the left of `=` is number/common name → drawn **on the
+    // outside stub** (small);
+    // the `Base` on the right of `=` is the function name   → drawn **inside**, prominent (medium).
     // Source of truth is BoxPin (find_pin):
     //   - `pin.pin_id`      = number/common name (B / 1 / A1) → outside;
     //   - `pin.description` = function name     (Base / TX / 1) → inside.
-    // When there is a function name, draw both: outside number + inside function name — **even if the two are identical** (a pure numeric lead `1=1`
-    // must also print both 1s). When there is no function name (placeholder lead / unnamed lead), draw the number only once, placed inside.
-    // When find_pin returns nothing (synthetic endpoint / rail flag), fall back to ep.pin_name as the inside name, skipping `(rail)`.
+    // When there is a function name, draw both: outside number + inside function name — **even if
+    // the two are identical** (a pure numeric lead `1=1`
+    // must also print both 1s). When there is no function name (placeholder lead / unnamed lead),
+    // draw the number only once, placed inside.
+    // When find_pin returns nothing (synthetic endpoint / rail flag), fall back to ep.pin_name as
+    // the inside name, skipping `(rail)`.
     // A caller-supplied `name` (a module port) replaces both: it is the identity
     // the boundary is drawn by, and it is not this pin's.
     let (outside_number, inside_name): (Option<String>, Option<String>) = match name {
@@ -188,7 +191,8 @@ pub fn render_pin_named(
         },
     };
 
-    // Outside number (small, on the stub). Only boxes (parts) with `show_number` draw it; sub-module ports do not draw the number.
+    // Outside number (small, on the stub). Only boxes (parts) with `show_number` draw it;
+    // sub-module ports do not draw the number.
     let number_svg = match (opts.show_number, &outside_number) {
         (true, Some(num)) => format!(
             r##"<text x="{:.1}" y="{:.1}" font-size="8" fill="#666"
@@ -202,7 +206,8 @@ pub fn render_pin_named(
         _ => String::new(),
     };
 
-    // Inside name (function name, medium). All boxes draw it (this is how "solid-line frames also fully show pinname").
+    // Inside name (function name, medium). All boxes draw it (this is how "solid-line frames also
+    // fully show pinname").
     let name_svg = match (opts.show_name, &inside_name) {
         (true, Some(txt)) if !is_synthetic_pin_name(txt) => format!(
             r##"<text x="{:.1}" y="{:.1}" font-size="10" fill="#222"
@@ -247,9 +252,7 @@ pub fn render_pin_named(
     )
 }
 
-// ============================================================================
 // Geometry helpers
-// ============================================================================
 
 /// Compute the pin's absolute coordinates in SVG
 pub fn pin_position(b: &McVecBox, ep: &EntryPoint) -> (f64, f64) {
@@ -261,7 +264,8 @@ pub fn pin_position(b: &McVecBox, ep: &EntryPoint) -> (f64, f64) {
     }
 }
 
-/// Extend outward `length` px from the pin dot, return the endpoint coordinates (used for the stub line)
+/// Extend outward `length` px from the pin dot, return the endpoint coordinates (used for the stub
+/// line)
 fn stub_outward(b: &McVecBox, ep: &EntryPoint, length: f64) -> (f64, f64) {
     let (cx, cy) = pin_position(b, ep);
     match ep.side {
@@ -279,7 +283,8 @@ fn stub_outward(b: &McVecBox, ep: &EntryPoint, length: f64) -> (f64, f64) {
 /// - `Bidir`  → hollow diamond (mc `io`, bidirectional);
 /// - `Power` / `Ground` / `Passive` / `Unknown` → not drawn (return empty).
 ///
-/// Geometry: `d` = distance along the outward direction from the box edge (px), `w` = perpendicular offset (px). The triangle occupies the 2~7px segment of the stub.
+/// Geometry: `d` = distance along the outward direction from the box edge (px), `w` = perpendicular
+/// offset (px). The triangle occupies the 2~7px segment of the stub.
 fn io_marker(b: &McVecBox, ep: &EntryPoint, io: IoDirection) -> String {
     // Unit vector along the outward lead direction (from box edge outward)
     let (ox, oy) = match ep.side {
@@ -365,7 +370,8 @@ fn label_positions(
     }
 }
 
-/// Whether this is a placeholder pin name produced by rail-synth synthetic endpoints (`"(rail)"`, `"(test)"`)
+/// Whether this is a placeholder pin name produced by rail-synth synthetic endpoints (`"(rail)"`,
+/// `"(test)"`)
 fn is_synthetic_pin_name(name: &str) -> bool {
     name.starts_with('(') && name.ends_with(')')
 }
@@ -444,9 +450,7 @@ fn escape_xml(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

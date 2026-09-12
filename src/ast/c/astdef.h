@@ -72,7 +72,7 @@
 #define MCAST_IOTYPE_PSNK              98 // power-sink direction word (psnk) — pin/rail sink side
 #define MCAST_IOTYPE_PSBI              99 // power-bidirectional (psbi) — charge = sink, discharge = source
 
-//3.5 power-intent declarations (power-intent-design.md §5)
+//3.5 power-intent declarations (intent-design.md §5)
 //    MCAST_REF     = `conduit GND @role(main) @star` — conductor identity decl.
 //                    (keyword `conduit`, legacy alias `ref` accepted; node name
 //                    MCAST_REF retained as internal.)
@@ -312,7 +312,7 @@ typedef struct mc_dlog_entry {
 } mc_dlog_entry;
 
 // Parser error / warning codes (unified with dlog numbering)
-// Values follow mcd/doc/mcc-error-code-unification-plan.md: Pass1b parser
+// Values follow mcc-error-code-unification-plan.md: Pass1b parser
 // cluster 2080-2110 (errors) and 2111-2116 (warnings).
 #define MCD_E1000_SYNTAX_ERROR          2080  // fallback: generic syntax error (mca_error)
 #define MCD_E1002_TOP_SKIPPED           2081  // mc_top: error — invalid top-level declaration

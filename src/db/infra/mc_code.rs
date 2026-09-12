@@ -4,10 +4,8 @@
 
 use crate::ast::node::McValueFFI;
 
-// ═══════════════════════════════════════════════════════════════════════════
 // DedupLapper — wraps SymbolRangeLapper, deduplicates by (kind, start, stop)
 // on insert, rejecting entries with the same kind and span regardless of id.
-// ═══════════════════════════════════════════════════════════════════════════
 struct DedupLapper {
     inner: SymbolRangeLapper,
     seen: HashSet<(u8, usize, usize)>,
@@ -336,7 +334,8 @@ impl McCode {
         };
         let trace_flag = crate::cli::config::get_trace_flag(project_root.as_deref());
         // Exclude visit bit (0x08) to avoid mcc_parse() internally re-outputting the AST tree
-        // visit output is controlled uniformly by Rust side explicitly calling mcc_visit_tree_color()
+        // visit output is controlled uniformly by Rust side explicitly calling
+        // mcc_visit_tree_color()
         let parse_flag = trace_flag & !0x08u8;
         unsafe {
             crate::ast::bindings::mcc_reset(parse_flag);
@@ -365,7 +364,8 @@ impl McCode {
         self.free();
 
         unsafe {
-            // Call mcc_reset to ensure complete state cleanup (exclude visit bit, avoid duplicate output)
+            // Call mcc_reset to ensure complete state cleanup (exclude visit bit, avoid duplicate
+            // output)
             crate::ast::bindings::mcc_reset(parse_flag);
 
             // Clear tokens and symbols, ensure no residual data
@@ -387,7 +387,8 @@ impl McCode {
                 tracing::warn!(target: "mcc::code", file = ?fname, "AST parse returned null");
             } else {
                 // Output AST visit (if trace.visit is enabled), once per cycle
-                // Skip during system library loading, to prevent mcode loading from preempting user file visit quota
+                // Skip during system library loading, to prevent mcode loading from preempting user
+                // file visit quota
                 if crate::cli::config::get_trace_visit() == Some(true)
                     && !crate::cli::config::is_system_lib_loading()
                     && !crate::cli::config::is_trace_stdout_suppressed()
@@ -1151,12 +1152,10 @@ impl McCode {
                 // later processes the same file.
                 mcfile.parse_nsp();
                 // ★ FIX: Do NOT insert mcfile into workspace here.
-                // Previously, this inserted a McCode with a SEPARATE symbols Arc.
-                // Later, mcb_add_recursive() creates ANOTHER McCode (with a DIFFERENT symbols Arc)
-                // for the same file and inserts it, OVERWRITING this entry.
-                // The overwritten entry had the correct symbol table, but the replacement
-                // (created via McCode::new()) has an EMPTY symbol table.
-                // Solution: let mcb_add_recursive() handle all workspace insertion.
+                // ★ FIX: leave all workspace insertion to mcb_add_recursive():
+                // it creates the file's own McCode and OVERWRITES any entry for
+                // the same file. A replacement built by McCode::new() carries an
+                // EMPTY symbol table, so one inserted here would be a shell.
                 // Only copy spacenames to self for use resolution.
                 // Only cascade for default imports without aliases (§6.2 / §6.3).
                 if mcuse.impt_ids.is_none() && mcuse.as_id.is_none() {
@@ -1657,8 +1656,8 @@ impl McCode {
 
                         // ★ Fix: also register to global_table.class_id_to_span,
                         // letting create_lapper() find the component's span.
-                        // Previously only inserted into workspace.components without filling class_id_to_span,
-                        // causing LSP goto_definition's symbol_lapper to always be empty.
+                        // Without the class_id_to_span entry the symbol_lapper
+                        // stays empty and goto-definition finds nothing.
                         self.add_global_class(
                             &self_uri,
                             &comp_name_ids,
@@ -1790,7 +1789,8 @@ impl McCode {
         self.pass1_complete = true;
     }
 
-    /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
+    /// Phase 1b: parse all module definitions (at this point all component/interface/enum are
+    /// already registered)
     /// Extract (name, span) pairs from MCAST_PARAMS node for function parameter
     /// definitions. Handles MCAST_PARAM wrappers and direct ID/IDS nodes.
     fn extract_func_param_spans(params_node: &AstNode) -> Vec<(String, std::ops::Range<usize>)> {
@@ -2038,8 +2038,6 @@ impl McCode {
                     };
                     // ★ Register module in class_name_to_id so
                     // lapper_global_classes can create ClassDef intervals for goto-def.
-                    // Previously only component and interface were registered, leaving
-                    // module names without ClassDef entries in the lapper.
                     self.add_global_class(
                         &self_uri,
                         &module_name_ids,
@@ -2086,15 +2084,14 @@ impl McCode {
         }
     }
 
-    /// Backward-compatible interface: parse all definitions sequentially (single-file scenario or system library)
+    /// Backward-compatible interface: parse all definitions sequentially (single-file scenario or
+    /// system library)
     pub fn parse_pass1(&mut self) {
         self.parse_pass1_types();
         self.parse_pass1_modules();
     }
 
-    // ========================================================================
     // Phase 3: Pre-parse function bodies
-    // ========================================================================
 
     /// Pre-parse function bodies for all functions in the module.
     pub fn add_global_class(
@@ -2524,10 +2521,9 @@ impl McCode {
 
             // 1a. class_ref (ReferenceId) → class_def
             // ★ Fix: iterate span_to_declare_class_id filtered by current URI,
-            // then resolve ref_id → class_id → class_span. Previously iterated
-            // ALL declare_id_to_class_id entries (from ALL loaded files), which
-            // leaked stale entries (e.g. library CAP refs with class_id=0) into
-            // the current file's MAP, causing incorrect goto-def jumps.
+            // then resolve ref_id → class_id → class_span. Unfiltered iteration
+            // would leak stale entries (e.g. library CAP refs with class_id=0)
+            // from other files into this file's MAP, causing wrong goto-def jumps.
             for ((loop_uri, _span), ref_id) in gt.span_to_declare_class_id.iter() {
                 if loop_uri != _uri {
                     continue;
@@ -2537,9 +2533,9 @@ impl McCode {
                         let fid = map.intern_file(def_uri);
                         let cid = map.intern_container("");
                         // ★ Fix: use class_id (DeclareId) as key, matching
-                        // what the lapper and ref_entries use. Previously
-                        // used ref_id (ReferenceId) which is a different
-                        // counter — causing goto_def to resolve wrong classes.
+                        // what the lapper and ref_entries use. ref_id is a
+                        // different counter, and keying on it makes goto_def
+                        // resolve wrong classes.
                         let def_name = Self::def_name_for(
                             &gt,
                             &sem.def_names,
@@ -3655,11 +3651,9 @@ impl McCode {
                 for ((loop_uri, span), refid) in gt.span_to_declare_class_id.iter() {
                     if loop_uri == uri {
                         // ★ Fix: use class_id (DeclareId) in BOTH lapper and ref_entries.
-                        // Previously lapper used refid while ref_entries used class_id.
-                        // This mismatch meant F12's map.lookup(ClassRef, refid) could
-                        // never find the RefDefMap entry keyed by (ClassRef, class_id).
-                        // fill_refdef_layer2 uses class_id as the key, so lapper must
-                        // also use class_id for the lookup to match.
+                        // fill_refdef_layer2 keys the RefDefMap by (ClassRef,
+                        // class_id), so a lapper keyed by refid could never
+                        // match F12's lookup.
                         // class_id=0 is a valid first-class id (the
                         // per-file counter starts at 0), so it cannot be used as
                         // a "not found" sentinel. Skip the ref when the mapping is
@@ -4640,10 +4634,10 @@ impl McCode {
     /// `lapper_func_define_role`: funcall-arg refs (e.g.
     /// `CAP(...).Cap([AVDD09_CAP, GND])`) are resolved there, and the
     /// container-level P2 fallback must already be able to find the
-    /// component's own pins. Previously pins were only registered inside
-    /// `lapper_component_defs` (which runs after func-role resolution), so such
-    /// args missed P2 and fell through to the P3 name-only scan — random
-    /// cross-container hits (e.g. GND → another component's func param).
+    /// component's own pins. Registration has to happen before func-role
+    /// resolution — `lapper_component_defs` runs after it, and args that miss
+    /// P2 fall through to the P3 name-only scan (random cross-container hits,
+    /// e.g. GND → another component's func param).
     fn lapper_component_defs_register(
         uri: &McURI,
         sem: &mut McSemSymbols,
@@ -5801,9 +5795,9 @@ impl McCode {
                         });
                         for (pname, pspan) in Self::extract_func_param_spans(&params_node) {
                             // Func params default to LabelDef (func body labels).
-                            // Previously UnknownDef was used but the upgrade pass
-                            // (upgrade_unknown_defs) could not resolve them because
-                            // name_index only contains class-level names, not func params.
+                            // LabelDef, not UnknownDef: the upgrade pass
+                            // (upgrade_unknown_defs) cannot resolve a func param,
+                            // because name_index holds class-level names only.
                             let (d, _) = crate::refdef::register::register_def(
                                 &mut *sem,
                                 &uri,
@@ -6035,7 +6029,8 @@ impl McCode {
                             &scope,
                         );
                         for (span, did) in refs {
-                            // ★ §4.3: Dispatch ref kind based on def type (not catch-all FuncParamRef)
+                            // ★ §4.3: Dispatch ref kind based on def type (not catch-all
+                            // FuncParamRef)
                             let ref_kind =
                                 crate::refdef::collect::resolve_arg_ref_kind(&sem.def_map, did);
                             symbol_lapper.insert(Interval {
@@ -6674,9 +6669,9 @@ module main
     /// module port.
     ///
     /// The chain root is MCAST_OPD_DOT (sub=FCALL, next=member), which
-    /// `try_record_chain_ref` previously did not handle — only MCAST_OPD
-    /// roots were recorded, so `uC.i2c(0x36).I2C0` fell through to plain
-    /// scoped net refs and `.I2C0` resolved to the module port I2C0.
+    /// `try_record_chain_ref` must record that root: without it
+    /// `uC.i2c(0x36).I2C0` falls through to plain scoped net refs and
+    /// `.I2C0` resolves to the module port I2C0.
     #[test]
     fn def_mccode__fcall_chain_member_resolves_to_instance_pin() {
         let _guard = MCC_TEST_PARSE_LOCK.lock().expect("test parse lock");

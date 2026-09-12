@@ -169,7 +169,8 @@ impl McParamDeclares {
                     MCAST_IOTYPE => {
                         // Collect children of this IOTYPE node.
                         // Two call patterns:
-                        // 1) Full MCAST_PARAMS: children follow the IOTYPE as siblings in param_iter.
+                        // 1) Full MCAST_PARAMS: children follow the IOTYPE as siblings in
+                        // param_iter.
                         // 2) Single MCAST_PARAM: children are inside the IOTYPE node itself.
                         let children: Vec<AstNode> = {
                             // First try siblings from param_iter (full-params call)
@@ -211,7 +212,8 @@ impl McParamDeclares {
                                 || op_type == MCAST_OPD_SQUARE_VEC
                                 || op_type == MCAST_SQUARE_VEC
                             {
-                                // For OPD_SQUARE_VEC, pass the node directly to McParamDeclare::new()
+                                // For OPD_SQUARE_VEC, pass the node directly to
+                                // McParamDeclare::new()
                                 // (which handles it via the MCAST_OPD_SQUARE_VEC arm).
                                 // For plain OPD, unwrap to reach the inner ID/SQUARE_VEC.
                                 let inner = if op_type == MCAST_OPD_SQUARE_VEC
@@ -572,7 +574,8 @@ impl McParamDeclares {
 /// Lightweight diagnostic returned by `finalize()` during parsing.
 ///
 /// Callers convert these to regular diagnostics via [`mcc_log_global_diag`]
-/// which routes them into the per-file [`DiagnosticManager`](crate::db::diagnostic::diagnostic::DiagnosticManager).
+/// which routes them into the per-file
+/// [`DiagnosticManager`](crate::db::diagnostic::diagnostic::DiagnosticManager).
 ///
 /// Variants:
 /// - `Unused`  — declared but unreferenced parameters / ports
@@ -763,7 +766,8 @@ impl McParamDeclare {
                                 } else {
                                     // Bare default (no dot): resolve against all known enums.
                                     // e.g., diel = X7R → search all enums for member "X7R".
-                                    // Prefer the same-named enum (namespace merging) when available.
+                                    // Prefer the same-named enum (namespace merging) when
+                                    // available.
                                     let prefer_class =
                                         enclosing_comp_name.and_then(|n| n.root_name());
                                     if let Some(class_name) =

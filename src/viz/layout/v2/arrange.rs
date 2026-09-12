@@ -26,9 +26,7 @@ use std::time::Instant;
 
 use super::quotient::{Direction, NodeId, QuotientGraph, SP_COL_W};
 
-// ============================================================================
 // Data structures
-// ============================================================================
 
 /// One layer output by the searcher
 pub type Layer = Vec<i64>;
@@ -72,9 +70,7 @@ pub struct Cost {
     pub weighted: f64,
 }
 
-// ============================================================================
 // Weight constants
-// ============================================================================
 
 pub const W_CROSS: f64 = 1000.0;
 pub const W_BACK: f64 = 600.0; // Cycle-breaking direction violation, should outweigh area
@@ -162,9 +158,7 @@ pub const TOP_K: usize = 5;
 /// Time budget (ms); on timeout use the best fully computed result
 pub const TIME_BUDGET_MS: u64 = 150;
 
-// ============================================================================
 // Search entry
-// ============================================================================
 
 /// Exact search over the quotient graph, returns top-K candidates
 pub fn solve(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
@@ -185,9 +179,7 @@ pub fn solve(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
     }
 }
 
-// ============================================================================
 // Exact enumeration: Heap's algorithm + cut points + mirror symmetry + branch & bound
-// ============================================================================
 
 /// Precomputed data for each edge
 struct EdgeData {
@@ -617,9 +609,7 @@ fn compute_full_cost(
     )
 }
 
-// ============================================================================
 // Cycle breaking: Eades–Lin–Smyth greedy feedback arc set
-// ============================================================================
 
 /// Cycle breaking: greedy Eades-Lin-Smyth feedback arc set on the quotient graph
 ///
@@ -769,9 +759,7 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
         .collect()
 }
 
-// ============================================================================
 // Orientation anchors
-// ============================================================================
 
 /// Expected position of a node (for the orient cost term)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -841,7 +829,8 @@ fn compute_orient_cost(q: &QuotientGraph, sides: &[NodeSide], arr: &Arrangement)
 
     let mut penalty = 0u32;
 
-    // Cross-layer check: violation if a Left node sits to the right of a Right node (larger layer index)
+    // Cross-layer check: violation if a Left node sits to the right of a Right node (larger layer
+    // index)
     for (li, layer) in arr.layers.iter().enumerate() {
         for &nid in layer {
             let idx = node_to_idx[&nid];
@@ -933,9 +922,7 @@ pub fn cost(q: &QuotientGraph, arr: &Arrangement) -> Cost {
     compute_full_cost(arr, &edges, &sides, q)
 }
 
-// ============================================================================
 // Unit tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -1029,9 +1016,7 @@ mod tests {
         (g, q)
     }
 
-    // ────────────────────────────────────────
     // break_cycles tests (M3-2)
-    // ────────────────────────────────────────
 
     /// t4_current: DAG, all edges should be Forward
     #[test]
@@ -1158,9 +1143,7 @@ mod tests {
         assert!(dirs.is_empty());
     }
 
-    // ────────────────────────────────────────
     // Orientation anchor tests (M3-2)
-    // ────────────────────────────────────────
 
     /// Graph with clear OUT→IN direction: OUT should be on the left, IN on the right
     #[test]
@@ -1230,9 +1213,7 @@ mod tests {
         );
     }
 
-    // ────────────────────────────────────────
     // Enumeration tests
-    // ────────────────────────────────────────
 
     /// t4_current: optimal solution [u1][u2,u3][u4,u5] (3 layers, backward=1)
     #[test]
@@ -1461,9 +1442,7 @@ mod tests {
         assert_eq!(best.layers[3], vec![4]);
     }
 
-    // ────────────────────────────────────────
     // Mirror bug regression test
-    // ────────────────────────────────────────
 
     /// Optimal solution unchanged after shifting all box ids by +1000
     #[test]
@@ -1546,9 +1525,7 @@ mod tests {
         }
     }
 
-    // ────────────────────────────────────────
     // Determinism tests
-    // ────────────────────────────────────────
 
     /// 20 consecutive solves yield the same optimal solution
     #[test]
@@ -1568,9 +1545,7 @@ mod tests {
         }
     }
 
-    // ────────────────────────────────────────
     // Orientation anchor tests
-    // ────────────────────────────────────────
 
     /// Graph with clear OUT→IN direction: OUT should be on the left
     #[test]
@@ -1603,9 +1578,7 @@ mod tests {
         );
     }
 
-    // ────────────────────────────────────────
     // Boundary tests
-    // ────────────────────────────────────────
 
     /// Single node: returns a single layer
     #[test]

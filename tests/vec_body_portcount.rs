@@ -9,10 +9,10 @@
 //!
 //! `+` between two component bodies stacks them: the terminals line up
 //! column by column, so a 1-port body against a 2-port body has nothing to
-//! pair with. `TP1 + R1` is the flagged case -- it used to be **silently
+//! pair with. `TP1 + R1` is the flagged case -- treating it as **silently
 //! legal**, emitting one connection `{TP1.1, R1.1}` with no diagnostic at all,
-//! because `TP1` reduces to a bare `Point` and the engine applied the
-//! face-side law as if it were a net label, implicitly taking its only pin.
+//! is what happens when `TP1` reduces to a bare `Point` and the engine applies
+//! the face-side law as if it were a net label, implicitly taking its only pin.
 //!
 //! The constraint is on the **pair**, not on either operand alone. A body
 //! against a non-body stays legal and keeps its ordinary reading:
@@ -124,7 +124,7 @@ fn accepted(uri: &str, body: &str, expected: Vec<Vec<String>>) {
     assert_eq!(nets, expected, "wrong net partition");
 }
 
-// ── the flagged pair: two bodies, unequal port counts ───────────────────────
+// the flagged pair: two bodies, unequal port counts
 
 /// `TP1 + R1` -- the flagged statement. A 1-port body written against a 2-port
 /// body. Pre-fix this was silently legal: one connection `{TP1.1, R1.1}` and no
@@ -148,7 +148,7 @@ fn body_pair__series_one_port_against_two_ports_is_rejected() {
     rejected("/mcc/body-pair-series.mc", "        TP1 - R1");
 }
 
-// ── the legal pairs ─────────────────────────────────────────────────────────
+// the legal pairs
 
 /// `TP1 + TP2` -- two bodies, **equal** port counts. Both are single-point, so
 /// the pair is element-wise: one net carrying both test points' only pin.
@@ -168,7 +168,7 @@ fn body_pair__equal_two_port_bodies_are_legal() {
     accepted("/mcc/body-pair-r-r.mc", "        R1 + R2", resistor_pair());
 }
 
-// ── a body against a non-body: unconstrained ────────────────────────────────
+// a body against a non-body: unconstrained
 
 /// `VCC + R1` -- only **one** body. The label takes the face-side law's net
 /// attach and must not be caught by the pair rule.

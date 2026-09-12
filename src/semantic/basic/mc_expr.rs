@@ -214,7 +214,8 @@ impl McExpression {
                 for n in sub.iter() {
                     if n.get_type() == MCAST_INSTANCE {
                         if let Some(inst_sub) = n.get_sub_node() {
-                            // inst_sub might be MCAST_OPD, MCAST_OPD_SQUARE_VEC, or MCAST_EXPRESSION
+                            // inst_sub might be MCAST_OPD, MCAST_OPD_SQUARE_VEC, or
+                            // MCAST_EXPRESSION
                             return McExpression::new(&inst_sub);
                         }
                     }

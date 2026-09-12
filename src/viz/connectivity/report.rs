@@ -10,9 +10,7 @@ use std::collections::BTreeMap;
 
 use super::model::RenderedConnectivity;
 
-// ============================================================================
 // RenderedConnectivityReport
-// ============================================================================
 
 /// Report produced after rendered connectivity extraction and verification.
 #[derive(Debug, Clone, Default, PartialEq)]

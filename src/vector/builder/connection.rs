@@ -4,7 +4,8 @@
 
 //! Topological analysis: `Vec<ConnPair>` → `McVecNet`
 //!
-//! Given a set of connection pairs (all belonging to the same net_name), analyze their topological structure:
+//! Given a set of connection pairs (all belonging to the same net_name), analyze their topological
+//! structure:
 //! - **Star**: A hub (appears >1 times) → hub vs leaves
 //! - **Chain**: All points appear exactly once → linear connection
 //! - **Degenerate**: Single pair → direct 1:1
@@ -26,16 +27,15 @@ use super::super::model::{McVec, McVecNet};
 use crate::semantic::common::{parallel_anchor, ConnDir, ConnOp};
 use crate::vector::model::trunk::TrunkCtx;
 
-// ============================================================================
 // Internal Data Types
-// ============================================================================
 
 /// A single connection pair
 #[derive(Debug, Clone)]
 pub(crate) struct ConnPair {
     pub left: i64,
     pub right: i64,
-    /// Which lane of the vector; None for scalar connections. From the `for k in 0..max_w` loop in visit.rs.
+    /// Which lane of the vector; None for scalar connections. From the `for k in 0..max_w` loop in
+    /// visit.rs.
     pub lane: Option<LaneRef>,
     /// Arrow direction in the source
     pub dir: ConnDir,
@@ -125,9 +125,7 @@ impl ConnPair {
 /// `net_name → connection pair list` grouping
 pub(crate) type NetGroupMap = BTreeMap<String, Vec<ConnPair>>;
 
-// ============================================================================
 // Public API: merge_pairs_to_vecnet
-// ============================================================================
 
 /// Merge all connection pairs for a given net_name into a single `McVecNet`
 ///
@@ -140,7 +138,8 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
     let source_span = pairs.first().and_then(|p| p.source_span.clone());
     let trunk = pairs.first().and_then(|p| p.trunk.clone());
 
-    // ── With lane info, build groups directly from the source shape instead of guessing by frequency ──
+    // ── With lane info, build groups directly from the source shape instead of guessing by
+    // frequency ──
     if pairs.iter().any(|p| p.lane.is_some()) {
         if let Some(mut net) = build_from_lanes(nid, &net_name, pairs) {
             net.source_span = source_span;
@@ -150,7 +149,7 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
         // Couldn't build (lane incomplete) → fall back to the legacy logic below, no panic
     }
 
-    // ── ★ B4: source-operator-driven parallel topology ──────────────────
+    // ★ B4: source-operator-driven parallel topology
     // A parallel `+` net is a flat set of scalar operands all at one level
     // (an equipotential merge). The old frequency guess (`max_freq > 1 → star`)
     // collapsed it into `[hub, leaves]` — misreading the parallel merge as a
@@ -220,7 +219,7 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
 
 /// Build a complete NetShape from pairs and the already-computed vecs.
 fn build_net_shape(dir: ConnDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape {
-    // ── ★ B3: groups from the source shape, not the vec length ───────────
+    // ★ B3: groups from the source shape, not the vec length
     // The old `v.len()==1 → Scalar else Broadcast(v.len())` was a projection
     // of the *result* — the post-topology-merge vecs — so any multi-point vec
     // read as a 1→N broadcast even when the source was a parallel merge or a
@@ -289,9 +288,7 @@ fn build_net_shape(dir: ConnDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape
     }
 }
 
-// ============================================================================
 // Lane-aware construction (patch 3)
-// ============================================================================
 
 /// Majority vote over an explicit direction sequence (§4.6 C-3).
 ///
@@ -464,9 +461,9 @@ fn order_by_direction(pairs: &[ConnPair]) -> Option<Vec<i64>> {
 
     // ★ P7-4 [DET]: a group may contain more than one connected component (or a
     // star) —— a single chain cannot cover it. Append all unvisited nodes in
-    // first-appearance order, guaranteeing **no dropped points** (previously
-    // the VCC star kept only 3/6 points and the GND double chain kept only
-    // one component).
+    // first-appearance order, guaranteeing **no dropped points** (a partial walk
+    // would keep only 3/6 points of the VCC star and one component of the GND
+    // double chain).
     let mut remaining = collect_unique_ordered(pairs);
     remaining.retain(|id| !visited.contains(id));
     chain.extend(remaining);
@@ -474,9 +471,7 @@ fn order_by_direction(pairs: &[ConnPair]) -> Option<Vec<i64>> {
     Some(chain)
 }
 
-// ============================================================================
 // Topology Construction
-// ============================================================================
 
 /// Build star topology
 ///
@@ -714,7 +709,7 @@ mod tests {
         assert!(shape.is_bus_lane());
     }
 
-    // ── Direction-aware ordering ─────────────────────────────────────────
+    // Direction-aware ordering
 
     /// A chain whose smallest degree-1 id is the written-*last* member must
     /// still start from the written head: `[(5,3),(3,1)]` has degree-1 = {1,5},

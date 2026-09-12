@@ -25,9 +25,7 @@ use crate::vector::graph::{McVecBox, McVecGraph, NetKind, Symbol};
 
 use model::{IdiomInstance, IdiomInstanceKind, InstanceSource, PlacementConstraint};
 
-// ============================================================================
 // ★ M1-1: migrated from schematic_radial.rs — the only function still used
-// ============================================================================
 
 /// Collect `NetKind` for each net endpoint's box_id.
 #[allow(unused)]
@@ -41,9 +39,7 @@ pub(crate) fn collect_connected_net_kinds(graph: &McVecGraph) -> HashMap<i64, Ve
     out
 }
 
-// ============================================================================
 // Data types (legacy read-only)
-// ============================================================================
 
 /// Identified sub-circuit idiom.
 #[derive(Debug, Clone, PartialEq)]
@@ -70,9 +66,7 @@ pub enum IdiomKind {
     Pulldown,
 }
 
-// ============================================================================
 // Main API (legacy read-only)
-// ============================================================================
 
 /// Analyze a laid-out graph and return all recognized idioms.
 ///
@@ -109,9 +103,7 @@ pub fn penalty_summary(matches: &[IdiomMatch]) -> (f64, usize) {
     (sym, vio)
 }
 
-// ============================================================================
 // M11 — Placement-oriented detection
-// ============================================================================
 
 /// Detect idiom instances suitable for placement.
 ///
@@ -233,9 +225,7 @@ pub fn generate_constraints(instances: &[IdiomInstance]) -> Vec<PlacementConstra
     constraints
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 /// Build net_name → NetKind map.
 fn build_net_kind_map(graph: &McVecGraph) -> HashMap<String, NetKind> {
@@ -289,9 +279,7 @@ fn find_signal_anchor(graph: &McVecGraph, box_id: i64, signal_net_id: i64) -> Op
     candidates.first().map(|(bid, pid, _)| (*bid, *pid))
 }
 
-// ============================================================================
 // I1: Decoupling capacitor detection
-// ============================================================================
 
 /// Detect decoupling capacitors: TwoPin cap with one Power + one Ground net.
 ///
@@ -462,9 +450,7 @@ fn detect_decoupling_instances(
     instances
 }
 
-// ============================================================================
 // I6: Differential pair detection
-// ============================================================================
 
 /// Detect differential pairs: two nets whose names form P/N or +/- pairs.
 ///
@@ -633,9 +619,7 @@ fn diff_pair_base(name: &str) -> Option<(&str, bool)> {
     None
 }
 
-// ============================================================================
 // I7: Pullup resistor detection
-// ============================================================================
 
 /// Detect pullup resistors: Resistor with one end on a signal net, one end on Power.
 fn detect_pullup(graph: &McVecGraph, connected: &HashMap<i64, Vec<NetKind>>) -> Vec<IdiomMatch> {
@@ -712,9 +696,7 @@ fn detect_pullup_instances(
     instances
 }
 
-// ============================================================================
 // I8: Pulldown resistor detection
-// ============================================================================
 
 /// Detect pulldown resistors: Resistor with one end on a signal net, one end on Ground.
 fn detect_pulldown(graph: &McVecGraph, connected: &HashMap<i64, Vec<NetKind>>) -> Vec<IdiomMatch> {
@@ -790,9 +772,7 @@ fn detect_pulldown_instances(
     instances
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

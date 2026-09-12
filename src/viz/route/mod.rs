@@ -38,9 +38,7 @@ pub use orthogonal::{label_anchor, orthogonal_path, points_to_svg_d, OrthogonalR
 pub use side::{compute_exit_for_pin, compute_exit_to, ExitSide};
 pub use star::StarRouter;
 pub use trunk_tap::{build_trunk_tap_route, BuildOptions, TrunkTapRouter, PIN_STUB_LEN};
-// ============================================================================
 // Smart scheduling: pick router by NetKind
-// ============================================================================
 
 use crate::vector::graph::McVecGraph;
 

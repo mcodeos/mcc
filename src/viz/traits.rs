@@ -11,9 +11,7 @@
 
 use crate::vector::graph::{McVecGraph, VizNet};
 
-// ============================================================================
 // Trait definitions
-// ============================================================================
 
 pub trait Layouter {
     fn layout(&self, graph: &mut McVecGraph) -> (f64, f64);
@@ -54,9 +52,7 @@ pub trait Renderer {
     }
 }
 
-// ============================================================================
 // SvgRenderer (new, P4) wrapped as Renderer trait
-// ============================================================================
 
 /// Default renderer: wraps [`crate::viz::render::SvgRenderer`]
 ///
@@ -79,9 +75,7 @@ impl Renderer for DefaultRenderer {
 /// (References to old `LegacyRenderer` continue to work, but behavior is updated)
 pub use DefaultRenderer as LegacyRenderer;
 
-// ============================================================================
 // NoopRouter
-// ============================================================================
 
 pub struct NoopRouter;
 

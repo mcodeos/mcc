@@ -39,7 +39,7 @@ const SLOT: f64 = 180.0;
 const LANE_SEP: f64 = 150.0;
 
 pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
-    // ── 1. anchors: non-passive TwoPin boxes carrying I/O direction ──────────
+    // 1. anchors: non-passive TwoPin boxes carrying I/O direction
     let anchor_ids: Vec<i64> = graph
         .boxes
         .iter()
@@ -76,7 +76,7 @@ pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
         (anchor_ids[1], anchor_ids[0])
     };
 
-    // ── 2. reconstruct the two lanes (ordered non-bridge passives u1→u2) ─────
+    // 2. reconstruct the two lanes (ordered non-bridge passives u1→u2)
     let is_bridge = |g: &McVecGraph, bid: i64| {
         g.boxes
             .iter()
@@ -132,7 +132,7 @@ pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
         return None;
     }
 
-    // ── 3. anchor geometry + lane baselines ──────────────────────────────────
+    // 3. anchor geometry + lane baselines
     let (lw, lh) = graph
         .boxes
         .iter()
@@ -160,7 +160,7 @@ pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
         }
     }
 
-    // ── 4. place each lane's resistors evenly on its baseline (horizontal) ────
+    // 4. place each lane's resistors evenly on its baseline (horizontal)
     place_lane(graph, &lane0, left, right, inner_left, inner_right, lane0_y);
     place_lane(graph, &lane1, left, right, inner_left, inner_right, lane1_y);
 

@@ -135,7 +135,8 @@ fn compute_zone_rect(zone: &super::zone::Zone, graph: &McVecGraph, is_submodule:
         };
     }
 
-    // Estimate by the arrangement's maximum possible layer count (at most 1 box per layer, i.e. N layers)
+    // Estimate by the arrangement's maximum possible layer count (at most 1 box per layer, i.e. N
+    // layers)
     let max_layers = box_count;
     let cols = BOX_PER_ROW.min(box_count);
     let rows = (box_count + cols - 1) / cols;
@@ -190,9 +191,7 @@ pub fn compute_canvas(plans: &[ZonePlan], is_submodule: bool) -> (f64, f64) {
     (w, h)
 }
 
-// ============================================================================
 // Unit tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

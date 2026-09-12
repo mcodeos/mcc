@@ -20,9 +20,7 @@ use std::collections::BTreeMap;
 use crate::instant::insttab::InstTable;
 use crate::instant::netcheck;
 
-// ============================================================================
 // Partition structures
-// ============================================================================
 
 /// A partition: assigns a set of item_ids to several cluster_ids.
 #[derive(Debug, Clone)]
@@ -87,9 +85,7 @@ impl Partition {
     }
 }
 
-// ============================================================================
 // Rand index
-// ============================================================================
 
 /// Compute the Rand index between two partitions.
 ///
@@ -139,9 +135,7 @@ pub fn self_consistency_rand(table: &InstTable) -> f64 {
     rand_index(&p, &p)
 }
 
-// ============================================================================
 // Alignment metrics summary
-// ============================================================================
 
 /// Alignment metrics summary report
 #[derive(Debug, Default)]
@@ -231,9 +225,7 @@ impl AlignMetricsReport {
     }
 }
 
-// ============================================================================
 // Unit tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

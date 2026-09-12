@@ -263,7 +263,8 @@ impl McUse {
             },
         };
 
-        // 3. Join URI + version, filename format: with version → filename@1.0.0.mc; without → filename.mc
+        // 3. Join URI + version, filename format: with version → filename@1.0.0.mc; without →
+        // filename.mc
         let mut final_filename = self.uri.clone();
         if let Some(ver) = &self.version {
             final_filename.push('@');

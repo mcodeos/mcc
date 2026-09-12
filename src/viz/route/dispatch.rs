@@ -94,9 +94,7 @@ use super::star::StarRouter;
 use super::trunk_tap::TrunkTapRouter;
 use crate::viz::traits::{NoopRouter, Router};
 
-// ============================================================================
 // RouteIntent — pure-data input for dispatch decision
-// ============================================================================
 
 /// A net's "dispatch intent": all info needed to pick a router
 ///
@@ -115,7 +113,8 @@ pub struct RouteIntent {
     ///
     /// Used for `MultiDriver` warning judgement + future layouter driver-direction inference.
     pub driver_count: usize,
-    /// Endpoint horizontal span (max_x - min_x), used for P10 priority sort (larger span reserves trunk first)
+    /// Endpoint horizontal span (max_x - min_x), used for P10 priority sort (larger span reserves
+    /// trunk first)
     pub span_x: f64,
     /// Endpoint vertical span
     pub span_y: f64,
@@ -172,9 +171,7 @@ impl RouteIntent {
     }
 }
 
-// ============================================================================
 // RouterChoice — dispatch result
-// ============================================================================
 
 /// Output of `pick_router`: which specific router to use (as enum)
 ///
@@ -226,9 +223,7 @@ impl RouterChoice {
     }
 }
 
-// ============================================================================
 // pick_router — dispatch table (pure function, unit-testable)
-// ============================================================================
 
 /// Pick a router based on RouteIntent (P11 dispatch rules)
 ///
@@ -277,9 +272,7 @@ pub fn pick_router(intent: &RouteIntent) -> RouterChoice {
     }
 }
 
-// ============================================================================
 // Integration helper — end-to-end function callable directly by smart_route_all
-// ============================================================================
 
 /// End-to-end: route all nets of one graph layer following the P11 dispatch rules
 ///
@@ -363,9 +356,7 @@ pub fn route_all_with_dispatch(graph: &mut McVecGraph) {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -373,9 +364,7 @@ mod tests {
     use crate::vector::graph::EndpointRef;
     use crate::viz::route::dispatch::IoDirection;
 
-    // ────────────────────────────────────────────────────────────────────────
     // intent builder helper (independent of graph, hand-crafted directly)
-    // ────────────────────────────────────────────────────────────────────────
 
     fn intent(
         kind: NetKind,
@@ -393,9 +382,7 @@ mod tests {
         }
     }
 
-    // ========================================================================
     // Rule 1: Isolated / ≤ 1 endpoint → Noop
-    // ========================================================================
 
     #[test]
     fn dispatch_isolated_zero_endpoint() {
@@ -416,9 +403,7 @@ mod tests {
         assert_eq!(pick_router(&i), RouterChoice::Noop);
     }
 
-    // ========================================================================
     // Rule 2: Bus → BusBundle (regardless of topology)
-    // ========================================================================
 
     #[test]
     fn dispatch_bus_twopoint() {
@@ -439,9 +424,7 @@ mod tests {
         assert_eq!(pick_router(&i), RouterChoice::BusBundle);
     }
 
-    // ========================================================================
     // Rule 3: Power / Ground
-    // ========================================================================
 
     #[test]
     fn dispatch_power_twopoint() {
@@ -480,9 +463,7 @@ mod tests {
         assert_eq!(pick_router(&i), RouterChoice::Star);
     }
 
-    // ========================================================================
     // Rule 3: Signal
-    // ========================================================================
 
     #[test]
     fn dispatch_signal_twopoint() {
@@ -506,9 +487,7 @@ mod tests {
         assert!(choice.should_warn());
     }
 
-    // ========================================================================
     // Rule 3: SubModuleIO
-    // ========================================================================
 
     #[test]
     fn dispatch_submodule_io_twopoint() {
@@ -531,9 +510,7 @@ mod tests {
         assert!(!choice.should_warn());
     }
 
-    // ========================================================================
     // should_warn behavior
-    // ========================================================================
 
     #[test]
     fn should_warn_only_for_trunk_tap_with_warning() {
@@ -555,9 +532,7 @@ mod tests {
         assert_eq!(RouterChoice::BusBundle.name(), "bus_bundle");
     }
 
-    // ========================================================================
     // RouteIntent::from_net behavior
-    // ========================================================================
 
     fn ep(box_id: i64, io: IoDirection) -> EndpointRef {
         EndpointRef {
@@ -613,7 +588,8 @@ mod tests {
 
     #[test]
     fn intent_from_net_unknown_io_not_a_driver() {
-        // Before P01 all endpoints had io_type=Unknown, should be treated as non-driver → StarOneDriver
+        // Before P01 all endpoints had io_type=Unknown, should be treated as non-driver →
+        // StarOneDriver
         let net = VizNet::new(
             0,
             "x".into(),

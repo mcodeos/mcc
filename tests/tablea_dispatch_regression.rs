@@ -123,10 +123,8 @@ fn assert_no_path_containing(paths: &[String], fragment: &str, what: &str) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Form 1 — class-first named array subinstance
 // `CAP c[1:2](1).Cap([NET, VCC])`
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn dispatch__form1_named_subinstance_per_member() {
@@ -168,10 +166,8 @@ fn dispatch__form1_named_subinstance_per_member() {
     assert_pin_side_exclusive(n2, ".2", "form1 VCC side");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Forms 2 + 3 — declared array receiver (separate statements)
 // `r[1:2]::RES(0)` then `r[1:2].Pullup([NET, VCC])` / `.Cap([NET, VCC])`
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn dispatch__form2_declared_receiver_per_member() {
@@ -240,10 +236,8 @@ fn dispatch__form2_declared_receiver_per_member() {
     assert_pin_side_exclusive(n2b, ".2", "form2 Cap VCC side");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Form 4 — construct + trailing method (⑫ `_R1`/`_C1` collapse)
 // `x[1:2]::RES(0).Pullup([NET, VCC])`
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn dispatch__form4_ctor_trailing_method_per_member() {
@@ -352,9 +346,7 @@ fn dispatch__form4_returnless_implicit_this_per_member() {
     assert_pin_side_exclusive(n2, ".2", "form4 returnless VCC side");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Module-level declared array receiver (§3.5) — same semantics at module top
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn dispatch__module_declared_receiver_per_member() {

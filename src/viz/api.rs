@@ -12,7 +12,8 @@
 //!
 //! ## ★ P03 (S1) changes
 //! - Deleted `apply_route: bool` field, route now always executes (single pipeline)
-//! - Deleted `RenderOpts::legacy_edges_only()` constructor (old binary edges rendering discontinued)
+//! - Deleted `RenderOpts::legacy_edges_only()` constructor (old binary edges rendering
+//! discontinued)
 //! - Simplified `render_layer_recursive` signature, no longer passes apply_route parameter
 //!
 //! ## ★ P10 (S6) changes — Channel-aware Routing
@@ -34,9 +35,7 @@ use super::semantic::SemanticModel;
 use super::special::PowerGroundBusModel;
 use super::traits::{DefaultRenderer, Layouter, Renderer};
 
-// ============================================================================
 // Rendering options
-// ============================================================================
 
 pub struct RenderOpts {
     pub top_layouter: Box<dyn Layouter>,
@@ -77,9 +76,7 @@ impl RenderOpts {
     // have been removed along with their implementations.
 }
 
-// ============================================================================
 // Top-level API
-// ============================================================================
 
 pub fn render(graph: McVecGraph) -> VizDocument {
     render_with(graph, RenderOpts::default())
@@ -300,7 +297,8 @@ fn render_layer_recursive(
         tracing::info!(target: "mcc::perf", step = "layout_best", ms = _tl.elapsed().as_millis() as u64, "render step");
 
         // ── Phase 1.46b: Adjust Virtual Top Module Border position/size ──
-        // After layout positions all boxes, adjust the dashed border boxes to surround internal components.
+        // After layout positions all boxes, adjust the dashed border boxes to surround internal
+        // components.
         let g_snap = graph.geom_snapshot();
         crate::vector::graph::fromblock::layout_post_adjust_borders(&mut graph);
         graph.claim_geom_changes(&g_snap, "15.borders");
@@ -591,9 +589,7 @@ fn render_layer_recursive(
     }
 }
 
-// ============================================================================
 // One-stop: graph → HTML
-// ============================================================================
 
 pub fn render_to_html(graph: McVecGraph) -> String {
     let doc = render(graph);

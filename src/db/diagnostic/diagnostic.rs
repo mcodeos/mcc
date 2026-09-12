@@ -10,10 +10,8 @@ use std::fmt::{Display, Formatter};
 use std::sync::{Mutex, OnceLock};
 pub type Position = u32;
 
-// ============================================================================
 // Warning-code suppression (`diag.ignore_warnings` config + `-i/--ignore`
 // CLI flag). Warning severity only — errors are never suppressed by this path.
-// ============================================================================
 
 static IGNORED_WARNINGS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 

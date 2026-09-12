@@ -4,7 +4,7 @@
 
 //! Failure ledger — cross-pass unified record of "non-clean" parses.
 //!
-//! Resolve-gate architecture §1 (mcd/doc/resolve-gate-design.md): a compiler
+//! Resolve-gate architecture §1 (`resolve-gate-design.md`): a compiler
 //! that silently resolves a miss (a bare identifier → floating wire, a literal
 //! net point → quarantine, a structured miss → fallback bus) produces zero
 //! errors while the netlist is broken. The ledger records every such moment —
@@ -29,9 +29,7 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::semantic::basic::form::Form;
 
-// ============================================================================
 // Kinds & actions
-// ============================================================================
 
 /// What kind of miss was recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -94,9 +92,7 @@ impl LedgerAction {
     }
 }
 
-// ============================================================================
 // Modes
-// ============================================================================
 
 /// Detail scope for [`build_report`] (resolve-gate-design.md §7.1-4): the
 /// daemon/CLI envelope always carries the summary; per-row detail is opt-in.
@@ -127,9 +123,7 @@ impl LedgerMode {
     }
 }
 
-// ============================================================================
 // Entry
-// ============================================================================
 
 /// One recorded non-clean moment. `uri`/`pos`/`len` are best-effort: sites deep
 /// in instantiation (e.g. `NetPoint` quarantine) have no source node, so they
@@ -197,9 +191,7 @@ impl LedgerEntry {
     }
 }
 
-// ============================================================================
 // Global store
-// ============================================================================
 
 /// Process-global ledger, following the `WORKSPACE` LazyLock pattern
 /// (db/cmie/tables.rs). Cleared at the start of each build/check entry point.
@@ -350,11 +342,9 @@ impl LedgerEntry {
     }
 }
 
-// ============================================================================
 // Report
-// ============================================================================
 
-/// Serializable report shape (mcd/doc/resolve-gate-design.md §7.1-2):
+/// Serializable report shape (`resolve-gate-design.md` §7.1-2):
 /// `{total, by_kind_form, survived, resolved_late, detail}`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LedgerReport {
@@ -393,9 +383,7 @@ pub struct LedgerDetailRow {
     pub len: Option<u32>,
 }
 
-// ============================================================================
 // Record / clear / report entry points (called from every recording site)
-// ============================================================================
 
 /// Append an entry. Pure push — must never change control flow.
 pub fn record(entry: LedgerEntry) {
@@ -419,9 +407,7 @@ pub fn build_report(mode: LedgerMode) -> LedgerReport {
     LEDGER.lock().unwrap().build_report(mode)
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

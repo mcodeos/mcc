@@ -116,7 +116,7 @@ fn accepted(uri: &str, body: &str, expected: Vec<Vec<String>>) {
     assert_eq!(nets, expected, "wrong net partition");
 }
 
-// ── the flagged merge: two bodiless operands, two different names ───────────
+// the flagged merge: two bodiless operands, two different names
 
 /// `VCC + GND` -- the flagged statement. Two labels, no body on either side.
 /// Pre-fix this was silently legal: one net carrying both names, no diagnostic.
@@ -132,7 +132,7 @@ fn net_pair__order_does_not_matter() {
     rejected("/mcc/net-pair-gnd-vcc.mc", "        GND + VCC");
 }
 
-// ── the legal boundaries ────────────────────────────────────────────────────
+// the legal boundaries
 
 /// `VCC + VCC` -- the same name twice names **one** region, so there is no
 /// cross-net to report. This is the discriminator that says the rule is

@@ -18,9 +18,7 @@ use crate::ast::macros::*;
 use crate::ast::node::AstNode;
 use crate::McIds;
 
-// ============================================================================
 // Parameter Type Classification
-// ============================================================================
 
 /// The semantic type category of a parameter.
 ///
@@ -43,9 +41,7 @@ impl Default for McParamType {
     }
 }
 
-// ============================================================================
 // Recursive compound unit type (for UV.PPM / UV.TEMP, UV.V * UV.A, etc.)
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McUnitType {
@@ -182,9 +178,7 @@ pub enum McParamTypeKind {
     Unknown,
 }
 
-// ============================================================================
 // IO Direction Modifier
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McIoTy {
@@ -226,9 +220,7 @@ impl McIoTy {
     }
 }
 
-// ============================================================================
 // McParamType methods
-// ============================================================================
 
 impl McParamType {
     /// Syntactic classification from AST node — called during parse.
@@ -664,9 +656,7 @@ impl std::fmt::Display for McParamType {
     }
 }
 
-// ============================================================================
 // Arity: required vs optional parameter counts
-// ============================================================================
 
 /// Tracks how many parameters are required vs optional (have defaults).
 #[derive(Debug, Clone, Default)]

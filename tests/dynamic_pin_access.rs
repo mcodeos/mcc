@@ -297,8 +297,8 @@ module main
 /// Regression: the chain span recorded for a module-body reference like
 /// `uC.ADC{P,N}` must include the closing `}`. The parser's AST nodes exclude
 /// trailing delimiters (the curly node covers `P{N` without `}`), so the
-/// recorded span was previously one byte short and the hover/tooltip showed
-/// `uC.ADC{P,N` truncated.
+/// recorded span must include the closing brace: one byte short truncates the
+/// hover/tooltip to `uC.ADC{P,N`.
 #[test]
 fn svc_dynpin__module_body_chain_span_includes_closing_brace() {
     let _lock = common::lock();

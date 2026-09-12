@@ -88,7 +88,7 @@ enum SquareKind {
 
 /// Classify the syntactic form of `ids` from its AST segments.
 pub fn classify(ids: &McIds) -> Form {
-    // ── single-segment ──────────────────────────────────────────────────
+    // single-segment
     if ids.segments.len() == 1 {
         return match &ids.segments[0] {
             // Pure outer square `[A,B]` — no prefix (is_square_only).
@@ -105,7 +105,7 @@ pub fn classify(ids: &McIds) -> Form {
         };
     }
 
-    // ── multi-segment ───────────────────────────────────────────────────
+    // multi-segment
     let has_square = ids.has_square();
     let has_curly = ids.has_curly();
     let is_plain_dot = ids.dot_chain_parts().is_some();

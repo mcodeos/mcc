@@ -21,7 +21,7 @@ use tracing::warn;
 pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     let name_str = class_name.to_string();
 
-    // ========== Re-entry guard ==========
+    // Re-entry guard
     let guard_key = format!("{name_str}@{uri}");
     let is_reentrant = CMIE_RESOLVING.with(|set| !set.borrow_mut().insert(guard_key.clone()));
     if is_reentrant {
@@ -86,9 +86,7 @@ pub(crate) fn cmie_ident(cmie: &McCMIE) -> McIds {
     }
 }
 
-// ============================================================================
 // Scoped Enum Resolution
-// ============================================================================
 
 /// Find an enum whose name matches the component family name.
 ///

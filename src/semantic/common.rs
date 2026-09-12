@@ -153,9 +153,7 @@ impl std::fmt::Display for McSpaceName {
 
 pub type McURI = String;
 
-// ============================================================================
 // SourcePos: unified source position (design: expansion-provenance.md §7.11(3))
-// ============================================================================
 
 /// Unified source position: file URI + absolute byte offset.
 ///
@@ -186,9 +184,7 @@ impl SourcePos {
     }
 }
 
-// ============================================================================
 // UriId: global append-only URI interning (design: name-space-global.md §5.5)
-// ============================================================================
 
 /// Globally-unique id for an interned file URI. Ids are never recycled, so a
 /// published `UriId` stays valid across unload/reset (entries may stop being
@@ -298,9 +294,7 @@ pub fn uri_of_file_id(file_id: u32) -> Arc<str> {
     uri_resolve(UriId(file_id))
 }
 
-// ============================================================================
 // ScopePath: hierarchical container chain for def/ref positioning
-// ============================================================================
 
 /// Kind of a container in the scope hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -456,9 +450,7 @@ impl Default for ScopePath {
     }
 }
 
-// ============================================================================
 // Unified Lookup types (shared by pass1/pass2, F12, Hover, Completion)
-// ============================================================================
 
 /// Layered completion space a lookup result belongs to (§5 of the completion
 /// design). Mirrors the P1-P5 name-space layering plus the special spaces.
@@ -602,9 +594,7 @@ pub fn print_backtrace(label: &str) {
     mcc_dbg!("sem::comp", "{bt}");
 }
 
-// ============================================================================
 // Vector shape Shape —— eval.md §1
-// ============================================================================
 //
 // Pure function implementation with no dependencies, reused by the
 // semantic / instant / vector layers.
@@ -733,9 +723,7 @@ pub fn parallel_anchor(ordered: &[i64]) -> Option<i64> {
     ordered.first().copied()
 }
 
-// ============================================================================
 // §1 classification of the three uses of the `_` wire (eval.md §1)
-// ============================================================================
 
 /// The three uses of `_` (eval.md §1):
 ///
@@ -752,7 +740,8 @@ pub fn parallel_anchor(ordered: &[i64]) -> Option<i64> {
 /// convention's prefix and means something different from the wire `_`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LeadKind {
-    /// `[_, R101]` — placeholder inside a vector: keeps its position, participates in vector splicing and expansion
+    /// `[_, R101]` — placeholder inside a vector: keeps its position, participates in vector
+    /// splicing and expansion
     Placeholder,
     /// `a1.gnd + _ + GND` — independent operand: passthrough connection (skips a node)
     Passthrough,
@@ -775,7 +764,8 @@ pub fn classify_lead(name: &str, in_vector: bool) -> LeadKind {
 /// Walk the phrase tree and classify the use of every wire `Lead` in order of
 /// appearance (§1):
 ///
-/// - A `Lead` directly inside a `Multiple` (`[...]` vector) → [placeholder][`LeadKind::Placeholder`];
+/// - A `Lead` directly inside a `Multiple` (`[...]` vector) →
+/// [placeholder][`LeadKind::Placeholder`];
 /// - Any other position (an operand in Series / Parallel / Group / Transposed / Member) →
 ///   [passthrough][`LeadKind::Passthrough`].
 ///
@@ -827,7 +817,7 @@ mod shape_tests {
     use super::*;
     use crate::semantic::basic::mc_group::McGroup;
 
-    // ---- Shape helper predicates ----
+    // Shape helper predicates
 
     #[test]
     fn sem_common__shape_classifiers() {
@@ -869,7 +859,8 @@ mod shape_tests {
         assert_eq!(representative(ConnOp::Series, ConnDir::RtoL, lhs, rhs), lhs);
     }
 
-    /// §4 representative rule for equal single ports (1*1 +- 1*1): both sides agree, no shape difference.
+    /// §4 representative rule for equal single ports (1*1 +- 1*1): both sides agree, no shape
+    /// difference.
     #[test]
     fn sem_common__representative_equal_single_ports() {
         let lhs = Shape::node();
@@ -882,9 +873,10 @@ mod shape_tests {
         }
     }
 
-    // ---- §1 classification of the three uses of `_` (P5.1) ----
+    // §1 classification of the three uses of `_` (P5.1)
 
-    /// `classify_lead`: a bare `_` is a wire, classified as placeholder/passthrough by position; `_FOO` is a prefix identifier.
+    /// `classify_lead`: a bare `_` is a wire, classified as placeholder/passthrough by position;
+    /// `_FOO` is a prefix identifier.
     #[test]
     fn sem_common__classify_lead_wire_vs_prefix_id() {
         // Wire `_`: inside a vector → placeholder
@@ -930,7 +922,8 @@ mod shape_tests {
     }
 
     /// `classify_phrase_leads`: in the nested expression `[a1.gnd + _ + GND, R101]`,
-    /// only a direct member `_` is a placeholder; a `_` inside the nested Parallel is a passthrough.
+    /// only a direct member `_` is a placeholder; a `_` inside the nested Parallel is a
+    /// passthrough.
     #[test]
     fn sem_common__phrase_nested_expression_keeps_passthrough() {
         let nested = McPhrase::Parallel(vec![

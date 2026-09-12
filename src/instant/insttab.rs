@@ -28,9 +28,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 
-// ============================================================================
 // InstKind - Instance entry type
-// ============================================================================
 
 /// Instance entry type
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,9 +79,7 @@ impl InstKind {
     }
 }
 
-// ============================================================================
 // MemberRole / MemberInfo — pin role for net merging and rail checks
-// ============================================================================
 
 /// Electrical role of a pin / interface member
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,9 +124,7 @@ impl MemberInfo {
     }
 }
 
-// ============================================================================
 // VectorMemberInfo — vector group projection (design §11.1)
-// ============================================================================
 
 /// Vector member projection (design §11.1): which declared vector group
 /// (`c[1:2]`) a flattened component entry belongs to, and its position within
@@ -167,7 +161,8 @@ impl VectorMemberInfo {
 /// power-intent declarations — never from a hardcoded name table. The old
 /// `is_ground`/`is_supply` name-fallback arm is gone: a bare name with no
 /// declaration is `Signal` (classification-retirement-design §3 ruling ① —
-/// undeclared: never judged, never guessed). The two predicates are the module's declared ground-side
+/// undeclared: never judged, never guessed). The two predicates are the module's declared
+/// ground-side
 /// coppers (conduit names ∪ DC rail `ret` members) and declared supply faces
 /// (DC rail `hot` members) — the identity set the flat per-statement ground
 /// partition exempted from fragmentation before its retirement
@@ -278,9 +273,7 @@ pub(crate) fn is_supply_name(s: &str) -> bool {
     false
 }
 
-// ============================================================================
 // InstOrigin
-// ============================================================================
 
 /// ★ M0-B-E: instance origin —— whether the device came from a declaration or a funcall
 #[derive(Debug, Clone)]
@@ -329,9 +322,7 @@ impl Default for InstOrigin {
     }
 }
 
-// ============================================================================
 // InstEntry - Single instance record
-// ============================================================================
 
 /// Single instance record
 #[derive(Debug, Clone)]
@@ -414,9 +405,7 @@ pub struct InstEntry {
     pub alias_of: Option<u32>,
 }
 
-// ============================================================================
 // NetEntry - Network record
-// ============================================================================
 
 /// Network record, representing an electrical network after flattening
 ///
@@ -434,7 +423,7 @@ pub struct NetEntry {
     pub id: u32,
     /// Network name (port name > label name > anonymous `_net{N}`)
     pub name: String,
-    /// ★ Net-island attribution L1 (net-island-attribution-design.md §5): the
+    /// ★ Net-island attribution L1 (island-attribution-design.md §5): the
     /// module entry id whose `flatten_nets` produced this record (the scope its
     /// endpoints live under). Every flat net is created from exactly one
     /// module's frozen string net table, so this is always `Some` at flatten
@@ -447,9 +436,7 @@ pub struct NetEntry {
     pub points: Vec<u32>,
 }
 
-// ============================================================================
 // InstTable - Flattened instance table
-// ============================================================================
 
 /// Flattened instance table
 ///
@@ -642,7 +629,7 @@ impl InstTable {
     ///   (normal dedup, silent).
     /// - New and old kinds differ → arbitrate per [`InstKind::registration_priority`]:
     ///   * New kind priority is **higher** (structural entity seizes a path
-    ///     previously occupied by the net side)
+    ///     held by the net side)
     ///     → **in-place upgrade** the entry (replace kind / parent_id /
     ///     class_name / io_type; the ID remains unchanged, and the established
     ///     path_index and parent references remain valid).
@@ -668,7 +655,7 @@ impl InstTable {
             let existing_kind = self.entries.get(&existing_id).map(|e| e.kind.clone());
 
             if let Some(existing_kind) = existing_kind {
-                // ── GAP3 (E4062 PIN_OCCUPIED_BY_DECLARATION) ─────────────────
+                // GAP3 (E4062 PIN_OCCUPIED_BY_DECLARATION)
                 // "Two different declarations materialize to the same physical
                 // pin id" (design §9.3.3 / vector-pipeline §2.3). Fires only when
                 // BOTH registrations are structural entities (Module/Component/
@@ -715,7 +702,7 @@ impl InstTable {
 
                     if new_pri > old_pri {
                         // Structural entity (Component/Module/Pin) reclaims a
-                        // path previously occupied by net side (Port/Bus/Label)
+                        // path held by net side (Port/Bus/Label)
                         // —— in-place upgrade.
                         if let Some(entry) = self.entries.get_mut(&existing_id) {
                             entry.kind = kind;
@@ -946,9 +933,7 @@ impl InstTable {
         )
     }
 
-    // ====================================================================
     // Query methods
-    // ====================================================================
 
     /// Find ID by path
     pub fn get_id_by_path(&self, path: &str) -> Option<u32> {
@@ -988,9 +973,7 @@ impl InstTable {
         self.bridge_passive_paths.contains(path)
     }
 
-    // ====================================================================
     // Network query methods
-    // ====================================================================
 
     /// Get all networks
     pub fn get_nets(&self) -> Vec<&NetEntry> {
@@ -1059,9 +1042,7 @@ impl InstTable {
         self.nets.len()
     }
 
-    // ====================================================================
     // Ground net merging — REMOVED (strict DC rail identity)
-    // ====================================================================
     //
     // `merge_ground_nets` (global merge of every `MemberRole::Ground` net into a
     // single "GND" net) has been deleted. Under strict DC rail identity, a
@@ -1076,9 +1057,7 @@ impl InstTable {
     // the role to classify rail vs signal endpoints and to extract voltages.
     // Only the global ground merge is gone.
 
-    // ====================================================================
     // flatten traversal (Step 5)
-    // ====================================================================
 
     /// Declaration-site fallback for unconnected ports (AGENTS.md: "the module
     /// span for ports"). A port that is never wired (e.g. E4117 floating
@@ -1737,7 +1716,7 @@ impl InstTable {
             let bus_inst = &buses[bus_name];
             let bus_path = format!("{my_path}.{bus_name}");
 
-            // ── Bug ② defense ───────────────────────────────────────────
+            // Bug ② defense
             // `inst.buses` theoretically only contains real buses, but if the
             // upstream (points.rs's ensure_bus) mistakenly collects some
             // component/sub-module instance name as a bus, here it would expand
@@ -2024,7 +2003,7 @@ impl InstTable {
                     },
                 );
             } else if point_ids.is_empty() && !net_points.is_empty() {
-                // ── §11.4 GAP2: net statement materialized 0 physical pins ─────
+                // §11.4 GAP2: net statement materialized 0 physical pins
                 // Every NetPoint of this module-level net failed to resolve to a
                 // registered physical entry (component pin / port). The whole
                 // statement produced no connection at all — its endpoints are
@@ -2110,7 +2089,8 @@ impl InstTable {
     /// Lookup order:
     /// 1. `module_path.path`        (most common: sub-module internal component pin/port)
     /// 2. `path`                    (top-level port direct reference)
-    /// 3. Replace the trailing `.` with `/` and try (★ key: bus member, e.g. `power.VCC` → `power/VCC`)
+    /// 3. Replace the trailing `.` with `/` and try (★ key: bus member, e.g. `power.VCC` →
+    /// `power/VCC`)
     ///
     /// ## Why (3) is needed: heterogeneous path separators
     /// InstTable registration rules:
@@ -2169,9 +2149,7 @@ impl InstTable {
         None
     }
 
-    // ====================================================================
     // dump output (Step 8)
-    // ====================================================================
 
     /// Print the table (for debugging)
     pub fn dump(&self) {
@@ -2324,9 +2302,7 @@ impl InstTable {
     }
 }
 
-// ============================================================================
 // Helper: bracket list expansion (Iter 1 extension)
-// ============================================================================
 
 /// Try to split a path of the form `<prefix>.[<m1>, <m2>, ...]` into a list of
 /// independent paths
@@ -2374,9 +2350,7 @@ fn expand_bracket_list(path: &str) -> Option<Vec<String>> {
     }
 }
 
-// ============================================================================
 // Unit tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -2466,9 +2440,7 @@ mod tests {
         assert_eq!(ids.len(), unique.len());
     }
 
-    // ========================================================================
     // Iter 1: Path resolution's three-level fallback + bracket expansion
-    // ========================================================================
 
     /// Bus member fallback: `power.VCC` should hit `main.power/VCC` already
     /// registered with `/`

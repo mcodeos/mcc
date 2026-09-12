@@ -13,6 +13,7 @@
 #   miri     — undefined behavior / unsafe memory checks (nightly, slow, opt-in)
 #   cjk      — project rule: English only (scripts/check-cjk.py)
 #   paths    — project rule: no user-specific absolute paths (scripts/check-paths.py)
+#   comments — project rule: lean code comments (scripts/check-comments.py)
 #
 # Opt-in steps are gated behind env vars because they change the working
 # tree (fix) or need a nightly toolchain and are very slow (miri):
@@ -67,5 +68,8 @@ python3 scripts/check-cjk.py
 
 echo "===== 10. path scan (no user-specific absolute paths) ====="
 python3 scripts/check-paths.py
+
+echo "===== 11. comment scan (lean comments rule) ====="
+python3 scripts/check-comments.py
 
 echo "all checks passed"

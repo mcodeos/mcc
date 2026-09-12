@@ -121,7 +121,8 @@ fn ref_interval(dump: &str, kind: &str, span: (usize, usize)) -> Option<u32> {
         .next()
 }
 
-/// Def span from the MAP line `Ref(<kind>/<ku>, id=<ref_id>, ...) => Def(<def_kind>/<ku>, span=[a,b], ...)`.
+/// Def span from the MAP line
+/// `Ref(<kind>/<ku>, id=<ref_id>, ...) => Def(<def_kind>/<ku>, span=[a,b], ...)`.
 fn map_def_span(dump: &str, kind: &str, ref_id: u32) -> Option<(usize, usize)> {
     dump.lines()
         .filter(|l| l.contains("F12_DIAG MAP:"))
@@ -540,8 +541,7 @@ module main
         "C4 InstDef and InstRef must share the same DeclareId (self-mapping: \
          declaration = use point)"
     );
-    // No LabelDef may sit on the C4 span (previously the inline declareb name
-    // was misclassified as a label).
+    // No LabelDef may sit on the C4 span (the inline declareb name is not a label).
     assert!(
         !dump.lines().any(|l| {
             l.contains("F12_DIAG LAPPER_DEF:")
@@ -587,7 +587,7 @@ fn svc_goto__interface_declareb_classified_as_label() {
     // Declareb inference rule (`idx::CLASS(...)`): the def kind follows the
     // declared class. An interface class (`DC`) makes the name a label/bus,
     // not an instance — so `vin::DC(5V)` must be LabelDef with no InstDef
-    // (previously interface declareb was misclassified as InstDef).
+    // (the interface declareb is not an InstDef).
     const SRC: &str = r#"
 interface DC(volt)
 {

@@ -20,9 +20,7 @@ use std::collections::BTreeMap;
 
 use crate::vector::graph::{McVecGraph, NetKind, VizNet};
 
-// ============================================================================
 // PowerGroundBusModel
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct PowerGroundBusModel {
@@ -36,9 +34,7 @@ pub struct PowerGroundBusModel {
     pub long_pg_stubs: Vec<PowerGroundNetIntent>,
 }
 
-// ============================================================================
 // SpecialEndpointKey
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SpecialEndpointKey {
@@ -47,9 +43,7 @@ pub struct SpecialEndpointKey {
     pub pin_id: i64,
 }
 
-// ============================================================================
 // PowerGroundNetIntent
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PowerGroundNetIntent {
@@ -83,9 +77,7 @@ pub enum PowerGroundView {
     ExplicitTrunk,
 }
 
-// ============================================================================
 // BusSpecialization
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BusSpecialization {
@@ -125,9 +117,7 @@ pub enum BusEndpointOrderKey {
     StableId(i64),
 }
 
-// ============================================================================
 // SpecialEndpointRole
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpecialEndpointRole {
@@ -141,9 +131,7 @@ pub enum SpecialEndpointRole {
     BusBoundaryPort,
 }
 
-// ============================================================================
 // PowerGroundBusReport
-// ============================================================================
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PowerGroundBusReport {
@@ -214,9 +202,7 @@ impl PowerGroundBusReport {
     }
 }
 
-// ============================================================================
 // PowerGroundBusWarning
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PowerGroundBusWarning {
@@ -227,15 +213,11 @@ pub enum PowerGroundBusWarning {
     PowerGroundSignalBoundary { net_name: String },
 }
 
-// ============================================================================
 // Constants
-// ============================================================================
 
 const LONG_PG_STUB: f64 = 120.0;
 
-// ============================================================================
 // analyze()
-// ============================================================================
 
 impl PowerGroundBusModel {
     pub fn analyze(
@@ -479,9 +461,7 @@ impl PowerGroundBusModel {
     }
 }
 
-// ============================================================================
 // Helper: analyze a single power/ground net
-// ============================================================================
 
 fn analyze_power_ground_net(
     graph: &McVecGraph,
@@ -589,9 +569,7 @@ fn collect_pg_endpoint_roles(
     roles
 }
 
-// ============================================================================
 // Bus name helpers
-// ============================================================================
 
 fn extract_bus_base_name(name: &str) -> String {
     // Strip trailing bit notation: DATA[0], DATA_0, DATA0
@@ -643,9 +621,7 @@ fn extract_bit_index(name: &str) -> Option<usize> {
     None
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

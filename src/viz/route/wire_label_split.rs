@@ -35,18 +35,14 @@ use crate::vector::graph::{
     Symbol, VizNet,
 };
 
-// ============================================================================
 // Constants (mirrored from rails.rs for the label box layout)
-// ============================================================================
 
 const NETLABEL_GAP: f64 = 42.0;
 const NETLABEL_W: f64 = 14.0;
 const NETLABEL_H: f64 = 14.0;
 const INFLATE: f64 = 8.0;
 
-// ============================================================================
 // Public API
-// ============================================================================
 
 /// Apply wire/label split to all nets in one graph layer.
 /// Returns true if any nets were converted to labels (boxes added, nets dropped).
@@ -207,9 +203,7 @@ pub fn apply_wire_label_split(graph: &mut McVecGraph) -> bool {
     true
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 /// Manhattan span of a net: max(|dx|, |dy|) of endpoint box centers.
 fn manhattan_span(graph: &McVecGraph, net: &VizNet) -> f64 {
@@ -352,9 +346,7 @@ fn push_label_stub(
     *next_net += 1;
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

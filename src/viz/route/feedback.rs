@@ -33,9 +33,7 @@ use crate::vector::graph::{EntryPoint, EntrySide, McVecBox, McVecGraph, NetRole,
 use super::audit::{self, CollisionReport};
 use super::grid_router::{self, AStarCfg, Grid, GRID_GAP};
 
-// ============================================================================
 // RouteFeedbackConfig
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct RouteFeedbackConfig {
@@ -64,9 +62,7 @@ impl Default for RouteFeedbackConfig {
     }
 }
 
-// ============================================================================
 // RouteFeedbackReport
-// ============================================================================
 
 #[derive(Debug, Clone, Default)]
 pub struct RouteFeedbackReport {
@@ -82,9 +78,7 @@ pub struct RouteFeedbackReport {
     pub unresolved: Vec<RouteConflict>,
 }
 
-// ============================================================================
 // RouteConflictSummary
-// ============================================================================
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RouteConflictSummary {
@@ -127,9 +121,7 @@ impl RouteConflictSummary {
     }
 }
 
-// ============================================================================
 // RouteConflict
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteConflict {
@@ -159,9 +151,7 @@ pub enum RouteConflictSeverity {
     Soft,
 }
 
-// ============================================================================
 // RouteQualityScore
-// ============================================================================
 
 #[derive(Debug, Clone, Default, PartialEq, PartialOrd)]
 pub struct RouteQualityScore {
@@ -221,9 +211,7 @@ impl RouteQualityScore {
     }
 }
 
-// ============================================================================
 // Per-net conflict collection
-// ============================================================================
 
 pub fn collect_net_conflicts(graph: &McVecGraph, net_index: usize) -> Vec<RouteConflict> {
     let mut conflicts = Vec::new();
@@ -306,9 +294,7 @@ pub fn collect_net_conflicts(graph: &McVecGraph, net_index: usize) -> Vec<RouteC
     conflicts
 }
 
-// ============================================================================
 // Accept / rollback
-// ============================================================================
 
 pub fn should_accept_reroute(
     old: &RouteQualityScore,
@@ -352,9 +338,7 @@ pub fn should_accept_reroute(
     false
 }
 
-// ============================================================================
 // Endpoint reachability
-// ============================================================================
 
 pub fn check_endpoint_reachability(graph: &McVecGraph, net: &VizNet) -> bool {
     let route = match &net.route {
@@ -392,9 +376,7 @@ pub fn check_endpoint_reachability(graph: &McVecGraph, net: &VizNet) -> bool {
     true
 }
 
-// ============================================================================
 // Score a single net's route
-// ============================================================================
 
 pub fn score_net_route(graph: &McVecGraph, net_index: usize) -> RouteQualityScore {
     let conflicts = collect_net_conflicts(graph, net_index);
@@ -420,9 +402,7 @@ pub fn score_net_route(graph: &McVecGraph, net_index: usize) -> RouteQualityScor
     score
 }
 
-// ============================================================================
 // Route feedback loop
-// ============================================================================
 
 pub fn run_route_feedback(
     graph: &mut McVecGraph,
@@ -594,9 +574,7 @@ pub fn run_route_feedback(
     report
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 fn pin_position_from_entry(b: &McVecBox, ep: &EntryPoint) -> (f64, f64) {
     match ep.side {
@@ -692,9 +670,7 @@ fn bump_crossings(grid: &mut Grid, graph: &McVecGraph, amount: i64) {
     }
 }
 
-// ============================================================================
 // Phase E — Route feedback loop
-// ============================================================================
 // ★ P7-4e removed: run_route_feedback_loop (nudge → reroute → accept).
 // It freed routing space by shifting box x/y (NUDGE_STEP), the only geometry
 // writer inside the Route stage (19 net shifts measured in P7-4c), violating
@@ -702,9 +678,7 @@ fn bump_crossings(grid: &mut Grid, graph: &McVecGraph, amount: i64) {
 // run_route_feedback above (rip-up/reroute, never moves boxes) is kept —
 // it is the stage-compliant route-quality feedback.
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

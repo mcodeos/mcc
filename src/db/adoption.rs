@@ -101,9 +101,7 @@ fn classify_visible(sn: &McSpaceName) -> AdoptTarget {
     AdoptTarget::Unresolved(sn.ident.to_string())
 }
 
-// ============================================================================
 // P4 — variant base (`: Base`) resolution & materialization (§7)
-// ============================================================================
 //
 // `component Y : X` shares X's *data* surface (pins/params/funcs/spec), only
 // differing by the child's own attributes (partno/vendor/…). Resolution and
@@ -218,9 +216,7 @@ fn apply_attr_overrides(base: &mut McAttributes, child: &McAttributes) {
     }
 }
 
-// ============================================================================
 // §4.2 / §5 host analysis — capability-adoption consistency & func collisions
-// ============================================================================
 //
 // Both consumers of the resolver (the silent link seam and the re-derived-file
 // validation check) need the *consequences* of adoption on a host def, so the

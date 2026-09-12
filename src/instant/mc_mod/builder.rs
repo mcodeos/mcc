@@ -61,9 +61,7 @@ use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, Ledge
 use crate::vector::model::trunk::TrunkKind;
 use crate::{current_uri, McIds};
 
-// ============================================================================
 // InstantiationBuilder
-// ============================================================================
 
 /// Construction-phase carrier (design §5 D4): the tree under construction plus
 /// every scratch ledger that must not survive into the frozen model. Built,
@@ -187,9 +185,7 @@ impl DerefMut for InstantiationBuilder {
 }
 
 impl InstantiationBuilder {
-    // ========================================================================
     // Construction / consumption
-    // ========================================================================
 
     /// Wrap a module tree into a construction builder.
     ///
@@ -416,9 +412,7 @@ impl InstantiationBuilder {
             .insert_fragment(self.current_path.clone(), overlay);
     }
 
-    // ========================================================================
     // Phase C S3: store-backed construction lookups
-    // ========================================================================
 
     /// The component instances directly under arena node `node_id`, in build
     /// order, resolved from the instance store (Phase C S3). Cheap `Rc`
@@ -529,9 +523,7 @@ impl InstantiationBuilder {
         self.modules_of(node_id)
     }
 
-    // ========================================================================
     // Unified product factories (expansion provenance tagging, §7.11)
-    // ========================================================================
 
     /// Push a component instance, tagging it with the current expansion id
     /// and interning its canonical path (Phase C1). Centralizes
@@ -752,14 +744,14 @@ impl InstantiationBuilder {
         Some(SourcePos::new(uri, off))
     }
 
-    // ========================================================================
     // Instantiation top-level flow
-    // ========================================================================
 
     /// Execute instantiation
     ///
-    /// Uses a fault-tolerant strategy: errors in each phase are recorded into `diagnostics` instead of interrupting the flow.
-    /// Even if some sub-modules/connection stmts fail, still try to complete the net table construction.
+    /// Uses a fault-tolerant strategy: errors in each phase are recorded into `diagnostics` instead
+    /// of interrupting the flow.
+    /// Even if some sub-modules/connection stmts fail, still try to complete the net table
+    /// construction.
     /// The caller checks results via `has_errors()` / `all_diagnostics()`.
     ///
     /// ## Flow
@@ -772,12 +764,14 @@ impl InstantiationBuilder {
     /// 6. Net table construction
     /// 7. (Optional) When `MC_INST_DUMP=1` is enabled, print pass2 output + pass1↔pass2 diff
     pub fn instantiate(&mut self) -> Result<(), InstError> {
-        // ★ Switch current_uri to the file containing this module definition to ensure correct internal symbol resolution
-        //   Sub-modules may be defined in different files; mcb_get_cmie() depends on current_uri for context lookup.
+        // ★ Switch current_uri to the file containing this module definition to ensure correct
+        // internal symbol resolution
+        // Sub-modules may be defined in different files; mcb_get_cmie() depends on current_uri for
+        // context lookup.
         //   RAII (§7.2): the guard restores the caller's URI on every exit path.
         let _uri_guard = CurrentUriGuard::new(&self.def_uri);
 
-        // ── DEBUG: pass1 input snapshot (optional) ────────────────────────────
+        // DEBUG: pass1 input snapshot (optional)
         if super::dump::dump_enabled() {
             self.dump_pass1_input();
         }
@@ -790,7 +784,8 @@ impl InstantiationBuilder {
             );
         }
 
-        // 2. Process instances declared in the symbol table (components and sub-modules) — per-instance fault tolerance
+        // 2. Process instances declared in the symbol table (components and sub-modules) —
+        // per-instance fault tolerance
         self.instantiate_declarations_resilient();
 
         // 3. Process connection stmts — per-stmt fault tolerance
@@ -802,7 +797,8 @@ impl InstantiationBuilder {
         // (e.g. `func do_flash(spi)`) must be explicitly called.
         self.auto_invoke_module_funcs();
 
-        // 3.6 Post-processing (moved from instantiate_stmts_resilient to cover auto-invoked closures)
+        // 3.6 Post-processing (moved from instantiate_stmts_resilient to cover auto-invoked
+        // closures)
         // ★ Authoritative declared-shape rule: NO usage auto-expansion. A port's member set
         // comes only from its declaration (`io X{...}`/`X[...]`/typed). Body member/lane access
         // on a scalar-declared port is an E3183 error caught in Pass1; netlist never re-widens it.
@@ -813,7 +809,7 @@ impl InstantiationBuilder {
         // 4. Build the final net table (based on successful connections)
         self.build_net_table();
 
-        // ── DEBUG: pass2 output + pass1↔pass2 diff (optional) ─────────────
+        // DEBUG: pass2 output + pass1↔pass2 diff (optional)
         if super::dump::dump_enabled() {
             self.dump_pass2_output();
             // Phase C S3-D: the pass1↔pass2 diff resolves built children
@@ -920,9 +916,7 @@ impl InstantiationBuilder {
         }
     }
 
-    // ========================================================================
     // Diagnostic helper methods
-    // ========================================================================
 
     /// Record a non-fatal error to the diagnostic collector, anchored at the
     /// best source position currently in scope: the enclosing func body, else
@@ -1024,9 +1018,7 @@ impl InstantiationBuilder {
         self.diagnostics.extend(child.diagnostics.iter().cloned());
     }
 
-    // ========================================================================
     // ID counter / naming (small utilities reused across multiple module files)
-    // ========================================================================
 
     /// Reference designator prefix for common inline-constructed types.
     /// Unknown or multi-segment types (dots already replaced with `_`) fall
@@ -1261,9 +1253,7 @@ impl InstantiationBuilder {
         id
     }
 
-    // ========================================================================
     // Net table construction
-    // ========================================================================
 
     pub(super) fn build_net_table(&mut self) {
         let mut table = NetTable::new();
@@ -1280,7 +1270,8 @@ impl InstantiationBuilder {
             }
         }
 
-        // ★ P7-4 diagnostic: print the connection table in order (id + point paths), for cross-build diff of connection order
+        // ★ P7-4 diagnostic: print the connection table in order (id + point paths), for
+        // cross-build diff of connection order
         crate::vlog!(
             "[det-conn] module '{}' {} connection(s) in order:",
             self.name,
@@ -1299,7 +1290,7 @@ impl InstantiationBuilder {
             table.add_connection(conn);
         }
 
-        // ── Sub-module internal ground tie propagation ────────────────────
+        // Sub-module internal ground tie propagation
         // A raw per-module net only unions this module's own connections; it
         // cannot see a sub-module's internal port-to-port short. Mirror the
         // projection layer's mechanism (3) (viz/project.rs): if a sub-module
@@ -1376,9 +1367,7 @@ impl InstantiationBuilder {
         self.freeze_fragment();
     }
 
-    // ========================================================================
     // Class-name resolution
-    // ========================================================================
 
     /// P2-7-XTAL: strict full-name, case-sensitive class check.
     ///
@@ -1417,9 +1406,7 @@ impl InstantiationBuilder {
     }
 }
 
-// ============================================================================
 // Counter resume (dianlu-tree refactor Phase B)
-// ============================================================================
 
 /// Rebuild the per-prefix auto-name counters from a (frozen) tree's component
 /// names.

@@ -70,9 +70,7 @@ fn has_code(value: &Value, code: u64) -> bool {
         .any(|diagnostic| diagnostic["code"].as_u64() == Some(code))
 }
 
-// ============================================================================
 // 5301 DEF_AMBIGUOUS_NAME - interface and enum share a name.
-// ============================================================================
 
 #[test]
 fn ppdefs__iface_enum_same_name_emits_5301() {
@@ -96,9 +94,7 @@ module main
     );
 }
 
-// ============================================================================
 // 5302 DEF_REF_NOT_LOADED - component param declares an unloaded class.
-// ============================================================================
 
 #[test]
 fn ppdefs__param_declares_unloaded_class_emits_5302() {
@@ -123,9 +119,7 @@ module main
     );
 }
 
-// ============================================================================
 // 5303 COMPONENT_INT_SUFFIX - component name ends with `.int`.
-// ============================================================================
 
 #[test]
 fn ppdefs__component_int_suffix_emits_5303() {
@@ -147,9 +141,7 @@ module main
     );
 }
 
-// ============================================================================
 // 5304 ENUM_INT_SUFFIX - enum name ends with `.int`.
-// ============================================================================
 
 #[test]
 fn ppdefs__enum_int_suffix_emits_5304() {

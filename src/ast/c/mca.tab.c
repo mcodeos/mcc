@@ -3064,7 +3064,7 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
   case 90:
 {
     
-    // power-intent trailing `@attr…` run (power-intent-design.md §5): the
+    // power-intent trailing `@attr…` run (intent-design.md §5): the
     // tattr chain sits as extra sibling children after the name side, the same
     // shape conduit/domain/net rows carry — the Rust McAttribute reader
     // (collect on MCAST_ATTRIBUTE children) parses them unchanged.

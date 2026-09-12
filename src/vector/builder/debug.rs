@@ -5,19 +5,24 @@
 //! ★ NEW — Builder-phase debug output
 //!
 //! Analogous to `instant/mc_mod/debug_dump`: before and after each `McModuleInst → McVecBlock`
-//! conversion, prints input/output comparison to help locate "why a certain net didn't appear in the diagram".
+//! conversion, prints input/output comparison to help locate "why a certain net didn't appear in
+//! the diagram".
 //!
 //! ## Enabling
-//! Set environment variable `MC_VEC_DUMP=1` (or any non-empty value other than `0`/`false`). Disabled by default, zero overhead.
+//! Set environment variable `MC_VEC_DUMP=1` (or any non-empty value other than `0`/`false`).
+//! Disabled by default, zero overhead.
 //!
 //! ## Three output sections (printed once per `convert_module` call)
 //! - `[VEC-IN ][<name>]`  — Input: this module's connections / sub_modules / labels count
-//! - `[VEC-OUT][<name>]`  — Output: this level's insts / nets count, per-ConnectionType distribution
+//! - `[VEC-OUT][<name>]`  — Output: this level's insts / nets count, per-ConnectionType
+//! distribution
 //! - `[VEC-DIFF][<name>]` — Consistency check (has connections but produced 0 nets, etc.)
 //!
 //! ## Relationship with `viz/debug`
-//! This file only concerns builder; `viz/debug` concerns layout/route/render. The two use independent
-//! environment variables (`MC_VEC_DUMP` vs `MC_VIZ_DUMP`), can be enabled separately to debug a specific phase.
+//! This file only concerns builder; `viz/debug` concerns layout/route/render. The two use
+//! independent
+//! environment variables (`MC_VEC_DUMP` vs `MC_VIZ_DUMP`), can be enabled separately to debug a
+//! specific phase.
 
 use std::sync::OnceLock;
 
@@ -25,9 +30,7 @@ use super::super::model::McVecBlock;
 use crate::instant::inststore::TreeView;
 use crate::instant::mc_mod::McModuleInst;
 
-// ============================================================================
 // Enable check
-// ============================================================================
 
 static DUMP_ENABLED: OnceLock<bool> = OnceLock::new();
 
@@ -53,9 +56,7 @@ macro_rules! velog {
     };
 }
 
-// ============================================================================
 // Output functions (called by builder/visit)
-// ============================================================================
 
 /// Print input snapshot when entering `convert_module`
 ///

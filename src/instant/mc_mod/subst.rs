@@ -11,7 +11,8 @@
 //! - `ids_to_node_elements`         —— McIds -> Vec<McBus>
 //! - `substitute_node_element(s)`   —— substitute formal with actual in a single McBus / McBus list
 //! - `node_elements_to_bus`         —— Vec<McBus> -> single McBus (with members)
-//! - `substitute_param_value`       —— recursively substitute inside McParamValue (FuncCall nested scenario)
+//! - `substitute_param_value`       —— recursively substitute inside McParamValue (FuncCall nested
+//! scenario)
 //! - `substitute_phrase` / `substitute_stmt` —— substitute throughout the McPhrase tree
 
 use super::expand::ExpansionContext;
@@ -28,9 +29,7 @@ use crate::semantic::mc_inst::McInstance;
 use crate::McIds;
 
 impl InstantiationBuilder {
-    // ========================================================================
     // McParamValue / McOpd / McIds → Vec<McBus>
-    // ========================================================================
 
     /// Convert McParamValue to McBus(s)
     ///
@@ -134,9 +133,7 @@ impl InstantiationBuilder {
         expanded.iter().map(|name| McBus::new(name)).collect()
     }
 
-    // ========================================================================
     // formal → actual substitution
-    // ========================================================================
 
     /// Substitute formal parameter references in a McBus.
     ///
@@ -186,7 +183,8 @@ impl InstantiationBuilder {
                                 // Substitute member value
                                 let substituted = Self::param_value_to_node_elements(&member_val);
                                 for sub_elem in substituted {
-                                    // If substituted element has members, use them; otherwise use the name
+                                    // If substituted element has members, use them; otherwise use
+                                    // the name
                                     if sub_elem.member.is_empty() {
                                         new_members.push(sub_elem.name);
                                     } else {
@@ -231,12 +229,14 @@ impl InstantiationBuilder {
         if elements.len() == 1 {
             return McBus::new_with_members(&elements[0].name, elements[0].member.clone());
         }
-        // --- Iter-3.B3 ----------------------------------------------------
-        // In the multi-element case, the previous logic `name = elements[0].name; members = flat_map(e.member)`
+        // Iter-3.B3
+        // In the multi-element case, the previous logic
+        // `name = elements[0].name; members = flat_map(e.member)`
         // **loses all bare McBus entries except the first one's name**. Example:
         //   V1V2 -> [McBus{"VCC_1V2",[]}, McBus{"GND",[]}]
         //   Old code: name="VCC_1V2", members=[], result is McBus{"VCC_1V2"} -- GND is lost
-        //   New code: all elements have empty .member -> treated as "anonymous bus, element names as members"
+        // New code: all elements have empty .member -> treated as "anonymous bus, element names as
+        // members"
         //             result is McBus{name:"", member:["VCC_1V2", "GND"]}, downstream P1-A4
         //             can correctly expand into two NetPoints.
         let all_empty_members = elements.iter().all(|e| e.member.is_empty());
@@ -344,9 +344,7 @@ impl InstantiationBuilder {
         }
     }
 
-    // ========================================================================
     // External-value protection
-    // ========================================================================
 
     /// Wrap a substituted actual value so the instance-prefix pass treats it
     /// as opaque external data.
@@ -400,9 +398,7 @@ impl InstantiationBuilder {
         }
     }
 
-    // ========================================================================
     // McPhrase tree substitution
-    // ========================================================================
 
     /// Resolve a `this` reference to the caller instance bus.
     ///
@@ -505,15 +501,17 @@ impl InstantiationBuilder {
                 expansion_ctx,
             ))),
             McPhrase::Lead => phrase.clone(),
-            // --- Iter-2.3 ------------------------------------------------
-            // Previously Endpoint::Single(Label/Bus/List) was returned as-is -- as a result
-            // the V1V2 formal parameter in `V1V2 => CAP(...)` was never substituted, the func body could
-            // only lay out an isolated "V1V2" label, and the user would see "decoupling cap not connected to power".
+            // Iter-2.3
+            // Returning Endpoint::Single(Label/Bus/List) as-is would leave the
+            // V1V2 formal parameter in `V1V2 => CAP(...)` unsubstituted: the func
+            // body could
+            // connected to power".
             //
             // Fix: for Endpoint of Label/Bus/List types, try to run substitute_node_element.
-            // Component/Module/Interface are "already declared concrete instances", formal params should not override them, keep as-is.
+            // Component/Module/Interface are "already declared concrete instances", formal params
+            // should not override them, keep as-is.
             //
-            // --- this substitution -------------------------------------------
+            // this substitution
             // Replace "this" / "this.xxx" / "this{a, b}" with the caller instance
             // bus ("caller_inst_name" / "caller_inst_name.xxx" / "caller_inst_name{a, b}").
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
@@ -650,7 +648,7 @@ impl InstantiationBuilder {
             }) => {
                 let left_elems: Vec<McBus> = input.iter().flat_map(|e| e.get_left()).collect();
                 let right_elems: Vec<McBus> = output.iter().flat_map(|e| e.get_right()).collect();
-                // --- Iter-2.3 ---------------------------------------------
+                // Iter-2.3
                 // Also perform formal-parameter substitution on the Node's left/right McBus
                 let left_subst = Self::substitute_node_elements(&left_elems, bindings);
                 let right_subst = Self::substitute_node_elements(&right_elems, bindings);

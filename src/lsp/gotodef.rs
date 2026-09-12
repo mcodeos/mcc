@@ -222,16 +222,15 @@ fn resolve_use_jump(mcfile: &McCode, offset: usize) -> Option<String> {
         // mcext jumps when the cursor is anywhere on a use-directive line;
         // widen to the line start when the line is a `use`/`pub use`
         // directive and the cursor precedes the statement.
-        offset < start
-            && {
-                let line_start = mcfile
-                    .content
-                    .get(..start)
-                    .and_then(|before| before.rfind('\n'))
-                    .map(|nl| nl + 1)
-                    .unwrap_or(0);
-                offset >= line_start && is_use_directive_line(&mcfile.content, line_start, start)
-            }
+        offset < start && {
+            let line_start = mcfile
+                .content
+                .get(..start)
+                .and_then(|before| before.rfind('\n'))
+                .map(|nl| nl + 1)
+                .unwrap_or(0);
+            offset >= line_start && is_use_directive_line(&mcfile.content, line_start, start)
+        }
     })?;
     let path = Path::new(target.uri.as_str());
     if path.is_absolute() && path.is_file() {
@@ -285,8 +284,7 @@ mod tests {
         // The proxy sends `file://<canonical abs path>`; the server loads the
         // file from that URI (sem string load). Canonicalize so the temp dir
         // survives macOS `/var` → `/private/var` symlink normalization.
-        let f_uri: crate::McURI =
-            format!("file://{}", main_path.canonicalize().unwrap().display());
+        let f_uri: crate::McURI = format!("file://{}", main_path.canonicalize().unwrap().display());
         crate::mcc_load_from_string(&f_uri, main_src);
 
         // Cursor on the use path (`./helper`) → UseJump to helper.mc.
@@ -295,7 +293,9 @@ mod tests {
         assert_eq!(d["kind"], "UseJump");
         let want = helper_path.canonicalize().unwrap();
         assert_eq!(
-            d["uri"].as_str().map(|s| PathBuf::from(s).canonicalize().unwrap()),
+            d["uri"]
+                .as_str()
+                .map(|s| PathBuf::from(s).canonicalize().unwrap()),
             Some(want),
             "use-jump target must be the canonical helper.mc: {d}"
         );
@@ -342,8 +342,12 @@ module main
 
         // `CAP` in `CAP C1` is a class reference → the component head.
         let comp_ref = source.find("CAP C1").unwrap();
-        let d = crate::lsp::gotodef::resolve_at_pos(&uri, comp_ref).expect("goto-def at component ref");
-        assert_eq!(d["kind"], "ClassDef", "use-jump must not shadow symbol resolution: {d}");
+        let d =
+            crate::lsp::gotodef::resolve_at_pos(&uri, comp_ref).expect("goto-def at component ref");
+        assert_eq!(
+            d["kind"], "ClassDef",
+            "use-jump must not shadow symbol resolution: {d}"
+        );
     }
 
     /// Cross-file goto-def: a class reference in one file (`US513` in
@@ -388,11 +392,17 @@ module US513([VDD_3V3, GND]::DC(3.3V), [VCC_1V2, GND]::DC(1.2V))
         // module head in us513.mc. Component and module class heads both
         // register as `ClassDef` in the ref-def map.
         let off = main_src.find("US513 mcu513").unwrap();
-        let d = crate::lsp::gotodef::resolve_at_pos(&f_uri, off).expect("cross-file class goto-def");
-        assert_eq!(d["kind"], "ClassDef", "class ref must resolve to the class def: {d}");
+        let d =
+            crate::lsp::gotodef::resolve_at_pos(&f_uri, off).expect("cross-file class goto-def");
+        assert_eq!(
+            d["kind"], "ClassDef",
+            "class ref must resolve to the class def: {d}"
+        );
         let want = def_path.canonicalize().unwrap();
         assert_eq!(
-            d["uri"].as_str().map(|s| PathBuf::from(s).canonicalize().unwrap()),
+            d["uri"]
+                .as_str()
+                .map(|s| PathBuf::from(s).canonicalize().unwrap()),
             Some(want),
             "US513 def must live in us513.mc: {d}"
         );

@@ -10,7 +10,7 @@
 //! call site and function body line that created them — without re-deriving
 //! the call tree from flat physical structures.
 //!
-//! Design: `mcd/doc/expansion-provenance.md` (logical expansion tree).
+//! Design: `expansion-provenance.md` (logical expansion tree).
 //!
 //! Each `McModuleInst` owns one `ExpansionLog`; record indices (`expansion_id`)
 //! are **module-local** and must not be referenced across modules — cross-module

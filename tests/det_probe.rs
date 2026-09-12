@@ -8,7 +8,8 @@
 //!
 //! Three fingerprint sections (all sorted before comparison; exposes "content differs",
 //! not "order differs"):
-//!  - flat_nets  : InstTable level (net names + sorted endpoint paths); unstable ⇒ frontend id/naming
+//! - flat_nets  : InstTable level (net names + sorted endpoint paths); unstable ⇒ frontend
+//! id/naming
 //!  - block_nets : McVecBlock level of build_mc_vec (net names + sorted point ids)
 //!  - graph_nets : fromblock graph level (layer names + net names + sorted endpoint box ids)
 

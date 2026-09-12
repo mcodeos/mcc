@@ -12,9 +12,7 @@
 
 use std::fmt;
 
-// ============================================================================
 // BoxKind -- box kind
-// ============================================================================
 
 /// Box kind
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,9 +46,7 @@ impl fmt::Display for BoxKind {
     }
 }
 
-// ============================================================================
 // NetKind -- ★ NEW: net semantic type (used by VizNet)
-// ============================================================================
 
 /// Net semantic type
 ///
@@ -83,7 +79,8 @@ impl NetKind {
     /// Only rough classification; precise classification should be done by the builder looking
     /// at the NetPoint's IOType.
     ///
-    /// **P04 (S1)**: Implementation has been migrated to [`crate::vector::graph::naming::classify_net`]
+    /// **P04 (S1)**: Implementation has been migrated to
+    /// [`crate::vector::graph::naming::classify_net`]
     /// this method just forwards the call, keeping caller API unchanged.
     pub fn classify_by_name(name: &str) -> Self {
         super::naming::classify_net(name)

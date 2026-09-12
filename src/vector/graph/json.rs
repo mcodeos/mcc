@@ -55,7 +55,7 @@ impl McVecGraph {
             json_escape(&self.name)
         ));
 
-        // ── boxes ─────────────────────────────────────────────────────────
+        // boxes
         out.push_str(&format!("{i1}\"boxes\": ["));
         if !self.boxes.is_empty() {
             out.push_str(nl);
@@ -84,7 +84,7 @@ impl McVecGraph {
         }
         out.push_str(&format!("{i1}]{s}{nl}"));
 
-        // ── nets (multi-endpoint hyperedge) ────────────────────────────────
+        // nets (multi-endpoint hyperedge)
         out.push_str(&format!("{i1}\"nets\": ["));
         if !self.nets.is_empty() {
             out.push_str(nl);
@@ -186,7 +186,7 @@ impl McVecGraph {
         }
         out.push_str(&format!("{i1}]{s}{nl}"));
 
-        // ── ★ §8.9.4: port_trunks (coarse bus/interface trunks of this layer) ──────
+        // ★ §8.9.4: port_trunks (coarse bus/interface trunks of this layer)
         out.push_str(&format!("{i1}\"port_trunks\": ["));
         if !self.port_trunks.is_empty() {
             out.push_str(nl);
@@ -269,7 +269,7 @@ impl McVecGraph {
         }
         out.push_str(&format!("{i1}]{s}{nl}"));
 
-        // ── children (sub-graphs, recursive) ──────────────────────────────────────────
+        // children (sub-graphs, recursive)
         out.push_str(&format!("{i1}\"children\": ["));
         if !self.sub_graphs.is_empty() {
             out.push_str(nl);

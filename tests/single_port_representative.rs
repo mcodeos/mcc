@@ -75,7 +75,7 @@ fn assert_net_has(got: &[Vec<String>], members: &[&str]) {
     );
 }
 
-// ── `+` takes op1: vexpr_wire_parallel anchors opd[0] ─────────────────────
+// `+` takes op1: vexpr_wire_parallel anchors opd[0]
 
 #[test]
 fn plus_anchors_operand_one() {
@@ -105,7 +105,7 @@ module main
     assert_net_has(&nets(&inst), &["VEXT", "TP1.1", "TP2.1"]);
 }
 
-// ── `-` takes op1: Series chain head opd1 ─────────────────────────────────
+// `-` takes op1: Series chain head opd1
 
 #[test]
 fn minus_keeps_operand_one_as_chain_head() {
@@ -139,7 +139,7 @@ module main
     );
 }
 
-// ── `->` takes op2: LtoR chain tail is the output ─────────────────────────
+// `->` takes op2: LtoR chain tail is the output
 
 #[test]
 fn rarrow_takes_operand_two_as_output() {
@@ -171,7 +171,7 @@ module main
     );
 }
 
-// ── `<-` pairs positionally like every other series ──────────────────────
+// `<-` pairs positionally like every other series
 
 #[test]
 fn leftarrow_pairs_by_written_position() {

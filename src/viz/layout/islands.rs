@@ -31,9 +31,7 @@ use super::rails::is_rail_box;
 use super::sp_model::{build_sp_tree, SpModel, SubNet};
 use super::sp_place::apply_sp_model_at;
 
-// ============================================================================
 // Island model
-// ============================================================================
 
 /// A connected component of passive edges.
 #[derive(Debug, Clone)]
@@ -80,9 +78,7 @@ pub struct Decomposition {
     pub direct_bands: Vec<DirectBand>,
 }
 
-// ============================================================================
 // ★ Band assembly — Phase B/C/D
-// ============================================================================
 
 /// A band that can be stacked vertically in the island assembly.
 /// Each band owns its passives and reports its terminal pins, but never
@@ -189,9 +185,7 @@ impl Band {
     }
 }
 
-// ============================================================================
 // ★ TerminalGraph — model the terminal-to-band wiring
-// ============================================================================
 
 /// A bipartite graph: terminals ↔ bands.
 /// Each band connects exactly two terminals; each terminal may connect to
@@ -371,20 +365,18 @@ fn ordered_terminals_by_chain(a: i64, b: i64, order: &[i64]) -> (i64, i64) {
     }
 }
 
-// ============================================================================
 // Public entry
-// ============================================================================
 
 /// Decompose a graph into islands. Pure; never touches geometry.
 /// Logs the result via `crate::vlog!`.
 pub fn decompose(graph: &McVecGraph) -> Decomposition {
     let n_nets = graph.nets.len();
 
-    // ── 0. Box lookup table (O(1) instead of O(boxes) per find) ────────────
+    // 0. Box lookup table (O(1) instead of O(boxes) per find)
     let box_by_id: HashMap<i64, &crate::vector::graph::McVecBox> =
         graph.boxes.iter().map(|b| (b.id, b)).collect();
 
-    // ── 1. Collect passive edges (two-pin passives) ─────────────────────────
+    // 1. Collect passive edges (two-pin passives)
     //    Split into two sets:
     //    · all_passive_boxes: every `is_two_pin_passive()` — used for
     //      boundary/terminal detection (so a 1-net or self-loop passive
@@ -417,13 +409,13 @@ pub fn decompose(graph: &McVecGraph) -> Decomposition {
         }
     }
 
-    // ── 2. Union-find: passive-edge connected components ────────────────────
+    // 2. Union-find: passive-edge connected components
     let mut dsu = Dsu::new(n_nets);
     for &(_, _, a, b) in &passive_edges {
         dsu.union(a, b);
     }
 
-    // ── 3. Group nets into islands ──────────────────────────────────────────
+    // 3. Group nets into islands
     let mut root_to_nodes: HashMap<usize, Vec<usize>> = HashMap::new();
     let mut net_has_passive = vec![false; n_nets];
     for (_, _, a, b) in &passive_edges {
@@ -437,7 +429,7 @@ pub fn decompose(graph: &McVecGraph) -> Decomposition {
         }
     }
 
-    // ── 4. Build islands (deterministic order) ──────────────────────────────
+    // 4. Build islands (deterministic order)
     let mut islands: Vec<Island> = Vec::new();
     let mut roots: Vec<usize> = root_to_nodes.keys().copied().collect();
     roots.sort_unstable(); // ★ deterministic
@@ -473,7 +465,7 @@ pub fn decompose(graph: &McVecGraph) -> Decomposition {
         });
     }
 
-    // ── 5. Find direct bands (nets with no passive boxes, two terminals) ─────
+    // 5. Find direct bands (nets with no passive boxes, two terminals)
     //    ★ Deterministic: sort by left_box then by net index.
     let mut direct_bands: Vec<DirectBand> = Vec::new();
     for ni in 0..n_nets {
@@ -510,15 +502,13 @@ pub fn decompose(graph: &McVecGraph) -> Decomposition {
         direct_bands,
     };
 
-    // ── LOG ──────────────────────────────────────────────────────────────────
+    // LOG
     log_decomposition(graph, &result, &box_by_id);
 
     result
 }
 
-// ============================================================================
 // ★ apply_islands — commit the decomposition to geometry (Phase 2: band assembly)
-// ============================================================================
 
 /// Try to apply island-based layout. Returns `true` if **at least one** island was
 /// claimed and placed (per-island claiming). Successful islands are locked with
@@ -579,7 +569,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
     let mut sp_models: Vec<(SpModel, usize)> = Vec::new();
     let mut ladder_models: Vec<(LadderModel, usize)> = Vec::new();
 
-    // ── Phase A: build models with chain-determined ordering ────────────────
+    // Phase A: build models with chain-determined ordering
     {
         let box_by_id: HashMap<i64, &crate::vector::graph::McVecBox> =
             graph.boxes.iter().map(|b| (b.id, b)).collect();
@@ -714,7 +704,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
         }
     } // ★ box_by_id dropped here — mutable borrow is now safe
 
-    // ── Log coverage before any geometry changes ────────────────────────────
+    // Log coverage before any geometry changes
     let total = d.islands.len();
     let n_claimed = claimed.len();
     let fallback = total - n_claimed;
@@ -735,7 +725,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
         return false;
     }
 
-    // ── Phase 0.5b: rebuild terminal graph from ★successful★ pairs only ────
+    // Phase 0.5b: rebuild terminal graph from ★successful★ pairs only
     //    This ensures the chain only includes terminals that actually have bands,
     //    so failed islands' terminals are left unlocked for the fallback.
     let (order, box_owned) = {
@@ -777,7 +767,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
         (order, box_owned)
     }; // box_by_id dropped
 
-    // ── Phase B: collect bands from successful models + direct bands ────────
+    // Phase B: collect bands from successful models + direct bands
     let mut bands: Vec<Band> = Vec::new();
 
     for (model, i) in sp_models {
@@ -837,7 +827,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
         return false;
     }
 
-    // ── Phase C+D: chain-based layout ────────────────────────────────────────
+    // Phase C+D: chain-based layout
     apply_chain_layout(graph, &bands, &order, &box_owned)
 }
 
@@ -924,9 +914,7 @@ fn find_terminals(
     }
 }
 
-// ============================================================================
 // ★ Chain-based layout — unified Phase C+D for any number of terminals
-// ============================================================================
 
 /// Compute the preferred width (w) for a terminal box.
 fn terminal_width(graph: &McVecGraph, id: i64) -> f64 {
@@ -1032,7 +1020,7 @@ fn apply_chain_layout(
         return false;
     }
 
-    // ── Build gap → band mapping ───────────────────────────────────────────
+    // Build gap → band mapping
     let pos: HashMap<i64, usize> = order.iter().enumerate().map(|(i, &t)| (t, i)).collect();
     let mut gaps: Vec<Vec<usize>> = vec![Vec::new(); n - 1];
     for (bi, band) in bands.iter().enumerate() {
@@ -1059,7 +1047,7 @@ fn apply_chain_layout(
         gaps[g].push(bi);
     }
 
-    // ── Log gaps ───────────────────────────────────────────────────────────
+    // Log gaps
     for (g, gap_bands) in gaps.iter().enumerate() {
         let l_name = box_owned
             .get(&order[g])
@@ -1085,10 +1073,10 @@ fn apply_chain_layout(
         );
     }
 
-    // ── Compute terminal widths ────────────────────────────────────────────
+    // Compute terminal widths
     let tw: Vec<f64> = order.iter().map(|&t| terminal_width(graph, t)).collect();
 
-    // ── Compute gap widths (max band width in each gap) ────────────────────
+    // Compute gap widths (max band width in each gap)
     let gap_w: Vec<f64> = gaps
         .iter()
         .map(|gb| {
@@ -1102,7 +1090,7 @@ fn apply_chain_layout(
         })
         .collect();
 
-    // ── Compute x positions ────────────────────────────────────────────────
+    // Compute x positions
     //    terminal[i] at x, then gap[i], then terminal[i+1], ...
     let mut term_x: Vec<f64> = vec![0.0; n];
     let mut gap_x0: Vec<f64> = vec![0.0; n - 1];
@@ -1117,7 +1105,7 @@ fn apply_chain_layout(
         }
     }
 
-    // ── Place passives: stack bands in each gap ────────────────────────────
+    // Place passives: stack bands in each gap
     //    gap_pins: for each gap, BTreeMap<terminal_id, Vec<(pin_id, y_abs)>>
     let mut gap_pins: Vec<std::collections::BTreeMap<i64, Vec<(i64, f64)>>> =
         vec![std::collections::BTreeMap::new(); n - 1];
@@ -1160,7 +1148,7 @@ fn apply_chain_layout(
         gap_h[g] = y - BAND_GAP - MARGIN;
     }
 
-    // ── Place terminals ────────────────────────────────────────────────────
+    // Place terminals
     for (i, &tid) in order.iter().enumerate() {
         // Left gap pins (gap i-1, right terminal of that gap)
         let left_pins: Vec<(i64, f64)> = if i > 0 {
@@ -1372,9 +1360,7 @@ fn log_decomposition(
     }
 }
 
-// ============================================================================
 // DSU
-// ============================================================================
 
 struct Dsu {
     parent: Vec<usize>,
@@ -1413,9 +1399,7 @@ impl Dsu {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

@@ -60,7 +60,7 @@ pub struct McPin {
     /// §2.19: true if this pin is NC (Not Connected)
     pub is_nc: bool,
     /// Trailing `@attr…` run on the pin row that declared this pin
-    /// (power-intent-design.md §5.1 unified slot) — identity-axis words such as
+    /// (intent-design.md §5.1 unified slot) — identity-axis words such as
     /// `@class(digital|analog)` / `@nature` / `@noise` on non-power io/in/out
     /// rows. Power rows carry theirs on [`McPwrPin::attrs`]; this slot records
     /// them for generic rows so the words are never silently dropped. Empty on
@@ -106,7 +106,7 @@ pub struct McPwrPin {
     pub ret: Option<String>,
     pub params: Vec<PwrParam>,
     pub span: std::ops::Range<usize>,
-    /// Trailing `@attr…` run on the pin row (power-intent-design.md §5.1 unified
+    /// Trailing `@attr…` run on the pin row (intent-design.md §5.1 unified
     /// slot) — identity-axis words such as `@class(digital|analog)` /
     /// `@nature` / `@noise`. Captured verbatim into the typed reader's reach;
     /// semantic adjudication of these axes is a later ERC step.
@@ -158,28 +158,40 @@ pub struct McPins {
 
     // 1. label
     // case1.1: 1 = NC                              -> <NC, Single(1)>
-    // case1.2: 2 = NC                              -> <NC, Multi(1,2)> same-name merge, Single(1) becomes Ids(1,2)
+    // case1.2: 2 = NC                              -> <NC, Multi(1,2)> same-name merge, Single(1)
+    // becomes Ids(1,2)
     // case2: 1 = EN                                -> <EN, Single(1)>
     // case3: 1:2 = GND                             -> <GND, Multi(1, 2)>
 
     // 2. labels
-    // case4: 1:4 = GPIO[1:4]                       -> ida-type GPIO[1:4] expands, <GPIO1, Single(1)>, <GPIO2, Single(2)>... <GPIO4, Single(4)>
+    // case4: 1:4 = GPIO[1:4]                       -> ida-type GPIO[1:4] expands, <GPIO1,
+    // Single(1)>, <GPIO2, Single(2)>... <GPIO4, Single(4)>
     // case5: [7,8] = [VDD, GND]                    -> <VDD, Single(7)>, <GND, Single(8)>
 
     // 3. bus
-    // case6: 7:8 = DC2{VDD, GND}                   -> first record Bus<DC2, Bus(McBus(DC2{VDD, GND}))>, then register each Bus member <DC2.VDD, Single(7)>, <DC2.GND, Single(8)>
-    // case7.1: 7 = DC2.VDD                         -> for separate write, first record Bus<DC2, McBus(DC2{VDD}))>, then register pin <DC2.VDD, Single(7)>
-    // case7.2: 8 = DC2.GND                         ->  then add/update Bus<DC2, McBus(DC2{VDD,GND}))>, then register pin <DC2.GND, Single(8)>
+    // case6: 7:8 = DC2{VDD, GND}                   -> first record Bus<DC2, Bus(McBus(DC2{VDD,
+    // GND}))>, then register each Bus member <DC2.VDD, Single(7)>, <DC2.GND, Single(8)>
+    // case7.1: 7 = DC2.VDD                         -> for separate write, first record Bus<DC2,
+    // McBus(DC2{VDD}))>, then register pin <DC2.VDD, Single(7)>
+    // case7.2: 8 = DC2.GND                         ->  then add/update Bus<DC2,
+    // McBus(DC2{VDD,GND}))>, then register pin <DC2.GND, Single(8)>
 
     // 4. inteface
-    // case8: [7,8] = DC1::DC()                     -> for ifs without child members, first record Interface<DC1, Mc2Interface(DC(7,8))>, then find DC() interface definition, find member names, use member default names, register each pin <DC1.member1, Single(7)>, <DC1.member2, Single(8)>
-    // case9: [7:8] = [VDD, GND]::DC()              -> for ifs without interface instance name, directly register pins <VDD, Single(7)>, <GND, Single(8)>
-    // case10: 13:14 = DC2{VDD, GND}::DC()          -> ifs with instance name / with child members, first record Interface<DC1, Mc2Interface(DC(13,14))>, then each pin <DC2.VDD, Single(13)>, <DC2.GND, Single(14)>
+    // case8: [7,8] = DC1::DC()                     -> for ifs without child members, first record
+    // Interface<DC1, Mc2Interface(DC(7,8))>, then find DC() interface definition, find member
+    // names, use member default names, register each pin <DC1.member1, Single(7)>, <DC1.member2,
+    // Single(8)>
+    // case9: [7:8] = [VDD, GND]::DC()              -> for ifs without interface instance name,
+    // directly register pins <VDD, Single(7)>, <GND, Single(8)>
+    // case10: 13:14 = DC2{VDD, GND}::DC()          -> ifs with instance name / with child members,
+    // first record Interface<DC1, Mc2Interface(DC(13,14))>, then each pin <DC2.VDD, Single(13)>,
+    // <DC2.GND, Single(14)>
 
     // 5. group vs labels/bus/interface
     // case11: [[7,8],[9,10]] = [VDD, GND]          -> <VDD, Multi(7,8)>, <GND, Multi(9,10)>
     // case12: [[7,8],[9,10]] = [VDD, GND]::DC()    -> <VDD, Multi(7,8)>, <GND, Multi(9,10)>
-    // case13: [[7,8],[9,10]] = DC2{VDD, GND}       -> unsupported, can't determine which DC2 instance
+    // case13: [[7,8],[9,10]] = DC2{VDD, GND}       -> unsupported, can't determine which DC2
+    // instance
     values_pool: Vec<Arc<Vec<McAttrVal>>>, // unique values pool to avoid duplication
 
     // Dynamic pin definitions (contain parameter references, need to be resolved at instantiation)
@@ -803,7 +815,7 @@ impl McPins {
             let mut pinnames_node: Option<AstNode> = None;
             let mut values: Option<Vec<McAttrVal>> = None;
             let mut pin_name_has_param_ref = false;
-            // Trailing `@attr…` run on THIS row (power-intent-design.md §5.1) —
+            // Trailing `@attr…` run on THIS row (intent-design.md §5.1) —
             // carried onto the pins the row registers so identity words on
             // non-power io/in/out rows are not silently dropped.
             let mut line_attrs = McAttributes::new();
@@ -848,7 +860,8 @@ impl McPins {
                             McPinNames::new(&subnode)
                         };
                         pinnames_node = Some(subnode.clone());
-                        // ★ Collect interface name spans for LSP goto-def (e.g. `I2C` in `I2C0::I2C(Master)`)
+                        // ★ Collect interface name spans for LSP goto-def (e.g. `I2C` in
+                        // `I2C0::I2C(Master)`)
                         if let Some(ref names) = pinnames {
                             for (iface_name, span) in &names.iface_spans {
                                 self.pin_iface_spans
@@ -977,7 +990,7 @@ impl McPins {
                         values = McAttribute::new_attr_values(&subnode);
                     }
                     MCAST_ATTRIBUTE => {
-                        // Trailing `@attr…` run (power-intent-design.md §5.1) —
+                        // Trailing `@attr…` run (intent-design.md §5.1) —
                         // an extra sibling after the name side. Power-direction
                         // lines keep it on `pwr[].attrs` (capture_pwr_lines);
                         // generic rows carry it onto the registered pins
@@ -1063,7 +1076,8 @@ impl McPins {
 
                     McPinPort::Single(name) => {
                         if let Some((bus_name, member_name)) = name.split_once('.') {
-                            // Handle dot-separated pin names like "IN.P" -> create Bus "IN" with member "P"
+                            // Handle dot-separated pin names like "IN.P" -> create Bus "IN" with
+                            // member "P"
                             match &pinids {
                                 McPinPort::Single(s) => {
                                     self.register_pin(
@@ -1209,8 +1223,10 @@ impl McPins {
                                         opt_span.clone(),
                                     );
                                 }
-                                // Check if names share a common base (like GPIO1, GPIO2 sharing "GPIO")
-                                // If so, only register the base as Multi if there's no existing Interface with the same name
+                                // Check if names share a common base (like GPIO1, GPIO2 sharing
+                                // "GPIO")
+                                // If so, only register the base as Multi if there's no existing
+                                // Interface with the same name
                                 if let Some(base_name) = self.extract_common_base(names_vec) {
                                     // Skip if an Interface with this base name already exists
                                     if self
@@ -1319,13 +1335,16 @@ impl McPins {
 
                     McPinPort::Bus(bus) => {
                         match &pinids {
-                            // n pids vs 1 bus, pinid and bus member count should be 1:1, register 1:1
+                            // n pids vs 1 bus, pinid and bus member count should be 1:1, register
+                            // 1:1
                             // also need to add bus name as a Multi containing all bus members
                             McPinPort::Multi(pids) => {
                                 let mut all_pin_ids = Vec::new();
                                 for (pid, member_name) in pids.iter().zip(bus.member.iter()) {
-                                    // For numeric members like GPIO[1:2], concatenate directly (GPIO1, GPIO2)
-                                    // For named members like DC1{VDD, GND}, use dot separator (DC1.VDD, DC1.GND)
+                                    // For numeric members like GPIO[1:2], concatenate directly
+                                    // (GPIO1, GPIO2)
+                                    // For named members like DC1{VDD, GND}, use dot separator
+                                    // (DC1.VDD, DC1.GND)
                                     let full_name = if member_name.parse::<i64>().is_ok() {
                                         format!("{}{}", bus.name, member_name)
                                     } else {
@@ -1360,15 +1379,18 @@ impl McPins {
 
                     McPinPort::Interface(declare) => {
                         // Get pin names from interface definition
-                        // Priority: parsed_pins (from conditional evaluation) > role pins > base.pins
+                        // Priority: parsed_pins (from conditional evaluation) > role pins >
+                        // base.pins
                         let mut iface_pins: Vec<String> = Vec::new();
 
-                        // First priority: use parsed_pins if available (from conditional evaluation with params)
+                        // First priority: use parsed_pins if available (from conditional evaluation
+                        // with params)
                         if let Some(parsed) = &declare.parsed_pins {
                             iface_pins = parsed.member_names();
                         }
 
-                        // Second priority: get pins from the specified role parameter (e.g., UART.TTL(DCE))
+                        // Second priority: get pins from the specified role parameter (e.g.,
+                        // UART.TTL(DCE))
                         if iface_pins.is_empty() {
                             if let Some(McParamValue::Ids(role_ids)) = declare.params.first() {
                                 let role_name = role_ids.to_string();
@@ -1396,9 +1418,11 @@ impl McPins {
                             iface_pins = resolved.iter().map(|(_, name, _)| name.clone()).collect();
                         }
 
-                        // 1305: interface top-level has no pin definitions (all pins are in role, e.g. UART.X),
+                        // 1305: interface top-level has no pin definitions (all pins are in role,
+                        // e.g. UART.X),
                         //      and no role specified or role has no pin definitions.
-                        //      then mcc can't fit physical pins onto interface members — that line silently
+                        // then mcc can't fit physical pins onto interface members — that line
+                        // silently
                         //      produces 0 pin registrations. Emit warn to inform user.
                         if iface_pins.is_empty() {
                             dlog_warning(
@@ -1411,8 +1435,10 @@ impl McPins {
                             );
                         }
 
-                        // 1303: check pin count matches. If interface top-level declares n pins (e.g. SPI=4),
-                        //      but LHS only gives m pin IDs, should error instead of silently misaligning/losing members.
+                        // 1303: check pin count matches. If interface top-level declares n pins
+                        // (e.g. SPI=4),
+                        // but LHS only gives m pin IDs, should error instead of silently
+                        // misaligning/losing members.
                         //      exception: iface_pins empty (pins in role, e.g. UART.X) skip check.
                         let declared_count: Option<usize> = match &pinids {
                             McPinPort::Single(_) => Some(1),
@@ -1464,7 +1490,8 @@ impl McPins {
                         let subname = derive_interface_subnames(&declare.name, &iface_pins);
 
                         match &pinids {
-                            // n pids vs n interface pins, pinid and interface member count 1:1, register 1:1
+                            // n pids vs n interface pins, pinid and interface member count 1:1,
+                            // register 1:1
                             McPinPort::Multi(pids) => {
                                 // Guard: binding more pids than the interface declares would index
                                 // `subname[mi]` out of bounds below and panic. E3111 already flags
@@ -1473,15 +1500,23 @@ impl McPins {
                                 if subname.is_empty() || subname.len() < pids.len() {
                                     continue;
                                 }
-                                // ★ P-ROT (Root cause B): bind interface members to pins by NAME first.
-                                // A pin already registered with a member-matching name (flash pin6 =
-                                // "SCLK" ↔ SPI.SCLK, pin1 = "_CS" ↔ SPI.CS) wins over the interface's
+                                // ★ P-ROT (Root cause B): bind interface members to pins by NAME
+                                // first.
+                                // A pin already registered with a member-matching name (flash pin6
+                                // =
+                                // "SCLK" ↔ SPI.SCLK, pin1 = "_CS" ↔ SPI.CS) wins over the
+                                // interface's
                                 // canonical order; unmatched pins fall back to the canonical order.
-                                // Pure positional binding would rotate the data/clock lanes against the
-                                // device's own pinout: `[1,2,5,6] = SPI("Slave")` → pin2=SCLK, pin5=MISO,
-                                // pin6=MOSI, while the device declares pin2=SO (MISO), pin5=SI (MOSI),
-                                // pin6=SCLK. Name matching keeps SCLK on pin6 and only the unnamed data
-                                // lanes fall back positionally → the golden flash.2=MISO / 5=MOSI / 6=SCLK.
+                                // Pure positional binding would rotate the data/clock lanes against
+                                // the
+                                // device's own pinout: `[1,2,5,6] = SPI("Slave")` → pin2=SCLK,
+                                // pin5=MISO,
+                                // pin6=MOSI, while the device declares pin2=SO (MISO), pin5=SI
+                                // (MOSI),
+                                // pin6=SCLK. Name matching keeps SCLK on pin6 and only the unnamed
+                                // data
+                                // lanes fall back positionally → the golden flash.2=MISO / 5=MOSI /
+                                // 6=SCLK.
                                 let mut slot: Vec<Option<usize>> = vec![None; pids.len()];
                                 for (mi, member) in subname.iter().enumerate() {
                                     let member_leaf = member.rsplit('.').next().unwrap_or(member);
@@ -1544,7 +1579,8 @@ impl McPins {
                                         }
                                     }
                                 }
-                                // positional fallback: fill unassigned pids with unclaimed members in order
+                                // positional fallback: fill unassigned pids with unclaimed members
+                                // in order
                                 let free_members: Vec<usize> = (0..subname.len())
                                     .filter(|mi| !slot.contains(&Some(*mi)))
                                     .collect();
@@ -1574,7 +1610,8 @@ impl McPins {
                                 let inst_pins: Vec<String> = pids.to_vec();
 
                                 if pin_cnt == 1 {
-                                    // for single-pin interface, use declare.name as key (e.g. [LX, GND])
+                                    // for single-pin interface, use declare.name as key (e.g.
+                                    // [LX, GND])
                                     let iface_name = declare.name.to_string();
 
                                     // check if same-name Interface already exists
@@ -1626,7 +1663,8 @@ impl McPins {
                                     if !subname.is_empty() {
                                         // Interface registration keys in names_to_id:
                                         //   - bus form `NAME{m1,m2}::IFACE()` → use bus name `NAME`
-                                        //   - list form `[m1,m2]::IFACE()` → use declare.name.to_string()
+                                        // - list form `[m1,m2]::IFACE()` → use
+                                        // declare.name.to_string()
                                         //   - normal `INST::IFACE()` → use declare.name.to_string()
                                         let iface_name = if declare.name.is_bus() {
                                             declare
@@ -1635,10 +1673,12 @@ impl McPins {
                                                 .map(|(busname, _)| busname)
                                                 .unwrap_or_else(|| declare.name.to_string())
                                         } else {
-                                            // for list form (e.g. [LX, GND]) and normal form, directly use declare.name
+                                            // for list form (e.g. [LX, GND]) and normal form,
+                                            // directly use declare.name
                                             declare.name.to_string()
                                         };
-                                        // use inst_pins to call merge_pins_with update registered_pins.
+                                        // use inst_pins to call merge_pins_with update
+                                        // registered_pins.
                                         // Merge into an existing same-name interface when the
                                         // instance name is reused across pin groups (e.g.
                                         // `GPIO[5, 6]` on both [6,7] and [12,13]) so
@@ -1702,7 +1742,8 @@ impl McPins {
                                         .insert(iface_name, McPinPort::Interface(Arc::new(merged)));
                                 }
                             }
-                            // single pin interface (e.g. GPIO, PWM): single pinid -> use first subname
+                            // single pin interface (e.g. GPIO, PWM): single pinid -> use first
+                            // subname
                             McPinPort::Single(pid) => {
                                 let name = subname.first().cloned().unwrap_or_else(|| pid.clone());
                                 self.register_pin(
@@ -1744,7 +1785,8 @@ impl McPins {
 
         // case 1: single pin               -> McPinPort::Single(String), single pinid
         // case 2: 1 group, multi pins      -> McPinPort::Multi(Vec<String>), multiple pinids
-        // case 3: n groups, multi pins     -> McPinPort::MultiGroup(Vec<Vec<String>>), multi-group multi-pinids
+        // case 3: n groups, multi pins     -> McPinPort::MultiGroup(Vec<Vec<String>>), multi-group
+        // multi-pinids
 
         if let Some(pid_node) = node.get_sub_node() {
             match pid_node.get_type() {
@@ -1753,7 +1795,8 @@ impl McPins {
                 MCAST_ID | MCAST_IDA => {
                     if let Some(pid) = McIds::new(&pid_node) {
                         // check if matrix definition, e.g. R[1:2]C[1:7]
-                        // matrix definition may contain multiple square bracket segments in one IdsSegment::Ida
+                        // matrix definition may contain multiple square bracket segments in one
+                        // IdsSegment::Ida
                         let mut square_count = 0;
                         let mut rows = 1;
                         let mut cols = 1;
@@ -1769,10 +1812,12 @@ impl McPins {
                                         .count();
                                     square_count += ida_squares;
 
-                                    // if only one Ida segment with multiple brackets, also matrix definition
+                                    // if only one Ida segment with multiple brackets, also matrix
+                                    // definition
                                     if ida.segments.len() > 1 && ida_squares > 1 {
                                         // calculate rows and cols
-                                        // e.g. R[1:2]C[1:7]: R is prefix, [1:2] is row def, [1:7] is col def
+                                        // e.g. R[1:2]C[1:7]: R is prefix, [1:2] is row def, [1:7]
+                                        // is col def
                                         let mut found_first_square = false;
                                         for ida_seg in &ida.segments {
                                             if let IdaSegment::Square(items) = ida_seg {
@@ -1799,7 +1844,8 @@ impl McPins {
 
                         if has_multiple_squares {
                             // for matrix definition, try parse as MultiGroup
-                            // e.g. R[1:2]C[1:7] should parse as [[R1C1, R1C2, ..., R1C7], [R2C1, R2C2, ..., R2C7]]
+                            // e.g. R[1:2]C[1:7] should parse as
+                            // [[R1C1, R1C2, ..., R1C7], [R2C1, R2C2, ..., R2C7]]
                             let expanded = pid.expand();
                             let total = expanded.len();
 
@@ -1814,7 +1860,8 @@ impl McPins {
 
                             if total > 0 {
                                 // calculate rows/cols from total elements and bracket segment count
-                                // if multiple bracket segments, total elements should be rows * cols
+                                // if multiple bracket segments, total elements should be rows *
+                                // cols
                                 // try to factor total elements
                                 let mut best_rows = 1;
                                 let mut best_cols = total;
@@ -1886,7 +1933,8 @@ impl McPins {
                             MCAST_OPD_COLON => {
                                 // Expand `13:14` => ["13","14"]
                                 if let Some(expr) = McExpression::new(&exp_node) {
-                                    // check if contains parameter reference, skip static parsing if so
+                                    // check if contains parameter reference, skip static parsing if
+                                    // so
                                     if dynamic::DynamicPinExpr::check_param_ref(&expr) {
                                         return None;
                                     }
@@ -1950,23 +1998,32 @@ impl McPins {
                                                 match item {
                                                     McExpression::Set(inner_items) => {
                                                         // nested Set, e.g. [[20,21],[22,23]]
-                                                        // need to recursively handle each nested Set
+                                                        // need to recursively handle each nested
+                                                        // Set
                                                         let mut grp = Vec::<String>::new();
                                                         for inner in inner_items {
                                                             match inner {
                                                                 McExpression::Set(deep_items) => {
-                                                                    // deeper nesting, recursively handle
+                                                                    // deeper nesting, recursively
+                                                                    // handle
                                                                     for deep in deep_items {
                                                                         match deep {
                                                                             McExpression::Variable(_) => {
-                                                                                // For Variable (like A[20,21]), use expand() to get separate elements
+                                                                                // For Variable
+                                                                                // (like A[20,21]),
+                                                                                // use expand() to
+                                                                                // get separate
+                                                                                // elements
                                                                                 grp.extend(deep.expand());
                                                                             }
                                                                             McExpression::Slice(
                                                                                 _,
                                                                                 _,
                                                                             ) => {
-                                                                                // For Slice (like 20:22), expand() to individual pin ids
+                                                                                // For Slice (like
+                                                                                // 20:22), expand()
+                                                                                // to individual pin
+                                                                                // ids
                                                                                 grp.extend(
                                                                                     deep.expand(),
                                                                                 );
@@ -1984,7 +2041,10 @@ impl McPins {
                                                                         McExpression::Variable(
                                                                             _,
                                                                         ) => {
-                                                                            // For Variable (like A[20,21]), use expand() to get separate elements
+                                                                            // For Variable (like
+                                                                            // A[20,21]), use
+                                                                            // expand() to get
+                                                                            // separate elements
                                                                             grp.extend(
                                                                                 inner.expand(),
                                                                             );
@@ -1993,7 +2053,9 @@ impl McPins {
                                                                             _,
                                                                             _,
                                                                         ) => {
-                                                                            // For Slice (like 20:22), expand() to individual pin ids
+                                                                            // For Slice (like
+                                                                            // 20:22), expand() to
+                                                                            // individual pin ids
                                                                             grp.extend(
                                                                                 inner.expand(),
                                                                             );
@@ -2030,8 +2092,11 @@ impl McPins {
                                                         } else if let McExpression::Variable(_) =
                                                             item
                                                         {
-                                                            // Each Variable (like A[20,21]) creates its own group
-                                                            // This preserves nesting: [A[20,21],A[22:23]] -> [[A20,A21],[A22,A23]]
+                                                            // Each Variable (like A[20,21]) creates
+                                                            // its own group
+                                                            // This preserves nesting:
+                                                            // [A[20,21],A[22:23]] ->
+                                                            // [[A20,A21],[A22,A23]]
                                                             let expanded = item.expand();
                                                             if !expanded.is_empty() {
                                                                 has_group = true;
@@ -2111,7 +2176,8 @@ impl McPins {
                             MCAST_OPD_MULTI | MCAST_OPD_DIVID | MCAST_OPD_PLUS
                             | MCAST_OPD_MINUS => {
                                 if let Some(expr) = McExpression::new(&exp_node) {
-                                    // Check for parameter references - if found, skip static parsing
+                                    // Check for parameter references - if found, skip static
+                                    // parsing
                                     if dynamic::DynamicPinExpr::check_param_ref(&expr) {
                                         return None;
                                     }
@@ -2467,9 +2533,8 @@ impl McPins {
     }
 }
 
-// ============================================================================
-// Display implementation - concise format output (sort by pin ID, merge same-pin multiple function names)
-// ============================================================================
+// Display implementation - concise format output (sort by pin ID, merge same-pin multiple function
+// names)
 
 impl std::fmt::Display for McPins {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2619,7 +2684,8 @@ pub struct McPinNames {
     /// node that was parsed as the option's name, so LSP goto-definition does not
     /// need to re-derive it from the whole binding expression.
     pub name_spans: Vec<std::ops::Range<usize>>,
-    /// Interface name spans extracted from pin name declarations (e.g. `I2C` in `I2C0::I2C(Master)`)
+    /// Interface name spans extracted from pin name declarations (e.g. `I2C` in
+    /// `I2C0::I2C(Master)`)
     /// Used by LSP lapper for PinIfaceDef / goto-definition.
     pub iface_spans: Vec<(String, std::ops::Range<usize>)>,
 }
@@ -2656,7 +2722,8 @@ impl McPinNames {
             if let McPinPort::Single(name) = opt {
                 let ids = McIds::from(name.as_str());
                 // Use McIds::has_param_ref to check whether it contains parameter references
-                // This checks whether there are non-numeric parameters (e.g. rows, cols) in the square bracket range
+                // This checks whether there are non-numeric parameters (e.g. rows, cols) in the
+                // square bracket range
                 if ids.has_param_ref() {
                     return true;
                 }
@@ -2738,7 +2805,8 @@ impl McPinNames {
                         MCAST_IDS => {
                             if let Some(pname) = McIds::new(&opd_node) {
                                 // check if contains parameter reference (e.g. R[1:rows]C[1:cols])
-                                // if contains parameter reference, mark as dynamic pin, handle by dynamic logic
+                                // if contains parameter reference, mark as dynamic pin, handle by
+                                // dynamic logic
                                 if pname.has_param_ref() {
                                     myself.has_param_ref = true;
                                     continue;
@@ -2752,7 +2820,8 @@ impl McPinNames {
                                     );
                                 } else if pname.is_list() {
                                     // PDM[CLK, DATA] -> List (square bracket form)
-                                    // §2.1: list_name is the bare prefix (e.g. "PDM"), NOT the full string with brackets
+                                    // §2.1: list_name is the bare prefix (e.g. "PDM"), NOT the full
+                                    // string with brackets
                                     let list_name = pname.base_name();
                                     if let Some(members) = pname.list_members() {
                                         myself.push_option(
@@ -2788,10 +2857,13 @@ impl McPinNames {
                                 {
                                     // INST::CLASS syntax (no brackets, e.g. `I0::I2C`)
                                     // segments[0] = inst name, segments[1] = class name.
-                                    // pname.expand() in this case returns ["I0I2C"] (length 1, Cartesian product
-                                    // without separator), upper layer treats as Multi(["I0I2C"]), all register branches
+                                    // pname.expand() in this case returns ["I0I2C"] (length 1,
+                                    // Cartesian product
+                                    // without separator), upper layer treats as Multi(["I0I2C"]),
+                                    // all register branches
                                     // all require Multi length >= 2 → pin_count: 0.
-                                    // fix: here recognize INST::CLASS pattern, route to mcb_get_cmie.
+                                    // fix: here recognize INST::CLASS pattern, route to
+                                    // mcb_get_cmie.
                                     let class_ida = match &pname.segments[1] {
                                         IdsSegment::Ida(ida) => ida.clone(),
                                         _ => unreachable!(),
@@ -2924,17 +2996,24 @@ impl McPinNames {
                         }
                         // OPD_GROUP: `A | B | ...` is function reuse / alias syntax,
                         // each side of pipe is "one usage of this pin group" (e.g.
-                        // `I2C0::I2C(Master) | GPIO[3,4]::GPIO()`, or single-pin alias `_WP | IO2`),
+                        // `I2C0::I2C(Master) | GPIO[3,4]::GPIO()`, or single-pin alias
+                        // `_WP | IO2`),
                         // each side should **occupy entire pinid group**, not by position.
                         //
-                        // old code packs both sides into single Multi, falls into pin line "n pins vs n names" branch as 1:1
-                        // positional zip (I2C0→pin1, GPIO[3,4]→pin2), compresses 2-wire interface to 1 pin →
-                        // find_bus_port_pin_ids not found → `uC.i2c(...).I2C0` degrades to default right pin
+                        // old code packs both sides into single Multi, falls into pin line "n pins
+                        // vs n names" branch as 1:1
+                        // positional zip (I2C0→pin1, GPIO[3,4]→pin2), compresses 2-wire interface
+                        // to 1 pin →
+                        // find_bus_port_pin_ids not found → `uC.i2c(...).I2C0` degrades to default
+                        // right pin
                         // (GND), i.e. I2C0 net mistakenly merged with uC.21.
                         //
-                        // change to push each name as Single option: pin line lets each name register entire group
-                        // pinids register —— single pin: register_pin accumulates "same-pin multi-alias", multi-pin:
-                        // accumulates Multi[entire group] (each function occupies whole group). Position list `[VDD,GND]`
+                        // change to push each name as Single option: pin line lets each name
+                        // register entire group
+                        // pinids register —— single pin: register_pin accumulates "same-pin
+                        // multi-alias", multi-pin:
+                        // accumulates Multi[entire group] (each function occupies whole group).
+                        // Position list `[VDD,GND]`
                         // goes MCAST_OPD_SQUARE_VEC, not this branch.
                         MCAST_OPD_GROUP => {
                             let mut cur = opd_node.get_sub_node();
@@ -2951,7 +3030,8 @@ impl McPinNames {
                                         }
                                     }
                                     MCAST_OPD_GROUP => {
-                                        // Nested: SO | IO1 — split each member as an independent alias
+                                        // Nested: SO | IO1 — split each member as an independent
+                                        // alias
                                         let mut sub_cur = child.get_sub_node();
                                         while let Some(sub) = sub_cur {
                                             if sub.get_type() == MCAST_IDS {
@@ -3056,7 +3136,8 @@ impl McPinNames {
                         MCAST_DECLARE | MCAST_DECLARE_UV => {
                             // Parse MCAST_DECLARE directly to get class and instance names
                             // MCAST_DECLARE: inst_name::class_name() (no parameters)
-                            // MCAST_DECLARE_UV: inst_name::class_name(params) (with parameters like Master)
+                            // MCAST_DECLARE_UV: inst_name::class_name(params) (with parameters like
+                            // Master)
                             //
                             // Also handles pin name aliases: `_CS | CS` is parsed as
                             // MCAST_DECLARE with class=_CS, instance=CS
@@ -3071,9 +3152,12 @@ impl McPinNames {
                             while let Some(node) = current {
                                 match node.get_type() {
                                     MCAST_CLASS => {
-                                        // Get class name from first sub-node (which should be MCAST_IDS)
-                                        // Structure: MCAST_IDS contains the full class name (e.g., "UART.TTL")
-                                        // Then traverse linked list inside CLASS to find MCAST_PARAMS
+                                        // Get class name from first sub-node (which should be
+                                        // MCAST_IDS)
+                                        // Structure: MCAST_IDS contains the full class name (e.g.,
+                                        // "UART.TTL")
+                                        // Then traverse linked list inside CLASS to find
+                                        // MCAST_PARAMS
                                         if let Some(class_id_node) = node.get_sub_node() {
                                             class_name = McIds::new(&class_id_node);
                                             // Record interface name span for LSP goto-def.
@@ -3103,17 +3187,21 @@ impl McPinNames {
                                             }
                                         }
 
-                                        // Also traverse the linked list from MCAST_CLASS to find params
-                                        // Structure: CLASS -> IDS (subnode) -> next -> PARAMS -> ...
+                                        // Also traverse the linked list from MCAST_CLASS to find
+                                        // params
+                                        // Structure: CLASS -> IDS (subnode) -> next -> PARAMS ->
+                                        // ...
                                         let mut class_child = node.get_sub_node();
                                         while let Some(cc) = class_child {
                                             if cc.get_type() == MCAST_PARAMS {
-                                                // MCAST_PARAMS can contain multiple MCAST_PARAM nodes
+                                                // MCAST_PARAMS can contain multiple MCAST_PARAM
+                                                // nodes
                                                 // Iterate through all param nodes
                                                 let mut param_current = cc.get_sub_node();
                                                 while let Some(param_node) = param_current {
                                                     if param_node.get_type() == MCAST_PARAM {
-                                                        // Unwrap MCAST_PARAM → inner value, possibly through MCAST_OPD
+                                                        // Unwrap MCAST_PARAM → inner value,
+                                                        // possibly through MCAST_OPD
                                                         let inner = param_node.get_sub_node();
                                                         let value_node = match &inner {
                                                             Some(n)
@@ -3142,8 +3230,10 @@ impl McPinNames {
                                                             | MCAST_UVALUE_AT
                                                             | MCAST_RANGE_PLUSMINUS
                                                             | MCAST_OPD_TILDE => {
-                                                                // Range / plus-minus interface params
-                                                                // (`2.5V~5.5V`, `±20%`) keep the author's
+                                                                // Range / plus-minus interface
+                                                                // params
+                                                                // (`2.5V~5.5V`, `±20%`) keep the
+                                                                // author's
                                                                 // notation via `uvalue_or_range`.
                                                                 if let Some(pv) =
                                                                     McParamValue::uvalue_or_range(
@@ -3154,8 +3244,10 @@ impl McPinNames {
                                                                 }
                                                             }
                                                             MCAST_STRING => {
-                                                                // Role string params (`SPI::SPI("Slave")`,
-                                                                // `UART::UART.TTL("DCE")`) keep the literal text.
+                                                                // Role string params
+                                                                // (`SPI::SPI("Slave")`,
+                                                                // `UART::UART.TTL("DCE")`) keep the
+                                                                // literal text.
                                                                 if let Some(s) =
                                                                     McString::new(&value_node)
                                                                 {
@@ -3165,7 +3257,8 @@ impl McPinNames {
                                                                 }
                                                             }
                                                             _ => {
-                                                                // Fallback: McIds (for identifiers like "Controller")
+                                                                // Fallback: McIds (for identifiers
+                                                                // like "Controller")
                                                                 if let Some(ids) =
                                                                     McIds::new(&param_node)
                                                                 {
@@ -3261,8 +3354,10 @@ impl McPinNames {
                                 // Interface lookup failed: still fall back to alias, but
                                 // emit a dlog_warning to inform the user (same treatment
                                 // as the MCAST_IDS `::` branch).
-                                // - Square bracket form [SCL,SDA]::I2C(): push Multi for 1:1 zip with pin IDs
-                                // - Curly brace form I2C2{SCL,SDA}::I2C(): push Multi for 1:1 zip with pin IDs
+                                // - Square bracket form [SCL,SDA]::I2C(): push Multi for 1:1 zip
+                                // with pin IDs
+                                // - Curly brace form I2C2{SCL,SDA}::I2C(): push Multi for 1:1 zip
+                                // with pin IDs
                                 // - Instance name form I2C1::I2C(): push Single, assign to all pins
                                 let class_str = class_name.to_string();
                                 let inst_str = inst_name.to_string();
@@ -3442,14 +3537,18 @@ impl McPinNames {
             }
         }
 
-        // only for **single PIN_NAME node** (square bracket position list `[A, B, ...]`) multiple Single does
+        // only for **single PIN_NAME node** (square bracket position list `[A, B, ...]`) multiple
+        // Single does
         // merge → positional Multi, 1:1 zip with pins.
         //
-        // top-level `|` or operation parses as **multiple PIN_NAME nodes** (name_nodes > 1), each is one
-        // **candidate function** (e.g. `I2C0::I2C(Master) | GPIO[3,4]::GPIO()`), each should occupy entire group
+        // top-level `|` or operation parses as **multiple PIN_NAME nodes** (name_nodes > 1), each
+        // is one
+        // **candidate function** (e.g. `I2C0::I2C(Master) | GPIO[3,4]::GPIO()`), each should occupy
+        // entire group
         // pins —— never merge into positional Multi, otherwise zipped as "one pin each" (I2C0→pin1,
         // GPIO[3,4]→pin2), 2-wire interface compressed to 1 pin → find_bus_port_pin_ids not found →
-        // `uC.i2c(...).I2C0` degrades to default pin (GND), i.e. I2C0 net mistakenly merges uC.21 (#4).
+        // `uC.i2c(...).I2C0` degrades to default pin (GND), i.e. I2C0 net mistakenly merges uC.21
+        // (#4).
         let name_node_count = name_nodes
             .iter()
             .filter(|n| n.get_type() == MCAST_PIN_NAME)
@@ -3498,9 +3597,7 @@ impl McPinNames {
     }
 }
 
-// ============================================================================
 // Interface subname derivation —— extracted from `parse()` Interface branch, for unit testing
-// ============================================================================
 
 /// Determine pin subname list based on interface instance name `inst_name` form.
 ///
@@ -3513,9 +3610,9 @@ impl McPinNames {
 /// | `DC2{VDD,GND}::DC()`      | bus (Curly)     | `["DC2.VDD","DC2.GND"]` (bus name + members) |
 /// | `XTAL{X1,X2}::XTAL()`     | bus (Curly)     | `["XTAL.X1","XTAL.X2"]` |
 ///
-/// Previously `parse()` uniformly used `expanded × iface_pins` Cartesian for all three forms, causing
-/// bus form concatenated to `XTAL.X1.X1 / XTAL.X1.X2 / XTAL.X2.X1 / XTAL.X2.X2`,
-/// list form concatenated to `VDD.VDD / VDD.GND / ...`, all wrong.
+/// One uniform `expanded × iface_pins` Cartesian is wrong for these forms: it
+/// concatenates the bus form to `XTAL.X1.X1 / XTAL.X1.X2 / XTAL.X2.X1 / XTAL.X2.X2`
+/// and the list form to `VDD.VDD / VDD.GND / ...`.
 pub(crate) fn derive_interface_subnames(inst_name: &McIds, iface_pins: &[String]) -> Vec<String> {
     // §2.1: a square bracket embedded inside a single IDA segment (e.g.
     // `GPIO[5, 6]` tokenized as one IDA by the C parser) is List form:
@@ -3610,7 +3707,8 @@ mod subname_tests {
 
     /// User-reported original: `XTAL{X1,X2}::XTAL()`
     ///
-    /// Before regression (Cartesian) produced `["XTAL.X1.X1","XTAL.X1.X2","XTAL.X2.X1","XTAL.X2.X2"],
+    /// Before regression (Cartesian) produced
+    /// `["XTAL.X1.X1","XTAL.X1.X2","XTAL.X2.X1","XTAL.X2.X2"],
     /// first pin was registered as "XTAL.X1.X1", completely wrong.
     #[test]
     fn sem_mcpins__bus_form_xtal_regression() {

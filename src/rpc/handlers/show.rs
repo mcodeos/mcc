@@ -10,7 +10,8 @@ pub fn handle_parse(params: Option<Value>) -> RpcResult {
     let p: ParseParams = parse_or_default(params)?;
     let (id, kind, root) = crate::workspace_info();
 
-    // S3 fix: load the libs passed via CLI --lib into the mcode global table, otherwise mcb_get_cmie
+    // S3 fix: load the libs passed via CLI --lib into the mcode global table, otherwise
+    // mcb_get_cmie
     // cannot find interfaces like SPI/I2C/DC, and the component pin's 'X::Interface(...)' syntax
     // will fall back to a bare alias (e.g. pin registered as Single("VIN{Vin, GND}"))
     load_libs_rpc(&p.libs);

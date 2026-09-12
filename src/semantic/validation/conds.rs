@@ -37,9 +37,7 @@ impl ValidationCheck for CondsCheck {
     }
 }
 
-// ============================================================================
 // T3: Empty conditional body
-// ============================================================================
 
 /// An `if` block whose body contains no pins and no attributes is likely
 /// an oversight — the condition selects nothing.
@@ -125,9 +123,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // T4: Conditional without else coverage
-// ============================================================================
 
 /// A conditional with `if` branches but no `else` may leave pins/attrs
 /// undefined for some parameter value combinations.
@@ -179,9 +175,7 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // COND_DUPLICATE: Duplicate condition within one if/else-if chain
-// ============================================================================
 
 /// A later `else if` that repeats an earlier branch's condition verbatim is
 /// dead code — had the earlier condition been true, that branch would already
@@ -241,9 +235,7 @@ fn check_duplicate_conditions(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // O3: IO type on component pin (context-dependent)
-// ============================================================================
 
 /// Find the `[`/`]` span of the first bracket group in `s`, honoring nested
 /// brackets (e.g. `[1,[2,8]]`): the returned close is the matching bracket
@@ -316,7 +308,8 @@ fn pin_definition_span(
                                 if let Some(rest) = line.get(be + 1..) {
                                     if let Some((nbs, nbe)) = first_bracket_span(rest) {
                                         let names_bracket = &rest[nbs + 1..nbe];
-                                        // Find the exact position of this name within the names bracket
+                                        // Find the exact position of this name within the names
+                                        // bracket
                                         let name_tokens: Vec<&str> = names_bracket
                                             .split(&[',', ' '][..])
                                             .filter(|s| !s.is_empty())
@@ -395,9 +388,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // O4: `|` pin alternatives producing conflicting net roles
-// ============================================================================
 
 /// When multiple pin IDs share the same name (via `McPinPort::Multi`),
 /// check whether their IO types are in conflict.
@@ -486,9 +477,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // Cross-CMIE: Param-pin name collision in components
-// ============================================================================
 
 /// A component parameter sharing a name with a pin is confusing —
 /// the same identifier means two different things in different contexts.
@@ -525,9 +514,7 @@ fn check_param_pin_name_collision(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // M6-extended: Completely empty module (no params, insts, stmts, funcs)
-// ============================================================================
 
 /// A module with no content at all is almost certainly a stub or mistake.
 fn check_empty_module(acc: &mut CheckAccumulator) {

@@ -21,9 +21,7 @@ use std::collections::BTreeMap;
 use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{BoxKind, McVecGraph, NetRole};
 
-// ============================================================================
 // Data structures
-// ============================================================================
 
 /// Quotient graph node ID (corresponds to box_id)
 pub type NodeId = i64;
@@ -67,18 +65,14 @@ pub struct QuotientGraph {
     pub labels: BTreeMap<NodeId, String>,
 }
 
-// ============================================================================
 // Constants
-// ============================================================================
 
 /// SP band column width (from islands.rs COL_W)
 pub const SP_COL_W: f64 = 120.0;
 /// Row height
 pub const ROW_H: f64 = 60.0;
 
-// ============================================================================
 // Build
-// ============================================================================
 
 impl QuotientGraph {
     /// Build the quotient graph from a graph
@@ -211,9 +205,7 @@ impl QuotientGraph {
     }
 }
 
-// ============================================================================
 // Internal helpers
-// ============================================================================
 
 /// Whether a box is an IC node (SubModule or MultiPin)
 fn is_ic_box(kind: &BoxKind) -> bool {
@@ -254,9 +246,7 @@ fn resolve_direction(
     }
 }
 
-// ============================================================================
 // Test helpers
-// ============================================================================
 
 #[cfg(test)]
 pub(crate) mod test_util {
@@ -293,9 +283,7 @@ pub(crate) mod test_util {
     }
 }
 
-// ============================================================================
 // Unit tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -308,7 +296,8 @@ mod tests {
     ///
     /// Topology:
     ///   u1(mcu) ←→ u2(ldo_in) ←→ u4(ldo_out) ←→ u3(spk) ←→ u5(flash)
-    ///   All edges are Neutral (IN↔IN, OUT↔OUT), relying purely on orientation anchors + lexicographic order.
+    /// All edges are Neutral (IN↔IN, OUT↔OUT), relying purely on orientation anchors +
+    /// lexicographic order.
     fn make_t4_current() -> McVecGraph {
         let mut g = McVecGraph::new(0, "main".into());
         // 5 ICs

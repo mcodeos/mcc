@@ -109,13 +109,11 @@ fn declared_conduit_ground_member_gets_ground() {
     );
 }
 
-// ============================================================================
 // Connection-point DC pair (classification-retirement-design §4, C full
 // capture, batch 2): a `::DC` pair WRITTEN on a connection point declares its
 // members positionally — 1st member = hot (supply side), 2nd = ret (declared
 // return / ground side). Module-header DC ports and component DC pins both get
 // their role this way, independent of the member name.
-// ============================================================================
 
 /// (path, role) for every flattened entry whose path satisfies `keep`, sorted.
 fn flat_roles(src: &str, keep: &dyn Fn(&str) -> bool) -> Vec<(String, String)> {

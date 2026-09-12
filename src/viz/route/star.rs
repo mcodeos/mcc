@@ -133,7 +133,8 @@ impl Router for StarRouter {
                     ExitSide::Top
                 };
                 let (sp, ss) = compute_exit_for_pin(b, ep.pin_id, None);
-                // Override with computed direction (compute_exit_for_pin defaults to Right without target)
+                // Override with computed direction (compute_exit_for_pin defaults to Right without
+                // target)
                 let ss = if b.find_entry(ep.pin_id).is_some() {
                     ss
                 } else {
@@ -172,9 +173,7 @@ impl Router for StarRouter {
     }
 }
 
-// ============================================================================
 // ★ P09 (S5) pick_hub_point — select a hub point that is not inside an obstacle
-// ============================================================================
 
 /// Given a set of endpoint positions, pick a point suitable for the star hub
 ///
@@ -222,18 +221,16 @@ pub fn pick_hub_point(positions: &[(f64, f64)], obstacles: &ObstacleMap) -> (f64
     (cx, cy)
 }
 
-// ============================================================================
 // ★ FIX (collision) — obstacle-aware polyline for spokes
-// ============================================================================
 
 /// Compute polyline segments for a single spoke (peer pin → hub pin), avoiding other boxes.
 ///
 /// First try natural Manhattan path by exit direction of both ends (`ss`/`ds`); if that
 /// path crosses any obstacle box, fall back to [`best_orthogonal_path`] which picks the
 /// non-colliding and shortest among 4 L/Z candidates; if still collides, detour.
-/// Consistent with the orthogonal router's obstacle-avoidance semantics. Previously
-/// route_hub_star called `orthogonal_path` directly without checking obstacles, so the
-/// fanned-out lines often crossed through the middle boxes (user-reported "wire collisions").
+/// Consistent with the orthogonal router's obstacle-avoidance semantics. Calling
+/// `orthogonal_path` directly, without checking obstacles, often crosses the
+/// fanned-out lines through the middle boxes (user-reported "wire collisions").
 fn spoke_segments(
     obstacles: &ObstacleMap,
     sp: (f64, f64),
@@ -253,10 +250,8 @@ fn spoke_segments(
     }
 }
 
-// ============================================================================
 // ★ FIX (sub-graph) — hub-star: radiate from "main device pin" as hub
 //                    (multiple wires fanning out from the component)
-// ============================================================================
 
 /// Use the **main device (IC/SubModule/driver) pin in the net** as hub and draw
 /// orthogonal lines to the remaining endpoints —— multiple wires fan out from the
@@ -344,9 +339,8 @@ pub fn route_hub_star(graph: &McVecGraph, net: &mut VizNet) {
         return;
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    // Case A: hub side has only 1 pin → classic fan-out (all peers converge to that pin, junction when ≥ 2)
-    // ════════════════════════════════════════════════════════════════════
+    // Case A: hub side has only 1 pin → classic fan-out (all peers converge to that pin, junction
+    // when ≥ 2)
     if hub_side.len() <= 1 {
         let hub_ep = &net.endpoints[hub_idx];
 
@@ -407,12 +401,12 @@ pub fn route_hub_star(graph: &McVecGraph, net: &mut VizNet) {
         return;
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    // Case B: hub side ≥ 2 pins (bus) → pair each peer to a hub pin, independent lines, no junction.
+    // Case B: hub side ≥ 2 pins (bus) → pair each peer to a hub pin, independent lines, no
+    // junction.
     //   This is exactly the "spread" the user wants: N member bits = N wires each from
     //   its own device pin, instead of converging to one trunk.
-    //   Pairing priority: ① same member name and unused ② nearest unused pin ③ nearest pin (allow reuse).
-    // ════════════════════════════════════════════════════════════════════
+    // Pairing priority: ① same member name and unused ② nearest unused pin ③ nearest pin (allow
+    // reuse).
 
     // member name = last segment of pin name (strip "SPI." etc. prefix), used for bit pairing
     let member_of = |pin_name: &str| -> String {
@@ -554,9 +548,7 @@ fn pick_hub_endpoint(graph: &McVecGraph, net: &VizNet) -> usize {
         .unwrap_or(0)
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

@@ -9,21 +9,21 @@
 //! - [`EntryPoint`] -- pin position on the box edge (for router to accurately exit lines)
 //!
 //! ## ★ P01 (S2) Changes
-//! `McVecBox` added three semantic fields, filled once by the builder (`from_block.rs::detect_symbol`):
+//! `McVecBox` added three semantic fields, filled once by the builder
+//! (`from_block.rs::detect_symbol`):
 //! - `symbol: Symbol`           -- component symbol type (Resistor / Capacitor / Ic / ...)
 //! - `designator: Option<String>` -- project designator (R1 / C5 / U3)
 //! - `value: Option<String>`    -- nominal value (10k / 100nF)
 //!
-//! Legacy `McVecBox::new(...)` is kept, internally forwarding to `new_v2(symbol=Unknown, designator=None, value=None)`,
+//! Legacy `McVecBox::new(...)` is kept, internally forwarding to
+//! `new_v2(symbol=Unknown, designator=None, value=None)`,
 //! callers gradually migrate to `new_v2`.
 
 use super::kinds::BoxKind;
 use super::netdef::IoDirection;
 use super::symbol::Symbol;
 
-// ============================================================================
 // IoSummary
-// ============================================================================
 
 /// Box IO port count statistics
 #[derive(Debug, Clone)]
@@ -51,9 +51,7 @@ impl Default for IoSummary {
     }
 }
 
-// ============================================================================
 // EntryPoint -- pin's precise position on the box edge
-// ============================================================================
 
 /// Pin / port's precise position on a box's edge
 ///
@@ -83,9 +81,7 @@ pub enum EntrySide {
     Left,
 }
 
-// ============================================================================
 // BoundaryPort -- the module port a boundary entry point belongs to
-// ============================================================================
 
 /// The module port that a box's boundary entry point belongs to.
 ///
@@ -128,31 +124,32 @@ impl BoundaryPort {
     }
 }
 
-// ============================================================================
 // BoxPin -- box's pin (from mcode parsing, not related to wiring)
-// ============================================================================
 
 /// A physical pin of a box (filled by the builder from `InstTable.get_pins_of` / `get_ports_of`)
 ///
 /// This is the "what pins the component itself has" source of truth, **independent of whether
-/// the pin is wired**. Previously `entry_points` only collected from `graph.nets` (already-wired
-/// pins), causing unconnected boxes to not have a single pin drawn. `pins` solves this:
-/// even if the box is completely unconnected, all pins can still be drawn.
+/// the pin is wired**. Collecting from `graph.nets` alone (already-wired pins
+/// only) would leave an unconnected box without a single pin drawn; `pins` is
+/// what lets every pin be drawn even when the box is completely unconnected.
 ///
 /// ## Pin's two pieces of information (corresponds to mcode `pins = [ <pin_id> = <description> ]`)
 /// - `pin_id`      -- pin's **common name / number** (mc `=` left: `"1"` / `"B"` / `"A1"`).
 ///   This is the marker drawn on the pin stub (industry convention: pin number / pin name).
 ///   **Taken directly from mcode, no longer self-numbering 1/2/3** -- letter pins (B/C/E)
 ///   draw B/C/E, numeric pins draw 1/2/3.
-/// - `description` -- pin's **specific description / function name** (mc `=` right: `"TX"` / `"Base"`).
+/// - `description` -- pin's **specific description / function name** (mc `=` right: `"TX"` /
+/// `"Base"`).
 ///   Drawn on the box's **inside**. When data is missing, it's empty, then only `pin_id` is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BoxPin {
-    /// Pin's global ID (corresponds to the id of this pin entry in InstTable, same as net endpoint pin_id)
+    /// Pin's global ID (corresponds to the id of this pin entry in InstTable, same as net endpoint
+    /// pin_id)
     pub id: i64,
     /// Pin's common name / number (mc `=` left: "1"/"B"/"A1"); drawn on the pin stub
     pub pin_id: String,
-    /// Pin's specific description / function name (mc `=` right: "TX"/"Base"); drawn on box inside, may be empty
+    /// Pin's specific description / function name (mc `=` right: "TX"/"Base"); drawn on box inside,
+    /// may be empty
     pub description: String,
     /// Pin direction (input / output / power / ...)
     pub io: IoDirection,
@@ -160,14 +157,13 @@ pub struct BoxPin {
     pub port_dir: PortDir,
 }
 
-// ============================================================================
 // ★ M0-3: PinConstraint — pin placement constraint level
-// ============================================================================
 
 /// Pin placement constraint level
 ///
 /// Rules:
-/// - Source has a `layout` block → `FixedOrder` (side and order both fixed; only whole-box mirror/rotation allowed)
+/// - Source has a `layout` block → `FixedOrder` (side and order both fixed; only whole-box
+/// mirror/rotation allowed)
 /// - Otherwise → `Free` (the placer may freely assign pins to any side, any order)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PinConstraint {
@@ -180,9 +176,7 @@ pub enum PinConstraint {
     FixedOrder,
 }
 
-// ============================================================================
 // ★ M0-2: PortDir — module port direction
-// ============================================================================
 
 /// Module port direction (from `in` / `out` / `io` / `ps` declarations)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -196,9 +190,7 @@ pub enum PortDir {
     None,
 }
 
-// ============================================================================
 // ★ P7-1: BoxProvenance — where did this box come from?
-// ============================================================================
 
 /// Box provenance marker (the data basis of the G10 structure-conservation criterion).
 ///
@@ -224,23 +216,24 @@ impl BoxPin {
     }
 }
 
-// ============================================================================
 // PinLayout -- reserved interface ①: component customizes "which pins go on which edge"
-// ============================================================================
 
 /// Component pin-per-edge layout (drawing-side form, decoupled from core layer's
 /// `semantic::component::mc_layout::McLayout`).
 ///
-/// Each Vec contains the pin identifiers on that edge -- `BoxPin.pin_id` (number, like "B"/"1"/"VCC")
-/// **or** `BoxPin.description` (function name, like "Base"), both can match. The order within Vec is
+/// Each Vec contains the pin identifiers on that edge -- `BoxPin.pin_id` (number, like
+/// "B"/"1"/"VCC")
+/// **or** `BoxPin.description` (function name, like "Base"), both can match. The order within Vec
+/// is
 /// the arrangement order from edge start to end (Left/Right from top to bottom, Top/Bottom from
 /// left to right).
 ///
 /// ## Source / Consumer
 /// - **Source**: `core`'s `McComponent.layout` -> convert to this struct ->
 ///   `McVecBox::set_layout_hint` (filled by `fromblock.rs::apply_reserved_overrides`).
-/// - **Consumer** (in place): `entry_points::compute_entry_points` finds `layout_hint` non-empty then
-///   assigns edges / sorts by it, otherwise goes through `classify_pin` heuristic. Pins not listed in
+/// - **Consumer** (in place): `entry_points::compute_entry_points` finds `layout_hint` non-empty
+/// then
+/// assigns edges / sorts by it, otherwise goes through `classify_pin` heuristic. Pins not listed in
 ///   the layout fall back to the heuristic, ensuring none are missed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PinLayout {
@@ -275,9 +268,7 @@ impl PinLayout {
     }
 }
 
-// ============================================================================
 // CustomSymbol -- reserved interface ②: user-customized component symbol (overrides system default)
-// ============================================================================
 
 /// User-provided custom symbol (replaces system-provided R/C/L/D/IC etc. drawing).
 ///
@@ -288,7 +279,8 @@ impl PinLayout {
 /// ## Source / Consumer
 /// - **Source**: project-local `symbols/manifest.toml` -> class-name match ->
 ///   `McVecBox::set_custom_symbol`. Missing or invalid assets leave `custom_symbol` as `None`.
-/// - **Consumer** (in place): `shape::render_box` checks `custom_symbol` first, uses it if available,
+/// - **Consumer** (in place): `shape::render_box` checks `custom_symbol` first, uses it if
+/// available,
 ///   otherwise falls back to system-provided symbol.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SvgViewBox {
@@ -300,7 +292,8 @@ pub struct SvgViewBox {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomSymbol {
-    /// Source identifier (symbol library key / class_name), only for debugging / tracing, will be written to `data-symbol-source`.
+    /// Source identifier (symbol library key / class_name), only for debugging / tracing, will be
+    /// written to `data-symbol-source`.
     pub source: String,
     /// SVG fragment (without outer `<g>`; renderer wraps translate + data-id + pin overlay).
     pub svg_body: String,
@@ -308,9 +301,7 @@ pub struct CustomSymbol {
     pub view_box: SvgViewBox,
 }
 
-// ============================================================================
 // BoxLabelPlacement (M8)
-// ============================================================================
 
 /// A lightweight label placement hint stored on McVecBox.
 /// When non-empty, render and metrics use these instead of hardcoded defaults.
@@ -335,9 +326,7 @@ pub enum LabelPlacementKind {
     Value,
 }
 
-// ============================================================================
 // McVecBox
-// ============================================================================
 
 /// A box on the graph (component / sub-module / power label)
 #[derive(Debug, Clone)]
@@ -393,7 +382,8 @@ pub struct McVecBox {
     /// ★ Box's physical pin list (filled by builder from mcode/InstTable, independent of wiring)
     ///
     /// Empty by default. Connected pins still go through net->entry_points route;
-    /// this field ensures "unconnected pins can also be drawn" (pin number / name / direction complete).
+    /// this field ensures "unconnected pins can also be drawn" (pin number / name / direction
+    /// complete).
     pub pins: Vec<BoxPin>,
 
     /// ★ M8: Label placement hints (filled by label optimizer, used by render/metrics).
@@ -426,7 +416,7 @@ pub struct McVecBox {
     /// bridge/shunt across two parallel lanes (e.g., CAP' in two-lane series).
     pub visual_role: Option<VisualRole>,
 
-    /// ★ Virtual instantiation view (mcd docs-mc 16-export-viz §6): suppress the
+    /// ★ Virtual instantiation view (mcd spec/16-export-viz §6): suppress the
     /// instance-name label. Used by the synthetic module wrapper (VIRT_<Name>)
     /// whose instance (u_1) is a fabrication, not a real designator — the box
     /// then shows only the class name and the physical pins.
@@ -457,7 +447,8 @@ pub struct McVecBox {
     /// evidence of write-back.
     pub geom_writer: Option<&'static str>,
 
-    /// ★ P7-1: box provenance marker (default Declared). renderdiff G10 uses it to count synthesized boxes.
+    /// ★ P7-1: box provenance marker (default Declared). renderdiff G10 uses it to count
+    /// synthesized boxes.
     pub provenance: BoxProvenance,
 
     /// ★ P8-2 (G16): source span for bidirectional traceability.
@@ -612,7 +603,7 @@ impl McVecBox {
 
     /// ★ Set the box's physical pin list (called by builder)
     pub fn set_pins(&mut self, pins: Vec<BoxPin>) {
-        // pin_count follows the real pin count (if previously 0 / estimated, use real value to override)
+        // pin_count follows the real pin count (an earlier 0 / estimate yields to the real value)
         if !pins.is_empty() {
             self.pin_count = pins.len();
         }
@@ -656,14 +647,16 @@ impl McVecBox {
         self.layout_hint.as_ref().is_some_and(|l| !l.is_empty())
     }
 
-    /// ★ Reserved interface ①: set component custom pin layout (empty layout considered not set, still goes through heuristic).
+    /// ★ Reserved interface ①: set component custom pin layout (empty layout considered not set,
+    /// still goes through heuristic).
     pub fn set_layout_hint(&mut self, layout: PinLayout) {
         if !layout.is_empty() {
             self.layout_hint = Some(layout);
         }
     }
 
-    /// ★ Reserved interface ②: set user-customized symbol (called by builder after hitting symbol library by class_name).
+    /// ★ Reserved interface ②: set user-customized symbol (called by builder after hitting symbol
+    /// library by class_name).
     pub fn set_custom_symbol(&mut self, sym: CustomSymbol) {
         self.custom_symbol = Some(sym);
     }
@@ -673,7 +666,8 @@ impl McVecBox {
         self.symbol.is_two_pin_passive()
     }
 
-    /// Container / border box: provides only a visual border and never participates in collision detection.
+    /// Container / border box: provides only a visual border and never participates in collision
+    /// detection.
     /// Boxes with a negative id (e.g. `main` id=-1001) are SubModule container borders;
     /// they naturally enclose all child boxes and wires, so they are not counted as collisions.
     #[inline]
@@ -681,7 +675,8 @@ impl McVecBox {
         self.id < 0 || self.kind == BoxKind::SubModule
     }
 
-    /// This passive's geometry has no owner yet —— only when this is true may the fallback pass move it.
+    /// This passive's geometry has no owner yet —— only when this is true may the fallback pass
+    /// move it.
     ///
     /// `geom_locked` is the real meaning of "this box's geometry already has an owner";
     /// `visual_role` is a rendering intent, and the two should not share one field.
@@ -697,9 +692,7 @@ impl McVecBox {
     }
 }
 
-// ============================================================================
 // ModuleFrame — the boundary frame of a module drawn as its own layer
-// ============================================================================
 
 /// The boundary of a module **drawn as its own layer**: a dashed frame around the
 /// content with the module's ports sitting on it.
@@ -746,9 +739,7 @@ pub struct FramePort {
     pub is_supply: bool,
 }
 
-// ============================================================================
 // ZoneBorder — functional zone border (M2-3)
-// ============================================================================
 
 /// Border info of one zone, for the renderer to draw a dashed rounded rect + title
 #[derive(Debug, Clone)]

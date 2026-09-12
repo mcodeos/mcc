@@ -6,16 +6,19 @@
 //!
 //! ## Two API sets maintained here
 //! - **Old API** (`resolve_netpoint` / `np_warn_count` / `reset_np_warn_count`):
-//!   Silently swallows errors, only writes warnings to a process-level atomic counter. **deprecated**, kept for compatibility
+//! Silently swallows errors, only writes warnings to a process-level atomic counter.
+//! **deprecated**, kept for compatibility
 //! - **★ NEW P02 API** (`resolve_netpoint_v2`): Returns [`ResolveOutcome`],
-//!   each resolution's status (direct / owner-fallback / bare-label / failed) as structured records,
+//! each resolution's status (direct / owner-fallback / bare-label / failed) as structured records,
 //!   for `McVecBuilder` to accumulate into [`super::report::BuilderReport`]
 //!
 //! ## Resolution levels (in attempt order)
 //! 1. **Bracket list**: `sub.[A, B, C]` → split into independent paths
 //! 2. **Direct path**: silently try `module_path.path` / `path` / trailing `.` → `/`
-//! 3. **Owner fallback** (Iter 7): NetPoint has owner but path can't be resolved, fall back to owner sub-module
-//! 4. **Bare-label fallback** (Iter 7): top-level rail using `.N` index, strip last segment and retry
+//! 3. **Owner fallback** (Iter 7): NetPoint has owner but path can't be resolved, fall back to
+//! owner sub-module
+//! 4. **Bare-label fallback** (Iter 7): top-level rail using `.N` index, strip last segment and
+//! retry
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -24,9 +27,7 @@ use crate::instant::mc_net::NetPoint;
 
 use super::report::{ResolutionOutcome, ResolutionRecord};
 
-// ============================================================================
 // NP_WARN_COUNT: process-level atomic counter (compat for old callers)
-// ============================================================================
 
 static NP_WARN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -43,9 +44,7 @@ pub fn reset_np_warn_count() {
     NP_WARN_COUNT.store(0, Ordering::Relaxed);
 }
 
-// ============================================================================
 // ★ NEW P02 API: ResolveOutcome
-// ============================================================================
 
 /// Complete result of a single NetPoint resolution
 ///
@@ -65,9 +64,7 @@ impl ResolveOutcome {
     }
 }
 
-// ============================================================================
 // ★ NEW P02 API: resolve_netpoint_v2
-// ============================================================================
 
 /// Resolve `NetPoint` to zero or more InstTable global IDs + full diagnostics
 ///
@@ -164,17 +161,20 @@ pub fn resolve_netpoint_v2(
         }
     }
 
-    // ── ★ Phase D: bracket-port-member fallback ─────────────────────────────────
+    // ★ Phase D: bracket-port-member fallback
     //
     // Symptom: the example mcu module declares ports as `[VDD_3V3, GND]` and `[VCC_1V2, GND]`
     // (registered in InstTable as `main.mcu.[VDD_3V3, GND]` — bracket-form Port path),
     // mcu's body references bare names `VDD_3V3` or `VCC_1V2` — all three fallbacks miss,
-    // entire net "all dropped", cap5.1 etc. decoupling capacitor connections to power rails silently deleted.
+    // entire net "all dropped", cap5.1 etc. decoupling capacitor connections to power rails
+    // silently deleted.
     //
-    // Add a new fallback level here: scan all Port entries under this module; if a Port path matches
+    // Add a new fallback level here: scan all Port entries under this module; if a Port path
+    // matches
     // `<module_path>.[<m1>, <m2>, ...]` and the bare name we're looking for == some `<mi>`, return
     // that Port's id as a hit. Semantically **equivalent to** "bare name X refers to member X of
-    // mcu's bracket port [X, ...]", attaching the corresponding connection to that Port in topology —
+    // mcu's bracket port [X, ...]", attaching the corresponding connection to that Port in topology
+    // —
     // consistent behavior with explicitly writing `mcu.[VDD_3V3, GND]` port reference.
     //
     // Trigger conditions:
@@ -182,11 +182,12 @@ pub fn resolve_netpoint_v2(
     //   - direct / owner / bare-label three-level fallback all miss
     //
     // Side effects:
-    //   - If user source has ambiguity (e.g. cap5.1 simultaneously connects to VDD_3V3 / VCC_1V2 / GND,
+    // - If user source has ambiguity (e.g. cap5.1 simultaneously connects to VDD_3V3 / VCC_1V2 /
+    // GND,
     //     across 3 rails), all three connections now resolve successfully, naturally split into 3
-    //     separate nets by visit.rs's net_groups (because net_name differs) — visually cap5.1 appears
+    // separate nets by visit.rs's net_groups (because net_name differs) — visually cap5.1 appears
     //     across 3 nets, hinting that the source has issues, no longer silently swallowed.
-    //   - Does not affect the normal path where "a truly independent Port exists" (that already hits
+    // - Does not affect the normal path where "a truly independent Port exists" (that already hits
     //     at the Direct step, never reaches here).
     if point.owner.is_none() && !point.path.contains('.') && !point.path.is_empty() {
         let bare_name = &point.path;
@@ -229,7 +230,7 @@ pub fn resolve_netpoint_v2(
     out
 }
 
-/// ── ★ Phase D helper ────────────────────────────────────────────────────────
+/// ★ Phase D helper
 ///
 /// Checks if port_path matches `<module_path>.[<m1>, <m2>, ...]` and returns member list.
 ///
@@ -267,16 +268,15 @@ fn parse_bracket_port_members(port_path: &str, module_path: &str) -> Option<Vec<
     }
 }
 
-// ============================================================================
 // Old main entry: resolve_netpoint (deprecated, delegates to v2)
-// ============================================================================
 
 /// Parses `NetPoint` to zero or more InstTable global(s).
 ///
 /// **deprecated** —— Use [`resolve_netpoint_v2`] for structured diagnostics.
 ///
 /// This function is kept for compatibility with existing callers, internally delegates to v2
-/// and flattens result to `Vec<i64>`, while counting `Failed` into `NP_WARN_COUNT` and printing to stderr (preserving old behavior).
+/// and flattens result to `Vec<i64>`, while counting `Failed` into `NP_WARN_COUNT` and printing to
+/// stderr (preserving old behavior).
 pub fn resolve_netpoint(table: &InstTable, point: &NetPoint, module_path: &str) -> Vec<i64> {
     // v2 doesn't need net_name (it's just metadata), use placeholder
     let outcome = resolve_netpoint_v2(table, point, module_path, "");
@@ -319,9 +319,7 @@ pub fn resolve_netpoint(table: &InstTable, point: &NetPoint, module_path: &str) 
     outcome.ids
 }
 
-// ============================================================================
 // Single path resolution (silent version)
-// ============================================================================
 
 /// Silent version: no warning, no counter increment
 ///
@@ -372,9 +370,7 @@ pub fn resolve_path(table: &InstTable, path: &str, module_path: &str) -> Option<
     None
 }
 
-// ============================================================================
 // Bracket list expansion
-// ============================================================================
 
 /// Expands `<prefix>.[<m1>, <m2>, ...]` into individual path lists
 ///
@@ -406,9 +402,7 @@ pub fn expand_bracket_list(path: &str) -> Option<Vec<String>> {
     }
 }
 
-// ============================================================================
 // resolve_id: Simple path-based ID lookup
-// ============================================================================
 
 /// Looks up InstTable ID by path, returns -1 (with warning)
 pub fn resolve_id(table: &InstTable, path: &str) -> i64 {

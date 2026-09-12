@@ -117,7 +117,7 @@ fn build(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
     (codes, partition)
 }
 
-// ── one cell per series arm: by name beats position ─────────────────────────
+// one cell per series arm: by name beats position
 
 /// `->` (series, left to right): the pairing is by member name.
 #[test]

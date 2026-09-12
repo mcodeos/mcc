@@ -34,9 +34,7 @@ use serde::{Deserialize, Serialize};
 use crate::vector::graph::kinds::BoxKind;
 use crate::vector::graph::{McVecGraph, NetKind};
 
-// ============================================================================
 // Golden (TOML schema)
-// ============================================================================
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct RenderGolden {
@@ -64,7 +62,8 @@ pub struct LayerGolden {
     /// Target count of rail power edges (cross-box power nets, i.e. R-2 driver segments)
     #[serde(default)]
     pub power_edges: usize,
-    /// Target count of top-level passives (contract C5: block diagram draws no R/C; always 0, only meaningful at top level)
+    /// Target count of top-level passives (contract C5: block diagram draws no R/C; always 0, only
+    /// meaningful at top level)
     #[serde(default)]
     pub top_passives: usize,
     /// Expected edge list (from/to by **box name**, label = net name or bus entry name)
@@ -79,9 +78,7 @@ pub struct GEdge {
     pub label: String,
 }
 
-// ============================================================================
 // Reading (measured from the final graph)
-// ============================================================================
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LayerReading {
@@ -103,13 +100,16 @@ pub struct LayerReading {
     /// ★ P7-3 S1: ground symbol decoration count (sub-layer = GND endpoint count; always 0 at top)
     #[serde(default)]
     pub decorations_ground: usize,
-    /// ★ P7-3 S2: rail dot decoration count (sub-layer = non-GND rail endpoint count; always 0 at top)
+    /// ★ P7-3 S2: rail dot decoration count (sub-layer = non-GND rail endpoint count; always 0 at
+    /// top)
     #[serde(default)]
     pub decorations_power: usize,
-    /// ★ P7-4: geometric double-write count of this layer (collected via stage-boundary snapshot diff; target 0)
+    /// ★ P7-4: geometric double-write count of this layer (collected via stage-boundary snapshot
+    /// diff; target 0)
     #[serde(default)]
     pub geom_double_writes: usize,
-    /// ★ P7-4c: full double-write detail (box / earlier writer → later writer), for baseline diagnosis;
+    /// ★ P7-4c: full double-write detail (box / earlier writer → later writer), for baseline
+    /// diagnosis;
     /// should converge to empty after P7-4e merges writers by stage.
     #[serde(default)]
     pub geom_double_write_list: Vec<String>,
@@ -209,7 +209,8 @@ impl LayerReading {
                 b.name.clone()
             });
 
-            // S6: does the box fit its own pin distribution (reuses size::box_size's minimum size formula)
+            // S6: does the box fit its own pin distribution (reuses size::box_size's minimum size
+            // formula)
             let (mw, mh) = crate::viz::layout::size::box_size(b);
             if b.w + 1.0 < mw || b.h + 1.0 < mh {
                 s6 += 1;
@@ -219,7 +220,8 @@ impl LayerReading {
             }
         }
 
-        // G11: cross-box net classification (endpoints of the same net in ≥2 distinct boxes = an edge was drawn)
+        // G11: cross-box net classification (endpoints of the same net in ≥2 distinct boxes = an
+        // edge was drawn)
         let name_of = |id: i64| -> String {
             graph
                 .boxes
@@ -318,9 +320,7 @@ impl LayerReading {
     }
 }
 
-// ============================================================================
 // ★ P7-5 · G13 device-contract measurement (S3~S9)
-// ============================================================================
 
 fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
     use crate::vector::graph::EntrySide;
@@ -799,11 +799,10 @@ fn seg_meets_rect(
     inside(x1, y1) || inside(x2, y2)
 }
 
-// ============================================================================
 // Diff (reading vs golden)
-// ============================================================================
 
-/// Conclusion of one criterion. `Skip` = zero evaluated objects (discipline 9), never counts as green.
+/// Conclusion of one criterion. `Skip` = zero evaluated objects (discipline 9), never counts as
+/// green.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Verdict {
     Ok(String),
@@ -939,7 +938,7 @@ impl RenderGolden {
 
         let mut findings: Vec<(String, Verdict)> = Vec::new();
 
-        // ── G10 structure conservation ─────────────────────────────────
+        // G10 structure conservation
         // (1) box count
         findings.push(num_check(
             "G10.boxes",
@@ -1021,7 +1020,7 @@ impl RenderGolden {
             ));
         }
 
-        // ── G11 power contract ────────────────────────────────────────
+        // G11 power contract
         findings.push(num_check(
             "G11.gnd_edges",
             g.gnd_edges,
@@ -1037,7 +1036,8 @@ impl RenderGolden {
             "rail power edges (R-2: driver segments)".into(),
         ));
         if g.top_passives > 0 || r.layer == "main" {
-            // C5 judged at top level only (golden gives top_passives semantics to the main layer only)
+            // C5 judged at top level only (golden gives top_passives semantics to the main layer
+            // only)
             findings.push(num_check(
                 "G11.top_passives",
                 g.top_passives,
@@ -1047,7 +1047,8 @@ impl RenderGolden {
             ));
         }
 
-        // Edge list (structural comparison: is each expected edge covered by an actual net; which extras exist)
+        // Edge list (structural comparison: is each expected edge covered by an actual net; which
+        // extras exist)
         if g.edge.is_empty() {
             findings.push((
                 "G11.edges".into(),
@@ -1089,7 +1090,7 @@ impl RenderGolden {
             }
         }
 
-        // ── G12 geometric legality ───────────────────────────────────────
+        // G12 geometric legality
         findings.push(num_check(
             "G12.box_box",
             0,
@@ -1119,7 +1120,7 @@ impl RenderGolden {
             "negative-coordinate boxes".into(),
         ));
 
-        // ── G13 device contracts (P7-5, §1.3 S3~S9) ─────────────────────
+        // G13 device contracts (P7-5, §1.3 S3~S9)
         // Contract checks are ok/total self-contained (no golden numbers):
         // total == 0 → SKIP (visible, never green — discipline 9).
         let ratio_check = |id: &str, ok: usize, total: usize, note: &str| {
@@ -1273,9 +1274,7 @@ fn multiset_diff_str3(
     (missing, extra)
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

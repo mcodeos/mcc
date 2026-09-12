@@ -45,10 +45,9 @@
 //! - Endpoints ≥ 3: trunk-tap
 //!
 //! ## ★ P09 (S5) refactor
-//! The trunk axis was previously chosen as the mean of stub_ends, often crossing
-//! boxes in the middle. `choose_trunk_axis` searches for the position that crosses
-//! the **fewest obstacles** in a ± range near the mean, while considering preference
-//! for proximity to the original mean.
+//! The mean of stub_ends often crosses boxes in the middle. `choose_trunk_axis`
+//! searches for the position that crosses the **fewest obstacles** in a ± range
+//! near the mean, while considering preference for proximity to the original mean.
 //!
 //! ## ★ P10 (S6) refactor
 //! `BuildOptions` adds `channels: Option<&mut ChannelMap>`. When **multiple trunks
@@ -69,9 +68,7 @@ use super::orthogonal::orthogonal_path;
 use super::side::{compute_exit_for_pin, ExitSide};
 use crate::viz::traits::Router;
 
-// ============================================================================
 // Constants
-// ============================================================================
 
 /// Minimum distance a pin must walk after exit before being allowed to turn
 ///
@@ -79,9 +76,7 @@ use crate::viz::traits::Router;
 /// wastes canvas space.
 pub const PIN_STUB_LEN: f64 = 10.0;
 
-// ============================================================================
 // TrunkTapRouter
-// ============================================================================
 
 /// Router using one trunk + taps for multi-endpoint nets (default for multi-endpoint Signal)
 pub struct TrunkTapRouter;
@@ -113,9 +108,7 @@ impl Router for TrunkTapRouter {
     }
 }
 
-// ============================================================================
 // Shared helper: build_trunk_tap_route
-// ============================================================================
 
 /// Trunk-tap construction parameters
 ///
@@ -140,13 +133,12 @@ pub struct BuildOptions<'a> {
     pub net_id: i64,
 }
 
-// ============================================================================
 // ★ P10 (S6) end-to-end entry — channel-aware TrunkTapRouter
-// ============================================================================
 
 /// P10 main entry: channel-aware trunk-tap routing for one net
 ///
-/// Called by `scheduler::route_one_net_with_channels` when dispatching TrunkTap/TrunkTapWithWarning.
+/// Called by `scheduler::route_one_net_with_channels` when dispatching
+/// TrunkTap/TrunkTapWithWarning.
 pub fn route_trunk_tap_with_channels(
     graph: &McVecGraph,
     net: &mut VizNet,
@@ -239,7 +231,8 @@ pub fn build_trunk_tap_route<'a>(
         // Spine pinned: use the geometric axis directly, skip channel/obstacle search
         axis
     } else {
-        // P10 prefers channels.reserve_*; failed/unavailable → P09 (choose_trunk_axis); fallback → mean
+        // P10 prefers channels.reserve_*; failed/unavailable → P09 (choose_trunk_axis); fallback →
+        // mean
         let n = stub_ends.len() as f64;
         let mean_axis = if trunk_horizontal {
             stub_ends.iter().map(|p| p.1).sum::<f64>() / n
@@ -346,9 +339,7 @@ pub fn build_trunk_tap_route<'a>(
     route
 }
 
-// ============================================================================
 // Internal helpers
-// ============================================================================
 
 /// Compute the coordinates of an endpoint "after walking PIN_STUB_LEN along the exit direction"
 fn stub_end_of(exit: (f64, f64), side: ExitSide) -> (f64, f64) {
@@ -401,10 +392,8 @@ fn build_two_point_route(exits: &[((f64, f64), ExitSide)], obstacles: &ObstacleM
     route
 }
 
-// ============================================================================
 // ★ Iter 1.5 — spine detection: geometrically detect the trunk axis from
 //    collinear facing pins (e.g. series resistors on a lane)
-// ============================================================================
 
 /// Detect if ≥2 endpoints form a collinear spine with facing exit directions.
 ///
@@ -534,11 +523,10 @@ fn spine_on_axis(
     Some(cluster_axis)
 }
 
-// ============================================================================
 // ★ P09 (S5) choose_trunk_axis — obstacle-aware trunk position selection
-// ============================================================================
 
-/// Given a set of stub_ends + trunk direction + obstacle map, pick the trunk axis coordinate (y or x)
+/// Given a set of stub_ends + trunk direction + obstacle map, pick the trunk axis coordinate (y or
+/// x)
 ///
 /// ## Algorithm
 /// Candidates = mean y/x ± several discrete positions near box edges (extracted from obstacles).
@@ -623,9 +611,7 @@ fn choose_trunk_axis(
     best
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -737,9 +723,7 @@ mod tests {
         assert_eq!(stub0.to.y, 50.0); // y unchanged (exits right)
     }
 
-    // ========================================================================
     // ★ P09 (S5) choose_trunk_axis tests
-    // ========================================================================
 
     use super::super::obstacles::{ObstacleMap, Rect};
 
@@ -833,9 +817,7 @@ mod tests {
         assert_eq!(r.junctions.len(), 1);
     }
 
-    // ========================================================================
     // ★ Iter 1.5 — spine detection tests
-    // ========================================================================
 
     fn l_exit(x: f64, y: f64) -> ((f64, f64), ExitSide) {
         ((x, y), ExitSide::Left)

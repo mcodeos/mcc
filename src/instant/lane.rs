@@ -591,9 +591,7 @@ fn port_ordinal_fallback(module: &McModuleInst, port_name: &str) -> Option<DefMe
     Some(DefMemberId(ord as u32))
 }
 
-// ============================================================================
 // Net layer — union-find equivalence derivation (design §11.3 ③ "net layer")
-// ============================================================================
 
 /// Build-scoped ordinal of a derived net. Data is re-derived from the lane
 /// layer every build (not primary storage); persistent identity (D9) is a
@@ -743,9 +741,7 @@ fn union_find_union(parent: &mut [usize], a: usize, b: usize) {
     }
 }
 
-// ============================================================================
 // Phase G (D9) — persistent net identity
-// ============================================================================
 
 /// Assign persistent identity to the derived net layer (plan §9 G item 5,
 /// design §11.1 D9).

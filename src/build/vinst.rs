@@ -4,7 +4,7 @@
 
 //! Virtual instantiation for non-project single-file views.
 //!
-//! Strategy (mcd docs-mc 16-export-viz §6):
+//! Strategy (mcd spec/16-export-viz §6):
 //! - A file opened outside a project (no project.toml/manifest) that declares
 //!   one or more `module`s: each module is instantiated on its own (existing
 //!   behaviour).
@@ -359,7 +359,7 @@ pub fn install_synthetic_views(targets: &[String], uri: &McURI) -> Result<usize,
 }
 
 /// Prepare the graph of a virtually-instantiated component/interface for
-/// rendering (mcd docs-mc 16-export-viz §6):
+/// rendering (mcd spec/16-export-viz §6):
 ///
 /// - Switch to the device pipeline (`LayerStyle::Device`) so the wrapped unit
 ///   renders as an IC instead of a block-diagram stub (root-block).
@@ -404,7 +404,7 @@ pub fn prepare_virtual_graph(
 /// Give every physical pin of a box its own entry point (stub) so the virtual
 /// component view draws pin number + name + io marker on each pin.
 ///
-/// Pin placement (mcd docs-mc 16-export-viz §6):
+/// Pin placement (mcd spec/16-export-viz §6):
 /// - When the component declares a `layout` attribute, pins are assigned to the
 ///   edges it specifies (`left`/`right`/`top`/`bottom`), in declaration order.
 /// - Otherwise pins are arranged **counterclockwise** around the box on the

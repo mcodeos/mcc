@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 // Integration test: an `enum` and a `component` sharing the same base name in
-// one file must coexist without DEF_ALREADY_EXISTS (1051, formerly E0501)
+// one file must coexist without DEF_ALREADY_EXISTS (1051)
 // (P0-3).
 //
 // Regression: `parse_cmie_names` collected all declaration names into a single

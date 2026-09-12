@@ -28,9 +28,7 @@ use std::sync::Arc;
 pub(crate) mod pi;
 use self::pi::McPowerDecls;
 
-// ============================================================================
 // McModule - Module definition
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct McModule {
@@ -47,7 +45,7 @@ pub struct McModule {
     pub stmt_spans: Vec<crate::ast::sem::Span>,
     pub funcs: McFunctions,
     /// Power-intent declarations declared in this module body
-    /// (`ref` identities + `domain`/`rail` sources; power-intent-design.md §5).
+    /// (`ref` identities + `domain`/`rail` sources; intent-design.md §5).
     pub(crate) pi: McPowerDecls,
     pub uri: McURI,
     /// Source span for LSP goto-definition (byte range in `uri`).
@@ -65,7 +63,7 @@ pub struct McModule {
     /// module **top-level body** net statements. Module funcs register into
     /// their own `McFunction.floating_candidates`; this set covers the module
     /// body itself. Both are consumed together by `validation::floating`
-    /// (E3136) — module-side port spelling errors were previously 0-diagnostic.
+    /// (E3136) — without it, module-side port spelling errors stay 0-diagnostic.
     pub(crate) floating_candidates: Vec<(String, u32, u32)>,
     /// Scratch buffer during body parse — `report_floating_label(&self, …)`
     /// pushes here (the trait hook is `&self`, and `McModule` is shared across
@@ -329,7 +327,8 @@ impl McModule {
                     MCAST_NET => {
                         if let Some(subnode) = clause.get_sub_node() {
                             if subnode.get_type() == MCAST_DECLARE {
-                                // ★ LSP: instance declarations also reference their ctor args (`speaker(V3V3)`) — record
+                                // ★ LSP: instance declarations also reference their ctor args
+                                // (`speaker(V3V3)`) — record
                                 // them like MCAST_NET operands so F12 works.
                                 self.collect_declare_ctor_refs(&subnode);
                                 self.insts.parse(&subnode, &self.uri);
@@ -403,7 +402,7 @@ impl McModule {
                         // (`conduit GND @role(main) @star`; keyword `ref` is a
                         // legacy alias). Capture only — the identity/role
                         // semantics land with the flatten/ERC block
-                        // (power-intent-design.md §13 landing 1).
+                        // (intent-design.md §13 landing 1).
                         self.pi.parse_ref(&clause);
                     }
 
@@ -1253,7 +1252,8 @@ impl HasFindInst for McModule {
 
 impl McModule {
     /// Recursively scan AST nodes in a net expression for identifiers that match
-    /// known port names (both from body insts and params), and record their spans for LSP goto-definition.
+    /// known port names (both from body insts and params), and record their spans for LSP
+    /// goto-definition.
     /// Walk AST nodes in a net phrase and store definition spans + LSP lapper
     /// entries for any identifier that becomes an inline port instance.
     fn collect_net_def_spans(node: &AstNode, insts: &mut McInstances, uri: &McURI, scope: &str) {
@@ -1376,10 +1376,10 @@ impl McModule {
                     }
                     if !handled {
                         // ★ Unmatched / chain members (e.g. `dc.VDD_3V3`,
-                        // `RES(..) -> (lpa.VO1 + spk.N)`) were previously
-                        // dropped entirely — recurse so the chain path
-                        // (has_dot_chain → try_record_chain_ref) registers
-                        // them instead. Walk next-siblings too: a member may
+                        // `RES(..) -> (lpa.VO1 + spk.N)`) must recurse instead:
+                        // without it they are dropped entirely and never reach
+                        // the chain path (has_dot_chain → try_record_chain_ref).
+                        // Walk next-siblings too: a member may
                         // be a full connection (`dc.VDD_3V3 -> wm7121.VCC`)
                         // whose arrow's right operand hangs off the left
                         // operand's get_next() — without the walk it is
@@ -1883,9 +1883,7 @@ impl McModule {
     }
 }
 
-// ============================================================================
 // Mc2Module - Module instance wrapper
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct Mc2Module {
@@ -1980,9 +1978,7 @@ impl Mc2Module {
     }
 }
 
-// ============================================================================
 // Display implementation - concise format output
-// ============================================================================
 
 impl std::fmt::Display for McModule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

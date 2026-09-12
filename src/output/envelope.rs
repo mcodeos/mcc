@@ -22,14 +22,13 @@
 //! - All `Option` fields add `skip_serializing_if = "Option::is_none"`,
 //!   keeping JSON clean (passes that didn't run don't appear in output, rather than `null`).
 //! - All enums use `#[serde(rename_all = "snake_case")]`, outputting lowercase without ambiguity.
-//! - All Diagnostics carry the `phase` field, ensuring the semantic level can be traced back to a specific pass.
+//! - All Diagnostics carry the `phase` field, ensuring the semantic level can be traced back to a
+//! specific pass.
 
 use mcc::ledger::LedgerReport;
 use serde::{Deserialize, Serialize};
 
-// ============================================================================
 // Top-level envelope
-// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Envelope {
@@ -62,9 +61,7 @@ impl Envelope {
     }
 }
 
-// ============================================================================
 // RpcError - Standard JSON-RPC error format
-// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcError {
@@ -114,9 +111,7 @@ impl RpcError {
     }
 }
 
-// ============================================================================
 // CommandResult - result body
-// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct CommandResult {
@@ -186,22 +181,19 @@ pub enum WorkspaceKind {
     Sandbox,
 }
 
-// ============================================================================
 // Pass0 report — load + lib phase diagnostics
-// ============================================================================
 
 /// Pass 0 = lib load + `mcc_load_project` phase.
 /// Snapshot once in [`crate::cmds::parse::public_collect_pass0`].
-/// No definitions (none built yet at that point), loaded_files is left for upper layer to fill explicitly (usually empty).
+/// No definitions (none built yet at that point), loaded_files is left for upper layer to fill
+/// explicitly (usually empty).
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Pass0Report {
     pub loaded_files: Vec<LoadedFile>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-// ============================================================================
 // Pass1 report
-// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Pass1Report {
@@ -249,9 +241,7 @@ pub struct DefinitionRef {
     pub uri: String,
 }
 
-// ============================================================================
 // Pass2 report
-// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Pass2Report {
@@ -331,9 +321,7 @@ pub struct ConnectionEntry {
     pub points: Vec<String>,
 }
 
-// ============================================================================
 // Auxiliary result types: extract / view / viz
-// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractData {
@@ -388,9 +376,7 @@ pub struct ExportData {
     pub items: serde_json::Value,
 }
 
-// ============================================================================
 // Summary
-// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Summary {
@@ -404,9 +390,7 @@ pub struct Summary {
     pub elapsed_ms: u128,
 }
 
-// ============================================================================
 // Diagnostic (unified format, converted from mcc::Diagnostic by diagnostic.rs adapter)
-// ============================================================================
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Diagnostic {
@@ -476,9 +460,7 @@ pub struct DiagnosticRelated {
     pub location: DiagLocation,
 }
 
-// ============================================================================
 // Tests: schema round-trip does not lose fields
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

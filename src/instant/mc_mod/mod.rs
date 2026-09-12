@@ -4,17 +4,20 @@
 
 //! Pass2 instantiation — Module instance
 //!
-//! McModuleInst is the core data structure of the instantiation phase, representing a complete module instance.
+//! McModuleInst is the core data structure of the instantiation phase, representing a complete
+//! module instance.
 //!
 //! ## Module split (after refactoring)
-//! - `mod.rs`         —— Type definitions, construction, `instantiate()` top-level flow, diagnostics, Display, ID counter
+//! - `mod.rs`         —— Type definitions, construction, `instantiate()` top-level flow,
+//! diagnostics, Display, ID counter
 //! - `phases.rs`      —— Phase 1/3 entry (interfaces, declarations, connection stmts)
 //! - `stmt.rs`        —— Single stmt expansion/dispatch (process_stmt / process_member_internal)
 //! - `points.rs`      —— Endpoint extraction (get_left/right_points, node_to_netpoint)
 //! - `bus.rs`         —— Bus handling (ensure_bus / curly-mn parsing)
 //! - `group.rs`       —— Group / Transposed handling + create_connection
 //! - `funccall.rs`    —— FuncCall dispatch entry + built-in twopin + endpoint resolve
-//! - `funccall_inst.rs` —— Component / Module / UserFunc / InstanceMethod instantiation + prefix_instance
+//! - `funccall_inst.rs` —— Component / Module / UserFunc / InstanceMethod instantiation +
+//! prefix_instance
 //! - `iterated.rs`    —— Iterated call expansion
 //! - `subst.rs`       —— Parameter substitution helpers
 //! - `debug_dump.rs`  —— Pass1→Pass2 info completeness debug output (MC_INST_DUMP=1 enabled)
@@ -50,19 +53,17 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-// ============================================================================
 // AutoInst - what a FuncCall chain member resolved to
-// ============================================================================
 
 /// The value side of `McModuleInst::auto_inst_map`.
 ///
 /// The map is keyed by phrase id and read back when a chain member's connection
 /// face is resolved (`resolve_funccall_face`) — i.e. it is the channel that
 /// carries "which instance(s) does this call denote" from the statement walker
-/// to the face resolver. It used to be a bare `String` in which four different
-/// shapes were smuggled behind prefixes — `@@ARRAY:a,b`, `@@RETURN_EP:i.p`,
-/// `@@RETURN_NETS:n1;n2`, and a plain instance name — with every reader
-/// re-deriving the shape by `strip_prefix` and re-splitting the payload. The
+/// to the face resolver. A bare `String` cannot carry this: four shapes
+/// (`@@ARRAY:a,b`, `@@RETURN_EP:i.p`, `@@RETURN_NETS:n1;n2`, a plain
+/// instance name) would be smuggled behind prefixes, and every reader would
+/// re-derive the shape by `strip_prefix` and re-split the payload. The
 /// separator was therefore a wire format with no single owner (and a second one
 /// for `@@RETURN_NETS`), so producer and consumer could drift silently.
 /// The variants name the four shapes and carry their payload already split.
@@ -102,10 +103,9 @@ impl AutoInst {
     /// `bridge_passive_names` bookkeeping set (Transposed bridge passives).
     ///
     /// Only `Name` / `Array` denote instances; the two return-face variants
-    /// name faces, not instances, so they contribute nothing. (Previously the
-    /// raw sentinel string was inserted verbatim, but that set is only ever
-    /// queried with `contains(<real component name>)`, so a sentinel could
-    /// never match — the insertion was inert.)
+    /// name faces, not instances, so they contribute nothing: the set is only
+    /// ever queried with `contains(<real component name>)`, which no sentinel
+    /// can match.
     pub(super) fn instance_names(&self) -> impl Iterator<Item = &str> {
         let names: &[String] = match self {
             Self::Name(n) => std::slice::from_ref(n),
@@ -116,9 +116,7 @@ impl AutoInst {
     }
 }
 
-// ============================================================================
 // McModuleInst - Module instance
-// ============================================================================
 
 /// Module instance
 #[derive(Debug, Clone)]
@@ -129,7 +127,8 @@ pub struct McModuleInst {
     /// Base definition
     pub def: Arc<McModule>,
 
-    /// URI of the file containing the definition (used to correctly set current_uri context during recursive instantiation)
+    /// URI of the file containing the definition (used to correctly set current_uri context during
+    /// recursive instantiation)
     pub def_uri: McURI,
 
     /// Parameter bindings
@@ -460,9 +459,7 @@ impl McModuleInst {
         result
     }
 
-    // ========================================================================
     // Diagnostic queries (finished-tree inspection)
-    // ========================================================================
 
     /// Whether there is any error-level diagnostic
     pub fn has_errors(&self) -> bool {
@@ -484,9 +481,7 @@ impl McModuleInst {
         all
     }
 
-    // ========================================================================
     // Ground identity helpers
-    // ========================================================================
 
     /// Is `name` a structurally valid reference to one of this module's ports
     /// (exact port name, bare member of a bus port, or `port.member` against
@@ -545,9 +540,7 @@ fn brace_suffix_strip(s: &str) -> &str {
     }
 }
 
-// ============================================================================
 // Display
-// ============================================================================
 
 impl std::fmt::Display for McModuleInst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -612,9 +605,7 @@ impl std::fmt::Display for McModuleInst {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

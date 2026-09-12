@@ -58,7 +58,7 @@ fn main() -> ExitCode {
         return run_internal_server(&raw);
     }
 
-    // ── 1. Parse CLI ─────────────────────────────────────────────────────────
+    // 1. Parse CLI
     let cli: Cli = match Cli::try_parse() {
         Ok(c) => c,
         Err(e) => {
@@ -68,7 +68,7 @@ fn main() -> ExitCode {
         }
     };
 
-    // ── 1.2 Honor global --local and store global options ────────────────
+    // 1.2 Honor global --local and store global options
     // --local makes RpcClient::probe() return None (everything runs in-process).
     // The cross-command options (--lib / --format / --output / --top / --entry)
     // are stored once here and read by every subcommand via mcc::cli::globals().
@@ -82,7 +82,7 @@ fn main() -> ExitCode {
         strict: cli.strict,
     });
 
-    // ── 2. Change working directory to (--cwd) ────────────────────────────────────
+    // 2. Change working directory to (--cwd)
     if let Some(cwd) = &cli.cwd {
         if let Err(e) = env::set_current_dir(cwd) {
             eprintln!("error: Failed to change to directory {:?}: {}", cwd, e);
@@ -90,7 +90,7 @@ fn main() -> ExitCode {
         }
     }
 
-    // ── 3. Initialize logging (before mcc_init) ──────────────────
+    // 3. Initialize logging (before mcc_init)
     // Further: Some commands communicate via RPC with server, so we need logging.
     let need_logging = match &cli.command {
         // `start` initializes logging itself (foreground mode installs a
@@ -122,12 +122,12 @@ fn main() -> ExitCode {
         }));
     }
 
-    // ── 3.5. Ensure data directory exists ─────────────────────────────────────
+    // 3.5. Ensure data directory exists
     if let Err(e) = mcc::cli::datadir::ensure_dirs() {
         eprintln!("warning: Failed to create data directory: {}", e);
     }
 
-    // ── 3.6. Load trace config from file (global + project) ──────────
+    // 3.6. Load trace config from file (global + project)
     // Apply the file-configured level/targets only when the user explicitly
     // asked for debug output (`-v` / `-D`); otherwise the file's `trace.level:
     // debug` (or per-target overrides) would bury ordinary CLI results under
@@ -146,7 +146,7 @@ fn main() -> ExitCode {
     // ── 3.6c. Rule override store: `diag` severities/allows/accepts (user + project) ──
     mcc::load_rule_overrides(project_root.as_deref());
 
-    // ── 3.7. Apply -D debug-target flags (CLI > config file) ─────────
+    // 3.7. Apply -D debug-target flags (CLI > config file)
     if !cli.debug_targets.is_empty() {
         let base = mcc::cli::config::base_level(cli.verbose, cli.quiet);
 
@@ -163,7 +163,7 @@ fn main() -> ExitCode {
         mcc::cli::config::set_debug_targets(base, &targets);
     }
 
-    // ── 4. Dispatch to subcommands ────────────────────────────────────────────
+    // 4. Dispatch to subcommands
     // Commands that self-initialize via `init_local` (mcc_init_no_lib + libs)
     // or a manual `mcc_init_no_lib` stay conservative here and are NOT eagerly
     // initialized. `mcc_init()` now resolves the system root once (data root)

@@ -90,10 +90,10 @@ pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
 /// If already registered, returns the existing id; otherwise computes a stable
 /// (hash-based) DeclareId and stores it in an available file's global table.
 ///
-/// ★ Previously used `gt.add_class()` which assigns a sequential
-/// id from whatever file's per-file counter happened to be first in DashMap
-/// iteration order — non-deterministic and meaningless to the referencing file.
-/// Now uses `assign_declare_id_stable` for a deterministic id based on (uri, name).
+/// ★ Must use `assign_declare_id_stable`, which derives the id from
+/// (uri, name). `gt.add_class()` assigns a sequential id from whichever
+/// file's per-file counter was first in DashMap iteration order —
+/// non-deterministic and meaningless to the referencing file.
 fn register_lib_class_in_global_table(
     def_uri: &str,
     class_name: &str,

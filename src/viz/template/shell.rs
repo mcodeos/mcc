@@ -17,7 +17,8 @@
 //! (the backslash before a character that doesn't need escaping is ignored), but the HTML
 //! parser does not trigger tag closure.
 //!
-//! This is the standard way of embedding JSON in `<script>` (similar to PHP's json_encode JSON_HEX_TAG).
+//! This is the standard way of embedding JSON in `<script>` (similar to PHP's json_encode
+//! JSON_HEX_TAG).
 
 /// Wrapper: assemble all fragments into a complete HTML
 ///

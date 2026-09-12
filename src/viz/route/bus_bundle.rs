@@ -99,9 +99,7 @@ impl Router for BusBundleRouter {
     }
 }
 
-// ============================================================================
 // ★ P10 (S6) channel-aware end-to-end entry
-// ============================================================================
 
 /// P10 main entry: bus routing with ChannelMap
 pub fn route_bus_bundle_with_channels(

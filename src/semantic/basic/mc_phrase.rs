@@ -92,9 +92,7 @@ fn split_vector_member(ids: &McIds) -> Option<(McIds, String)> {
     Some((prefix, member))
 }
 
-// ============================================================================
 // McPhrase
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub enum McPhrase {
@@ -541,7 +539,8 @@ impl McPhrase {
                                 let bus_info = ids.as_bus();
                                 let _comp_member = ids.as_component_member();
                                 // eprintln!(
-                                //     "[PHRASE_DEBUG] curly: ids={:?}, as_bus={:?}, as_comp_member={:?}",
+                                // "[PHRASE_DEBUG] curly: ids={:?}, as_bus={:?},
+                                // as_comp_member={:?}",
                                 //     ids_str, bus_info, comp_member
                                 // );
 
@@ -570,11 +569,14 @@ impl McPhrase {
                                         }
                                     }
                                     // TODO for comp_member
-                                    // TODO as_bus and as_component_member are only simple workarounds
-                                    // Need to be able to deal with more general / complicated patterns
+                                    // TODO as_bus and as_component_member are only simple
+                                    // workarounds
+                                    // Need to be able to deal with more general / complicated
+                                    // patterns
                                     return Some(result);
                                 }
-                                // eprintln!("[PHRASE_DEBUG] curly: validate_inst_reference -> None");
+                                // eprintln!("[PHRASE_DEBUG] curly: validate_inst_reference ->
+                                // None");
                                 if let Some((name, members)) = ids.as_bus() {
                                     // The bus name colliding with an existing instance is a
                                     // site-specific loud error — kept ahead of the converged
@@ -612,7 +614,8 @@ impl McPhrase {
                                             // member list on an unresolved base
                                             // (`NOPE{AAA, BBB}`) becomes a ghost bus whether
                                             // the base is a declared instance name in scope
-                                            // (pass — §1.3) or declared nowhere (relax-everything, true
+                                            // (pass — §1.3) or declared nowhere (relax-everything,
+                                            // true
                                             // miss, no E3182): both inline the bus and the net
                                             // layer decides. Record one Fallback row.
                                             ledger::record(
@@ -654,7 +657,8 @@ impl McPhrase {
                                         None
                                     };
                                     // eprintln!(
-                                    //     "[P1-CURLY]   comp_member: comp={:?} iface={:?} members={:?} find_inst={} add_iface_member_some={}",
+                                    // "[P1-CURLY]   comp_member: comp={:?} iface={:?} members={:?}
+                                    // find_inst={} add_iface_member_some={}",
                                     //     component, interface, members, found, aim.is_some()
                                     // );
                                     if found {
@@ -717,21 +721,25 @@ impl McPhrase {
                                 if let Some((name, members)) = ids.as_bus() {
                                     context.add_list(name, members)
                                 } else {
-                                    // ── Iter-11.2: pure square bracket [A, B] expand to Multiple ──
+                                    // ── Iter-11.2: pure square bracket [A, B] expand to Multiple
+                                    // ──
                                     //
                                     // Original code: context.add_label(ids.to_string())
                                     // treat `[VDD_3V3, GND]` as single Label string
                                     // "[VDD_3V3, GND]", causing:
                                     //   1. body line `[VDD_3V3, GND] -> dcdc{Vin, GND}`
                                     //      left is 1×1 scalar, right is 2×1 bus, dimension mismatch
-                                    //   2. DC interface's positive and GND can't be separated into independent nets
+                                    // 2. DC interface's positive and GND can't be separated into
+                                    // independent nets
                                     //   3. global GND bus can't form a net
                                     //
-                                    // Fix: use ids.expand() to extract member list, generate Multiple
-                                    // make each member independent NetPoint, support N×N pairwise connection.
+                                    // Fix: use ids.expand() to extract member list, generate
+                                    // Multiple
+                                    // make each member independent NetPoint, support N×N pairwise
+                                    // connection.
                                     //
                                     // Example:
-                                    //   `[VDD_3V3, GND]` → Multiple([Label("VDD_3V3"), Label("GND")])
+                                    // `[VDD_3V3, GND]` → Multiple([Label("VDD_3V3"), Label("GND")])
                                     //   `[VDD_3V3, GND] -> dcdc{Vin, GND}`
                                     //   → 2×2 zip: VDD_3V3~dcdc.Vin, GND~dcdc.GND
                                     let expanded = ids.expand();
@@ -746,7 +754,7 @@ impl McPhrase {
                                             .collect();
                                         Some(McPhrase::Multiple(phrases))
                                     } else {
-                                        // ── D6: DROPPED_STATEMENT detection ──────────────────────
+                                        // D6: DROPPED_STATEMENT detection
                                         // When NAME[k] form (e.g. GPIO[2]) is used as an indexed
                                         // alias and the expanded name is not a known instance, the
                                         // statement will produce no nets/constraints.
@@ -823,7 +831,8 @@ impl McPhrase {
                                 // `HasFindInst::resolve_reference` — Deferred (base is a
                                 // declared instance name in scope → keep the ghost-bus,
                                 // §3 deferral) and UnresolvedRef (base declared nowhere →
-                                // relax-everything, ghost-bus inlined, no E3182) both keep `add_bus`;
+                                // relax-everything, ghost-bus inlined, no E3182) both keep
+                                // `add_bus`;
                                 // Resolved is the loud E1802 / member-access path, unchanged.
                                 // Record exactly one Fallback row per ghost-bus phrase — never
                                 // on the E1802 error path (that is a loud error, not a silent
@@ -842,7 +851,8 @@ impl McPhrase {
                                         fallback_site = Some("mc_phrase.rs:453 add_bus ghost-bus");
                                     }
                                     RefVerdict::Resolved => {
-                                        // E1802: Check if base is a Component and rest is a valid pin
+                                        // E1802: Check if base is a Component and rest is a valid
+                                        // pin
                                         if let Some(McInstance::Component(c)) =
                                             context.find_inst(base)
                                         {
@@ -905,11 +915,12 @@ impl McPhrase {
                                                 scope.as_deref(),
                                             );
                                         }
-                                        // ── §5.3 whole-DC-pair reference ────────────
+                                        // §5.3 whole-DC-pair reference
                                         // `bat.BAT` names a *whole* `psbi`/`psrc`/
                                         // `psnk` port (a named member-bus DC pair
                                         // `BAT{VCC, GND}`), not one of its leaves —
-                                        // reference the declaration as a whole. Expand the head to the captured
+                                        // reference the declaration as a whole. Expand the head to
+                                        // the captured
                                         // pair's dotted member refs in declaration
                                         // order (`BAT` → `BAT.VCC`, `BAT.GND`) so the
                                         // ref carries the full 2-lane pair instead of
@@ -1075,7 +1086,8 @@ impl McPhrase {
                                     // Base instance found - check if it's a Component
                                     if let Some(McInstance::Component(c)) = context.find_inst(base)
                                     {
-                                        // E1802: Check if the member is a valid pin in the component
+                                        // E1802: Check if the member is a valid pin in the
+                                        // component
                                         if c.find_pin(member).is_none() {
                                             let available: Vec<&str> = c
                                                 .base
@@ -1197,7 +1209,7 @@ impl McPhrase {
                         }
                     }
                 } else {
-                    // ── Iter-6 P0-2.mcid-merge ──────────────────────────────
+                    // Iter-6 P0-2.mcid-merge
                     // A multi-member selection on one declared base (`MIC{P,N}`)
                     // must collapse into a single `Bus(base, members)` phrase —
                     // not into sibling single-member Buses whose lanes would
@@ -1329,7 +1341,8 @@ impl McPhrase {
                                         ) {
                                             RefVerdict::Deferred
                                             | RefVerdict::UnresolvedRef { .. } => {
-                                                // pass (declared base) — or, since relax-everything, a
+                                                // pass (declared base) — or, since
+                                                // relax-everything, a
                                                 // base declared nowhere (true miss, no E3182):
                                                 // both keep the ghost-bus; the net layer decides.
                                                 context.add_bus(
@@ -1427,7 +1440,8 @@ impl McPhrase {
                 // If TYPE is a real 2-pin component class (its def resolves and
                 // its pin count == 2), monster falls to mc_inst.rs:1092 Label
                 // fallback → bare net short.
-                // Build FuncCall{TYPE,params} for each expanded name, same path as anonymous `CAP(...)` in chain.
+                // Build FuncCall{TYPE,params} for each expanded name, same path as anonymous
+                // `CAP(...)` in chain.
                 // ★ Two-pin-ness is def-driven: only a resolved Component def
                 //   with real pin count 2 counts. Net types like DC/GND never
                 //   resolve to a Component → not two-pin → they must NOT be
@@ -1588,7 +1602,7 @@ impl McPhrase {
                                     }
                                     cur = n.get_next();
                                 }
-                                // ── NC/ctor bind check ────────────────────────
+                                // NC/ctor bind check
                                 // A named inline construction (`D1::DIO.ESD(...)`)
                                 // bypasses the check_ctor_bind sites in mc_fcall.rs;
                                 // a bad argument list (missing / excess / unknown /
@@ -1796,7 +1810,8 @@ impl McPhrase {
                     }
                 }
 
-                // Also handle the case where left is Component or Module and dot_or_curly returns Multiple
+                // Also handle the case where left is Component or Module and dot_or_curly returns
+                // Multiple
                 // In that case, we should combine them into a single qualified name
                 if right.len() == 1 && !right[0].is_empty() {
                     if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
@@ -1808,7 +1823,8 @@ impl McPhrase {
                         // Try dot_or_curly first with a clone
                         if let Some(result) = left_opd.clone().dot_or_curly(&right) {
                             if matches!(result, McPhrase::Multiple(_)) {
-                                // dot_or_curly returned Multiple, which means some members not found
+                                // dot_or_curly returned Multiple, which means some members not
+                                // found
                                 // E1802: pin not found in component
                                 if right.len() == 1 {
                                     let member = &right[0];
@@ -1895,7 +1911,8 @@ impl McPhrase {
                         // Try dot_or_curly first with a clone
                         if let Some(result) = left_opd.clone().dot_or_curly(&right) {
                             if matches!(result, McPhrase::Multiple(_)) {
-                                // dot_or_curly returned Multiple, which means some members not found
+                                // dot_or_curly returned Multiple, which means some members not
+                                // found
                                 // E1802: pin not found in component
                                 if right.len() == 1 {
                                     let member = &right[0];
@@ -2109,7 +2126,8 @@ impl McPhrase {
                     _ => format!("{:?}", std::mem::discriminant(&left_opd)),
                 };
 
-                // dot_or_curly success (hits find_pin) use directly; extract instance qualified name first
+                // dot_or_curly success (hits find_pin) use directly; extract instance qualified
+                // name first
                 let base_name: Option<String> = match &left_opd {
                     McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
                         McInstance::Component(c) => Some(c.name.to_string()),
@@ -2126,10 +2144,10 @@ impl McPhrase {
                     return Some(res);
                 }
 
-                // ── P1/P6/speaker fix v2 ───────────────────────────────
+                // P1/P6/speaker fix v2
                 // Use single "Bus with members" as fallback, aligning mcu{DAC_OUT,SPK_MUTE} /
-                // dot_or_curly hit (line 1650-1655) canonical form; previously used
-                // Multiple([Bus,Bus]) wrong shape, dropped at is_connectable.
+                // dot_or_curly hit (line 1650-1655) canonical form;
+                // Multiple([Bus,Bus]) is the wrong shape, dropped at is_connectable.
                 if let Some(name) = base_name {
                     let members: Vec<String> =
                         right.into_iter().filter(|m| !m.is_empty()).collect();
@@ -2159,7 +2177,7 @@ impl McPhrase {
                 let first_subnode = node.get_sub_node().expect(MISSING_SUBNODE);
                 let subnodes: Vec<AstNode> = first_subnode.iter().collect();
 
-                // ── D6: DROPPED_STATEMENT detection ──────────────────────
+                // D6: DROPPED_STATEMENT detection
                 // When a single-element square bracket (e.g. [2] or [Unknown])
                 // expands to a name that is not a known instance, the statement
                 // may produce no meaningful nets or constraints.
@@ -2884,8 +2902,10 @@ impl McPhrase {
                 Some(Series(line, ConnDir::RtoL))
             }
 
-            // When MCAST_INSTANCE appears in an expression context (usually as a child node of MCAST_OPD
-            // or as a leftover from split inline declarations), extract the instance name as an identifier reference.
+            // When MCAST_INSTANCE appears in an expression context (usually as a child node of
+            // MCAST_OPD
+            // or as a leftover from split inline declarations), extract the instance name as an
+            // identifier reference.
             MCAST_INSTANCE => {
                 if let Some(inner) = node.get_sub_node() {
                     // Check if inner is a DECLARE - if so, parse it via the DECLARE handling
@@ -2946,7 +2966,8 @@ impl McPhrase {
                 None
             }
 
-            // When MCAST_CLASS appears in an expression (e.g., a leftover from inline declaration V5V::DC(5V)),
+            // When MCAST_CLASS appears in an expression (e.g., a leftover from inline declaration
+            // V5V::DC(5V)),
             // extract the class name as an identifier reference
             MCAST_CLASS => {
                 if let Some(inner) = node.get_sub_node() {
@@ -2981,12 +3002,15 @@ impl McPhrase {
 
             // Skip intermediate grammar node types that shouldn't appear in phrase context
             // These are part of type/interface definitions, not expressions
-            // ── Iter-5.A ────────────────────────────────────────────────
+            // Iter-5.A
             // This body syntax like `V1V2 => CAP(...).Cap(_) -> [VDD_CORE, GND]`:
             // `=>` makes the left side V1V2 act as the chain's entry Endpoint, wrapped in AST as
-            // MCAST_PARAMS_PRE(V1V2). The original code directly returned None here -> the entire body line
-            // containing `=>` was lost due to early-return on `opd1?` in the upper RIGHTARROW branch ->
-            // the CAP wiring starting with V1V2 was not generated at all (CAP_2/CAP_3 isolated symptoms).
+            // MCAST_PARAMS_PRE(V1V2). The original code directly returned None here -> the entire
+            // body line
+            // containing `=>` was lost due to early-return on `opd1?` in the upper RIGHTARROW
+            // branch ->
+            // the CAP wiring starting with V1V2 was not generated at all (CAP_2/CAP_3 isolated
+            // symptoms).
             //
             // Fix: treat PARAMS_PRE as a transparent container, recursively parse its child nodes.
             // This way `V1V2 => X` in the body -> Series[V1V2, X] goes through adjacency normally.
@@ -2999,7 +3023,7 @@ impl McPhrase {
             }
             MCAST_IOTYPE_RETURN => None,
 
-            // ── P1-1: arithmetic / range operators on connection stmts ──────
+            // P1-1: arithmetic / range operators on connection stmts
             // mca.y accepts `A * B` / `A / B` / `A ~ B` / `A : B` as mc_phrase,
             // but only `+` (parallel) and `-` / `->` (series) have connection
             // semantics. These four fall through to the generic E1110 today;
@@ -3044,9 +3068,7 @@ impl McPhrase {
     }
 }
 
-// ============================================================================
 // Shape defaults — eval.md §2 Pin shape default rules 1-4
-// ============================================================================
 
 /// Component pin shape descriptor, computed from component definition.
 /// Maps to eval.md §2 rules 1-4.
@@ -3302,9 +3324,7 @@ fn check_net_pair_plusminus(
     Some((l, r))
 }
 
-// ============================================================================
 // get_left / get_right
-// ============================================================================
 
 impl McPhrase {
     /// Whether `^` on this phrase is a no-op (eval.md §5.6): the operand
@@ -3620,11 +3640,13 @@ impl McPhrase {
                     }
                 }
 
-                // ── Iter-6 P0-2 (narrow) ──────────────────────────────────
+                // Iter-6 P0-2 (narrow)
                 // Only merge into single Bus with members when len>=2 and all find_pin hits.
-                // len==1 or partial hits preserve the original Multiple path——to avoid breaking single-member
+                // len==1 or partial hits preserve the original Multiple path——to avoid breaking
+                // single-member
                 // access like `ldo.VOUT` (the "Interface-as-pin" pattern): resolver treats
-                // Bus(name='ldo.VOUT', member=[]) and Bus(name='ldo', member=['VOUT']) differently——
+                // Bus(name='ldo.VOUT', member=[]) and Bus(name='ldo', member=['VOUT'])
+                // differently——
                 // the latter triggers Interface sub-pin auto-expansion, causing VOUT.Vout and
                 // VOUT.GND to be injected simultaneously, leading to a short circuit.
                 if member_names.len() >= 2 {
@@ -3672,7 +3694,7 @@ impl McPhrase {
             })) => {
                 let inst_name = m.name.to_string();
 
-                // ── [Iter-6 diag] ─────────────────────────────────────────
+                // [Iter-6 diag]
                 // eprintln!("[DOTC-MOD] inst='{}' members={:?}", inst_name, member_names);
                 // for id in member_names {
                 //     eprintln!(
@@ -3681,7 +3703,6 @@ impl McPhrase {
                 //         m.base.insts.find_port(id).map(|_| "Some").unwrap_or("None")
                 //     );
                 // }
-                // ─────────────────────────────────────────────────────────
 
                 // For multi-segment names like ["VOUT", "Vout"],
                 // try combined dotted name first
@@ -3750,7 +3771,7 @@ impl McPhrase {
                     }
                 }
 
-                // ── Iter-6 P0-2 (narrow) ──────────────────────────────────
+                // Iter-6 P0-2 (narrow)
                 if member_names.len() >= 2 {
                     let all_hit = member_names
                         .iter()
@@ -4111,7 +4132,7 @@ impl McPhrase {
                     .collect::<Option<Vec<_>>>()?,
             )),
             _ => {
-                // ── §5.3 whole-DC-pair face ─────────────────────────────
+                // §5.3 whole-DC-pair face
                 // `ldo33{VIN | VOUT}` names each face by its *port head* (a
                 // whole `psrc/psnk/psbi` DC pair), not by its members. Expand
                 // such a face to the port's [hot, ret] member refs (dotted for
@@ -4399,9 +4420,7 @@ impl std::fmt::Display for McPhrase {
     }
 }
 
-// ============================================================================
 // Auxiliary functions
-// ============================================================================
 
 fn infer_shape_and_upgrade(
     opd1: McPhrase,
@@ -5480,9 +5499,7 @@ fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &OpdShape, rhs: &OpdShape) -> b
     matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_))
 }
 
-// ============================================================================
 // Operator implementations
-// ============================================================================
 
 impl<R: Into<McPhrase>> Add<R> for McPhrase {
     type Output = McPhrase;

@@ -32,9 +32,7 @@ use std::path::Path;
 
 use super::doc::VizDocument;
 
-// ============================================================================
 // New top-level API: wrap_document
-// ============================================================================
 
 /// Wrap [`VizDocument`] into a complete HTML
 ///
@@ -65,13 +63,11 @@ pub fn combined_view_name(entry: &str) -> String {
         .unwrap_or_else(|| "all_targets".to_string())
 }
 
-// ============================================================================
 // Multi-target combination
-// ============================================================================
 
 /// Stack several rendered SVGs vertically into one SVG. Used by the multi-module
 /// viz (peer modules) and by the component/interface virtual-instantiation view
-/// (mcd docs-mc 16-export-viz §6), where several targets from one file share a
+/// (mcd spec/16-export-viz §6), where several targets from one file share a
 /// single HTML document.
 ///
 /// Each entry is `(label, svg)`: `Some(name)` renders a bold heading above the

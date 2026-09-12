@@ -30,9 +30,7 @@ use mcc::cli::ProjAction;
 use std::fs;
 use std::path::PathBuf;
 
-// ============================================================================
 // Entry point
-// ============================================================================
 
 pub fn run(action: &ProjAction) -> Result<()> {
     match action {
@@ -40,9 +38,7 @@ pub fn run(action: &ProjAction) -> Result<()> {
     }
 }
 
-// ============================================================================
 // Create project
-// ============================================================================
 
 fn cmd_create(path: &str) -> Result<()> {
     let root = PathBuf::from(path);
@@ -94,9 +90,7 @@ fn cmd_create(path: &str) -> Result<()> {
     Ok(())
 }
 
-// ============================================================================
 // Helper functions
-// ============================================================================
 
 pub fn resolve_workspace_ref() -> WorkspaceRef {
     let (id, kind, _) = mcc::workspace_info();
