@@ -2,19 +2,15 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! JSON serialization (for frontend `viz/template/interact.js` to parse)
+//! JSON serialization (for the viz frontend to parse)
 //!
-//! Replaces the legacy `legacy::McVecGraph::to_json`, the new version also serializes:
-//! - `boxes` (legacy field, for compatibility)
-//! - `edges` (legacy field, for compatibility)
-//! - **`nets`** ★ NEW multi-endpoint hyperedge
+//! Serializes:
+//! - `boxes`
+//! - **`nets`** ★ multi-endpoint hyperedge
 //! - `children` (sub-graphs, recursive)
 //!
-//! Frontend parsing order: prefer `nets` (new), fallback to `edges` (legacy).
-//!
 //! ## Note
-//! Self-implemented to avoid introducing `serde` dependency (keeping consistent with the original
-//! `legacy::write_json` style).
+//! Self-implemented to avoid introducing a `serde` dependency.
 
 use super::graphdef::McVecGraph;
 
@@ -88,41 +84,7 @@ impl McVecGraph {
         }
         out.push_str(&format!("{i1}]{s}{nl}"));
 
-        // ── edges (legacy binary model) ────────────────────────────────────────────
-        out.push_str(&format!("{i1}\"edges\": ["));
-        if !self.edges.is_empty() {
-            out.push_str(nl);
-        }
-        for (i, e) in self.edges.iter().enumerate() {
-            out.push_str(&format!(
-                "{i2}{{\"src\": {}{s}\"dst\": {}{s}\"type\": \"{}\"{s}\"name\": \"{}\"{s}",
-                e.src_box,
-                e.dst_box,
-                e.edge_type,
-                json_escape(&e.net_name)
-            ));
-            out.push_str("\"wires\": [");
-            for (j, w) in e.wires.iter().enumerate() {
-                out.push_str(&format!(
-                    "{{\"sp\":\"{}\"{s}\"sn\":\"{}\"{s}\"dp\":\"{}\"{s}\"dn\":\"{}\"}}",
-                    w.src_pin_id,
-                    json_escape(&w.src_pin_name),
-                    w.dst_pin_id,
-                    json_escape(&w.dst_pin_name)
-                ));
-                if j + 1 < e.wires.len() {
-                    out.push(',');
-                }
-            }
-            out.push_str("]}");
-            if i + 1 < self.edges.len() {
-                out.push(',');
-            }
-            out.push_str(nl);
-        }
-        out.push_str(&format!("{i1}]{s}{nl}"));
-
-        // ── ★ NEW: nets (multi-endpoint hyperedge) ────────────────────────────────
+        // ── nets (multi-endpoint hyperedge) ────────────────────────────────
         out.push_str(&format!("{i1}\"nets\": ["));
         if !self.nets.is_empty() {
             out.push_str(nl);

@@ -9,13 +9,11 @@
 //! cargo run --bin mcviz <project_root> <module_name>           # -> circuit.html (new pipeline, real expand)
 //! cargo run --bin mcviz <project_root> <module_name> -o out.html
 //! cargo run --bin mcviz <project_root> <module_name> --json    # -> stdout JSON
-//! cargo run --bin mcviz <project_root> <module_name> --legacy  # legacy pipeline (fake expand, for compare test)
 //! cargo run --bin mcviz <project_root> <module_name> --entry main  # entry file differs from module name
 //! ```
 //!
 //! ## P2 changes
 //! - Added multi-layer pre-rendered `VizDocument`; submodule expand can actually swap SVG (no more alert)
-//! - Added `--legacy` flag to preserve old path, for easier compare verification
 //! - `--json` changed to output `VizDocument` JSON (including all layers)
 
 use std::env;
@@ -48,7 +46,6 @@ fn main() {
     // ── Parse optional arguments ──
     let mut output_file: Option<String> = None;
     let mut json_mode = false;
-    let mut legacy_mode = false;
     let mut no_promote = false;
     let mut layouter_name: Option<String> = None;
     let mut entry_file: Option<String> = None;
@@ -66,10 +63,6 @@ fn main() {
             }
             "--json" => {
                 json_mode = true;
-                i += 1;
-            }
-            "--legacy" => {
-                legacy_mode = true;
                 i += 1;
             }
             "--no-promote" => {
@@ -147,11 +140,8 @@ fn main() {
     let vec_block = build_mc_vec_with_arena(&inst, &table, &arena, &store);
     let graph = build_mc_vec_graph(&vec_block, &table);
 
-    // ── Output: three modes ──
-    let output = if legacy_mode {
-        mcc_dbg!("viz", "[mcviz] using LEGACY pipeline (fake expand)");
-        run_legacy(graph, json_mode)
-    } else if json_mode {
+    // ── Output: two modes ──
+    let output = if json_mode {
         mcc_dbg!("viz", "[mcviz] using NEW P2 pipeline -> VizDocument JSON");
         let opts = build_opts(!no_promote, layouter_name.as_deref());
         let doc = render_with(graph, opts);
@@ -210,15 +200,6 @@ fn main() {
     }
 }
 
-/// Legacy pipeline (preserved for compare verification)
-fn run_legacy(graph: mcc::vector::graph::McVecGraph, json_mode: bool) -> String {
-    if json_mode {
-        graph.to_json_pretty()
-    } else {
-        mcc::viz::api::render_to_html(graph)
-    }
-}
-
 /// Build RenderOpts with optional single-layouter override
 fn build_opts(apply_promote: bool, layouter_name: Option<&str>) -> RenderOpts {
     let mut opts = RenderOpts::default();
@@ -251,7 +232,6 @@ fn print_usage() {
     eprintln!("Options:");
     eprintln!("  -o <file>      Output to file (default: stdout)");
     eprintln!("  --json         Output JSON instead of HTML");
-    eprintln!("  --legacy       Use old pipeline (no real expand, for compare)");
     eprintln!("  --no-promote   Disable top-layer simplification (show all nets)");
     eprintln!("  --entry <name> Entry file name (default: same as module_name)");
     eprintln!("  --layouter <name>  Lock to single layouter: flow");
@@ -263,7 +243,6 @@ fn print_usage() {
     eprintln!(
         "  mcviz ./my_project Main --entry main -o circuit.html  # entry file differs from module"
     );
-    eprintln!("  mcviz ./my_project Main --legacy -o circuit_old.html  # for comparison");
 }
 
 fn find_entry_uri(project_root: &Path, module_name: &str) -> Option<String> {

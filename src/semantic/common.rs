@@ -72,8 +72,7 @@ impl IOType {
 ///   orientation needs no recovery step.
 /// - `-` / `+` → [`ConnDir::Undirected`]
 ///
-/// §8.9.2: unified with the vector-layer `PairDir` in §8.9.7-F — the former
-/// `PairDir` enum is gone, every layer uses this `ConnDir`. The direction
+/// §8.9.2 / §8.9.7-F: every layer uses this single `ConnDir`. The direction
 /// anchor of the layout search lives here; without
 /// it every edge in cases like `t4_current` is Neutral, the optimal solution
 /// and its mirror image cost exactly the same, and only lexicographic order

@@ -2,15 +2,11 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Network model (new and legacy coexisting)
+//! Network model
 //!
-//! ## ★ NEW -- `VizNet` (multi-endpoint hyperedge)
-//! This is the core of the new design: one electrical net = a set of endpoints + a path.
-//! Replaces the legacy [`McVecEdge`] binary (src <-> dst) model.
-//!
-//! ## Compatibility -- `McVecEdge`
-//! The legacy binary model is kept because `viz/render` is still using it.
-//! After P3/P4 phase switches the router to `VizNet`, `McVecEdge` can be deprecated.
+//! ## `VizNet` (multi-endpoint hyperedge)
+//! This is the core of the design: one electrical net = a set of endpoints + a path.
+//! It replaces the former binary (src <-> dst) edge model.
 //!
 //! ## Typical usage
 //! ```ignore
@@ -28,13 +24,12 @@
 //! };
 //! ```
 
-use super::boxdef::Wire;
-use super::kinds::{EdgeType, NetKind};
+use super::kinds::NetKind;
 use crate::vector::model::trunk::TrunkRef;
 use std::fmt;
 
 // ============================================================================
-// ★ NEW P03: NetTopology -- topology shape (replacing legacy EdgeType's topology dimension)
+// ★ NEW P03: NetTopology -- topology shape
 // ============================================================================
 
 /// A net's **topology shape** (endpoint count + driver direction), computed by `VizNet::topology()`
@@ -120,8 +115,8 @@ impl fmt::Display for NetRole {
 
 /// An electrical net (multi-endpoint hyperedge)
 ///
-/// Replaces the legacy [`McVecEdge`] binary model, accurately expressing multi-endpoint
-/// topologies like "a VCC net connects 5 chips".
+/// A multi-endpoint model, accurately expressing topologies like
+/// "a VCC net connects 5 chips".
 #[derive(Debug, Clone)]
 pub struct VizNet {
     /// Unique ID of the net
@@ -391,29 +386,4 @@ impl Point {
     pub fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
-}
-
-// ============================================================================
-// Compatibility: McVecEdge (legacy binary model)
-// ============================================================================
-
-/// Legacy binary edge model (compatible with existing layout / render code)
-///
-/// **deprecated (after P03)** --
-/// - The main pipeline (`from_block.rs`) no longer generates `McVecEdge`
-/// - `wire.rs::render_edge` has been removed
-/// - `components.rs::build_adjacency` / `entry_points.rs` have switched to reading `graph.nets`
-///
-/// Kept only for compatibility:
-/// - `from_table.rs` (legacy builder, independent path, not yet migrated)
-/// - Any legacy code still directly reading `graph.edges` (none in production)
-///
-/// Full deprecation requires first migrating `from_table.rs`, which is for a later sprint.
-#[derive(Debug, Clone)]
-pub struct McVecEdge {
-    pub src_box: i64,
-    pub dst_box: i64,
-    pub edge_type: EdgeType,
-    pub wires: Vec<Wire>,
-    pub net_name: String,
 }

@@ -177,9 +177,7 @@ pub use vector::builder::build_mc_vec_with_arena;
 pub use vector::builder::build_mc_vec_with_report;
 pub use vector::model::{ConnectionType, McVec, McVecBlock, McVecNet};
 
-pub use vector::graph::{
-    build_mc_vec_graph, BoxKind, EdgeType, IoSummary, McVecBox, McVecEdge, McVecGraph, Wire,
-};
+pub use vector::graph::{build_mc_vec_graph, BoxKind, IoSummary, McVecBox, McVecGraph};
 /// mcc struct ParserResult
 #[derive(Debug)]
 pub struct ParserResult {

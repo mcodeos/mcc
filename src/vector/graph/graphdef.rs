@@ -4,20 +4,10 @@
 
 //! [`McVecGraph`] -- graph container
 //!
-//! Holds boxes / edges (legacy, deprecated) / nets / sub-graphs of one layer.
-//!
-//! ## ★ P03 (S1) Changes
-//! - `edges` field **kept but no longer populated**:
-//!   - `from_block.rs::build_mc_vec_graph` stopped writing to `graph.edges`
-//!   - `components.rs::build_adjacency` now reads only `graph.nets`
-//!   - `entry_points.rs::collect_pins_per_box` same as above
-//!   - `wire.rs::render_edge` removed
-//! - `nets: Vec<VizNet>` is the **only network representation**
-//! - `total_edges()` / `total_wires()` still compile, but always return 0 under the production path
+//! Holds boxes / nets / sub-graphs of one layer.
 //!
 //! ## Field evolution
 //! - `boxes`      -- always present
-//! - `edges`      -- **deprecated**, kept only for from_table.rs (legacy builder)
 //! - `nets`       -- multi-endpoint hyperedge ([`VizNet`]), the only network model
 //! - `sub_graphs` -- recursive sub-graphs
 
@@ -25,7 +15,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use super::boxdef::{McVecBox, ModuleFrame, PortDir, ZoneBorder};
-use super::netdef::{McVecEdge, NetRole, VizNet};
+use super::netdef::{NetRole, VizNet};
 use crate::vector::model::trunk::Trunk;
 
 // ============================================================================
@@ -40,11 +30,7 @@ pub struct McVecGraph {
     pub name: String,
     /// Boxes of this layer
     pub boxes: Vec<McVecBox>,
-    /// Edges of this layer (★ P03: deprecated, only from_table.rs legacy builder still populates)
-    ///
-    /// New code cannot read any edge (because from_block no longer writes). Please use `nets`.
-    pub edges: Vec<McVecEdge>,
-    /// Nets of this layer (the only network representation after P03)
+    /// Nets of this layer (the only network representation)
     ///
     /// One `VizNet` per net, no limit on endpoint count. Router uses this to compute paths.
     pub nets: Vec<VizNet>,
@@ -177,7 +163,6 @@ impl McVecGraph {
             bid,
             name,
             boxes: vec![],
-            edges: vec![],
             nets: vec![],
             port_trunks: vec![],
             sub_graphs: vec![],
@@ -291,27 +276,6 @@ impl McVecGraph {
                 .sum::<usize>()
     }
 
-    /// Recursive total edge count (legacy binary edges)
-    pub fn total_edges(&self) -> usize {
-        self.edges.len()
-            + self
-                .sub_graphs
-                .iter()
-                .map(|g| g.total_edges())
-                .sum::<usize>()
-    }
-
-    /// Recursive total wire count (wires inside legacy binary edges)
-    pub fn total_wires(&self) -> usize {
-        let local: usize = self.edges.iter().map(|e| e.wires.len()).sum();
-        local
-            + self
-                .sub_graphs
-                .iter()
-                .map(|g| g.total_wires())
-                .sum::<usize>()
-    }
-
     /// ★ NEW: Recursive total net count (new hyperedge)
     pub fn total_nets(&self) -> usize {
         self.nets.len()
@@ -354,12 +318,11 @@ impl McVecGraph {
         let ind = "  ".repeat(depth);
         writeln!(
             f,
-            "{}Graph(bid={}, name=\"{}\", boxes={}, edges={}, nets={})",
+            "{}Graph(bid={}, name=\"{}\", boxes={}, nets={})",
             ind,
             self.bid,
             self.name,
             self.boxes.len(),
-            self.edges.len(),
             self.nets.len()
         )?;
         for b in &self.boxes {
@@ -367,13 +330,6 @@ impl McVecGraph {
                 f,
                 "{}  Box(id={}, \"{}\" [{}], kind={}, pins={})",
                 ind, b.id, b.name, b.class_name, b.kind, b.pin_count
-            )?;
-        }
-        for e in &self.edges {
-            writeln!(
-                f,
-                "{}  Edge({}->{}, {}, \"{}\")",
-                ind, e.src_box, e.dst_box, e.edge_type, e.net_name
             )?;
         }
         for n in &self.nets {

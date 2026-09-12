@@ -74,6 +74,46 @@ fn net_containing<'a>(nets: &'a [String], path: &str) -> Option<&'a str> {
     nets.iter().find(|n| n.contains(path)).map(|s| s.as_str())
 }
 
+/// The point paths carried by a `name <= [p, q, ...]` net line.
+fn points_of(net_line: &str) -> Vec<String> {
+    let start = net_line.find('[').expect("net line has a point list") + 1;
+    let end = net_line.rfind(']').expect("net line closes its point list");
+    net_line[start..end]
+        .split(", ")
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Pin-side exclusivity: every point on `net_line` must sit on `pin`
+/// (`".1"` / `".2"`). A silent short that welds both sides into one net
+/// satisfies a `contains` check on both members — it does not satisfy this.
+fn assert_pin_side_exclusive(net_line: &str, pin: &str, what: &str) {
+    let pts = points_of(net_line);
+    assert!(
+        !pts.is_empty(),
+        "{what}: net carries no points; got {net_line}"
+    );
+    for p in &pts {
+        assert!(
+            p.ends_with(pin),
+            "{what}: point '{p}' is not on the {pin} side — sides merged? got {net_line}"
+        );
+    }
+}
+
+/// No point on `net_line` sits on pin number `pin` — the counterpart of
+/// [`assert_pin_side_exclusive`] for nets that also carry module-port points
+/// (which have no numeric pin suffix at all).
+fn assert_no_pin_number(net_line: &str, pin: &str, what: &str) {
+    for p in points_of(net_line) {
+        assert!(
+            !p.ends_with(pin),
+            "{what}: point '{p}' must not be on pin {pin} — sides merged? got {net_line}"
+        );
+    }
+}
+
 fn assert_no_path_containing(paths: &[String], fragment: &str, what: &str) {
     for p in paths {
         assert!(
@@ -121,6 +161,11 @@ fn dispatch__form1_named_subinstance_per_member() {
         n2.contains("main.c1.2") && n2.contains("main.c2.2"),
         "VCC side shared by both members; got {n2}"
     );
+    // Anti-false-green: a silent short into ONE net also satisfies both
+    // `contains` checks above (the merged net carries every pin).
+    assert_ne!(n1, n2, "form1: NET and VCC must be distinct nets");
+    assert_pin_side_exclusive(n1, ".1", "form1 NET side");
+    assert_pin_side_exclusive(n2, ".2", "form1 VCC side");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -157,6 +202,10 @@ fn dispatch__form2_declared_receiver_per_member() {
         n2.contains("main.U1.r1.2") && n2.contains("main.U1.r2.2"),
         "VCC side shared by both members; got {n2}"
     );
+    // Anti-false-green (see form1): pin the sides apart.
+    assert_ne!(n1, n2, "form2/3: NET and VCC must be distinct nets");
+    assert_pin_side_exclusive(n1, ".1", "form2/3 NET side");
+    assert_pin_side_exclusive(n2, ".2", "form2/3 VCC side");
 
     // Form 2: same receiver shape with `.Cap` on declared CAP members.
     let cap = host_with_body("cap[1:2]::CAP(1)\ncap[1:2].Cap([NET, VCC])");
@@ -180,6 +229,15 @@ fn dispatch__form2_declared_receiver_per_member() {
         n1b.contains("main.U1.cap1.1") && n1b.contains("main.U1.cap2.1"),
         "NET side shared by both members (Cap); got {n1b}"
     );
+    // Anti-false-green: the Cap form must not weld pin 2 onto the NET side.
+    assert_pin_side_exclusive(n1b, ".1", "form2 Cap NET side");
+    let n2b = net_containing(&nets2, "main.U1.2").expect("net on U1 pin 2 (Cap)");
+    assert!(
+        n2b.contains("main.U1.cap1.2") && n2b.contains("main.U1.cap2.2"),
+        "VCC side shared by both members (Cap); got {n2b}"
+    );
+    assert_ne!(n1b, n2b, "form2 Cap: NET and VCC must be distinct nets");
+    assert_pin_side_exclusive(n2b, ".2", "form2 Cap VCC side");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -218,6 +276,12 @@ fn dispatch__form4_ctor_trailing_method_per_member() {
         n2.contains("main.x1.2") && n2.contains("main.x2.2"),
         "VCC side shared by both members; got {n2}"
     );
+    // Anti-false-green: this is exactly the assertion pair a silent
+    // "one net, all six pins" collapse would satisfy (see C4 in
+    // resolve-gate-design §3.3b) — pin the sides apart explicitly.
+    assert_ne!(n1, n2, "form4: NET and VCC must be distinct nets");
+    assert_pin_side_exclusive(n1, ".1", "form4 NET side");
+    assert_pin_side_exclusive(n2, ".2", "form4 VCC side");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -253,4 +317,9 @@ fn dispatch__module_declared_receiver_per_member() {
         n2.contains("main.res1.2") && n2.contains("main.res2.2"),
         "VCC side shared by both members; got {n2}"
     );
+    // Anti-false-green: a single welded net also carries `main.NET` and
+    // `main.VCC`, so both `contains` checks above would still pass.
+    assert_ne!(n1, n2, "module-level: NET and VCC must be distinct nets");
+    assert_no_pin_number(n1, ".2", "module-level NET side");
+    assert_no_pin_number(n2, ".1", "module-level VCC side");
 }

@@ -291,7 +291,6 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             // interfaces in one file): build viz for each and combine them.
             let mut svgs: Vec<(Option<String>, String)> = Vec::new();
             let mut total_boxes = 0;
-            let mut total_edges = 0;
             let mut netcheck_errors = 0usize;
 
             for target in &targets {
@@ -341,7 +340,6 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         };
 
                         total_boxes += graph.boxes.len();
-                        total_edges += graph.edges.len();
 
                         let opts = build_viz_opts(args.layouter.as_deref());
                         let doc = mcc::viz::api::render_with(graph, opts);
@@ -399,10 +397,9 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             mcc_dbg!(
                 "build",
-                "[viz] rendered {} targets: {} boxes, {} edges",
+                "[viz] rendered {} targets: {} boxes",
                 svgs.len(),
-                total_boxes,
-                total_edges
+                total_boxes
             );
         } else {
             // Single target render (explicit --top or only one target)
@@ -782,7 +779,6 @@ fn build_browse_dir(
     if args.viz {
         let mut svgs: Vec<(Option<String>, String)> = Vec::new();
         let mut total_boxes = 0usize;
-        let mut total_edges = 0usize;
         let mut netcheck_errors = 0usize;
         for (target, file) in &built {
             let uri = file.to_string_lossy().to_string();
@@ -822,7 +818,6 @@ fn build_browse_dir(
                         mcc::build_mc_vec_graph(&vec_block, &mod_table)
                     };
                     total_boxes += graph.boxes.len();
-                    total_edges += graph.edges.len();
                     let opts = build_viz_opts(args.layouter.as_deref());
                     let doc = mcc::viz::api::render_with(graph, opts);
                     if let Some(root_layer) = doc.root_layer() {
@@ -864,10 +859,9 @@ fn build_browse_dir(
         eprintln!("viz: {} bytes written to {}", html.len(), output_path);
         mcc_dbg!(
             "build",
-            "[viz] rendered {} targets: {} boxes, {} edges",
+            "[viz] rendered {} targets: {} boxes",
             svgs.len(),
-            total_boxes,
-            total_edges
+            total_boxes
         );
     }
 

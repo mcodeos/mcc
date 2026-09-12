@@ -126,6 +126,41 @@ fn param_contains_uscore(p: &McParamValue) -> bool {
     }
 }
 
+/// A **bare** `_` placeholder — not one nested inside a Set (`[_, VDD]`).
+/// §2's group prefix fills exactly these slots, one member each.
+fn is_bare_uscore(p: &McParamValue) -> bool {
+    matches!(p, McParamValue::NONE(_)) || matches!(p, McParamValue::Opd(McOpd::Uscore))
+}
+
+/// `(A, B) => f(_, _)` — §2 **group prefix**: the group is not a single
+/// actual, its members fill the bare `_` slots **one-to-one in order**, so
+/// the folded call is `f(A, B)`. Applies only when every method actual is a
+/// bare `_` and the counts agree; anything else returns `None` so the
+/// single-prefix rules below run unchanged (strict arity then reports E4176).
+fn group_prefix_fill(
+    prefix: &McParamValue,
+    method_params: &[McParamValue],
+) -> Option<Vec<McParamValue>> {
+    let McParamValue::Phrase(ph) = prefix else {
+        return None;
+    };
+    let McPhrase::Group(g) = ph.as_ref() else {
+        return None;
+    };
+    if g.opds.len() < 2 || g.opds.len() != method_params.len() {
+        return None;
+    }
+    if !method_params.iter().all(is_bare_uscore) {
+        return None;
+    }
+    Some(
+        g.opds
+            .iter()
+            .map(|o| McParamValue::Phrase(Box::new(o.clone())))
+            .collect(),
+    )
+}
+
 /// Replace the leading `_` placeholder in `p` with `prefix`, recursing into
 /// Sets so `[_, VDD]` + `I2C0` → `[I2C0, VDD]`. Returns (new_value, replaced).
 /// Only the FIRST placeholder in the parameter list is replaced — a later
@@ -561,49 +596,53 @@ impl McFuncCall {
             // method call. All-placeholder → the prefix is the whole actual;
             // a leading `_` (bare or inside a Set) → replace it in place; no
             // placeholder → prepend (legacy keep).
-            let is_uscore = |p: &McParamValue| {
-                matches!(p, McParamValue::NONE(_)) || matches!(p, McParamValue::Opd(McOpd::Uscore))
-            };
-            let all_ph = !method_params.is_empty() && method_params.iter().all(&is_uscore);
+            let all_ph = !method_params.is_empty() && method_params.iter().all(is_bare_uscore);
 
-            let all_method_params: Vec<McParamValue> = if all_ph {
-                // (a) `.Cap(_)` + `=>` prefix → fold the prefix into the
-                // placeholder position (parameter prefixing, §1.2).
-                // `[V3V3, GND] => CAP(..).Cap(_)` → `.Cap([V3V3, GND])`,
-                // `V3V3 => CAP(..).Cap(_)` → `.Cap(V3V3)`,
-                // `vin -> ldo.VIN => CAP(..).Cap(_)` → `.Cap(ldo.VIN)`
-                // (pre_param is already the last / right endpoint of the
-                // prefix chain, per the vector circuit algebra). The single
-                // vector fills both endpoint positions positionally at wiring
-                // time (member[0] → pin1, member[1] → pin2, §11.6); a scalar
-                // prefix folds to `.Cap(SIG)` which is E4176 (strict arity).
-                vec![pre_param.clone()]
-            } else if method_params.iter().any(&param_contains_uscore) {
-                // (b) `(_ , VDD)` / `([_, VDD])` / `(x, _)` on any method:
-                // The `=>` prefix fills the LEADING `_` placeholder (§1). A bare
-                // `_` is replaced outright; a `_` inside a Set is replaced in
-                // place so the folded call keeps ONE Set actual `[I2C0, VDD]`
-                // that binds whole to the Set formal (strict arity — actuals
-                // bind to formals, no auto-split). P2-5 then substitutes each
-                // bus lane into the folded Set for the per-lane calls.
-                let mut folded: Vec<McParamValue> = Vec::with_capacity(method_params.len());
-                let mut done = false;
-                for p in &method_params {
-                    if done {
-                        folded.push(p.clone());
-                    } else {
-                        let (np, rep) = fold_prefix_into_uscore(p, &pre_param);
-                        folded.push(np);
-                        done = rep;
+            let all_method_params: Vec<McParamValue> =
+                if let Some(filled) = group_prefix_fill(&pre_param, &method_params) {
+                    // (a2) `(A, B) => f(_, _)`: group members fill the `_` slots
+                    // one-to-one (§2 group prefix) — the group is not one actual.
+                    // Must be tested before the all-placeholder rule, which would
+                    // otherwise treat the whole group as the single actual.
+                    filled
+                } else if all_ph {
+                    // (a) `.Cap(_)` + `=>` prefix → fold the prefix into the
+                    // placeholder position (parameter prefixing, §1.2).
+                    // `[V3V3, GND] => CAP(..).Cap(_)` → `.Cap([V3V3, GND])`,
+                    // `V3V3 => CAP(..).Cap(_)` → `.Cap(V3V3)`,
+                    // `vin -> ldo.VIN => CAP(..).Cap(_)` → `.Cap(ldo.VIN)`
+                    // (pre_param is already the last / right endpoint of the
+                    // prefix chain, per the vector circuit algebra). The single
+                    // vector fills both endpoint positions positionally at wiring
+                    // time (member[0] → pin1, member[1] → pin2, §11.6); a scalar
+                    // prefix folds to `.Cap(SIG)` which is E4176 (strict arity).
+                    vec![pre_param.clone()]
+                } else if method_params.iter().any(&param_contains_uscore) {
+                    // (b) `(_ , VDD)` / `([_, VDD])` / `(x, _)` on any method:
+                    // The `=>` prefix fills the LEADING `_` placeholder (§1). A bare
+                    // `_` is replaced outright; a `_` inside a Set is replaced in
+                    // place so the folded call keeps ONE Set actual `[I2C0, VDD]`
+                    // that binds whole to the Set formal (strict arity — actuals
+                    // bind to formals, no auto-split). P2-5 then substitutes each
+                    // bus lane into the folded Set for the per-lane calls.
+                    let mut folded: Vec<McParamValue> = Vec::with_capacity(method_params.len());
+                    let mut done = false;
+                    for p in &method_params {
+                        if done {
+                            folded.push(p.clone());
+                        } else {
+                            let (np, rep) = fold_prefix_into_uscore(p, &pre_param);
+                            folded.push(np);
+                            done = rep;
+                        }
                     }
-                }
-                folded
-            } else {
-                // (c) No placeholder: keep original prepend
-                let mut v = vec![pre_param.clone()];
-                v.extend(method_params);
-                v
-            };
+                    folded
+                } else {
+                    // (c) No placeholder: keep original prepend
+                    let mut v = vec![pre_param.clone()];
+                    v.extend(method_params);
+                    v
+                };
 
             // R4: don't instantiate at parse time. Two-pin components are
             // handled by instantiation-phase process_member_internal — the

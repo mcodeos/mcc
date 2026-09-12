@@ -23,11 +23,6 @@
 //! - [`shell`]    —— HTML skeleton
 //! - [`theme`]    —— CSS (light / dark auto-adapt)
 //! - [`interact`] —— ★ client-side JS (real expand/collapse/navigation)
-//!
-//! ### Compatibility
-//! `legacy.rs::HtmlTemplate::wrap` is preserved; old callers using
-//! `crate::viz::template::HtmlTemplate` continue to work (old path, fake expand).
-//! New code should use [`wrap_document`].
 
 pub mod interact;
 pub mod shell;

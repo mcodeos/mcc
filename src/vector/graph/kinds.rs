@@ -5,7 +5,6 @@
 //! Graph entity "kind" enum collection
 //!
 //! - [`BoxKind`]   -- box kind (two-pin / multi-pin / sub-module / power label)
-//! - [`EdgeType`]  -- edge topology type (compatible with the existing `McVecEdge` model)
 //! - [`NetKind`]   -- ★ NEW: net semantic type (power / ground / signal / bus / module IO)
 //!
 //! `NetKind` is used with [`super::netdef::VizNet`] so the router can automatically choose
@@ -45,40 +44,6 @@ impl fmt::Display for BoxKind {
             BoxKind::PowerLabel => write!(f, "power_label"),
             BoxKind::Dot => write!(f, "dot"),
             BoxKind::PortTerminal => write!(f, "port_terminal"),
-        }
-    }
-}
-
-// ============================================================================
-// EdgeType -- edge topology type (compatible with legacy McVecEdge model)
-// ============================================================================
-
-/// Edge topology type (binary edge model)
-///
-/// **Note**: This is a legacy binary (src<->dst) model that cannot accurately express
-/// multi-endpoint nets. New code should prefer [`super::netdef::VizNet`] (hyperedge) + [`NetKind`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EdgeType {
-    /// Single wire
-    Single,
-    /// Bus (n corresponding wires)
-    Bus(usize),
-    /// Broadcast (1 -> n)
-    Broadcast(usize),
-    /// Chain (>= 3 endpoints in series)
-    Chain(usize),
-    /// Complex mix
-    Complex,
-}
-
-impl fmt::Display for EdgeType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EdgeType::Single => write!(f, "single"),
-            EdgeType::Bus(n) => write!(f, "bus_{n}"),
-            EdgeType::Broadcast(n) => write!(f, "broadcast_{n}"),
-            EdgeType::Chain(n) => write!(f, "chain_{n}"),
-            EdgeType::Complex => write!(f, "complex"),
         }
     }
 }

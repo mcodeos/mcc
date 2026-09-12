@@ -19,7 +19,6 @@ use super::super::mc_net::{NetPoint, PortInst};
 use super::super::nettab::NetTableStore;
 use super::builder::InstantiationBuilder;
 use super::McModuleInst;
-use crate::semantic::basic::mc_param::McParamBindings;
 use crate::semantic::scope::{ResolveScope, ScopeChain};
 
 // ============================================================================
@@ -33,141 +32,6 @@ use crate::semantic::scope::{ResolveScope, ScopeChain};
 // — [`InstEntry::Component`]/[`InstEntry::SubModule`] carry the recursive
 // terminals that the overlay chain resolver needs; `NetPoint` is
 // terminal-only and would break arbitrary-depth DOT resolution.
-
-// Instance-layer scope units (T = NetPoint). `resolve_name` (their former
-// production consumer) was removed; these are kept as test-covered behavior
-// for the P1/P2/P3 resolution chain (see the `*_scope_resolves_*` tests).
-#[allow(dead_code)]
-struct FuncBindingsScope<'a> {
-    instance: &'a McComponentInst,
-    param_bindings: &'a McParamBindings,
-}
-
-#[allow(dead_code)]
-impl<'a> FuncBindingsScope<'a> {
-    fn new(instance: &'a McComponentInst, param_bindings: &'a McParamBindings) -> Self {
-        Self {
-            instance,
-            param_bindings,
-        }
-    }
-}
-
-impl ResolveScope<NetPoint> for FuncBindingsScope<'_> {
-    fn resolve(&self, name: &str) -> Option<NetPoint> {
-        for binding in self.param_bindings.iter() {
-            if let Some(param_name) = binding.declare.get_primary_name() {
-                if param_name == name {
-                    // Warn when a func param shadows a component pin with the same
-                    // name (design §7.2.3: user-visible, migrated into the
-                    // diagnostic system; position unknown at the instance layer,
-                    // so anchored at the file start (0,0) like PULLUP_DEGENERATE).
-                    if self.instance.pins.get(name).is_some() {
-                        crate::db::diagnostic::diagnostic::diagnostic_log(
-                            crate::errcodes::FUNC_PARAM_SHADOWS_PIN,
-                            crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
-                            0,
-                            0,
-                            &crate::errcodes::format_msg(
-                                crate::errcodes::FUNC_PARAM_SHADOWS_PIN,
-                                &[&name, &self.instance.name],
-                            ),
-                            &[],
-                        );
-                    }
-                    return Some(NetPoint::with_owner(
-                        &format!("{}.{}", self.instance.name, name),
-                        &self.instance.name,
-                        crate::semantic::common::IOType::None,
-                    ));
-                }
-            }
-        }
-        None
-    }
-}
-
-/// P2: instance pins.
-#[allow(dead_code)]
-struct InstancePinsScope<'a> {
-    pins: &'a HashMap<String, NetPoint>,
-}
-
-#[allow(dead_code)]
-impl<'a> InstancePinsScope<'a> {
-    fn new(pins: &'a HashMap<String, NetPoint>) -> Self {
-        Self { pins }
-    }
-}
-
-impl ResolveScope<NetPoint> for InstancePinsScope<'_> {
-    fn resolve(&self, name: &str) -> Option<NetPoint> {
-        self.pins.get(name).cloned()
-    }
-}
-
-/// P3: parent module labels.
-#[allow(dead_code)]
-struct ParentLabelsScope<'a> {
-    labels: &'a HashMap<String, NetPoint>,
-}
-
-#[allow(dead_code)]
-impl<'a> ParentLabelsScope<'a> {
-    fn new(labels: &'a HashMap<String, NetPoint>) -> Self {
-        Self { labels }
-    }
-}
-
-impl ResolveScope<NetPoint> for ParentLabelsScope<'_> {
-    fn resolve(&self, name: &str) -> Option<NetPoint> {
-        self.labels.get(name).cloned()
-    }
-}
-
-/// P3: parent module ports.
-#[allow(dead_code)]
-struct ParentPortsScope<'a> {
-    ports: &'a [PortInst],
-}
-
-#[allow(dead_code)]
-impl<'a> ParentPortsScope<'a> {
-    fn new(ports: &'a [PortInst]) -> Self {
-        Self { ports }
-    }
-}
-
-impl ResolveScope<NetPoint> for ParentPortsScope<'_> {
-    fn resolve(&self, name: &str) -> Option<NetPoint> {
-        self.ports
-            .iter()
-            .find(|p| p.name == name)
-            .map(|p| p.net_point.clone())
-    }
-}
-
-/// Component pins (mechanism B single-level resolution).
-struct ComponentPinsScope<'a> {
-    pins: &'a HashMap<String, NetPoint>,
-}
-
-/// Production resolution of component pins is inline in
-/// [`resolve_chain_overlay`] (a `Component` segment reads its pin table
-/// directly); this scope unit is kept as test-covered behavior for the
-/// single-level resolution chain.
-#[allow(dead_code)]
-impl<'a> ComponentPinsScope<'a> {
-    fn new(pins: &'a HashMap<String, NetPoint>) -> Self {
-        Self { pins }
-    }
-}
-
-impl ResolveScope<InstEntry> for ComponentPinsScope<'_> {
-    fn resolve(&self, name: &str) -> Option<InstEntry> {
-        self.pins.get(name).map(|p| InstEntry::Port(p.clone()))
-    }
-}
 
 /// Module ports (mechanism B P1).
 struct ModulePortsScope<'a> {
@@ -796,9 +660,8 @@ mod inst_scope_tests {
     use crate::instant::identity::{CircuitKey, IdentityRegistry};
     use crate::instant::inststore::{InstanceStore, NodeInstance};
     use crate::semantic::basic::mc_ids::McIds;
-    use crate::semantic::basic::mc_param::McParamValue;
-    use crate::semantic::basic::mc_param_type::McParamType;
-    use crate::semantic::basic::mc_paramd::{McParamDeclare, McParamDeclareKind, McParamDeclares};
+    use crate::semantic::basic::mc_param::McParamBindings;
+    use crate::semantic::basic::mc_paramd::McParamDeclares;
     use crate::semantic::common::IOType;
     use crate::semantic::component::mc_attr::McAttributes;
     use crate::semantic::component::mc_layout::McLayout;
@@ -916,80 +779,7 @@ mod inst_scope_tests {
         (arena, store)
     }
 
-    /// A `McParamBindings` with a single positional binding `name -> n1`.
-    fn one_binding(name: &str) -> McParamBindings {
-        let declare = McParamDeclare {
-            kind: McParamDeclareKind::Single(McIds::from(name)),
-            param_type: McParamType::default(),
-        };
-        let mut declares = McParamDeclares::new();
-        declares.push(declare);
-        McParamBindings::bind_quiet(&declares, &[McParamValue::Ids(McIds::from("n1"))])
-            .expect("single positional binding should succeed")
-    }
-
-    // ── Mechanism A (T = NetPoint) ──
-
-    /// P1 func-bindings scope: a bound param name resolves to a `NetPoint`
-    /// owned by the expanded instance; unknown names miss.
-    #[test]
-    fn mat_expand__func_bindings_scope_resolves_bound_param() {
-        // Pin table holds "VDD" only — the param name "net" does not collide,
-        // so no shadow diagnostic is emitted.
-        let inst = comp_inst_with_pins("U1", &[("VDD", IOType::Power)]);
-        let bindings = one_binding("net");
-        let scope = FuncBindingsScope::new(&inst, &bindings);
-        let hit = scope.resolve("net").expect("param should resolve");
-        assert_eq!(hit.path, "U1.net");
-        assert_eq!(hit.owner.as_deref(), Some("U1"));
-        assert!(scope.resolve("other").is_none());
-    }
-
-    /// P2 instance-pins scope: reads the instance pin table directly.
-    #[test]
-    fn mat_expand__instance_pins_scope_resolves_pin() {
-        let mut pins = HashMap::new();
-        pins.insert("VDD".to_string(), np("U1.VDD"));
-        let scope = InstancePinsScope::new(&pins);
-        let hit = scope.resolve("VDD").expect("pin should resolve");
-        assert_eq!(hit.path, "U1.VDD");
-        assert!(scope.resolve("GND").is_none());
-    }
-
-    /// P3 parent-labels scope: reads the parent module label table.
-    #[test]
-    fn mat_expand__parent_labels_scope_resolves_label() {
-        let mut labels = HashMap::new();
-        labels.insert("N_5V".to_string(), np("N_5V"));
-        let scope = ParentLabelsScope::new(&labels);
-        let hit = scope.resolve("N_5V").expect("label should resolve");
-        assert_eq!(hit.path, "N_5V");
-        assert!(scope.resolve("N_GND").is_none());
-    }
-
-    /// P3 parent-ports scope: a port resolves to its stored `NetPoint`.
-    #[test]
-    fn mat_expand__parent_ports_scope_resolves_port() {
-        let ports = vec![PortInst::new("CLK", IOType::Out)];
-        let scope = ParentPortsScope::new(&ports);
-        let hit = scope.resolve("CLK").expect("port should resolve");
-        assert_eq!(hit.path, "CLK");
-        assert!(scope.resolve("RST").is_none());
-    }
-
     // ── Mechanism B (T = InstEntry) ──
-
-    /// Component pins resolve to a terminal `InstEntry::Port`.
-    #[test]
-    fn mat_expand__component_pins_scope_resolves_port_entry() {
-        let inst = comp_inst_with_pins("R1", &[("1", IOType::None), ("2", IOType::None)]);
-        let scope = ComponentPinsScope::new(&inst.pins);
-        match scope.resolve("1").expect("pin should resolve") {
-            InstEntry::Port(p) => assert_eq!(p.path, "R1.1"),
-            other => panic!("expected InstEntry::Port, got {other:?}"),
-        }
-        assert!(scope.resolve("3").is_none());
-    }
 
     /// Module ports resolve to a terminal `InstEntry::Port`.
     #[test]

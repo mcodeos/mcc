@@ -18,9 +18,6 @@
 //! ## ★ P02 (S1) additions
 //! - [`builder_report`] —— Structured diagnostics: `BuilderReport` / `BuildMode` / `BuilderError`
 //! - [`visit::McVecBuilder::with_mode`] / [`visit::McVecBuilder::try_build`] use the above types
-//!
-//! ### Legacy path
-//! After P1, legacy.rs is **no longer needed** and can be removed entirely.
 
 pub mod connection;
 pub mod debug;

@@ -2389,11 +2389,14 @@ impl McPhrase {
 
             MCAST_OPD_APOST => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
-                // Normalize: keep Series branches as-is (`(A - B)'` transposes the whole series chain)
-                let mut opd1 = match McPhrase::new(&opd1_node, context)? {
-                    McPhrase::Series(phrases, _) => McPhrase::Series(phrases, ConnDir::Undirected),
-                    other => other,
-                };
+                // §2.4.4: `'` is a **wrapper** and must not touch the operand's
+                // interior -- the operand survives structurally underneath with
+                // its inner source order and direction intact (a series chain
+                // keeps its `LtoR`/`RtoL`; the transpose is applied at eval from
+                // the transposed shape, vec-arch.md §5.2 / §6.2). The operand is
+                // always a primary here -- parentheses produce a `Group`, so a
+                // bare `Series` can never reach this site.
+                let mut opd1 = McPhrase::new(&opd1_node, context)?;
                 // ★ Eager return-shape resolution (§3.2, mirroring the `+` site):
                 // the safety rule below runs DURING the body parse, before the
                 // "Pass1b" hook, so a `return <expr>` call head still carries its
