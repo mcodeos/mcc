@@ -156,7 +156,12 @@ fn def_ercode__emitted_codes_are_registered() {
             "unit",
             "component U (v = 5bad)\n{\n    pins = [ 1 = 1 ]\n}\nmodule main { io VDD }",
         ),
-        // Pass2: connection shape (4000-4049)
+        // Connection layer (4000-4049). This battery only asserts that every
+        // emitted code is registered, so the case must merely land in the band
+        // -- it no longer has to be the *shape* mismatch it was named for.
+        // Since 2026-09-11 `A + B` (two distinct declared ports) is rejected
+        // one phase earlier as a cross-net merge (CONN_NET_CROSSNET = 4183,
+        // vec-dianlu §1.4/§5.4), which is still a 4xxx code.
         (
             "shape",
             "module main { io A\nio B\nA + B }",
@@ -324,8 +329,12 @@ fn def_ercode__list_literal_transpose_node_connects() {
 fn def_ercode__reverse_noop_hint_on_parallel_operand() {
     let _lock = common::lock();
 
-    // Reverse on a parallel vector is a no-op → hint.
-    let src = "module main { (A + B)^ }";
+    // Reverse on a parallel vector is a no-op → hint. The parallel has to be
+    // two equal-port *bodies*: two distinct bare labels are no longer a legal
+    // `+` at all -- they name two different nets (CONN_NET_CROSSNET) -- and two
+    // two-pin parts would give the node two distinct faces, making `^` real.
+    let src = "component ONEPIN { pins = [ 1 = 1 ] }\n\
+               module main { ONEPIN P1\n    ONEPIN P2\n    (P1 + P2)^\n}";
     common::reset();
     let uri = "/mcc/reverse-noop.mc".to_string();
     mcc::mcc_load_from_string(&uri, src);

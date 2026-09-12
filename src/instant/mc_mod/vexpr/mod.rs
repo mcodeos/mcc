@@ -377,8 +377,14 @@ mod tests {
 
     #[test]
     fn parallel__both_degenerate_keeps_the_first_operands_faces() {
-        // `VCC + GND`: two single labels — the pairing side is the left face
-        // of each, and the result still exposes VCC's degenerate face.
+        // Two degenerate label operands: the pairing side is the left face of
+        // each, and the result still exposes VCC's degenerate face.
+        //
+        // Synthetic fixture at the fold level. A *source* `VCC + GND` no longer
+        // reaches here: two distinct bare names are two different potentials,
+        // so Pass1 rejects the statement as a cross-net merge
+        // (`CONN_NET_CROSSNET`). The arm is still needed for the reachable
+        // degenerate pairs -- the same label twice, or two one-pin bodies.
         let vcc = opd(vec![label("VCC")], vec![label("VCC")]);
         let gnd = opd(vec![label("GND")], vec![label("GND")]);
         let fold = fold_parallel(&vcc, &gnd);

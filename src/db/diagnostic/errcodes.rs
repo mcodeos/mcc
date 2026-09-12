@@ -992,6 +992,16 @@ pub const VECTOR_ZIP_WIDTH_MISMATCH: u32 = 4181;
 /// error: the author may have written the jumper on purpose.
 pub const CONN_LEAD_CROSSNET: u32 = 4182;
 
+/// `+` between two **bodiless** operands joins two different nets. A label or
+/// rail is not a connection — it is the *name of an existing equipotential
+/// region* (vec-dianlu §1.4/§5.4), so its potential is carried by its name and
+/// two different names are two different potentials. With no body on either
+/// side there is nothing to stack, so `+` can only merge the two regions into
+/// one: a dead short. Error, not a warning — unlike a `_` lead there is no
+/// "the author may have meant to jump them" reading here; two distinct
+/// potentials have no legal merge.
+pub const CONN_NET_CROSSNET: u32 = 4183;
+
 // ============================================================================
 // Pass2: AssemblyGate netlist health — R-series report rows (4200-4249)
 // ============================================================================
@@ -1891,6 +1901,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(VECTOR_WIDTH_MISMATCH, "Argument/formal vector width mismatch in arg-to-formal binding; no implicit expansion or member dropping.", "Vector width mismatch in arg-to-formal binding: formal '{0}' expects {1} member(s), actual '{2}' provides {3}. Scalar-to-vector and unequal-width pairing are errors; pass the full vector with members paired positionally."),
     entry!(VECTOR_ZIP_WIDTH_MISMATCH, "Vector member-set mismatch in a connection; the two ends of a lane must zip positionally at equal width (no flattening, no member dropping).", "Vector pairing width mismatch: left side provides {0} member(s), right side provides {1}; one-to-one member correspondence requires equal widths. Scalar args apply per-member (the func per-member dispatch layer, vec-dianlu §7.6); a vector-slice arg must be written at the receiver's member count — no broadcast."),
     entry!(CONN_LEAD_CROSSNET, "A '_' lead joins two different nets: an ideal wire (a body, vec-dianlu §5.4) crossing nets shorts them at zero impedance.", "Lead '_' joins two different nets: '{0}' and '{1}'. A lead is an ideal wire (vec-dianlu §5.4) — its two ends are meant to be the same net; joining distinct nets shorts them at zero impedance."),
+    entry!(CONN_NET_CROSSNET, "Parallel '+' between two bodiless operands (labels/rails) joins two different nets: merging two distinct potentials shorts them at zero impedance.", "Parallel '+' joins two different nets: '{0}' and '{1}'. Neither operand is a body (vec-dianlu §1.4/§5.4) — a label or rail names an existing equipotential region, so its potential is carried by its name and two different names are two different potentials. With nothing to stack, '+' can only merge the two regions: a dead short."),
     entry!(COMPONENT_PARAM_FUNC_CONFLICT, "Component-level parameter shares a name with the same-name constructor func parameter.", "Component '{0}' declares parameter '{1}' that also appears in constructor func '{2}' params. Class params define class behavior and constructor params declare the construction arity; they must not reuse the same name. Rename one of them."),
     // ---- section ----
     entry!(DUP_CMIE_CROSS_FILE, "Same name defined in another file (cross-file duplicate).", "Same name defined in another file (cross-file duplicate)."),

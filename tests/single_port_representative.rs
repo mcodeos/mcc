@@ -79,17 +79,30 @@ fn assert_net_has(got: &[Vec<String>], members: &[&str]) {
 
 #[test]
 fn plus_anchors_operand_one() {
-    // VEXT (op1) is the parallel anchor; VDD and V5V both merge into the VEXT
-    // net → one multi-point connection {VEXT, VDD, V5V}.
+    // VEXT (op1) is the parallel anchor; TP1 and TP2 both merge into the VEXT
+    // net → one multi-point connection {VEXT, TP1.1, TP2.1}.
+    //
+    // The other operands must be *bodies*. The original fixture chained three
+    // bare labels (`VEXT + VDD + V5V`), which is now rejected at Pass1: two
+    // distinct names are two distinct potentials, so `+` between them fuses two
+    // nets (CONN_NET_CROSSNET, vec-dianlu §1.4/§5.4). One-pin bodies keep the
+    // subject -- opd[0] is what the merged net is anchored on.
     let inst = build(
         r#"
+component TESTPOINT()
+{
+    pins = [
+        1 = P1
+    ]
+}
+
 module main
 {
-    VEXT + VDD + V5V
+    VEXT + TP1::TESTPOINT() + TP2::TESTPOINT()
 }
 "#,
     );
-    assert_net_has(&nets(&inst), &["VEXT", "VDD", "V5V"]);
+    assert_net_has(&nets(&inst), &["VEXT", "TP1.1", "TP2.1"]);
 }
 
 // ── `-` takes op1: Series chain head opd1 ─────────────────────────────────
