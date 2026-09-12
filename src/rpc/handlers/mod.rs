@@ -3225,6 +3225,7 @@ pub fn register_all(
     builder = builder.register_method("remove_file", handle_remove_file);
     builder = builder.register_method("completion", handle_completion);
     builder = builder.register_method("hover", handle_hover);
+    builder = builder.register_method("gotodef", handle_gotodef);
     builder
 }
 

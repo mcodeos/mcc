@@ -346,6 +346,14 @@ pub enum OutputFormat {
     Csv,
 }
 
+impl OutputFormat {
+    /// Whether this format is a machine JSON dialogue: the envelope is the
+    /// contract, so gates degrade the exit code instead of suppressing output.
+    pub fn is_jsonish(&self) -> bool {
+        matches!(self, OutputFormat::Json | OutputFormat::JsonPretty)
+    }
+}
+
 /// Instance Tree pin list sorting mode
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum PinSortMode {

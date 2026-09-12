@@ -261,3 +261,17 @@ pub fn handle_hover(params: Option<Value>) -> RpcResult {
     let result = crate::lsp::hover::hover(&p.name, &p.uri, p.position);
     Ok(serde_json::json!({ "result": result }))
 }
+
+// === handle_gotodef ===
+pub fn handle_gotodef(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct GotodefParams {
+        uri: String,
+        /// Cursor byte offset; resolved via the position-aware lapper + RefDefMap.
+        offset: usize,
+    }
+
+    let p: GotodefParams = parse_strict(params)?;
+    let result = crate::lsp::gotodef::resolve_at_pos(&p.uri, p.offset);
+    Ok(serde_json::json!({ "result": result }))
+}

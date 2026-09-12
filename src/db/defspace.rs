@@ -122,6 +122,34 @@ impl<'a> DefinitionSpace<'a> {
         self.ws.mcodes.get(uri)
     }
 
+    /// Resolve a caller-supplied URI (possibly `file://`-prefixed) to its
+    /// loaded source file. Tries the exact workspace key first, then the
+    /// scheme-stripped and on-disk-canonicalized forms, so LSP reads tolerate
+    /// key-style differences: disk-loaded project files are keyed by real
+    /// canonical paths, while unsaved in-memory files keep their virtual
+    /// `file://` key.
+    pub fn source_file_tolerant(
+        &self,
+        uri: &McURI,
+    ) -> Option<dashmap::mapref::one::Ref<'_, McURI, McCode>> {
+        if let Some(f) = self.source_file(uri) {
+            return Some(f);
+        }
+        let bare = uri.strip_prefix("file://").unwrap_or(uri);
+        if bare != uri.as_str() {
+            if let Some(f) = self.source_file(&McURI::from(bare)) {
+                return Some(f);
+            }
+        }
+        let canon = crate::build::pass1::canonicalize_project_uri(&McURI::from(bare));
+        if canon != *bare {
+            if let Some(f) = self.source_file(&McURI::from(canon)) {
+                return Some(f);
+            }
+        }
+        None
+    }
+
     /// Every loaded source file's pass1 record, in arbitrary (DashMap) order.
     pub fn source_files(
         &self,

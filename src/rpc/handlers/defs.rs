@@ -99,14 +99,35 @@ pub fn handle_defs_query(params: Option<Value>) -> RpcResult {
 // === handle_refs (lines 1534-1556 in original) ===
 
 pub fn handle_refs(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Default)]
     struct RefsParams {
-        name: String,
+        name: Option<String>,
+        /// Cursor file + byte offset (with `name`): position-aware find-refs
+        /// via the RefDefMap reverse index. Falls back to the name scan when
+        /// the position does not resolve to a definition.
+        #[serde(default)]
+        uri: Option<String>,
+        #[serde(default)]
+        position: Option<usize>,
     }
 
-    let p: RefsParams = parse_strict(params)?;
-    let items = crate::lsp::references::find(&p.name);
-    Ok(json!({ "name": p.name, "count": items.len(), "refs": items }))
+    let p: RefsParams = parse_or_default(params)?;
+    let name = p.name.clone().unwrap_or_default();
+    let items = match (&p.uri, p.position) {
+        (Some(uri), Some(position)) => {
+            let items = crate::lsp::references::find_at(uri, position, p.name.as_deref());
+            if items.is_empty() {
+                // Position resolution missed — the old name-based scan is the
+                // fallback so callers without a resolvable cursor still get
+                // whatever the symbol tables recorded.
+                crate::lsp::references::find(&name)
+            } else {
+                items
+            }
+        }
+        _ => crate::lsp::references::find(&name),
+    };
+    Ok(json!({ "name": name, "count": items.len(), "refs": items }))
 }
 
 // === handle_erc (lines 1562-1564 in original) ===
