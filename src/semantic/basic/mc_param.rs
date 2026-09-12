@@ -12,6 +12,7 @@ use crate::{
     ast::{macros::*, node::AstNode},
     semantic::{
         basic::mc_expr::McExpression,
+        basic::mc_group::McGroup,
         basic::mc_literal::{McConst, McHex, McLiteral, McString},
         basic::mc_phrase::McPhrase,
         basic::mc_uval::McUnitValue,
@@ -121,6 +122,25 @@ impl McParamValue {
                     }
                 }
                 None
+            }
+
+            // Parenthesized group `(a, b)` as an actual — the same node type
+            // `McPhrase::new` builds a `Group` from. It previously fell through
+            // to `_ => None`, so a group actual was silently dropped; keep it
+            // as a `Group` phrase value. A one-member group `(a)` is just `a`.
+            MCAST_OPD_GROUP => {
+                let McPhrase::Group(g) = McPhrase::new(node, context)? else {
+                    return None;
+                };
+                let mut opds = g.opds;
+                if opds.len() == 1 {
+                    return Some(McParamValue::Phrase(Box::new(opds.remove(0))));
+                }
+                Some(McParamValue::Phrase(Box::new(McPhrase::Group(McGroup {
+                    opds,
+                    left_match: g.left_match,
+                    right_match: g.right_match,
+                }))))
             }
 
             // Net/arithmetic expressions

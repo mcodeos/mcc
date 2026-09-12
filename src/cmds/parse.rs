@@ -391,7 +391,6 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 }
             } else {
                 let mut total_boxes = 0;
-                let mut total_edges = 0;
                 let mut svgs: Vec<(String, String)> = Vec::new(); // (module_name, svg_string)
 
                 for (mod_name, module_uri) in &all_modules {
@@ -414,13 +413,11 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     let vec_block = mcc::build_mc_vec_with_arena(&inst, &table, &arena, &store);
                     let graph = mcc::build_mc_vec_graph(&vec_block, &table);
                     let graph_box_count = graph.boxes.len();
-                    let graph_edge_count = graph.edges.len();
 
                     let opts = mcc::viz::api::RenderOpts::default();
                     let doc = mcc::viz::api::render_with(graph, opts);
 
                     total_boxes += graph_box_count;
-                    total_edges += graph_edge_count;
 
                     // Extract the SVG from the root layer
                     if let Some(root_layer) = doc.root_layer() {
@@ -487,7 +484,6 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     bytes: output_text.len(),
                     layers: 1,
                     boxes: total_boxes,
-                    edges: total_edges,
                 });
             }
         }
@@ -1062,11 +1058,9 @@ fn run_viz(
     let graph = mcc::build_mc_vec_graph(&vec_block, &table);
     // PR-3C: capture count before render_with consumes graph
     let graph_box_count = graph.boxes.len();
-    let graph_edge_count = graph.edges.len();
     debug!(
         target: "mcc_cli::viz",
         boxes = graph_box_count,
-        edges = graph_edge_count,
         sub_graphs = graph.sub_graphs.len(),
         "McVecGraph"
     );
@@ -1124,7 +1118,6 @@ fn run_viz(
         bytes: output_text.len(),
         layers: doc.layer_count(),
         boxes: graph_box_count,
-        edges: graph_edge_count,
     })
 }
 

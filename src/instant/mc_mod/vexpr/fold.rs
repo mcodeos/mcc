@@ -2,8 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Operator folding for the shadow vector-expression evaluator (`eval_expr`'s
-//! operator arms; unified-core §7.7(1)).
+//! Operator folding for the unified connection core (unified-core §7.7(1)).
 //!
 //! Every legality decision is **imported from [`opcheck`]**, never recomputed
 //! here: a second copy of a rule is a second drift source (`majority_dir`
@@ -28,7 +27,7 @@ pub struct SeriesStep {
     /// True when either contracted face is empty. An empty face is not
     /// connectable, but it is **not** an illegal §5.2 operation either: the
     /// caller skips the leg silently, the same explicit empty guard
-    /// `try_connect_adjacent` applied before its row check.
+    /// `connect_adjacent_pair` applies before its row check.
     pub skipped: bool,
 }
 

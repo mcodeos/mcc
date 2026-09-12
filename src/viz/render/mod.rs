@@ -29,9 +29,6 @@
 //! - [`multi_pin`]   —— multi-pin IC
 //! - [`sub_module`]  —— sub-module (with expand hint, extracted in P3)
 //! - [`power_label`] —— power / ground
-//!
-//! ## legacy.rs has been removed
-//! P4 extracted all features from legacy.rs; the file can be removed entirely.
 
 pub mod capacitor;
 pub mod diode;
@@ -57,11 +54,8 @@ use crate::vector::graph::McVecGraph;
 
 /// SVG renderer
 ///
-/// Replaces the old `legacy::SvgRenderer`; the new version supports both:
-/// - `graph.edges` (old McVecEdge binary model, compatible)
-/// - `graph.nets`  (★ VizNet multi-endpoint model, preferred)
-///
-/// When `graph.nets` is non-empty, prefer rendering nets; otherwise fall back to edges.
+/// Replaces the old `legacy::SvgRenderer`; the new version renders
+/// `graph.nets` (★ VizNet multi-endpoint model).
 pub struct SvgRenderer;
 
 impl SvgRenderer {
@@ -239,9 +233,9 @@ fn render_module_frame(mf: &crate::vector::graph::ModuleFrame) -> String {
 /// and lane count annotation (W3).
 ///
 /// ★ P1-a: this is a pure formatter over [`supply_bundle::SupplyBundlePlan`].
-/// The rail anchors that used to live here (`rail_anchor` / `rail_anchor_at`,
-/// the L2 "edge midpoint" fallback shape) moved to `supply_bundle`, which is
-/// now the single authority for where an edge attaches.
+/// The rail anchor that used to live here (the L2 "edge midpoint" fallback
+/// shape) moved to `supply_bundle`, which is now the single authority for
+/// where an edge attaches.
 fn render_block_edges(graph: &McVecGraph) -> String {
     use crate::viz::layout::edge_decide::EdgeKind;
     use crate::viz::layout::supply_bundle;

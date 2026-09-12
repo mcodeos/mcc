@@ -2,18 +2,11 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! [`McVecGraph`] —— Graph container
+//! Output envelope — the JSON-RPC response shape wrapping every command result.
 //!
-//! Holds a layer's boxes / edges (old, deprecated) / nets / sub-graphs.
-//!
-//! ## ★ P03 (S1) Changes
-//! - `edges` field **is still present but not populated**:
-//!   - `from_block.rs::build_mc_vec_graph` no longer writes to `graph.edges`
-//!   - `components.rs::build_adjacency` now reads from `graph.nets` only
-//!   - `entry_points.rs::collect_pins_per_box` same
-//!   - `wire.rs::render_edge` has been removed
-//! - `nets: Vec<VizNet>` is the **only network representation**
-//! - `total_edges()` / `total_wires()` still compile but always return 0
+//! ```json
+//! {
+//!   "jsonrpc": "2.0",
 //!   "result":  { ... }   // Success
 //!   // Or error
 //!   "error":   { ... }   // Error
@@ -365,7 +358,6 @@ pub struct VizData {
     pub bytes: usize,
     pub layers: usize,
     pub boxes: usize,
-    pub edges: usize,
 }
 
 /// Query result — used by `mcc query` (DSL and name modes; `mcc search` is a

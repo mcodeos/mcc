@@ -5,7 +5,6 @@
 //! Box-related data structures
 //!
 //! - [`IoSummary`] -- box IO port count statistics
-//! - [`Wire`]      -- single wire (compatible with legacy `McVecEdge.wires` field)
 //! - [`McVecBox`]  -- single box (component / sub-module / power label)
 //! - [`EntryPoint`] -- pin position on the box edge (for router to accurately exit lines)
 //!
@@ -50,22 +49,6 @@ impl Default for IoSummary {
     fn default() -> Self {
         Self::new()
     }
-}
-
-// ============================================================================
-// Wire (compatible with legacy McVecEdge model)
-// ============================================================================
-
-/// Single wire (unit stored in legacy `McVecEdge.wires`)
-///
-/// **Note**: only used by the legacy binary `McVecEdge`. New code uses
-/// [`super::netdef::EndpointRef`].
-#[derive(Debug, Clone)]
-pub struct Wire {
-    pub src_pin_id: i64,
-    pub src_pin_name: String,
-    pub dst_pin_id: i64,
-    pub dst_pin_name: String,
 }
 
 // ============================================================================
