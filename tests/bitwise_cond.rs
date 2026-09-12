@@ -8,7 +8,7 @@
 // Regression: `parse_cond_if` / `parse_cond_else_with_cond` whitelisted only
 // the comparison judge nodes (==, !=, <, >, <=, >=, in) and missed
 // MCAST_JUDGE_BITAND / MCAST_JUDGE_BITOR — so `if (address & 0x01) ... else ...`
-// (e.g. mcd/mclibs/others/pca9555.mc) lost the whole branch without a
+// (e.g. `mcpub/expand/pca9555.mc`) lost the whole branch without a
 // diagnostic.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to

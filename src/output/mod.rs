@@ -9,8 +9,10 @@
 //! Before: there was only one generic [`emit`] function, writing any `Serialize + Display` to
 //! stdout or a file. Each command constructed its own report type, not reused.
 //!
-//! Now: added the [`emit_envelope`] path. When the user passes `--json` (or explicitly `--format json`),
-//! the command should take the envelope path; otherwise continue with the [`emit`] text path (backward compatible).
+//! Now: added the [`emit_envelope`] path. When the user passes `--json` (or explicitly
+//! `--format json`),
+//! the command should take the envelope path; otherwise continue with the [`emit`] text path
+//! (backward compatible).
 
 pub mod builder;
 pub mod compact;
@@ -26,9 +28,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-// ============================================================================
 // Old API: emit (backward compatible, untouched)
-// ============================================================================
 
 /// Output any `Serialize + Display` to stdout or a file.
 ///
@@ -56,9 +56,7 @@ where
     })
 }
 
-// ============================================================================
 // New API: emit_envelope - main entry of PR-2
-// ============================================================================
 
 /// Output [`Envelope`] to stdout or a file.
 ///
@@ -110,9 +108,7 @@ pub fn emit_envelope_brief(
     write_out(&buf, target)
 }
 
-// ============================================================================
 // Text rendering — render envelope as a human-readable report
-// ============================================================================
 
 /// Render the envelope as the **brief** trailing report — command / workspace /
 /// per-pass counts / diagnostics / summary line. `mcc parse` prints its detailed
@@ -836,9 +832,7 @@ pub fn format_diagnostic(d: &envelope::Diagnostic) -> String {
     }
 }
 
-// ============================================================================
 // Write helper
-// ============================================================================
 
 fn write_out(buf: &str, target: Option<&Path>) -> Result<()> {
     match target {
@@ -861,9 +855,7 @@ fn write_out(buf: &str, target: Option<&Path>) -> Result<()> {
     }
 }
 
-// ============================================================================
 // OutputFormat extension
-// ============================================================================
 
 pub trait OutputFormatExt {
     /// JSON / JsonPretty / Yaml count as structured (go through envelope), Text and Csv do not.

@@ -77,7 +77,7 @@ fn find_vector<'a>(inst: &'a mcc::McModuleInst, base: &str) -> &'a mcc::McVector
         })
 }
 
-/// ── Module-body vector declare: grouping node + flat member instances ─────
+/// Module-body vector declare: grouping node + flat member instances
 /// `CAP c[1:2](1)` in the module body → `main.vectors` holds
 /// `{ base: "c", members: ["c1","c2"], ids: ["c1","c2"] }` and `main.components`
 /// holds c1, c2 (member-set written order).
@@ -104,7 +104,7 @@ fn mat_vinst__module_body_declare_materializes_group() {
     );
 }
 
-/// ── Func-local vector declare (module func auto-invoke): same group ───────
+/// Func-local vector declare (module func auto-invoke): same group
 /// `CAP c[1:2](1)` inside `func M()` → the func's standalone declarations are
 /// materialized at module level (empty prefix), so the vector group lands on
 /// the module with bare member ids. A declare-only func is never auto-invoked
@@ -134,7 +134,7 @@ fn mat_vinst__name_first_declare_materializes_group() {
     assert_eq!(v.member_ids, vec!["c1", "c2"]);
 }
 
-/// ── Contract E (matrix §2 row 21): single-member range is scalar ─────────
+/// Contract E (matrix §2 row 21): single-member range is scalar
 /// `CAP c[2](1)` → member `c2` materializes as a plain scalar component; the
 /// `>= 2` guard at pass1 registration means no `vectors` entry at all.
 #[test]
@@ -191,7 +191,7 @@ fn member_scalar__single_index_ref_connects_only_itself() {
     );
 }
 
-/// ── §11.3/1.6 follow-up: the SAME scalar rule for a FuncCall **caller** ────
+/// §11.3/1.6 follow-up: the SAME scalar rule for a FuncCall **caller**
 /// `member_scalar__single_index_ref_connects_only_itself` above only covers the
 /// connection form (`res[2] -> GND`). The caller form is a separate path:
 /// `resolve_array_caller_to_existing` used to match a single `Component` caller
@@ -256,7 +256,7 @@ fn member_scalar__dotted_member_method_dispatch_reaches_its_member() {
     );
 }
 
-/// ── Sub-module vector declare: group lives on the sub-module instance ─────
+/// Sub-module vector declare: group lives on the sub-module instance
 /// `SM` declared in main with `CAP c[1:2](1)` in SM's body → `main.sub_modules`
 /// holds an SM instance whose own `vectors` has the group (module-scope
 /// isolation of vector bases, §11.2).
@@ -276,7 +276,7 @@ fn mat_vinst__submodule_declare_materializes_group() {
     assert_eq!(v.member_ids, vec!["c1", "c2"]);
 }
 
-/// ── §11.1 flatten projection: vector members carry `vector_info` ──────────
+/// §11.1 flatten projection: vector members carry `vector_info`
 /// flatten projects `c[1:2]` to per-member flat entries `main.c1` / `main.c2`
 /// (invariant B — no literal `c[1:2]` path), each carrying the vector-group
 /// projection `{ vector_base: "c", member, index }`. A scalar sibling has
@@ -333,7 +333,7 @@ fn mat_vinst__member_paths_reverse_query() {
     );
 }
 
-/// ── §11.1 sub-module vector: projection attaches to the member entries ────
+/// §11.1 sub-module vector: projection attaches to the member entries
 /// `SM.c[1:2]` in a sub-module flattens to `main.s1.c1` / `main.s1.c2`, both
 /// carrying the group projection (module-scope isolation of vector bases).
 #[test]

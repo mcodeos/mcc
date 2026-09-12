@@ -58,7 +58,7 @@ impl BoxShape for IcShape {
         // ── Instance name + class name (top-left, outside the box) ──
         let label_x = b.x;
         let name_y = b.y - 14.0;
-        // The virtual instantiation view (mcd docs-mc 16-export-viz §6)
+        // The virtual instantiation view (mcd spec/16-export-viz §6)
         // suppresses the fabricated instance name (VIRT_<Name> wrapper's u_1):
         // the box then shows only the class name.
         let name = if b.suppress_instance_name {
@@ -91,7 +91,8 @@ impl BoxShape for IcShape {
         let stamp = render_designator_and_value(b);
 
         // ── All pin labels ──
-        // When there are no entry_points, fall back: do not draw pin labels (back to the old MultiPin look)
+        // When there are no entry_points, fall back: do not draw pin labels (back to the old
+        // MultiPin look)
         let pins: String = if b.entry_points.is_empty() {
             String::new()
         } else {
@@ -156,9 +157,7 @@ fn escape_xml(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

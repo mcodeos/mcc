@@ -48,9 +48,7 @@ impl ValidationCheck for NamingCheck {
     }
 }
 
-// ============================================================================
 // J1: Lowercase component names (should be UPPER_SNAKE)
-// ============================================================================
 
 fn check_lowercase_components(acc: &mut CheckAccumulator) {
     let comps = crate::definition_space().workspace_components();
@@ -80,9 +78,7 @@ fn check_lowercase_components(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // N9: Mixed pin naming conventions within a single component
-// ============================================================================
 
 /// Pin names within a component should follow a consistent convention.
 /// Mixing UPPER_SNAKE (e.g., `CHIP_SELECT`) with lower_snake (e.g., `chip_select`)
@@ -167,9 +163,7 @@ fn check_mixed_pin_naming(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // N10: Single-character or overly short instance names
-// ============================================================================
 
 /// Instance names that are single characters (e.g., `R1 r1` → `r1` is fine,
 /// but `RES r` is too short) make schematics harder to read. Flag instance
@@ -229,9 +223,7 @@ fn check_short_instance_names(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // Extended J3: Entity names that shadow library CMIE names
-// ============================================================================
 
 /// User-defined module port/instance names that happen to match a known
 /// library component, interface, or enum name create ambiguity.

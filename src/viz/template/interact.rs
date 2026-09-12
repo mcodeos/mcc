@@ -15,7 +15,7 @@ pub fn js() -> &'static str {
     r##"
 'use strict';
 
-// ── DOC self-check ────────────────────────────────────────────────
+// DOC self-check
 // If DOC is undefined or corrupted, give a clear diagnosis instead of an opaque crash
 if (typeof DOC === 'undefined') {
     document.getElementById('canvas').innerHTML =
@@ -51,11 +51,11 @@ console.log('layers count:', Object.keys(DOC.layers).length);
 console.log('layer bids:', Object.keys(DOC.layers));
 console.groupEnd();
 
-// ── State ──────────────────────────────────────────────────────
+// State
 const navStack = [];
 let currentBid = DOC.root_bid;
 
-// ── Zoom control ─────────────────────────────────────────────────
+// Zoom control
 // Zoom is implemented by wrapping the current <svg> in a #zoom-pane and
 // sizing the pane to (canvas-width × zoom). The SVG has a viewBox and fills
 // the pane, so it is re-rendered at the target size (vector-crisp) rather
@@ -119,7 +119,7 @@ function zoomIn()  { applyZoom(zoomLevel * ZOOM_STEP); }
 function zoomOut() { applyZoom(zoomLevel / ZOOM_STEP); }
 function zoomReset() { applyZoom(1); }
 
-// ── Smart layer lookup: try number / string / fallback ─────────
+// Smart layer lookup: try number / string / fallback
 function findLayer(bid) {
     if (bid === null || bid === undefined) return null;
 
@@ -138,7 +138,7 @@ function findLayer(bid) {
     return null;
 }
 
-// ── Initialization ─────────────────────────────────────────────────────
+// Initialization
 function init() {
     let root = findLayer(DOC.root_bid);
     let usedFallback = false;
@@ -204,7 +204,7 @@ function showFatalError(title, msg) {
         '</div>';
 }
 
-// ── Switch layer ─────────────────────────────────────────────────────
+// Switch layer
 function switchToLayer(bid) {
     const layer = findLayer(bid);
     if (!layer) {
@@ -220,7 +220,7 @@ function switchToLayer(bid) {
     return true;
 }
 
-// ── Expand sub-module (SVG onclick="expandSubModule(<bid>)") ─────────
+// Expand sub-module (SVG onclick="expandSubModule(<bid>)")
 function expandSubModule(bid) {
     const layer = findLayer(bid);
     if (!layer) {
@@ -249,7 +249,7 @@ function goToLayer(bid) {
     switchToLayer(bid);
 }
 
-// ── Breadcrumb ─────────────────────────────────────────────────────
+// Breadcrumb
 function updateBreadcrumb() {
     const bc = document.getElementById('breadcrumb');
     if (!bc) return;
@@ -276,7 +276,7 @@ function updateBreadcrumb() {
     bc.innerHTML = html;
 }
 
-// ── Bottom stats ────────────────────────────────────────────────────
+// Bottom stats
 function updateStats() {
     const stats = document.getElementById('stats');
     if (!stats) return;
@@ -303,7 +303,7 @@ function escapeHtml(text) {
         .replace(/>/g, '&gt;');
 }
 
-// ── Zoom gesture / button wiring ─────────────────────────────────
+// Zoom gesture / button wiring
 // The canvas element itself persists across layer switches (only its
 // innerHTML is replaced), so listeners attached here survive navigation.
 const zoomCanvas = document.getElementById('canvas');
@@ -322,7 +322,7 @@ document.getElementById('zoom-out').addEventListener('click', zoomOut);
 document.getElementById('zoom-reset').addEventListener('click', zoomReset);
 window.addEventListener('resize', function () { applyZoom(zoomLevel); });
 
-// ── Startup ──────────────────────────────────────────────────────
+// Startup
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
 } else {

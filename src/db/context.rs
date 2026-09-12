@@ -10,9 +10,7 @@
 use crate::semantic::context::NameResolver;
 use crate::{McCMIE, McIds, McURI};
 
-// ============================================================================
 // DbContext — NameResolver over the global workspace / system tables
-// ============================================================================
 
 pub struct DbContext;
 
@@ -26,9 +24,7 @@ impl NameResolver for DbContext {
     }
 }
 
-// ============================================================================
 // Singleton
-// ============================================================================
 
 /// The global database context — used when no trait injection is needed.
 pub static DB: DbContext = DbContext;

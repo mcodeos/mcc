@@ -70,7 +70,7 @@ fn lead_point(got: &[(String, String)]) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-// ── PrefixId: `_OPEN` used as a standalone operand → E4058 ────────────────
+// PrefixId: `_OPEN` used as a standalone operand → E4058
 
 #[test]
 fn sem_wirecls__prefix_id_as_wire_warns_on_first_use() {
@@ -133,7 +133,7 @@ module top
     );
 }
 
-// ── Passthrough: `VEXT - _ - GND` bridges a series chain ──────────────────
+// Passthrough: `VEXT - _ - GND` bridges a series chain
 
 #[test]
 fn sem_wirecls__passthrough_lead_bridges_series_net() {
@@ -159,7 +159,7 @@ module top
     );
 }
 
-// ── Placeholder: `[_, ...]` vector member ─────────────────────────────────
+// Placeholder: `[_, ...]` vector member
 
 #[test]
 fn sem_wirecls__placeholder_lead_in_vector_does_not_warn() {

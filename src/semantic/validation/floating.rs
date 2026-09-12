@@ -177,7 +177,7 @@ fn check_owner_floating_labels<F>(
         for stmt in top_stmts {
             count_refs(stmt, &name, &mut counts, true);
         }
-        // ── Failure ledger (observation-only) ────────────────────────────
+        // Failure ledger (observation-only)
         // Every name that survived the owner-finish recheck is a floating
         // label: referenced once it is a dangling net (E3136 below);
         // referenced 2+ it is a shared rail that also resolves to nothing
@@ -226,9 +226,7 @@ fn check_owner_floating_labels<F>(
     }
 }
 
-// ============================================================================
 // Reference-count walker over parsed func bodies
-// ============================================================================
 
 /// Reference counts for a candidate label name across a component's funcs.
 #[derive(Default)]

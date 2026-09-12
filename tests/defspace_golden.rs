@@ -485,7 +485,7 @@ capability DecoupledPower
     ps GND
     io VBUS
 
-    // `ref` is a reserved power-intent keyword (power-intent-design.md §5),
+    // `ref` is a reserved power-intent keyword (intent-design.md §5),
     // so the func's reference port is named `rp`.
     func Idle([rp])
     {

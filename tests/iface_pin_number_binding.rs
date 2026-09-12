@@ -4,8 +4,8 @@
 
 // Regression: interface members bound to a physical pin range must align by
 // the interface pin number, not by the member declaration order. An interface
-// that declares pins out of numeric order (`[1,5] = [VBUS, GND]`) previously
-// bound GND to physical pin 2 (its declaration position) instead of pin 5.
+// that declares pins out of numeric order (`[1,5] = [VBUS, GND]`) must bind GND
+// to physical pin 5, not to pin 2 (its declaration position).
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to
 // keep the grep-able family token separate (matrix §1 taxonomy).

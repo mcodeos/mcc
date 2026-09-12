@@ -8,9 +8,9 @@
 //! Integration tests for `use` statement diagnostics (§11, §14 of use-design.md).
 //!
 //! These tests verify the use-stage diagnostics USE_LIB_NOT_FOUND (2052,
-//! formerly E800 "library not found"), USE_DEP_NOT_DECLARED (2051 "undeclared
-//! dependency"), and USE_ALIAS_COLLISION (2005, formerly E2002) are properly
-//! emitted when parsing files with `use` statements.
+//! "library not found"), USE_DEP_NOT_DECLARED (2051 "undeclared dependency"),
+//! and USE_ALIAS_COLLISION (2005) are properly emitted when parsing files with
+//! `use` statements.
 
 use serde_json::Value;
 use std::process::Command;

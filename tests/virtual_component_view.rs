@@ -2,8 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-// Virtual instantiation for non-project single-file views (mcd docs-mc
-// 16-export-viz §6): a file opened outside a project (no project.toml) that
+// Virtual instantiation for non-project single-file views
+// (mcd spec/16-export-viz §6): a file opened outside a project (no project.toml) that
 // has no `module` but declares components/interfaces must not fail with
 // "no top module found"; each unit is wrapped in a synthetic module so the
 // standard build + viz pipeline can render it standalone.

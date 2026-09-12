@@ -56,7 +56,7 @@ fn build_flat(source: &str) -> mcc::InstTable {
 
 #[test]
 fn mat_curlopt__connection_parses_and_builds() {
-    // Previously: E1003/E1002 at the connection line, whole line dropped.
+    // Must parse and build: no E1003/E1002 at the connection line, no dropped line.
     let table = build_flat(SOURCE);
 
     let net_names: Vec<String> = table.get_nets().iter().map(|n| n.name.clone()).collect();

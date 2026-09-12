@@ -338,7 +338,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         }
     }
 
-    // ── Step 0 (★ M11): the ends the NETLIST fixes, before any run grows ─────
+    // Step 0 (★ M11): the ends the NETLIST fixes, before any run grows
     // An anchor pin is always the inner end of its own net; a satellite always
     // sits at the outer end of the rows it shares with the anchor (M9.2 pushes
     // it past every member on that side).
@@ -351,7 +351,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         }
     }
 
-    // ── Step 1: every pin net is its OWN region, claimed up front ────────────
+    // Step 1: every pin net is its OWN region, claimed up front
     // Claiming before any run grows is what keeps a part between two pin nets an
     // `Across`: were the seeds claimed lazily, the first run would swallow the
     // next seed and `moddcdc`'s `R1` (Vin ↔ EN) would come out horizontal.
@@ -366,7 +366,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         region[s] = Some(s);
     }
 
-    // ── Step 2: grow each run, strongest driver first ────────────────────────
+    // Step 2: grow each run, strongest driver first
     for &s in &seeds {
         grow(
             s,
@@ -379,7 +379,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         );
     }
 
-    // ── Step 3: fallback roots for whatever no pin could reach ───────────────
+    // Step 3: fallback roots for whatever no pin could reach
     // Endpoint nets first (an island rail reads better rooted at its label),
     // then anything left, both in index order.
     let unclaimed = |region: &[Option<usize>], i: usize| !nets[i].is_ground && region[i].is_none();
@@ -403,7 +403,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         );
     }
 
-    // ── Step 3.5 (★ M10.3 / M11.2): a run may ADOPT one ground as its END ────
+    // Step 3.5 (★ M10.3 / M11.2): a run may ADOPT one ground as its END
     //
     // "Treat GND as a kind of label" is the whole rule. A decoupling cap between
     // a pin and a ground glyph is topologically the same shape as a resistor
@@ -428,7 +428,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
     // silently excluded them). Ground nets are never claimed by step 3, so the
     // move cannot change any existing answer.
     //
-    // ── KNOBS, in order of how much they give back ──────────────────────────
+    // KNOBS, in order of how much they give back
     //   (a) turn the whole feature off:  `ground_adoptable: false` in
     //       `chain_plan_for` — every ground goes back to a vertical Drop.
     //   (b) only a ground hanging DIRECTLY off a pin may be adopted: add
@@ -482,7 +482,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         ground_taken.insert(g);
     }
 
-    // ── Step 3.6 (★ M12.1): an adopted ground with TWO+ parts is a COLUMN ────
+    // Step 3.6 (★ M12.1): an adopted ground with TWO+ parts is a COLUMN
     //
     // `moddcdc`: `GND@lp322dcdc ~ _C1.2 ~ _C2.2` — ONE ground node, two caps, on
     // two DIFFERENT rows (`VDD_3V3` and `_net1`). Step 3.5 gives the node to
@@ -535,7 +535,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         }
     }
 
-    // ── Step 3.9 (★ M11.3): names take whatever outer ends are left ──────────
+    // Step 3.9 (★ M11.3): names take whatever outer ends are left
     // A name that finds its end already spent does NOT lose its glyph — it is
     // drawn on a vertical stub instead (M10.1). `outer_end_taken` is how the
     // render side is told which case it is in, so the decision is topological
@@ -546,7 +546,7 @@ pub fn analyse(nets: &[NetView], parts: &[PartView]) -> ChainPlan {
         }
     }
 
-    // ── Step 4: classify ─────────────────────────────────────────────────────
+    // Step 4: classify
     let mut orientation: BTreeMap<i64, PartOrientation> = BTreeMap::new();
     for p in parts {
         let (a, b) = p.nets;
@@ -812,7 +812,9 @@ mod tests {
         // Two pins on either side → across.
         assert_eq!(plan.orientation_of(21), PartOrientation::Across); // R1
         assert_eq!(plan.orientation_of(15), PartOrientation::Across); // C5
-                                                                      // R2's far end is VCC_1V2, which now carries LX's pin identity.
+                                                                      // R2's far end is VCC_1V2,
+                                                                      // which now carries LX's pin
+                                                                      // identity.
         assert_eq!(plan.orientation_of(22), PartOrientation::Across);
         assert!(!plan.shares_row(3, 4));
 
@@ -981,7 +983,7 @@ mod tests {
         assert_eq!(plan.orientation_of(9), PartOrientation::Along);
     }
 
-    // ── ★ M11 ───────────────────────────────────────────────────────────────
+    // ★ M11
 
     /// **The end budget, stated by the netlist you gave.**
     ///

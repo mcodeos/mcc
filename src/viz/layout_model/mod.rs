@@ -28,9 +28,7 @@ use crate::viz::idiom::model::IdiomInstanceKind;
 use crate::viz::semantic::SemanticModel;
 use crate::viz::special::PowerGroundBusModel;
 
-// ============================================================================
 // Box role in the layout model
-// ============================================================================
 
 /// The layout role of a box, derived from semantic + special analysis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -71,9 +69,7 @@ pub struct LabelPressure {
     pub needs_extra_margin: bool,
 }
 
-// ============================================================================
 // Functional block
-// ============================================================================
 
 /// A functional block: a group of boxes that form a logical unit.
 #[derive(Debug, Clone)]
@@ -84,9 +80,7 @@ pub struct FunctionalBlock {
     pub anchor_box_id: Option<i64>,
 }
 
-// ============================================================================
 // Flow lane
-// ============================================================================
 
 /// A visual flow lane: signal flows from hub through chain.
 #[derive(Debug, Clone)]
@@ -97,9 +91,7 @@ pub struct FlowLane {
     pub terminus_box_id: Option<i64>,
 }
 
-// ============================================================================
 // Rail plan
-// ============================================================================
 
 /// A single power or ground rail in the layout.
 #[derive(Debug, Clone)]
@@ -113,9 +105,7 @@ pub struct RailPlan {
     pub is_long_stub: bool,
 }
 
-// ============================================================================
 // Bus plan
-// ============================================================================
 
 /// A bus trunk in the layout.
 #[derive(Debug, Clone)]
@@ -126,9 +116,7 @@ pub struct BusPlan {
     pub member_net_ids: Vec<i64>,
 }
 
-// ============================================================================
 // SchematicLayoutModel
-// ============================================================================
 
 /// The unified layout intent model — aggregate of all analysis layers.
 #[derive(Debug, Clone)]
@@ -323,9 +311,7 @@ impl SchematicLayoutModel {
     }
 }
 
-// ============================================================================
 // Box role classification
-// ============================================================================
 
 fn classify_box_role(b: &crate::vector::graph::McVecBox) -> BoxLayoutRole {
     use crate::vector::graph::BoxKind;
@@ -345,9 +331,7 @@ fn classify_box_role(b: &crate::vector::graph::McVecBox) -> BoxLayoutRole {
     BoxLayoutRole::Unknown
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

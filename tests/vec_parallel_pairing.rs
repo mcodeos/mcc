@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! Parallel `+` pairing-side **wiring fence** (S1 of the R0 implementation,
-//! `mcd/doc/vector-conn-r0-implementation-design.md` §3 / §6).
+//! `r0-implementation-design.md` §3 / §6).
 //!
 //! S1 is a pure refactor of the shape layer: the pairing side of `+` becomes
 //! derivable from `(lhs, rhs)` (`opcheck::parallel_attaches_right`) instead of
@@ -62,7 +62,7 @@ fn has_e4005(codes: &[u32]) -> bool {
     codes.contains(&mcc::errcodes::CONN_PARALLEL_SHAPE_MISMATCH)
 }
 
-// ── quiet cells ─────────────────────────────────────────────────────────────
+// quiet cells
 
 /// `R101 - A + B` — 1*1 points on both sides of `+`.
 #[test]
@@ -114,7 +114,7 @@ fn fence__column_plus_wider_column_quiet() {
     assert!(!has_e4005(&codes), "got {codes:?}");
 }
 
-// ── E4005 cells ─────────────────────────────────────────────────────────────
+// E4005 cells
 
 /// `R101 - A + R102` — the only source-reachable form here that fires E4005 in
 /// both trees. Whatever the accumulated `-` operand presents on the paired

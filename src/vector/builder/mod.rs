@@ -25,9 +25,7 @@ pub mod report; // ★ P02 (S1)
 pub mod resolve;
 pub mod visit;
 
-// ============================================================================
 // Top-level re-exports
-// ============================================================================
 
 // Main entry + data structures
 pub use visit::{build_mc_vec, build_mc_vec_with_arena, build_mc_vec_with_report, McVecBuilder};

@@ -25,7 +25,10 @@ pub struct ResistorShape;
 impl BoxShape for ResistorShape {
     fn render(&self, b: &McVecBox) -> String {
         let stamp = render_designator_and_value(b);
-        // ★ Vertical (h>w): use concentric "virtual horizontal box" to draw the symbol (reusing horizontal shape math), then rotate the whole thing 90° around the center to convert to vertical; label is drawn separately and not rotated (otherwise text would lie on its side).
+        // ★ Vertical (h>w): use concentric "virtual horizontal box" to draw the symbol (reusing
+        // horizontal shape math), then rotate the whole thing 90° around the center to convert to
+        // vertical; label is drawn separately and not rotated (otherwise text would lie on its
+        // side).
         let symbol = if b.h > b.w {
             let cx = b.x + b.w / 2.0;
             let cy = b.y + b.h / 2.0;
@@ -51,7 +54,8 @@ impl BoxShape for ResistorShape {
     }
 }
 
-/// Concentric "virtual horizontal box": swap width and height (long edge to x), center unchanged. Vertical parts are drawn horizontally first then rotated 90°.
+/// Concentric "virtual horizontal box": swap width and height (long edge to x), center unchanged.
+/// Vertical parts are drawn horizontally first then rotated 90°.
 pub(crate) fn vertical_virtual_box(b: &McVecBox) -> McVecBox {
     let cx = b.x + b.w / 2.0;
     let cy = b.y + b.h / 2.0;
@@ -105,9 +109,7 @@ fn resistor_symbol(b: &McVecBox) -> String {
     format!("    {lead_left}\n    {lead_right}\n    {zigzag}")
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -161,7 +163,7 @@ mod tests {
 
     #[test]
     fn no_rect_body() {
-        // Previously was <rect>; after the change there should be none
+        // The body is not a <rect> — there must be none:
         let svg = ResistorShape.render(&mk_resistor());
         assert!(
             !svg.contains("<rect"),

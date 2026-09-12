@@ -43,7 +43,7 @@ pub(crate) use budget::check_net_budget;
 // 6021 buckets/report and folds budget_derive::BudgetLoadScan charges into them.
 mod budget_derive;
 
-// PWR-1/PWR-2 supply reach (net-island-attribution-design.md §7 L4 — the
+// PWR-1/PWR-2 supply reach (island-attribution-design.md §7 L4 — the
 // nominal face of the S-set step): reach.rs closes 6011/6019's "copper
 // pass-through feed = later S-set step" gap. No re-export — the two owners
 // (6011 check_sink_nominal_mismatch, 6019 check_undriven_sink_net) live in
@@ -966,7 +966,7 @@ pub(crate) fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetC
     }
 }
 
-// ── Abstract placed unselected (abstract-variant plan §6.1) ────────────────
+// Abstract placed unselected (abstract-variant plan §6.1)
 /// An instance whose def is an `abstract component` carries the `unselected`
 /// marker set at flatten time (never inferred here from a `partno` sentinel —
 /// abstract defs may legally hold a reference partno). Placement is legal and
@@ -1187,7 +1187,7 @@ pub(crate) fn check_clamp_ref_role(table: &InstTable, results: &mut Vec<NetCheck
     }
 }
 
-// ── Power-intent DC rail contract (§4.1 / §13.2): Volt-arg decode ──────────
+// Power-intent DC rail contract (§4.1 / §13.2): Volt-arg decode
 // A domain rail declares the *guarantee* half of a DC contract:
 // `rail [hot, ret]::DC(v, tol, capacity, eff)`. Two declaration-local
 // verdicts, owning-def local exactly like the relation-edge rules above:
@@ -1196,7 +1196,7 @@ pub(crate) fn check_clamp_ref_role(table: &InstTable, results: &mut Vec<NetCheck
 //     factor). The Volt-arg self-check — no fake window, no silent pass.
 //   * two-roots (6010): a net is the hot member of at most one rail. Writing
 //     an intermediate net into a domain rail gives S two handwritten roots and
-//     every downstream window ERC a fake conflict (§4.1 — an intermediate net never enters a domain).
+// every downstream window ERC a fake conflict (§4.1 — an intermediate net never enters a domain).
 // The full sink-window E-PWR-001 (`S(net) ⊆ input_req` / sink req window)
 // needs the psnk + spec semantic layer (design §13 axis ③) and is not
 // adjudicated here — it cannot be golden-verified until that layer lands.
@@ -1329,7 +1329,7 @@ impl PowerScan {
 
         // Module power-output (Src/Bi) port contracts, per module *instance* id
         // (power_decls is keyed by the same instance entry a Port point's
-        // `parent_id` carries — power-intent-design.md §5.2 / §8.5 budget face).
+        // `parent_id` carries — intent-design.md §5.2 / §8.5 budget face).
         let port_src: std::collections::HashMap<u32, Vec<(String, L1PwrPin)>> = table
             .power_decls()
             .iter()
@@ -1634,7 +1634,7 @@ pub(crate) fn check_sink_nominal_mismatch(table: &InstTable, results: &mut Vec<N
     }
 }
 
-/// PWR-1 no-source-face kernel (power-intent-design.md §11 / §13 landing 3): a
+/// PWR-1 no-source-face kernel (intent-design.md §11 / §13 landing 3): a
 /// flat net that carries component power-sink (`psnk`) terminals yet has no
 /// supply root on the net itself — neither a declared domain-rail face
 /// (`guarantee`, §4.1) nor a `psrc`/`psbi` hot pin whose nominal decodes (§4.3)
@@ -1746,7 +1746,7 @@ pub(crate) fn check_undriven_sink_net(table: &InstTable, results: &mut Vec<NetCh
     }
 }
 
-/// PWR-3 source-contention kernel (power-intent-design.md §11 / §13 landing 3):
+/// PWR-3 source-contention kernel (intent-design.md §11 / §13 landing 3):
 /// two or more `psrc` hard sources landing their hot terminal on the same net
 /// with no declared combine element between them is an undeclared parallel
 /// source — a regulator pair wired straight to one node, where a failed or
@@ -1939,7 +1939,7 @@ pub(crate) fn check_protective_multi_bridge(table: &InstTable, results: &mut Vec
 /// §3.2 role-relation contract, earth row: an `@role(earth)` conduit couples to
 /// protective/main only through a Y-cap `@couple` (AC-only) — any declared DC
 /// `@bridge` incident to it is a low-resistance chassis direct tie and a leakage
-/// warning (power-intent-design.md §3.2 earth row / §11 chassis/earth scene).
+/// warning (intent-design.md §3.2 earth row / §11 chassis/earth scene).
 /// Unlike the isolated row, no world derivation is needed: earth refs are
 /// themselves the full incident surface. `@clamp` into an earth ref stays legal
 /// (PWR-7 targets protective/earth), so only `@bridge` rows leak. Severity is a
@@ -2156,7 +2156,7 @@ pub(crate) fn check_role_ref_missing_bridge(table: &InstTable, results: &mut Vec
 }
 
 /// Pin-contract Volt-arg decode (the pin-side of [`POWER_RAIL_DECODE`] 6009;
-/// power-intent-design.md §5.2 closed word-list discipline): every `psrc`/`psnk`/`psbi`
+/// intent-design.md §5.2 closed word-list discipline): every `psrc`/`psnk`/`psbi`
 /// `::DC(…)` ctor arg must decode to the contract it names. `decode_pwr_pin`
 /// keeps the first failure as `L1PwrPin::bad` — a non-DC nominal (e.g.
 /// `::DC(5A)` on a sink), a source-exclusive budget key (`tol`/`capacity`/`eff`)
@@ -2384,7 +2384,7 @@ fn leg_sites(comp: &InstEntry, pins: &[&InstEntry]) -> Vec<(u32, String)> {
 
 /// §8.5 cross-plane DC-relation completeness (conduit-equivalence-design.md
 /// §8.5, PWR-2 upper clause) — the first consumer of the L1 island index
-/// (net-island-attribution-design.md §7 L2). A two-terminal DC element *is* a
+/// (island-attribution-design.md §7 L2). A two-terminal DC element *is* a
 /// relation (the §8.5 unified predicate): when its two pads resolve to two
 /// different potential classes whose domain-worlds are DISJOINT — the pads sit
 /// in no single declared `rail[hot,ret]` loop — the physical leg is a
@@ -2500,7 +2500,8 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
         let pair_declared = !pair_hits.is_empty();
         let sites = leg_sites(comp, &pins);
         let mdef_uri = comp_def_uri(table, ma); // the file the clause spans index against
-                                                // Self-declared: an edge on this exact pair whose clause span contains a
+                                                // Self-declared: an edge on this exact pair whose
+                                                // clause span contains a
                                                 // pad's wiring site in the module def file.
         let self_declared = pair_hits.iter().any(|d| {
             sites.iter().any(|(off, uri)| {

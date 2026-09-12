@@ -4,7 +4,7 @@
 
 //! §4.6 C-3 — per-edge truth is never overwritten by an aggregate.
 //!
-//! R0's obligation downstream of `eval_chain` (vector-conn-unified-core-design.md
+//! R0's obligation downstream of `eval_chain` (unified-core-design.md
 //! §4.6 C-3): every `ConnectionInst` carries a per-edge `dir`/`op`, and that
 //! truth must survive to the vector layer. The aggregates the vector layer
 //! derives (`Trunk.dir`, `NetShape.dir`) are **projections** of those per-edge

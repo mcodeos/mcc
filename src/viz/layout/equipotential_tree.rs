@@ -25,9 +25,9 @@
 //! `rails.rs` R-1 — it is a different rendering contract.
 //!
 //! ## M1 row model
-//! Every trunk is a horizontal row. A W/E net, whose trunk used to be vertical,
-//! becomes a horizontal row at its anchor's first-pin y, extending outward from
-//! the anchor edge; N/S nets keep their outside-the-anchor rail position.
+//! Every trunk is a horizontal row. A W/E net is a horizontal row at its
+//! anchor's first-pin y, extending outward from the anchor edge — no net keeps
+//! a vertical trunk; N/S nets keep their outside-the-anchor rail position.
 //! `Lane::horizontal` carries the orientation so no pass re-derives it from the
 //! Region (which keeps only semantics — which side of the IC the net leaves).
 //! Lane resolution runs in **dependency order** (a net's lane is computed only
@@ -40,9 +40,7 @@ use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{BoxKind, EntrySide, McVecGraph, NetKind, PinSlot, VizNet};
 use crate::vector::model::RailClass;
 
-// ============================================================================
 // Constants
-// ============================================================================
 
 /// Minimum pin pitch for R-D box sizing
 pub const PIN_PITCH: f64 = 40.0;
@@ -142,9 +140,7 @@ pub const TOOTH_GAP: f64 = 20.0;
 /// [`COL_MARGIN`]: super::equi_column::COL_MARGIN
 pub const SYMBOL_LANE: f64 = 40.0;
 
-// ============================================================================
 // Region / Lane — direction as a first-class citizen (device_layout_v2.md)
-// ============================================================================
 
 /// A net's orientation relative to the layer anchor. Pins inherit the Region of
 /// the net they belong to — no pass hardcodes `Right`/`Left` anymore.
@@ -225,9 +221,7 @@ impl Default for Lane {
     }
 }
 
-// ============================================================================
 // Layer 1: Topology (zero coordinates)
-// ============================================================================
 
 /// Trunk direction: derived from the anchor's pin edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -695,9 +689,7 @@ fn trunk_axis_from_anchor(_anchor_id: i64, pin_ids: &[i64], _graph: &McVecGraph)
     }
 }
 
-// ============================================================================
 // Layer 2: Layout (topology determines coordinates)
-// ============================================================================
 
 /// ★ P1: assign each net's Region from its electrical role (device_layout_v2.md sec.3).
 /// Pure function of (graph, topos) — layout and render both replay it, so the
@@ -770,7 +762,7 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         }
     }
 
-    // ── Pass 1.5 (★ M7.1): netlist-driven side coupling ──────────────────────
+    // Pass 1.5 (★ M7.1): netlist-driven side coupling
     //
     // The side decision must START FROM THE NETLIST, not from each pin's IO
     // direction read in isolation. Two nets that share a TWO-PIN member form a
@@ -875,7 +867,7 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         }
     }
 
-    // ── Pass 1.6 (★ M10.2): the satellite side belongs to the shared nets ────
+    // Pass 1.6 (★ M10.2): the satellite side belongs to the shared nets
     //
     // `lpa.VDD` is an `IoDirection::Power` pin, so `direct_region` puts it WEST —
     // and `spk` is ALSO west, because that is where the two shared output nets
@@ -1025,7 +1017,7 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
     }
 
     // ── Pass 1.6b (★ M14.4): a SATELLITE's own nets take their side from the
-    // satellite, not from whoever they happen to inherit from ─────────────────
+    // satellite, not from whoever they happen to inherit from
     //
     // A satellite's non-shared nets touch no anchor pin, so Pass 1 skips them
     // and Pass 2 hands them whatever a member-sharing neighbour happens to have.
@@ -1090,7 +1082,7 @@ pub fn assign_regions(graph: &McVecGraph, topos: &mut [NetTopology]) -> usize {
         }
     }
 
-    // ── Pass 1.75 (★ M10.3): an ADOPTED ground lives on its run's ROW ────────
+    // Pass 1.75 (★ M10.3): an ADOPTED ground lives on its run's ROW
     //
     // Pass 0 sends every Ground net South unconditionally. That is right for a
     // net hanging off a real IC GND pin, and wrong for the "cap into a ground
@@ -2227,8 +2219,8 @@ pub fn place_by_topology(graph: &mut McVecGraph, topos: &mut [NetTopology]) {
         // not been sized yet. Such a sub-anchor (e.g. `C_DAC22`, `C_DAC330` in
         // a DAC chain) sits on a row assigned by `assign_rows` and is placed as
         // a member of its OWN net in P4 below, so a net anchored on it may
-        // resolve now; the fixed point previously dead-locked here because the
-        // sub-anchor was never placed and thus its net could never resolve.
+        // resolve now; a fixed point here would dead-lock, because the sub-anchor
+        // is never placed and its net can therefore never resolve.
         let mut to_resolve: Vec<(usize, usize)> = Vec::new();
         for (i, topo) in topos.iter().enumerate() {
             if resolved[i] {
@@ -3058,7 +3050,7 @@ pub(crate) fn assign_rows(
     // ── M3.2 Phase 3: y from the band sequence ──
     // y[k+1] = y[k] + max(PIN_PITCH, down(k) + ROW_CLEAR, up(k+1) + ROW_CLEAR).
     // The clearance is ROW_CLEAR, not MEMBER_GAP — the old 60px clearance blew
-    // the IC up (`lp322dcdc` used to be 280 tall, plan target <= 200). The
+    // the IC up (`lp322dcdc` was 280 tall against a plan target of <= 200). The
     // corridor demand above is what keeps a Bridge/Drop body clear of the next
     // row (the naive `MEMBER_GAP → ROW_CLEAR` swap alone regressed A10/A7).
     const BASE_Y: f64 = 100.0;
@@ -3073,7 +3065,7 @@ pub(crate) fn assign_rows(
         }
     }
 
-    // ── M3.5 (R4) + ★ M7.4: settle the band ys BEFORE deriving anything ──────
+    // M3.5 (R4) + ★ M7.4: settle the band ys BEFORE deriving anything
     //
     // A free net's band must not land on a rail row (`RAIL_GAP` 40→80 moved the
     // South rail onto `moddcdc` 501's band, which A11 flags). The colliding
@@ -3232,7 +3224,7 @@ pub(crate) fn assign_rows(
     // M3.2 Pass 3 (cycle break): a trunk-bearing net still unassigned here had
     // no shareable partner (a row-inheritance cycle). Open a fresh band below,
     // log it, and do NOT count it as a fallback (A1 only counts islands).
-    // ── ★ M14.2: a SATELLITE's own nets get rows NEXT TO IT ──────────────────
+    // ★ M14.2: a SATELLITE's own nets get rows NEXT TO IT
     //
     // A net that touches no anchor pin and shares no run has, until now, fallen
     // through to the cycle break below — a fresh band under the IC. On a layer
@@ -3654,7 +3646,7 @@ fn place_members(
 /// box's left edge, East → its right edge. Using the region EDGE (not the
 /// anchor group's first pin slot) guarantees a West member always sits left of
 /// the IC and an East member right — the anchor group's first pin may be on a
-/// different edge, which previously pushed a "West" member onto the IC's right.
+/// different edge, which would push a "West" member onto the IC's right.
 /// Reads only the anchor box rect, never a member box rect, so A2 stays intact.
 fn net_anchor_pin_x(graph: &McVecGraph, topo: &NetTopology) -> f64 {
     graph
@@ -4206,9 +4198,7 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
     }
 }
 
-// ============================================================================
 // ★ M3.3: TapRole — electrical role by partner ROW (device_layout_v2.md sec.3.3)
-// ============================================================================
 
 /// Electrical role of a member box, decided by where the member's OTHER pin's
 /// net ROW lies relative to this net's row — the formal answer to "which way
@@ -5253,9 +5243,7 @@ fn assign_sink_slots(
     }
 }
 
-// ============================================================================
 // Layer 3: Geometry (topology + placed coords → segments + dots)
-// ============================================================================
 
 /// A line segment.
 #[derive(Debug, Clone)]
@@ -5338,9 +5326,7 @@ pub struct EquiTree {
     pub symbols: Vec<TreeSymbol>,
 }
 
-// ============================================================================
 // M15: foreign-body trunk deflection (gutter routing)
-// ============================================================================
 
 /// How far a deflected trunk runs below/above its row's parts. On a row whose
 /// on-row parts are 20px tall (the two-pin symbol box) the band from the parts'
@@ -6613,9 +6599,7 @@ fn build_symbols(topo: &NetTopology, lane: Lane, graph: &McVecGraph) -> Vec<Tree
     symbols
 }
 
-// ============================================================================
 // Main entry points
-// ============================================================================
 
 /// Top-left corner a layout-declared layer anchor is pinned to. Mirrors
 /// `assign_anchor_slots` (x = 80.0, y = `plan.ic_top`) — the first band row sits

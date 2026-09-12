@@ -33,9 +33,7 @@ use crate::viz::idiom::{self, IdiomMatch};
 use crate::viz::layout::chain::{self, ChainDir};
 use crate::viz::layout::rails;
 
-// ============================================================================
 // PinKey
-// ============================================================================
 
 /// Composite key for a pin: (box_id, pin_id).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -50,9 +48,7 @@ impl PinKey {
     }
 }
 
-// ============================================================================
 // BoxRole
-// ============================================================================
 
 /// Semantic role of a box.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,9 +63,7 @@ pub enum BoxRole {
     Unknown,
 }
 
-// ============================================================================
 // BoxSemantic
-// ============================================================================
 
 /// Semantic analysis of a single box.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,9 +78,7 @@ pub struct BoxSemantic {
     pub group_ids: Vec<usize>,
 }
 
-// ============================================================================
 // NetRole
-// ============================================================================
 
 /// Semantic role of a net.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,9 +93,7 @@ pub enum NetRole {
     InternalOrIsolated,
 }
 
-// ============================================================================
 // NetSemantic
-// ============================================================================
 
 /// Semantic analysis of a single net.
 #[derive(Debug, Clone, PartialEq)]
@@ -119,9 +109,7 @@ pub struct NetSemantic {
     pub rail_intent: Option<usize>,
 }
 
-// ============================================================================
 // PinSideReason
-// ============================================================================
 
 /// Reason behind a pin's preferred side.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,9 +124,7 @@ pub enum PinSideReason {
     Unknown,
 }
 
-// ============================================================================
 // PinSemantic
-// ============================================================================
 
 /// Semantic analysis of a single pin/endpoint.
 #[derive(Debug, Clone, PartialEq)]
@@ -153,9 +139,7 @@ pub struct PinSemantic {
     pub is_synthetic: bool,
 }
 
-// ============================================================================
 // ChainNodeSemantic
-// ============================================================================
 
 /// A node in a signal chain.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,9 +148,7 @@ pub struct ChainNodeSemantic {
     pub net_id: i64,
 }
 
-// ============================================================================
 // SignalChainSemantic
-// ============================================================================
 
 /// A signal chain extracted from the graph.
 #[derive(Debug, Clone, PartialEq)]
@@ -180,9 +162,7 @@ pub struct SignalChainSemantic {
     pub loops_to_hub: bool,
 }
 
-// ============================================================================
 // PassiveChainSemantic
-// ============================================================================
 
 /// A passive chain (skeleton — to be filled in a future milestone).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,9 +173,7 @@ pub struct PassiveChainSemantic {
     pub endpoints: Vec<PinKey>,
 }
 
-// ============================================================================
 // ComponentGroupKind
-// ============================================================================
 
 /// Kind of component group.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,9 +187,7 @@ pub enum ComponentGroupKind {
     BusCluster,
 }
 
-// ============================================================================
 // ComponentGroup
-// ============================================================================
 
 /// A group of related components.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,9 +198,7 @@ pub struct ComponentGroup {
     pub anchor_box_id: Option<i64>,
 }
 
-// ============================================================================
 // BusGroup
-// ============================================================================
 
 /// A bus group (skeleton — to be filled in a future milestone).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -236,9 +210,7 @@ pub struct BusGroup {
     pub bit_order: Vec<(usize, i64)>,
 }
 
-// ============================================================================
 // RailRole
-// ============================================================================
 
 /// Role of a rail intent.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -249,9 +221,7 @@ pub enum RailRole {
     SyntheticFlag,
 }
 
-// ============================================================================
 // RailIntent
-// ============================================================================
 
 /// A power/ground rail intent (skeleton — to be filled in a future milestone).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -264,9 +234,7 @@ pub struct RailIntent {
     pub endpoint_pins: Vec<PinKey>,
 }
 
-// ============================================================================
 // SemanticWarning
-// ============================================================================
 
 /// A warning produced during semantic analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -282,9 +250,7 @@ impl SemanticWarning {
     }
 }
 
-// ============================================================================
 // SemanticSummary
-// ============================================================================
 
 /// Summary statistics from semantic analysis.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -325,9 +291,7 @@ impl SemanticSummary {
     }
 }
 
-// ============================================================================
 // SemanticModel
-// ============================================================================
 
 /// The semantic analysis model — a read-only derived analysis over [`McVecGraph`].
 #[derive(Debug, Clone, PartialEq)]
@@ -346,9 +310,7 @@ pub struct SemanticModel {
 }
 
 impl SemanticModel {
-    // ========================================================================
     // Main entry point
-    // ========================================================================
 
     /// Analyze a [`McVecGraph`] and produce a [`SemanticModel`].
     ///
@@ -412,9 +374,7 @@ impl SemanticModel {
         }
     }
 
-    // ========================================================================
     // Phase 1: collect_box_semantics
-    // ========================================================================
 
     fn collect_box_semantics(
         graph: &McVecGraph,
@@ -491,9 +451,7 @@ impl SemanticModel {
         BoxRole::Unknown
     }
 
-    // ========================================================================
     // Phase 2: collect_net_semantics
-    // ========================================================================
 
     fn collect_net_semantics(
         graph: &McVecGraph,
@@ -551,9 +509,7 @@ impl SemanticModel {
         }
     }
 
-    // ========================================================================
     // Phase 3: collect_pin_semantics
-    // ========================================================================
 
     fn collect_pin_semantics(
         graph: &McVecGraph,
@@ -644,9 +600,7 @@ impl SemanticModel {
         }
     }
 
-    // ========================================================================
     // Phase 4: detect_hubs
-    // ========================================================================
 
     fn detect_hubs(
         graph: &McVecGraph,
@@ -660,9 +614,7 @@ impl SemanticModel {
         (hub_ids.len(), hub_ids)
     }
 
-    // ========================================================================
     // Phase 5: detect_signal_chains
-    // ========================================================================
 
     fn detect_signal_chains(
         graph: &McVecGraph,
@@ -700,9 +652,7 @@ impl SemanticModel {
         (chains, count)
     }
 
-    // ========================================================================
     // Phase 6: detect_passive_chains (skeleton)
-    // ========================================================================
 
     fn detect_passive_chains(
         graph: &McVecGraph,
@@ -712,9 +662,7 @@ impl SemanticModel {
         (Vec::new(), 0)
     }
 
-    // ========================================================================
     // Phase 7: detect_bus_groups (skeleton)
-    // ========================================================================
 
     fn detect_bus_groups(
         graph: &McVecGraph,
@@ -724,9 +672,7 @@ impl SemanticModel {
         (Vec::new(), 0)
     }
 
-    // ========================================================================
     // Phase 8: detect_rail_intents (skeleton)
-    // ========================================================================
 
     fn detect_rail_intents(
         graph: &McVecGraph,
@@ -736,9 +682,7 @@ impl SemanticModel {
         (Vec::new(), 0)
     }
 
-    // ========================================================================
     // Phase 9: detect_component_groups
-    // ========================================================================
 
     fn detect_component_groups(
         signal_chains: &[SignalChainSemantic],
@@ -780,13 +724,9 @@ impl SemanticModel {
         (groups, count)
     }
 
-    // ========================================================================
     // Phase 10: attach_idioms (done inline in analyze())
-    // ========================================================================
 
-    // ========================================================================
     // Phase 11: validate_semantic_model
-    // ========================================================================
 
     fn validate_semantic_model(
         graph: &McVecGraph,
@@ -829,9 +769,7 @@ impl SemanticModel {
         }
     }
 
-    // ========================================================================
     // Report
-    // ========================================================================
 
     /// Produce a single-line summary report for metrics output.
     pub fn report_lines(&self) -> Vec<String> {
@@ -855,9 +793,7 @@ impl SemanticModel {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -866,7 +802,7 @@ mod tests {
     use crate::vector::graph::{EndpointRef, Symbol, VizNet};
     use crate::viz::idiom::IdiomKind;
 
-    // ── Helpers ────────────────────────────────────────────────────────────
+    // Helpers
 
     fn mk_box(
         id: i64,
@@ -928,7 +864,7 @@ mod tests {
         EndpointRef::new(box_id, pin_id, pin_name)
     }
 
-    // ── Test 1: analyze does not modify the graph ──────────────────────────
+    // Test 1: analyze does not modify the graph
 
     #[test]
     fn analyze_does_not_modify_graph() {
@@ -961,7 +897,7 @@ mod tests {
         }
     }
 
-    // ── Test 2: net role ───────────────────────────────────────────────────
+    // Test 2: net role
 
     #[test]
     fn power_net_role_is_power() {
@@ -1027,7 +963,7 @@ mod tests {
         assert_eq!(model.nets[&1].driver_count, 1);
     }
 
-    // ── Test 3: preferred side ─────────────────────────────────────────────
+    // Test 3: preferred side
 
     fn graph_with_pin(box_id: i64, pin_id: i64, io: IoDirection) -> McVecGraph {
         let mut graph = McVecGraph::new(0, "test".into());
@@ -1097,7 +1033,7 @@ mod tests {
         assert_eq!(pin.preferred_side, None);
     }
 
-    // ── Test 4: hub detection ──────────────────────────────────────────────
+    // Test 4: hub detection
 
     #[test]
     fn hub_detection_marks_ic_as_hub() {
@@ -1131,7 +1067,7 @@ mod tests {
         assert_eq!(model.summary.hubs_detected, 0);
     }
 
-    // ── Test 5: two-point signal net ───────────────────────────────────────
+    // Test 5: two-point signal net
 
     #[test]
     fn two_point_signal_net_is_point_to_point() {
@@ -1148,7 +1084,7 @@ mod tests {
         assert_eq!(model.nets[&1].topology, NetTopology::TwoPoint);
     }
 
-    // ── Test 6: multi-endpoint signal net ──────────────────────────────────
+    // Test 6: multi-endpoint signal net
 
     #[test]
     fn multi_driver_signal_net_is_leaf() {
@@ -1169,7 +1105,7 @@ mod tests {
         assert_eq!(model.nets[&1].driver_count, 2);
     }
 
-    // ── Test 7: synthetic endpoint ─────────────────────────────────────────
+    // Test 7: synthetic endpoint
 
     #[test]
     fn synthetic_endpoint_is_marked() {
@@ -1188,7 +1124,7 @@ mod tests {
         assert!(!real_pin.is_synthetic);
     }
 
-    // ── Test 8: idiom matches included ─────────────────────────────────────
+    // Test 8: idiom matches included
 
     #[test]
     fn idiom_matches_included() {
@@ -1219,7 +1155,7 @@ mod tests {
         assert_eq!(model.summary.idioms_detected, model.idioms.len());
     }
 
-    // ── Test 9: report lines ───────────────────────────────────────────────
+    // Test 9: report lines
 
     #[test]
     fn report_lines_are_stable() {
@@ -1257,7 +1193,7 @@ mod tests {
         assert!(lines.iter().any(|l| l.contains("signal_chains=")));
     }
 
-    // ── Test 10: determinism ───────────────────────────────────────────────
+    // Test 10: determinism
 
     #[test]
     fn analyze_is_deterministic() {
@@ -1296,7 +1232,7 @@ mod tests {
         assert_eq!(a, b);
     }
 
-    // ── Additional: actual side detection ──────────────────────────────────
+    // Additional: actual side detection
 
     #[test]
     fn actual_side_detected_from_entry_points() {
@@ -1343,7 +1279,7 @@ mod tests {
         assert_eq!(model.summary.preferred_actual_side_mismatches, 1);
     }
 
-    // ── Additional: BoxRole classification ─────────────────────────────────
+    // Additional: BoxRole classification
 
     #[test]
     fn resistor_is_passive_role() {

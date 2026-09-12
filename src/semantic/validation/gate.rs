@@ -5,10 +5,10 @@
 //! resolve-gate §1.3/§1.4 (relax-everything): component-finish recheck of inlined
 //! ghost-bus candidates.
 //!
-//! The Phase 1 entry gate (resolve-gate-design.md §1.3/§1.4) previously made a
+//! The Phase 1 entry gate (resolve-gate-design.md §1.3/§1.4) must not make a
 //! structured dot access whose base resolves to no declared instance a hard
-//! error: the phantom ghost-bus was suppressed, the statement dropped, and the
-//! finish recheck emitted E3182. Since the relax-everything decision the ghost-bus is
+//! error: suppressing the phantom ghost-bus drops the statement, and the finish
+//! recheck then emits E3182. Under the relax-everything decision the ghost-bus is
 //! kept and inlined at every gate site in mc_phrase.rs — the reference either
 //!   * passes: the base IS a declared instance name (an instance, a FuncCall
 //!     caller label such as `dTrigger`/`PL`, or a func-local inst such as

@@ -72,8 +72,8 @@ fn net<'a>(layer: &'a McVecBlock, name: &str) -> &'a mcc::vector::model::McVecNe
 ///
 /// main's ground plane is exactly ONE declared Ground net: the merged `GND`
 /// conductor (bare `GND` + `V1V2.GND` + `V3V3.GND` + `V5V.GND`). The 5V return
-/// is in it because the sub-block tie that used to be unassertable is now a
-/// declaration: the LDO's scalar header `in vin::DC(5V)` declares its return
+/// is in it because the sub-block tie is now assertable as a declaration: the
+/// LDO's scalar header `in vin::DC(5V)` declares its return
 /// face, which is the same copper its `vout` face returns on. This is the §7.1
 /// migration the design predicted for this fixture (cf. mcs hbl, which had
 /// already migrated to the written-pair spelling).

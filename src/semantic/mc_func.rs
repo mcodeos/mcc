@@ -19,9 +19,7 @@ use crate::{
     semantic::basic::mc_param::McParamDeclares,
 };
 
-// ============================================================================
 // McFuncReturn — function return-value kind (parse-time)
-// ============================================================================
 
 /// Function return-value kind, decided at parse time from the body's `return`
 /// statement (if any). Used by the call-site parser to validate method chains.
@@ -676,7 +674,8 @@ pub struct McFunction {
     /// The component-finish recheck re-resolves each against the final symbol
     /// table. Populated by [`McFunction::parse_body`].
     pub(crate) gate_candidates: Vec<GateCandidate>,
-    /// Pre-parsed function body connections (needs to be called after McModule is built to fill parse_body)
+    /// Pre-parsed function body connections (needs to be called after McModule is built to fill
+    /// parse_body)
     pub called_time: u32,
     anon_counter: usize,
     uri: Option<crate::McURI>,
@@ -746,7 +745,8 @@ impl McFunction {
     /// because McOpd::new in function body needs symbol resolution through context.
     ///
     /// # Call timing
-    /// In pass_defgen phase, all McModule members (components, submodules, labels, function declarations)
+    /// In pass_defgen phase, all McModule members (components, submodules, labels, function
+    /// declarations)
     /// after all parsed, iterate all functions calling this method:
     /// ```ignore
     /// for func in self.funcs.iter_mut() {
@@ -787,9 +787,10 @@ impl McFunction {
         };
         if let Some(body_nodes) = body.get_sub_node() {
             let body_nodes: AstNode = body_nodes;
-            // ── [BODY-RAW] read-only diagnostic ─────────────────────────────
+            // [BODY-RAW] read-only diagnostic
             // Pure print, no behavior change. List each top-level node's type under body + its
-            // child node type sequence, used to confirm that `MIC{P,N} -> cap[4:5]::CAP() -> uC.ADC{P,N}`
+            // child node type sequence, used to confirm that
+            // `MIC{P,N} -> cap[4:5]::CAP() -> uC.ADC{P,N}`
             // this statement appears in AST in what form (or doesn't appear at all).
             // get_type() returns u16; against macros.rs: NET=33, DECLARE=26,
             // OPD=52, OPD_RIGHTARROW=71, OPD_DBCOLON=77, INSTANCE=29, CLASS=28。
@@ -823,7 +824,7 @@ impl McFunction {
 
                     MCAST_NET => {
                         if let Some(subnode) = body_node.get_sub_node() {
-                            // ── return-statement detection ──────────────────
+                            // return-statement detection
                             // The parser may wrap `return X` either as
                             //   NET → IOTYPE_RETURN(→ X | sibling X)        (typical)
                             //   NET → IOTYPE_RETURN  (bare `return`)
@@ -864,12 +865,15 @@ impl McFunction {
                                     self.stmts.push(net);
                                 }
                                 None => {
-                                    // ── P1 fix: no longer silently discarded ────────────────────
-                                    // Previously `None => {}` silently swallowed unresolvable connection stmts,
-                                    // causing whole stmt to disappear from netlist but errors=0/warnings=0
-                                    // (typical: `MIC{P,N} -> cap[4:5]::CAP() -> uC.ADC{P,N}`).
-                                    // Now upgraded to Warning (non-fatal, doesn't break errors=0 gate),
-                                    // with reconstructed source text, making any "whole-stmt evaporation" immediately visible.
+                                    // P1 fix: no longer silently discarded
+                                    // Falling into `None => {}` swallows an unresolvable
+                                    // connection stmt: the whole stmt disappears from the
+                                    // netlist while errors=0/warnings=0 (typical:
+                                    // `MIC{P,N} -> cap[4:5]::CAP() -> uC.ADC{P,N}`).
+                                    // Now upgraded to Warning (non-fatal, doesn't break errors=0
+                                    // gate),
+                                    // with reconstructed source text, making any "whole-stmt
+                                    // evaporation" immediately visible.
                                     let stmt_txt = subnode
                                         .to_string()
                                         .unwrap_or_else(|| "<unprintable>".to_string());
@@ -956,7 +960,7 @@ impl McFunction {
                 }
             }
 
-            // ── E3136 FUNC_FLOATING_LABEL ─────────────────────────────────────
+            // E3136 FUNC_FLOATING_LABEL
             // A bare identifier that failed find_inst is a floating net
             // endpoint unless it is declared by this func body:
             //   * param member, incl. bracket form `[net1, net2]` — the actual
@@ -1027,9 +1031,7 @@ impl McFunction {
         }
     }
 
-    // ========================================================================
     // return-statement helpers
-    // ========================================================================
 
     /// Render the function body for display: plain connection stmts followed
     /// by conditional blocks (`if cond` / `else`, branch stmts indented).
@@ -1292,13 +1294,15 @@ impl HasFindInst for McFunction {
             .expect("McFunction.uri not set, call parse_body first")
     }
 
-    /// ── Iter-7.4 (parser fix) ────────────────────────────────────────────
+    /// Iter-7.4 (parser fix)
     /// Let `MCAST_DECLARE` embedded in func body chain (named instance `R442::RES(1MΩ)`
-    /// or anonymous instance `CAP(1nF)` etc.) be correctly instantiated as Component / Module / Bus instance,
+    /// or anonymous instance `CAP(1nF)` etc.) be correctly instantiated as Component / Module / Bus
+    /// instance,
     /// instead of falling back to mc_phrase.rs:335 fallback to become label.
     ///
     /// Historical reason:
-    ///   Original implementation returns `Vec::new()`, causing all DECLARE encountered in func body chain
+    /// Original implementation returns `Vec::new()`, causing all DECLARE encountered in func body
+    /// chain
     ///   nodes to get no instance, can only be fallback as label in mc_phrase.rs.
     ///   Symptoms (root cause of bugfix_report errors 5/6/8):
     ///     - In `XTAL + R442::RES(1MΩ)` R442 doesn't appear in components list,
@@ -1312,7 +1316,7 @@ impl HasFindInst for McFunction {
     ///      into `self.insts` —— this 870-line monster method already handles
     ///      class lookup, CMIE, NC, nested params, array instances, construction args and all
     ///      corner cases, reuse is most stable.
-    ///   2. Use set difference to get newly registered instances, clone and return `Vec<McInstance>`.
+    /// 2. Use set difference to get newly registered instances, clone and return `Vec<McInstance>`.
     ///      These instances are wrapped into phrase at mc_phrase.rs:330-333
     ///      (Endpoint(Component(Arc<Mc2Component>))), phrase itself carries component
     ///      all info (partno, pins etc.), instantiation phase uses directly.

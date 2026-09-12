@@ -120,9 +120,7 @@ impl McEnumDef {
     }
 }
 
-// ============================================================================
 // HasFindInst for McEnumDef — namespace lookup (Phase 4.5)
-// ============================================================================
 
 impl HasFindInst for McEnumDef {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
@@ -213,9 +211,7 @@ impl HasFindInst for McEnumDef {
     }
 }
 
-// ============================================================================
 // Display implementation - concise format output
-// ============================================================================
 
 impl std::fmt::Display for McEnumDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

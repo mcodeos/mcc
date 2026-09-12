@@ -22,7 +22,6 @@ use crate::semantic::basic::opd_shape::OpdShape;
 use crate::semantic::common::IOType;
 use crate::semantic::mc_inst::McInstance;
 
-// ────────────────────────────────────────────────────────────────────────────
 // Iter-1.1: member string IDA expansion
 //
 // Syntax like `uC.pins[8:11]` / `cap[4:5]` / `ADC{P,N}` results in
@@ -36,7 +35,6 @@ use crate::semantic::mc_inst::McInstance;
 //   2. For non-pins-prefixed but bracket-range members (e.g., `X<1:2>`, `[A,B]`),
 //      directly call `McIds::expand()` to expand.
 //   3. for "no bracket" simple member names (e.g., `P`, `GND`), return `vec![m]` as-is.
-// ────────────────────────────────────────────────────────────────────────────
 
 /// Parse `wm7121{VCC}` → ("wm7121", "VCC"); single member curly selection.
 /// Multi-member (`{P,N}`) not handled here (goes to upper bus expansion), returns None.
@@ -75,7 +73,7 @@ fn expand_member_ida(member: &str) -> Vec<String> {
         .collect()
 }
 
-/// ── P2: bare bus/interface member alias → physical pid ────────────────────
+/// P2: bare bus/interface member alias → physical pid
 /// **Bare** aliases like `ldo.Vout` / `ldo.GND` are not registered as top-level
 /// `Single` entries in `names_to_id` (register_pin only records the dotted form
 /// `"VOUT.Vout"`), so it and `ldo.5` become two different canonical strings and
@@ -162,8 +160,9 @@ impl InstantiationBuilder {
                 let merged: McBus = iref.to_bus();
                 let elements = &merged;
                 if !elements.member.is_empty() {
-                    // ── Iter-1.1 ─────────────────────────────────────────
-                    // expand bracket-containing member literals (e.g., "pins[8:11]") to separate member list
+                    // Iter-1.1
+                    // expand bracket-containing member literals (e.g., "pins[8:11]") to separate
+                    // member list
                     let expanded_members: Vec<String> = elements
                         .member
                         .iter()
@@ -172,7 +171,7 @@ impl InstantiationBuilder {
                     let is_owned = !elements.name.is_empty()
                         && (self.find_submodule(&elements.name).is_some()
                             || self.find_component(&elements.name).is_some());
-                    // ── Bug ② fix ───────────────────────────────────────
+                    // Bug ② fix
                     // only register as bus when name is not known component/submodule.
                     // if `uC{XTAL, ...}` "component instance + pin member" form gets
                     // ensure_bus into self.buses, downstream inst_table.rs step 4
@@ -203,7 +202,8 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                             continue;
                         }
-                        // ── P2: component pin alias → pid (normalize at construction so union sees pid) ──
+                        // ── P2: component pin alias → pid (normalize at construction so union sees
+                        // pid) ──
                         let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                         // ── P2: if <owner>.<member> itself is bus port (members need further
                         //    expansion, e.g., usbsocket.vin{POWER_SYS,GND}), callback
@@ -223,7 +223,7 @@ impl InstantiationBuilder {
                     return Ok(points);
                 }
 
-                // ── Iter-8 ───────────────────────────────────────────────
+                // Iter-8
                 // Port N×1 bus expansion: when phrase's own member is empty, check if
                 // elements.name corresponds to N×1 port with declared members
                 // (e.g., `UART0`, `mic.MIC`). If hit, expand by declared members to N
@@ -246,16 +246,18 @@ impl InstantiationBuilder {
                         // no sub-members, direct conversion
                         points.push(self.node_to_netpoint(&elem));
                     } else {
-                        // has sub-members, register as bus and expand (flattened: member is string list)
-                        // ── Iter-1.1 ─────────────────────────────────────
+                        // has sub-members, register as bus and expand (flattened: member is string
+                        // list)
+                        // Iter-1.1
                         let expanded_members: Vec<String> = elem
                             .member
                             .iter()
                             .flat_map(|m| expand_member_ida(m))
                             .collect();
 
-                        // ── Bug ② fix ───────────────────────────────
-                        // component/submodule instance names not registered as bus (see same-name fix above);
+                        // Bug ② fix
+                        // component/submodule instance names not registered as bus (see same-name
+                        // fix above);
                         // on hit, endpoints generated in owner form.
                         let elem_owned = !elem.name.is_empty()
                             && (self.find_submodule(&elem.name).is_some()
@@ -278,7 +280,8 @@ impl InstantiationBuilder {
                             } else {
                                 format!("{}.{}", elem.name, m)
                             };
-                            // ── P2: component pin alias → pid (normalize at construction so union sees pid) ──
+                            // ── P2: component pin alias → pid (normalize at construction so union
+                            // sees pid) ──
                             let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                             if elem_owned {
                                 points.push(
@@ -305,18 +308,20 @@ impl InstantiationBuilder {
             }
 
             McPhrase::Parallel(phrases) => {
-                // ── Iter-7.1 ──────────────────────────────────────────────
+                // Iter-7.1
                 // Rule §10.1: `+` takes operand 1. `A + B + C` exposed to outer chain
                 // endpoints should only be opds[0]'s endpoints, **not all opds output**.
                 //
                 // Historically (Iter-5.C / refined) all opd left points were collected
-                // into same list as "workaround to let non-first branches connect to upstream GND/power",
+                // into same list as "workaround to let non-first branches connect to upstream
+                // GND/power",
                 // but side effects:
                 //   1. (A + B) -> RES -> C, + incorrectly "attached to next branch"
                 //      (bugfix_report error 12: TP1 connected to @RES1 instead of USB_VBUS)
                 //   2. (C1nF + R10k) -> GND, C1nF/R10k each output .2 endpoint,
                 //      relying on GND single-point broadcast (pre-§5.3.1, abolished) coincidentally
-                //      forming 2 nets, but middle node (operand 1's .1) has no proper internal net (errors 5, 9, 10)
+                // forming 2 nets, but middle node (operand 1's .1) has no proper internal net
+                // (errors 5, 9, 10)
                 //   3. lpa.BYPASS + lpa.IN.P -> CAP -> GND directly shorts BYPASS
                 //      / IN.P / CAP / GND all together (error 10)
                 //
@@ -328,7 +333,7 @@ impl InstantiationBuilder {
                     match first {
                         McPhrase::FuncCall(_) => self.get_left_points(first),
                         _ => {
-                            // ── BUG4 fix ──────────────────────────────────
+                            // BUG4 fix
                             // first may be Series([RES(30kΩ), lpa.VO1]) compound branch
                             // containing FuncCall (speaker periph.mc:97).
                             // _from_phrase for internal FuncCall reads bare RES.in placeholder →
@@ -351,7 +356,8 @@ impl InstantiationBuilder {
 
             McPhrase::Series(phrases, _) => {
                 // P1-E2 companion: Parallel inner may nest Series (rare).
-                // `get_left_points` originally returned empty for Series, changed to return **first**
+                // `get_left_points` originally returned empty for Series, changed to return
+                // **first**
                 // sub phrase's left points (chain start), consistent with `_from_phrase`
                 // semantics for Series.
                 if let Some(first) = phrases.first() {
@@ -373,7 +379,7 @@ impl InstantiationBuilder {
             }
 
             McPhrase::Transposed(inner_line) => {
-                // ── func-return-design §6.2: Transposed(FuncCall) face ─────
+                // func-return-design §6.2: Transposed(FuncCall) face
                 // The connection face comes from the unified FuncCall face
                 // resolver (return face for case ②, instance own face for ①).
                 // case ②'s stereo return node has both mouths on the SAME
@@ -486,11 +492,12 @@ impl InstantiationBuilder {
 
             // Def needs to be instantiated first, handled in process_member_internal
             //
-            // ── Iter-10.D (bucket D) ─────────────────────────────────────────
+            // Iter-10.D (bucket D)
             // However: this catch-all mixes "declare new instance (RES(100kΩ).Cap(...))" and
             // "reference existing instance (uC.UART0)" two syntax forms together. Former
             // indeed needs to instantiate first then associate endpoints via auto_inst_map; latter
-            // is reference to existing component bus port, should immediately expand to N physical pin
+            // is reference to existing component bus port, should immediately expand to N physical
+            // pin
             // lane.
             //
             // Fix here: after base=Component / Module hits, first try using iref
@@ -636,7 +643,7 @@ impl InstantiationBuilder {
                     .collect();
                 Ok(points)
             }
-            // ── P2-1: McEndpoint::List → register bus + expand ──────────────
+            // P2-1: McEndpoint::List → register bus + expand
             // Symmetric to get_right_points McEndpoint::List handler.
             //
             // ── §5.2/§5.3: whole declared array / component list operand ──
@@ -721,7 +728,7 @@ impl InstantiationBuilder {
                 }
                 Ok(points)
             }
-            // ── Iter-12.1 (D-class fix): Member variant interface parsing ──────────
+            // Iter-12.1 (D-class fix): Member variant interface parsing
             //
             // Original code: `McPhrase::Member(phrase, _) => self.get_left_points(phrase)`
             // completely ignored member name — for `uC.i2c(0x36).I2C0` chain, `.I2C0`
@@ -844,7 +851,7 @@ impl InstantiationBuilder {
                 let elements = &merged;
 
                 if !elements.member.is_empty() {
-                    // ── Iter-1.1 ─────────────────────────────────────────
+                    // Iter-1.1
                     let expanded_members: Vec<String> = elements
                         .member
                         .iter()
@@ -853,8 +860,9 @@ impl InstantiationBuilder {
                     let is_owned = !elements.name.is_empty()
                         && (self.find_submodule(&elements.name).is_some()
                             || self.find_component(&elements.name).is_some());
-                    // ── Bug ② fix (mirror get_left_points) ────────────────
-                    // component/submodule instance names not registered as bus, avoids downstream inst_table
+                    // Bug ② fix (mirror get_left_points)
+                    // component/submodule instance names not registered as bus, avoids downstream
+                    // inst_table
                     // expanding component pins to `<comp>/<pid>` form Label.
                     if !elements.name.is_empty() && !is_owned {
                         // BUS_MEMBER_UNDECLARED: validate the referenced member
@@ -878,7 +886,8 @@ impl InstantiationBuilder {
                             points.extend(lanes);
                             continue;
                         }
-                        // ── P2: component pin alias → pid (normalize at construction so union sees pid) ──
+                        // ── P2: component pin alias → pid (normalize at construction so union sees
+                        // pid) ──
                         let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                         // ── P2: if <owner>.<member> itself is bus port (members need further
                         //    expansion, e.g., usbsocket.vin{POWER_SYS,GND}), callback
@@ -898,7 +907,7 @@ impl InstantiationBuilder {
                     return Ok(points);
                 }
 
-                // ── Iter-8 ───────────────────────────────────────────────
+                // Iter-8
                 // Port N×1 bus expansion (mirror get_left_points same-name changes).
                 // See Iter-8 comment above get_left_points.
                 if !elements.name.is_empty() {
@@ -915,15 +924,16 @@ impl InstantiationBuilder {
                         // no sub-members, direct conversion
                         points.push(self.node_to_netpoint(&elem));
                     } else {
-                        // has sub-members, register as bus and expand (flattened: member is string list)
-                        // ── Iter-1.1 ─────────────────────────────────────
+                        // has sub-members, register as bus and expand (flattened: member is string
+                        // list)
+                        // Iter-1.1
                         let expanded_members: Vec<String> = elem
                             .member
                             .iter()
                             .flat_map(|m| expand_member_ida(m))
                             .collect();
 
-                        // ── Bug ② fix (mirror get_left_points) ───────────
+                        // Bug ② fix (mirror get_left_points)
                         let elem_owned = !elem.name.is_empty()
                             && (self.find_submodule(&elem.name).is_some()
                                 || self.find_component(&elem.name).is_some());
@@ -945,7 +955,8 @@ impl InstantiationBuilder {
                             } else {
                                 format!("{}.{}", elem.name, m)
                             };
-                            // ── P2: component pin alias → pid (normalize at construction so union sees pid) ──
+                            // ── P2: component pin alias → pid (normalize at construction so union
+                            // sees pid) ──
                             let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                             if elem_owned {
                                 points.push(
@@ -972,7 +983,7 @@ impl InstantiationBuilder {
             }
 
             McPhrase::Parallel(phrases) => {
-                // ── Iter-7.1 ──────────────────────────────────────────────
+                // Iter-7.1
                 // See get_left_points corresponding comment. Rule §10.1: `A + B + C`
                 // right endpoints only expose opds[0].right. Internal pin2 pairing connection
                 // generated by stmt.rs::process_member_internal::Parallel.
@@ -1081,9 +1092,10 @@ impl InstantiationBuilder {
 
                 let mut points = Vec::new();
                 for phrase in &g.opds {
-                    // ── BUG4 fix (mirror get_left_points Group branch) ───────
+                    // BUG4 fix (mirror get_left_points Group branch)
                     // prefer get_right_points (FuncCall goes through resolve_funccall_right_points
-                    // querying auto_inst_map, paired with stmt.rs pointer-keeping fix hits real pins),
+                    // querying auto_inst_map, paired with stmt.rs pointer-keeping fix hits real
+                    // pins),
                     // if empty, fallback to _from_phrase (Endpoint(Component) form).
                     let pts = self.get_right_points(phrase)?;
                     if pts.is_empty() {
@@ -1097,7 +1109,7 @@ impl InstantiationBuilder {
 
             // Def needs to be instantiated first, handled in process_member_internal
             //
-            // ── Iter-10.D (bucket D, mirror get_left_points same-name fix) ───────────
+            // Iter-10.D (bucket D, mirror get_left_points same-name fix)
             McPhrase::Endpoint(McEndpoint::Single(
                 iref @ McInstanceRef {
                     base: McInstance::Component(_),
@@ -1230,7 +1242,7 @@ impl InstantiationBuilder {
                     .collect();
                 Ok(points)
             }
-            // ── P2-1: McEndpoint::List → register bus + expand ──────────────
+            // P2-1: McEndpoint::List → register bus + expand
             // e.g., [SPI.SCLK, SPI.MOSI, SPI.CSN, SPI.MISO] on the right side
             // of a connection. Each element is a dotted label; common prefix
             // becomes the bus name, suffixes become members.
@@ -1278,7 +1290,7 @@ impl InstantiationBuilder {
                 }
                 Ok(points)
             }
-            // ── Iter-12.1 (D-class fix): Member variant interface parsing ──────────
+            // Iter-12.1 (D-class fix): Member variant interface parsing
             // Symmetric to get_left_points Member branch logic.
             // ── Iter-12.1b: add cross-module component lookup ──
             McPhrase::Member(phrase, member_ep) => {
@@ -1363,9 +1375,9 @@ impl InstantiationBuilder {
                 self.get_right_points(phrase)
             }
             McPhrase::Multiple(inner) => {
-                // ── P1 fix: mirror get_left_points Multiple handling ────────
-                // previously returned vec![], causing [RES, _] right endpoints (RES.out + passthrough)
-                // all lost, breaking `[RES, _] + CAP'` adjacent connections.
+                // P1 fix: mirror get_left_points Multiple handling
+                // Returning vec![] here loses the [RES, _] right endpoints
+                // (RES.out + passthrough) and breaks `[RES, _] + CAP'` adjacency.
                 let mut points = Vec::new();
                 for p in inner {
                     points.extend(self.get_right_points(p)?);
@@ -1388,7 +1400,7 @@ impl InstantiationBuilder {
                     Ok(Vec::new())
                 }
             }
-            // ── Iter-5.C (refined) ────────────────────────────────────────
+            // Iter-5.C (refined)
             // Parallel each branch should expose its own left pin to external adjacency.
             // phrase layer get_left for Parallel only returns opds[0].get_left()
             // (mc_phrase.rs:934-940), non-first branch pin 1 never connects to upstream,
@@ -1434,7 +1446,7 @@ impl InstantiationBuilder {
                     Ok(Vec::new())
                 }
             }
-            // ── Iter-5.C (refined) ────────────────────────────────────────
+            // Iter-5.C (refined)
             // Mirror handling: Parallel each branch should expose its own right pin.
             // Also use RECURSIVE `_from_phrase` not `get_right_points`,
             // for inner Endpoint(Component) correctly gets [McBus("@CAP_N.2")] real
@@ -1483,9 +1495,11 @@ impl InstantiationBuilder {
     pub(super) fn node_to_netpoint(&mut self, element: &McBus) -> NetPoint {
         use crate::instant::mc_net::canonicalize_path;
 
-        // ── [DIAG-io] P4 phantom tracing ───────────────────────────────────────
-        // Record whether any endpoint with last segment in/out passes through this function, and first segment
-        // find_component/find_submodule hit status (used to determine why [FIX-C] doesn't isolate `<host>.in`).
+        // [DIAG-io] P4 phantom tracing
+        // Record whether any endpoint with last segment in/out passes through this function, and
+        // first segment
+        // find_component/find_submodule hit status (used to determine why [FIX-C] doesn't isolate
+        // `<host>.in`).
         if let Some((_fp, rest)) = element.name.split_once('.') {
             if rest == "in" || rest == "out" || rest.ends_with(".in") || rest.ends_with(".out") {}
         }
@@ -1516,30 +1530,39 @@ impl InstantiationBuilder {
             }
             // 2.1 component pin access
             //
-            // ── ★ FIX-C: real component + phantom pin suffix merging ────────────────────────
+            // ★ FIX-C: real component + phantom pin suffix merging
             //
             // old P2-filter already handled `<CLASS>.in/out` form (CLASS not any known
-            // instance → phantom placeholder). But **one case slipped through**: `<inst>.in/out` where
+            // instance → phantom placeholder). But **one case slipped through**: `<inst>.in/out`
+            // where
             // `inst` is real component (e.g., mcu.uC instance's uC component),
-            // **but** the component itself **doesn't have** a pin named `in`/`out`. In this case, `.in`/`.out`
+            // **but** the component itself **doesn't have** a pin named `in`/`out`. In this case,
+            // `.in`/`.out`
             // is still mc_fcall.rs placeholder injected during outer chain continuation
             // (funccall_inst.rs Iter-3.E3 comment "phantom placeholder" concept), but because
-            // first_part hit find_component, old P2-filter's "secondary confirm real instance" let it pass,
-            // then here `<inst>.in` directly registered as real pin access NetPoint — subsequent union-find
+            // first_part hit find_component, old P2-filter's "secondary confirm real instance" let
+            // it pass,
+            // then here `<inst>.in` directly registered as real pin access NetPoint — subsequent
+            // union-find
             // merges all same inst `.in` together, cross-chain into strange "uC.in ~ CAP_1.1" and
-            // "CAP_1.2 ~ uC.out" non-physical connections (actually seen in an example project mcu dump).
+            // "CAP_1.2 ~ uC.out" non-physical connections (actually seen in an example project mcu
+            // dump).
             //
-            // Fix strategy: after determining first_part is component, do another verification "is suffix really
-            // declared pin". Verification relies on `c.def.pins.names_to_id` — authoritative pin name set
+            // Fix strategy: after determining first_part is component, do another verification "is
+            // suffix really
+            // declared pin". Verification relies on `c.def.pins.names_to_id` — authoritative pin
+            // name set
             // at component type level (includes dotted sub-ports, e.g., SPI.SCLK).
             //
             // Safety:
             //   - only intervene when suffix ∈ {"in", "out"}. These two literals are mc_fcall.rs
             //     fixed suffixes for placeholder generation (`<type_name>.in`/`.out`), real
-            //     components almost never use "in"/"out" as pin names (standard is "1"/"2"/or physical net
+            // components almost never use "in"/"out" as pin names (standard is "1"/"2"/or physical
+            // net
             //     names). If some day a component really defines in/out pin, `contains_key`
             //     will hit, this fix won't misidentify.
-            //   - if pin doesn't exist, isolate into `@_phantom_<inst>_<n>` unique name, same isolation
+            // - if pin doesn't exist, isolate into `@_phantom_<inst>_<n>` unique name, same
+            // isolation
             //     mechanism as old P2-filter, prevent downstream union merge.
             if let Some(comp) = self.find_component(owner_part) {
                 if (rest_part == "in" || rest_part == "out")
@@ -1631,11 +1654,13 @@ impl InstantiationBuilder {
             return NetPoint::new(&path, IOType::None);
         }
 
-        // ── P2: filter CLASS.in / CLASS.out phantom placeholders ────────────────
+        // P2: filter CLASS.in / CLASS.out phantom placeholders
         // mc_fcall.rs generates `{CLASS}.in`/`{CLASS}.out` placeholders when caller=None.
-        // if reaching here means CLASS is not existing instance/port/bus/component — it's class name leak.
+        // if reaching here means CLASS is not existing instance/port/bus/component — it's class
+        // name leak.
         // all same-type anonymous components share same `CAP.in` label → union-find short.
-        // solution: generate unique isolated endpoint (not registered as label), prevent cross-call merging.
+        // solution: generate unique isolated endpoint (not registered as label), prevent cross-call
+        // merging.
         // ★ P0.5-2 fix: use rsplit_once to handle multi-segment class names
         //   (e.g. "DIO.ESD.in" → class_part="DIO.ESD", suffix="in").
         // ★ P2-7-XTAL: strict full-name case-sensitive class check (not
@@ -1686,8 +1711,10 @@ impl InstantiationBuilder {
         }
 
         // 4. default as label handling
-        // ── P5: not port/path-with-dots/bus — distinguish: single-pin component / curly member selection / net label
-        // core: never set owner == entire path (that's the source of X.X, violates NetPoint doc invariant).
+        // ── P5: not port/path-with-dots/bus — distinguish: single-pin component / curly member
+        // selection / net label
+        // core: never set owner == entire path (that's the source of X.X, violates NetPoint doc
+        // invariant).
         // 4a. single-pin component (e.g., TEST_POINT) → inst.<unique pin>, owner=inst
         if let Some(comp) = self.find_component(&element.name) {
             if comp.def.pins.names_to_id.len() == 1 {
@@ -1704,7 +1731,8 @@ impl InstantiationBuilder {
                 let path = format!("{}.{}", element.name, pin);
                 return NetPoint::with_owner(&path, &element.name, IOType::None);
             }
-            // multi-pin component bare reference (rare, usually notation ambiguity): owner=None, render as single token,
+            // multi-pin component bare reference (rare, usually notation ambiguity): owner=None,
+            // render as single token,
             // no longer owner==path duplication (avoid X6.X6).
             let path = canonicalize_path(&element.name);
             return NetPoint::new(&path, IOType::None);
@@ -1716,7 +1744,8 @@ impl InstantiationBuilder {
                 let path = format!("{base}.{member}");
                 return NetPoint::with_owner(&path, &base, IOType::None);
             }
-            // base not known instance: degrade to label (member selection meaningless), still owner=None
+            // base not known instance: degrade to label (member selection meaningless), still
+            // owner=None
             let path = canonicalize_path(&element.name);
             self.ensure_label(&path);
             return NetPoint::new(&path, IOType::None);
@@ -1730,16 +1759,17 @@ impl InstantiationBuilder {
         NetPoint::new(&path, IOType::None)
     }
 
-    // ========================================================================
     // Iter-8: N×1 bus port endpoint expansion
-    // ========================================================================
 
     /// Check if given name (bare port name / `<sub>.<port>` path / `<comp>.<port>` path)
-    /// corresponds to a declared N×1 bus port with ≥2 members; if so, expand to N independent NetPoints by declared members.
+    /// corresponds to a declared N×1 bus port with ≥2 members; if so, expand to N independent
+    /// NetPoints by declared members.
     ///
-    /// This is the core fix for bugfix_report errors 2/3/4/8 (common root cause 1: bus dimension auto-expansion failure).
+    /// This is the core fix for bugfix_report errors 2/3/4/8 (common root cause 1: bus dimension
+    /// auto-expansion failure).
     /// Rule doc §10.4: `[N×1] vs [N×1]` must correspond element by element;
-    /// but to achieve element-wise correspondence, the endpoint resolution layer must first expand `mic.MIC` (declared as
+    /// but to achieve element-wise correspondence, the endpoint resolution layer must first expand
+    /// `mic.MIC` (declared as
     /// `out MIC{P,N}::ADC.DIFF()`) into `[mic.MIC.P, mic.MIC.N]`, not
     /// a single label `[mic.MIC]`.
     ///
@@ -1750,7 +1780,8 @@ impl InstantiationBuilder {
     /// 3. **component bus port** (`<comp>.<port>`): `uC.XTAL` → hits
     ///    components[uC]'s bus port (looked up from component type pins/bus declaration)
     ///
-    /// Current implementation covers 1, 2 (mainstream scenarios). 3rd left for future iterations — currently
+    /// Current implementation covers 1, 2 (mainstream scenarios). 3rd left for future iterations —
+    /// currently
     /// `uC.UART0`, `uC.XTAL` component bus port expansion depends on parser/elaborator
     /// splitting `uC{UART0|...}` curly-mn notation at an earlier stage.
     ///
@@ -1780,7 +1811,8 @@ impl InstantiationBuilder {
     /// - Scalar port (bus_members.len() < 2): return `None`, let caller go original path,
     ///   keep single-point contract.
     /// - Name not a port (bare label / component pin / bus member): return `None`.
-    /// - Already manually expanded (`element.member` non-empty): caller should **check member first**
+    /// - Already manually expanded (`element.member` non-empty): caller should **check member
+    /// first**
     ///   then come here, avoid double expansion.
     pub(super) fn expand_port_lanes(&mut self, name: &str) -> Option<Vec<NetPoint>> {
         // ── P2 helper: extract members from "name{A, B}" / "[A, B]" / "name[A, B]" ──
@@ -1818,9 +1850,9 @@ impl InstantiationBuilder {
             }
         }
 
-        // ── [P2-DIAG] entry ───────────────────────────────────────────────
+        // [P2-DIAG] entry
 
-        // ── P2: direction-agnostic expansion ──────────────────────────────────────────
+        // P2: direction-agnostic expansion
         // historically banned In to prevent `in vin{POWER_SYS,GND}` from fanning a
         // role-mismatched power/ground pair into lanes and shorting power to ground.
         // but the real cause of short is "one side expands to N, other side still scalar →
@@ -1832,15 +1864,17 @@ impl InstantiationBuilder {
             true
         }
 
-        // ── Case 1: `<sub>.<port>` form ──────────────────────────────
+        // Case 1: `<sub>.<port>` form
         if let Some((owner, port_name_raw)) = name.split_once('.') {
-            // prevent false hit: port containing another '.' means already specific to lane (mic.MIC.P), don't expand
+            // prevent false hit: port containing another '.' means already specific to lane
+            // (mic.MIC.P), don't expand
             if !port_name_raw.contains('.') {
                 if let Some(sub) = self.find_submodule(owner) {
                     // (a) anonymous bracket/curly port directly in reference:
                     //     `dcdc.[VDD_3V3, GND]` → members are in brackets,
                     //     lane path is `owner.member` (no port name hierarchy,
-                    //     consistent with submodule internal expansion treating members as top-level labels).
+                    // consistent with submodule internal expansion treating members as top-level
+                    // labels).
                     if port_name_raw.starts_with('[') || port_name_raw.starts_with('{') {
                         let members = parse_brace_members(port_name_raw);
                         if members.len() >= 2 {
@@ -1857,8 +1891,10 @@ impl InstantiationBuilder {
                         }
                     }
                     // (b) named port: tolerate duplicate ports (vin / vin{POWER_SYS,GND}) and
-                    //     bus_members unfilled — match by base name, take one with most "effective members".
-                    //     effective members = bus_members non-empty use them, otherwise parse from port name.
+                    // bus_members unfilled — match by base name, take one with most "effective
+                    // members".
+                    // effective members = bus_members non-empty use them, otherwise parse from port
+                    // name.
                     let port_base = strip_brace_suffix(port_name_raw);
                     let best = sub
                         .ports
@@ -1896,11 +1932,11 @@ impl InstantiationBuilder {
             }
         }
 
-        // ── Case 2: bare port name → current module's own port ────────────────────
+        // Case 2: bare port name → current module's own port
         // Same as Case 1 (b): match by base name, take most effective members, tolerate
         // duplicate ports (dc / dc{VDD_3V3,GND}) and bus_members unfilled.
         //
-        // ── S1 Bug A companion (2026-06) ─────────────────────────────────
+        // S1 Bug A companion (2026-06)
         // after strict match fails, add eq_ignore_ascii_case fallback (e.g., body
         // boundary formal `spi` vs declared port `SPI`). Symmetric with Bug D Part 1 fix.
         {
@@ -1965,7 +2001,7 @@ impl InstantiationBuilder {
             }
         }
 
-        // ── Case 3: `<comp>.<port>` form → component bus port expansion ─────────
+        // Case 3: `<comp>.<port>` form → component bus port expansion
         //
         // (Iter-10 bucket D, bugfix_report errors 1 / 3 / 4 / 8 main path)
         //
@@ -1992,7 +2028,8 @@ impl InstantiationBuilder {
                     let port_base = strip_brace_suffix(port_name);
                     let brace_members = parse_brace_members(port_name);
                     if let Some(pids) = comp.find_bus_port_pin_ids(port_base) {
-                        // pids is Vec<(member_name, pin_id)>, member_name from interface declaration
+                        // pids is Vec<(member_name, pin_id)>, member_name from interface
+                        // declaration
                         // path form `<comp>.<pin_id>` consistent with init_pins registration.
                         // iotype takes first pin_id's direction.
                         let iotype = pids
@@ -2079,7 +2116,7 @@ impl InstantiationBuilder {
             }
         }
 
-        // ── [P2-DIAG] no hit: dump all context needed for diagnosis ──────────────
+        // [P2-DIAG] no hit: dump all context needed for diagnosis
         // used to determine why bus collapsed: parsed as non-Bus base didn't reach here (that path
         // won't print, reflected by [TCA-diag]), or reached but owner's port bus_members
         // empty / port name mismatch (anonymous [A,GND] port).
@@ -2105,7 +2142,7 @@ impl InstantiationBuilder {
         None
     }
 
-    /// ── P2: component pin alias path → pid path ─────────────────────────────
+    /// P2: component pin alias path → pid path
     /// "ldo.VOUT.Vout" / "ldo.VIN.Vin" / "ldo.GND" → "ldo.5" / "ldo.1" / "ldo.2".
     /// Returns Some only when the first segment is a component instance of this module
     /// and the alias resolves to a unique pid; otherwise None (submodule ports / bus
@@ -2127,7 +2164,8 @@ impl InstantiationBuilder {
             .find_conditional_pin_id(member)
             .or_else(|| comp.find_conditional_pin_id(last));
 
-        // 1. names_to_id direct Single lookup (dotted full name "VOUT.Vout"/"IN.P" or bare name "VDD"/"FB")
+        // 1. names_to_id direct Single lookup (dotted full name "VOUT.Vout"/"IN.P" or bare name
+        // "VDD"/"FB")
         let direct = comp
             .def
             .pins
@@ -2190,9 +2228,7 @@ impl InstantiationBuilder {
         }
     }
 
-    // ========================================================================
     // lookup helpers
-    // ========================================================================
 
     pub(super) fn is_port(&self, name: &str) -> bool {
         self.ports.iter().any(|p| p.name == name)

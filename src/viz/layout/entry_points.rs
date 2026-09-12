@@ -6,15 +6,18 @@
 //!
 //! ## Motivation
 //! Before this, `McVecBox.entry_points` was always empty, causing router to degenerate to
-//! "evenly distribute on box four sides, guess direction" approximation. All N pins on the same IC are mapped
+//! "evenly distribute on box four sides, guess direction" approximation. All N pins on the same IC
+//! are mapped
 //! to the midpoint of the box edge → all wires exit squeezed together.
 //!
 //! This module solves this problem: in layout phase, assign each box's all pins
 //! an `EntrySide` + `offset`, router gets the exact pin position.
 //!
 //! ## ★ P06 (S5) two-round scheduling
-//! Step 1's `assign_entry_points` only looks at pin **name**, doesn't know where neighbors will ultimately be placed ——
-//! A Generic pin with name `"5"` would be evenly distributed to Left, but its real neighbor is on the right,
+//! Step 1's `assign_entry_points` only looks at pin **name**, doesn't know where neighbors will
+//! ultimately be placed ——
+//! A Generic pin with name `"5"` would be evenly distributed to Left, but its real neighbor is on
+//! the right,
 //! router has to draw "U-shaped path back".
 //!
 //! P06 changes the flow to **two rounds**:
@@ -53,7 +56,8 @@
 //! - `GND` / `VSS` / `AGND` ...        → **Bottom**
 //! - `*_IN` / `RX` / `MOSI` / `CLK` / `RST` ... → **Left**  (input)
 //! - `*_OUT` / `TX` / `MISO` / `INT` ...        → **Right** (output)
-//! - Others (including pure numeric pin numbers)            → Evenly distributed between **Left** / **Right**
+//! - Others (including pure numeric pin numbers)            → Evenly distributed between **Left** /
+//! **Right**
 //!
 //! N pins on the same side have evenly distributed offset: `offset_i = (i + 0.5) / N`
 //!
@@ -62,7 +66,8 @@
 //! 1. If `io_type ∈ {Power, Ground, Input, Output}` → **skip** (semantics take priority)
 //! 2. Otherwise (Passive / Bidir / Unknown): look at geometric center of opposite endpoint on net
 //! 3. Use `pick_side_by_direction(dx, dy)` to decide new side
-//! 4. Add hysteresis (new direction must be ≥ 1.2x current direction to switch, prevent oscillation)
+//! 4. Add hysteresis (new direction must be ≥ 1.2x current direction to switch, prevent
+//! oscillation)
 //! 5. Redistribute offset evenly for same-side pins, avoid stacking
 
 use std::collections::{HashMap, HashSet};
@@ -71,9 +76,7 @@ use crate::vector::graph::boxdef::{BoxPin, PinLayout};
 use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{BoxKind, EntryPoint, EntrySide, McVecBox, McVecGraph, Symbol};
 
-// ============================================================================
 // Main API
-// ============================================================================
 
 /// **(compatible alias)** —— Fill `entry_points` field for each box in graph (recursive subgraphs)
 ///
@@ -85,7 +88,8 @@ use crate::vector::graph::{BoxKind, EntryPoint, EntrySide, McVecBox, McVecGraph,
 /// assign_entry_points_refine(graph);   // after calculating coordinates, look at neighbors to adjust pin side
 /// ```
 ///
-/// Layouter that didn't change goes single-round compatibility path, visual behavior identical to pre-P06.
+/// Layouter that didn't change goes single-round compatibility path, visual behavior identical to
+/// pre-P06.
 pub fn assign_entry_points(graph: &mut McVecGraph) {
     assign_entry_points_coarse(graph)
 }
@@ -93,7 +97,8 @@ pub fn assign_entry_points(graph: &mut McVecGraph) {
 /// ★ P06 (S5) — coarse round: only look at name/IoDirection to assign pin side
 ///
 /// Same behavior as old `assign_entry_points`, just renamed to highlight "this is the first round".
-/// Must be called **before** layouter calculates coordinates (`box_size_v2` uses entry_points to calculate height).
+/// Must be called **before** layouter calculates coordinates (`box_size_v2` uses entry_points to
+/// calculate height).
 pub fn assign_entry_points_coarse(graph: &mut McVecGraph) {
     // Step 1: Collect all (pin_id, pin_name) used by each box —— only "connected" pins
     let pins_per_box = collect_pins_per_box(graph);
@@ -101,13 +106,15 @@ pub fn assign_entry_points_coarse(graph: &mut McVecGraph) {
     // Step 2: Calculate entry points for each box
     //
     // ★ Key fix: merge "connected pins" (from net) with "box physical pins" (from mcode, b.pins).
-    // Previously only used pins from net, causing boxes with no connections to have zero entry points →
-    // Can't draw pins, size degenerates to minimum. After merging, boxes without connections can also draw pins normally.
+    // Pins from the net alone leave boxes with no connections at zero entry
+    // points → no pins drawn, size degenerates to minimum. Merging in the box's
+    // physical pins lets unconnected boxes draw pins normally.
     for b in &mut graph.boxes {
         let empty = Vec::new();
         let net_pins = pins_per_box.get(&b.id).unwrap_or(&empty);
         // ★ Connected pins set (pin_id that appeared in nets) —— for compute_entry_points to
-        //   place "connected pins" on left/right of core, "unconnected pins" on top/bottom waste area to distinguish.
+        // place "connected pins" on left/right of core, "unconnected pins" on top/bottom waste area
+        // to distinguish.
         let connected: HashSet<i64> = net_pins.iter().map(|(id, _)| *id).collect();
         let merged = merge_box_pins(net_pins, &b.pins);
         b.entry_points = compute_entry_points(b, &merged, &connected);
@@ -219,19 +226,27 @@ pub fn reconcile_net_entry_points(graph: &mut McVecGraph) {
     }
 }
 
-/// Merge "connected pins" (from net) with "box physical pins" (from mcode), deduplicate by `pin_id`.
+/// Merge "connected pins" (from net) with "box physical pins" (from mcode), deduplicate by
+/// `pin_id`.
 ///
-/// - Net pins are placed first —— maintain existing wire routing position / order unchanged, already wired graphs unaffected;
-/// - Physical pins on box **not appearing in net** (i.e., unconnected pins) are appended at the end,
+/// - Net pins are placed first —— maintain existing wire routing position / order unchanged,
+/// already wired graphs unaffected;
+/// - Physical pins on box **not appearing in net** (i.e., unconnected pins) are appended at the
+/// end,
 ///   ensure "unconnected pins can also be drawn" (pin number / name complete);
 /// - Skip physical pins with `id <= 0` (shouldn't exist theoretically, defensive handling).
 ///
-/// net endpoint pin_id and BoxPin.id come from same source (both are that pin's InstEntry id), so when a
-/// connected physical pin appears on both sides, it will be correctly deduplicated into one entry point.
+/// net endpoint pin_id and BoxPin.id come from same source (both are that pin's InstEntry id), so
+/// when a
+/// connected physical pin appears on both sides, it will be correctly deduplicated into one entry
+/// point.
 fn merge_box_pins(net_pins: &[(i64, String)], box_pins: &[BoxPin]) -> Vec<(i64, String)> {
-    // Placeholder pins (when typed-chip hasn't registered Pin sub-items, from_block synthesizes pins to "hold shape", id ≥ this base)
-    // Once box already has real named pins from net (like flash's VCC/VSS/SPI), placeholder pins are pure noise ——
-    // Skip them, avoid VCC/VSS/SPI having 1/2/3/4/5 appear next to them. Only keep placeholder pins when box has no connections (net_pins empty),
+    // Placeholder pins (when typed-chip hasn't registered Pin sub-items, from_block synthesizes
+    // pins to "hold shape", id ≥ this base)
+    // Once box already has real named pins from net (like flash's VCC/VSS/SPI), placeholder pins
+    // are pure noise ——
+    // Skip them, avoid VCC/VSS/SPI having 1/2/3/4/5 appear next to them. Only keep placeholder pins
+    // when box has no connections (net_pins empty),
     // otherwise box can't draw any pins.
     const PLACEHOLDER_BASE: i64 = 8_000_000_000;
     let has_net_pins = !net_pins.is_empty();
@@ -245,9 +260,12 @@ fn merge_box_pins(net_pins: &[(i64, String)], box_pins: &[BoxPin]) -> Vec<(i64, 
         if has_net_pins && p.id >= PLACEHOLDER_BASE {
             continue; // Already has real named pins, drop placeholder pins
         }
-        // This string is only used for side classification (classify_pin → which side) and size estimation; the label actually drawn on
-        //   the graph is taken by render_pin via find_pin (common name + description). Classification using functional
-        //   description is more accurate (GND→bottom / VCC→top / TX→right...); if no description, fall back to common name.
+        // This string is only used for side classification (classify_pin → which side) and size
+        // estimation; the label actually drawn on
+        // the graph is taken by render_pin via find_pin (common name + description). Classification
+        // using functional
+        // description is more accurate (GND→bottom / VCC→top / TX→right...); if no description,
+        // fall back to common name.
         let label = if !p.description.is_empty() {
             p.description.clone()
         } else {
@@ -263,20 +281,25 @@ fn merge_box_pins(net_pins: &[(i64, String)], box_pins: &[BoxPin]) -> Vec<(i64, 
 /// ## Background: tree-root collapse + no enlargement root cause
 /// rail-synth / same-name paired nets in `from_block` create endpoints with `pin_id = -1`,
 /// `pin_name = "(rail)"` (see `synthesize_rail_nets`). If a box connects to N
-/// such nets (N different rails/same-name signals), its N synthetic endpoints **all have pin_id = -1**.
+/// such nets (N different rails/same-name signals), its N synthetic endpoints **all have pin_id =
+/// -1**.
 /// This causes:
 /// 1. [`collect_pins_per_box`] deduplicates by `pin_id` → N endpoints collapse to **1** entry
 ///    point → box thinks it has only 1 pin → size logic doesn't enlarge;
-/// 2. Routing `compute_exit_for_pin(-1)` can't find corresponding entry → all degenerate to box edge
+/// 2. Routing `compute_exit_for_pin(-1)` can't find corresponding entry → all degenerate to box
+/// edge
 ///    **same midpoint** → N wires collapse to "tree root" connection into box.
 ///
 /// ## What this pass does
-/// Assign each `pin_id <= 0` endpoint a **globally unique** positive id (high base, no collision with real
+/// Assign each `pin_id <= 0` endpoint a **globally unique** positive id (high base, no collision
+/// with real
 /// point id / flag id), and replace placeholder name `"(rail)"` with net name. Result:
-/// - Multiple synthetic connections on same box get different ids → no longer deduplicated into one → each becomes independent
+/// - Multiple synthetic connections on same box get different ids → no longer deduplicated into one
+/// → each becomes independent
 ///   pin, box enlarges by real connection count;
 /// - Pin names become real rail/signal names (GND / VCC_1V2 / ...) → [`compute_entry_points`]
-///   `classify_pin` distributes to appropriate side (ground→bottom, power→top, signal→left/right), labels also meaningful;
+/// `classify_pin` distributes to appropriate side (ground→bottom, power→top, signal→left/right),
+/// labels also meaningful;
 /// - Routing `find_entry` can hit each pin → each wire connects to its own point on box (fan-out).
 ///
 /// Must be called **before** [`assign_entry_points_coarse`] and `assign_default_sizes`
@@ -285,7 +308,8 @@ pub fn promote_synthetic_pins(graph: &mut McVecGraph) {
     /// Starting base for synthetic pin_id:
     /// - Higher than common real point id (InstTable sequential id, much lower)
     /// - Lower than rails.rs `FLAG_ID_BASE` (9e9) / `STUB_NET_ID_BASE` (9.5e9)
-    /// pin_id and box_id are different namespaces, here only need to ensure "same box + with real pin" don't collide.
+    /// pin_id and box_id are different namespaces, here only need to ensure "same box + with real
+    /// pin" don't collide.
     const SYNTH_PIN_BASE: i64 = 3_000_000_000;
 
     fn go(graph: &mut McVecGraph, counter: &mut i64) {
@@ -310,33 +334,39 @@ pub fn promote_synthetic_pins(graph: &mut McVecGraph) {
     go(graph, &mut counter);
 }
 
-// ============================================================================
 // ★ FIX (split shared pins) — one pin connects to multiple nets → one independent pin per net
-// ============================================================================
 
 /// Split "one pin connected to multiple nets" into "one independent pin per net".
 ///
 /// ## Background: root cause of "multiple wires fan out from one point"
 /// Composite / bundle ports (like `[VDD_3V3, VCC_1V2]`, `[X, GND]`) flatten to **one**
-/// `pin_id`, but may appear in **multiple different nets** simultaneously (3V3 net + 1V2 net, or GND net + signal net).
-/// Renderer draws one pin per `pin_id` → multiple wires connect at **one point**, visually multiple wires fan out from one
+/// `pin_id`, but may appear in **multiple different nets** simultaneously (3V3 net + 1V2 net, or
+/// GND net + signal net).
+/// Renderer draws one pin per `pin_id` → multiple wires connect at **one point**, visually multiple
+/// wires fan out from one
 /// point on component (user feedback: mcu's 3V3/1V2, flash's left/right sides).
 ///
-/// Note: This is different from offset collision — here component has only **one** entry point, rearranging offset
+/// Note: This is different from offset collision — here component has only **one** entry point,
+/// rearranging offset
 /// can't help, must **split this pin into multiple independent pins**.
 ///
 /// ## What it does
 /// Count how many **different nets** reference each `(box_id, pin_id)`:
-/// - Referenced by 1 net → normal pin, don't touch (most pins are like this, so this pass has minimal side effects).
-/// - Referenced by K (>1) nets → keep first net with original `pin_id`, each of the other K-1 nets gets a **brand new
+/// - Referenced by 1 net → normal pin, don't touch (most pins are like this, so this pass has
+/// minimal side effects).
+/// - Referenced by K (>1) nets → keep first net with original `pin_id`, each of the other K-1 nets
+/// gets a **brand new
 ///   `pin_id`** (high base, no collision with real / synthetic / flag id), rewrite this endpoint's
-///   `pin_id` in those nets (`pin_name` preserved, classification / label still follows electrical name).
+/// `pin_id` in those nets (`pin_name` preserved, classification / label still follows electrical
+/// name).
 ///
 /// Result: [`collect_pins_per_box`] sees K different pins → [`compute_entry_points`] gives them K
-/// different entry points → routing `compute_exit_for_pin` hits each point → each net connects to component
+/// different entry points → routing `compute_exit_for_pin` hits each point → each net connects to
+/// component
 /// **its own pin** then wires out, no more "fanning out from one point".
 ///
-/// Must be called **before** [`assign_entry_points_coarse`] / `assign_default_sizes` (they work with
+/// Must be called **before** [`assign_entry_points_coarse`] / `assign_default_sizes` (they work
+/// with
 /// `pin_id` produced here), typically right after [`promote_synthetic_pins`]. Recursive subgraphs.
 pub fn split_shared_pins(graph: &mut McVecGraph) {
     /// Starting base for split pin:
@@ -345,10 +375,13 @@ pub fn split_shared_pins(graph: &mut McVecGraph) {
     const SPLIT_PIN_BASE: i64 = 4_000_000_000;
 
     fn go(graph: &mut McVecGraph, counter: &mut i64) {
-        // ★ Safety guard: two-pin passives (TwoPin, resistor/capacitor/inductor/diode) **don't split**.
+        // ★ Safety guard: two-pin passives (TwoPin, resistor/capacitor/inductor/diode) **don't
+        // split**.
         //   Their pin rendering (ep_for_two_pin) only takes first 2 pins, split 3rd+ pins get
-        //   truncated → that net's endpoint can't find entry → degenerate to box edge midpoint → component looks disconnected.
-        //   Also two-pin passive pins shouldn't share across nets (sharing = electrical short), skipping them has zero side effects.
+        // truncated → that net's endpoint can't find entry → degenerate to box edge midpoint →
+        // component looks disconnected.
+        // Also two-pin passive pins shouldn't share across nets (sharing = electrical short),
+        // skipping them has zero side effects.
         let two_pin_ids: HashSet<i64> = graph
             .boxes
             .iter()
@@ -417,31 +450,40 @@ pub fn split_shared_pins(graph: &mut McVecGraph) {
     go(graph, &mut counter);
 }
 
-// ============================================================================
-// ★ FIX (deduplication fallback) — ensure pin exit points on each side don't overlap and have minimum spacing
-// ============================================================================
+// ★ FIX (deduplication fallback) — ensure pin exit points on each side don't overlap and have
+// minimum spacing
 
-/// **Minimum pixel spacing** between two pins on same side. Below this value is judged as "too close / overlapping",
+/// **Minimum pixel spacing** between two pins on same side. Below this value is judged as "too
+/// close / overlapping",
 /// triggers re-spreading for that side.
 pub const MIN_PIN_GAP_PX: f64 = 18.0;
 
-/// Ensure pin exit points on same side of each box don't overlap, and adjacent spacing ≥ [`MIN_PIN_GAP_PX`].
+/// Ensure pin exit points on same side of each box don't overlap, and adjacent spacing ≥
+/// [`MIN_PIN_GAP_PX`].
 ///
 /// ## Why needed (flash "two wires not separated" root cause)
-/// `order_pins_by_neighbor` only rearranges offset for pins **with opposite neighbor** (`(rank+1)/(n+1)`),
-/// pins **without neighbor** (e.g., pins only connected to GND flag / power flag) keep old offset. Result: on same side,
-/// "rearranged pins" and "unrearranged pins" may fall to **same offset** → two wires fan out from **same point** on box edge. `align_hub_to_spokes` aligning two pins to same opposite Y also causes offset collision.
+/// `order_pins_by_neighbor` only rearranges offset for pins **with opposite neighbor**
+/// (`(rank+1)/(n+1)`),
+/// pins **without neighbor** (e.g., pins only connected to GND flag / power flag) keep old offset.
+/// Result: on same side,
+/// "rearranged pins" and "unrearranged pins" may fall to **same offset** → two wires fan out from
+/// **same point** on box edge. `align_hub_to_spokes` aligning two pins to same opposite Y also
+/// causes offset collision.
 ///
-/// `split_shared_pins` solves "one pin_id across multiple nets"; this solves "**two different pin_id colliding at same offset**", complementary.
+/// `split_shared_pins` solves "one pin_id across multiple nets"; this solves "**two different
+/// pin_id colliding at same offset**", complementary.
 ///
 /// ## Rules (try not to disturb already arranged sides)
 /// For each side of each box:
 /// 1. Sort by current offset.
-/// 2. All adjacent pins have pixel spacing ≥ MIN_PIN_GAP_PX → side not crowded, **keep original offset**
+/// 2. All adjacent pins have pixel spacing ≥ MIN_PIN_GAP_PX → side not crowded, **keep original
+/// offset**
 ///    (preserve positions already arranged by align_hub_to_spokes / order_pins_by_neighbor).
-/// 3. Otherwise re-spread that side: prefer centered by MIN_PIN_GAP_PX spacing; if doesn't fit → evenly distribute across side.
+/// 3. Otherwise re-spread that side: prefer centered by MIN_PIN_GAP_PX spacing; if doesn't fit →
+/// evenly distribute across side.
 ///
-/// Only changes `entry_points[*].offset`, **doesn't move any boxes** → never introduces new box collision. Recursive subgraphs.
+/// Only changes `entry_points[*].offset`, **doesn't move any boxes** → never introduces new box
+/// collision. Recursive subgraphs.
 /// Must be called after layouter **completes all offset rearrangements** (at layout end).
 pub fn enforce_unique_offsets(graph: &mut McVecGraph) {
     for b in &mut graph.boxes {
@@ -505,9 +547,11 @@ pub fn enforce_unique_offsets(graph: &mut McVecGraph) {
     }
 }
 
-/// ★ P06 (S5) — refine round: use final coordinates to rearrange "semantic-less" pins to neighbor's nearest side
+/// ★ P06 (S5) — refine round: use final coordinates to rearrange "semantic-less" pins to neighbor's
+/// nearest side
 ///
-/// Must be called after layouter **completes coordinate calculation**. Read `box.x/y/w/h` to infer neighbor direction.
+/// Must be called after layouter **completes coordinate calculation**. Read `box.x/y/w/h` to infer
+/// neighbor direction.
 ///
 /// ## Rules
 /// 1. Only move pins with `IoDirection ∈ {Passive, Bidir, Unknown}`
@@ -516,7 +560,8 @@ pub fn enforce_unique_offsets(graph: &mut McVecGraph) {
 /// 3. Apply hysteresis (new direction must clearly dominate, then switch, prevent oscillation)
 /// 4. After switching sides, rearrange same-side pins offset, avoid stacking
 ///
-/// io_type looked up by querying `graph.nets` inversely (not stored in EntryPoint, avoid schema change).
+/// io_type looked up by querying `graph.nets` inversely (not stored in EntryPoint, avoid schema
+/// change).
 pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
     // 1. Build (box_id, pin_id) → IoDirection mapping in one pass (look up from nets)
     let pin_io = collect_pin_io_types(graph);
@@ -527,7 +572,8 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
     // 3. Center coordinates of each box
     let box_centers = collect_box_centers(graph);
 
-    // 3b. ★ Each box's rectangle (for collision detection: does straight line towards neighbor pass through other boxes)
+    // 3b. ★ Each box's rectangle (for collision detection: does straight line towards neighbor pass
+    // through other boxes)
     let box_rects = collect_box_rects(graph);
 
     // 4. Refine each pin for each box
@@ -579,8 +625,10 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
 
             let preferred = pick_side_by_direction(dx, dy);
 
-            // ★ Collision-aware: if straight line "towards neighbor" (box center→neighbor center) passes through other boxes,
-            //   don't face it (will hit head-on, e.g., dc straight down towards speaker passes through dcdc);
+            // ★ Collision-aware: if straight line "towards neighbor" (box center→neighbor center)
+            // passes through other boxes,
+            // don't face it (will hit head-on, e.g., dc straight down towards speaker passes
+            // through dcdc);
             //   change to perpendicular side with more empty space, let router route around.
             let mut exclude: HashSet<i64> = nbrs.iter().copied().collect();
             exclude.insert(b.id);
@@ -594,9 +642,12 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
                 (preferred, false)
             };
 
-            // ★ User requirement: component pins **only on left/right sides**. Refinement allows left/right swap (pins face neighbor's horizontal side),
-            //   but never flip pins to top/bottom — project any "top/bottom" result back to left/right by neighbor's horizontal direction.
-            //   collision avoidance handled by router, not by "flipping pins to top/bottom" (that would break professional IC symbol left/right layout).
+            // ★ User requirement: component pins **only on left/right sides**. Refinement allows
+            // left/right swap (pins face neighbor's horizontal side),
+            // but never flip pins to top/bottom — project any "top/bottom" result back to
+            // left/right by neighbor's horizontal direction.
+            // collision avoidance handled by router, not by "flipping pins to top/bottom" (that
+            // would break professional IC symbol left/right layout).
             let target = match target {
                 EntrySide::Top | EntrySide::Bottom => {
                     if dx >= 0.0 {
@@ -612,8 +663,10 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
                 continue;
             }
 
-            // Rule 3: hysteresis — only needed for pure direction preference (avoid dx≈dy oscillating);
-            //   collision-avoidance forced switches don't go through hysteresis (hard constraint, not preference).
+            // Rule 3: hysteresis — only needed for pure direction preference (avoid dx≈dy
+            // oscillating);
+            // collision-avoidance forced switches don't go through hysteresis (hard constraint, not
+            // preference).
             if !forced && !sides_warrant_switch(&ep.side, &target, dx, dy) {
                 continue;
             }
@@ -658,9 +711,7 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
     }
 }
 
-// ============================================================================
 // ★ P06 helpers
-// ============================================================================
 
 /// Determine if a pin with io_type can be rearranged in refinement round
 ///
@@ -675,7 +726,8 @@ pub(crate) fn is_repinnable(io: IoDirection) -> bool {
 
 /// Pick side based on neighbor direction (dx, dy)
 ///
-/// Use abs(dx) vs abs(dy) to decide horizontal or vertical axis, then look at sign for specific side.
+/// Use abs(dx) vs abs(dy) to decide horizontal or vertical axis, then look at sign for specific
+/// side.
 pub(crate) fn pick_side_by_direction(dx: f64, dy: f64) -> EntrySide {
     if dx.abs() >= dy.abs() {
         if dx >= 0.0 {
@@ -727,7 +779,8 @@ fn axis_of(s: &EntrySide) -> Axis {
 
 /// Redistribute offsets evenly for multiple pins on same side, avoid stacking
 ///
-/// When to call: after refine switches pin side, to prevent pins newly added to a side from stacking at one place.
+/// When to call: after refine switches pin side, to prevent pins newly added to a side from
+/// stacking at one place.
 pub(crate) fn normalize_offsets_per_side(b: &mut McVecBox) {
     let mut by_side: HashMap<EntrySide, Vec<usize>> = HashMap::new();
     for (i, ep) in b.entry_points.iter().enumerate() {
@@ -804,15 +857,14 @@ pub(crate) fn collect_box_centers(graph: &McVecGraph) -> HashMap<i64, (f64, f64)
         .collect()
 }
 
-// ============================================================================
 // ★ Collision-aware pin assignment: make pins "that would hit other boxes" flip to empty side
-// ============================================================================
 
 const RECT_PAD: f64 = 8.0; // box inset, only catch "actual hits" (corner cuts / through small passives don't count)
 const OPEN_FAR: f64 = 1.0e6; // no obstruction in direction = extremely empty
 const MIN_CLEAR: f64 = 60.0; // perpendicular side must have this much clearance to be worth routing around
 const MIN_BLOCKER_DIM: f64 = 70.0; // only boxes with both dimensions ≥ this value are "big boxes" (IC/submodule) counted as obstacles,
-                                   // small passives don't block → dense subgraph areas don't flip randomly
+                                   // small passives don't block → dense subgraph areas don't flip
+                                   // randomly
 
 /// box_id → (x, y, w, h) rectangle
 pub(crate) fn collect_box_rects(graph: &McVecGraph) -> HashMap<i64, (f64, f64, f64, f64)> {
@@ -844,7 +896,8 @@ pub(crate) fn path_blocked(
     false
 }
 
-/// Segment and AABB intersection check (Liang-Barsky clipping; box inset RECT_PAD tolerates edge-touching)
+/// Segment and AABB intersection check (Liang-Barsky clipping; box inset RECT_PAD tolerates
+/// edge-touching)
 fn seg_intersects_rect(
     from: (f64, f64),
     to: (f64, f64),
@@ -898,7 +951,8 @@ fn seg_intersects_rect(
 
 /// Pick the most empty side among the two edges **perpendicular to preferred** main axis.
 ///
-/// If neither side has enough clearance, return None (routing around won't help, keep original orientation).
+/// If neither side has enough clearance, return None (routing around won't help, keep original
+/// orientation).
 pub(crate) fn open_perpendicular_side(
     b: (f64, f64, f64, f64),
     preferred: &EntrySide,
@@ -919,7 +973,8 @@ pub(crate) fn open_perpendicular_side(
     best.filter(|(_, c)| *c >= MIN_CLEAR).map(|(s, _)| s)
 }
 
-/// Clear width from a box's edge outward to "nearest blocking box" (that box must overlap vertically with this box).
+/// Clear width from a box's edge outward to "nearest blocking box" (that box must overlap
+/// vertically with this box).
 ///
 /// No blocking box → OPEN_FAR.
 fn side_clearance(
@@ -971,13 +1026,12 @@ fn side_clearance(
     gap
 }
 
-// ============================================================================
 // Internal: look up which pins each box uses from nets
-// ============================================================================
 
 /// Scan `graph.nets` once, get box_id → [(pin_id, pin_name)]
 ///
-/// Same pin appearing in multiple nets counts only once. Synthetic "rail" endpoints with pin_id <= 0
+/// Same pin appearing in multiple nets counts only once. Synthetic "rail" endpoints with pin_id <=
+/// 0
 /// (`pin_id: -1`) don't count (they have no real pins).
 ///
 /// Only traverses `graph.nets`, the single net representation the graph carries.
@@ -1024,9 +1078,7 @@ pub(crate) fn layout_entry_points_for(
     Some(ep_from_layout(b, &merged, layout))
 }
 
-// ============================================================================
 // Internal: dispatch by BoxKind
-// ============================================================================
 
 fn compute_entry_points(
     b: &McVecBox,
@@ -1042,7 +1094,8 @@ fn compute_entry_points(
         b.pin_constraint
     );
 
-    // ★ Reserved interface ①: if component gives explicit layout hint, use it (builder doesn't fill today → None → skip).
+    // ★ Reserved interface ①: if component gives explicit layout hint, use it (builder doesn't fill
+    // today → None → skip).
     if let Some(layout) = &b.layout_hint {
         if !layout.is_empty() {
             return ep_from_layout(b, pins, layout);
@@ -1074,9 +1127,11 @@ fn compute_entry_points(
     }
 }
 
-/// ★ Reserved interface ① consumer: distribute pins to four sides according to component's explicit layout.
+/// ★ Reserved interface ① consumer: distribute pins to four sides according to component's explicit
+/// layout.
 ///
-/// Matching rules: for each pin, use its `BoxPin.pin_id` (number) or `description` (function name) to look up side in `layout`
+/// Matching rules: for each pin, use its `BoxPin.pin_id` (number) or `description` (function name)
+/// to look up side in `layout`
 /// ([`PinLayout::side_of`]). Listed pins are placed in the exact per-edge list
 /// order (counterclockwise package order, [`ccw_offset`]) — the author's list,
 /// not the box's pin order, decides the ordering along the edge; unmatched pins
@@ -1196,8 +1251,10 @@ fn ep_from_layout(
         *rank.entry(*k).or_default() += 1;
     }
 
-    // Pins not covered by layout: fall back to heuristic, avoid missed drawing. (User explicit layout path; treat remaining pins as
-    //  normally connected — pass empty connection set → degraded protection handles as "all connected".)
+    // Pins not covered by layout: fall back to heuristic, avoid missed drawing. (User explicit
+    // layout path; treat remaining pins as
+    // normally connected — pass empty connection set → degraded protection handles as "all
+    // connected".)
     if !leftover.is_empty() {
         let no_conn: HashSet<i64> = HashSet::new();
         let fallback = match b.kind {
@@ -1223,13 +1280,13 @@ fn ccw_offset(side: &EntrySide, rank: usize, n: usize) -> f64 {
     }
 }
 
-// ============================================================================
 // Pin role classification (by name)
 //
 // **P04 (S1)**: implementation migrated to `super::naming::pin_role`
-// This module's `PinRole` is for entry-side allocation with 4 categories (Power/Ground/Input/Output/Generic),
-// `naming::NameRole` has more granular 7 categories (plus Clock/Reset). The two convert via `from_name_role`.
-// ============================================================================
+// This module's `PinRole` is for entry-side allocation with 4 categories
+// (Power/Ground/Input/Output/Generic),
+// `naming::NameRole` has more granular 7 categories (plus Clock/Reset). The two convert via
+// `from_name_role`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PinRole {
@@ -1252,9 +1309,7 @@ fn classify_pin(name: &str) -> PinRole {
     }
 }
 
-// ============================================================================
 // Allocation strategies by BoxKind
-// ============================================================================
 
 /// PowerLabel / Dot: single exit point
 ///
@@ -1337,14 +1392,20 @@ fn ep_for_two_pin(pins: &[(i64, String)]) -> Vec<EntryPoint> {
 /// 3. Generic → evenly distribute between Left / Right (odd index goes Right)
 /// 4. On same side, N pins evenly distributed with `offset = (i + 0.5) / N`
 fn ep_for_multi_pin(pins: &[(i64, String)], connected: &HashSet<i64>) -> Vec<EntryPoint> {
-    // Professional IC symbol layout: pins **all on left/right sides**, evenly spread, not stacked on top/bottom.
-    //   - Top/bottom edges in auto mode **no pins** (reserved for power/ground flags by place_flags, and future overflow).
-    //     Previously "throwing unconnected pins to top/bottom" caused long-named ports to crowd at narrow box's top/bottom edges, overlapping —
-    //     exactly the mcu top/bottom cluster in the screenshot. After changing to all-left/right, pins spread along height direction and won't crowd.
-    //   - Connected pins placed at each side's **front** (core connection position), unconnected pins at each side's **end** (secondary position),
+    // Professional IC symbol layout: pins **all on left/right sides**, evenly spread, not stacked
+    // on top/bottom.
+    // - Top/bottom edges in auto mode **no pins** (reserved for power/ground flags by place_flags,
+    // and future overflow).
+    //     Throwing unconnected pins to top/bottom crowds long-named ports at a
+    // narrow box's top/bottom edges — exactly the mcu top/bottom cluster in the
+    // screenshot. All-left/right spreads pins along the height direction instead.
+    // - Connected pins placed at each side's **front** (core connection position), unconnected pins
+    // at each side's **end** (secondary position),
     //     but both on left/right, no conflict or waste.
-    //   - Left/right count strictly balanced (alternating distribution), prevent same-direction clustering.
-    // Degraded protection: box has no connections at all (standalone component, like attr01) → treat all as connected, spread normally on left/right.
+    // - Left/right count strictly balanced (alternating distribution), prevent same-direction
+    // clustering.
+    // Degraded protection: box has no connections at all (standalone component, like attr01) →
+    // treat all as connected, spread normally on left/right.
     let any_connected = pins.iter().any(|p| connected.contains(&p.0));
     let is_conn = |id: i64| !any_connected || connected.contains(&id);
 
@@ -1358,7 +1419,8 @@ fn ep_for_multi_pin(pins: &[(i64, String)], connected: &HashSet<i64>) -> Vec<Ent
         }
     }
 
-    // Connected pins sorted by (role order, pin_id): power/input first (upper part of each side), output/ground later.
+    // Connected pins sorted by (role order, pin_id): power/input first (upper part of each side),
+    // output/ground later.
     //   Only determines **same-side vertical order**, doesn't affect "all on left/right".
     fn role_rank(name: &str) -> u8 {
         match classify_pin(name) {
@@ -1372,8 +1434,10 @@ fn ep_for_multi_pin(pins: &[(i64, String)], connected: &HashSet<i64>) -> Vec<Ent
     conn.sort_by(|a, b| role_rank(&a.1).cmp(&role_rank(&b.1)).then(a.0.cmp(&b.0)));
     dead.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Alternating left/right distribution: connected first (occupying each side's front), then unconnected (each side's end).
-    // No longer rearrange per side — preserve "connected in front / unconnected behind" vertical order.
+    // Alternating left/right distribution: connected first (occupying each side's front), then
+    // unconnected (each side's end).
+    // No longer rearrange per side — preserve "connected in front / unconnected behind" vertical
+    // order.
     let mut left: Vec<&(i64, String)> = Vec::new();
     let mut right: Vec<&(i64, String)> = Vec::new();
     for (i, p) in conn.iter().chain(dead.iter()).enumerate() {
@@ -1390,14 +1454,13 @@ fn ep_for_multi_pin(pins: &[(i64, String)], connected: &HashSet<i64>) -> Vec<Ent
     out
 }
 
-/// SubModule: ports use same strategy as MultiPin (aligned with main module, no longer different allocation logic).
+/// SubModule: ports use same strategy as MultiPin (aligned with main module, no longer different
+/// allocation logic).
 fn ep_for_sub_module(pins: &[(i64, String)], connected: &HashSet<i64>) -> Vec<EntryPoint> {
     ep_for_multi_pin(pins, connected)
 }
 
-// ============================================================================
 // Evenly distribute pins on same side
-// ============================================================================
 
 fn push_side(out: &mut Vec<EntryPoint>, pins: &[&(i64, String)], side: EntrySide) {
     let n = pins.len();
@@ -1415,9 +1478,7 @@ fn push_side(out: &mut Vec<EntryPoint>, pins: &[&(i64, String)], side: EntrySide
     }
 }
 
-// ============================================================================
 // ★ Terminal pin distribution (shared): both SP and ladder call this one
-// ============================================================================
 
 /// The opposite edge (Left↔Right, Top↔Bottom).
 pub fn opposite(s: &EntrySide) -> EntrySide {
@@ -1516,9 +1577,7 @@ pub fn assert_no_pin_overlap(b: &McVecBox) {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -1646,9 +1705,7 @@ mod tests {
         assert_eq!(gnd_eps[0].side, EntrySide::Top);
     }
 
-    // ========================================================================
     // ★ P06 (S5) refinement round tests
-    // ========================================================================
 
     use crate::vector::graph::netdef::IoDirection;
     use crate::vector::graph::{EndpointRef, NetKind, NetRole, VizNet};
@@ -2105,7 +2162,8 @@ mod tests {
             200.0,
             220.0
         ));
-        // 220 vs 200, dy dominates but not strong enough → no switch (note pick_side_by_direction returns Bottom)
+        // 220 vs 200, dy dominates but not strong enough → no switch (note pick_side_by_direction
+        // returns Bottom)
         // strengthen dy → should switch
         assert!(sides_warrant_switch(
             &EntrySide::Left,

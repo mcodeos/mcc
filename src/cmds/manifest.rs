@@ -30,9 +30,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-// ============================================================================
 // Manifest struct
-// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -103,9 +101,7 @@ mcode = "*"
     }
 }
 
-// ============================================================================
 // Build flow
-// ============================================================================
 
 /// Core logic for `mcc build`.
 ///
@@ -174,7 +170,7 @@ pub fn build_from_manifest(
     mcc::mcc_load_project(&entry_uri);
 
     // 4. Determine top module.
-    //    Priority (mcd docs-mc 16-export-viz §6): explicit top → targets in the
+    //    Priority (mcd spec/16-export-viz §6): explicit top → targets in the
     //    entry file (all modules → components → interfaces, virtually
     //    instantiated) → first module anywhere in the workspace.
     let top_name = top
@@ -365,9 +361,7 @@ pub fn init_local(target: Option<&str>, cli_libs: &[String]) -> Option<PathBuf> 
     project_root
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

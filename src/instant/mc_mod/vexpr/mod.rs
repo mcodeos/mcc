@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! The unified connection core — operand algebra for vector expressions
-//! (`vector-conn-unified-core-design.md` §7.3 / §7.6 step 4).
+//! (`unified-core-design.md` §7.3 / §7.6 step 4).
 //!
 //! This module is the **production** home of the `->` leg: the statement
 //! orchestrator ([`super::stmt::process_series_members`]) folds each adjacent
@@ -52,9 +52,7 @@ use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::basic::opd_shape::OpdShape;
 use crate::semantic::common::IOType;
 
-// ============================================================================
 // Element identity (§7.5 I2) and body (§7.2 H3(b) / vec-dianlu §5.4)
-// ============================================================================
 
 /// §7.5 I2: the identity of one endpoint element. It is pinned to the [`Ep`]
 /// and carried through the whole fold, so a port keeps its identity no matter
@@ -194,9 +192,7 @@ impl ConcreteOpd {
     }
 }
 
-// ============================================================================
 // reduce (builder side)
-// ============================================================================
 
 use super::builder::InstantiationBuilder;
 
@@ -211,9 +207,7 @@ impl InstantiationBuilder {
     }
 }
 
-// ============================================================================
 // helpers
-// ============================================================================
 
 /// The member part of `owner.member` (fallback when a point carries no
 /// `member_name`).
@@ -237,9 +231,7 @@ fn buses(points: &[NetPoint]) -> Vec<McBus> {
     points.iter().map(bus_of).collect()
 }
 
-// ============================================================================
 // tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

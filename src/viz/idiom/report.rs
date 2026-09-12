@@ -10,9 +10,7 @@ use std::collections::BTreeMap;
 
 use super::model::{IdiomInstanceKind, PlacementDecisionRecord};
 
-// ============================================================================
 // IdiomPlacementReport
-// ============================================================================
 
 /// Report produced after idiom placement pass.
 #[derive(Debug, Clone, Default, PartialEq)]

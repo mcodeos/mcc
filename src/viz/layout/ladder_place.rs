@@ -44,9 +44,7 @@ use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph, Point};
 
 use super::ladder_model::LadderModel;
 
-// ============================================================================
 // Constants
-// ============================================================================
 
 /// Horizontal clearance between a series box and the neighbouring bridge box.
 const COL_GAP: f64 = 16.0;
@@ -55,9 +53,7 @@ const SLOT_MIN: f64 = 180.0;
 /// Anchor edge -> first / last column.
 const ANCHOR_GAP: f64 = 40.0;
 
-// ============================================================================
 // Output
-// ============================================================================
 
 /// The realised geometry. Returned so Phase C can diff the graph against it and
 /// name whoever moved something afterwards.
@@ -69,9 +65,7 @@ pub struct LadderGeometry {
     pub col_step: f64,
 }
 
-// ============================================================================
 // Entry
-// ============================================================================
 
 /// Vertical spacing between lanes within a band. Must match islands::ROW_H.
 const ROW_H: f64 = 80.0;
@@ -87,23 +81,23 @@ pub fn apply_ladder_model_at(
     origin: Point,
     _x_right: f64,
 ) -> Option<LadderGeometry> {
-    // ── 0. Everything we need to read, read before we start mutating ─────────
+    // 0. Everything we need to read, read before we start mutating
     let plan = Plan::build(graph, m)?;
 
-    // ── 1. Lanes: spread evenly within the band's height ──────────────────────
+    // 1. Lanes: spread evenly within the band's height
     let row_h = ROW_H.max(plan.elem_h + PASSIVE_GAP);
     let lane_y: Vec<f64> = (0..m.n_lanes)
         .map(|k| origin.y + (k as f64 + 0.5) * row_h)
         .collect();
 
-    // ── 2. Columns ───────────────────────────────────────────────────────────
+    // 2. Columns
     let col_step = (plan.elem_w + plan.bridge_w + 2.0 * COL_GAP).max(SLOT_MIN);
     let inner_left = origin.x + plan.left_w + ANCHOR_GAP;
     let col_x: Vec<f64> = (0..m.n_cols)
         .map(|c| inner_left + c as f64 * col_step)
         .collect();
 
-    // ── 3. Series elements: on their lane, between two columns ───────────────
+    // 3. Series elements: on their lane, between two columns
     for s in &m.series {
         let cx = (col_x[s.from_col] + col_x[s.to_col]) / 2.0;
         let cy = lane_y[s.lane];
@@ -123,7 +117,7 @@ pub fn apply_ladder_model_at(
         );
     }
 
-    // ── 4. Bridges: on their column, across two lanes ────────────────────────
+    // 4. Bridges: on their column, across two lanes
     for b in &m.bridges {
         let cx = col_x[b.col];
         let cy = (lane_y[b.lane_a] + lane_y[b.lane_b]) / 2.0;
@@ -168,9 +162,7 @@ pub fn apply_ladder_model_at(
 /// Place every box the model describes. Returns the geometry it committed to.
 /// This is now a wrapper around `apply_ladder_model_at` + anchor placement.
 
-// ============================================================================
 // Plan — every read, done up front (no borrow fights with the writes below)
-// ============================================================================
 
 struct Plan {
     left_w: f64,
@@ -318,9 +310,7 @@ impl Plan {
     }
 }
 
-// ============================================================================
 // Writers
-// ============================================================================
 
 /// A ladder passive: centred at `(cx, cy)`, sized `w x h`, with exactly two pins on
 /// the two given sides. `visual_role` is set explicitly so the three passive passes

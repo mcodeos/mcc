@@ -19,9 +19,7 @@ use crate::viz::stability::score::{self, DeterministicScore, PlacementCandidate}
 use super::model::{AnchorSide, IdiomPlacementModel, PlacementConstraint, PlacementDecisionRecord};
 use super::report::{IdiomPlacementReport, IdiomPlacementSkipReason};
 
-// ============================================================================
 // Public API
-// ============================================================================
 
 /// Analyze idiom placement opportunities from semantic data.
 ///
@@ -120,9 +118,7 @@ pub fn apply_idiom_placement_pre_pins(
     report
 }
 
-// ============================================================================
 // M12: Score-all candidate placement
-// ============================================================================
 
 /// Score all candidate positions and select the deterministic best safe one.
 fn apply_near_anchor_scored(

@@ -4,7 +4,7 @@
 
 //! Top-level power-flow single view — v0.1 **derived generator**.
 //!
-//! `mcc show pwrflow` (design: `mcd/doc/power-signal/power-flow-single-view-design.md`)
+//! `mcc show pwrflow` (design: `flow-single-view-design.md`)
 //! turns one flat build into the *generative* single view of "how this board's
 //! power flows", replacing the hand-written `power-flow-view.md` block:
 //!
@@ -41,9 +41,7 @@ use crate::semantic::module::pi::L1Rail;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-// ────────────────────────────────────────────────────────────────────────────
 // Public typed view (lib.rs re-exports these to cmds + tests)
-// ────────────────────────────────────────────────────────────────────────────
 
 /// One world-crown row: return/reference copper + its conduit world.
 #[derive(Debug, Clone, Default)]
@@ -121,9 +119,7 @@ pub struct PwrFlow {
     pub roots: Vec<FlowNode>,
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Scope
-// ────────────────────────────────────────────────────────────────────────────
 
 /// Trace hook — `MCC_PWRFLOW_TRACE=1` prints the scan on stderr (build aid).
 fn trace(args: std::fmt::Arguments<'_>) {
@@ -202,9 +198,7 @@ fn ret_of_net(scope: &Scope, net: u32) -> Option<String> {
     }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Component / terminal model
-// ────────────────────────────────────────────────────────────────────────────
 
 /// One resolved power-contract terminal of a component: which flat nets the
 /// contract's hot pin and return pin landed on.
@@ -411,9 +405,7 @@ fn collect_components(table: &InstTable, scope: &Scope) -> Vec<Comp> {
     out
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Supply-class nets + source-distance orientation
-// ────────────────────────────────────────────────────────────────────────────
 
 /// Every top-scope supply net the analysis carries: declared rail hot nets and
 /// nets that sit under a component power terminal or an export power port.
@@ -532,9 +524,7 @@ fn net_dist(
     dist
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Build
-// ────────────────────────────────────────────────────────────────────────────
 
 /// Build the power-flow single view of the top module `top_path`.
 pub fn build_pwrflow(table: &InstTable, top_path: &str) -> Result<PwrFlow, String> {
@@ -610,9 +600,7 @@ pub fn build_pwrflow(table: &InstTable, top_path: &str) -> Result<PwrFlow, Strin
     Ok(flow)
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Crown
-// ────────────────────────────────────────────────────────────────────────────
 
 fn build_crown(table: &InstTable, scope: &Scope) -> Vec<CrownRow> {
     // Which declared conduits are live resolvable return/reference copper in
@@ -645,9 +633,7 @@ fn build_crown(table: &InstTable, scope: &Scope) -> Vec<CrownRow> {
     rows
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Rail analysis + rows
-// ────────────────────────────────────────────────────────────────────────────
 
 /// Everything the [2] rail row and the [3] tree need about one declared rail.
 struct RailInfo {
@@ -908,9 +894,7 @@ fn two_pin_up(
     None
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Supply tree
-// ────────────────────────────────────────────────────────────────────────────
 
 /// Pair label for a supply net: `[name, ret]` when a return copper is
 /// provable, else the bare net name.
@@ -1291,9 +1275,7 @@ fn emit_rail(
     }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Debug trace
-// ────────────────────────────────────────────────────────────────────────────
 
 fn trace_flow(flow: &PwrFlow) {
     trace(format_args!("top {}", flow.top));

@@ -15,7 +15,8 @@
 //!
 //! ## Three output sections
 //! - `[VIZ-LAYOUT]` —— layout stage: box count, each box's (x, y, w, h), any overlap
-//! - `[VIZ-ROUTE ]` —— route stage: net count, router choice, each net's endpoint count + segment count
+//! - `[VIZ-ROUTE ]` —— route stage: net count, router choice, each net's endpoint count + segment
+//! count
 //! - `[VIZ-RENDER]` —— render stage: total SVG bytes, each layer's bytes
 
 use std::sync::OnceLock;
@@ -24,9 +25,7 @@ use crate::vector::graph::{McVecGraph, NetKind};
 
 use super::doc::VizDocument;
 
-// ============================================================================
 // Enable check
-// ============================================================================
 
 static DUMP_ENABLED: OnceLock<bool> = OnceLock::new();
 
@@ -40,9 +39,7 @@ pub fn dump_enabled() -> bool {
     })
 }
 
-// ============================================================================
 // dump_layout: called after layout
-// ============================================================================
 
 pub fn dump_layout(graph: &McVecGraph, layouter_name: &str, canvas: (f64, f64)) {
     if !dump_enabled() {
@@ -110,9 +107,7 @@ pub fn dump_layout(graph: &McVecGraph, layouter_name: &str, canvas: (f64, f64)) 
     mcc_dbg!("viz", "{p} ── END ───────────────────────────────────");
 }
 
-// ============================================================================
 // dump_route: called after route
-// ============================================================================
 
 pub fn dump_route(graph: &McVecGraph) {
     if !dump_enabled() {
@@ -171,9 +166,7 @@ pub fn dump_route(graph: &McVecGraph) {
     mcc_dbg!("viz", "{p} ── END ───────────────────────────────────");
 }
 
-// ============================================================================
 // dump_document: full VizDocument overview
-// ============================================================================
 
 pub fn dump_document(doc: &VizDocument) {
     if !dump_enabled() {

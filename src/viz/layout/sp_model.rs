@@ -52,7 +52,7 @@
 //! ([`orient_tree`]) then assigns every node its `(a, b)` from the parent's span —
 //! chaining `Series` children end-to-end from `a` to `b`. This is exact, needs no
 //! distance metric, and simultaneously fixes the left→right ordering of series children
-//! (which used to be "sort by distance, tie-break on box id" = guess by designator).
+//! (where "sort by distance, tie-break on box id" would be a guess by designator).
 //!
 //! This file NEVER touches geometry (x/y/w/h/entry_points). `sp_place.rs` does that.
 
@@ -62,9 +62,7 @@ use crate::vector::graph::McVecGraph;
 
 use super::rails::is_rail_box;
 
-// ============================================================================
 // SP tree
-// ============================================================================
 
 /// A node of the series-parallel decomposition. Each node also carries its
 /// **span** `(a, b)` = the two terminal nets it connects between, with `a` the end
@@ -169,7 +167,8 @@ impl SpTree {
         }
     }
 
-    /// Print in **source syntax** (`-` series / `+` parallel), for verbatim comparison against the author-written expression.
+    /// Print in **source syntax** (`-` series / `+` parallel), for verbatim comparison against the
+    /// author-written expression.
     pub fn expr_source_syntax(&self) -> String {
         fn join(cs: &[SpTree], sep: &str) -> String {
             cs.iter()
@@ -205,9 +204,7 @@ impl SpTree {
     }
 }
 
-// ============================================================================
 // Model + bail
-// ============================================================================
 
 /// A branch that hangs off the two-terminal network by one node (bypass cap to GND,
 /// test point, unterminated stub). Not part of the SP tree; `sp_place` drops it
@@ -261,9 +258,7 @@ impl SpModel {
     }
 }
 
-// ============================================================================
 // ★ SubNet: a subset of the full graph for island-based SP model building
-// ============================================================================
 
 /// A subset of the full graph, used by `islands` to build SP models from a
 /// specific island instead of the whole graph.
@@ -461,9 +456,7 @@ impl std::fmt::Display for SpBail {
     }
 }
 
-// ============================================================================
 // Public entry (logging wrapper, mirrors ladder_model)
-// ============================================================================
 
 /// What the layouter calls. Dumps the model on success, names the bail on failure.
 pub fn try_build_sp_model(graph: &McVecGraph) -> Option<SpModel> {
@@ -515,7 +508,7 @@ pub fn build_sp_model(graph: &McVecGraph) -> Result<SpModel, SpBail> {
     }
     let box_nets = box_net_index(graph);
 
-    // ── 1. Terminals: the non-rail, non-two-pin-passive boxes (exactly 2) ────
+    // 1. Terminals: the non-rail, non-two-pin-passive boxes (exactly 2)
     let mut terminals: Vec<i64> = graph
         .boxes
         .iter()
@@ -548,9 +541,7 @@ pub fn build_sp_model(graph: &McVecGraph) -> Result<SpModel, SpBail> {
     build_sp_tree(graph, &sub)
 }
 
-// ============================================================================
 // Reduction core (operates purely on net indices + edges)
-// ============================================================================
 
 struct WEdge {
     a: usize,
@@ -725,9 +716,7 @@ fn find_parallel_pair(edges: &[WEdge]) -> Option<(usize, usize)> {
     best
 }
 
-// ============================================================================
 // Orientation + ordering (top-down tree passes)
-// ============================================================================
 
 /// Assign every node its `(a, b)` from the parent's span, and put `Series` children in
 /// true electrical order by chaining them `a → b`.
@@ -807,9 +796,7 @@ pub fn order_parallel(t: &mut SpTree, _is_root: bool) {
     }
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 /// box_id → net indices it touches (deduped, ascending). Same shape as
 /// `ladder_model::box_net_index`.
@@ -830,9 +817,7 @@ fn box_net_index(graph: &McVecGraph) -> HashMap<i64, Vec<usize>> {
     out
 }
 
-// ============================================================================
 // Tests — topology only (geometry lives in sp_place)
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -1049,7 +1034,8 @@ mod tests {
         assert_eq!(m.root.expr(), "(R3 + ((R4 + C5) ∥ R6)) ∥ (R1 + C2)");
     }
 
-    /// dump order: __net_0=B, __net_1=E, __net_2=D, __net_3=C (right terminal), __net_4=A (left terminal)
+    /// dump order: __net_0=B, __net_1=E, __net_2=D, __net_3=C (right terminal), __net_4=A (left
+    /// terminal)
     fn real_netlist() -> McVecGraph {
         let mut g = McVecGraph::new(1, "main".into());
         g.boxes.push(passive(1, "R1", Symbol::Resistor));
@@ -1070,7 +1056,8 @@ mod tests {
         g
     }
 
-    /// ★ Node index order is irrelevant: the real dump order differs from the fixture, but the result is identical.
+    /// ★ Node index order is irrelevant: the real dump order differs from the fixture, but the
+    /// result is identical.
     #[test]
     fn real_netlist_node_order_is_irrelevant() {
         let m = build_sp_model(&real_netlist()).expect("still SP");

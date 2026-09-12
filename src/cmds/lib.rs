@@ -17,9 +17,7 @@ use serde::Serialize;
 use std::fmt;
 use std::path::PathBuf;
 
-// ============================================================================
 // Report types
-// ============================================================================
 
 #[derive(Serialize)]
 pub struct LibListReport {
@@ -83,9 +81,7 @@ impl fmt::Display for LibInfoReport {
     }
 }
 
-// ============================================================================
 // Dispatch
-// ============================================================================
 
 pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
     let client = mcc::cli::rpcclient::RpcClient::probe();
@@ -160,9 +156,7 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
     }
 }
 
-// ============================================================================
 // list
-// ============================================================================
 
 fn cmd_list(format: OutputFormat) -> Result<()> {
     let loaded_names = mcc::mcb_loaded_libs();
@@ -185,9 +179,7 @@ fn cmd_list(format: OutputFormat) -> Result<()> {
     output::emit(&report, format, None)
 }
 
-// ============================================================================
 // install
-// ============================================================================
 
 fn cmd_install(name: &str, from: &str, version: Option<&str>, _format: OutputFormat) -> Result<()> {
     let (lib_name_ver, target) = do_install(name, from, version)?;
@@ -231,9 +223,7 @@ pub fn do_install(name: &str, from: &str, version: Option<&str>) -> Result<(Stri
     Ok((lib_name_ver, target))
 }
 
-// ============================================================================
 // load
-// ============================================================================
 
 fn cmd_load(name: &str, _format: OutputFormat) -> Result<()> {
     // First check whether it has already been loaded
@@ -277,9 +267,7 @@ fn cmd_load(name: &str, _format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
-// ============================================================================
 // unload
-// ============================================================================
 
 fn cmd_unload(name: &str, _format: OutputFormat) -> Result<()> {
     let ok = mcc::mcb_unload_lib(name);
@@ -290,9 +278,7 @@ fn cmd_unload(name: &str, _format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
-// ============================================================================
 // info
-// ============================================================================
 
 fn cmd_show(name: &str, format: OutputFormat) -> Result<()> {
     let info = mcc::mcb_lib_info(name).with_context(|| {
@@ -313,9 +299,7 @@ fn cmd_show(name: &str, format: OutputFormat) -> Result<()> {
     output::emit(&report, format, None)
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 /// Resolve the on-disk root directory for a library, delegating to the single
 /// library-root resolver shared with the RPC/IDE path (system root first, then
@@ -387,9 +371,7 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-// ============================================================================
 // search
-// ============================================================================
 
 #[derive(Serialize)]
 pub struct LibSearchReport {
@@ -440,9 +422,7 @@ pub fn do_search(pattern: &str) -> LibSearchReport {
     }
 }
 
-// ============================================================================
 // uninstall
-// ============================================================================
 
 fn cmd_uninstall(name: &str, force: bool, _format: OutputFormat) -> Result<()> {
     let lib_dir = do_uninstall(name, force)?;

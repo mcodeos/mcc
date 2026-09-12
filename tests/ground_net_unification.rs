@@ -10,7 +10,7 @@
 //!
 //!   - LEGACY (no power-intent declaration): the unified `GND` net is
 //!     `Signal` / `resolvable = false` — never judged, never guessed
-//!     (net-island-attribution-design.md §8; ruling ①).
+//!     (island-attribution-design.md §8; ruling ①).
 //!   - DECLARED (`conduit GND`): the same unified `GND` net anchors to the
 //!     declared copper as `Reference`, `resolvable = true`.
 //!

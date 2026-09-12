@@ -4,7 +4,7 @@
 
 //! Acceptance surface for the **degenerate side written left** `Parallel`
 //! family (`VCC + R101`) -- the one `[V]` the L0 operand-fold design left open
-//! (`mcd/doc/vector-conn-l0-operand-fold-design.md` §1.5 items 1-2 / §5 open item 1,
+//! (`l0-operand-fold-design.md` §1.5 items 1-2 / §5 open item 1,
 //! `vec-dianlu.md` §8.4 item 3, the "incidental finding").
 //!
 //! # The law being locked
@@ -130,7 +130,7 @@ fn two_nets(uri: &str, body: &str) -> Vec<Vec<String>> {
     nets
 }
 
-// ── the flagged fixture: degenerate side written left ───────────────────────
+// the flagged fixture: degenerate side written left
 
 /// `VDD + R1 -> GND` -- the exact statement L0 §1.5 named as the open `[V]`.
 ///
@@ -209,7 +209,7 @@ fn degenerate_side__point_left_operand_keeps_the_series_leg() {
     );
 }
 
-// ── both sides degenerate: the lane stack ───────────────────────────────────
+// both sides degenerate: the lane stack
 
 /// `[VCC, GND] + [R1.1, R1.2]` -- **both** operands degenerate, so no face has
 /// to be chosen: §5.1's `N*1 + N*1` row applies and the two columns pair
@@ -234,7 +234,7 @@ fn degenerate_side__both_columns_pair_element_wise() {
     );
 }
 
-// ── the mirror: degenerate side written right ───────────────────────────────
+// the mirror: degenerate side written right
 
 /// `R1 + VDD -> GND` -- the mirror of the flagged family (§5.1 table row
 /// `1*2 + 1*1`). The label is now written **right**, so it merges onto `R1`'s

@@ -133,7 +133,8 @@ pub(crate) struct BuildVizParams {
     pub(crate) include_system: bool,
     #[serde(default)]
     pub(crate) libs: Vec<String>,
-    /// Lock viz to a single layouter (flow|schematic_radial|schematic_sub|hierarchical|radial|layered).
+    /// Lock viz to a single layouter
+    /// (flow|schematic_radial|schematic_sub|hierarchical|radial|layered).
     #[serde(default)]
     pub(crate) layouter: Option<String>,
 }

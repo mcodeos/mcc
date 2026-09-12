@@ -938,9 +938,7 @@ module main {
     }
 }
 
-// ============================================================================
 // Phase E — overlay layer (§3/§4, design §5 D5)
-// ============================================================================
 
 /// Phase D item ② (plan §9 D): port / interface-member / label / bus-member
 /// endpoints all resolve to a `PointId` — a component pin (Pass2 normalizes
@@ -1105,9 +1103,7 @@ module main(ps GND) {
     );
 }
 
-// ============================================================================
 // Phase E — overlay layer (§3/§4, design §5 D5)
-// ============================================================================
 
 /// GAP1: both-sides vector member alignment `a[1:2].1 -> b[1:2].1` produces
 /// member-level wiring. Pass2 expands each array member to its own
@@ -1291,9 +1287,7 @@ module main {
     );
 }
 
-// ============================================================================
 // Phase F — circuit → def dependency edges (§12.6 / plan §9 F)
-// ============================================================================
 
 /// Phase F: one instantiation records every definition-space resolution it
 /// performs — the entry module plus each class it materializes. A component
@@ -1394,9 +1388,7 @@ module main {
     );
 }
 
-// ============================================================================
 // Phase G — CircuitWorld (§11.3 D10 / plan §9 G)
-// ============================================================================
 
 /// A CAP (2-pin) + `module main` fixture whose nets carry the labels VDD/GND.
 fn world_main_src() -> &'static str {

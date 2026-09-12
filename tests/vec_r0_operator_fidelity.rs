@@ -89,10 +89,9 @@ fn build_res(statements: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
 }
 
 /// A6: `d1.VCC -> d1.GND` is a **chain of two members of one instance**, so
-/// both land on one net. It used to be rewritten into a single
-/// `Bus(d1, [VCC, GND])` — which `expand_multi_member_buses` then turned into a
-/// two-lane `Multiple` — deleting the operator and splitting the two members
-/// onto separate nets.
+/// both land on one net. Rewriting it into a single `Bus(d1, [VCC, GND])` —
+/// which `expand_multi_member_buses` then turns into a two-lane `Multiple` —
+/// deletes the operator and splits the two members onto separate nets.
 ///
 /// Locked by equivalence with the same chain written with `-`: the arrows
 /// differ only in the direction they record, never in the wiring (§1.4 — the

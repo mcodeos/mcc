@@ -55,7 +55,8 @@ pub fn apply_wire_hops(graph: &mut McVecGraph) {
         return;
     }
 
-    // 3. Rebuild segments per net: split horizontal segments with hops and insert bumps, others unchanged
+    // 3. Rebuild segments per net: split horizontal segments with hops and insert bumps, others
+    // unchanged
     for (ni, net) in graph.nets.iter_mut().enumerate() {
         let route = match &mut net.route {
             Some(r) => r,

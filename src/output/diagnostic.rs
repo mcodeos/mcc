@@ -122,9 +122,7 @@ fn severity_from(l: DiagnosticLevel) -> Severity {
     }
 }
 
-// ============================================================================
 // PhaseTracker - used to split diagnostics between pass1/pass2
-// ============================================================================
 
 /// Tool for tagging diagnostics with phase between pass1 and pass2.
 ///
@@ -138,7 +136,8 @@ fn severity_from(l: DiagnosticLevel) -> Severity {
 /// let pass2_diags = tracker.collect(Phase::Pass2);
 /// ```
 ///
-/// Internally maintains a cursor; each collect slices `[cursor..end]`, converts, and advances the cursor.
+/// Internally maintains a cursor; each collect slices `[cursor..end]`, converts, and advances the
+/// cursor.
 pub struct PhaseTracker {
     cursor: usize,
 }
@@ -150,7 +149,8 @@ impl PhaseTracker {
         }
     }
 
-    /// Capture the new diagnostics added since the last [`collect`](Self::collect) (or [`new`](Self::new)),
+    /// Capture the new diagnostics added since the last [`collect`](Self::collect) (or
+    /// [`new`](Self::new)),
     /// tag them with `phase` and return; cursor advances.
     pub fn collect(&mut self, phase: Phase) -> Vec<Diagnostic> {
         let all = mcc::mcc_diagnose_all();
@@ -164,7 +164,8 @@ impl PhaseTracker {
         result
     }
 
-    /// Reset the cursor to the latest position (returns no diagnostics). Suitable for discarding intermediate phase diagnostics.
+    /// Reset the cursor to the latest position (returns no diagnostics). Suitable for discarding
+    /// intermediate phase diagnostics.
     pub fn skip(&mut self) {
         self.cursor = mcc::mcc_diagnose_all().len();
     }

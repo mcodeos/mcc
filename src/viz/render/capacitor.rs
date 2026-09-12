@@ -12,7 +12,8 @@
 //! ```
 //!
 //! Normal capacitor: two equal-length vertical lines
-//! Polar capacitor: one straight + one arc (this phase uses the same two lines first, refine later at end of P05)
+//! Polar capacitor: one straight + one arc (this phase uses the same two lines first, refine later
+//! at end of P05)
 
 use crate::vector::graph::{McVecBox, Symbol};
 
@@ -29,7 +30,8 @@ impl BoxShape for CapacitorShape {
         } else {
             "comp capacitor"
         };
-        // ★ Vertical (h>w): draw symbol with virtual horizontal box + rotate(90); label does not rotate.
+        // ★ Vertical (h>w): draw symbol with virtual horizontal box + rotate(90); label does not
+        // rotate.
         let symbol = if b.h > b.w {
             let cx = b.x + b.w / 2.0;
             let cy = b.y + b.h / 2.0;
@@ -56,7 +58,8 @@ impl BoxShape for CapacitorShape {
     }
 }
 
-/// Concentric "virtual horizontal box": swap width and height, center unchanged. Vertical parts are drawn horizontally first then rotated 90°.
+/// Concentric "virtual horizontal box": swap width and height, center unchanged. Vertical parts are
+/// drawn horizontally first then rotated 90°.
 fn vertical_virtual_box(b: &McVecBox) -> McVecBox {
     let cx = b.x + b.w / 2.0;
     let cy = b.y + b.h / 2.0;
@@ -68,7 +71,8 @@ fn vertical_virtual_box(b: &McVecBox) -> McVecBox {
     vb
 }
 
-/// Capacitor symbol (two leads + two plates + polarity mark, excluding label / outer g), drawn horizontally.
+/// Capacitor symbol (two leads + two plates + polarity mark, excluding label / outer g), drawn
+/// horizontally.
 fn capacitor_symbol(b: &McVecBox) -> String {
     let cx = b.x + b.w / 2.0;
     let cy = b.y + b.h / 2.0;
@@ -146,9 +150,7 @@ fn capacitor_symbol(b: &McVecBox) -> String {
     )
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

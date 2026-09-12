@@ -38,9 +38,7 @@ impl ValidationCheck for BodyCheck {
     }
 }
 
-// ============================================================================
 // L1: Mixed `.` and `/` path separators in URIs
-// ============================================================================
 
 /// URIs should consistently use either `.` (dot-notation namespace, like
 /// `mcode.SPI`) or `/` (filesystem path notation, like `mcode/SPI`), but
@@ -126,13 +124,9 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // P7: `return` with literal instead of endpoint
-// ============================================================================
 
-// ============================================================================
 // S4: `this` on LHS of `::` declaration
-// ============================================================================
 
 /// `this :: TYPE` is invalid syntax. The `this` keyword refers to the
 /// current instance and cannot be used as a new instance name.
@@ -171,9 +165,7 @@ fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // T1: Bitwise operator (`&`/`|`) in condition context
-// ============================================================================
 
 /// In component conditional blocks (`if ...`), using `&` (bitwise AND) or
 /// `|` (bitwise OR) where `&&` (logical AND) or `||` (logical OR) is
@@ -257,9 +249,7 @@ fn push_single_binary_diag(
     });
 }
 
-// ============================================================================
 // C4-ext: Module port declared but never connected in any net
-// ============================================================================
 
 /// A module port (declared as a parameter) that appears in `insts` but is
 /// never referenced in any `->` connection line is a floating/unused port.
@@ -334,11 +324,9 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // AST-walking helpers for collecting referenced names from McPhrase trees.
 // Replaces the former text-based splitting approach that corrupted names when
 // parentheses, brackets, or function-call commas were present.
-// ============================================================================
 
 /// Recursively walk a `McPhrase` and collect all endpoint base names,
 /// including names passed as function-call arguments.

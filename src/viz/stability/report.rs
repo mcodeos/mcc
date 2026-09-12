@@ -10,9 +10,7 @@ use crate::vector::graph::McVecGraph;
 
 use super::hash;
 
-// ============================================================================
 // DeterminismReport
-// ============================================================================
 
 /// Hash-based determinism report. Compare two reports from repeated runs
 /// to verify deterministic output.
@@ -84,9 +82,7 @@ impl DeterminismReport {
     }
 }
 
-// ============================================================================
 // StabilityReport (for small-edit locality)
-// ============================================================================
 
 /// Soft tracking of locality under small changes.
 #[derive(Debug, Clone, Default, PartialEq)]

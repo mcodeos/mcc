@@ -10,7 +10,7 @@
 //! emission points render it via [`format_msg()`]. Maintain this file by
 //! hand: every code needs a `pub const` and an `ALL_CODES` entry below.
 //!
-//! Numbering follows `mcd/doc/mcc-error-code-unification-plan.md` §3.2:
+//! Numbering follows `mcc-error-code-unification-plan.md` §3.2:
 //! thousands+hundreds = pipeline stage / semantic cluster.
 //!   - 1xxx  Pass1a  type collection / definition structure
 //!   - 2xxx  Pass1b  use statements / parser / name resolution
@@ -26,9 +26,7 @@
 //! 2. Add a matching `entry!()` row in the `ALL_CODES` table with the
 //!    canonical emission message template (`{0}`, `{1}`, ... placeholders).
 
-// ============================================================================
 // Infrastructure
-// ============================================================================
 
 /// A human-readable error code entry.
 #[derive(Clone)]
@@ -97,9 +95,7 @@ macro_rules! entry {
     };
 }
 
-// ============================================================================
 // Pass1a: duplicate definitions (1000-1049)
-// ============================================================================
 
 /// An interface with the same name already exists in this file.
 pub const DUP_INTERFACE: u32 = 1001;
@@ -119,9 +115,7 @@ pub const DUP_DEFINE: u32 = 1005;
 /// A capability with the same name already exists in this file.
 pub const DUP_CAPABILITY: u32 = 1006;
 
-// ============================================================================
 // Pass1a: definition structure / CMIE load (1050-1099)
-// ============================================================================
 
 /// Definition already exists.
 pub const DEF_ALREADY_EXISTS: u32 = 1051;
@@ -147,14 +141,12 @@ pub const ENUM_MISSING_VALUES: u32 = 1058;
 /// Malformed IO type node in a pin/port declaration.
 pub const MALFORMED_IOTYPE: u32 = 1059;
 
-// ============================================================================
 // Pass1a: phrase member resolution (1100-1199)
-// ============================================================================
 //
 // Traces emitted by `mc_phrase.rs`'s `dot_or_curly` / `curly_mn` when a member
-// access cannot be resolved. They were previously emitted as bare numeric
-// literals against codes that had no registry entry, so `format_msg` returned
-// an empty string and every trace rendered blank.
+// access cannot be resolved. Each must be a registered code, not a bare numeric
+// literal: `format_msg` resolves the code through the registry, so an
+// unregistered one returns an empty string and renders the trace blank.
 
 /// `dot_or_curly` on a component operand: none of the requested members
 /// matched a pin, so the access yields nothing.
@@ -216,9 +208,7 @@ pub const PHRASE_CURLY_EMPTY_RIGHT: u32 = 1198;
 /// `{a | b}` access yields nothing.
 pub const PHRASE_CURLY_UNSUPPORTED_OPERAND: u32 = 1199;
 
-// ============================================================================
 // Pass1b: use statements (2000-2049)
-// ============================================================================
 
 /// Invalid path in a use statement.
 pub const USE_PATH_INVALID: u32 = 2001;
@@ -250,9 +240,7 @@ pub const USE_MIXED_PATH_SEPARATORS: u32 = 2009;
 /// Unexpected trailing node in a USE statement; it is ignored.
 pub const USE_TRAILING_NODE: u32 = 2010;
 
-// ============================================================================
 // Pass1b: use-stage diagnostics (2050-2079)
-// ============================================================================
 
 /// Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.
 pub const USE_DEP_NOT_DECLARED: u32 = 2051;
@@ -266,9 +254,7 @@ pub const USE_SYMBOL_CONFLICT: u32 = 2061;
 /// The imported symbol was not found in the target file.
 pub const USE_IMPORTED_NOT_FOUND: u32 = 2071;
 
-// ============================================================================
 // Pass1b: parser / AST messages (2080-2119)
-// ============================================================================
 
 /// Generic syntax error.
 pub const PARSER_SYNTAX_ERROR: u32 = 2080;
@@ -390,9 +376,7 @@ pub const AST_UTF8_ERROR: u32 = 2118;
 /// AST node has an unexpected type.
 pub const AST_TYPE_MISMATCH: u32 = 2119;
 
-// ============================================================================
 // Pass1b: name resolution (2120-2199)
-// ============================================================================
 
 /// IDS has no nodes.
 pub const NAME_IDS_NO_NODES: u32 = 2121;
@@ -424,9 +408,7 @@ pub const NOT_SUPPORTED_YET: u32 = 2171;
 /// `name-space-internal.md` §1.3 "not found → Unresolved / diagnostic error".
 pub const SYMBOL_NOT_FOUND: u32 = 2172;
 
-// ============================================================================
 // Pass2: vector shape validation (2900-2949)
-// ============================================================================
 
 /// Transpose operand shape out of range (eval.md §5.5): only 1*1 / 1*2 / 2*1 / 2*2
 /// are transposable. Emitted at Pass1 (McPhrase) when the operand's derived row
@@ -473,9 +455,7 @@ pub const SHAPE_COLUMN_WIDTH_MIXED: u32 = 2907;
 /// violation is 1-port against 2-port.
 pub const SHAPE_INST_PORTCOUNT_PLUSMINUS: u32 = 2908;
 
-// ============================================================================
 // Pass1c: component definition (pins / attrs / units) (3000-3049)
-// ============================================================================
 
 /// Pin ID and pin name do not match.
 pub const PIN_ID_NAME_MISMATCH: u32 = 3001;
@@ -540,9 +520,7 @@ pub const UVAL_FORMAT_INVALID: u32 = 3048;
 /// Invalid unit variant (angle, charge, magnetic flux, slew rate, ...).
 pub const UVAL_UNIT_VARIANT_INVALID: u32 = 3049;
 
-// ============================================================================
 // Pass1c: module body (3050-3099)
-// ============================================================================
 
 /// Missing subnode in a module body clause.
 pub const MODULE_MISSING_SUBNODE: u32 = 3051;
@@ -565,9 +543,7 @@ pub const MODULE_METHOD_NOT_FOUND: u32 = 3071;
 /// Unexpected clause type in a module body.
 pub const UNEXPECTED_CLAUSE_TYPE: u32 = 3081;
 
-// ============================================================================
 // Pass1c: params / functions (3100-3149)
-// ============================================================================
 
 /// Empty net in a function or module body.
 pub const FUNC_EMPTY_NET: u32 = 3101;
@@ -625,9 +601,7 @@ pub const FUNC_FLOATING_LABEL: u32 = 3136;
 /// Referenced twice or more it is a shared net and left alone.
 pub const SINGLE_USE_INLINE_NET: u32 = 3137;
 
-// ============================================================================
 // Pass1c: instance declaration / reference (3150-3199)
-// ============================================================================
 
 /// Failed to parse an instance in an expression context.
 pub const INST_EXPR_PARSE_FAILED: u32 = 3151;
@@ -686,7 +660,8 @@ pub const IFACE_MEMBER_LOOKUP_FAILED: u32 = 3178;
 /// Pin(s) not found in the component or interface.
 pub const COMPONENT_PIN_NOT_FOUND: u32 = 3179;
 
-/// Interface has no top-level pin definitions (all pins are inside role blocks); no pin-to-member mapping is created.
+/// Interface has no top-level pin definitions (all pins are inside role blocks); no pin-to-member
+/// mapping is created.
 pub const IFACE_NO_TOPLEVEL_PINS: u32 = 3180;
 
 /// A referenced member is not defined on a declared bus / typed interface port.
@@ -712,9 +687,7 @@ pub const INSTANCE_REF_UNDECLARED: u32 = 3182;
 /// or reference the whole port as a scalar.
 pub const BUS_MEMBER_ON_SCALAR_PORT: u32 = 3183;
 
-// ============================================================================
 // Pass2: connection / shape (4000-4049)
-// ============================================================================
 
 /// Transposed connection size mismatch.
 pub const CONN_TRANSPOSE_SIZE_MISMATCH: u32 = 4001;
@@ -728,7 +701,8 @@ pub const CONN_PARALLEL_SHAPE_MISMATCH: u32 = 4005;
 /// Shape mismatch in a -> connection.
 pub const CONN_SERIES_SHAPE_MISMATCH: u32 = 4007;
 
-/// The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for series.
+/// The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for
+/// series.
 pub const CONN_OPERATOR_UNSUPPORTED: u32 = 4008;
 
 /// Unexpected AST node type in a phrase.
@@ -737,9 +711,7 @@ pub const PHRASE_AST_TYPE_UNEXPECTED: u32 = 4009;
 /// Member not found in the interface.
 pub const PHRASE_IFACE_MEMBER_NOT_FOUND: u32 = 4022;
 
-// ============================================================================
 // Pass2: netlist heuristics (D-series / layout) (4050-4099)
-// ============================================================================
 
 /// A box has a placeholder pin not mapped to any real component pin.
 pub const GHOST_PORT_BOX: u32 = 4050;
@@ -768,13 +740,16 @@ pub const FUNC_PARAM_SHADOWS_PIN: u32 = 4059;
 /// Pullup/pulldown degenerated into a signal-signal bridge.
 pub const PULLUP_DEGENERATE: u32 = 4056;
 
-/// A single-element square bracket expands to an unknown instance; the statement may produce no nets or constraints.
+/// A single-element square bracket expands to an unknown instance; the statement may produce no
+/// nets or constraints.
 pub const NET_DROPPED_STATEMENT: u32 = 4057;
 
-/// Same logical net referenced more than once in a connection, always pairing to the same peer net — redundant.
+/// Same logical net referenced more than once in a connection, always pairing to the same peer net
+/// — redundant.
 pub const NET_DUPLICATE_REF: u32 = 4060;
 
-/// Same logical net referenced more than once in a connection, pairing to different peer nets — possible short.
+/// Same logical net referenced more than once in a connection, pairing to different peer nets —
+/// possible short.
 pub const NET_SHORT_REF: u32 = 4061;
 
 /// GAP3 (§9.3.3 / vector-pipeline §2.3): two different declarations materialize
@@ -845,9 +820,7 @@ pub const LAYOUT_EDGE_INVALID: u32 = 4097;
 /// Malformed layout: edge name is not an ID.
 pub const LAYOUT_EDGE_NAME_NOT_ID: u32 = 4098;
 
-// ============================================================================
 // Pass2: netlist / interface binding (4100-4149)
-// ============================================================================
 
 /// Net has multiple drivers — possible short circuit.
 pub const NET_MULTI_DRIVE: u32 = 4101;
@@ -903,9 +876,7 @@ pub const NET_BIDIR_UNCONNECTED: u32 = 4117;
 /// Design has many power nets; review for consolidation.
 pub const NET_POWER_NET_COUNT: u32 = 4118;
 
-// ============================================================================
 // Pass2: instantiation checks (4150-4199)
-// ============================================================================
 
 /// A chain link was skipped because the method is not defined on the instance.
 pub const INST_CHAIN_LINK_SKIPPED: u32 = 4150;
@@ -922,7 +893,8 @@ pub const INST_IFACE_INSTANTIATE_FAILED: u32 = 4153;
 /// Sub-module instantiation failed.
 pub const INST_SUBMODULE_INSTANTIATE_FAILED: u32 = 4154;
 
-/// Statement references a component class whose instantiation failed; the whole statement is skipped.
+/// Statement references a component class whose instantiation failed; the whole statement is
+/// skipped.
 pub const INST_STMT_SKIP_FAILED_CLASS: u32 = 4155;
 
 /// A connection statement failed to expand.
@@ -1002,9 +974,7 @@ pub const CONN_LEAD_CROSSNET: u32 = 4182;
 /// potentials have no legal merge.
 pub const CONN_NET_CROSSNET: u32 = 4183;
 
-// ============================================================================
 // Pass2: AssemblyGate netlist health — R-series report rows (4200-4249)
-// ============================================================================
 //
 // The netcheck Tier-0 report (instant::netcheck) registers every R-series row
 // here as a numeric code (rule-registry design §5-1), so each rule has one
@@ -1058,9 +1028,7 @@ pub const GATE_ORPHAN_INSTANCE: u32 = 4214;
 /// R15 — a synthetic terminal is not backed by any real pin (advisory).
 pub const GATE_SYNTHETIC_PIN: u32 = 4215;
 
-// ============================================================================
 // Pass3: duplicate validation (5000-5049)
-// ============================================================================
 
 /// Same name defined in another file (cross-file duplicate).
 pub const DUP_CMIE_CROSS_FILE: u32 = 5001;
@@ -1071,9 +1039,7 @@ pub const DUP_WITHIN: u32 = 5002;
 /// Enum value appears more than once in the enum.
 pub const DUP_ENUM_VALUE: u32 = 5003;
 
-// ============================================================================
 // Pass3: naming / style (5050-5099)
-// ============================================================================
 
 /// Component name starts with lowercase; convention is UPPER_SNAKE.
 pub const NAME_COMPONENT_LOWERCASE: u32 = 5051;
@@ -1093,9 +1059,7 @@ pub const NAME_PORT_INST_SHADOWS_CMIE: u32 = 5056;
 /// Parameter name shadows a library CMIE name.
 pub const NAME_PARAM_SHADOWS_CMIE: u32 = 5057;
 
-// ============================================================================
 // capability / variant (abstract-variant-capability plan) (5058-5066)
-// ============================================================================
 
 /// capability body may only contain signal declarations and funcs.
 pub const CAPABILITY_BODY_INVALID: u32 = 5058;
@@ -1127,9 +1091,7 @@ pub const CAPABILITY_SIGNAL_MISSING: u32 = 5065;
 /// not override it.
 pub const ADOPTED_FUNC_AMBIGUOUS: u32 = 5066;
 
-// ============================================================================
 // Pass3: reference integrity (5100-5149)
-// ============================================================================
 
 /// Spec key references a parameter that is not declared.
 pub const SPEC_KEY_UNDECLARED_PARAM: u32 = 5101;
@@ -1140,9 +1102,7 @@ pub const REF_INTEGRITY: u32 = 5102;
 /// Function has parameters but no body (empty implementation).
 pub const FUNC_PARAMS_NO_BODY: u32 = 5103;
 
-// ============================================================================
 // Pass3: ports / pins (5150-5199)
-// ============================================================================
 
 /// Instance is declared more than once in the module.
 pub const INST_DECLARED_MULTIPLE: u32 = 5151;
@@ -1171,9 +1131,7 @@ pub const MODULE_PORT_UNUSED: u32 = 5162;
 /// Condition compares against a single binary value.
 pub const COND_SINGLE_BINARY: u32 = 5163;
 
-// ============================================================================
 // Pass3: functions / roles / defaults (5200-5249)
-// ============================================================================
 
 /// Enum has only one value.
 pub const ENUM_SINGLE_VALUE: u32 = 5201;
@@ -1193,9 +1151,7 @@ pub const PARAM_FLOAT_DEFAULT_INVALID: u32 = 5205;
 /// Integer param default is negative.
 pub const PARAM_NEGATIVE_DEFAULT: u32 = 5206;
 
-// ============================================================================
 // Pass3: definition structure (M-series) (5250-5299)
-// ============================================================================
 
 /// Parameter uses a reserved keyword.
 pub const PARAM_RESERVED_KEYWORD: u32 = 5251;
@@ -1236,9 +1192,7 @@ pub const FUNC_SHARES_NAME_WITH_PORT: u32 = 5263;
 /// Spec key appears more than once.
 pub const SPEC_KEY_DUPLICATE: u32 = 5267;
 
-// ============================================================================
 // Pass3: .int class checks (5300-5349)
-// ============================================================================
 
 /// Same name used for different definition kinds.
 pub const DEF_AMBIGUOUS_NAME: u32 = 5301;
@@ -1252,9 +1206,7 @@ pub const COMPONENT_INT_SUFFIX: u32 = 5303;
 /// Enum has an unconventional '.int' suffix.
 pub const ENUM_INT_SUFFIX: u32 = 5304;
 
-// ============================================================================
 // Pass3: instance / attribute checks (5350-5399)
-// ============================================================================
 
 /// Attribute uses a reserved keyword.
 pub const ATTR_RESERVED_KEYWORD: u32 = 5351;
@@ -1277,9 +1229,7 @@ pub const ATTR_PIN_GROUP_UNDEFINED: u32 = 5356;
 /// Component mixes pins = and pins.X = attributes, or uses a non-constant default.
 pub const PINS_PLUS_AND_PINS_CONFLICT: u32 = 5357;
 
-// ============================================================================
 // Pass3: enum / expression checks (5400-5449)
-// ============================================================================
 
 /// Enum has a duplicate value.
 pub const ENUM_DUPLICATE_VALUE: u32 = 5401;
@@ -1317,9 +1267,7 @@ pub const EXPR_PLACEHOLDER_ONLY: u32 = 5411;
 /// Attribute value equals its own key; likely a copy-paste mistake.
 pub const ATTR_SELF_REFERENTIAL: u32 = 5412;
 
-// ============================================================================
 // Pass3: condition blocks (5450-5499)
-// ============================================================================
 
 /// Conditional block has an empty body.
 pub const COND_EMPTY_BODY: u32 = 5451;
@@ -1352,9 +1300,7 @@ pub const MODULE_STUB: u32 = 5459;
 /// the later branch can never be selected.
 pub const COND_DUPLICATE: u32 = 5460;
 
-// ============================================================================
 // Pass3: hardware checks (5500-5549)
-// ============================================================================
 
 /// Pin numbers have gaps.
 pub const HW_PIN_NUMBER_GAP: u32 = 5502;
@@ -1374,16 +1320,12 @@ pub const HW_ALL_SAME_IO_TYPE: u32 = 5507;
 /// Function parameter shadows a pin name.
 pub const HW_FUNC_PARAM_SHADOWS_PIN: u32 = 5510;
 
-// ============================================================================
 // Pass3: type / unit compatibility (5550-5599)
-// ============================================================================
 
 /// Incompatible types or unit types.
 pub const TYPE_INCOMPATIBLE: u32 = 5552;
 
-// ============================================================================
 // Pass3: global diagnostics (5600-5649)
-// ============================================================================
 
 /// Parameter or port is declared but never used.
 pub const UNUSED_PARAM_OR_PORT: u32 = 5641;
@@ -1394,9 +1336,7 @@ pub const PORT_NEVER_USED: u32 = 5642;
 /// Parameter has no inferred type.
 pub const UNTYPED_PARAM: u32 = 5643;
 
-// ============================================================================
 // ERC (electrical rule check) (6000-6099)
-// ============================================================================
 
 /// Single-point net: only one connection.
 pub const ERC_SINGLE_POINT_NET: u32 = 6001;
@@ -1425,29 +1365,30 @@ pub const ABSTRACT_PART_UNSELECTED: u32 = 6005;
 pub const VARIANT_SPEC_UNSET: u32 = 6006;
 
 /// DC `@bridge` subgraph forms a loop (parallel/cyclic legs) with no `@star`
-/// discharge on a hub ref — PWR-2 (power-intent-design.md §3.4).
+/// discharge on a hub ref — PWR-2 (intent-design.md §3.4).
 pub const POWER_BRIDGE_LOOP: u32 = 6007;
 
 /// `@clamp(ref)` references a ref whose role is not protective/earth — PWR-7
-/// (power-intent-design.md §11).
+/// (intent-design.md §11).
 pub const CLAMP_REF_NOT_PROTECTIVE: u32 = 6008;
 
 /// A DC `rail [hot,ret]::DC(…)` ctor argument does not decode to the contract
 /// it names (nominal not a DC volts value, tol not ±%, capacity not a current,
 /// eff not a factor, or an off-register param key) — the §13.2 Volt-arg decode
-/// (power-intent-design.md §4.1/§5.2).
+/// (intent-design.md §4.1/§5.2).
 pub const POWER_RAIL_DECODE: u32 = 6009;
 
 /// The same net is the `hot` member of two rails (two handwritten supply roots
-/// on one S) — P3 fake-conflict (power-intent-design.md §4.1 — an intermediate net never enters a domain).
+/// on one S) — P3 fake-conflict (intent-design.md §4.1 — an intermediate net never enters a
+/// domain).
 pub const POWER_RAIL_TWO_ROOTS: u32 = 6010;
 
 /// A sink (`psnk`) lands on a net whose derived supply S differs from the
 /// sink's required nominal — the §4.4 mandatory-nominal check, the canonical P3/E-PWR-001 case
-/// (power-intent-design.md §4.4/§11; e.g. a `::DC(3.3V)` sink on a 5V rail or
+/// (intent-design.md §4.4/§11; e.g. a `::DC(3.3V)` sink on a 5V rail or
 /// psrc-fed net). S comes from the net's handwritten supply roots (§4.3) or,
 /// for a root-less net, the upstream root it is fed to through transparent
-/// copper / a module boundary (§7 L4 reach, net-island-attribution-design.md).
+/// copper / a module boundary (§7 L4 reach, island-attribution-design.md).
 /// Requirement nominal vs guarantee nominal is the comparison; window ⊆-checks
 /// (req/abs, spec-declared) are a later S-set step.
 pub const POWER_SINK_NOMINAL_MISMATCH: u32 = 6011;
@@ -1458,12 +1399,12 @@ pub const POWER_SINK_NOMINAL_MISMATCH: u32 = 6011;
 /// `amp` demand key (rail-contract-design.md §8.1); tol/capacity/eff are
 /// source-exclusive (PWR-4) and `amp` is sink-exclusive, so either off its
 /// register side is flagged; req/abs belong in the component `spec` (§4.4
-/// write-site rule), never per-schematic. (power-intent-design.md §4.1/§5.2)
+/// write-site rule), never per-schematic. (intent-design.md §4.1/§5.2)
 pub const POWER_PIN_DECODE: u32 = 6012;
 
 /// Two or more `psrc` hard sources land their hot terminal on the same net
 /// with no declared combine — the PWR-3 source-contention kernel
-/// (power-intent-design.md §11). Wiring two regulators' outputs straight to one
+/// (intent-design.md §11). Wiring two regulators' outputs straight to one
 /// node is an undeclared parallel source: without an ORing / combining element
 /// between them a failed or slower source back-feeds the other. `psbi`
 /// (conditional source: battery coexistence) and rail faces (6010's scope) are
@@ -1472,7 +1413,7 @@ pub const POWER_PIN_DECODE: u32 = 6012;
 pub const POWER_SOURCE_CONTENTION: u32 = 6013;
 
 /// A declared DC `@bridge` joins an `@role(isolated)` member to a non-isolated
-/// net — the §3.2 isolated-world zero-DC-bridge contract (power-intent-design.md
+/// net — the §3.2 isolated-world zero-DC-bridge contract (intent-design.md
 /// §3.2 / §11 PWR-9, the conduit-level half). An isolated ref, or a rail whose
 /// return member is an isolated ref, may only cross out of its world through an
 /// explicit Y-cap `@couple`; a DC bridge turns the "isolated" secondary side
@@ -1480,11 +1421,11 @@ pub const POWER_SOURCE_CONTENTION: u32 = 6013;
 /// worlds and is accepted at the kernel; component-level crossings are PWR-9's
 /// other half. (Design note: a rail whose return member is an
 /// `@role(isolated)` conduit is how a net is derived into that isolated world —
-/// power-intent-design.md §4.)
+/// intent-design.md §4.)
 pub const ISOLATED_DC_BRIDGE: u32 = 6014;
 
 /// An `@role(protective)` conduit carries more than one declared DC `@bridge` —
-/// PWR-8 (power-intent-design.md §3.2/§11): a protective conduit is allowed
+/// PWR-8 (intent-design.md §3.2/§11): a protective conduit is allowed
 /// exactly one single-point bridge to its circuit main reference. A second
 /// bridge (a parallel protective-ground leg, or a tie to a second island) is a
 /// second single point and a ground loop under ESD — and, unlike a quiet-leg
@@ -1493,7 +1434,7 @@ pub const ISOLATED_DC_BRIDGE: u32 = 6014;
 pub const PROTECTIVE_MULTI_BRIDGE: u32 = 6015;
 
 /// An `@role(earth)` conduit is incident to a declared DC `@bridge` — the §3.2
-/// earth-row leak (power-intent-design.md §3.2 / §11 chassis/earth scene /
+/// earth-row leak (intent-design.md §3.2 / §11 chassis/earth scene /
 /// landing axis
 /// ④). The chassis/earth reference couples to protective or main only through a
 /// Y-cap `@couple` (AC-only, does not merge L1 classes); a DC `@bridge` is a
@@ -1504,7 +1445,7 @@ pub const EARTH_DC_LEAK: u32 = 6016;
 
 /// A DC-bridged reference island carries other than exactly one `@role(main)`
 /// root — the §3.2.1 "each L1 island has one main" contract
-/// (power-intent-design.md §3.2.1 / §3.2 main row / landing axis ④). Reference
+/// (intent-design.md §3.2.1 / §3.2 main row / landing axis ④). Reference
 /// islands are the connected components of DC `@bridge` edges whose two
 /// endpoints are both role-bearing reference identities (supply-side legs like
 /// `@bridge(VDD_3V3, VDDA)` and a bound child leg naming a member the child
@@ -1524,7 +1465,7 @@ pub const REFERENCE_ISLAND_ROOT: u32 = 6017;
 /// and 6015 (protective second leg = second single point, hard).
 pub const ROLE_REF_MISSING_BRIDGE: u32 = 6018;
 
-/// PWR-1 no-source face (power-intent-design.md §11): a flat net that carries
+/// PWR-1 no-source face (intent-design.md §11): a flat net that carries
 /// component power-sink (`psnk`) terminals but no supply root on the net itself
 /// — no declared domain-rail face and no `psrc`/`psbi` hot pin. The net's loads
 /// promise to draw from a supply that nothing on the net guarantees. Kernel
@@ -1554,7 +1495,7 @@ pub const NET_BUDGET_EXCEEDED: u32 = 6021;
 
 /// §8.5 cross-plane DC-relation completeness (conduit-equivalence-design.md
 /// §8.5, PWR-2 upper clause) — the first consumer of the NetIslandIndex L1
-/// (design net-island-attribution-design.md §7 L2). A two-terminal DC element
+/// (design island-attribution-design.md §7 L2). A two-terminal DC element
 /// *is* a relation: when its pads resolve to two potential classes (conduit
 /// copper, or rail hot/ret member net name, or an A′ boundary-inherited
 /// ancestor class) whose domain-worlds are DISJOINT — not co-resident in one
@@ -1625,7 +1566,7 @@ pub const POWER_CONVERTER_OUTPUT_RAIL_WINDOW: u32 = 6026;
 /// exempts it.
 pub const DEVICE_RETURN_SPAN_UNDECLARED: u32 = 6027;
 
-/// §5.3.2 arrow-direction consistency (power-intent-design.md §5.3.2, PWR-10,
+/// §5.3.2 arrow-direction consistency (intent-design.md §5.3.2, PWR-10,
 /// adjudicated 2026-09-10) — a direction-word terminal (module power port or
 /// leaf component power pin) sitting at the wrong end of its own connection
 /// chain. A `psrc` source face must lead the chain (first member / right side
@@ -1638,14 +1579,14 @@ pub const DEVICE_RETURN_SPAN_UNDECLARED: u32 = 6027;
 pub const DC_BINDING_DIR_MISMATCH: u32 = 6028;
 
 static ALL_CODES: &[ErrorCodeInfo] = &[
-    // ---- section ----
+    // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
     entry!(DUP_COMPONENT, "A component with the same name already exists in this file.", "Duplicate component"),
     entry!(DUP_ENUM, "An enum with the same name already exists in this file.", "Duplicate enum"),
     entry!(DUP_MODULE, "A module with the same name already exists in this file.", "Duplicate module"),
     entry!(DUP_DEFINE, "A define with the same name already exists in this file.", "Duplicate define"),
     entry!(DUP_CAPABILITY, "A capability with the same name already exists in this file.", "Duplicate capability"),
-    // ---- section ----
+    // section
     entry!(DEF_ALREADY_EXISTS, "Definition already exists.", "Definition already exists"),
     entry!(INST_MISSING_SUBNODE, "Missing subnode in an instance declaration.", "Missing subnode in an instance declaration."),
     entry!(PINS_MISSING_SUBNODE, "Missing subnode in a pins declaration.", "Missing subnode in a pins declaration."),
@@ -1654,7 +1595,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ENUM_MISSING_NAME_IDS, "Enum definition is missing its name ids.", "Missing name ids for enum"),
     entry!(ENUM_MISSING_VALUES, "Enum definition is missing its values.", "Missing values for enum"),
     entry!(MALFORMED_IOTYPE, "Malformed IO type node in a pin/port declaration.", "Malformed IOTYPE node"),
-    // ---- section ----
+    // section
     entry!(PHRASE_COMPONENT_MEMBER_NOT_FOUND, "Member access on a component operand matched none of the requested members against the component's pins.", "Member access on the component operand: none of the requested members matched a pin, so the access resolves to nothing."),
     entry!(PHRASE_MODULE_MEMBER_NOT_FOUND, "Member access on a module operand matched none of the requested members against the module's ports.", "Member access on the module operand: none of the requested members matched a port, so the access resolves to nothing."),
     entry!(PHRASE_INTERFACE_MEMBER_NOT_FOUND, "Member access on an interface operand matched none of the requested members against the interface's pins.", "Member access on the interface operand: none of the requested members matched a pin, so the access resolves to nothing."),
@@ -1670,7 +1611,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PHRASE_CURLY_EMPTY_LEFT, "Curly member access with an empty left member list; there is nothing to pair.", "Curly member access has an empty left member list, so there is nothing to pair."),
     entry!(PHRASE_CURLY_EMPTY_RIGHT, "Curly member access with an empty right member list; there is nothing to pair.", "Curly member access has an empty right member list, so there is nothing to pair."),
     entry!(PHRASE_CURLY_UNSUPPORTED_OPERAND, "Curly member access met an operand kind that cannot be converted to node elements.", "Curly member access met an operand kind it cannot convert to node elements."),
-    // ---- section ----
+    // section
     entry!(USE_PATH_INVALID, "Invalid path in a use statement.", "Invalid path in USE"),
     entry!(USE_URI_PREFIX_INVALID, "Unrecognized URI prefix — expected $, /, ./, or ../.", "Unrecognized URI prefix — expected $, /, ./, or ../"),
     entry!(USE_TARGET_NOT_FOUND, "The use target file was not found.", "use target not found: {0}"),
@@ -1681,12 +1622,12 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(USE_REEXPORT_SYMBOL_NOT_FOUND, "A symbol in pub use import(...) was not found and cannot be re-exported.", "A symbol in pub use import(...) was not found and cannot be re-exported."),
     entry!(USE_MIXED_PATH_SEPARATORS, "A use path mixes '.' and '/' separators.", "A use path mixes '.' and '/' separators."),
     entry!(USE_TRAILING_NODE, "Unexpected trailing node in a USE statement; it is ignored.", "unexpected trailing node {0} in USE statement; it is ignored"),
-    // ---- section ----
+    // section
     entry!(USE_DEP_NOT_DECLARED, "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.", "use of undeclared dependency '{0}': add it to project.toml [dependencies] or load via --lib"),
     entry!(USE_LIB_NOT_FOUND, "The library is not installed in the system root — install it with `mcc lib install` or load it with --lib.", "library '{0}' not found in the system root; install it with `mcc lib install` or load it with --lib"),
     entry!(USE_SYMBOL_CONFLICT, "An imported symbol conflicts with an existing name.", "symbol conflict in module '{0}': {1} collides with previous use from '{2}'. Use 'as' alias to disambiguate"),
     entry!(USE_IMPORTED_NOT_FOUND, "The imported symbol was not found in the target file.", "imported symbol '{0}' not found in '{1}'"),
-    // ---- section ----
+    // section
     entry!(PARSER_SYNTAX_ERROR, "Generic syntax error.", "Generic syntax error."),
     entry!(PARSER_TOP_INVALID, "Invalid top-level declaration.", "Invalid top-level declaration."),
     entry!(PARSER_CLAUSE_INVALID, "Invalid clause in a body.", "Invalid clause in a body."),
@@ -1727,7 +1668,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(AST_NODE_EMPTY, "AST node is null/empty where a value was expected.", "AST: Node is empty"),
     entry!(AST_UTF8_ERROR, "AST node contains invalid UTF-8 data.", "Invalid UTF-8 string"),
     entry!(AST_TYPE_MISMATCH, "AST node has an unexpected type.", "AST: Node type mismatch"),
-    // ---- section ----
+    // section
     entry!(NAME_IDS_NO_NODES, "IDS has no nodes.", "IDS has no nodes."),
     entry!(NAME_MISSING_SUBNODE, "Missing subnode in a name reference.", "Missing subnode in a name reference."),
     entry!(NAME_DECLARE_PARSE_FAILED, "Failed to parse a DECLARE node.", "Failed to parse DECLARE"),
@@ -1737,7 +1678,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NAME_ID_EXTRACT_FAILED, "Failed to extract ID/IDA data from a node.", "Failed to extract ID/IDA data"),
     entry!(NOT_SUPPORTED_YET, "This syntax is parsed but not yet supported by the semantic layer; the declaration is ignored.", "pins.subcls = [...] is parsed but not supported yet; the sub-class name is ignored"),
     entry!(SYMBOL_NOT_FOUND, "Symbol could not be resolved to any definition after the full P1–P5 lookup chain.", "Cannot find '{0}'"),
-    // ---- section ----
+    // section
     entry!(PIN_ID_NAME_MISMATCH, "Pin ID and pin name do not match.", "Pin ID and name not match"),
     entry!(PIN_ID_COUNT_ERROR, "Pin id count error.", "Pin id count error"),
     entry!(PINS_PLUS_WITHOUT_BASE, "pins += is used without a prior pins = definition.", "pins += used without prior pins = definition"),
@@ -1759,7 +1700,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(UVAL_MISSING_DATA_NODE, "Missing unit value data node.", "missing unit value data node."),
     entry!(UVAL_FORMAT_INVALID, "Invalid unit value or float format.", "Invalid unit value or float format."),
     entry!(UVAL_UNIT_VARIANT_INVALID, "Invalid unit variant (angle, charge, magnetic flux, slew rate, ...).", "Invalid unit variant '{0}'."),
-    // ---- section ----
+    // section
     entry!(MODULE_MISSING_SUBNODE, "Missing subnode in a module body clause.", "Missing subnode in a module body clause."),
     entry!(MODULE_PINS_UNSUPPORTED, "Module does not support PINS directly; use in/out/io declarations.", "Module does not support PINS directly. Use in/out/io declarations."),
     entry!(MODULE_ROLE_UNSUPPORTED, "Module does not support role definition.", "Module does not support role definition."),
@@ -1767,7 +1708,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(MODULE_HEADER_IFACE_NEEDS_DIRECTION, "Module header interface-typed parameter is missing a direction word.", "module header interface-typed parameter (class `{1}`) in `module {0}` carries no direction word — write an explicit power direction `psrc`/`psnk`/`psbi`, e.g. `module {0}(psnk [VDD, GND]::DC(v))`; the no-direction header sugar is removed"),
     entry!(MODULE_METHOD_NOT_FOUND, "Function was not found in the class.", "function '{0}' not found in class '{1}'"),
     entry!(UNEXPECTED_CLAUSE_TYPE, "Unexpected clause type in a module body.", "Unexpected clause type in module body"),
-    // ---- section ----
+    // section
     entry!(FUNC_EMPTY_NET, "Empty net in a function or module body.", "Empty NET"),
     entry!(PARAM_DECLARE_INVALID, "Invalid parameter declaration node.", "Invalid param declare node."),
     entry!(PARAM_NAME_INVALID, "Invalid parameter name.", "Invalid param name."),
@@ -1785,7 +1726,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(FCALL_PARSE_FAILED, "Function call parse failure.", "Cannot chain `.{0}` after `{1}(...)`: function `{2}` returns a bus/label (endpoint), not `this`. Only functions that return `this` can be chained."),
     entry!(FUNC_FLOATING_LABEL, "Net endpoint in a function body that resolves to nothing declared.", "`{0}` does not resolve to a declared pin, interface, parameter member, or instance of this component — floating label. If it is a local net, declare it (e.g. `RES R[1:2](...)`) or connect it to a component pin."),
     entry!(SINGLE_USE_INLINE_NET, "An inline ghost-net (reference base resolves to no declared instance) is referenced only once.", "`{0}` has no declared base and connects to nothing else — inline ghost-net referenced only once; declare it or fix the name."),
-    // ---- section ----
+    // section
     entry!(INST_EXPR_PARSE_FAILED, "Failed to parse an instance in an expression context.", "Failed to parse MCAST_INSTANCE in expression context"),
     entry!(CURLY_MN_WRONG_BASE, "Curly-member construction requires a component or module base.", "CURLY_MN requires Component or Module"),
     entry!(INST_CLASS_NODE_MISSING, "No class node found in the instance declaration.", "No class node found"),
@@ -1809,7 +1750,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(BUS_MEMBER_UNDECLARED, "Referenced member is not defined on the declared bus.", "Definition exists for '{0}': {2}; referenced member '{1}' is not defined."),
     entry!(INSTANCE_REF_UNDECLARED, "A structured instance/member reference resolves to no declared instance in scope.", "The base name '{0}' of the structured reference '{1}' resolves to no declared instance in this component/module; declare it or fix the name."),
     entry!(BUS_MEMBER_ON_SCALAR_PORT, "Member/lane access on a module port declared without members (scalar io/out/in).", "Port '{0}' is declared scalar (no members); member/lane access '{1}' is not allowed. Declare its members or an interface type, or reference the whole port."),
-    // ---- section ----
+    // section
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
     entry!(CONN_PARALLEL_SHAPE_MISMATCH, "Shape mismatch in a parallel connection.", "Shape mismatch in parallel connection"),
@@ -1817,7 +1758,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CONN_OPERATOR_UNSUPPORTED, "The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for series.", "Operator '{1}' is not supported in connection statements; use '+' for parallel, '-' / '->' for series"),
     entry!(PHRASE_AST_TYPE_UNEXPECTED, "Unexpected AST node type in a phrase.", "Unexpected AST node type {1} in McPhrase::new"),
     entry!(PHRASE_IFACE_MEMBER_NOT_FOUND, "Member not found in the interface.", "Member '{0}' not found in interface"),
-    // ---- section ----
+    // section
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),
     entry!(NET_BUS_ORDER_MISMATCH, "Bus member order mismatch after sorting (E2005).", "Bus member order mismatch after sorting (E2005)."),
@@ -1851,7 +1792,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(LAYOUT_EDGE_NAME_ID_MISSING_SUBNODE, "Layout edge name id is missing a subnode.", "Missing subnode for layout edge name id"),
     entry!(LAYOUT_EDGE_INVALID, "Invalid layout edge.", "Invalid edge. Edges should be one of: \"left\", \"right\", \"top\", \"bottom\""),
     entry!(LAYOUT_EDGE_NAME_NOT_ID, "Malformed layout: edge name is not an ID.", "Malformed layout: edge name not an ID"),
-    // ---- section ----
+    // section
     entry!(NET_MULTI_DRIVE, "Net has multiple drivers — possible short circuit.", "Net has multiple drivers — possible short circuit."),
     entry!(IFACE_PINS_NOT_ALL_BOUND, "Interface requires more pins than are bound to physical pins.", "Interface requires more pins than are bound to physical pins."),
     entry!(NET_NO_DRIVER, "Net has inputs but no output/power driver.", "Net has inputs but no output/power driver."),
@@ -1870,7 +1811,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NET_PARTIAL_CONNECTION, "Only some of the instance pins are connected.", "Only some of the instance pins are connected."),
     entry!(NET_BIDIR_UNCONNECTED, "A bidirectional port is not connected to any net.", "A bidirectional port is not connected to any net."),
     entry!(NET_POWER_NET_COUNT, "Design has many power nets; review for consolidation.", "Design has many power nets; review for consolidation."),
-    // ---- section ----
+    // section
     entry!(INST_CHAIN_LINK_SKIPPED, "A chain link was skipped because the method is not defined on the instance.", "Method '{0}' not defined in {1} '{2}'; chain link skipped, no body expanded."),
     entry!(INST_ARG_NO_FORMAL_PORT, "Instance argument has no formal port to bind.", "Instance '{0}' arg{1} '{2}' has no formal port to bind"),
     entry!(INST_METHOD_FALLBACK, "Instance method could not be resolved; passed through instead.", "Unrecognized function call '{0}' in module '{1}' — treated as pass-through (class not loaded or name misspelled)"),
@@ -1903,11 +1844,11 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CONN_LEAD_CROSSNET, "A '_' lead joins two different nets: an ideal wire (a body, vec-dianlu §5.4) crossing nets shorts them at zero impedance.", "Lead '_' joins two different nets: '{0}' and '{1}'. A lead is an ideal wire (vec-dianlu §5.4) — its two ends are meant to be the same net; joining distinct nets shorts them at zero impedance."),
     entry!(CONN_NET_CROSSNET, "Parallel '+' between two bodiless operands (labels/rails) joins two different nets: merging two distinct potentials shorts them at zero impedance.", "Parallel '+' joins two different nets: '{0}' and '{1}'. Neither operand is a body (vec-dianlu §1.4/§5.4) — a label or rail names an existing equipotential region, so its potential is carried by its name and two different names are two different potentials. With nothing to stack, '+' can only merge the two regions: a dead short."),
     entry!(COMPONENT_PARAM_FUNC_CONFLICT, "Component-level parameter shares a name with the same-name constructor func parameter.", "Component '{0}' declares parameter '{1}' that also appears in constructor func '{2}' params. Class params define class behavior and constructor params declare the construction arity; they must not reuse the same name. Rename one of them."),
-    // ---- section ----
+    // section
     entry!(DUP_CMIE_CROSS_FILE, "Same name defined in another file (cross-file duplicate).", "Same name defined in another file (cross-file duplicate)."),
     entry!(DUP_WITHIN, "Duplicate definition within the same declaration.", "Duplicate definition within the same declaration."),
     entry!(DUP_ENUM_VALUE, "Enum value appears more than once in the enum.", "Enum value appears more than once in the enum."),
-    // ---- section ----
+    // section
     entry!(NAME_COMPONENT_LOWERCASE, "Component name starts with lowercase; convention is UPPER_SNAKE.", "Component name starts with lowercase; convention is UPPER_SNAKE."),
     entry!(NAME_PORT_SHADOWS_CMIE, "Port name shadows a library CMIE name.", "Port name shadows a library CMIE name."),
     entry!(NAME_PIN_MIXED_CONVENTION, "Pins use mixed naming conventions.", "Pins use mixed naming conventions."),
@@ -1923,11 +1864,11 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ADOPTS_NON_CAPABILITY, "Adoption target must be a capability.", "'{0}' is not a capability — use ':' to derive a variant from an abstract component"),
     entry!(CAPABILITY_SIGNAL_MISSING, "An adopting component must declare every capability signal (name + direction + interface).", "'{0}' is missing capability signal '{1}'; {2}"),
     entry!(ADOPTED_FUNC_AMBIGUOUS, "Two adopted capabilities expose the same func name and the component does not override it.", "adopted capabilities share func '{0}'; define '{0}' here to override"),
-    // ---- section ----
+    // section
     entry!(SPEC_KEY_UNDECLARED_PARAM, "Spec key references a parameter that is not declared.", "Spec key references a parameter that is not declared."),
     entry!(REF_INTEGRITY, "Reference integrity violation.", "Reference integrity violation."),
     entry!(FUNC_PARAMS_NO_BODY, "Function has parameters but no body (empty implementation).", "Function has parameters but no body (empty implementation)."),
-    // ---- section ----
+    // section
     entry!(INST_DECLARED_MULTIPLE, "Instance is declared more than once in the module.", "Instance is declared more than once in the module."),
     entry!(PORT_DUPLICATE_NAME, "Duplicate port name in the module — ambiguous.", "Duplicate port name in the module — ambiguous."),
     entry!(NOT_AN_INTERFACE, "The class is a component/module/enum, not an interface.", "'{0}' is a component/module/enum, not an interface."),
@@ -1937,14 +1878,14 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_THIS_TYPE, "this :: TYPE declaration is not allowed.", "this :: TYPE declaration is not allowed."),
     entry!(MODULE_PORT_UNUSED, "Module port is declared but never connected.", "Module port is declared but never connected."),
     entry!(COND_SINGLE_BINARY, "Condition compares against a single binary value.", "Condition compares against a single binary value."),
-    // ---- section ----
+    // section
     entry!(ENUM_SINGLE_VALUE, "Enum has only one value.", "Enum has only one value."),
     entry!(PARAM_INT_DEFAULT_STRING, "Integer param has a string default.", "Integer param has a string default."),
     entry!(PARAM_STRING_DEFAULT_NUMERIC, "String param has a numeric-looking default.", "String param has a numeric-looking default."),
     entry!(PARAM_UV_DEFAULT_NO_UNIT, "Unit-value param default has no unit suffix (e.g. '5V').", "Unit-value param default has no unit suffix (e.g. '5V')."),
     entry!(PARAM_FLOAT_DEFAULT_INVALID, "Param has an invalid float default.", "Param has an invalid float default."),
     entry!(PARAM_NEGATIVE_DEFAULT, "Integer param default is negative.", "Integer param default is negative."),
-    // ---- section ----
+    // section
     entry!(PARAM_RESERVED_KEYWORD, "Parameter uses a reserved keyword.", "Parameter uses a reserved keyword."),
     entry!(FUNC_EMPTY_BODY, "Function has an empty body.", "Function has an empty body."),
     entry!(COMPONENT_EMPTY, "Component has no params, pins, attributes, or functions.", "Component has no params, pins, attributes, or functions."),
@@ -1958,12 +1899,12 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(IFACE_PIN_COUNT_MISMATCH, "Interface expects more pins than are bound.", "Interface expects more pins than are bound."),
     entry!(FUNC_SHARES_NAME_WITH_PORT, "Function shares its name with a port/param.", "Function shares its name with a port/param."),
     entry!(SPEC_KEY_DUPLICATE, "Spec key appears more than once.", "Spec key appears more than once."),
-    // ---- section ----
+    // section
     entry!(DEF_AMBIGUOUS_NAME, "Same name used for different definition kinds.", "Same name used for different definition kinds."),
     entry!(DEF_REF_NOT_LOADED, "Definition references a class that is not loaded.", "Definition references a class that is not loaded."),
     entry!(COMPONENT_INT_SUFFIX, "Component has an unconventional '.int' suffix.", "Component has an unconventional '.int' suffix."),
     entry!(ENUM_INT_SUFFIX, "Enum has an unconventional '.int' suffix.", "Enum has an unconventional '.int' suffix."),
-    // ---- section ----
+    // section
     entry!(ATTR_RESERVED_KEYWORD, "Attribute uses a reserved keyword.", "Attribute uses a reserved keyword."),
     entry!(INST_ARG_COUNT_MISMATCH, "Instance passes more/fewer args than the class declares.", "Instance passes more/fewer args than the class declares."),
     entry!(ROLE_EMPTY_BODY, "Role has an empty body.", "Role has an empty body."),
@@ -1971,7 +1912,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ATTR_NESTING_TOO_DEEP, "Attribute nesting depth exceeds 16.", "Attribute nesting depth exceeds 16."),
     entry!(ATTR_PIN_GROUP_UNDEFINED, "Attribute references an undefined pin group, or role used outside a component.", "Attribute references an undefined pin group, or role used outside a component."),
     entry!(PINS_PLUS_AND_PINS_CONFLICT, "Component mixes pins = and pins.X = attributes, or uses a non-constant default.", "Component mixes pins = and pins.X = attributes, or uses a non-constant default."),
-    // ---- section ----
+    // section
     entry!(ENUM_DUPLICATE_VALUE, "Enum has a duplicate value.", "Enum has a duplicate value."),
     entry!(ENUM_MEMBER_DOT, "Enum member contains a dot.", "Enum member contains a dot."),
     entry!(ENUM_MEMBER_LEADING_DIGIT, "Enum member starts with a digit.", "Enum member starts with a digit."),
@@ -1984,7 +1925,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(EXPR_THIS_TOP_LEVEL, "'this' used in a top-level net statement; it is only valid inside instance/function contexts.", "'this' used in a top-level net statement; it is only valid inside instance/function contexts."),
     entry!(EXPR_PLACEHOLDER_ONLY, "Net connects only to '_' placeholder; the connection has no effect.", "Net connects only to '_' placeholder; the connection has no effect."),
     entry!(ATTR_SELF_REFERENTIAL, "Attribute value equals its own key; likely a copy-paste mistake.", "Attribute value equals its own key; likely a copy-paste mistake."),
-    // ---- section ----
+    // section
     entry!(COND_EMPTY_BODY, "Conditional block has an empty body.", "Conditional block has an empty body."),
     entry!(COND_IF_WITHOUT_ELSE, "if without a matching else.", "if without a matching else."),
     entry!(PIN_NC_COMPONENT_LEVEL, "NC pin used at component level.", "NC pin used at component level."),
@@ -1995,7 +1936,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARAM_PIN_NAME_SHADOW, "Parameter shares its name with a pin.", "Parameter shares its name with a pin."),
     entry!(MODULE_STUB, "Module is a stub.", "Module is a stub."),
     entry!(COND_DUPLICATE, "Duplicate condition in if/else-if chain.", "A later if/else-if branch duplicates an earlier branch's condition, so it can never be selected."),
-    // ---- section ----
+    // section
     entry!(HW_PIN_NUMBER_GAP, "Pin numbers have gaps.", "Pin numbers have gaps."),
     entry!(HW_PIN_COUNT_HIGH, "Pin count is unusually high.", "Pin count is unusually high."),
     entry!(HW_ZERO_PINS_WITH_PARAMS, "Component has zero pins but parameter attributes.", "Component has zero pins but parameter attributes."),
@@ -2003,13 +1944,13 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(HW_ALL_SAME_IO_TYPE, "All pins have the same IO type.", "All pins have the same IO type."),
 
     entry!(HW_FUNC_PARAM_SHADOWS_PIN, "Function parameter shadows a pin name.", "Function parameter shadows a pin name."),
-    // ---- section ----
+    // section
     entry!(TYPE_INCOMPATIBLE, "Incompatible types or unit types.", "Incompatible types or unit types."),
-    // ---- section ----
+    // section
     entry!(UNUSED_PARAM_OR_PORT, "Parameter or port is declared but never used.", "Parameter or port is declared but never used."),
     entry!(PORT_NEVER_USED, "Port is declared but never used in any net connection.", "Port '{0}' in '{1}' is declared but never used in any net connection."),
     entry!(UNTYPED_PARAM, "Parameter has no inferred type.", "Parameter has no inferred type."),
-    // ---- section ----
+    // section
     entry!(ERC_SINGLE_POINT_NET, "Single-point net: only one connection.", "single-point net: '{0}' has only one connection"),
     entry!(ERC_UNCONNECTED_PORT, "Unconnected port: not connected to any net.", "unconnected port: '{0}' is not connected to any net"),
     entry!(ERC_MULTI_DRIVE_NET, "Multi-drive net.", "multi-drive net: '{0}' has {1} drivers ({2})"),
@@ -2028,7 +1969,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(EARTH_DC_LEAK, "An earth reference is DC-bridged to another net (leakage).", "earth '{0}' is DC-bridged to '{1}' — the chassis/earth reference couples only through a Y-cap @couple, never a DC @bridge (§3.2 earth row); a DC tie is a leakage warning"),
     entry!(REFERENCE_ISLAND_ROOT, "A DC-bridged reference island must have exactly one @role(main) root.", "reference island '{0}' carries {1} @role(main) roots — each DC-bridged L1 island has exactly one main root: zero means the joined reference identities have no island ground to return to, more than one means two power worlds were DC-joined by a @bridge (§3.2.1)"),
     entry!(ROLE_REF_MISSING_BRIDGE, "A quiet/protective reference conduit has no declared DC @bridge.", "role conduit '{0}' carries no declared DC @bridge — an @role(quiet)/@role(protective) conduit expects exactly one bridge to its main reference; a bare zero means the declaration was never wired (conduit-equivalence-design.md §8.4)"),
-    entry!(SINK_NET_NO_SOURCE, "A net carrying power sinks (psnk) has no declared source root on it.", "net '{0}' carries component power-sink terminals but has no supply root on the net — it is neither a declared domain-rail face nor driven by a psrc/psbi hot pin, so its loads draw from nothing that guarantees power (PWR-1 no-source face). Attach the loads to a declared rail face or drive the net from a psrc source; a feed through a series pass element (inductor/ferrite/fuse) or a module boundary only counts once that upstream net itself carries a resolvable source root (net-island-attribution-design.md §7 L4)"),
+    entry!(SINK_NET_NO_SOURCE, "A net carrying power sinks (psnk) has no declared source root on it.", "net '{0}' carries component power-sink terminals but has no supply root on the net — it is neither a declared domain-rail face nor driven by a psrc/psbi hot pin, so its loads draw from nothing that guarantees power (PWR-1 no-source face). Attach the loads to a declared rail face or drive the net from a psrc source; a feed through a series pass element (inductor/ferrite/fuse) or a module boundary only counts once that upstream net itself carries a resolvable source root (island-attribution-design.md §7 L4)"),
     entry!(COMBINE_OUTPUT_TOL, "A combine element's output psrc declares a tolerance window it cannot re-anchor.", "combine element '{0}' output '{1}' declares tol {2} — a pass-through OR-merge can't guarantee tighter than its live input, so a literal OUT window over-claims under single-source states (rail-contract-design.md §6.2③); write the nominal-only ::DC(v), or add spec.output to model a regulator"),
     entry!(NET_BUDGET_EXCEEDED, "A net's declared psnk load demand exceeds its supply capacity (PWR-4).", "net '{0}' declares {1} of psnk load ({2} sinks) but its supply root declares capacity {3} — Σ amp ≤ capacity is the PWR-4 budget (rail-contract-design.md §8.2). Either the loads really overdraw the rail (cut the load / raise the source capacity / split the rail), or a sink's amp is mis-declared. Undeclared sinks draw unknown current and are not counted; converter-input push-up and cross-net feed are the S-set step"),
     entry!(RETURN_LEG_UNDECLARED, "A two-terminal DC element links two disjoint potential classes (planes) with no declared DC relation on this leg (§8.5).", "two-terminal '{2}' links planes '{0}' and '{1}' but this leg carries no @bridge/@couple — the classes are not co-resident in one declared rail loop, so the DC relation is explicit: add the forgotten single-point @bridge here, or declare the intentional bypass on this leg (conduit-equivalence-design.md §8.5)"),
@@ -2037,8 +1978,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(POWER_CONVERTER_SPEC_INCOMPLETE, "A spec block on a power-output component declares only one of input_req / output.", "component '{0}' has a psrc/psbi output row and a spec block, but declares only '{1}' — a regulator needs both windows of the Hoare triple for the gate (6023) and sink-window (6024) checks to judge it. The written side still decodes (an output-only regulator is treated as guaranteeing that output; an input_req-only one as an un-gated feed), it just cannot be gated: add the missing '{2}' (rail-contract-design.md §6.1)"),
     entry!(POWER_CONVERTER_OUTPUT_RAIL_WINDOW, "A converter's declared output guarantee is not covered by the declared rail window of the rail net it drives.", "converter '{2}' guarantees output {0} on rail net '{3}', but the rail's declared window is only {1} — the guarantee escapes the rail's allowed window: the converter can deliver outside what the scope declares on that net. Fix the spec.output, or the rail tolerance if the rail is mis-declared (rail-contract-design.md §6.7)"),
     entry!(DEVICE_RETURN_SPAN_UNDECLARED, "A device's DC return pins span disjoint return classes (planes) with no declared relation covering the span.", "device '{2}' returns across planes '{0}' and '{1}' but no net-level @bridge/@couple and no declared isolation structure covers the span — its return-side pins silently DC-join the two classes through the die/substrate: add a net-level @bridge/@couple between the return nets, or check whether one return is an @role(isolated) source-side copper the device legitimately feeds (conduit-equivalence-design.md §8.6)"),
-    entry!(DC_BINDING_DIR_MISMATCH, "A direction-word power terminal sits at the wrong end of its own connection chain.", "'{0}' is declared {1} but occupies {2} — the wrong end of its own connection chain: a source (psrc) face must lead the chain (first member / right of a {L|R} through), a sink (psnk) must trail it (last member / left of a {L|R} through). The direction word stays authoritative (6011/6019/6021/pwrflow): flip the arrow or move the terminal so the chain direction agrees with the declared direction contract (power-intent-design.md §5.3.2, PWR-10)"),
-    // ---- section ----
+    entry!(DC_BINDING_DIR_MISMATCH, "A direction-word power terminal sits at the wrong end of its own connection chain.", "'{0}' is declared {1} but occupies {2} — the wrong end of its own connection chain: a source (psrc) face must lead the chain (first member / right of a {L|R} through), a sink (psnk) must trail it (last member / left of a {L|R} through). The direction word stays authoritative (6011/6019/6021/pwrflow): flip the arrow or move the terminal so the chain direction agrees with the declared direction contract (intent-design.md §5.3.2, PWR-10)"),
+    // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
     entry!(GATE_SHORT_RAIL, "R03 — a net carries two different power-domain names.", "net contains both supply and ground: {0}"),

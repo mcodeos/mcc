@@ -360,9 +360,7 @@ fn glob_match_chars(pat: &[char], text: &[char]) -> bool {
     }
 }
 
-// ============================================================================
 // §8 consumer surface — catalog read projection + session write face
-// ============================================================================
 //
 // Every read consumer (`mcc rules` list/detail, RPC `rules.list` /
 // `rule.detail`, `explain`/`caps`, query `--kind rule`) renders one shared

@@ -16,9 +16,7 @@
 
 use crate::vector::graph::{EntrySide, McVecBox};
 
-// ============================================================================
 // ExitSide
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitSide {
@@ -45,9 +43,7 @@ impl From<EntrySide> for ExitSide {
     }
 }
 
-// ============================================================================
 // Compute exit point
-// ============================================================================
 
 /// Given the from box, compute the exit point + direction towards the to box
 ///

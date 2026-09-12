@@ -64,9 +64,7 @@ use std::collections::HashMap;
 
 use crate::vector::graph::McVecGraph;
 
-// ============================================================================
 // HChannel / HSlot — horizontal channel
-// ============================================================================
 
 /// A horizontal channel (blank area between y_top → y_bottom)
 #[derive(Debug, Clone)]
@@ -101,9 +99,7 @@ impl HChannel {
     }
 }
 
-// ============================================================================
 // VChannel / VSlot — vertical channel
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct VChannel {
@@ -131,9 +127,7 @@ impl VChannel {
     }
 }
 
-// ============================================================================
 // ChannelMap — main structure
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct ChannelMap {
@@ -157,11 +151,13 @@ impl ChannelMap {
     ///
     /// Algorithm:
     /// 1. Project all boxes onto the y axis to get (y_top, y_bot) interval list
-    /// 2. Sort by y_top, merge intersecting / adjacent (gap < `merge_gap`) intervals into "box rows"
+    /// 2. Sort by y_top, merge intersecting / adjacent (gap < `merge_gap`) intervals into "box
+    /// rows"
     /// 3. Blank between adjacent box rows (gap ≥ `min_channel_height`) = one HChannel
     /// 4. Same on X axis → VChannel
     ///
-    /// `min_channel_height` (default 16px) prevents treating "5px gap between two boxes" as a channel.
+    /// `min_channel_height` (default 16px) prevents treating "5px gap between two boxes" as a
+    /// channel.
     pub fn build(graph: &McVecGraph, line_gap: f64) -> Self {
         Self::build_with_options(graph, line_gap, 8.0, 16.0)
     }
@@ -292,9 +288,11 @@ impl ChannelMap {
     /// Reserve a y position for a horizontal line (x_start → x_end @ y_pref)
     ///
     /// Behavior:
-    /// 1. Find HChannel closest to `preferred_y` (channel's x range must cover the requested segment)
+    /// 1. Find HChannel closest to `preferred_y` (channel's x range must cover the requested
+    /// segment)
     /// 2. Probe slot candidate positions from center outward inside channel (step `line_gap`)
-    /// 3. The first position that doesn't conflict with reserved slots (same y ± line_gap and x range overlap) = answer
+    /// 3. The first position that doesn't conflict with reserved slots (same y ± line_gap and x
+    /// range overlap) = answer
     /// 4. All conflict → `None` (caller falls back to preferred y)
     ///
     /// Returns `Some(actual_y)` indicating the y position actually assigned in the channel.
@@ -460,9 +458,7 @@ impl ChannelMap {
     }
 }
 
-// ============================================================================
 // helpers
-// ============================================================================
 
 /// Merge intersecting / adjacent (gap < `gap`) intervals
 fn merge_intervals(intervals: &[(f64, f64)], gap: f64) -> Vec<(f64, f64)> {
@@ -516,9 +512,7 @@ fn canvas_bounds(graph: &McVecGraph) -> (f64, f64, f64, f64) {
     (x_min, y_min, x_max, y_max)
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -541,9 +535,7 @@ mod tests {
         b
     }
 
-    // ────────────────────────────────────────────────────────────────────────
     // merge_intervals
-    // ────────────────────────────────────────────────────────────────────────
 
     #[test]
     fn p10_merge_basic() {
@@ -565,13 +557,12 @@ mod tests {
         assert_eq!(m, vec![(0.0, 10.0), (20.0, 30.0)]);
     }
 
-    // ────────────────────────────────────────────────────────────────────────
     // build
-    // ────────────────────────────────────────────────────────────────────────
 
     #[test]
     fn p10_build_extracts_channel_between_rows() {
-        // Two rows of boxes: row 1 at y=0..100, row 2 at y=200..300, 100px blank in middle = one H channel
+        // Two rows of boxes: row 1 at y=0..100, row 2 at y=200..300, 100px blank in middle = one H
+        // channel
         let mut g = McVecGraph::new(0, "test".into());
         g.boxes.push(mk_box(1, 0.0, 0.0, 100.0, 100.0));
         g.boxes.push(mk_box(2, 200.0, 0.0, 100.0, 100.0));
@@ -611,9 +602,7 @@ mod tests {
         assert!(!mid.is_empty(), "expected V channel between columns");
     }
 
-    // ────────────────────────────────────────────────────────────────────────
     // reserve_horizontal
-    // ────────────────────────────────────────────────────────────────────────
 
     fn hand_built_map() -> ChannelMap {
         ChannelMap {
@@ -672,9 +661,7 @@ mod tests {
         assert_eq!(y, None);
     }
 
-    // ────────────────────────────────────────────────────────────────────────
     // reserve_vertical (symmetric)
-    // ────────────────────────────────────────────────────────────────────────
 
     fn hand_built_v_map() -> ChannelMap {
         ChannelMap {
@@ -705,9 +692,7 @@ mod tests {
         assert!((x1 - x2).abs() >= 10.0);
     }
 
-    // ────────────────────────────────────────────────────────────────────────
     // bookkeeping
-    // ────────────────────────────────────────────────────────────────────────
 
     #[test]
     fn p10_total_slots_counts_correctly() {

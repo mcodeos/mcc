@@ -18,9 +18,7 @@ use super::boxdef::{McVecBox, ModuleFrame, PortDir, ZoneBorder};
 use super::netdef::{NetRole, VizNet};
 use crate::vector::model::trunk::Trunk;
 
-// ============================================================================
 // McVecGraph
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct McVecGraph {
@@ -53,9 +51,11 @@ pub struct McVecGraph {
     pub module_ports: Vec<(String, PortDir, NetRole)>,
     /// ★ M2-3: zone border list (dashed rounded rect + title), filled by v2 layout
     pub zone_borders: Vec<ZoneBorder>,
-    /// ★ M4-0: canvas hint (once set by v2 layout, normalize no longer recomputes from box coordinates)
+    /// ★ M4-0: canvas hint (once set by v2 layout, normalize no longer recomputes from box
+    /// coordinates)
     pub canvas_hint: Option<(f64, f64)>,
-    /// ★ M4-1a: whether this is a sub-module graph (sub-modules use a smaller canvas minimum constraint)
+    /// ★ M4-1a: whether this is a sub-module graph (sub-modules use a smaller canvas minimum
+    /// constraint)
     pub is_submodule: bool,
     /// ★ P7-3: rail terminal decorations (discipline 11: terminals are not boxes).
     ///
@@ -64,7 +64,8 @@ pub struct McVecGraph {
     /// never entering `boxes`; located at render time by the pin's entry_point,
     /// with the symbol reusing `PowerRailShape`.
     pub rail_decorations: Vec<RailDecoration>,
-    /// ★ P7-4: this layer's geometry double-write diagnostics (collected by stage-boundary snapshot comparison, observe-only, no blocking).
+    /// ★ P7-4: this layer's geometry double-write diagnostics (collected by stage-boundary snapshot
+    /// comparison, observe-only, no blocking).
     ///
     /// Dimension-ownership ruler (P7-4e): xy/wh belong to the Placement stage,
     /// pins to the PinPlace stage, Route is read-only. A write that crosses
@@ -137,7 +138,8 @@ pub struct GeomDoubleWrite {
     pub dims: Vec<&'static str>,
 }
 
-/// ★ P7-4: stage-boundary geometry snapshot (the return value of `geom_snapshot`, aligned by box id)
+/// ★ P7-4: stage-boundary geometry snapshot (the return value of `geom_snapshot`, aligned by box
+/// id)
 #[derive(Debug, Clone)]
 pub struct BoxGeomSnapshot {
     sigs: Vec<(i64, f64, f64, f64, f64, Vec<super::boxdef::EntryPoint>)>,
@@ -150,7 +152,8 @@ pub struct RailDecoration {
     pub box_id: i64,
     /// The decorated pin (InstTable entry id, same as EndpointRef.pin_id)
     pub pin_id: i64,
-    /// true = ground symbol (pointing down, no text); false = rail terminal (pointing up, dot + net name)
+    /// true = ground symbol (pointing down, no text); false = rail terminal (pointing up, dot + net
+    /// name)
     pub is_ground: bool,
     /// Display text (rail terminal = net name; unused for ground symbols)
     pub label: String,
@@ -183,7 +186,7 @@ impl McVecGraph {
         }
     }
 
-    // ─── ★ P7-4: geometry writer observation (observe-only, no blocking) ────────────────────────────
+    // ★ P7-4: geometry writer observation (observe-only, no blocking)
 
     /// Pre-stage snapshot: per box (id, x, y, w, h, entry_points), **aligned by id**
     /// (stages may add/remove boxes; index alignment would misalign).
@@ -245,7 +248,8 @@ impl McVecGraph {
             written += 1;
             let violates = match stage {
                 GeomStage::Placement => dims.contains(&"pins"),
-                // PinFinal: pin allocation + hub enlargement + placement against pins, all dimensions free
+                // PinFinal: pin allocation + hub enlargement + placement against pins, all
+                // dimensions free
                 GeomStage::PinFinal => false,
                 GeomStage::Route => true, // read-only stage; any geometry change is a violation
             };
@@ -264,7 +268,7 @@ impl McVecGraph {
         written
     }
 
-    // ─── Statistics ─────────────────────────────────────────────────────────
+    // Statistics
 
     /// Recursive total box count
     pub fn total_boxes(&self) -> usize {
@@ -297,7 +301,7 @@ impl McVecGraph {
                 .sum::<usize>()
     }
 
-    // ─── Sub-graph query ─────────────────────────────────────────────────────
+    // Sub-graph query
 
     /// Find a sub-graph by bid (used by frontend to locate during expand)
     pub fn find_subgraph(&self, bid: i64) -> Option<&McVecGraph> {
@@ -312,7 +316,7 @@ impl McVecGraph {
         None
     }
 
-    // ─── Display (for debugging, with recursive indentation) ──────────────────
+    // Display (for debugging, with recursive indentation)
 
     fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, depth: usize) -> fmt::Result {
         let ind = "  ".repeat(depth);

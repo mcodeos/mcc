@@ -133,9 +133,7 @@ pub fn ensure_dirs() -> std::io::Result<()> {
     Ok(())
 }
 
-// ============================================================================
 // index.json maintenance
-// ============================================================================
 
 /// Rebuild `index.json` from the current state of the data root.
 /// Called on every install/uninstall and by `ensure_dirs`.

@@ -5,8 +5,8 @@
 //! Unified Ref/Def resolution module (see design doc §16).
 //!
 //! Centralizes symbol type definitions, registration, ref collection,
-//! ref→def matching, and query APIs previously scattered across
-//! `ast/sem.rs` and `db/infra/mc_code.rs`.
+//! ref→def matching, and the query APIs factored out of `ast/sem.rs` and
+//! `db/infra/mc_code.rs`.
 
 pub mod chain;
 pub mod collect;

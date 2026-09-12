@@ -584,9 +584,7 @@ pub(crate) fn add_result(
     }
 }
 
-// ============================================================================
 // ContainerRef + CmieKind — cross-library container discovery (Phase 4.5/5)
-// ============================================================================
 
 /// Kind of CMIE container — used to narrow the search scope in [`find_container`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

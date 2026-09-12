@@ -34,19 +34,19 @@
 //!
 //! | rule | level | meaning |
 //! |---|---|---|
-//! | R01 LITERAL_POINT      | ERROR | endpoint path contains `{` `[` `,` — a vector reference was not expanded |
+//! | R01 LITERAL_POINT      | ERROR | endpoint path holds `{` `[` `,` — vector ref not expanded |
 //! | R02 SHORT_PASSIVE      | ERROR | both pins of a two-terminal device land on the same net |
-//! | R03 SHORT_RAIL         | ERROR | a net contains two different power-domain names (including VDD and GND on the same net) |
+//! | R03 SHORT_RAIL         | ERROR | a net carries two power-domain names (e.g. VDD and GND) |
 //! | R04 SHORT_LANE         | ERROR | two different members of the same bus land on the same net |
-//! | R05 UNRESOLVED_UNIT    | ERROR | a unit-typed argument cannot claim any formal parameter slot |
-//! | R06 MEGANET            | WARN  | non-power net has too many points and spans too many devices |
-//! | R07 GHOST_INSTANCE     | ERROR | a device referenced in a net is missing from the instance table |
+//! | R05 UNRESOLVED_UNIT    | ERROR | a unit-typed argument claims no formal parameter slot |
+//! | R06 MEGANET            | WARN  | non-power net has too many points / devices |
+//! | R07 GHOST_INSTANCE     | ERROR | device in the net is absent from the instance table |
 //! | R09 FLOATING_POWER_PIN | WARN  | a device's power / ground pin is not connected |
-//! | R10 SYMBOL_CONSERVATION| ERROR | pass2 device count < pass1 symbol table device count (expectation must be passed in) |
-//! | R11 SPLIT_RAIL         | ERROR | same-name power net inside one module is split into multiple mutually unconnected nets |
+//! | R10 SYMBOL_CONSERVATION| ERROR | pass2 device count < pass1 symbol count (expectation in) |
+//! | R11 SPLIT_RAIL         | ERROR | same-name power net in a module splits unconnected |
 //! | R12 DANGLING_PORT      | INFO  | a port net has only itself as a point |
 //! | R14 ORPHAN_INSTANCE     | WARN  | instance registered but not in any net |
-//! | R15 SYNTHETIC_PIN       | WARN  | synthetic terminal (pin_id not belonging to any real pin, from port scalar/member handling) |
+//! | R15 SYNTHETIC_PIN       | WARN  | synthetic terminal (pin_id owned by no real pin) |
 //!
 //! Every row is registered in the central rule catalog (`src/rules.rs`
 //! `GATE_RULES`) with a numeric code from `errcodes.rs` (`GATE_*`, 4201-4215)
@@ -80,18 +80,14 @@ fn is_blocking_tag(rule: &str) -> bool {
         .unwrap_or(true)
 }
 
-// ============================================================================
 // Configuration constants
-// ============================================================================
 
 /// R06: a non-power net is suspicious once it exceeds this many points
 const MEGANET_POINTS: usize = 8;
 /// R06: and only once it spans this many different devices (pure fan-out signal nets don't count)
 const MEGANET_OWNERS: usize = 3;
 
-// ============================================================================
 // Result types
-// ============================================================================
 
 /// Rule level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -305,9 +301,7 @@ fn rule_name(rule: &str) -> &'static str {
     }
 }
 
-// ============================================================================
 // Entry point
-// ============================================================================
 
 /// Run all rules (excluding R10, which needs the pass1 expectation)
 pub fn run(table: &InstTable) -> Report {
@@ -316,7 +310,8 @@ pub fn run(table: &InstTable) -> Report {
 
 /// Run all rules.
 ///
-/// `pass1_expect`: `module full path -> number of Component entries for that module in the pass1 symbol table`.
+/// `pass1_expect`:
+/// `module full path -> number of Component entries for that module in the pass1 symbol table`.
 /// Pass an empty table to skip R10.
 pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, usize>) -> Report {
     let mut rep = Report::default();
@@ -350,9 +345,7 @@ pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, u
     rep
 }
 
-// ============================================================================
 // Index: precompute mappings that are needed repeatedly, such as "point -> owning module"
-// ============================================================================
 
 struct Index {
     /// entry id -> nearest Module ancestor id
@@ -419,7 +412,8 @@ impl Index {
             }
         }
 
-        // Net's owning module = the longest common ancestor among the nearest modules of all its points
+        // Net's owning module = the longest common ancestor among the nearest modules of all its
+        // points
         let mut net_module = BTreeMap::new();
         for net in table.get_nets() {
             let mut cands: Vec<&str> = Vec::new();
@@ -476,9 +470,7 @@ fn common_module_prefix(paths: &[&str]) -> String {
     first[..n].join(".")
 }
 
-// ============================================================================
 // String helpers (self-contained; does not depend on the viz layer to avoid cross-layer coupling)
-// ============================================================================
 
 /// Take the last segment of a path: `"main.mic.MIC/P"` -> `"P"`
 fn leaf(path: &str) -> &str {
@@ -552,9 +544,10 @@ fn is_supply_name(s: &str) -> bool {
     false
 }
 
-/// Normalized identity of a power net, used by R11 (a same-named power rail should not have two nets)
+/// Normalized identity of a power net, used by R11 (a same-named power rail should not have two
+/// nets)
 ///
-/// ── Strict DC rail identity ──────────────────────────────
+/// Strict DC rail identity
 /// The identity preserves the OWNER path of the member and only normalizes the
 /// leaf case: `main.va.GND` and `main.vb.GND` are DIFFERENT rails (different
 /// DC inputs may carry different grounds), while a bare single-segment `GND`
@@ -572,9 +565,7 @@ fn rail_identity(s: &str) -> Option<String> {
     }
 }
 
-// ============================================================================
 // R01 · unexpanded vector reference
-// ============================================================================
 
 /// ★ R01-e: check whether a literal path is a pure boundary port declaration.
 ///
@@ -714,7 +705,8 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
         return; // no need to scan the InstTable after isolation
     }
 
-    // Fallback: if isolation did not take effect (e.g. optimized away in release builds), use the old path
+    // Fallback: if isolation did not take effect (e.g. optimized away in release builds), use the
+    // old path
     let mut seen: BTreeSet<u32> = BTreeSet::new();
     for net in table.get_nets() {
         for p in &net.points {
@@ -758,9 +750,7 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
     set_scanned(rep, "R01", scanned);
 }
 
-// ============================================================================
 // R02 · two-terminal device with both pins on the same net
-// ============================================================================
 
 fn check_r02_short_passive(table: &InstTable, idx: &Index, rep: &mut Report) {
     let mut scanned = 0usize;
@@ -793,9 +783,7 @@ fn check_r02_short_passive(table: &InstTable, idx: &Index, rep: &mut Report) {
     set_scanned(rep, "R02", scanned);
 }
 
-// ============================================================================
 // R03 / R04 / R06 · semantic conflicts inside a net
-// ============================================================================
 
 fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
     set_scanned(rep, "R03", table.net_count());
@@ -914,9 +902,8 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
     }
 }
 
-// ============================================================================
-// R07 · ghost instance — the endpoint owner must resolve to a legitimate registered entry in the InstTable
-// ============================================================================
+// R07 · ghost instance — the endpoint owner must resolve to a legitimate registered entry in the
+// InstTable
 //
 // Whitelist: owner ∈ {Component, Module, Bus, Port} is legitimate
 // Resolving to no entry, or to a bare class-name fragment, is reported
@@ -952,7 +939,8 @@ fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
                 continue;
             };
 
-            // Step 1 · determine the owner: the part of the path before the last dot, or the path itself when there is no dot
+            // Step 1 · determine the owner: the part of the path before the last dot, or the path
+            // itself when there is no dot
             let owner = owner_path(&e.path)
                 .map(|op| op.to_string())
                 .unwrap_or_else(|| leaf(&e.path).to_string());
@@ -1036,9 +1024,7 @@ fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
     }
 }
 
-// ============================================================================
 // R08 · phantom path —— an intermediate segment must be a registered instance, not just a string
-// ============================================================================
 
 fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
     /// Whether the leaf is a purely numeric pin number
@@ -1046,9 +1032,12 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
         !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
     }
 
-    // ★ P0.5-3: precompute the set of direct instance child paths (Component + Module) for each module.
-    // Same reasoning as R07: the old criterion "the middle segment exists in entries" was self-referential.
-    // New criterion: the middle segment must be an entry with kind∈{Component,Module} in the module's children.
+    // ★ P0.5-3: precompute the set of direct instance child paths (Component + Module) for each
+    // module.
+    // Same reasoning as R07: the old criterion "the middle segment exists in entries" was
+    // self-referential.
+    // New criterion: the middle segment must be an entry with kind∈{Component,Module} in the
+    // module's children.
     let mut module_children: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
     for m in table.get_modules() {
         let children: BTreeSet<String> = table
@@ -1070,7 +1059,8 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
             };
             let leaf_name = leaf(&e.path);
 
-            // Step 1 · filter endpoints: only handle endpoints whose leaf is a purely numeric pin number
+            // Step 1 · filter endpoints: only handle endpoints whose leaf is a purely numeric pin
+            // number
             if !is_numeric_pin_leaf(leaf_name) {
                 continue;
             }
@@ -1098,7 +1088,8 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
                 continue;
             }
 
-            // Middle segment not registered → check whether the upper level (grandparent) is in the module's children
+            // Middle segment not registered → check whether the upper level (grandparent) is in the
+            // module's children
             if let Some(grandparent) = owner_path(owner) {
                 let gp_is_proper = module_children
                     .get(&module_id)
@@ -1125,16 +1116,15 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
     set_scanned(rep, "R08", scanned);
 }
 
-// ============================================================================
 // R09 · floating power / ground pins
-// ============================================================================
 
 fn check_r09_floating_power(table: &InstTable, idx: &Index, rep: &mut Report) {
     let mut scanned = 0usize;
     for comp in table.get_components() {
         for pin in table.get_pins_of(comp.id) {
             let name = leaf(&pin.path);
-            // Pin-number forms ("1"/"2") carry no semantics, so fall back to the functional name in class_name
+            // Pin-number forms ("1"/"2") carry no semantics, so fall back to the functional name in
+            // class_name
             let fname = pin.class_name.trim();
             let is_pwr = is_ground_name(name)
                 || is_supply_name(name)
@@ -1161,9 +1151,7 @@ fn check_r09_floating_power(table: &InstTable, idx: &Index, rep: &mut Report) {
     set_scanned(rep, "R09", scanned);
 }
 
-// ============================================================================
 // R10 · symbol conservation (what pass1 has, pass2 must also have)
-// ============================================================================
 
 fn check_r10_conservation(
     table: &InstTable,
@@ -1225,9 +1213,7 @@ fn check_r10_conservation(
     }
 }
 
-// ============================================================================
 // R11 · same-name power net split into multiple nets (bucketed by rail_identity)
-// ============================================================================
 
 fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
     // rail_identity → the nets where this identity appears
@@ -1251,7 +1237,8 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
         }
     }
 
-    // ★ P0.5-4: cross-level port union —— first merge same-rail nets of parent and child modules through port connection relations
+    // ★ P0.5-4: cross-level port union —— first merge same-rail nets of parent and child modules
+    // through port connection relations
     //
     // Problem: `main.dcdc::GND` and `main::GND` are connected through a port,
     // but R11 cannot see this connection when bucketing by net, so it would
@@ -1379,8 +1366,10 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
         if let Some(port_rails) = module_port_rails.get(&m.id) {
             for (rid, port_eids) in port_rails {
                 // ★ Check: did the parent layer actually connect this port through a port binding?
-                // At least one net containing a port entry also contains a point of the parent module → connected
-                // A′: the port entry may sit on several net segments (child + parent); check them all.
+                // At least one net containing a port entry also contains a point of the parent
+                // module → connected
+                // A′: the port entry may sit on several net segments (child + parent); check them
+                // all.
                 let port_connected = port_eids.iter().any(|&eid| {
                     table.nets_of(eid).iter().any(|&nid| {
                         table
@@ -1431,7 +1420,8 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
 
     set_scanned(rep, "R11", scanned);
 
-    // ★ P0.5-6: scope by module —— only report rails split into multiple nets within the same module.
+    // ★ P0.5-6: scope by module —— only report rails split into multiple nets within the same
+    // module.
     // Re-bucket by module first, then check the number of union groups inside each module.
     // Use idx.net_module as each net's "primary module" (deepest common ancestor),
     // to avoid a net shared across modules being counted in multiple modules.
@@ -1494,9 +1484,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
     }
 }
 
-// ============================================================================
 // R12 · port net with only itself as a point
-// ============================================================================
 
 fn check_r12_dangling_port(table: &InstTable, idx: &Index, rep: &mut Report) {
     set_scanned(rep, "R12", table.net_count());
@@ -1522,9 +1510,7 @@ fn check_r12_dangling_port(table: &InstTable, idx: &Index, rep: &mut Report) {
     }
 }
 
-// ============================================================================
 // R14 · orphan instance —— registered Component that is not in any net
-// ============================================================================
 
 fn check_r14_orphan_instance(table: &InstTable, idx: &Index, rep: &mut Report) {
     // Collect every Component owner that appears in a net (via the owner_comp of the net's points)
@@ -1575,9 +1561,8 @@ fn check_r14_orphan_instance(table: &InstTable, idx: &Index, rep: &mut Report) {
     }
 }
 
-// ============================================================================
-// R15 · synthetic terminal —— a pin_id detected by the viz layer that does not belong to any real pin
-// ============================================================================
+// R15 · synthetic terminal —— a pin_id detected by the viz layer that does not belong to any real
+// pin
 
 fn check_r15_synthetic_pin(rep: &mut Report) {
     let count = crate::viz::SYNTHETIC_PIN_COUNT.load(std::sync::atomic::Ordering::Relaxed);
@@ -1596,9 +1581,7 @@ fn check_r15_synthetic_pin(rep: &mut Report) {
     }
 }
 
-// ============================================================================
 // Internal helpers
-// ============================================================================
 
 fn push(rep: &mut Report, rule: &'static str, module: String, detail: String) {
     *rep.counts.entry(rule).or_insert(0) += 1;
@@ -1610,7 +1593,8 @@ fn push(rep: &mut Report, rule: &'static str, module: String, detail: String) {
     });
 }
 
-/// Add a note that does not increment any counter (used for SKIP-style status notes); always INFO level
+/// Add a note that does not increment any counter (used for SKIP-style status notes); always INFO
+/// level
 fn note(rep: &mut Report, rule: &'static str, module: String, detail: String) {
     rep.findings.push(Finding {
         rule,
@@ -1624,9 +1608,7 @@ fn set_scanned(rep: &mut Report, rule: &'static str, n: usize) {
     rep.scanned.entry(rule).or_insert(n);
 }
 
-// ============================================================================
 // Unit tests
-// ============================================================================
 
 // R05 · UNRESOLVED_UNIT — a unit-typed argument cannot claim any formal parameter slot
 // Counter is incremented during parameter binding in mc_param::bind_with_opts.

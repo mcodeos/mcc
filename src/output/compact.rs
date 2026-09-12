@@ -21,9 +21,7 @@
 
 use serde_json::Value;
 
-// ============================================================================
 // Public API
-// ============================================================================
 
 /// Render a single entity JSON (has `kind` and `name` fields).
 /// `show_span` controls whether source position spans are rendered.
@@ -69,9 +67,7 @@ pub fn render_entity(e: &Value, show_span: bool) -> String {
     out
 }
 
-// ============================================================================
 // Section renderers (pub so other modules can compose custom views)
-// ============================================================================
 
 /// Render `params` array. Entries are plain name strings, or objects
 /// `{"name", "iface", "iface_params"}` for interface-bound params —
@@ -415,9 +411,7 @@ pub fn values(out: &mut String, e: &Value) {
     }
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 /// Format a JSON value compactly for inline display.
 pub fn compact_val(v: &Value) -> String {

@@ -15,9 +15,7 @@ use crate::vector::graph::{McVecBox, McVecGraph, VizNet};
 use super::key::{StableBoxKey, StableEndpointKey, StableNetKey};
 use super::score::quantized_px;
 
-// ============================================================================
 // Canonical hash helpers
-// ============================================================================
 
 /// Compute a deterministic hash for a value using DefaultHasher.
 pub fn canonical_hash(value: &impl Hash) -> String {
@@ -31,9 +29,7 @@ pub fn hash_f64(hasher: &mut DefaultHasher, v: f64) {
     quantized_px(v).hash(hasher);
 }
 
-// ============================================================================
 // Graph component hashes
-// ============================================================================
 
 /// Hash box order deterministically.
 ///
@@ -216,9 +212,7 @@ pub fn hash_metrics(graph: &McVecGraph) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

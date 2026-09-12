@@ -12,18 +12,14 @@
 
 use std::ops::Range;
 
-// ============================================================================
 // Check Phase
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckPhase {
     PostParse,
 }
 
-// ============================================================================
 // Check Severity
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CheckSeverity {
@@ -58,9 +54,7 @@ impl CheckSeverity {
     }
 }
 
-// ============================================================================
 // Check Result
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct CheckResult {
@@ -72,9 +66,7 @@ pub struct CheckResult {
     pub code: u32,
 }
 
-// ============================================================================
 // Post-Parse Check Infrastructure
-// ============================================================================
 
 /// Accumulator for collecting check results during a post-parse pass.
 pub struct CheckAccumulator {
@@ -92,9 +84,7 @@ impl CheckAccumulator {
     }
 }
 
-// ============================================================================
 // Shared Utilities
-// ============================================================================
 
 /// Returns true if the given URI belongs to a test file (unit test or test case).
 pub(crate) fn is_test_file(uri: &str) -> bool {
@@ -105,9 +95,7 @@ pub(crate) fn is_test_file(uri: &str) -> bool {
     })
 }
 
-// ============================================================================
 // Check Trait
-// ============================================================================
 
 pub trait ValidationCheck: Send + Sync {
     fn name(&self) -> &'static str;
@@ -166,9 +154,7 @@ impl CheckRegistry {
     }
 }
 
-// ============================================================================
 // Sub-modules
-// ============================================================================
 
 pub mod adopt;
 pub mod attrs;

@@ -98,8 +98,8 @@ fn svc_portiface__named_square_iface_port_is_single_instance() {
 
     // A named square-vec instance binding (`PWR_[VDD2, GND2]::DC(5V)`) is ONE
     // interface port named `PWR_`; it must not be treated as an array to
-    // expand per member (which previously registered the same key twice and
-    // reported INST_DECLARED_MULTIPLE / duplicate LSP symbols).
+    // expand per member (which would register the same key twice and report
+    // INST_DECLARED_MULTIPLE / duplicate LSP symbols).
     let uri: McURI = "/mcc/named-square-iface-port.mc".to_string();
     let source = r#"
 interface DC(volt)

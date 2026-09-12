@@ -178,9 +178,7 @@ pub fn allocate_columns(members: &[MemberView], anchor_tap_pin_x: f64, side: f64
     }
 }
 
-// ============================================================================
 // M4.2b: global per-side column allocation
-// ============================================================================
 
 /// One member participating in a side-wide column allocation. `idx` is the
 /// caller's opaque key (topo_idx, member_idx) packed by the caller.
@@ -296,7 +294,7 @@ pub fn allocate_columns_for_side(members: &[SideMember], dir: f64) -> Vec<(usize
                 })
                 || teeth.iter().any(|&(_, oxl, oxh, oyl, oyh)| {
                     // candidate body vs placed tooth (a member whose body a
-                    // previously-hung tooth would cross).
+                    // tooth from an earlier pass would cross).
                     x_lo < oxh && x_hi > oxl && y_lo < oyh && y_hi > oyl
                 });
             if !collides {

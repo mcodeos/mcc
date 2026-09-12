@@ -147,7 +147,6 @@ fn window_of_attr(attr: &McAttribute) -> Option<(PwrWindow, String)> {
     Some((PwrWindow { lo: lo_v, hi: hi_v }, first.to_string()))
 }
 
-// ============================================================================
 // Window-of-net derivation (rail-contract-design.md §4.3 / §6, window batch A3)
 //
 // `WindowDeriv::window_of_net` answers "what supply window rides this net?" for
@@ -178,7 +177,6 @@ fn window_of_attr(attr: &McAttribute) -> Option<(PwrWindow, String)> {
 // Recursion is memoized per net id and guarded against cycles (a revisited net
 // on the current stack is Unresolved). A3 lands the engine ahead of the 6023/
 // 6024/6025 owners that consume it; nothing is wired yet.
-// ============================================================================
 
 /// Result of classifying one net's supply window.
 #[derive(Debug, Clone, Copy, PartialEq)]

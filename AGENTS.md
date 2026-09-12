@@ -67,6 +67,58 @@ at all.
   with a zero offset, thread a real span through instead of falling back
   silently.
 
+## Rule: keep code comments lean
+
+Comments are the most expensive text in this repository: every future edit pays
+for them twice (change the code, change the prose), and nothing verifies them,
+so they rot into assertions that are confidently wrong. Budget them. A comment
+earns its place only by carrying something the code cannot — a non-obvious
+*why*, a constraint imposed from outside the file, a trap that costs the next
+reader an afternoon.
+
+- **Explain why, not what.** `// increment i` is noise; `i += 1` already says
+  it. The test is deletion: if removing the comment loses no reason, no
+  constraint, and no warning, remove it.
+- **No change diary.** Not `// previously used X`, `// now also handles Y`,
+  `// renamed from Z`, `// an early version used to …`. Git holds the history;
+  source states only what is true now. (This is a standing temptation in a
+  codebase with a long refactor history.)
+- **No commented-out code.** Delete it — git remembers, and a reader cannot
+  tell a disabled experiment from a forgotten one.
+- **No decorative structure.** Do not fence sections with `// ───── Parse ─────`
+  rules or box-drawing banners. They are punctuation, not information.
+- **Keep doc comments to the contract.** A `///` states what a caller must
+  know: arguments, invariants, panics, units. Not the implementation
+  walkthrough, not the design rationale. Multi-paragraph explanation belongs in
+  a design doc under `mcd/doc/`, with at most a one-line pointer here. The same
+  applies to module-level `//!`.
+- **Match the neighbours.** Density is local and load-bearing: a file written
+  tightly stays tight. Appending a verbose block to a terse file is a
+  regression even when every sentence in it is true.
+
+One or two lines is the target. If the point does not fit in two lines, it is
+documentation, not a comment.
+
+This is enforced mechanically, on git-tracked `*.rs` only:
+
+- Pre-commit hook (`.githooks/pre-commit`) rejects staged `.rs` files whose
+  comments violate the rule.
+- CI workflow (`.github/workflows/check-comments.yml`) scans every git-tracked
+  `*.rs` file on every push / pull request.
+- Local scanner: `python3 scripts/check-comments.py` — exit 0 clean, 1 otherwise.
+- Run `scripts/check.sh` for the full local gate (step 11).
+
+The scanner checks three mechanical signals: a decorative rule line, the
+change-diary wordings `previously` / `formerly` / `renamed from` /
+`an early version` / `used to be`, and a comment line over 100 columns
+(rustfmt's default `max_width` — `wrap_comments` is off, so rustfmt never
+reflows a comment). It is a net, not a proof: prose that violates the rule
+without matching one of the three passes the gate. Content inside a fenced
+block, and a table row (content starting with `|`), are exempt. To keep a line
+that is legitimately long — a diagram, a URL, a grammar production — mark it
+with `check-comments:allow`. Do not put that marker on a `//!` line: it renders
+into the published rustdoc.
+
 ## Rule: no auto-commit; manual testing and manual commit
 
 Never commit (nor stage, amend, push, or open a PR) automatically after

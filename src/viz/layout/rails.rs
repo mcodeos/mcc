@@ -38,7 +38,8 @@
 //! ## Terminals are not boxes (discipline 11)
 //! All R-1/R-3 symbols go into `graph.rail_decorations` (pin render attributes):
 //! zero layout cost, zero routing cost, never in `graph.boxes`.
-//! Only R-2 driver segments build real `VizNet`s participating in routing, both ends being real boxes.
+//! Only R-2 driver segments build real `VizNet`s participating in routing, both ends being real
+//! boxes.
 //!
 //! ## C5 · top-level block diagram draws no passives
 //! The top level (`is_top == true`) additionally removes two-pin passives (R/C/L) from
@@ -86,10 +87,11 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         return;
     }
 
-    // ── Per-box metadata (computed before deleting any nets) ────────────
+    // Per-box metadata (computed before deleting any nets)
     // Power-domain nodes: boxes owning an Out endpoint on a Power rail (ldo.VCC / dcdc.VCC_1V2)
     let mut power_domain_boxes: HashSet<i64> = HashSet::new();
-    // Signal degree: participation count in this layer's signal nets (hub = highest, ties by smallest id).
+    // Signal degree: participation count in this layer's signal nets (hub = highest, ties by
+    // smallest id).
     // ★ Both Signal and SubModuleIO count —— promote (P08) rewrites cross-module Signal
     //   nets into SubModuleIO; counting only Signal yields an empty set and hub detection
     //   breaks (hit in P7-3 field testing).
@@ -118,7 +120,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         .max_by_key(|(id, deg)| (**deg, -*id))
         .map(|(id, _)| *id);
 
-    // ── Triage each rail net ────────────────────────────────────────────
+    // Triage each rail net
     let mut driver_edges: Vec<VizNet> = Vec::new();
     let mut decorations: Vec<RailDecoration> = Vec::new();
     let mut keep = vec![true; graph.nets.len()];
@@ -146,7 +148,8 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
 
         keep[idx] = false; // the original rail net is always replaced (edges/decorations/deletion)
 
-        // First endpoint per box as representative (multiple pins in one box = duplicate endpoints of the same consumer)
+        // First endpoint per box as representative (multiple pins in one box = duplicate endpoints
+        // of the same consumer)
         let mut per_box: Vec<(i64, EndpointRef)> = Vec::new();
         for e in &net.endpoints {
             if !per_box.iter().any(|(b, _)| *b == e.box_id) {
@@ -171,8 +174,9 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
 
         match driver {
             None => {
-                // ── R-1: no driver (GND / generation side not found) ──────────
-                // S1: every GND endpoint (pin by pin, including multiple pins in one box) gets exactly 1 symbol
+                // R-1: no driver (GND / generation side not found)
+                // S1: every GND endpoint (pin by pin, including multiple pins in one box) gets
+                // exactly 1 symbol
                 if !is_top {
                     for e in &net.endpoints {
                         decorations.push(RailDecoration {
@@ -185,7 +189,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
                 }
             }
             Some((drv_box, drv_ep)) => {
-                // ── R-2 / R-3 ────────────────────────────────────────────
+                // R-2 / R-3
                 let mut driver_consumed = false;
                 for (cbox, cep) in &per_box {
                     if *cbox == drv_box {
@@ -240,7 +244,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         }
     }
 
-    // ── ★ P7-7: compute anchor hints before deleting rail nets ─────────────
+    // ★ P7-7: compute anchor hints before deleting rail nets
     // For each rail net, find boxes that will become degree=0 after deletion
     // (both ends are rail), and anchor them to the IC they're decoupling.
     // The host is the box on the same rail net with the highest signal_degree
@@ -317,7 +321,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         anchored
     );
 
-    // ── Apply: rail nets → driver segments + decorations ────────────────
+    // Apply: rail nets → driver segments + decorations
     let n_rail = keep.iter().filter(|k| !**k).count();
     let mut idx = 0usize;
     graph.nets.retain(|_| {
@@ -336,7 +340,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         is_top
     );
 
-    // ── C5: top level draws no passives ─────────────────────────────────
+    // C5: top level draws no passives
     if is_top {
         drop_top_passives(graph);
     }
@@ -390,22 +394,28 @@ fn drop_top_passives(graph: &mut McVecGraph) {
     );
 }
 
-// ============================================================================
 // ★ Stage 1: net labels / air wires (long-net → named stubs)
-// ============================================================================
 //
-// Long signal nets spanning the whole graph pass through a bunch of boxes → a bunch of crossings → a bunch of jumpers (bridges), the graph becomes messy. Industrial schematic
-// standard practice is **net labels (net label / air wires)**: don't draw that long wire, but place a same-name short label stub next to each endpoint,
-// same name = electrically connected. This pass transforms "long signal nets" into such label stubs:
-//   - Create a **single-pin PowerLabel** next to each endpoint (reuses existing flag rendering, same style as sub-graph boundary ports) +
+// Long signal nets spanning the whole graph pass through a bunch of boxes → a bunch of crossings →
+// a bunch of jumpers (bridges), the graph becomes messy. Industrial schematic
+// standard practice is **net labels (net label / air wires)**: don't draw that long wire, but place
+// a same-name short label stub next to each endpoint,
+// same name = electrically connected. This pass transforms "long signal nets" into such label
+// stubs:
+// - Create a **single-pin PowerLabel** next to each endpoint (reuses existing flag rendering, same
+// style as sub-graph boundary ports) +
 //     one **short stub** (label pin ↔ original pin), then **delete that long net**.
-//   - Only modify nets of `NetKind::Signal` with **span over threshold**; power/ground (already flags), buses, and nets with either endpoint
+// - Only modify nets of `NetKind::Signal` with **span over threshold**; power/ground (already
+// flags), buses, and nets with either endpoint
 //     already connected to label/flag are not touched.
 //
-// Must run **after layout, before routing** (at this point boxes have coordinates, can judge "long" by span; routing hasn't run yet,
-// modifying boxes is safe). Hooked in api.rs Phase 1.8. Returns new canvas size (added label boxes, boundary needs recalculation).
+// Must run **after layout, before routing** (at this point boxes have coordinates, can judge "long"
+// by span; routing hasn't run yet,
+// modifying boxes is safe). Hooked in api.rs Phase 1.8. Returns new canvas size (added label boxes,
+// boundary needs recalculation).
 
-/// ★ Stage 1 main entry: convert long signal nets to net label stubs. Returns `Some(new canvas)` if changed, else `None`.
+/// ★ Stage 1 main entry: convert long signal nets to net label stubs. Returns `Some(new canvas)` if
+/// changed, else `None`.
 ///
 /// ★ R-L (discipline 28): net labels are text on wires, not boxes.
 /// PowerLabel box creation is disabled globally. Long signal nets are
@@ -416,9 +426,7 @@ pub fn apply_net_labels(_graph: &mut McVecGraph) -> Option<(f64, f64)> {
     None
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -586,7 +594,7 @@ mod tests {
         assert_eq!(g.nets.len(), 1);
     }
 
-    // ── ★ P7-3 classify_rails triage tests (R-1 / R-2 / R-3 / C5) ──────────
+    // ★ P7-3 classify_rails triage tests (R-1 / R-2 / R-3 / C5)
 
     fn rail_net(
         nid: i64,
@@ -827,12 +835,14 @@ mod tests {
             vec![(1, 11, IoDirection::Passive), (2, 21, IoDirection::Passive)],
         ));
         classify_rails(&mut g, /*is_top=*/ false);
-        // Consumer CAP unqualified → no edge; sub-layer places a terminal; driver pin drew an edge so gets none
+        // Consumer CAP unqualified → no edge; sub-layer places a terminal; driver pin drew an edge
+        // so gets none
         assert!(
             g.nets.iter().all(|n| n.rail.is_none()),
             "rail nets should be replaced"
         );
-        // hub determination: no signal nets → hub=None; CAP has no power-domain qualification → 0 edges
+        // hub determination: no signal nets → hub=None; CAP has no power-domain qualification → 0
+        // edges
         // driver pin not consumed by an edge → also gets a terminal
         assert_eq!(
             g.rail_decorations.len(),

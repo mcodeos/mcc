@@ -10,7 +10,8 @@
 //! - **Two-pin passive parts** (R/C/L/D/Led/Zener): designator **above** the part, value **below**
 //! - **IC**: designator inside the box, directly below the part name
 //! - **Module**: same as IC
-//! - **PowerRail / Unknown**: designator/value not shown (a PowerRail's own name serves as the label)
+//! - **PowerRail / Unknown**: designator/value not shown (a PowerRail's own name serves as the
+//! label)
 
 use crate::vector::graph::{McVecBox, Symbol};
 
@@ -29,9 +30,7 @@ pub(crate) struct LabelBounds {
     pub inside_owner_box: bool,
 }
 
-// ============================================================================
 // Main API
-// ============================================================================
 
 /// Output the SVG fragment for the designator + value
 ///
@@ -66,7 +65,7 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
             // because both fields were empty. Fall back to the box name so the
             // part still gets a label. ICs/modules are excluded — their name is
             // already drawn by the IC/sub-module shape.
-            // The virtual instantiation view (mcd docs-mc 16-export-viz §6)
+            // The virtual instantiation view (mcd spec/16-export-viz §6)
             // must not leak its fabricated instance name (`u_1`) into the
             // designator — fall back to the class name instead, so a standalone
             // RES / CAP still identifies itself by its own name.
@@ -322,9 +321,7 @@ fn render_placed_labels(b: &McVecBox) -> String {
     out
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -409,7 +406,7 @@ mod tests {
 
     #[test]
     fn virtual_passive_shows_class_name_not_instance_name() {
-        // Virtual instantiation view (mcd docs-mc 16-export-viz §6): the
+        // Virtual instantiation view (mcd spec/16-export-viz §6): the
         // fabricated instance name (`u_1`) must not leak into the designator —
         // the class name identifies the part instead.
         let mut b = mk_box(Symbol::Resistor, None, None);

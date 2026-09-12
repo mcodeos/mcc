@@ -251,7 +251,7 @@ mod tests {
         )
     }
 
-    // ---- §5.2 series (`-` / `->` / `<-`) ----
+    // §5.2 series (`-` / `->` / `<-`)
 
     #[test]
     fn sem_opcheck__series_node_node_ok() {
@@ -361,7 +361,7 @@ mod tests {
         ));
     }
 
-    // ---- §5.1 parallel (`+`) ----
+    // §5.1 parallel (`+`)
 
     // The four degenerate/non-degenerate combinations, one test each, each
     // carrying at least two members so no branch is bypassed vacuously.
@@ -599,7 +599,7 @@ mod tests {
         }
     }
 
-    // ---- row-count entry points (Pass2) ----
+    // row-count entry points (Pass2)
 
     #[test]
     fn sem_opcheck__rows_entry_series() {
@@ -625,7 +625,7 @@ mod tests {
         ));
     }
 
-    // ---- tri-state unknown-shape semantics (vec-arch.md §5.3) ----
+    // tri-state unknown-shape semantics (vec-arch.md §5.3)
 
     /// The three states of an operand shape:
     ///

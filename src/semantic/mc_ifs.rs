@@ -107,7 +107,8 @@ impl McInterface {
                 // Directly check if it's a COND_IF node
                 if child_type == MCAST_COND_IF {
                     // Found COND_IF, parse its pins from the ELSE (default) branch.
-                    // COND_IF structure may be: [cond_expr?, pins?, cond_block1?, COND_ELSE_IF*, COND_ELSE?]
+                    // COND_IF structure may be:
+                    // [cond_expr?, pins?, cond_block1?, COND_ELSE_IF*, COND_ELSE?]
                     if let Some(cond_subnodes) = child_ref.get_sub_node() {
                         // First pass: find the last COND_ELSE block (default branch).
                         // If no COND_ELSE, use the last COND_BLOCK.
@@ -148,9 +149,7 @@ impl McInterface {
     }
 }
 
-// ============================================================================
 // HasFindInst for McInterface — namespace lookup (Phase 4.5)
-// ============================================================================
 
 impl HasFindInst for McInterface {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
@@ -241,9 +240,7 @@ impl HasFindInst for McInterface {
     }
 }
 
-// ============================================================================
 // Display implementation - compact format output
-// ============================================================================
 
 impl std::fmt::Display for McInterface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -263,9 +260,7 @@ impl std::fmt::Display for McInterface {
     }
 }
 
-// ============================================================================
 // Mc2Interface - Interface instance wrapper
-// ============================================================================
 
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::mc_inst::McInst;
@@ -486,7 +481,8 @@ impl Mc2Interface {
 
     /// Merge pin number list into interface
     /// Used to merge pin numbers from multiple GPIO instances into same GPIO interface
-    /// Note: only updates registered_pins, doesn't modify base.pins.names_to_id (that's Interface definition)
+    /// Note: only updates registered_pins, doesn't modify base.pins.names_to_id (that's Interface
+    /// definition)
     pub fn merge_pins_with(&self, pins: &[String]) -> Self {
         // No longer modify base.pins.names_to_id, only update registered_pins
         // base.pins.names_to_id should remain as Interface definition (e.g. {IO})
@@ -511,9 +507,7 @@ impl Mc2Interface {
     }
 }
 
-// ============================================================================
 // Debug implementation - simplified format output
-// ============================================================================
 
 impl std::fmt::Debug for Mc2Interface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -28,9 +28,12 @@ use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 use std::sync::Arc;
 
-/// ── P1: Collect constructor arguments from MCAST_INSTANCE (parenthesized arguments of mcu(V3V3,V1V2) / flash(V3V3)).
-/// Arguments are attached inside the instance node, as the next sibling MCAST_PARAMS of id (mc_inst.rs:854 comment);
-/// some forms are attached to the next sibling of the instance node, try both places, take the first non-empty.
+/// ── P1: Collect constructor arguments from MCAST_INSTANCE (parenthesized arguments of
+/// mcu(V3V3,V1V2) / flash(V3V3)).
+/// Arguments are attached inside the instance node, as the next sibling MCAST_PARAMS of id
+/// (mc_inst.rs:854 comment);
+/// some forms are attached to the next sibling of the instance node, try both places, take the
+/// first non-empty.
 /// Each argument is parsed by the canonical context-free value parser
 /// (McParamValue::new_no_ctx, mc_param.rs) — the literal dispatch that used
 /// to live here (INT / STRING / NC / UVALUE / identifier) is centralized there.
@@ -739,11 +742,13 @@ impl McInstances {
                                         }
                                     });
                                     if let Some(ref base) = dot_base {
-                                        // DOT pattern: key always exists (or is created) in insts as `base`
+                                        // DOT pattern: key always exists (or is created) in insts
+                                        // as `base`
                                         self.parse_opd(&child, iotype_ref.clone());
                                         self.store_port_span(base, span);
                                     } else {
-                                        // Non-DOT: snapshot existing keys, then store spans for new ones
+                                        // Non-DOT: snapshot existing keys, then store spans for new
+                                        // ones
                                         let before_keys: std::collections::HashSet<String> =
                                             self.insts.keys().cloned().collect();
                                         self.parse_opd(&child, iotype_ref.clone());
@@ -769,7 +774,8 @@ impl McInstances {
                                 MCAST_OPD_SQUARE_VEC => {
                                     let span = (child.get_pos() as usize)
                                         ..((child.get_pos() + child.get_len()) as usize);
-                                    // Store span before parse to capture the @N index used by parse_opd_square_vec
+                                    // Store span before parse to capture the @N index used by
+                                    // parse_opd_square_vec
                                     let port_key = format!("@{}", self.insts.len());
                                     self.parse_opd_square_vec(&child, iotype_ref.clone());
                                     self.store_port_span(&port_key, span);
@@ -961,7 +967,8 @@ impl McInstances {
                                             }
                                         }
                                         if let Some(iface_ids) = &interface_name {
-                                            // ★ LSP: Register class reference for goto-definition on
+                                            // ★ LSP: Register class reference for goto-definition
+                                            // on
                                             // ::Interface() syntax in port declarations
                                             // (e.g., ps [VDD, GND]::DC(3.3V)).
                                             if let Some(ref span) = interface_span {
@@ -1050,11 +1057,13 @@ impl McInstances {
                                                 self.store_port_span(&pname.to_string(), span);
                                             }
                                             2.. => {
-                                                // Check if contains curly or square bracket syntax (register as Bus as a whole)
+                                                // Check if contains curly or square bracket syntax
+                                                // (register as Bus as a whole)
                                                 if pname.is_curly_bracket()
                                                     || pname.is_square_bracket()
                                                 {
-                                                    // Register as Bus as a whole, not register members separately
+                                                    // Register as Bus as a whole, not register
+                                                    // members separately
                                                     if let Some((busname, members)) = pname.as_bus()
                                                     {
                                                         let inst = if pname.is_curly_bracket() {
@@ -1076,7 +1085,8 @@ impl McInstances {
                                                         );
                                                         self.store_port_span(&busname, span);
                                                     } else {
-                                                        // If as_bus() returns None, try manual parsing
+                                                        // If as_bus() returns None, try manual
+                                                        // parsing
                                                         let base = pname.base_name();
                                                         let members = pname.expand();
                                                         if !base.is_empty() && !members.is_empty() {
@@ -1101,7 +1111,8 @@ impl McInstances {
                                                         }
                                                     }
                                                 } else {
-                                                    // No curly or square brackets, register each member separately
+                                                    // No curly or square brackets, register each
+                                                    // member separately
                                                     let members = pname.expand();
                                                     for member in &members {
                                                         self.insts.insert(
@@ -1229,7 +1240,8 @@ impl McInstances {
                                                 (iotype.clone(), McInstance::Label(member.clone())),
                                             );
                                         }
-                                        // Store port span for the base name (used for goto-def lookup)
+                                        // Store port span for the base name (used for goto-def
+                                        // lookup)
                                         if !members.is_empty() {
                                             self.store_port_span(&members[0], span.clone());
                                         }
@@ -1484,7 +1496,8 @@ impl McInstances {
 
         // Parse all instances
         for inst_node in &inst_nodes {
-            // MCAST_INSTANCE may have no children (e.g. "HDR_SINGLE A"), then instance name is the node's own content
+            // MCAST_INSTANCE may have no children (e.g. "HDR_SINGLE A"), then instance name is the
+            // node's own content
             let inst_id_node = if let Some(sub) = inst_node.get_sub_node() {
                 sub
             } else {
@@ -1500,9 +1513,10 @@ impl McInstances {
             let Some(inst_ids) = McIds::new(&ids_node) else {
                 continue;
             };
-            // ── P1 fix: array name expansion (with guard) ───────────────────────────
+            // P1 fix: array name expansion (with guard)
             // `cap[4:5]::CAP(1uF)`'s inst_ids is "cap[4:5]".
-            // expand() expands to ["cap4", "cap5"]. Create a separate instance for each expanded name.
+            // expand() expands to ["cap4", "cap5"]. Create a separate instance for each expanded
+            // name.
             //
             // Guard: only expand "array range with base prefix", exclude:
             //   - `[VDD_3V3, GND]::DC()` → is_square_only=true → not expand
@@ -1632,7 +1646,8 @@ impl McInstances {
                 };
 
                 // Create McInstance based on definition
-                // For Interface with curly bracket or square bracket syntax (e.g., DC4{VDD, GND}::DC(5V) or [VDD, GND]::DC(3.3V)),
+                // For Interface with curly bracket or square bracket syntax (e.g., DC4{VDD,
+                // GND}::DC(5V) or [VDD, GND]::DC(3.3V)),
                 // use the appropriate name format for the instance
                 // Collect instance parameters first (used by both Component and Module)
                 let mut instance_params: Vec<McParamValue> = Vec::new();
@@ -1657,7 +1672,8 @@ impl McInstances {
                         mcc_dbg!("sem::inst", 
                             "[P2-4-PARSE] inst='{inst_name}' class='{class_ids}' -> Component (cmie=Component)",
                         );
-                        // ── P1: besides class-level value params (CAP(1uF…)), also merge instance-level construction args (flash(V3V3)) ──
+                        // ── P1: besides class-level value params (CAP(1uF…)), also merge
+                        // instance-level construction args (flash(V3V3)) ──
                         let mut instance_params = instance_params;
                         instance_params.extend(ctor_args.clone());
                         // Report binding failures at the instance site: an
@@ -1802,12 +1818,13 @@ impl McInstances {
 
                             // ★ FIX (Issue #1804/#1803):
                             // For `MIC{P, N}::ADC.DIFF()` style curly bracket interface
-                            // port declaration, use `Mc2Interface::new(inst_ids.clone(), ...)` to preserve
+                            // port declaration, use `Mc2Interface::new(inst_ids.clone(), ...)` to
+                            // preserve
                             // `{P, N}` user-declared bus members (in `name: McIds`).
-                            // Previously used `new_with_str(&iface_name, ...)` only preserving base name "MIC",
-                            // losing {P,N}, causing subsequent `MIC{P,N}` references
-                            // validate_interface_member_ref can't find P/N in base.pins (empty).
-                            // The `::DC(5V)` ctor args are passed through so the
+                            // Must carry the `{P, N}` user-declared bus members (in
+                            // `name: McIds`): `new_with_str(&iface_name, ...)` keeps the
+                            // base name "MIC" only, so a later `MIC{P,N}` reference
+                            // cannot find P/N in base.pins (empty).
                             // interface param count / conditional pins match the call site.
                             let new_interface = Mc2Interface::with_ids_and_params(
                                 inst_ids.clone(),
@@ -2351,9 +2368,7 @@ impl From<McInstance> for McPhrase {
     }
 }
 
-// ============================================================================
 // Display implementation - concise format output
-// ============================================================================
 
 impl std::fmt::Display for McInstance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

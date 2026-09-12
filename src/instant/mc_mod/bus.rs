@@ -158,7 +158,7 @@ impl InstantiationBuilder {
     /// flattened version: element.member is Vec<String>
     pub(super) fn expand_node_element(&mut self, element: &McBus) -> Vec<NetPoint> {
         if element.member.is_empty() {
-            // ── Iter-8 ───────────────────────────────────────────────
+            // Iter-8
             // Port N×1 bus expansion: when element's own member is empty,
             // check whether it corresponds to a port declared with ≥2
             // members; if so, expand according to the declaration.
@@ -206,7 +206,7 @@ impl InstantiationBuilder {
         element: &McBus,
     ) -> Result<Vec<NetPoint>, InstError> {
         if element.member.is_empty() {
-            // ── Iter-8 ───────────────────────────────────────────────
+            // Iter-8
             // Port N×1 bus expansion (mirrored expand_node_element rename)。
             // Transposed `'`-delimited inner_line may still be a bare port ref (like
             // `XTAL + R442::RES'`'s XTAL), so we need to ensure transposed path ports
@@ -262,7 +262,7 @@ impl InstantiationBuilder {
     ) -> Result<Vec<NetPoint>, InstError> {
         let elements = if is_left { left } else { right };
 
-        // ── P1-A3 ────────────────────────────────────────────────────────
+        // P1-A3
         // Curly-mn such as `ldo{vin|vout}` / `mcu{MIC | DAC_OUT, SPK_MUTE}`
         // containing `|` will be assembled by the parser as { name: "ldo",
         // member: ["vin"] } — this "name is the instance, member is the port"

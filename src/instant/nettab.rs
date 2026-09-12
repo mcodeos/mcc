@@ -91,9 +91,7 @@ impl NetTableStore {
         self.tables.iter()
     }
 
-    // ------------------------------------------------------------------------
     // Phase E: per-module overlay fragments (labels + buses)
-    // ------------------------------------------------------------------------
 
     /// Insert (or replace) one module's overlay fragment (labels + buses).
     pub fn insert_fragment(&mut self, path: impl Into<String>, overlay: ModuleOverlay) {

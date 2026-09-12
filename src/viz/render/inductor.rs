@@ -47,7 +47,8 @@ impl BoxShape for InductorShape {
     }
 }
 
-/// Concentric "virtual horizontal box": swap width and height, center unchanged. Vertical parts are drawn horizontally first then rotated 90°.
+/// Concentric "virtual horizontal box": swap width and height, center unchanged. Vertical parts are
+/// drawn horizontally first then rotated 90°.
 fn vertical_virtual_box(b: &McVecBox) -> McVecBox {
     let cx = b.x + b.w / 2.0;
     let cy = b.y + b.h / 2.0;
@@ -95,9 +96,7 @@ fn inductor_symbol(b: &McVecBox) -> String {
     format!("    {lead_left}\n    {lead_right}\n    {arcs}")
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

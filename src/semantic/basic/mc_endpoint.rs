@@ -7,9 +7,7 @@ use std::fmt;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::mc_inst::McInstance;
 
-// ============================================================================
 // McMember - member item
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub enum McMember {
@@ -35,9 +33,7 @@ impl fmt::Display for McMember {
     }
 }
 
-// ============================================================================
 // McMemberList - member list
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct McMemberList {
@@ -65,9 +61,7 @@ impl fmt::Display for McMemberList {
     }
 }
 
-// ============================================================================
 // McInstanceRef - instance reference
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct McInstanceRef {
@@ -181,9 +175,7 @@ impl fmt::Display for McInstanceRef {
     }
 }
 
-// ============================================================================
 // McEndpoint - connection endpoint
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub enum McEndpoint {
@@ -328,9 +320,7 @@ impl fmt::Display for McEndpoint {
     }
 }
 
-// ============================================================================
 // Macros
-// ============================================================================
 
 #[macro_export]
 macro_rules! ep {

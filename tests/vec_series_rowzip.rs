@@ -116,7 +116,7 @@ fn no_member_on_any_net(nets: &[(String, Vec<String>)], prefix: &str) -> bool {
         .all(|(_, ps)| !ps.iter().any(|p| p.starts_with(prefix)))
 }
 
-// ── series_eq__* : legal equal-row zip, two independent N-point nets ─────────
+// series_eq__* : legal equal-row zip, two independent N-point nets
 
 /// `c[1:2] -> [VDD, GND]` — whole declared array node vs a 2-member column.
 /// Row-zips `c1.2↔VDD`, `c2.2↔GND` into two separate 2-point nets.

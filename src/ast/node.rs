@@ -339,8 +339,10 @@ impl AstNode {
             }
 
             // ★ Fix 3: OPR_PLUS / OPR_MINUS / OPR_MULTI / OPR_DIVID — expression-level operators
-            // In AST, expression `+` (rule 294) creates MCAST_OPD_PLUS (181), NOT MCAST_OPD_PLUS (71).
-            // This is used in attribute string concatenation like: description = "text" + param + "text"
+            // In AST, expression `+` (rule 294) creates MCAST_OPD_PLUS (181), NOT MCAST_OPD_PLUS
+            // (71).
+            // This is used in attribute string concatenation like: description = "text" + param +
+            // "text"
             MCAST_OPD_MULTI | MCAST_OPD_DIVID => {
                 if let Some(left) = self.get_sub_node() {
                     let l = left.to_string().unwrap_or_default();
@@ -708,7 +710,8 @@ fn extract_ida(ida: &str) -> Vec<String> {
                         end = index;
                     }
                     if in_slice {
-                        // Range expression: save the entire expression (including brackets) as a single segment
+                        // Range expression: save the entire expression (including brackets) as a
+                        // single segment
                         // Example: [1:rows] and [1:cols]
                         let full_range = &ida[bracket_start..index + 1];
                         segments.push(Segment::Single(full_range.to_string()));
@@ -860,7 +863,8 @@ impl Iterator for AstNodeIter {
                 let next_addr = next_ptr as usize;
                 let misaligned = next_addr % std::mem::align_of::<McValueFFI>() != 0;
                 if next_addr < 0x1000 || misaligned {
-                    // Corrupted memory - C parser sometimes writes strings/other fields to .next pointer
+                    // Corrupted memory - C parser sometimes writes strings/other fields to .next
+                    // pointer
                     if next_addr < 0x1000 {
                         tracing::warn!(target: "mcc::ast", addr = %format!("{:#x}", next_addr), "invalid next pointer, stopping iteration");
                     } else {

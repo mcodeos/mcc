@@ -1,0 +1,15 @@
+name: check-comments
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan tracked Rust comments for lean-comments violations
+        run: python3 scripts/check-comments.py

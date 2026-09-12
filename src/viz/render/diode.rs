@@ -14,7 +14,8 @@
 //!     D1
 //!  ────▷|────
 //! ```
-//! Vertical (h>w): use the concentric virtual horizontal box to draw the symbol, then rotate(90); the label does not rotate.
+//! Vertical (h>w): use the concentric virtual horizontal box to draw the symbol, then rotate(90);
+//! the label does not rotate.
 
 use crate::vector::graph::{McVecBox, Symbol};
 
@@ -52,7 +53,8 @@ impl BoxShape for DiodeShape {
     }
 }
 
-/// Concentric "virtual horizontal box": swap width and height, center unchanged. Vertical parts are drawn horizontally first then rotated 90°.
+/// Concentric "virtual horizontal box": swap width and height, center unchanged. Vertical parts are
+/// drawn horizontally first then rotated 90°.
 fn vertical_virtual_box(b: &McVecBox) -> McVecBox {
     let cx = b.x + b.w / 2.0;
     let cy = b.y + b.h / 2.0;
@@ -64,7 +66,8 @@ fn vertical_virtual_box(b: &McVecBox) -> McVecBox {
     vb
 }
 
-/// Diode symbol (lead + triangle + cathode bar + variant decoration, excluding label / outer g), drawn horizontally.
+/// Diode symbol (lead + triangle + cathode bar + variant decoration, excluding label / outer g),
+/// drawn horizontally.
 /// Returns (symbol SVG, css suffix).
 fn diode_symbol(b: &McVecBox) -> (String, &'static str) {
     let cy = b.y + b.h / 2.0;
@@ -181,9 +184,7 @@ fn diode_symbol(b: &McVecBox) -> (String, &'static str) {
     (sym, css_extra)
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

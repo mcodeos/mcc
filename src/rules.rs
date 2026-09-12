@@ -4,7 +4,7 @@
 
 //! Rule registry — single declarative ledger for every check rule.
 //!
-//! Design: `mcd/doc/check-rule-registry-design.md` (§2 descriptor, §4 add
+//! Design: `check-rule-registry-design.md` (§2 descriptor, §4 add
 //! path, §5-5 order, §8-5 override store). Stage 1 landed the FlatErc scope:
 //! all 16 `nets` P/V/C/D rules are declared here in execution order, and
 //! `nets::run_net_checks` now drives its sequence from this table (the former
@@ -75,9 +75,7 @@ use crate::semantic::validation::pins::{
 };
 use crate::semantic::validation::CheckSeverity;
 
-// ============================================================================
 // Category axes (§2.3)
-// ============================================================================
 
 /// Execution scope — which stage runner owns the rule (§2.3 `scope`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,9 +120,7 @@ pub enum RuleDomain {
     Rating,
 }
 
-// ============================================================================
 // Governance axes (§7, analysis-design-verification loop)
-// ============================================================================
 
 /// Ownership plane (§7.1) — which layer of the loop owns the rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,9 +184,7 @@ pub const fn gate_for(severity: CheckSeverity) -> GateKind {
     }
 }
 
-// ============================================================================
 // Descriptor (§2.2, data-only metadata shared by every scope)
-// ============================================================================
 
 /// Machine-actionable follow-up a fired rule carries (§7.4 closed-loop
 /// writeback axis). Today every row is `None`: the registry still has no
@@ -210,12 +204,10 @@ pub enum FixKind {
     Suggestion,
 }
 
-// ============================================================================
 // Stable string forms of the §2.3/§2.5 axes — the spelling every consumer
 // surface uses (`mcc rules --scope flat-erc`, RPC `rules.list` params, MCP
 // tool args, the JSON projection and the text views). Keep one spelling per
 // axis so the CLI/RPC/MCP bytes stay identical (design §8 projection).
-// ============================================================================
 
 /// Kebab-case axis name used by the §8 read/write surfaces.
 impl RuleScope {
@@ -691,7 +683,7 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_pullup_degenerate,
     },
-    // PWR-2 (power-intent-design.md §3.4): a DC @bridge subgraph loop (parallel/
+    // PWR-2 (intent-design.md §3.4): a DC @bridge subgraph loop (parallel/
     // cyclic legs) with no @star discharge on a hub conduit.
     declare_flat_erc_rule! {
         code = crate::errcodes::POWER_BRIDGE_LOOP,
@@ -705,7 +697,7 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_power_bridge_loop,
     },
-    // PWR-7 (power-intent-design.md §11): @clamp(ref) must target protective/earth.
+    // PWR-7 (intent-design.md §11): @clamp(ref) must target protective/earth.
     declare_flat_erc_rule! {
         code = crate::errcodes::CLAMP_REF_NOT_PROTECTIVE,
         name = "clamp-ref-role",
@@ -728,12 +720,13 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         severity = Error,
         domain = Power,
         family = None,
-        doc = "A rail [hot,ret]::DC(…) ctor arg must decode to the contract it names (power-intent-design.md §4.1/§5.2); no fake windows, no silent pass.",
+        doc = "A rail [hot,ret]::DC(…) ctor arg must decode to the contract it names (intent-design.md §4.1/§5.2); no fake windows, no silent pass.",
         lock = "tests/power_intent_l1.rs",
         overridable = false,
         owner = check_power_rail_contract,
     },
-    // P3 two-roots (§4.1 — an intermediate net never enters a domain): one net is the hot member of at
+    // P3 two-roots (§4.1 — an intermediate net never enters a domain): one net is the hot member of
+    // at
     // most one rail; a second rail on the same hot = two handwritten S roots.
     declare_flat_erc_rule! {
         code = crate::errcodes::POWER_RAIL_TWO_ROOTS,
@@ -777,12 +770,12 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         severity = Error,
         domain = Power,
         family = None,
-        doc = "A psrc/psnk/psbi ::DC(…) ctor arg must decode to the contract it names — a sink writes its nominal plus an optional amp demand key (rail-contract-design.md §8.1); tol/capacity/eff are source-exclusive and amp is sink-exclusive (PWR-4), so either off its register side is flagged; req/abs belong in the component spec (§4.4 write-site rule) (power-intent-design.md §4.1/§5.2, rail-contract-design.md §8).",
+        doc = "A psrc/psnk/psbi ::DC(…) ctor arg must decode to the contract it names — a sink writes its nominal plus an optional amp demand key (rail-contract-design.md §8.1); tol/capacity/eff are source-exclusive and amp is sink-exclusive (PWR-4), so either off its register side is flagged; req/abs belong in the component spec (§4.4 write-site rule) (intent-design.md §4.1/§5.2, rail-contract-design.md §8).",
         lock = "tests/power_intent_l1.rs",
         overridable = false,
         owner = check_pin_contract_decode,
     },
-    // PWR-3 source-contention kernel (power-intent-design.md §11): two or more
+    // PWR-3 source-contention kernel (intent-design.md §11): two or more
     // `psrc` hard sources on one net with no declared combine. psbi/rail faces
     // are not source points; nominal agreement does not excuse the parallel.
     declare_flat_erc_rule! {
@@ -871,7 +864,7 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_role_ref_missing_bridge,
     },
-    // PWR-1 no-source face (power-intent-design.md §11 / §13 landing 3): a flat
+    // PWR-1 no-source face (intent-design.md §11 / §13 landing 3): a flat
     // net carrying component psnk sinks with no supply root on the net itself —
     // no declared domain-rail face, no decodable psrc/psbi hot pin — is reported
     // unless it is fed to an upstream root through transparent copper / a module
@@ -1042,9 +1035,7 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
     },
 ];
 
-// ============================================================================
 // Declaration scope (pins / declaration semantics)
-// ============================================================================
 
 /// Declaration-scoped rule row. Pin-usage checks share the FlatErc context
 /// shape (`&InstTable` → results), so `run` is a typed fn pointer exactly like
@@ -1126,9 +1117,7 @@ pub static DECL_RULES: &[DeclRule] = &[
     },
 ];
 
-// ============================================================================
 // AssemblyGate scope (netcheck R-series report rows)
-// ============================================================================
 
 /// AssemblyGate-scoped rule row. The netcheck host fns share no uniform
 /// context signature (each needs the netcheck `Index`), so unlike FlatErc
@@ -1376,9 +1365,7 @@ pub static GATE_RULES: &[GateRule] = &[
     },
 ];
 
-// ============================================================================
 // Catalog queries
-// ============================================================================
 
 /// VizLayout-scope rows — the A-series layout invariants (`equi_audit`) and
 /// the F-series fidelity gate tiers (`select::fidelity_gate`). These checks
@@ -2255,9 +2242,7 @@ mod tests {
     }
 }
 
-// ============================================================================
 // PostParse scope (semantic layer — validation/* CheckRegistry hosts)
-// ============================================================================
 
 /// PostParse-scoped rule row. The semantic layer executes through the object
 /// hosts in `CheckRegistry::with_defaults()` registration order (§5-5) against

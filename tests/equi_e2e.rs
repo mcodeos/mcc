@@ -188,7 +188,7 @@ fn e2e_diag_graph_nets() {
     walk(&graph, 0);
 }
 
-// ─── ★ Strict netlist respect · render-level acceptance ───────────────────
+// ★ Strict netlist respect · render-level acceptance
 // The projection layer preserves the pass2 netlist's ground nets verbatim
 // (one netlist ground net → one projected net), and equipotential_tree draws
 // one ground glyph (3-bar symbol in #2980B9) per ground net — one trunk + one

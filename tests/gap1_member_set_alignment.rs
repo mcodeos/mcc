@@ -64,7 +64,7 @@ fn build_main(
     mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build")
 }
 
-/// ── §11.4 legal case: equal-width slice zips, stays quiet ────────────────
+/// §11.4 legal case: equal-width slice zips, stays quiet
 /// `c[1:2].Cap([res[3:4], gnd])` — receiver {c1,c2} (2) vs slice {res3,res4}
 /// (2): one-to-one correspondence. No 4181, no E4180, no E4007; the nets show
 /// the positional zip c1.1↔res3 / c2.1↔res4 and the shared scalar arg
@@ -126,7 +126,7 @@ fn dispatch__slice_arg_member_aligned_zip() {
     );
 }
 
-/// ── §11.4 mismatch: receiver 2 vs slice 3 reports GAP1 once ──────────────
+/// §11.4 mismatch: receiver 2 vs slice 3 reports GAP1 once
 /// `c[1:2].Cap([res[3:5], gnd])` — {c1,c2} vs {res3,res4,res5}: 4181 fires
 /// exactly once; the zip clamps to the receiver width so E4180/E4007 stay
 /// silent (GAP1 is the single report).
@@ -147,7 +147,7 @@ fn dispatch__slice_arg_wider_gap1_once() {
     );
 }
 
-/// ── §11.4: receiver 3 vs slice 2 (narrower slice) also reports GAP1 ──────
+/// §11.4: receiver 3 vs slice 2 (narrower slice) also reports GAP1
 /// The clamp repeats the slice's last member for the overflow; GAP1 still
 /// flags the width mismatch.
 #[test]
@@ -167,7 +167,7 @@ fn dispatch__slice_arg_narrower_gap1_once() {
     );
 }
 
-/// ── §11.4: all-scalar args shared, no GAP1 ────────────────────────────────
+/// §11.4: all-scalar args shared, no GAP1
 /// `c[1:2].Cap([VDD, GND])` — both lanes scalar; every member gets the full
 /// arg list as shared nets (§7.6). No slice → no member-set comparison.
 #[test]
@@ -203,7 +203,7 @@ fn dispatch__all_scalar_args_shared_no_gap1() {
     );
 }
 
-/// ── §11.3 ③ (b): the slice member set is structural, not re-parsed ──────
+/// §11.3 ③ (b): the slice member set is structural, not re-parsed
 /// GAP1's within-lane comparison reads the member set from `McIds::expand` on
 /// the structured id — the same mechanism serves a bus/interface member slice
 /// (`XTAL.X[1:2]` → {XTAL.X1, XTAL.X2}) and a declared-vector slice. Lock the

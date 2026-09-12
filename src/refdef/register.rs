@@ -30,10 +30,10 @@ pub fn scope_path_from_scope_str(uri: &McURI, scope: &str) -> crate::ScopePath {
 
 /// Register an instance declaration at parse time using the same
 /// `(file_id, container_id, func_id)` key that lapper-time `register_def`
-/// uses for InstDef. Parse-time registration previously used
-/// `SourceLocation::from_span` (all-zero scope ids), so InstRef (carrying
-/// the parse-time id) and InstDef (carrying the lapper-time id) lived in two
-/// different DeclareId spaces and `fill_refdef_layer2` could never match them
+/// uses for InstDef. Parse-time registration must use the same key: with
+/// `SourceLocation::from_span` (all-zero scope ids) InstRef (parse-time id)
+/// and InstDef (lapper-time id) live in two different DeclareId spaces and
+/// `fill_refdef_layer2` can never match them
 /// (Fix F0.1).
 pub fn register_instance_decl_parse_time(
     sem: &mut McSemSymbols,

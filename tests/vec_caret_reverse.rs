@@ -141,9 +141,7 @@ fn caret_swaps_node_input_output() {
     );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // `^` on a two-pin parallel: a REAL reversal (vec-dianlu.md §6.3 / eval.md §5.6)
-// ═══════════════════════════════════════════════════════════════════════════
 //
 // `R1 + R2` (two two-pin parts) stacks into a `1*2` node (`1*2 +- 1*2 = 1*2`):
 // its left face is the two pin-1s, its right face the two pin-2s — genuinely

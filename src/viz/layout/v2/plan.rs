@@ -7,9 +7,7 @@
 //! `Plan` is the searcher's entire output and the geometry layer's entire input.
 //! Read-only once produced; `geom::apply` is the only function allowed to write coordinates.
 
-// ============================================================================
 // Zone plans
-// ============================================================================
 
 /// Paper position plan of a single zone
 #[derive(Debug, Clone)]
@@ -42,9 +40,7 @@ pub struct Point {
     pub y: f64,
 }
 
-// ============================================================================
 // Cut-set decisions
-// ============================================================================
 
 /// Cut-set decision of an edge: wire or label
 #[derive(Debug, Clone)]
@@ -55,9 +51,7 @@ pub struct CutDecision {
     pub is_wire: bool,
 }
 
-// ============================================================================
 // Layered arrangement
-// ============================================================================
 
 /// Layered arrangement inside a single zone (filled by M3)
 #[derive(Debug, Clone, Default)]
@@ -68,9 +62,7 @@ pub struct Arrangement {
     pub layers: Vec<Vec<i64>>,
 }
 
-// ============================================================================
 // Plan
-// ============================================================================
 
 /// Layout plan: the searcher's entire output, the geometry layer's entire input.
 ///

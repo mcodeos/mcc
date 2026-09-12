@@ -6,12 +6,16 @@
 //!
 //! Rasterize the canvas into a uniform grid (cell=8px), each cell has three states:
 //! Blocked (covered by inflated box) / Reserved (occupied by routed wires, stage 2) / Free.
-//! A* finds an orthogonal path on the grid that avoids obstacles, avoids wires, and minimizes turns.
+//! A* finds an orthogonal path on the grid that avoids obstacles, avoids wires, and minimizes
+//! turns.
 //!
 //! Design highlights (see ROADMAP section 3):
-//! - Cost = step + turn penalty + cross penalty (very high) + hug penalty; heuristic = Manhattan (admissible).
-//! - Pin entry/exit uses "escape point" (pin moves ESCAPE>inflate outward along exit direction, lands on free cell).
-//! - Stage 2: after routing each net, `reserve_segments` occupies the cells, later A* avoids them → no wire-on-wire.
+//! - Cost = step + turn penalty + cross penalty (very high) + hug penalty; heuristic = Manhattan
+//! (admissible).
+//! - Pin entry/exit uses "escape point" (pin moves ESCAPE>inflate outward along exit direction,
+//! lands on free cell).
+//! - Stage 2: after routing each net, `reserve_segments` occupies the cells, later A* avoids them →
+//! no wire-on-wire.
 //!
 //! This module is independent and unit-testable; called by scheduler to plug into the main flow.
 
@@ -21,7 +25,7 @@ use crate::vector::graph::{McVecGraph, Point, Route, Segment, VizNet};
 
 use super::side::{compute_exit_for_pin, ExitSide};
 
-// ── Tuning constants ───────────────────────────────────────────────────────────────
+// Tuning constants
 pub const GRID_CELL: f64 = 8.0; // Cell edge length (smaller = can fit narrower gaps, slower)
 pub const GRID_INFLATE: f64 = 8.0; // Box inflation (how far wires stay from components)
 pub const GRID_MARGIN: f64 = 96.0; // Canvas margin (room for detours)
@@ -57,7 +61,7 @@ impl Default for AStarCfg {
     }
 }
 
-// ── Grid ─────────────────────────────────────────────────────────────────────────
+// Grid
 pub struct Grid {
     ox: f64, // World x of column 0
     oy: f64, // World y of row 0
@@ -70,7 +74,8 @@ pub struct Grid {
 }
 
 impl Grid {
-    /// Build grid from graph: bbox covering all boxes + margin, inflate each box and mark as Blocked.
+    /// Build grid from graph: bbox covering all boxes + margin, inflate each box and mark as
+    /// Blocked.
     /// Only takes current-layer boxes (sub-graphs are built by scheduler recursively).
     pub fn from_graph(graph: &McVecGraph, cell: f64, inflate: f64) -> Self {
         let (mut minx, mut miny, mut maxx, mut maxy) = (
@@ -252,8 +257,10 @@ impl Grid {
         }
     }
 
-    /// Reserve a net's wires (+ gap cells on each side) → later A* treats them as "occupied by others" and avoids them.
-    /// Only occupies currently empty (-1) cells, doesn't overwrite occupied ones; doesn't touch Blocked.
+    /// Reserve a net's wires (+ gap cells on each side) → later A* treats them as "occupied by
+    /// others" and avoids them.
+    /// Only occupies currently empty (-1) cells, doesn't overwrite occupied ones; doesn't touch
+    /// Blocked.
     pub fn reserve_segments(&mut self, segs: &[Segment], net_id: i64, gap: i64) {
         let g = gap.max(0) as usize;
         for s in segs {
@@ -322,7 +329,8 @@ impl Grid {
         out
     }
 
-    /// Walk outward from the pin along the exit direction cell by cell, find the first free cell as A* start/goal (avoiding endpoint box inflation).
+    /// Walk outward from the pin along the exit direction cell by cell, find the first free cell as
+    /// A* start/goal (avoiding endpoint box inflation).
     /// All blocked (surroundings full) returns None → caller keeps original routing.
     fn escape_cell(&self, pin: (f64, f64), side: ExitSide, base: f64) -> Option<usize> {
         for k in 0..10 {
@@ -338,9 +346,10 @@ impl Grid {
     }
 }
 
-// ── A\* ─────────────────────────────────────────────────────────────────────
+// A\*
 
-/// Walk from start cell to goal cell on the grid, return cell sequence (including start/goal); None if no solution.
+/// Walk from start cell to goal cell on the grid, return cell sequence (including start/goal); None
+/// if no solution.
 /// start/goal must be free cells (guaranteed by using escape points).
 pub fn astar(
     grid: &Grid,
@@ -418,7 +427,8 @@ pub fn astar(
     None
 }
 
-/// Cell path → world orthogonal segments (merge consecutive same-direction cells, keep only corners)
+/// Cell path → world orthogonal segments (merge consecutive same-direction cells, keep only
+/// corners)
 pub fn cells_to_segments(grid: &Grid, path: &[usize]) -> Vec<Segment> {
     if path.len() < 2 {
         return Vec::new();
@@ -447,9 +457,10 @@ pub fn cells_to_segments(grid: &Grid, path: &[usize]) -> Vec<Segment> {
         .collect()
 }
 
-// ── High-level: reroute a 2-endpoint net ───────────────────────────────────────────
+// High-level: reroute a 2-endpoint net
 
-/// Use A* to reroute a 2-endpoint net, avoiding Blocked + other nets' Reserved. None if no solution (caller keeps original routing).
+/// Use A* to reroute a 2-endpoint net, avoiding Blocked + other nets' Reserved. None if no solution
+/// (caller keeps original routing).
 pub fn reroute_two_point(
     grid: &Grid,
     graph: &McVecGraph,
@@ -467,7 +478,8 @@ pub fn reroute_two_point(
     let (pa, sa) = compute_exit_for_pin(ba, a.pin_id, Some(bb));
     let (pb, sb) = compute_exit_for_pin(bb, b.pin_id, Some(ba));
 
-    // Move outward cell by cell to find free cell outside obstacle as start/end (if either end not found → give up, keep original routing)
+    // Move outward cell by cell to find free cell outside obstacle as start/end (if either end not
+    // found → give up, keep original routing)
     let s = grid.escape_cell(pa, sa, ESCAPE)?;
     let g = grid.escape_cell(pb, sb, ESCAPE)?;
 
@@ -487,8 +499,10 @@ pub fn reroute_two_point(
     Some(route)
 }
 
-/// Use A* to route a **multi-endpoint net (≥2 endpoints)** as a **tree**: connect ep0-ep1 as trunk, remaining endpoints each
-/// join the built tree via multi-target A* (built part as goal set), always avoiding other nets' Reserved. Any segment no solution → None.
+/// Use A* to route a **multi-endpoint net (≥2 endpoints)** as a **tree**: connect ep0-ep1 as trunk,
+/// remaining endpoints each
+/// join the built tree via multi-target A* (built part as goal set), always avoiding other nets'
+/// Reserved. Any segment no solution → None.
 /// (M5: multi-endpoint nets on grid, replacing trunk_tap's crossing/wire-on-wire cases)
 pub fn reroute_multi_point(
     grid: &Grid,
@@ -544,7 +558,8 @@ pub fn reroute_multi_point(
     Some(route)
 }
 
-/// Multi-target A* (Dijkstra, no heuristic): from start, walk to **any cell in tree set `tree`**. Used for multi-endpoint nets joining tree.
+/// Multi-target A* (Dijkstra, no heuristic): from start, walk to **any cell in tree set `tree`**.
+/// Used for multi-endpoint nets joining tree.
 fn astar_to_tree(
     grid: &Grid,
     start: usize,
@@ -624,7 +639,8 @@ fn escape_point(p: (f64, f64), side: ExitSide, d: f64) -> (f64, f64) {
     }
 }
 
-/// Orthogonal connection between two points: straight line if aligned, otherwise one L-shape (horizontal first, then vertical)
+/// Orthogonal connection between two points: straight line if aligned, otherwise one L-shape
+/// (horizontal first, then vertical)
 fn ortho_link(from: (f64, f64), to: (f64, f64)) -> Vec<Segment> {
     if (from.0 - to.0).abs() < 0.5 || (from.1 - to.1).abs() < 0.5 {
         vec![Segment {
@@ -646,7 +662,7 @@ fn ortho_link(from: (f64, f64), to: (f64, f64)) -> Vec<Segment> {
     }
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
+// Tests
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -33,9 +33,7 @@ impl ValidationCheck for EnumsCheck {
     }
 }
 
-// ============================================================================
 // U2: Duplicate enum value names
-// ============================================================================
 
 /// Within a single enum definition, all value names must be unique.
 fn check_duplicate_enum_values(acc: &mut CheckAccumulator) {
@@ -65,9 +63,7 @@ fn check_duplicate_enum_values(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // U3: Invalid enum member names
-// ============================================================================
 
 /// Enum member names should be simple identifiers, not:
 ///   - dotted names (like `UV.CAP`)
@@ -159,9 +155,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // N3: Self-referential attribute value
-// ============================================================================
 
 /// Detect attributes where the value is the same as the key name,
 /// e.g. `manufacturer = manufacturer` which is likely a copy-paste mistake.
@@ -236,9 +230,7 @@ fn check_self_ref_attr(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // Duplicate attribute keys (N6-extra)
-// ============================================================================
 
 /// Detect duplicate attribute keys within a single component or interface.
 /// e.g. `manufacturer = "TI"` followed by `manufacturer = "ST"` silently

@@ -20,14 +20,16 @@ use super::pin_render::{render_pin, render_pin_named, PinRenderOpts, PinStyle};
 
 /// Pin render options for sub-module ports.
 ///
-/// ★ FIX (pin distribution): Previously the sub-module only drew a dashed frame, **not drawing pins at all** —
-/// wires went straight to a bare point on the box edge, with multiple lines crammed together, which doesn't
+/// ★ FIX (pin distribution): drawing only a dashed frame, **with no pins**, sends
+/// wires to a bare point on the box edge, cramming multiple lines together, which
+/// does not
 /// match the schematic style of "each pin connects to a part then continues out". Now, just like
 /// [`super::ic::IcShape`]: for each `entry_point` draw a stub (8px outward = where the wire enters)
 /// + the function name (inside the box).
 ///
 /// Difference from IC: **physical pin numbers are not shown** — the `pin_id` of sub-module ports is
-/// mostly a high-bit id synthesized in layout (see `promote_synthetic_pins`), and showing it would be meaningless.
+/// mostly a high-bit id synthesized in layout (see `promote_synthetic_pins`), and showing it would
+/// be meaningless.
 ///
 /// ★ Module-port drawing: the boundary is named by the **port** the lead crosses
 /// (`vin`), not by the net it happens to carry (`V5V`). The net name is still on

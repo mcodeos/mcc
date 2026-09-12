@@ -71,25 +71,15 @@ pub(crate) fn mcode_dir() -> PathBuf {
     mcc_system_root().join("mcode")
 }
 
-// ============================================================================
 // Existing methods (preserved, behavior unchanged)
-// ============================================================================
 
-// ============================================================================
 // Lib handlers
-// ============================================================================
 
-// ============================================================================
 // defs.search (M5) — text/regex/fuzzy search across loaded definitions
-// ============================================================================
 
-// ============================================================================
 // defs.query (M5 PR#2) — structured DSL query
-// ============================================================================
 
-// ============================================================================
 // export (M5 PR#3) — text/JSON/CSV netlist, BOM, SPICE
-// ============================================================================
 
 /// Resolve an installed library directory under the system root.
 /// Flat layout: checks `<root>/<name>` (built-in) and `<root>/<name>@<version>` (3rd-party).
@@ -130,17 +120,11 @@ pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> 
     Ok(())
 }
 
-// ============================================================================
 // Trace handlers
-// ============================================================================
 
-// ============================================================================
 // Common build.full handlers (based on active workspace)
-// ============================================================================
 
-// ============================================================================
 // Internal: Pass1 / Pass2 execution
-// ============================================================================
 
 pub(crate) fn run_pass1(
     entry: &Path,
@@ -405,7 +389,7 @@ pub(crate) fn run_full_build_envelope(
     // the payload must carry the same (empty) list for byte-identical output.
     pass1["definitions"]["ports"] = Value::Array(vec![]);
 
-    // Top selection (mcd docs-mc 16-export-viz §6): explicit top → all modules
+    // Top selection (mcd spec/16-export-viz §6): explicit top → all modules
     // in the file → all components → all interfaces. Components and interfaces
     // are "virtually instantiated" via a synthetic module so a component-only
     // file (e.g. a connector library part) builds instead of failing with
@@ -1217,9 +1201,7 @@ pub(crate) fn iotype_str(io: &crate::IOType) -> &'static str {
     }
 }
 
-// ============================================================================
 // File entry grouping
-// ============================================================================
 
 impl FileEntry {
     fn new(uri: &str) -> Self {
@@ -1259,7 +1241,7 @@ pub(crate) fn refs_json(items: &[(String, String, [usize; 2])]) -> Vec<Value> {
 pub(crate) fn load_libs_rpc(libs: &[String]) {
     // Non-project mode: when the caller supplies no explicit library list,
     // fall back to the global mcc.yaml [libs].load configuration so custom
-    // path libraries are still loaded (mcext-folder-parse-design.md §5.2).
+    // path libraries are still loaded (folder-parse-design.md §5.2).
     let mut libs: Vec<String> = if libs.is_empty() {
         crate::cli::config::get_libs_load_list(None).to_vec()
     } else {
@@ -1305,13 +1287,9 @@ pub(crate) fn remove_overlay(uri: &McURI) {
     crate::build::loader::mcb_remove(uri);
 }
 
-// ============================================================================
 // Refs (M6)
-// ============================================================================
 
-// ============================================================================
 // ERC — Electrical Rule Check (M6)
-// ============================================================================
 
 /// Run Pass2 ERC: single-point nets, unconnected ports, net stats.
 pub(crate) fn run_erc() -> RpcResult {
@@ -1583,9 +1561,7 @@ pub(crate) fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) ->
     }
 }
 
-// ============================================================================
 // Auxiliary: parameter parsing / error handling
-// ============================================================================
 
 pub(crate) fn parse_strict<T: for<'de> Deserialize<'de>>(
     params: Option<Value>,
@@ -1625,9 +1601,7 @@ pub(crate) fn io_err(e: std::io::Error) -> JsonRpcError {
     JsonRpcError::custom(32100, &format!("io error: {e}"))
 }
 
-// ============================================================================
 // Auxiliary: file / path handling
-// ============================================================================
 
 pub(crate) fn is_safe_relative(p: &str) -> bool {
     use std::path::Component;
@@ -1780,17 +1754,11 @@ pub(crate) fn resolve_lib_root(name: &str) -> Result<PathBuf, JsonRpcError> {
         .ok_or_else(|| JsonRpcError::custom(-32102, &format!("library '{name}' not installed")))
 }
 
-// ============================================================================
 // Load handlers
-// ============================================================================
 
-// ============================================================================
 // Parse handlers
-// ============================================================================
 
-// ============================================================================
 // Show handlers
-// ============================================================================
 
 /// Resolve a file path to an absolute URI string for filtering.
 pub(crate) fn resolve_to_abs_uri(file: &str) -> String {
@@ -1832,9 +1800,7 @@ pub(crate) fn filter_items_by_file<T: Clone>(items: &[(T, String)], file: &str) 
         .collect()
 }
 
-// ============================================================================
 // Show helpers (shared across drill-down handlers)
-// ============================================================================
 
 /// Find a definition by name across all four kinds.
 pub(crate) fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
@@ -2265,13 +2231,9 @@ pub(crate) fn attrval_json(v: &crate::McAttrVal) -> Value {
     }
 }
 
-// ============================================================================
 // Show — missing container handlers
-// ============================================================================
 
-// ============================================================================
 // Show — drill-down handlers
-// ============================================================================
 
 /// Convert a McParamDeclare to a JSON object with smart parameter metadata.
 pub fn param_declare_to_json(d: &crate::semantic::basic::mc_paramd::McParamDeclare) -> Value {
@@ -2504,9 +2466,7 @@ pub(crate) fn instances_json(insts: &crate::McInstances, type_filter: Option<&st
         .collect()
 }
 
-// ============================================================================
 // Semantic data (sem tokens + symbols) for LSP
-// ============================================================================
 
 /// Load the project for a file that is not yet in the active workspace.
 ///
@@ -2562,7 +2522,7 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
     // set via mcext set_project_root). In non-project mode every .mc file under
     // the opened folder is a peer, so the workspace root is always the folder
     // itself. No upward search for a nested manifest: sub-projects are
-    // handled as plain files (see design doc mcext-folder-parse-design.md §2.6).
+    // handled as plain files (see design doc folder-parse-design.md §2.6).
     let configured = crate::db::infra::init::mcb_get_project_root();
     if configured.is_absolute() && !configured.as_os_str().is_empty() {
         return configured;
@@ -2707,29 +2667,19 @@ pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 
 /// Try to find semantic data for any of the candidate URIs
 
-// ============================================================================
 // Report (M5b)
-// ============================================================================
 
-// ============================================================================
 // Convert (M5b)
-// ============================================================================
 
-// ============================================================================
 // Def (M6)
-// ============================================================================
 
 /// Handle def RPC — go-to-definition for a symbol.
 
-// ============================================================================
 // Capabilities (M6)
-// ============================================================================
 
 /// Handle capabilities RPC — self-describing API for AI discovery.
 
-// ============================================================================
 // Unified Lookup (F12/pass1-pass2)
-// ============================================================================
 
 /// Lookup a sub-element (pin, port, param, label) within a parent container.
 
@@ -2738,15 +2688,14 @@ pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 
 /// Enumerate all visible symbols at a given scope.
 
-// ============================================================================
 // Explain (M6)
-// ============================================================================
 
 /// Handle explain RPC — look up error code descriptions.
 
 /// Handle diagnostics RPC - return parse/semantic diagnostics for a file
 
-/// Handle project_symbols RPC - return project-wide symbols (components, interfaces, enums, modules, enum_values)
+/// Handle project_symbols RPC - return project-wide symbols (components, interfaces, enums,
+/// modules, enum_values)
 
 /// Handle set_project_root RPC - set project root path
 

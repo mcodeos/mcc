@@ -21,7 +21,7 @@ impl BoxShape for TwoPinShape {
             "#333"
         };
 
-        // Virtual instantiation view (mcd docs-mc 16-export-viz §6): suppress
+        // Virtual instantiation view (mcd spec/16-export-viz §6): suppress
         // the fabricated instance name (`u_1`); the class-name label below
         // identifies the part instead. Mirrors ic.rs / multi_pin.rs.
         let name_label = if b.suppress_instance_name {
@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn virtual_two_pin_hides_fabricated_instance_name() {
-        // mcd docs-mc 16-export-viz §6: a virtually instantiated part (wrapper
+        // mcd spec/16-export-viz §6: a virtually instantiated part (wrapper
         // `u_1`) must not leak its fabricated instance name — the class name
         // identifies the part instead. This is the `Symbol::Unknown` /
         // `BoxKind::TwoPin` fallback path (e.g. parameterized-pin connectors).

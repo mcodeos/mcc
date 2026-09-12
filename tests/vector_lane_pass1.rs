@@ -119,7 +119,7 @@ fn vector_receiver_is_lane_structured_list() {
     }
 }
 
-/// ── Lane contract: func-local declared receiver (§11.3 pin 3) ────────────
+/// Lane contract: func-local declared receiver (§11.3 pin 3)
 /// `r[1:2]::RES(0)` (func-body declare, invisible to in-body find_inst) then
 /// `r[1:2].Pullup([NET, VCC])` — still resolves to per-member lanes via
 /// `is_declared_instance_name`.
@@ -150,7 +150,7 @@ fn func_local_vector_receiver_is_lane_structured_list() {
     }
 }
 
-/// ── §11.3 ③ (b): bus/interface member slice stays structured ─────────────
+/// §11.3 ③ (b): bus/interface member slice stays structured
 /// `[XTAL.X[1:2], gnd]` — the vector lane keeps its AST segment tree
 /// (McIds with embedded square), not a pre-flattened display string.
 /// GAP1 / iterated dispatch compare member sets from this structure.

@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! C1 lock — a `(,)` group expands into **statements**, not into a new
-//! association (R0 ruling C1, `mcd/doc/vector-conn-r0-implementation-design.md`
+//! association (R0 ruling C1, `r0-implementation-design.md`
 //! §4.C1; `mcrule.md` §10.6).
 //!
 //! R0 (source order and operator fidelity) governs the connection-phrase

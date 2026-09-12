@@ -31,7 +31,7 @@
 
 #[macro_export]
 macro_rules! mcc_dbg {
-    // ── Parse ──────────────────────────────────────────────
+    // Parse
     ("parse::ast", $($arg:tt)*) => {
         tracing::debug!(target: "mcc::parse::ast", $($arg)*);
     };
@@ -39,7 +39,7 @@ macro_rules! mcc_dbg {
         tracing::debug!(target: "mcc::parse::phrase", $($arg)*);
     };
 
-    // ── Semantic ────────────────────────────────────────────
+    // Semantic
     ("sem::fcall", $($arg:tt)*) => {
         tracing::debug!(target: "mcc::sem::fcall", $($arg)*);
     };
@@ -59,7 +59,7 @@ macro_rules! mcc_dbg {
         tracing::debug!(target: "mcc::sem::comp", $($arg)*);
     };
 
-    // ── Instantiate / Pass2 ─────────────────────────────────
+    // Instantiate / Pass2
     ("inst::mod", $($arg:tt)*) => {
         tracing::debug!(target: "mcc::inst::mod", $($arg)*);
     };
@@ -79,7 +79,7 @@ macro_rules! mcc_dbg {
         tracing::debug!(target: "mcc::inst::dump", $($arg)*);
     };
 
-    // ── Vector / Viz ────────────────────────────────────────
+    // Vector / Viz
     ("vec", $($arg:tt)*) => {
         tracing::debug!(target: "mcc::vec", $($arg)*);
     };
@@ -87,7 +87,7 @@ macro_rules! mcc_dbg {
         tracing::debug!(target: "mcc::viz", $($arg)*);
     };
 
-    // ── LSP / Query ─────────────────────────────────────────
+    // LSP / Query
     ("lsp::query", $($arg:tt)*) => {
         tracing::debug!(target: "mcc::lsp::query", $($arg)*);
     };
@@ -95,7 +95,7 @@ macro_rules! mcc_dbg {
         tracing::debug!(target: "mcc::lsp::lapper", $($arg)*);
     };
 
-    // ── Ref / Def resolution ────────────────────────────────
+    // Ref / Def resolution
     ("refdef", $($arg:tt)*) => {
         tracing::debug!(target: "mcc::refdef", $($arg)*);
     };
@@ -103,7 +103,7 @@ macro_rules! mcc_dbg {
         tracing::debug!(target: "mcc::refdef::chain", $($arg)*);
     };
 
-    // ── CLI / Config ────────────────────────────────────────
+    // CLI / Config
     ("build", $($arg:tt)*) => {
         tracing::debug!(target: "mcc::build", $($arg)*);
     };
@@ -111,7 +111,7 @@ macro_rules! mcc_dbg {
         tracing::debug!(target: "mcc::config", $($arg)*);
     };
 
-    // ── Always-compiled levels ──────────────────────────────
+    // Always-compiled levels
     (error, $($arg:tt)*) => {
         tracing::error!(target: "mcc", $($arg)*);
     };

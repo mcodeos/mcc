@@ -4,8 +4,8 @@
 
 //! LSP Symbol workspace tables — extracted from `db/cmie/tables.rs`.
 //!
-//! Bundles the three LSP-specific tables that were previously mixed into
-//! [`WorkspaceManager`] alongside CMIE data.
+//! Bundles the three LSP-specific tables, kept out of [`WorkspaceManager`]
+//! so LSP data and CMIE data do not share one type.
 
 use crate::ast::sem::{DeclareId, Span};
 use crate::ContainerKind;
@@ -13,9 +13,7 @@ use crate::McIds;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-// ============================================================================
 // LspTables — bundles all LSP-specific state
-// ============================================================================
 
 pub struct LspTables {
     /// (uri, kind, class_name) → (class_id, target_span)

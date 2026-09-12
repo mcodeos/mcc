@@ -159,9 +159,7 @@ impl CircuitWorld {
         }
     }
 
-    // ========================================================================
     // Read side
-    // ========================================================================
 
     /// The instantiated circuit under `key`, if any.
     pub fn circuit(&self, key: &CircuitKey) -> Option<&DianLu> {
@@ -191,7 +189,6 @@ impl CircuitWorld {
             .unwrap_or(&[])
     }
 
-    // ========================================================================
     // Projection side (design §12.2 / invariant B) — the multi-dimensional
     // read projections of one frozen instantiation. `flatten` derives the
     // circuit's flat `InstTable` once (one-way from the built tree, never
@@ -199,7 +196,6 @@ impl CircuitWorld {
     // their diagnostics. Consumers then read tree / flat / nets / diagnostics
     // off the world's live [`DianLu`]; the world itself never writes the
     // diagnostics store — the caller owns logging.
-    // ========================================================================
 
     /// Ensure `key`'s circuit carries its cached flat projection (no-op after
     /// the first call). Returns the flat net-check diagnostics for the caller
@@ -236,9 +232,7 @@ impl CircuitWorld {
         self.circuits.get(key).map(|dl| dl.net_diags())
     }
 
-    // ========================================================================
     // Build side
-    // ========================================================================
 
     /// Instantiate (or re-instantiate) the circuit of `entry`. The circuit's
     /// persistent registry is carried across builds, the invalidation index is
@@ -306,9 +300,7 @@ impl CircuitWorld {
         self.next_version.clear();
     }
 
-    // ========================================================================
     // Version diff (design §10.2 / §11.5.1)
-    // ========================================================================
 
     /// The diff between checkpoints `t1` and `t2` of `key` (0-based checkpoint
     /// positions): node set changes + per-net member deltas. `None` when the
@@ -361,9 +353,7 @@ impl CircuitWorld {
         bad
     }
 
-    // ========================================================================
     // Internals
-    // ========================================================================
 
     /// Rebuild the def→circuits reverse index for one circuit (design §12.6):
     /// drop the circuit's stale entries, then record every def its frozen

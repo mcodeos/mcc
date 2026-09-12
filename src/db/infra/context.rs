@@ -11,9 +11,7 @@ use crate::McURI;
 use line_index::LineIndex;
 use std::cell::RefCell;
 
-// ============================================================================
 // Current URI (thread-local)
-// ============================================================================
 
 thread_local! {
     static CURRENT_URI: RefCell<Option<McURI>> = const { RefCell::new(None) };
@@ -37,9 +35,7 @@ pub(crate) fn reset() {
     CURRENT_URI.with(|cell| *cell.borrow_mut() = None);
 }
 
-// ============================================================================
 // Current parsing LineIndex (thread-local stack)
-// ============================================================================
 //
 // When `mcb_parse_all_modules` removes a file from `mcodes` to parse it
 // (see pass1.rs), diagnostic emission (e.g., E2008) may fire during parsing
@@ -102,9 +98,7 @@ pub(crate) fn lookup_line_col(uri: &McURI, pos: u32) -> Option<(u32, u32)> {
     })
 }
 
-// ============================================================================
 // Current parsing file's uselist (thread-local stack)
-// ============================================================================
 //
 // When module parsing runs (`McCode::parse_pass1_modules`), the file being
 // parsed is typically removed from `mcodes` first (callers take `&mut` for

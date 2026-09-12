@@ -5,18 +5,21 @@
 //! ★ NEW (P10, S6) — Channel-aware Router Scheduler
 //!
 //! ## What problem does this file solve
-//! S4's `dispatch.rs::route_all_with_dispatch` assigns each net to a router then executes sequentially.
+//! S4's `dispatch.rs::route_all_with_dispatch` assigns each net to a router then executes
+//! sequentially.
 //! After P10 introduces "channel" concept, **scheduling order is critical**:
 //!
 //! - Long trunks (large span, hard to route) occupy positions first, short lines yield to them
 //! - Within same net type, larger span takes priority (most sensitive to position)
 //! - Bus > Star/TrunkTap > Orthogonal two-terminal > Noop
 //!
-//! Additionally, simultaneously pass `ChannelMap` to trunk_tap / orthogonal / bus_bundle, letting them
+//! Additionally, simultaneously pass `ChannelMap` to trunk_tap / orthogonal / bus_bundle, letting
+//! them
 //! use `reserve_horizontal/vertical` to select y / x.
 //!
 //! ## Relationship with dispatch.rs
-//! - `dispatch::pick_router` is still the **dispatch table** (kind/topology → RouterChoice), P10 reuses
+//! - `dispatch::pick_router` is still the **dispatch table** (kind/topology → RouterChoice), P10
+//! reuses
 //! - `dispatch::route_layer_with_dispatch` is P09 era "no channel" scheduling, retained
 //! - This file's `route_layer_with_channels` is P10 upgraded version, **default entry point**
 //!
@@ -31,7 +34,8 @@
 //! | 4 | Orthogonal 2-terminal | Short span, yield |
 //! | 5 | Noop | Endpoints ≤ 1, no routing |
 //!
-//! Within same priority: sort by "endpoint bounding box span" from large to small (larger span is harder to route).
+//! Within same priority: sort by "endpoint bounding box span" from large to small (larger span is
+//! harder to route).
 //!
 //! ## Reuse situation
 //! - `dispatch::RouteIntent` / `pick_router` / `RouterChoice` —— entire set reused
@@ -45,14 +49,13 @@ use super::dispatch::{pick_router, RouteIntent, RouterChoice};
 use super::feedback::{self, RouteFeedbackConfig};
 use super::grid_router::{self, AStarCfg, Grid, GRID_CELL, GRID_GAP, GRID_INFLATE};
 
-// ============================================================================
 // End-to-end entry
-// ============================================================================
 
 /// Default line_gap for channel map (minimum spacing between adjacent slots in same channel)
 pub const DEFAULT_LINE_GAP: f64 = 8.0;
 
-/// Collect all endpoint box rectangles (x,y,w,h) for one net —— used by route_collides to exclude own endpoints
+/// Collect all endpoint box rectangles (x,y,w,h) for one net —— used by route_collides to exclude
+/// own endpoints
 fn endpoint_rects(graph: &McVecGraph, net: &VizNet) -> Vec<(f64, f64, f64, f64)> {
     let mut out = Vec::new();
     for ep in &net.endpoints {
@@ -102,13 +105,15 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
         }
     }
 
-    // ── ★ ITER-6: Defensive merge of same-name 2-endpoint Power/Ground nets ─────────────────────────
+    // ★ ITER-6: Defensive merge of same-name 2-endpoint Power/Ground nets
     //
-    // Even though ITER-4 already did PowerLabel-anchored hyperedge merging in from_block phase, same-name
+    // Even though ITER-4 already did PowerLabel-anchored hyperedge merging in from_block phase,
+    // same-name
     // 2-endpoint power/ground nets may still slip through:
     //   - Top-level has no corresponding PowerLabel box (P0-3 Phase 1.6 synthesis miss)
     //   - rail-synth not recognized (label name normalization differences etc.)
-    //   - User **explicitly** wrote multiple independent GND ~ X 2-terminal connections (semantically equivalent to one multi-terminal net)
+    // - User **explicitly** wrote multiple independent GND ~ X 2-terminal connections (semantically
+    // equivalent to one multi-terminal net)
     //
     // This pass is **pure geometric fallback**: before router scheduling, by `(Name.upper(), kind)`
     // merge same-name Power/Ground TwoPoint nets into single hyperedge, keep first net's nid, merge
@@ -116,20 +121,24 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
     //
     // Trigger conditions (all must be met to merge):
     //   - kind ∈ {Power, Ground}      (non-Power/Ground are truly multiple independent signals,
-    //                                  even with same name shouldn't merge, e.g., multiple modules each have ENABLE pin)
+    // even with same name shouldn't merge, e.g., multiple modules each have ENABLE pin)
     //   - At least 1 TwoPoint (2 endpoints) in same-name group
-    //   - After merging endpoint count ≥ 3            (if can't form hyperedge, don't touch, keep original Orthogonal)
+    // - After merging endpoint count ≥ 3            (if can't form hyperedge, don't touch, keep
+    // original Orthogonal)
     //
-    // After merging, dispatch.rs::pick_router automatically selects TrunkTap for (Power/Ground, StarOneDriver/
+    // After merging, dispatch.rs::pick_router automatically selects TrunkTap for (Power/Ground,
+    // StarOneDriver/
     // MultiDriver), one trunk + multiple taps, visually looks like real power rail.
 
     let _tc = std::time::Instant::now();
     let mut channels = ChannelMap::build(graph, DEFAULT_LINE_GAP);
     tracing::info!(target: "mcc::perf", step = "channel_build", ms = _tc.elapsed().as_millis() as u64, "route_layer step");
 
-    // ── ★ M2: This layer grid A* (obstacles = all boxes inflated) ────────────────────────────
-    // After routing each net, reserve its wires into grid; if later 2-terminal nets hit boxes / overlap other's wires,
-    // use A* to reroute (avoid boxes + avoid routed wires) → eliminate box-through & wire-over-wire, multi-terminal nets not rerouted for now (stage 4 later),
+    // ★ M2: This layer grid A* (obstacles = all boxes inflated)
+    // After routing each net, reserve its wires into grid; if later 2-terminal nets hit boxes /
+    // overlap other's wires,
+    // use A* to reroute (avoid boxes + avoid routed wires) → eliminate box-through &
+    // wire-over-wire, multi-terminal nets not rerouted for now (stage 4 later),
     // but also reserve them in, letting 2-terminal nets route around them.
     let _tg = std::time::Instant::now();
     let mut grid = Grid::from_graph(graph, GRID_CELL, GRID_INFLATE);
@@ -272,7 +281,7 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
 
     tracing::info!(target: "mcc::perf", step = "route_loop", ms = _tloop.elapsed().as_millis() as u64, nets = order.len(), "route_layer step");
 
-    // ── ★ M9: Route feedback loop (replaces old rip-up block) ─────────────────
+    // ★ M9: Route feedback loop (replaces old rip-up block)
     let _tfb = std::time::Instant::now();
     let _feedback_report =
         feedback::run_route_feedback(graph, &mut grid, &acfg, &RouteFeedbackConfig::default());
@@ -339,9 +348,7 @@ pub fn route_with_guard(graph: &mut McVecGraph) -> usize {
     escalation
 }
 
-// ============================================================================
 // Internal: channel-aware routing for a single net
-// ============================================================================
 
 fn route_one_net_with_channels(
     choice: RouterChoice,
@@ -372,7 +379,8 @@ fn route_one_net_with_channels(
             }
         }
         RouterChoice::Star => {
-            // Star doesn't participate in channels (radiates from hub, endpoints connect directly to hub)
+            // Star doesn't participate in channels (radiates from hub, endpoints connect directly
+            // to hub)
             // Fall back to no-channel behavior
             use crate::viz::traits::Router;
             let router = super::star::StarRouter;
@@ -393,9 +401,7 @@ fn route_one_net_with_channels(
     }
 }
 
-// ============================================================================
 // Scheduling priority
-// ============================================================================
 
 /// ★ P5.2 switch: if backbone-priority routing causes regressions, set to false
 /// → restore original behavior.
@@ -439,9 +445,7 @@ struct RoutePlan {
     should_warn: bool,
 }
 
-// ============================================================================
 // ITER-6: Defensive same-name power/ground net merging
-// ============================================================================
 
 /// Merge same-name Power/Ground TwoPoint nets in the same `graph.nets` layer into
 /// a single hyperedge
@@ -466,9 +470,7 @@ struct RoutePlan {
 //  (golden requires V3V3 = 2 edges); merging them would swallow the
 //  driver segments.)
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -587,9 +589,7 @@ mod tests {
     }
 }
 
-// ============================================================================
 // M10b: Power/Ground flag stub guard
-// ============================================================================
 
 /// Check if a net is a power/ground flag stub (2-endpoint net with one PowerLabel endpoint).
 fn is_power_ground_flag_stub(graph: &McVecGraph, net: &VizNet) -> bool {

@@ -15,9 +15,7 @@ use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclare;
 use crate::semantic::basic::mc_uval::McUnit;
 
-// ============================================================================
 // Usage Site
-// ============================================================================
 
 /// A single usage site of a parameter in a definition body.
 #[derive(Debug, Clone)]
@@ -57,9 +55,7 @@ pub enum UsageKind {
     MemberAccess,
 }
 
-// ============================================================================
 // Inference Engine
-// ============================================================================
 
 /// Result of usage-based type inference for a single parameter.
 #[derive(Debug, Clone)]
@@ -221,9 +217,7 @@ fn extract_attr_info(node: &AstNode) -> (String, Option<String>) {
     (full, spec_key)
 }
 
-// ============================================================================
 // Aggregation: usages → McParamType
-// ============================================================================
 
 /// Attribute name → physical unit type mapping.
 /// Based on the attribute KEY in the definition body, NOT the parameter name.

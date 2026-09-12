@@ -6,9 +6,7 @@
 //!
 //! Data types that bridge idiom detection (read-only) with placement (write).
 
-// ============================================================================
 // IdiomPlacementModel
-// ============================================================================
 
 /// Top-level model: idiom instances + derived placement constraints.
 #[derive(Debug, Clone, Default)]
@@ -23,9 +21,7 @@ pub struct IdiomPlacementModel {
     pub warnings: Vec<String>,
 }
 
-// ============================================================================
 // IdiomInstance — one recognized idiom, placement-ready
-// ============================================================================
 
 /// A single recognized idiom instance with enough detail to drive placement.
 #[derive(Debug, Clone, PartialEq)]
@@ -73,9 +69,7 @@ pub enum InstanceSource {
     TopologyPattern,
 }
 
-// ============================================================================
 // PlacementConstraint — what to do, not where to put it
-// ============================================================================
 
 /// A soft placement intent derived from an idiom.
 ///
@@ -133,9 +127,7 @@ pub enum ConstraintKind {
     SymmetricPlacement,
 }
 
-// ============================================================================
 // PlacementDecisionRecord — for determinism tracking
-// ============================================================================
 
 /// Records which candidate was selected for a placement decision.
 /// Used for deterministic repeatability verification.

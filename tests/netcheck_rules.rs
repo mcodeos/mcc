@@ -98,7 +98,7 @@ fn assert_fires(report: &Report, rule: &str, level: Level, what: &str) {
 const TWO_PIN: &str = "component R {\n    pins = [\n        1 = A\n        2 = B\n    ]\n}\n";
 const ONE_IN: &str = "component C {\n    pins = [\n        in 1 = A\n    ]\n}\n";
 
-/// ── R02 short circuit ───────────────────────────────────────────────────────
+/// R02 short circuit
 /// A two-terminal device with both pins on the `VDD` rail is a dead short.
 #[test]
 fn dlu_netcheck__r02_two_terminal_short_fires() {
@@ -120,7 +120,7 @@ fn dlu_netcheck__r02_two_terminal_short_fires() {
     );
 }
 
-/// ── R04 bus lane short ──────────────────────────────────────────────────────
+/// R04 bus lane short
 /// Two members of the same declared bus (`MIC{P, N}`) land on one net `SIG`.
 #[test]
 fn dlu_netcheck__r04_bus_members_share_net_fires() {
@@ -140,7 +140,7 @@ fn dlu_netcheck__r04_bus_members_share_net_fires() {
     );
 }
 
-/// ── R05 unresolved unit ──────────────────────────────────────────────────────
+/// R05 unresolved unit
 /// A positional unit-typed argument that claims no formal parameter slot. The
 /// argument counter must be reset before the build so other modules in the
 /// same process cannot pre-claim slots.
@@ -160,7 +160,7 @@ fn dlu_netcheck__r05_unit_argument_claims_no_slot_fires() {
     );
 }
 
-/// ── R06 meganet ─────────────────────────────────────────────────────────────
+/// R06 meganet
 /// Ten points spanning nine devices on one non-power net trips the size rule.
 #[test]
 fn dlu_netcheck__r06_large_non_power_net_fires() {
@@ -176,7 +176,7 @@ fn dlu_netcheck__r06_large_non_power_net_fires() {
     assert_fires(&report, "R06", Level::Warn, "10-point non-power net");
 }
 
-/// ── R07 unregistered device under a real sub-module ─────────────────────────
+/// R07 unregistered device under a real sub-module
 /// `sub1` resolves to a real module instance, but `sub1.missing.1` reaches a
 /// device that was never registered under it.
 #[test]
@@ -197,7 +197,7 @@ fn dlu_netcheck__r07_ghost_device_under_submodule_fires() {
     );
 }
 
-/// ── R09 floating power pin ──────────────────────────────────────────────────
+/// R09 floating power pin
 /// The device is in a net (its `SIG` pin is wired) but its `VDD` power pin is
 /// not connected anywhere.
 #[test]
@@ -213,7 +213,7 @@ fn dlu_netcheck__r09_unconnected_power_pin_fires() {
     );
 }
 
-/// ── R10 device-count conservation ───────────────────────────────────────────
+/// R10 device-count conservation
 /// With an explicit expectation, the pass1/pass2 count mismatch is an Error.
 /// (Without the expectation R10 only reports itself void — the Info finding
 /// on every other fixture in this file.)
@@ -229,7 +229,7 @@ fn dlu_netcheck__r10_conservation_mismatch_fires() {
     );
 }
 
-/// ── R14 orphan instance ─────────────────────────────────────────────────────
+/// R14 orphan instance
 /// An instance that is registered but appears in no net.
 #[test]
 fn dlu_netcheck__r14_orphan_instance_fires() {

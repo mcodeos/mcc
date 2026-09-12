@@ -45,7 +45,7 @@ fn diag_codes() -> Vec<u32> {
     mcc::mcc_diagnose_all().iter().map(|d| d.code).collect()
 }
 
-// ── Form 1: curly multi-member use no longer widens a scalar port ──────────
+// Form 1: curly multi-member use no longer widens a scalar port
 
 #[test]
 fn sem_portshape__curly_use_does_not_upgrade_scalar_port() {
@@ -73,7 +73,7 @@ module main
     );
 }
 
-// ── Form 2: dotted member access no longer widens a scalar port ────────────
+// Form 2: dotted member access no longer widens a scalar port
 
 #[test]
 fn sem_portshape__dotted_use_does_not_upgrade_scalar_port() {
@@ -109,7 +109,7 @@ module main
     );
 }
 
-// ── Form 3: vector connection no longer widens a scalar port ───────────────
+// Form 3: vector connection no longer widens a scalar port
 
 #[test]
 fn sem_portshape__vector_connection_does_not_upgrade_scalar_port() {
@@ -139,7 +139,7 @@ module main
     );
 }
 
-// ── Negative: scalar usage keeps the port scalar ──────────────────────────
+// Negative: scalar usage keeps the port scalar
 
 #[test]
 fn sem_portshape__scalar_use_keeps_port_scalar() {

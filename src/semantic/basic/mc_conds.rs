@@ -616,9 +616,8 @@ impl McConds {
     }
 }
 
-// ============================================================================
-// McFuncConds — parsed conditional blocks, storing McPhrase stmts for evaluation at instantiation time
-// ============================================================================
+// McFuncConds — parsed conditional blocks, storing McPhrase stmts for evaluation at instantiation
+// time
 
 /// A single parsed conditional branch
 #[derive(Debug, Clone)]

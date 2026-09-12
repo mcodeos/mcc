@@ -43,7 +43,7 @@
 //! other or into the process-global world. World-scoped plumbing of the
 //! loader / pass1 write path (the remaining Phase-5 step) is deferred to the
 //! window that also world-izes the instance layer — see the T3 honest
-//! boundary in `mcd/doc/plan/defspace-id-core-plan.md`.
+//! boundary in `defspace-id-core-plan.md`.
 //!
 //! Routing to the physical workspace tables (workspace-lifecycle state
 //! only — snapshot/switch/restore transport, never a read source) is
@@ -378,9 +378,7 @@ fn kind_priority(kind: DefKind) -> u8 {
     }
 }
 
-// ============================================================================
 // RegistryState — write side
-// ============================================================================
 
 impl RegistryState {
     /// Registry-only side of [`insert`]: register the identity + data and
@@ -610,7 +608,7 @@ impl RegistryState {
     fn sync_module_ports(&self, sn: &McSpaceName, ports: &[(String, String)]) {
         if let Some(id) = self.def_id(sn, DefKind::Module) {
             // Unconditional: an empty port list must still tombstone the
-            // def's previously-live ports.
+            // def's ports from the last sync.
             self.sync_member_ledger(id, ports);
         }
     }
@@ -1107,10 +1105,8 @@ impl RegistryState {
     }
 }
 
-// ============================================================================
 // RegistryState — system name index (kept exactly in sync with the live
 // system segment by the mutation points above)
-// ============================================================================
 
 impl RegistryState {
     fn system_index_add(&self, name: &str, kind: DefKind, id: DefId) {
@@ -1158,9 +1154,7 @@ impl RegistryState {
     }
 }
 
-// ============================================================================
 // RegistryState — read API (design §9 Phase B step 4)
-// ============================================================================
 
 /// Domain filter for whole-table enumeration.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1239,8 +1233,8 @@ impl RegistryState {
     ///
     /// Sorted by (uri, ident) so the result is deterministic across runs:
     /// the arena is a DashMap whose iteration order varies per process (each
-    /// run seeds its own hash keys), which previously made the order of
-    /// component / module / interface registration during lapper building —
+    /// run seeds its own hash keys), so an unsorted walk would make the order
+    /// of component / module / interface registration during lapper building —
     /// and therefore the order in which fresh symbol ids are allocated —
     /// nondeterministic.
     ///
@@ -1567,9 +1561,7 @@ impl RegistryState {
     }
 }
 
-// ============================================================================
 // P2 — capability adoption (`::`): declaration-relation ledgers (§8.1/§8.2)
-// ============================================================================
 //
 // `adopts` and `effective_funcs` are *derived* relations of the live defs
 // (the declarations live on each component def's own `adopts` list), so they
@@ -1855,9 +1847,7 @@ impl RegistryState {
     }
 }
 
-// ============================================================================
 // T6 — def content fingerprint (defspace-id-core-plan G6 / architecture D15.2)
-// ============================================================================
 //
 // A stable-reproducible, declaration-level hash of a def's live data. D15.2
 // takes the "currently stable-reproducible serialization approximation": the
@@ -2047,9 +2037,7 @@ fn declaration_lines(def: &DefValue) -> Vec<String> {
     lines
 }
 
-// ============================================================================
 // Free-function API — served by the active world's registry
-// ============================================================================
 
 /// Insert one definition. CMIE kinds treat an occupied live key as a
 /// duplicate (the previous value stays); the module kind **overwrites** —
@@ -2382,9 +2370,7 @@ pub(crate) fn peel_capabilities(
         .collect()
 }
 
-// ============================================================================
 // Phase 9 — registry journal, checkpoint, and def-space diff (design §9 E / §10)
-// ============================================================================
 
 /// One lightweight, serializable description of a registry identity — the
 /// checkpoint/diff record form (design §10). [`DefValue`] is not serializable
@@ -2572,9 +2558,7 @@ pub struct SystemDefSnapshot {
     pub def: DefValue,
 }
 
-// ============================================================================
 // Physical-table helpers (compatibility materialization)
-// ============================================================================
 
 /// Compatibility write into the physical workspace tables, kept purely as
 /// workspace-lifecycle transport (snapshot / switch / restore / clear) —

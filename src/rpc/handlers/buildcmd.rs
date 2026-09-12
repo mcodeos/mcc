@@ -150,7 +150,7 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     crate::mcc_load_project(&mc_uri);
     tracing::info!(target: "mcc::perf", step = "load_project", ms = t1.elapsed().as_millis() as u64, "build.viz step");
 
-    // Target selection (mcd docs-mc 16-export-viz §6): explicit top → all
+    // Target selection (mcd spec/16-export-viz §6): explicit top → all
     // modules in the file → all components → all interfaces. Components and
     // interfaces are "virtually instantiated" via a synthetic module.
     let targets = crate::mcc_virtual_resolve_targets(&mc_uri, top.as_deref())
@@ -313,7 +313,7 @@ mod tests {
 
     /// Regression: `build.viz` on a component-only file (no project.toml, no
     /// module) must not fail with "no top module found". The component is
-    /// "virtually instantiated" (mcd docs-mc 16-export-viz §6) and rendered as
+    /// "virtually instantiated" (mcd spec/16-export-viz §6) and rendered as
     /// an IC with its physical pins; the fabricated instance name is hidden.
     #[test]
     fn cli_buildcmd__build_viz_component_only_file() {
@@ -617,7 +617,7 @@ component RES
     }
 
     /// Regression: a file with both a module and a component resolves to the
-    /// module (mcd docs-mc 16-export-viz §6). The module's component box in
+    /// module (mcd spec/16-export-viz §6). The module's component box in
     /// the block diagram must show its pin ids and names (not bare stubs).
     #[test]
     fn cli_buildcmd__build_viz_module_contains_component_shows_pin_labels() {

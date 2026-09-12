@@ -27,9 +27,10 @@ impl DynamicPinExpr {
 
     pub fn check_param_ref(expr: &McExpression) -> bool {
         match expr {
-            // Bug 1 fix: Variable previously always returned true, causing pure identifiers like `I0::I2C`
-            // to be incorrectly treated as parameter references, taking the dynamic pin path and skipping normal interface binding.
-            // Now check if Variable truly contains square bracket parameter references inside (e.g., [1:rows]).
+            // A `Variable` is a parameter reference only when it really contains
+            // square-bracket parameter references inside (e.g., `[1:rows]`).
+            // Treating every pure identifier as one (e.g. `I0::I2C`) takes the
+            // dynamic pin path and skips normal interface binding.
             McExpression::Variable(opd) => Self::variable_has_param_ref(opd),
             McExpression::Plus(l, r) => Self::check_param_ref(l) || Self::check_param_ref(r),
             McExpression::Minus(l, r) => Self::check_param_ref(l) || Self::check_param_ref(r),
@@ -42,7 +43,8 @@ impl DynamicPinExpr {
     }
 
     /// Check if McOpd truly contains parameter references (e.g., `[1:rows]`).
-    /// Pure identifiers (`I0::I2C`, `XTAL`) are not param refs, should take the normal interface binding path.
+    /// Pure identifiers (`I0::I2C`, `XTAL`) are not param refs, should take the normal interface
+    /// binding path.
     fn variable_has_param_ref(opd: &McOpd) -> bool {
         use crate::semantic::basic::mc_opd::McOpd;
         match opd {
@@ -55,7 +57,8 @@ impl DynamicPinExpr {
                 // Multi-segment identifiers (e.g. I0::I2C) are interface bindings, not param refs
                 if id.segments.len() == 1 {
                     if let crate::semantic::basic::mc_ids::IdsSegment::Ida(ida) = &id.segments[0] {
-                        // Only one Ida segment with no square brackets → plain identifier → param ref
+                        // Only one Ida segment with no square brackets → plain identifier → param
+                        // ref
                         if !ida.has_square() && !ida.is_empty() {
                             return true;
                         }
@@ -151,7 +154,8 @@ impl DynamicPinExpr {
         }
     }
 
-    /// Expand expression to string list (for pin names, e.g., R[1:rows]C[1:cols] -> R1C1, R1C2, ...)
+    /// Expand expression to string list (for pin names, e.g., R[1:rows]C[1:cols] -> R1C1, R1C2,
+    /// ...)
     pub fn expand_with_bindings(&self, bindings: &[(String, i64)]) -> Vec<String> {
         match &self.expr {
             McExpression::Variable(opd) => {
@@ -197,7 +201,7 @@ pub struct DynamicPinLine {
     pub pin_id_expr: Option<DynamicPinExpr>,
     pub pin_name_expr: Option<DynamicPinExpr>,
     pub values: Arc<Vec<McAttrVal>>,
-    /// Row-level identity words (`@class/@noise/…`, power-intent-design.md
+    /// Row-level identity words (`@class/@noise/…`, intent-design.md
     /// §5.1) trail a *bank* declaration like `out [1:N] = D[1:N]`. The bank is
     /// only materialized into concrete pins per instantiation, so the words
     /// ride the line itself — mirroring how a static row's words ride each

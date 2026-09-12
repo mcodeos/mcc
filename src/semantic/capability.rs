@@ -163,9 +163,7 @@ impl McCapability {
     }
 }
 
-// ============================================================================
 // HasFindInst for McCapability — func-body name scope (§3.2)
-// ============================================================================
 //
 // The body scope is the capability's own declared signals (module-port family),
 // reached through the module-style category chain. `add_*` / `parse_declare`
@@ -301,9 +299,7 @@ impl HasFindInst for McCapability {
     }
 }
 
-// ============================================================================
 // Display implementation - concise format output
-// ============================================================================
 
 impl std::fmt::Display for McCapability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

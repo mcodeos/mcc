@@ -7,7 +7,7 @@
 // declared member set (undeclared member → E3181). Internal undeclared nets
 // remain usage-defined and never trigger these gates.
 //
-// Reference: mcd doc/plan/io-port-declared-shape-rule.md.
+// Reference: mcd plan/io-port-declared-shape-rule.md.
 //
 // NOTE: These tests share global mcc state, so a mutex serializes them.
 
@@ -42,7 +42,7 @@ fn count3183(codes: &[u32]) -> usize {
     codes.iter().filter(|&&c| c == E3183).count()
 }
 
-// ── (a) scalar-declared io port + curly member use → E3183 ─────────────────
+// (a) scalar-declared io port + curly member use → E3183
 // us513 regression shape: bare `io MIC` + body `MIC{P,N}`.
 
 #[test]
@@ -83,7 +83,7 @@ module main
     );
 }
 
-// ── (b) scalar-declared port + dotted member access → E3183 ────────────────
+// (b) scalar-declared port + dotted member access → E3183
 
 #[test]
 fn sem_portshape__dotted_member_on_scalar_io_port_errors_once() {
@@ -104,7 +104,7 @@ module main
     );
 }
 
-// ── Membered/typed ports validate against their declared member set ────────
+// Membered/typed ports validate against their declared member set
 
 #[test]
 fn sem_portshape__declared_member_on_membered_port_is_clean() {
@@ -170,7 +170,7 @@ module main
     );
 }
 
-// ── Negative: whole-port scalar ↔ scalar stays legal (no E3183) ────────────
+// Negative: whole-port scalar ↔ scalar stays legal (no E3183)
 
 #[test]
 fn sem_portshape__whole_scalar_port_to_scalar_net_is_clean() {
@@ -191,7 +191,7 @@ module main
     );
 }
 
-// ── Positive: internal undeclared nets are never gated ─────────────────────
+// Positive: internal undeclared nets are never gated
 
 #[test]
 fn sem_portshape__undeclared_net_member_reference_is_not_gated() {

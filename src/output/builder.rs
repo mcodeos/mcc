@@ -23,7 +23,8 @@ pub struct ResultBuilder {
 }
 
 impl ResultBuilder {
-    /// Start building a result. Command names look like "mcc parse", "mcc build", "mcc extract instances".
+    /// Start building a result. Command names look like "mcc parse", "mcc build", "mcc extract
+    /// instances".
     pub fn start(command: impl Into<String>) -> Self {
         Self {
             started: Instant::now(),
@@ -156,7 +157,8 @@ impl ResultBuilder {
     /// Finish building and automatically populate Summary.
     ///
     /// summary prefers to use our existing pass1/pass2 fields for aggregation (counts), then falls
-    /// back to the library's `mcb_*_count`. The sum of errors/warnings comes from the diagnostics of all phases.
+    /// back to the library's `mcb_*_count`. The sum of errors/warnings comes from the diagnostics
+    /// of all phases.
     pub fn finish(mut self) -> CommandResult {
         let mut summary = Summary {
             elapsed_ms: self.started.elapsed().as_millis(),

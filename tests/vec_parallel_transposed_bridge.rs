@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! Acceptance surface for the `+ Transposed` bridge (S2+S3 of the R0
-//! implementation, `mcd/doc/vector-conn-r0-implementation-design.md` §3 / §7.1).
+//! implementation, `r0-implementation-design.md` §3 / §7.1).
 //!
 //! `X + Y'` is a **parallel with a transposed operand** — the shunt/bridge form
 //! of the face-side law (vec-dianlu.md §1.4 / §5.1). Today the parser folds it
@@ -95,7 +95,7 @@ fn net_holding<'a>(nets: &'a [Vec<String>], path: &str) -> Option<&'a Vec<String
     nets.iter().find(|ps| ps.iter().any(|p| p == path))
 }
 
-// ── the bridge, on the written side ─────────────────────────────────────────
+// the bridge, on the written side
 
 /// `[R101, R102] + C1'` — the cap is written **after** the branches, so a
 /// degenerate (point/column) operand attaches to their **right** faces: the

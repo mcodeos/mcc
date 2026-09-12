@@ -66,9 +66,9 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
 ///
 /// One instantiation = one [`DianLu`]: the module lookup + `instantiate` body
 /// lives here, and both entry points ([`mcb_pass2`] / [`mcb_pass2_flat`]) are
-/// thin wrappers over it. Previously `mcb_pass2_flat` re-ran the whole
-/// instantiation just to flatten — the structural cause of double-instantiation
-/// (and of the GAP2 double-report that diagnostic dedup then papered over).
+/// thin wrappers over it. Flattening must not re-run instantiation: a second
+/// entry point there is the structural cause of double-instantiation (and of
+/// the GAP2 double-report that diagnostic dedup would have to paper over).
 /// `start_id` seeds the flat projection (tree-only callers pass 0 — the table
 /// is never built).
 pub(crate) fn mcb_instantiate(

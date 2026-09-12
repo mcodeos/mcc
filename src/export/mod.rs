@@ -22,9 +22,8 @@ use std::panic;
 /// (consistency-convergence.md §2.5).
 ///
 /// Visits the module itself first, then recurses into each sub-module. The
-/// exporters (bom / kicad / netlist) previously each wrote their own
-/// `for sub in &inst.sub_modules { recurse }`; they now share this single
-/// walker. Exporters that need the flat component table (`InstTable
+/// exporters (bom / kicad / netlist) share this one walker instead of each
+/// writing their own `for sub in &inst.sub_modules { recurse }`:
 /// get_components`) keep that view — it carries per-instance class names that
 /// the module tree does not store.
 ///
@@ -148,9 +147,7 @@ pub fn build_payload(
     }
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 pub fn attr_value(attrs: &[crate::McAttribute], name: &str) -> Option<String> {
     let id = McIds::from(name);

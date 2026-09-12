@@ -28,9 +28,7 @@ impl ValidationCheck for TypesCheck {
     }
 }
 
-// ============================================================================
 // E1 + E3: Type mismatch / Unit dimension mismatch in param binding
-// ============================================================================
 
 /// For each module instance of a typed component, check whether the
 /// positional arguments are compatible with the declared parameter types.

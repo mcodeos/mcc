@@ -26,9 +26,7 @@ pub(crate) static BUS_BITS_MISMATCHED: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 impl InstantiationBuilder {
-    // ========================================================================
     // Generic connection generation
-    // ========================================================================
 
     /// Generic connection generation (1:1 / 1:N / N:1 / N:N).
     ///
@@ -54,7 +52,7 @@ impl InstantiationBuilder {
             return Ok(());
         }
 
-        // ── §5.3 shape-match check (vec-dianlu.md) ───────────────────────
+        // §5.3 shape-match check (vec-dianlu.md)
         // Endpoint-layer shape is N×1 (one NetPoint per row). Same row count
         // → legal 1:1 pairing (by-name / sorted zip). Different row count is
         // handled below under the UNIFIED vector rule (model A): a single
@@ -179,7 +177,7 @@ impl InstantiationBuilder {
         let left_repeated = repeated_nets(&left_points);
         let right_repeated = repeated_nets(&right_points);
 
-        // ── D3: MERGED_SHORT detection ──────────────────────────────────
+        // D3: MERGED_SHORT detection
         // A merged short is a genuine defect only when the *same connection
         // pair* (same left point + same right point) is created more than once,
         // e.g. `[A, A] -> GND` produces (A, GND) twice. Fan-out such as
@@ -245,7 +243,7 @@ impl InstantiationBuilder {
                 }
             }
 
-            // ── §5 warning: classify the repeated references ─────────────
+            // §5 warning: classify the repeated references
             // A repeated logical net whose paired peers are all the same net is
             // redundant; peers that differ are shorted together through the
             // group's pads. Report at most one warning per connection, with a
@@ -343,7 +341,7 @@ impl InstantiationBuilder {
         }
 
         if let Some(m) = expand_match(&left_points, &right_points) {
-            // ── P4.2: §7 vector expansion matching (eval.md §7) ──────────────
+            // P4.2: §7 vector expansion matching (eval.md §7)
             // The pure function expand_match replaces the old
             // try_match_by_member_name + sorted zip:
             //   Rule 1 layer correspondence — both sides have unique non-empty
@@ -363,7 +361,7 @@ impl InstantiationBuilder {
                 m.all_members_mismatched,
             );
 
-            // ── D5: BUS_ORDER_MISMATCH ─────────────────────────────────────
+            // D5: BUS_ORDER_MISMATCH
             // Multi-point 1:1 connection on both sides, and after the sorted
             // zip all pair member names are mutually different → the bus member
             // order may be misaligned (e.g. SPI SCLK↔MOSI). Not reported for a
@@ -432,7 +430,7 @@ impl InstantiationBuilder {
                 .into_iter()
                 .next()
                 .ok_or_else(|| InstError::Other("expected 1 left point".into()))?;
-            // ── Unified vector rule (model A): scalar vs N ≥ 2 side ──────────
+            // Unified vector rule (model A): scalar vs N ≥ 2 side
             // Only two shapes pass: a declared scalar port that member-passes
             // through to the N lanes (try_member_passthrough_scalar), or an N
             // side that is ONE logical net (same-name multi-pin group / the
@@ -502,7 +500,7 @@ impl InstantiationBuilder {
                 crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
                 crate::errcodes::format_msg(crate::errcodes::CONN_SERIES_SHAPE_MISMATCH, &[]),
             );
-            // ── P5: E2904 (expand dim mismatch, eval.md §7 rule 3) ─────────
+            // P5: E2904 (expand dim mismatch, eval.md §7 rule 3)
             // When both sides carry named members, the mismatch is a
             // bus-member expansion problem: implicit auto-expansion is
             // forbidden, so a named N×1 vs M×1 pair needs an explicit `*`
@@ -601,7 +599,7 @@ impl InstantiationBuilder {
         conn
     }
 
-    /// ── P2/A2: boundary member passthrough (fallback) ─────────────────────────────────────
+    /// P2/A2: boundary member passthrough (fallback)
     /// When **one side is N(≥2) lanes of the same owner in `X.<member>` form**, and the other side
     /// is some submodule's **bare scalar port** (`sub.port`, whose `bus_members` is empty in the
     /// submodule and whose port name is neither power nor ground), expand the scalar port by the
@@ -624,7 +622,7 @@ impl InstantiationBuilder {
     /// "multi-lane port vs bare port on both sides" scenario which **should** zip, so the
     /// per-member zip here is a fix, not a regression.
     ///
-    /// ── S1 Bug A extension (2026-06) ─────────────────────────────────────
+    /// S1 Bug A extension (2026-06)
     /// Additionally supports scalar boundary formals inside a submodule's **internal body**
     /// (e.g. `spi` inside `do_flash(spi) { spi + uC.SPI }` body). Here `spi` is a boundary
     /// formal, treated as a bare label (1 point) in the submodule's Phase A body; the peer
@@ -651,7 +649,8 @@ impl InstantiationBuilder {
         if others.len() < 2 {
             return None;
         }
-        // Peer N lanes: must all share the **same prefix** `<prefix>.<member>`, with distinct members.
+        // Peer N lanes: must all share the **same prefix** `<prefix>.<member>`, with distinct
+        // members.
         let mut members: Vec<String> = Vec::with_capacity(others.len());
         let mut prefix0: Option<&str> = None;
         for o in others {
@@ -679,7 +678,7 @@ impl InstantiationBuilder {
             })
             .collect();
 
-        // ── Form 1: scalar = `sub.port` (2 segments) — original P2/A2 path ─────
+        // Form 1: scalar = `sub.port` (2 segments) — original P2/A2 path
         if let Some((sub, port)) = scalar.path.split_once('.') {
             if !port.contains('.') && !is_power_rail_name(port) && !is_ground_name(port) {
                 if let Some(submod) = self.find_submodule(sub) {
@@ -768,7 +767,7 @@ impl InstantiationBuilder {
             }
         }
 
-        // ── Form 2: scalar is a bare label (1 segment) — S1 Bug A extension ──────
+        // Form 2: scalar is a bare label (1 segment) — S1 Bug A extension
         // Current scope is some submodule's body; `scalar.path = "spi"` is a boundary formal.
         // self.ports has a same-named declared interface port (`SPI`, with non-empty bus_members);
         // use its bus_members to expand into `[spi.<member_i>]` and zip with the peer.

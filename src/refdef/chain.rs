@@ -240,7 +240,7 @@ fn class_name(c: &ContainerRef) -> String {
 ///    component/module/interface/enum class definition (same-file CMIE →
 ///    use-chain → system library). Branches 1-4 above always win, so the
 ///    grouped/idx semantics are unchanged; the class chain only fills the
-///    previously-empty miss path for bare class names.
+///    miss path for bare class names that nothing else fills.
 fn first_hop<'a>(
     insts: &'a McInstances,
     params: &McParamDeclares,

@@ -47,9 +47,7 @@ pub mod symbol;
 pub mod detect;
 pub mod fromblock;
 pub mod promote;
-// ============================================================================
 // Top-level re-exports
-// ============================================================================
 
 pub use boxdef::{
     AnchorHint, BoundaryPort, BoxLabelPlacement, EntryPoint, EntrySide, FramePort, IoSummary,

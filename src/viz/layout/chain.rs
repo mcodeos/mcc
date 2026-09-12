@@ -7,9 +7,7 @@
 use crate::vector::graph::{naming, BoxKind, EntrySide, McVecGraph, NetKind, VisualRole, VizNet};
 use std::collections::{HashMap, HashSet};
 
-// ============================================================================
 // Part 1: Linear chain detection (existing, unchanged)
-// ============================================================================
 
 pub fn try_linearize_chain(comp: &[i64], adj: &HashMap<i64, Vec<i64>>) -> Option<Vec<i64>> {
     let mut endpoints: Vec<i64> = Vec::new();
@@ -70,9 +68,7 @@ pub fn layout_chain_horizontal(
     ((cur_x - CHAIN_GAP - start_x).max(0.0), max_h)
 }
 
-// ============================================================================
 // Part 2: Signal chain extraction
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct ChainNode {
@@ -185,9 +181,7 @@ impl SignalChainResult {
     }
 }
 
-// ============================================================================
 // Hub detection
-// ============================================================================
 
 pub fn find_hub(graph: &McVecGraph) -> Option<i64> {
     // Primary: MultiPin (IC) or SubModule — the canonical signal-chain anchors.
@@ -223,9 +217,7 @@ pub fn find_hub(graph: &McVecGraph) -> Option<i64> {
         .map(|b| b.id)
 }
 
-// ============================================================================
 // Extraction — pin_id-free approach
-// ============================================================================
 
 /// Build index: box_id → [net_index] (which nets touch this box?)
 fn build_box_net_index(graph: &McVecGraph) -> HashMap<i64, Vec<usize>> {
@@ -414,9 +406,7 @@ fn empty_result(graph: &McVecGraph, hub_id: i64) -> SignalChainResult {
     }
 }
 
-// ============================================================================
 // Chain tracing — follows nets by BOX, not by pin
-// ============================================================================
 
 /// Trace through TwoPin passives by following net connectivity.
 ///

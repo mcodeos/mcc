@@ -9,9 +9,7 @@
 
 use crate::{McCMIE, McIds, McURI};
 
-// ============================================================================
 // Free function — bridge from global mcb_get_cmie to trait injection
-// ============================================================================
 
 /// Resolve a CMIE definition using the provided resolver.
 /// Drop-in replacement for `mcb_get_cmie(&ids, &uri)`.
@@ -33,9 +31,7 @@ pub fn resolve_cmie(
     ctx.resolve(class_name, from_uri).map(|(cmie, _)| cmie)
 }
 
-// ============================================================================
 // NameResolver — resolve class names to definitions
-// ============================================================================
 
 /// Resolves class names (components, modules, interfaces, enums) to their
 /// CMIE definitions. Abstracts over the double-layer (workspace → global)
@@ -52,9 +48,7 @@ pub trait NameResolver {
     fn resolve_system(&self, class_name: &McIds) -> Option<McCMIE>;
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

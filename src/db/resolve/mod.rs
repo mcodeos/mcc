@@ -5,8 +5,8 @@
 //! Unified class-name resolution policy — the single source of truth for the
 //! P3→P4→P5 visibility rules.
 //!
-//! Design: `mcd/docs-new/features/resolve-unification.md`; rules:
-//! `mcd/docs-new/features/name-space-global.md` §5.4 (visibility enforcement).
+//! Design: `resolve-unification.md`; rules:
+//! `name-space-global.md` §5.4 (visibility enforcement).
 //!
 //! All class-name consumers (pass1 semantic parse, pass2 instantiation, LSP
 //! goto-def / hover / find-references) resolve through [`Resolver`] so the

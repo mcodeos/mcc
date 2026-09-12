@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! PWR-10 (`DC_BINDING_DIR_MISMATCH` = 6028, power-intent-design.md §5.3.2):
+//! PWR-10 (`DC_BINDING_DIR_MISMATCH` = 6028, intent-design.md §5.3.2):
 //! a direction-word power terminal must sit at the end of its own connection
 //! chain its direction word claims — a source (psrc) face leads the chain /
 //! the right of a `{L|R}` through, a sink (psnk) trails it / sits on the left.
@@ -183,7 +183,7 @@ module top()
 }
 "#;
 
-// ── single-string harness: component-pin boards only (no interface DC) ────────
+// single-string harness: component-pin boards only (no interface DC)
 fn build_codes(src: &str) -> Vec<u32> {
     let _lock = common::lock();
     common::reset();
@@ -234,7 +234,7 @@ fn n6028(codes: &[u32]) -> usize {
     codes.iter().filter(|&&c| c == 6028).count()
 }
 
-// ── component through, group order right → silent ───────────────────────────
+// component through, group order right → silent
 #[test]
 fn comp_through_correct_order_is_silent() {
     let codes = build_codes(LDO_PWR);
@@ -246,7 +246,7 @@ fn comp_through_correct_order_is_silent() {
     );
 }
 
-// ── component through, group order flipped → 6028 ───────────────────────────
+// component through, group order flipped → 6028
 #[test]
 fn comp_through_flipped_order_warns() {
     let codes = build_codes(LDO_FLIPPED);
@@ -263,7 +263,7 @@ fn comp_through_flipped_order_warns() {
     );
 }
 
-// ── ① module source port at the tail → 6028 ────────────────────────────────
+// ① module source port at the tail → 6028
 #[test]
 fn module_psrc_at_tail_warns() {
     let codes = build_proj("mod-tail", POWER_MODULES, MOD_PSRC_TAIL_MAIN);
@@ -274,7 +274,7 @@ fn module_psrc_at_tail_warns() {
     );
 }
 
-// ── ② module source port at the head → silent ──────────────────────────────
+// ② module source port at the head → silent
 #[test]
 fn module_psrc_at_head_is_silent() {
     let codes = build_proj("mod-head", POWER_MODULES, MOD_PSRC_HEAD_MAIN);
@@ -286,7 +286,7 @@ fn module_psrc_at_head_is_silent() {
     );
 }
 
-// ── ③ module through, faces right → silent; flipped → 6028 ─────────────────
+// ③ module through, faces right → silent; flipped → 6028
 #[test]
 fn module_through_correct_order_is_silent() {
     let codes = build_proj("mod-thru-ok", POWER_MODULES, MOD_THROUGH_OK_MAIN);
@@ -308,7 +308,7 @@ fn module_through_flipped_order_warns() {
     );
 }
 
-// ── ④ self-owned internal wiring is exempt ─────────────────────────────────
+// ④ self-owned internal wiring is exempt
 #[test]
 fn module_own_body_wiring_is_exempt() {
     let codes = build_proj("mod-self", POWER_USB_SELF, MOD_SELF_INTERNAL_MAIN);
@@ -320,7 +320,7 @@ fn module_own_body_wiring_is_exempt() {
     );
 }
 
-// ── ⑤ psbi never warns; direction-word-less rows never warn ────────────────
+// ⑤ psbi never warns; direction-word-less rows never warn
 #[test]
 fn psbi_and_wordless_rows_never_warn() {
     let codes = build_codes(PSBI_AND_WORDLESS);

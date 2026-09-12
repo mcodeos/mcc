@@ -28,9 +28,7 @@ use super::entry_points::{
 use super::flow::pin_abs;
 use super::rails::is_rail_box;
 
-// ============================================================================
 // Public API
-// ============================================================================
 
 /// Run the pin-placement pipeline on `graph`.
 ///
@@ -185,9 +183,7 @@ fn align_hub_to_spokes(graph: &mut McVecGraph, root_id: i64) {
     }
 }
 
-// ============================================================================
 // A · Connectivity-first desired side
-// ============================================================================
 
 /// Determine the target side for every pin that is NOT frozen by the author's
 /// `layout` hint.  Connectivity wins; semantics are the fallback.
@@ -217,7 +213,8 @@ fn desired_side_pass(
         }
 
         // The hub is ONE box (the max-degree node flow passes in), not "every IC".
-        // Only exempt it, and only when explicitly asked (default false ⇒ connectivity-first everywhere).
+        // Only exempt it, and only when explicitly asked (default false ⇒ connectivity-first
+        // everywhere).
         if hub_keep_semantic && hub_id == Some(b.id) {
             continue;
         }
@@ -242,7 +239,7 @@ fn desired_side_pass(
         let mut moved = 0usize; // per-box counter
 
         // ── ★ iter 7: pre-pass — count "connected" pins on each side (incl. authored pins),
-        //     used to decide which side unconnected pins get tossed to. ───────────────────
+        // used to decide which side unconnected pins get tossed to.
         let mut side_counts: HashMap<EntrySide, usize> = HashMap::new();
         for ep in &b.entry_points {
             let nbrs = pin_neighbors
@@ -380,9 +377,7 @@ fn desired_side_pass(
     );
 }
 
-// ============================================================================
 // B · Straighten facing pairs
-// ============================================================================
 
 /// For every net whose two core endpoints are on facing sides (A.Right ↔ B.Left
 /// or A.Left ↔ B.Right, or vertical Top↔Bottom), align their offsets so the
@@ -514,15 +509,14 @@ fn find_entry_mut(graph: &mut McVecGraph, box_id: i64, pin_id: i64) -> Option<&m
         .and_then(|b| b.entry_points.iter_mut().find(|e| e.pin_id == pin_id))
 }
 
-// ============================================================================
 // C · Order pins per side (crossing-minimizing + unconnected pins included)
-// ============================================================================
 
 /// After sides are set, reorder each side's pins by target position and spread offsets evenly.
 /// Fixes two things: same-side overlapping offsets, and crossing wires (inverted order).
 ///
 /// ★ iter 7: difference from the old `order_within_side` — unconnected pins are also sorted
-/// (after connected pins, by original pin_id), so unconnected pins are never left without an assigned offset.
+/// (after connected pins, by original pin_id), so unconnected pins are never left without an
+/// assigned offset.
 fn order_pins_per_side(graph: &mut McVecGraph) {
     let targets = collect_pin_targets(graph);
 
@@ -620,9 +614,7 @@ fn collect_pin_targets(graph: &McVecGraph) -> HashMap<(i64, i64), (f64, f64)> {
     target
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

@@ -31,9 +31,7 @@ use crate::semantic::mc_func::McFunction;
 use crate::semantic::mc_inst::McInstance;
 use crate::{current_uri, McIds};
 
-// ============================================================================
 // FuncCallInst - FuncCall instantiation result
-// ============================================================================
 
 /// Return value of FuncCall instantiation
 ///
@@ -67,9 +65,7 @@ impl FaceSide {
 }
 
 impl InstantiationBuilder {
-    // ========================================================================
     // FuncCall dispatch entry
-    // ========================================================================
 
     /// FuncCall dispatch entry
     ///
@@ -111,7 +107,7 @@ impl InstantiationBuilder {
 
         let name_str = func_name.to_string();
 
-        // ── Iter-6 P0-3.1: re-call of declared sub-module ──────────────────
+        // Iter-6 P0-3.1: re-call of declared sub-module
         // Syntax: `MIC_SIP mic`  (first declared in declarations stage, no args)
         //         `mic(V3V3).MIC` (re-call in connection line, passing V3V3 as input port arg)
         //
@@ -125,7 +121,7 @@ impl InstantiationBuilder {
             return self.rebind_submodule_params(&inst_name, &ports, params, left, right);
         }
 
-        // ── P0-3 fix ─────────────────────────────────────────────────────
+        // P0-3 fix
         // Originally, calls with `func_name` containing >3 segments were all
         // returned as PassThrough, dropping legitimate chained method calls
         // like `mcu.setup(...).add_caps().i2c().do_flash(...)`.
@@ -161,7 +157,7 @@ impl InstantiationBuilder {
         }
         let _guard = DepthGuard;
 
-        // ── Iter-6 P0-3.1: re-call of declared sub-module ─────────────────
+        // Iter-6 P0-3.1: re-call of declared sub-module
         // Syntax: `MIC_SIP mic`  (first declared, no args)
         //         `mic(V3V3).MIC` (re-call, passing V3V3 as dc formal arg)
         //
@@ -182,7 +178,7 @@ impl InstantiationBuilder {
 
         // 1. Look up in global symbol table to see if it's a known Component/Module/Interface
         //
-        // ── ★ P0-2: alias fallback ─────────────────────────────────────────────
+        // ★ P0-2: alias fallback
         // In an example project, `dio1 = DIO.ESD()` registers with CMIE as class.name == "DIO.ESD",
         // but when .mc code uses bare `ESD(...)`, func_name == "ESD", mcb_get_cmie
         // can't find it → returns PassThrough → stmt.rs generates `@?ESD_N` stub
@@ -196,7 +192,7 @@ impl InstantiationBuilder {
         // exactly equivalent to explicitly writing `DIO.ESD(...)` → InstTable
         // registers real Pin → resolve no longer loses points.
         //
-        // ── ★ ITER-2 P1 fix: bare call PULLUP/PULLDOWN → RES ─────────────────
+        // ★ ITER-2 P1 fix: bare call PULLUP/PULLDOWN → RES
         // Regular aliases (ESD→DIO.ESD etc.) are independent of "whether there's a
         // caller", because they are all independent CMIE classes. But PULLUP/PULLDOWN
         // are an exception: they can be used either as chain method
@@ -209,7 +205,7 @@ impl InstantiationBuilder {
         // alias path must stay off — otherwise it would construct a new isolated
         // RES instance alongside the real one, replicating the bug we meant to fix.
         //
-        // ── ★ ITER-2 fix (first-run feedback): relaxed gate ─────────────────
+        // ★ ITER-2 fix (first-run feedback): relaxed gate
         //
         // The first version used `caller.is_none()` as the PULLUP→RES alias
         // enablement condition —— but the top-level `mcu.I2C0 -> PULLUP(10k) -> V3V3`
@@ -291,7 +287,8 @@ impl InstantiationBuilder {
                                 let func_name_str = func_name.to_string();
                                 let dotted_name = format!("{s}.{func_name_str}");
                                 if dotted_name == comp_def.name.to_string() {
-                                    // Label is part of the class name, not a user-specified instance name
+                                    // Label is part of the class name, not a user-specified
+                                    // instance name
                                     None
                                 } else {
                                     // Label is a user-specified instance name (e.g. R442::RES(1MΩ))
@@ -591,9 +588,7 @@ impl InstantiationBuilder {
         self.def.funcs.find(name).cloned()
     }
 
-    // ========================================================================
     // FuncCall endpoint resolution (unified entry for get_left/right_points)
-    // ========================================================================
 
     /// Which mouth of a stereo node a face resolution targets.
 
@@ -634,7 +629,7 @@ impl InstantiationBuilder {
         let key = Self::member_key(member);
         if let Some(auto) = self.auto_inst_map.get(&key).cloned() {
             match auto {
-                // ── case ②: return face (both mouths symmetric) ────────────
+                // case ②: return face (both mouths symmetric)
                 // instantiate_instance_method recorded the func's return value;
                 // decode it to the same point set for left and right.
                 AutoInst::ReturnPort(ep_path) => return self.decode_return_endpoint(&ep_path),
@@ -642,7 +637,7 @@ impl InstantiationBuilder {
                 // ── array-form / iterated caller produces multiple instances
                 //    (left = each one's entry face, right = each one's exit face).
                 AutoInst::Array(names) => return self.decode_array_face(&names, side),
-                // ── case ①: instance own face ─────────────────────────────
+                // case ①: instance own face
                 AutoInst::Name(inst_name) => {
                     if let Some(comp) = self.find_component(&inst_name) {
                         return self.component_own_face(&comp, side);
@@ -951,7 +946,7 @@ impl InstantiationBuilder {
                     continue;
                 }
             }
-            // ── P0-4.B: filter class-name placeholder leak ─────────────────────
+            // P0-4.B: filter class-name placeholder leak
             if let Some((inst_part, s)) = e.name.rsplit_once('.') {
                 if (s == "in" || s == "out")
                     && !inst_part.is_empty()
@@ -969,9 +964,7 @@ impl InstantiationBuilder {
         Ok(points)
     }
 
-    // ========================================================================
     // P0-3.2: rebind_submodule_params - re-call of declared sub-module
-    // ========================================================================
 
     fn rebind_submodule_params(
         &mut self,
@@ -981,7 +974,7 @@ impl InstantiationBuilder {
         _left: &[McBus],
         _right: &[McBus],
     ) -> Result<FuncCallInst, InstError> {
-        // ── Root cause A fix ───────────────────────────────────────────────
+        // Root cause A fix
         // The old logic had two errors:
         //   (a) Only filter `IOType::In` -> missed `dc{VDD_3V3,GND}` such
         //       iotype=None bus power ports -> input_ports empty -> nothing

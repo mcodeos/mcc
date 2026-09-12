@@ -5,7 +5,8 @@
 //! [`VizDocument`] —— multi-layer pre-rendered document (fixed version)
 //!
 //! ## Fixes (vs P2 original)
-//! - `to_json` outputs additional `crate::vlog!` diagnostics: reports whether root_bid is actually in layers
+//! - `to_json` outputs additional `crate::vlog!` diagnostics: reports whether root_bid is actually
+//! in layers
 //! - Added `validate()` method: users can verify consistency on the Rust side
 
 use std::collections::HashMap;
@@ -56,7 +57,7 @@ impl VizDocument {
         path
     }
 
-    // ─── ★ NEW: consistency validation ──────────────────────────────────────────────
+    // ★ NEW: consistency validation
 
     /// Validate document consistency, returns the list of issues (empty = everything is fine)
     ///
@@ -114,7 +115,7 @@ impl VizDocument {
         issues
     }
 
-    // ─── JSON serialization ──────────────────────────────────────────────────
+    // JSON serialization
 
     pub fn to_json(&self) -> String {
         // ★ Run consistency check before serializing (only print under MC_VIZ_DUMP)

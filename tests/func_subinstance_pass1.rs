@@ -80,9 +80,7 @@ fn host_with_func(body: &str) -> String {
     )
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // `-` (Series): anonymous + named receiver
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_funcsub__anonymous_minus_in_component_func_body_is_clean() {
@@ -106,9 +104,7 @@ fn sem_funcsub__named_minus_in_component_func_body_is_clean() {
     assert_absent(&codes, &GATE_CODES, "named '-' in component func body");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // `+` (Parallel)
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_funcsub__plus_in_component_func_body_is_clean() {
@@ -119,9 +115,7 @@ fn sem_funcsub__plus_in_component_func_body_is_clean() {
     assert_absent(&codes, &GATE_CODES, "'+' in component func body");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // `<-` (reverse Series)
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_funcsub__leftarrow_in_component_func_body_is_clean() {
@@ -132,9 +126,7 @@ fn sem_funcsub__leftarrow_in_component_func_body_is_clean() {
     assert_absent(&codes, &GATE_CODES, "'<-' in component func body");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Part 1 sibling-func benefit: find_inst sees the registered subinstance
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn sem_funcsub__sibling_func_resolves_registered_subinstance() {

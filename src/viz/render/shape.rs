@@ -5,16 +5,19 @@
 //! `BoxShape` trait + dispatch
 //!
 //! ## ★ P05 (S3) change
-//! Dispatch logic changed from `b.kind` to **`b.symbol`** (the Symbol field is filled in after P01/S2):
+//! Dispatch logic changed from `b.kind` to **`b.symbol`** (the Symbol field is filled in after
+//! P01/S2):
 //!
 //! - `Symbol::Resistor`        → [`super::resistor::ResistorShape`] (zigzag)
 //! - `Symbol::Capacitor`       → [`super::capacitor::CapacitorShape`] (parallel lines)
-//! - `Symbol::PolarCapacitor`  → same as above, but the right plate becomes an arc + adds "+" polarity
+//! - `Symbol::PolarCapacitor`  → same as above, but the right plate becomes an arc + adds "+"
+//! polarity
 //! - `Symbol::Inductor`        → [`super::inductor::InductorShape`] (half-circle wave)
 //! - `Symbol::Diode`/`Led`/`Zener` → [`super::diode::DiodeShape`] (triangle + bar)
 //! - `Symbol::Ic`              → [`super::ic::IcShape`] (P05 new pin labels)
 //! - `Symbol::Module`          → [`super::sub_module::render_sub_module`] (existing)
-//! - `Symbol::PowerRail{..}`   → [`super::power_rail::PowerRailShape`] (P05 real triangle / 3-bar GND)
+//! - `Symbol::PowerRail{..}`   → [`super::power_rail::PowerRailShape`] (P05 real triangle / 3-bar
+//! GND)
 //! - `Symbol::Unknown`         → fall back to old 4 shapes by `b.kind`
 //!
 //! Old shapes (`two_pin.rs` / `multi_pin.rs` / `power_label.rs`) are only used when falling
@@ -34,9 +37,7 @@ use super::resistor::ResistorShape;
 use super::sub_module::{render_sub_module, render_sub_module_root};
 use super::two_pin::TwoPinShape;
 
-// ============================================================================
 // trait
-// ============================================================================
 
 /// Render strategy for a single box
 pub trait BoxShape {
@@ -44,9 +45,7 @@ pub trait BoxShape {
     fn render(&self, b: &McVecBox) -> String;
 }
 
-// ============================================================================
 // Dispatch (★ P05: by Symbol)
-// ============================================================================
 
 /// Pick the corresponding Shape implementation by `b.symbol`
 ///
@@ -165,7 +164,7 @@ fn escape_xml_attr(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Pick the visible label for a box's name slot (mcd docs-mc 16-export-viz §6).
+/// Pick the visible label for a box's name slot (mcd spec/16-export-viz §6).
 /// Virtual instantiation views must not leak the fabricated instance name
 /// (`u_1`) into the schematic — the box then shows its class name instead.
 /// Mirrors the `suppress_instance_name` convention in ic.rs / multi_pin.rs /
@@ -266,9 +265,7 @@ fn render_box_legacy(b: &McVecBox, is_root: bool) -> String {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -326,7 +323,7 @@ mod tests {
         assert!(!svg.contains(r#"class="comp custom""#));
     }
 
-    /// mcd docs-mc 16-export-viz §6: a virtually instantiated test point
+    /// mcd spec/16-export-viz §6: a virtually instantiated test point
     /// (wrapper `u_1`) must not leak its fabricated instance name — the box
     /// shows its class name (e.g. `TP`) instead.
     #[test]

@@ -194,9 +194,7 @@ fn verify_module(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Instance comparison
-// ---------------------------------------------------------------------------
 
 fn compare_instances(
     inst: &McModuleInst,
@@ -371,9 +369,7 @@ fn compare_instances(
     (report, counts)
 }
 
-// ---------------------------------------------------------------------------
 // Connection comparison
-// ---------------------------------------------------------------------------
 
 /// Build one expansion-record tree node for the in-place funcall expansion:
 /// the record's label, its direct products (connections + generated
@@ -844,9 +840,7 @@ fn line_of_span(content: &Option<String>, sp: Option<&Span>) -> Option<u32> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Text rendering
-// ---------------------------------------------------------------------------
 
 fn render_text(out: &mut String, top: &str, summary: &Value, modules: &[Value], hierarchy: &Value) {
     let inst = &summary["instances"];

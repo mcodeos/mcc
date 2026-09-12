@@ -28,9 +28,7 @@ pub fn reset_r05_counter() {
     R05_UNRESOLVED_UNIT.store(0, Ordering::Relaxed);
 }
 
-// ============================================================================
 // Parameter values (actual arguments)
-// ============================================================================
 
 /// Parameter value type (actual arguments passed at call time)
 #[derive(Debug, Clone)]
@@ -57,7 +55,8 @@ impl McParamValue {
     /// Parse parameter value from an AST node
     pub fn new(node: &AstNode, context: &mut dyn HasFindInst) -> Option<Self> {
         match node.get_type() {
-            // Lemon automatically creates MCAST_* nodes for non-terminals, e.g. mc_param creates MCAST_PARAM
+            // Lemon automatically creates MCAST_* nodes for non-terminals, e.g. mc_param creates
+            // MCAST_PARAM
             // Need to extract the sub-node for processing
             MCAST_PARAM => {
                 if let Some(sub) = node.get_sub_node() {
@@ -125,9 +124,9 @@ impl McParamValue {
             }
 
             // Parenthesized group `(a, b)` as an actual — the same node type
-            // `McPhrase::new` builds a `Group` from. It previously fell through
-            // to `_ => None`, so a group actual was silently dropped; keep it
-            // as a `Group` phrase value. A one-member group `(a)` is just `a`.
+            // `McPhrase::new` builds a `Group` from. Falling through to
+            // `_ => None` would drop a group actual silently; keep it as a
+            // `Group` phrase value. A one-member group `(a)` is just `a`.
             MCAST_OPD_GROUP => {
                 let McPhrase::Group(g) = McPhrase::new(node, context)? else {
                     return None;
@@ -473,9 +472,7 @@ impl std::fmt::Display for McParamValue {
     }
 }
 
-// ============================================================================
 // Auxiliary structures
-// ============================================================================
 
 /// Function call (as parameter value)
 /*#[derive(Debug, Clone)]
@@ -623,9 +620,7 @@ impl McParamNetExpr {
     }
 }
 */
-// ============================================================================
 // Parameter bindings (for instantiation)
-// ============================================================================
 
 /// Parameter binding (binds actual argument to formal parameter)
 #[derive(Debug, Clone)]
@@ -823,7 +818,7 @@ impl McParamBindings {
             .collect();
         let effective_count = effective_pos.len();
 
-        // ── New arity rule ─────────────────────────────────────────────────
+        // New arity rule
         // required: only params that have NO unit type AND NO default value.
         // Unit-typed params without a matching arg → bind as `_` (unspecified), not an error.
         let total = declares.iter().count();
@@ -842,12 +837,12 @@ impl McParamBindings {
         // explicitly as `[..]` sets. ──
         let positional_values = effective_pos;
 
-        // ── Three-round binding ────────────────────────────────────────────
+        // Three-round binding
         let mut bindings: Vec<Option<McParamBinding>> = vec![None; total];
         let mut slot_claimed: Vec<bool> = vec![false; total];
         let mut pos_claimed: Vec<bool> = vec![false; positional_values.len()];
 
-        // ── Round 1: Named binding ─────────────────────────────────────────
+        // Round 1: Named binding
         // Each named argument (`{ cap = 1uF; ... }`) claims the formal slot
         // whose name matches (case-insensitive). Orphan named arguments —
         // names that match no formal parameter — are a hard error.
@@ -899,7 +894,7 @@ impl McParamBindings {
             });
         }
 
-        // ── Round 2: Unit claiming ──────────────────────────────────────────
+        // Round 2: Unit claiming
         // For each positional arg with a unit, try to claim a formal slot
         // whose declared unit matches the argument's unit.
         for (pi, pos_val) in positional_values.iter().enumerate() {
@@ -936,7 +931,7 @@ impl McParamBindings {
             }
         }
 
-        // ── Round 2.5: Enum / interface class claiming ─────────────────────
+        // Round 2.5: Enum / interface class claiming
         // Class-typed arguments — bare enum member `X7R` or dotted
         // `CAP.X7R` / `PKG.C0402` (which parse as `Opd(Id)`), or a dotted
         // interface member `DC.IVCC5` — claim the formal slot that declares
@@ -1026,7 +1021,7 @@ impl McParamBindings {
             }
         }
 
-        // ── Round 3: Positional fallback ────────────────────────────────────
+        // Round 3: Positional fallback
         // Remaining unclaimed positional args (strings, enums, package names, etc.)
         // fill remaining unclaimed slots in order.
         let remaining_pos: Vec<(usize, &McParamValue)> = positional_values
@@ -1054,7 +1049,7 @@ impl McParamBindings {
             return Err(ParamBindError::TooManyArguments { expected, got });
         }
 
-        // ── Fill unclaimed slots ────────────────────────────────────────────
+        // Fill unclaimed slots
         // Unclaimed slots with unit type → bind as `_` (unspecified), no error.
         // Unclaimed slots with default → bind with default value.
         // Unclaimed slots without default → bind as None (represents `_`).
@@ -1073,7 +1068,7 @@ impl McParamBindings {
             }
         }
 
-        // ── Enum value validation ───────────────────────────────────────────
+        // Enum value validation
         // Verify that enum-class parameter values are valid enum members.
         // Only plain-Ids values are checked: dotted / Opd-wrapped values in a
         // chain expression may legitimately be positional fallback arguments
@@ -1227,9 +1222,7 @@ impl std::fmt::Display for ParamBindError {
     }
 }
 
-// ============================================================================
 // Tests: NC modifier stripping doesn't affect arity
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -1360,7 +1353,7 @@ mod tests {
         }
     }
 
-    // ── p3: named-argument binding ────────────────────────────────────────
+    // p3: named-argument binding
 
     /// Build a single-name formal parameter declaration.
     fn single_declare(name: &str) -> McParamDeclare {
@@ -1494,7 +1487,7 @@ mod tests {
         }
     }
 
-    // ── p4: enum / interface class heuristic claiming ─────────────────────
+    // p4: enum / interface class heuristic claiming
 
     /// Register a small `CAP { X7R, C0G }` enum in the registry's system
     /// segment so enum-class claiming sees it (mirrors library loading;

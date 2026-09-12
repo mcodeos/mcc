@@ -57,9 +57,7 @@ pub fn complete(uri: &str, prefix: Option<&str>, scope: Option<&str>) -> Vec<Val
         .collect()
 }
 
-// ============================================================================
 // Position → authoritative scope (§8.1 item 5)
-// ============================================================================
 
 /// Symbol hit at a position: the enclosing container and function names,
 /// resolved through the symbol lapper + SourceLocation intern tables.
@@ -258,9 +256,7 @@ pub fn complete_at_pos(uri: &str, position: usize, prefix: Option<&str>) -> Valu
     })
 }
 
-// ============================================================================
 // Member-access enumeration (§5.6 / §8.1 item 4)
-// ============================================================================
 
 /// A single member candidate.
 struct MemberItem {

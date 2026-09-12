@@ -618,10 +618,9 @@ pub fn get_runtime_trace_flag() -> Option<u8> {
     })
 }
 
-// ============================================================================
 // Rust log three-way switch runtime state + reload callback bridge
-//   reload handle lives in the binary's logging.rs, the lib side only stores "apply callback", registered by the binary.
-// ============================================================================
+// reload handle lives in the binary's logging.rs, the lib side only stores "apply callback",
+// registered by the binary.
 
 #[derive(Clone)]
 struct LogStreams {
@@ -655,7 +654,8 @@ fn get_log_streams() -> &'static RwLock<LogStreams> {
 type LogApplier = Box<dyn Fn(&str, bool, bool) + Send + Sync>;
 static mut LOG_APPLIER: Option<LogApplier> = None;
 
-/// Registered by the binary after log initialization: applies (server_level, pass1, pass2) to reload filter.
+/// Registered by the binary after log initialization: applies (server_level, pass1, pass2) to
+/// reload filter.
 pub fn set_log_stream_applier(f: LogApplier) {
     unsafe {
         LOG_APPLIER = Some(f);
@@ -719,9 +719,7 @@ pub fn get_libs_load_list(project_root: Option<&Path>) -> Vec<String> {
     merged.libs.get_load_list().to_vec()
 }
 
-// ============================================================================
 // Debug target aliases & resolution
-// ============================================================================
 
 /// Known debug-target aliases.
 /// Each alias expands to one or more tracing targets.
@@ -784,9 +782,7 @@ pub fn base_level(verbose: u8, quiet: bool) -> &'static str {
     }
 }
 
-// ============================================================================
 // Per-target debug level overrides (bridge between lib ↔ binary logging)
-// ============================================================================
 
 /// In-library storage for per-target debug overrides.
 /// Mirrors `logging::TARGETS` in the binary so RPC handlers can read/write.

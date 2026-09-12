@@ -150,7 +150,7 @@ impl McAttribute {
         // MCAST_ATTRIBUTE
         // |- MCAST_ATT_ID (--- MCAST_ATT_VALUES)?
         //
-        // Power-intent trailing attributes add two shapes (power-intent-design.md
+        // Power-intent trailing attributes add two shapes (intent-design.md
         // §5 / mca.y mc_tattr): the valued `@role(main)` form keeps the classic
         // [MCAST_ATT_ID, MCAST_ATT_VALUES] child pair, while a bare flag such as
         // `@star` / `@return` yields MCAST_ATT_ID as the *only* child. The value

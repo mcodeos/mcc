@@ -38,9 +38,7 @@ impl ValidationCheck for InstsCheck {
     }
 }
 
-// ============================================================================
 // S1: Instance param count/type mismatch vs definition
-// ============================================================================
 
 /// For each module, check that Component/Module/Interface instance constructor
 /// args match the definition's parameter arity.
@@ -252,9 +250,7 @@ fn instance_span(m: &crate::McModule, inst_name: &str) -> Option<std::ops::Range
     Some(m.span.start..m.span.end)
 }
 
-// ============================================================================
 // R1: Role with empty body
-// ============================================================================
 
 /// Interface roles that have no pins, no attrs, and no body content.
 fn check_role_empty_body(acc: &mut CheckAccumulator) {
@@ -290,9 +286,7 @@ fn check_role_empty_body(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // R2: Role name conflict with interface port/param
-// ============================================================================
 
 /// Role name should not collide with a port name or parameter name
 /// in the same interface.
@@ -346,9 +340,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // R6: IO type direction on function parameter declaration
-// ============================================================================
 
 /// Function parameters should not carry IO direction (in/out/io/ps/anl/nc).
 /// IO types are for ports, not function arguments.
@@ -418,9 +410,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // R7: `role` keyword as param in component/module (non-interface)
-// ============================================================================
 
 /// The `role` keyword parameter is only valid inside interface definitions.
 /// Flag it when used in components or modules.
@@ -486,9 +476,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // R9: Non-constant / expression-like default value
-// ============================================================================
 
 /// Default values should be simple constants, not expressions with operators
 /// or variable references.

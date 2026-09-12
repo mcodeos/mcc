@@ -8,23 +8,34 @@
 //!
 //! ## What problem does this file solve
 //! `SchematicRadialLayouter` only models "each box ↔ anchor", spreading all modules
-//! equidistantly around MCU, crossings are **forced** by layout. `FlowLayouter` uses **full edge** information for layout.
+//! equidistantly around MCU, crossings are **forced** by layout. `FlowLayouter` uses **full edge**
+//! information for layout.
 //!
 //! ## Stage A (implemented)
-//! - A2: First explode power rails into local flags (see `rails.rs`), flags extracted from core layout, no trunk.
-//! - A1: Core modules layered by connectivity + barycenter to remove crossings, flags placed next to consumer.
+//! - A2: First explode power rails into local flags (see `rails.rs`), flags extracted from core
+//! layout, no trunk.
+//! - A1: Core modules layered by connectivity + barycenter to remove crossings, flags placed next
+//! to consumer.
 //!
 //! ## Stage B (this time)
-//! Stage A first version ranker used "directed edge longest-path" as main approach, but most top-level connections are io/directionless,
-//! causing many nodes to be mistakenly identified as rank0 sources, all piled into hub column → vertical spaghetti. This rewrite:
+//! Stage A first version ranker used "directed edge longest-path" as main approach, but most
+//! top-level connections are io/directionless,
+//! causing many nodes to be mistakenly identified as rank0 sources, all piled into hub column →
+//! vertical spaghetti. This rewrite:
 //!
-//! - **B1 — hub-BFS layering**: rank = **undirected BFS distance** with hub as root. Direction only used for
-//!   *selecting root* (main chip → directed source → max degree) and determining left/right orientation for isolated components. Hub's neighbors
+//! - **B1 — hub-BFS layering**: rank = **undirected BFS distance** with hub as root. Direction only
+//! used for
+//! *selecting root* (main chip → directed source → max degree) and determining left/right
+//! orientation for isolated components. Hub's neighbors
 //!   must fall in adjacent columns, no longer stacked in same column.
-//! - **B2 — Dual-side layout (hub-specific)**: When "dominant hub" is detected (degree far exceeds others), place hub
-//!   in middle column, its branches (connected subgraph of core minus hub, keep whole group) distribute to
-//!   left/right sides by height → rank with sign (negative=left, 0=hub, positive=right). Wires fan out to both sides, column height halved.
-//! - **B3 — Flag de-overlap**: Multiple power flags on same side of same box spread evenly centered along the edge.
+//! - **B2 — Dual-side layout (hub-specific)**: When "dominant hub" is detected (degree far exceeds
+//! others), place hub
+//! in middle column, its branches (connected subgraph of core minus hub, keep whole group)
+//! distribute to
+//! left/right sides by height → rank with sign (negative=left, 0=hub, positive=right). Wires fan
+//! out to both sides, column height halved.
+//! - **B3 — Flag de-overlap**: Multiple power flags on same side of same box spread evenly centered
+//! along the edge.
 //!
 //! ## Reuse
 //! size / entry_points / overlap / normalize all reuse existing helpers.
@@ -48,9 +59,7 @@ use super::size::{assign_default_sizes, recompute_sizes_with_pin_count};
 use crate::viz::layout_model::SchematicLayoutModel;
 use crate::viz::traits::Layouter;
 
-// ============================================================================
 // FlowLayouter
-// ============================================================================
 
 pub struct FlowLayouter {
     /// Column pitch (actual takes max(this value, widest box + gap))
@@ -59,22 +68,33 @@ pub struct FlowLayouter {
     pub row_pitch: f64,
     /// Distance from flag to consumer edge
     pub flag_gap: f64,
-    /// Number of barycenter crossing removal sweeps (bidirectional, each direction counts as one round)
+    /// Number of barycenter crossing removal sweeps (bidirectional, each direction counts as one
+    /// round)
     pub bary_sweeps: usize,
-    /// Dual-side layout trigger threshold: hub degree ≥ this value and > second highest degree to enable dual-side
+    /// Dual-side layout trigger threshold: hub degree ≥ this value and > second highest degree to
+    /// enable dual-side
     pub hub_min_degree: usize,
-    /// ★ FIX (subgraph): whether to recompute box size by pin name/number after pin assignment (activates box_size pin-aware path). Top-level = false (size unchanged), sub-level = true (enlarge uC/SubModule).
+    /// ★ FIX (subgraph): whether to recompute box size by pin name/number after pin assignment
+    /// (activates box_size pin-aware path). Top-level = false (size unchanged), sub-level = true
+    /// (enlarge uC/SubModule).
     pub recompute_sizes: bool,
-    /// Routing mode switch for multi-terminal single-driver nets / buses (router/scheduler reads graph.fanout_star):
-    /// - `true`  = hub-star: all loads converge to **the same pin point on the driver device**, multiple wires fan out from that point.
-    /// - `false` = TrunkTap / BusBundle: one trunk + each pin taps in separately (standard schematic practice).
+    /// Routing mode switch for multi-terminal single-driver nets / buses (router/scheduler reads
+    /// graph.fanout_star):
+    /// - `true`  = hub-star: all loads converge to **the same pin point on the driver device**,
+    /// multiple wires fan out from that point.
+    /// - `false` = TrunkTap / BusBundle: one trunk + each pin taps in separately (standard
+    /// schematic practice).
     ///
-    /// ★ Change: default changed from `true` to `false`. `true` was originally to cover up "top-level synthetic endpoint collapse"
-    /// (this issue is now fundamentally fixed by **unconditionally** calling `promote_synthetic_pins` in layout phase), but it draws
-    /// single-driver multi-load nets as "several wires fanning out from one point", not following schematic conventions. After changing to `false`, each pin
+    /// ★ Change: default changed from `true` to `false`. `true` was originally to cover up
+    /// "top-level synthetic endpoint collapse"
+    /// (this issue is now fundamentally fixed by **unconditionally** calling
+    /// `promote_synthetic_pins` in layout phase), but it draws
+    /// single-driver multi-load nets as "several wires fanning out from one point", not following
+    /// schematic conventions. After changing to `false`, each pin
     /// connects at its own exit point then wires out.
     pub fanout_star: bool,
-    /// 05b: hub keep semantic sides (Input=Left, Output=Right). true = old behavior, false = connectivity-first.
+    /// 05b: hub keep semantic sides (Input=Left, Output=Right). true = old behavior, false =
+    /// connectivity-first.
     pub hub_keep_semantic: bool,
     /// Ladder model + committed geometry (populated by Phase B when the graph is a clean
     /// two-lane bridged-passive ladder). `None` = graph is not a ladder, or model bailed.
@@ -108,7 +128,8 @@ impl Default for FlowLayouter {
 }
 
 impl FlowLayouter {
-    /// Configuration for sub-layer: IC anchoring + more compact spacing (passive components are small, many in quantity)
+    /// Configuration for sub-layer: IC anchoring + more compact spacing (passive components are
+    /// small, many in quantity)
     pub fn sub() -> Self {
         Self {
             col_pitch: 360.0,
@@ -147,9 +168,10 @@ impl FlowLayouter {
 
     /// Phase 1 · Prepare — topology normalization + coarse pins.
     ///
-    /// Writes: fanout-related synth/split structures in graph, initial box sizes, coarse entry_points.
+    /// Writes: fanout-related synth/split structures in graph, initial box sizes, coarse
+    /// entry_points.
     fn phase_prepare(&self, graph: &mut McVecGraph) {
-        // ── ★ P7-3: rail triage (R-1/R-2/R-3 + top-level C5), runs first ──────────
+        // ★ P7-3: rail triage (R-1/R-2/R-3 + top-level C5), runs first
         //   Rail nets are replaced here by driver segment edges + pin decorations
         //   (not in boxes); every later pass (coalesce / pin_place / islands /
         //   passive_inline) sees a pure signal graph.
@@ -175,7 +197,8 @@ impl FlowLayouter {
         assign_entry_points_coarse(graph);
     }
 
-    /// Fallback exit A — fully disconnected graph: pin-aware size recompute then grid-fill the canvas.
+    /// Fallback exit A — fully disconnected graph: pin-aware size recompute then grid-fill the
+    /// canvas.
     fn exit_grid(&self, graph: &mut McVecGraph) -> (f64, f64) {
         assign_default_sizes(graph);
         place_grid(graph);
@@ -198,7 +221,7 @@ impl FlowLayouter {
     ///
     /// Returns (root_id, isolated_ids) for later phases.
     fn phase_placement(&self, graph: &mut McVecGraph) -> (i64, HashSet<i64>) {
-        // ── ★ P7-7: anchor hinted boxes before main placement ───────────────
+        // ★ P7-7: anchor hinted boxes before main placement
         // Boxes with anchor_hint are placed at their host pin's position and
         // locked, so they skip rank/column/park entirely.
         let mut anchored_s3 = 0usize;
@@ -565,7 +588,8 @@ impl Layouter for FlowLayouter {
             self.apply_schematic_model(graph);
             graph.claim_geom_changes(&g_snap, "4.schematic_model");
 
-            // The old path still runs: fully overridden by ladder_place on model hit, fallback when the model bails
+            // The old path still runs: fully overridden by ladder_place on model hit, fallback when
+            // the model bails
             let g_snap = graph.geom_snapshot();
             super::two_lane_ladder::try_two_lane_ladder(graph);
             graph.claim_geom_changes(&g_snap, "5.two_lane");
@@ -642,9 +666,7 @@ impl Layouter for FlowLayouter {
 // (★ P7-3 removed: FlagTarget / FlagMeta / split_flags —— flags are no longer boxes,
 //  no need to extract before core layout or re-home in the Post phase.)
 
-// ============================================================================
 // ★ P8-3 R-B: filter Ground nets for main layer
-// ============================================================================
 
 /// For the main layer, hide Ground nets and their decorations.
 /// GND exists in the netlist for ERC but is invisible in the main diagram
@@ -677,19 +699,16 @@ fn filter_ground_nets_for_main(graph: &mut McVecGraph) {
     }
 }
 
-// ============================================================================
 // ★ P8-4: main compass layout (obsolete — replaced by radial layout in B2)
-// ============================================================================
 // Size: height ∝ signal net count (vertical stretch, let parallel wire bundles spread apart)
-// ============================================================================
 
 /// Box height scaled by "pin count per side" (only increase, never decrease).
 ///
 /// Pins sit on the left/right edges, so the box only needs to span the most
 /// loaded side — sizing by the TOTAL pin count made multi-pin parts (e.g. the
 /// 37-pin TLE7368 module box) twice as tall as necessary and spaced the pins
-/// far apart. Pitch matches the virtual component view (`20 px`, mcd docs-mc
-/// 16-export-viz §6).
+/// far apart. Pitch matches the virtual component view
+/// (`20 px`, mcd spec/16-export-viz §6).
 fn size_by_core_fanout(graph: &mut McVecGraph) {
     const PITCH: f64 = 20.0; // Vertical spacing reserved for each pin
     const PAD: f64 = 26.0;
@@ -726,13 +745,19 @@ fn size_by_core_fanout(graph: &mut McVecGraph) {
 
 /// ★ P0b — leaf aligns to neighbor (dual of align_hub_to_spokes).
 ///
-/// align_hub only stretches hub to align peripherals; leaf↔leaf (mic↔speaker) or connections not covered by hub,
-/// lines still slant→bend. This pass for each non-hub box **with only one core neighbor**, shifts entire box vertically,
-/// aligning "its pin cluster connecting to that neighbor" with "neighbor's corresponding pin cluster" (single net → perfectly horizontal line). Collision
-/// check before shift, give up if hitting other boxes (alignment is soft constraint, doesn't break "no overlap" hard constraint).
+/// align_hub only stretches hub to align peripherals; leaf↔leaf (mic↔speaker) or connections not
+/// covered by hub,
+/// lines still slant→bend. This pass for each non-hub box **with only one core neighbor**, shifts
+/// entire box vertically,
+/// aligning "its pin cluster connecting to that neighbor" with "neighbor's corresponding pin
+/// cluster" (single net → perfectly horizontal line). Collision
+/// check before shift, give up if hitting other boxes (alignment is soft constraint, doesn't break
+/// "no overlap" hard constraint).
 ///
-/// Must run **before** align_hub_to_spokes: leaves position first, hub stretches to cover final leaf position →
-/// two-step convergence, no oscillation (hub doesn't move leaves, leaf movement has collision guard).
+/// Must run **before** align_hub_to_spokes: leaves position first, hub stretches to cover final
+/// leaf position →
+/// two-step convergence, no oscillation (hub doesn't move leaves, leaf movement has collision
+/// guard).
 fn align_leaf_to_neighbor(graph: &mut McVecGraph, hub_id: i64) {
     // Current coordinate snapshot (owned, avoid borrow conflict with later iter_mut)
     let rects: HashMap<i64, (f64, f64, f64, f64)> = graph
@@ -765,7 +790,8 @@ fn align_leaf_to_neighbor(graph: &mut McVecGraph, hub_id: i64) {
             if mine.is_empty() {
                 continue;
             }
-            // Only recognize "positioned real boxes" as opposite end (flags not in boxes now → auto excluded)
+            // Only recognize "positioned real boxes" as opposite end (flags not in boxes now → auto
+            // excluded)
             let other = net
                 .endpoints
                 .iter()
@@ -790,7 +816,8 @@ fn align_leaf_to_neighbor(graph: &mut McVecGraph, hub_id: i64) {
                 }
             }
         }
-        // Only align leaves with "single core neighbor" (multi-neighbor direction unclear, leave to router)
+        // Only align leaves with "single core neighbor" (multi-neighbor direction unclear, leave to
+        // router)
         if neighbors.len() != 1 || pairs.is_empty() {
             continue;
         }
@@ -883,7 +910,8 @@ fn choose_root(
     {
         return b.id;
     }
-    // Sub-layer anchoring: prefer IC with most pins (top-level module is Module, won't match → behavior unchanged)
+    // Sub-layer anchoring: prefer IC with most pins (top-level module is Module, won't match →
+    // behavior unchanged)
     if let Some(b) = graph
         .boxes
         .iter()
@@ -943,7 +971,8 @@ fn assign_flow_ranks(graph: &McVecGraph, hub_min_degree: usize) -> HashMap<i64, 
             }
         }
     }
-    // ── Isolated components (BFS can't reach root): each from local source / min id, mag = 1 + local depth ──
+    // ── Isolated components (BFS can't reach root): each from local source / min id, mag = 1 +
+    // local depth ──
     let mut visited: HashSet<i64> = mag.keys().copied().collect();
     for &start in &core_ids {
         if visited.contains(&start) {
@@ -1002,17 +1031,22 @@ fn assign_flow_ranks(graph: &McVecGraph, hub_min_degree: usize) -> HashMap<i64, 
     let root_is_ic = root_box
         .map(|b| matches!(b.symbol, Symbol::Ic))
         .unwrap_or(false);
-    // ★ Main chip (name contains mcu/cpu/soc/fpga...) even if symbol is Module counts as hub candidate.
-    //   Top-level controller collapses to Module (not Ic), previously only Ic took loose two-sided gate → controller treated as normal source
-    //   node, single-sided layering → "stick to left, peripherals all on right". Include main chip in loose gate, let it radiate from center to both sides.
+    // ★ Main chip (name contains mcu/cpu/soc/fpga...) even if symbol is Module counts as hub
+    // candidate.
+    //   A top-level controller collapses to Module (not Ic), so an "Ic only" loose two-sided
+    // gate would treat it as a normal source node and layer it single-sided — "stick to left,
+    // peripherals all on right". Include the main chip in the loose gate so it radiates from
+    // center to both sides.
     let root_is_main_chip = root_box
         .map(|b| naming::is_main_chip(&b.name))
         .unwrap_or(false);
     let dominant = (root_deg >= hub_min_degree
         && root_deg > second_deg
         && (root_deg as f64) >= 0.4 * (n as f64 - 1.0))
-        // Sub-layer IC / any-layer main chip: is "most connected (≥ second place) and ≥3" core → radiate from center to both sides,
-        //   don't stack into one column. This is exactly what user wants: "core components radiate outward from center".
+        // Sub-layer IC / any-layer main chip: is "most connected (≥ second place) and ≥3" core →
+        // radiate from center to both sides,
+        // don't stack into one column. This is exactly what user wants: "core components radiate
+        // outward from center".
         || ((root_is_ic || root_is_main_chip) && root_deg >= 3 && root_deg >= second_deg);
 
     if !dominant {
@@ -1024,7 +1058,8 @@ fn assign_flow_ranks(graph: &McVecGraph, hub_min_degree: usize) -> HashMap<i64, 
         return mag;
     }
 
-    // ── Two-sided: branches = connected subgraph of (core minus root); assign entire groups to left/right, balance by height ──
+    // ── Two-sided: branches = connected subgraph of (core minus root); assign entire groups to
+    // left/right, balance by height ──
     let branches = branches_excluding(root, &adj, &core_ids);
     let box_h: HashMap<i64, f64> = graph.boxes.iter().map(|b| (b.id, b.h)).collect();
     let mut branch_h: Vec<(usize, f64)> = branches
@@ -1108,17 +1143,17 @@ fn branches_excluding(root: i64, adj: &HashMap<i64, Vec<i64>>, core_ids: &[i64])
     out
 }
 
-// ============================================================================
 // Isolated component parking
-// ============================================================================
 
 /// ★ Compute "isolated component" box set: those connected components **not containing hub**.
 ///
 /// When to call: must be after split_flags, before place_flags (flags extracted → build_adjacency
 /// is pure core adjacency, won't miscount components due to per-consumer flags).
 ///
-/// Example: usbsocket↔ldo only connected via Vin, only power (became flag) between it and main circuit (mcu...) →
-/// They are a connected component without hub → all enter isolated set. dcdc if has real connection (like [VCC_1V2,GND]
+/// Example: usbsocket↔ldo only connected via Vin, only power (became flag) between it and main
+/// circuit (mcu...) →
+/// They are a connected component without hub → all enter isolated set. dcdc if has real connection
+/// (like [VCC_1V2,GND]
 /// bundle net) to main → in hub component → not in isolated set → stays in main layout.
 /// ★ P7-3 acceptance item: this set must be empty for the main layer (driver segment
 /// edges wire power modules into the main flow, so no more "power-only" islands).
@@ -1178,12 +1213,16 @@ pub fn compute_isolated_ids(graph: &McVecGraph, hub_id: i64) -> HashSet<i64> {
     out
 }
 
-/// ★ Shift isolated components as a whole to open area below main body (rigid shift, preserves internal relative layout).
+/// ★ Shift isolated components as a whole to open area below main body (rigid shift, preserves
+/// internal relative layout).
 ///
-/// Main layout calculated normally (isolated boxes participated in placement, but this pass moves them as a group at the end → main
-/// body box positions unaffected). Isolated box flags (V5V etc) found by net and moved together, no one left behind.
+/// Main layout calculated normally (isolated boxes participated in placement, but this pass moves
+/// them as a group at the end → main
+/// body box positions unaffected). Isolated box flags (V5V etc) found by net and moved together, no
+/// one left behind.
 ///
-/// When to call: after place_flags **completed** (flags positioned to move together), before normalize (after shift,
+/// When to call: after place_flags **completed** (flags positioned to move together), before
+/// normalize (after shift,
 /// normalize + recalculate canvas).
 fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>) {
     if isolated_ids.is_empty() {
@@ -1211,7 +1250,8 @@ fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>)
         return;
     }
 
-    // 3. Parking spot: whitespace below main body, left-aligned with main body left edge. Rigid shift entire isolated box + flag group.
+    // 3. Parking spot: whitespace below main body, left-aligned with main body left edge. Rigid
+    // shift entire isolated box + flag group.
     const GAP: f64 = 160.0;
     let dx = main_minx - iso_minx;
     let dy = (main_maxy + GAP) - iso_miny;
@@ -1234,9 +1274,7 @@ fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>)
 //  the whole chain deleted. Driver segment edges already wire power modules into the
 //  main flow; ranking by flow direction suffices.)
 
-// ============================================================================
 // barycenter de-crossing
-// ============================================================================
 
 fn order_columns(graph: &McVecGraph, ranks: &HashMap<i64, i32>, sweeps: usize) -> Vec<Vec<i64>> {
     // signed rank → sort dedup → column index
@@ -1310,18 +1348,21 @@ fn barycenter(
     }
 }
 
-// ============================================================================
 // ★ P5 — Column-internal Y coordinate refinement (Sugiyama coordinate assignment phase)
-// ============================================================================
 
-/// ★ P5 switch: if this pass introduces regression, change to false → fully restore pre-change coordinates (zero-risk rollback).
+/// ★ P5 switch: if this pass introduces regression, change to false → fully restore pre-change
+/// coordinates (zero-risk rollback).
 const ENABLE_Y_REFINE: bool = true;
 
-/// ★ P5 — Column-internal Y coordinate refinement (Sugiyama coordinate assignment phase, currently missing from pipeline).
+/// ★ P5 — Column-internal Y coordinate refinement (Sugiyama coordinate assignment phase, currently
+/// missing from pipeline).
 ///
-/// order_columns only sets order within column, place_columns stacks at equal intervals → box Y unrelated to neighbors, wires slant through.
-/// This pass preserves column order, repeatedly pulls each box toward "median of neighbor center Y", then uses order-preserving minimum spacing projection
-/// (PAVA) to land positions. Only modifies Y, x unchanged, bounded iteration. `row_gap` = minimum vertical gap between adjacent boxes in column
+/// order_columns only sets order within column, place_columns stacks at equal intervals → box Y
+/// unrelated to neighbors, wires slant through.
+/// This pass preserves column order, repeatedly pulls each box toward "median of neighbor center
+/// Y", then uses order-preserving minimum spacing projection
+/// (PAVA) to land positions. Only modifies Y, x unchanged, bounded iteration. `row_gap` = minimum
+/// vertical gap between adjacent boxes in column
 /// (pass self.row_pitch → only align/spread, not compress, most conservative).
 fn refine_y_coordinates(graph: &mut McVecGraph, iters: usize, row_gap: f64) {
     if !ENABLE_Y_REFINE || graph.boxes.len() < 3 {
@@ -1329,7 +1370,8 @@ fn refine_y_coordinates(graph: &mut McVecGraph, iters: usize, row_gap: f64) {
     }
     let adj = build_adjacency(graph); // flags already removed → core connections (power/ground go through flags, don't constrain layout)
 
-    // Group into columns by x (this pass doesn't modify x → group once). x quantized to 4px tolerance.
+    // Group into columns by x (this pass doesn't modify x → group once). x quantized to 4px
+    // tolerance.
     let mut col_of: HashMap<i64, Vec<i64>> = HashMap::new();
     for b in &graph.boxes {
         col_of
@@ -1359,7 +1401,8 @@ fn refine_y_coordinates(graph: &mut McVecGraph, iters: usize, row_gap: f64) {
                 continue;
             }
 
-            // Current position snapshot (including previous columns updated in this sweep → Gauss-Seidel, fast convergence)
+            // Current position snapshot (including previous columns updated in this sweep →
+            // Gauss-Seidel, fast convergence)
             let cy: HashMap<i64, f64> = graph
                 .boxes
                 .iter()
@@ -1381,7 +1424,8 @@ fn refine_y_coordinates(graph: &mut McVecGraph, iters: usize, row_gap: f64) {
                 .map(|id| *hmap.get(id).unwrap_or(&0.0))
                 .collect();
 
-            // Each box's desired top Y = (damped neighbor center median) − h/2; if no neighbors keep current.
+            // Each box's desired top Y = (damped neighbor center median) − h/2; if no neighbors
+            // keep current.
             let desired_top: Vec<f64> = ordered
                 .iter()
                 .enumerate()
@@ -1409,9 +1453,11 @@ fn refine_y_coordinates(graph: &mut McVecGraph, iters: usize, row_gap: f64) {
                 })
                 .collect();
 
-            // PAVA order-preserving minimum spacing projection: require y[i+1] ≥ y[i] + h[i] + row_gap.
-            //   Let s[i]=Σ_{k<i}(h[k]+gap), u[i]=y[i]−s[i] → constraint becomes u non-decreasing; for
-            //   t[i]=desired_top[i]−s[i] do order-preserving regression to get the closest feasible u.
+            // PAVA order-preserving minimum spacing projection: require y[i+1] ≥ y[i] + h[i] +
+            // row_gap.
+            // Let s[i]=Σ_{k<i}(h[k]+gap), u[i]=y[i]−s[i] → constraint becomes u non-decreasing; for
+            // t[i]=desired_top[i]−s[i] do order-preserving regression to get the closest feasible
+            // u.
             let n = ordered.len();
             let mut s = vec![0.0_f64; n];
             for i in 1..n {
@@ -1436,7 +1482,8 @@ fn refine_y_coordinates(graph: &mut McVecGraph, iters: usize, row_gap: f64) {
     );
 }
 
-/// Order-preserving regression (pool adjacent violators): returns the closest **non-decreasing** sequence to `t` (L2 optimal).
+/// Order-preserving regression (pool adjacent violators): returns the closest **non-decreasing**
+/// sequence to `t` (L2 optimal).
 fn pava(t: &[f64]) -> Vec<f64> {
     let mut val: Vec<f64> = Vec::with_capacity(t.len());
     let mut wt: Vec<f64> = Vec::with_capacity(t.len());
@@ -1461,9 +1508,7 @@ fn pava(t: &[f64]) -> Vec<f64> {
     out
 }
 
-// ============================================================================
 // Placement
-// ============================================================================
 
 impl FlowLayouter {
     fn place_columns(&self, graph: &mut McVecGraph, columns: &[Vec<i64>]) {
@@ -1473,18 +1518,25 @@ impl FlowLayouter {
         let max_w = graph.boxes.iter().map(|b| b.w).fold(0.0_f64, f64::max);
         let pitch = self.col_pitch.max(max_w + 80.0);
 
-        // Box height lookup: first take as owned HashMap, so the closure below borrows hmap not graph,
-        //   then placement phase can do graph.boxes.iter_mut() normally (otherwise closure holding &graph conflicts with mutable borrow).
+        // Box height lookup: first take as owned HashMap, so the closure below borrows hmap not
+        // graph,
+        // then placement phase can do graph.boxes.iter_mut() normally (otherwise closure holding
+        // &graph conflicts with mutable borrow).
         let hmap: std::collections::HashMap<i64, f64> =
             graph.boxes.iter().map(|b| (b.id, b.h)).collect();
         let box_h = |id: i64| -> f64 { hmap.get(&id).copied().unwrap_or(0.0) };
 
         // ── Fold each rank column into a "near-square" sub-column grid ──
-        //   If a rank has multiple boxes (typical: hub's bunch of peripheral neighbors BFS distance all=1 → all fall in same
-        //   rank → old version squashed into a sparse vertical bar, large empty space on both sides), split into k sub-columns horizontally
-        //   by target height. k = round(sqrt(column total height / column spacing)) → grid width ≈ height, fill the 2D space next to hub,
-        //   leaving maximum routing margin. Single-box column (like hub itself) / short column → k=1, behavior matches old version, chain
-        //   /small graph no regression. Each sub-column height balanced (column total height / k), no column stuffed full and another empty.
+        // If a rank has multiple boxes (typical: hub's bunch of peripheral neighbors BFS distance
+        // all=1 → all fall in same
+        // rank → old version squashed into a sparse vertical bar, large empty space on both sides),
+        // split into k sub-columns horizontally
+        // by target height. k = round(sqrt(column total height / column spacing)) → grid width ≈
+        // height, fill the 2D space next to hub,
+        // leaving maximum routing margin. Single-box column (like hub itself) / short column → k=1,
+        // behavior matches old version, chain
+        // /small graph no regression. Each sub-column height balanced (column total height / k), no
+        // column stuffed full and another empty.
         let mut bands: Vec<Vec<Vec<i64>>> = Vec::new(); // bands[col] = sub-column set of that column
         for col in columns {
             let n = col.len();
@@ -1497,7 +1549,8 @@ impl FlowLayouter {
                 };
             // Expected sub-column count (grid near-square); single-box column naturally gets 1.
             let k = ((total_h / pitch).sqrt().round() as usize).max(1);
-            // Each sub-column target height: evenly divided, but at least fits the column's tallest box.
+            // Each sub-column target height: evenly divided, but at least fits the column's tallest
+            // box.
             let target = (total_h / k as f64).max(tallest_in_col);
 
             let mut subcols: Vec<Vec<i64>> = vec![Vec::new()];
@@ -1536,7 +1589,8 @@ impl FlowLayouter {
             .fold(0.0_f64, f64::max);
         let mid_y = CANVAS_MARGIN + max_h / 2.0;
 
-        // ── Placement: horizontal cursor advances by "sub-column" (each sub-column takes one pitch); within column stack vertically centered ──
+        // ── Placement: horizontal cursor advances by "sub-column" (each sub-column takes one
+        // pitch); within column stack vertically centered ──
         let mut cx = CANVAS_MARGIN + max_w / 2.0;
         for subcols in &bands {
             for sc in subcols {
@@ -1558,19 +1612,24 @@ impl FlowLayouter {
     //  terminals render as pin decorations.)
 }
 
-/// Whether graph is "fully disconnected" —— no cross-box net (≥2 boxes but no inter-box connections).
+/// Whether graph is "fully disconnected" —— no cross-box net (≥2 boxes but no inter-box
+/// connections).
 ///
-/// Such graphs through flow layering will collapse to sparse single column (see notes in layout), better to use grid arrangement.
+/// Such graphs through flow layering will collapse to sparse single column (see notes in layout),
+/// better to use grid arrangement.
 fn is_fully_disconnected(graph: &McVecGraph) -> bool {
     graph.boxes.len() >= 2 && !graph.nets.iter().any(|n| n.is_inter_box())
 }
 
 /// Grid arrangement: place boxes in near-square (slightly wider) grid covering the canvas.
 ///
-/// For fully disconnected graphs —— no connection info to follow, arrange neatly in grid to avoid sparse single column.
-/// - Column count takes `round(sqrt(n) * 1.25)`, making layout slightly wider than square (fits horizontal canvas better);
+/// For fully disconnected graphs —— no connection info to follow, arrange neatly in grid to avoid
+/// sparse single column.
+/// - Column count takes `round(sqrt(n) * 1.25)`, making layout slightly wider than square (fits
+/// horizontal canvas better);
 /// - **Preserve existing box order** (don't reorder, safer), fill cells row-first;
-/// - Each column width = widest box in that column, each row height = tallest box in that row, boxes centered in their cells;
+/// - Each column width = widest box in that column, each row height = tallest box in that row,
+/// boxes centered in their cells;
 /// - Column gap / row gap fixed and moderate (not flow's row_pitch=220 large row spacing).
 fn place_grid(graph: &mut McVecGraph) {
     let n = graph.boxes.len();
@@ -1598,7 +1657,8 @@ fn place_grid(graph: &mut McVecGraph) {
         }
     }
 
-    // Each column starting x / each row starting y (prefix sum + gap), starting from canvas outer margin
+    // Each column starting x / each row starting y (prefix sum + gap), starting from canvas outer
+    // margin
     let mut col_x = vec![0.0_f64; cols];
     let mut acc_x = CANVAS_MARGIN;
     for c in 0..cols {
@@ -1633,9 +1693,7 @@ pub(crate) fn pin_abs(b: &McVecBox, side: &EntrySide, offset: f64) -> (f64, f64)
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -1661,7 +1719,8 @@ mod tests {
         b
     }
 
-    /// Signal chain src→mid→sink: root picks directed source src, single-sided, column index increasing
+    /// Signal chain src→mid→sink: root picks directed source src, single-sided, column index
+    /// increasing
     #[test]
     fn flow_chain_left_to_right() {
         let mut g = McVecGraph::new(0, "main".into());
@@ -1694,13 +1753,10 @@ mod tests {
     }
 }
 
-// ============================================================================
 // PROBE-B — verify the Placement phase doesn't sneak-write EntryPoint
-// ----------------------------------------------------------------------------
 // Runs only when MC_VIZ_DUMP is enabled; debug_assert panics when new code violates.
 // Expected log:
 //   [PROBE-B] ✓ phase_placement respected phase contract (no entry_point writes)
-// ============================================================================
 
 /// Snapshot (box_id, pin_id) → (side discriminant string, offset).
 fn probe_ep_snapshot(graph: &McVecGraph) -> HashMap<(i64, i64), (String, f64)> {
@@ -1760,9 +1816,7 @@ fn probe_no_ep_writes(pass: &str, graph: &McVecGraph, before: &HashMap<(i64, i64
     );
 }
 
-// ============================================================================
 // NaN guard — root-cause guard + sentinel
-// ============================================================================
 
 const MIN_BOX_W: f64 = 24.0;
 const MIN_BOX_H: f64 = 24.0;
@@ -1835,5 +1889,4 @@ fn probe_degenerate_boxes(graph: &McVecGraph, tag: &str) {
     }
 }
 
-// ============================================================================
 // (★ P7-3 removed: eject_flags_from_boxes —— flags are not boxes, no flags to eject.)

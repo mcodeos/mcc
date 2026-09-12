@@ -33,9 +33,7 @@ use super::naming;
 use super::netdef::{EndpointRef, IoDirection, NetRole, VizNet};
 use super::symbol::Symbol;
 
-// ============================================================================
 // §5③ Helper: declared rail identity (classification-retirement-design §4/§5)
-// ============================================================================
 
 /// Ground-side reading of an entry's declared supply role.
 ///
@@ -63,9 +61,7 @@ fn attr_rail_is_ground(attr: &NetAttrMirror) -> Option<bool> {
     }
 }
 
-// ============================================================================
 // Helper: IOType → PortDir
-// ============================================================================
 
 /// Translate `IOType` to `PortDir` for module ports
 pub fn translate_io_to_port_dir(t: &crate::semantic::common::IOType) -> PortDir {
@@ -79,16 +75,16 @@ pub fn translate_io_to_port_dir(t: &crate::semantic::common::IOType) -> PortDir 
     }
 }
 
-// ============================================================================
 // Helper: build box from ID (shared by Phase 1 / Phase 1.5)
-// ============================================================================
 
 /// Build the physical pin list [`BoxPin`] from a group of pin/port `InstEntry`s
 ///
-/// - `pin_id`      = mcode `=` left side's **common name / number** (path last segment: `1`/`B`/`A1`),
+/// - `pin_id`      = mcode `=` left side's **common name / number** (path last segment:
+/// `1`/`B`/`A1`),
 ///                   used as-is, **no longer self-numbering 1/2/3**.
-/// - `description` = mcode `=` right side's **function name / description** (`TX`/`Base`), taken from
-///                   the Pin entry's `class_name`. Defense: if it equals the component's own class_name
+/// - `description` = mcode `=` right side's **function name / description** (`TX`/`Base`), taken
+/// from
+/// the Pin entry's `class_name`. Defense: if it equals the component's own class_name
 ///                   (inherited) or equals `pin_id`, treat as no valid description and empty it, to
 ///                   avoid treating component model as pin description.
 /// - `io`          = translated pin direction.
@@ -103,7 +99,8 @@ fn build_box_pins(entries: &[&InstEntry], owner_class: &str) -> Vec<BoxPin> {
             let raw = e.class_name.trim();
             // description = function name (mc `=` right). Pin entry's class_name is filled with the
             // function name by inst_table (port entry is always empty -> unaffected). When function
-            // name == pin number (pure numeric pin `1=1`), **no longer discarded** -- outer pin number
+            // name == pin number (pure numeric pin `1=1`), **no longer discarded** -- outer pin
+            // number
             // + inner function name are both drawn (render_pin decides).
             // Still blocks owner_class, preventing component class name from accidentally leaking
             // into pin description.
@@ -312,7 +309,8 @@ fn resolve_custom_symbol(class_name: &str) -> Option<CustomSymbol> {
     super::psymbol::resolve_project_symbol(class_name)
 }
 
-/// Build a box from InstTable by id (shared by Phase 1 / Phase 1.5, avoids classification logic drift)
+/// Build a box from InstTable by id (shared by Phase 1 / Phase 1.5, avoids classification logic
+/// drift)
 fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
     let entry = table.get_entry(id)?;
     let name = extract_last_segment(&entry.path);
@@ -329,7 +327,8 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             let pins = table.get_pins_of(id);
             let io = compute_io(&pins);
             let mut box_pins = build_box_pins(&pins, &class_name);
-            // typed-chip (Phase F.1): no registered Pin children -> synthesize placeholder pins from the recorded count (if any)
+            // typed-chip (Phase F.1): no registered Pin children -> synthesize placeholder pins
+            // from the recorded count (if any)
             if box_pins.is_empty() && pin_count > 0 {
                 box_pins = placeholder_pins(id as i64, pin_count);
             }
@@ -423,19 +422,19 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
     }
 }
 
-// ============================================================================
 // Main entry
-// ============================================================================
 
 /// Build `McVecGraph` from `McVecBlock` + `InstTable`
 ///
 /// Top-level call (`is_top_level = true`) runs **P0-3**: synthesize undeclared power/ground
-/// PowerLabels at the top level (typical scenario: the example project's main only declares V1V2/V3V3/V5V Ports,
+/// PowerLabels at the top level (typical scenario: the example project's main only declares
+/// V1V2/V3V3/V5V Ports,
 /// no main.GND, but sub-modules all expose `GND` ports). Sub-graph recursion
 /// (`is_top_level = false`) doesn't synthesize, avoiding adding a set of power symbols out of
 /// thin air at every layer.
 pub fn build_mc_vec_graph(block: &McVecBlock, table: &InstTable) -> McVecGraph {
-    // ── ★ P7-2: pass2 → viz projection layer (viz/project.rs, the single mandatory gateway for all callers) ──
+    // ── ★ P7-2: pass2 → viz projection layer (viz/project.rs, the single mandatory gateway for all
+    // callers) ──
     // Cleanses three classes of netlist noise (scalar stub ∪ member nets /
     // duplicate endpoints on the same port / rail label pseudo-endpoints).
     // This is the only vector→viz reverse dependency: projection is a viz-side
@@ -509,8 +508,10 @@ fn build_mc_vec_graph_inner(
             continue;
         }
         let id = iid as u32;
-        // ★ M4-fix: the top-level module itself must not appear as a SubModule frame in the schematic
-        // block.insts may contain the top-level module's own bid; detect_kind would classify it as SubModule
+        // ★ M4-fix: the top-level module itself must not appear as a SubModule frame in the
+        // schematic
+        // block.insts may contain the top-level module's own bid; detect_kind would classify it as
+        // SubModule
         if is_top_level && id == block.bid as u32 {
             continue;
         }
@@ -539,7 +540,8 @@ fn build_mc_vec_graph_inner(
                 let pins = table.get_pins_of(id);
                 let io = compute_io(&pins);
                 let mut box_pins = build_box_pins(&pins, &class_name);
-                // typed-chip (Phase F.1): no registered Pin children -> synthesize placeholder pins from the recorded count (if any)
+                // typed-chip (Phase F.1): no registered Pin children -> synthesize placeholder pins
+                // from the recorded count (if any)
                 if box_pins.is_empty() && pin_count > 0 {
                     box_pins = placeholder_pins(id as i64, pin_count);
                 }
@@ -572,9 +574,12 @@ fn build_mc_vec_graph_inner(
                     b.visual_role = Some(VisualRole::BridgePassive);
                 }
                 apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol
-                                                  // ★ M0-B-D/E: pass through not_fitted / origin (the primary
-                                                  // Phase 1 path used to drop them; only the backfill path via
-                                                  // make_box_from_id copied them — S8 saw zero NC devices)
+                                                  // ★ M0-B-D/E: pass through not_fitted / origin
+                                                  // (the primary
+                                                  // Phase 1 path used to drop them; only the
+                                                  // backfill path via
+                                                  // make_box_from_id copied them — S8 saw zero NC
+                                                  // devices)
                 b.not_fitted = entry.not_fitted;
                 b.origin = entry.origin.clone();
                 graph.boxes.push(b);
@@ -796,15 +801,20 @@ fn build_mc_vec_graph_inner(
         // ## Key: 3 cases when endpoint doesn't belong to a known box
         //
         // **Case A**: endpoint's parent is a Component (@?Cap_1.2's parent = @?Cap_1), but this
-        // Component isn't in box_ids_set -> visit.rs missed adding it to block.insts (pass2 registration
-        // issue). **Synthesize a Component box** so it can be drawn, instead of treating the endpoint
+        // Component isn't in box_ids_set -> visit.rs missed adding it to block.insts (pass2
+        // registration
+        // issue). **Synthesize a Component box** so it can be drawn, instead of treating the
+        // endpoint
         // itself as PowerLabel.
         //
-        // **Case B**: the endpoint itself is a real power/ground label (VCC/GND/V3V3/...). Synthesize
+        // **Case B**: the endpoint itself is a real power/ground label (VCC/GND/V3V3/...).
+        // Synthesize
         // a PowerLabel.
         //
-        // **Case C**: the endpoint is a child of some Bus / Port (SPI.CSN, MIC{P,N}.P etc.) and is not a
-        // power name. **Skip, don't forcibly create a PowerLabel** (previous bug -- drew CSN/MOSI/10/XTAL
+        // **Case C**: the endpoint is a child of some Bus / Port (SPI.CSN, MIC{P,N}.P etc.) and is
+        // not a
+        // power name. **Skip, don't forcibly create a PowerLabel** (previous bug -- drew
+        // CSN/MOSI/10/XTAL
         // all as power).
         //
         // ## Old logic before S3.5
@@ -887,7 +897,7 @@ fn build_mc_vec_graph_inner(
                     }
                 }
 
-                // ── ★ ITER-3: sub-module internal Port/Label walk-up lift ─────────────────────────
+                // ★ ITER-3: sub-module internal Port/Label walk-up lift
                 //
                 // Trigger scenario: top-level net references an external signal endpoint inside a
                 // SubModule, e.g.
@@ -896,31 +906,35 @@ fn build_mc_vec_graph_inner(
                 //   - `main.mcu.DAC_OUT`   (kind=Port,  parent=mcu,           1007)
                 //   - `main.mcu.SPK_MUTE`  (kind=Port,  parent=mcu,           1007)
                 //
-                // Old logic only checked if the **direct parent** (above line 247-250) was a known box
+                // Old logic only checked if the **direct parent** (above line 247-250) was a known
+                // box
                 // -- for `SPI/SCLK` type, the direct parent is `mcu.SPI` Port (id 1012) not in
-                // box_ids_set, so it doesn't continue. Then Fix C only handles Component parent, not
+                // box_ids_set, so it doesn't continue. Then Fix C only handles Component parent,
+                // not
                 // Port parent. Finally falling into the "looks_like_power / looks_like_bus_label"
                 // check, all false -> prints `✗ Skipping unresolved endpoint`, leaving a bunch of
                 // misleading warnings.
                 //
                 // Actually Phase 2's `build_point_to_box` will BFS through all descendants of each
                 // SubModule box, mapping `SPI` Port (1012), `SPI/SCLK` Label (1060) all back to the
-                // SubModule box (1007), Phase 3 thus correctly builds VizNet. This means Phase 1.5's
+                // SubModule box (1007), Phase 3 thus correctly builds VizNet. This means Phase
+                // 1.5's
                 // "✗ Skipping" log **is functionally wrong** -- these endpoints aren't really lost,
                 // they just don't have an independent box.
                 //
                 // This ITER-3 fix does two things:
-                //   1. Walk up the ancestor chain, once hits an ancestor in box_ids_set (typically a
-                //      SubModule), explicitly continue, printing `✓ Lifted to ancestor box` instead of
-                //      `✗ Skipping`, making the log clear about "the endpoint actually has ownership".
-                //   2. Prevent the power-label check below from wrongly drawing endpoints that should
-                //      belong to a SubModule as floating PowerLabels (e.g. a sub-module exposes a Port
+                // 1. Walk up the ancestor chain, once hits an ancestor in box_ids_set (typically a
+                // SubModule), explicitly continue, printing `✓ Lifted to ancestor box` instead of
+                // `✗ Skipping`, making the log clear about "the endpoint actually has ownership".
+                // 2. Prevent the power-label check below from wrongly drawing endpoints that should
+                // belong to a SubModule as floating PowerLabels (e.g. a sub-module exposes a Port
                 //      named `VDD_ANALOG`, it **should** belong to that sub-module, not be drawn as
                 //      a floating triangle).
                 //
                 // Note: this step doesn't change the actual graph topology -- Phase 2 BFS already
                 // handles it. But the logs and subsequent box creation paths become correct, and it
-                // sets up a hook for the future "label pin names (DAC_OUT/SPK_MUTE) on SubModule edges
+                // sets up a hook for the future "label pin names (DAC_OUT/SPK_MUTE) on SubModule
+                // edges
                 // instead of anonymous __net_N labels".
                 if let Some(parent_id) = entry.parent_id {
                     // Walk up starting from parent (parent itself was already handled by the
@@ -957,15 +971,18 @@ fn build_mc_vec_graph_inner(
                          -- Phase 2 BFS will map this point to the ancestor",
                         entry.path, entry.kind, anc_name, anc_id, h
                     );
-                        // Don't push box, don't insert box_ids_set -- Phase 2 BFS handles naturally.
+                        // Don't push box, don't insert box_ids_set -- Phase 2 BFS handles
+                        // naturally.
                         continue;
                     }
                 }
 
                 let name = extract_last_segment(&entry.path);
 
-                // ★ FIX: endpoint itself is a Component/Module (uC/X6/ldo/spk...) -> directly create a box,
-                // not treat as "unresolvable" and discard (old logic only handled "endpoint's parent is Component")
+                // ★ FIX: endpoint itself is a Component/Module (uC/X6/ldo/spk...) -> directly
+                // create a box,
+                // not treat as "unresolvable" and discard (old logic only handled "endpoint's
+                // parent is Component")
                 if matches!(entry.kind, InstKind::Component | InstKind::Module) {
                     if let Some(b) = make_box_from_id(table, u) {
                         crate::velog!(
@@ -991,11 +1008,13 @@ fn build_mc_vec_graph_inner(
                 let looks_like_bus_label =
                     entry.kind == InstKind::Bus && naming::is_signal_like(&name);
                 if rail_is_ground.is_none() && !looks_like_bus_label {
-                    // ── ★ Phase E.1: sub-layer edge endpoints -> boundary label box ────────────
+                    // ★ Phase E.1: sub-layer edge endpoints -> boundary label box
                     //
-                    // Trigger scenario: **non-top-level** sub-layer (block.bid is some SubModule), the
+                    // Trigger scenario: **non-top-level** sub-layer (block.bid is some SubModule),
+                    // the
                     // endpoint's ancestor chain can walk all the way up to `block.bid` itself (i.e.
-                    // the endpoint is this layer's own external interface or internal named signal),
+                    // the endpoint is this layer's own external interface or internal named
+                    // signal),
                     // but ITER-3 can't find any box in between (because the sub-layer's box_ids_set
                     // contains mcu's children: CAP/RES/uC etc., not including mcu itself).
                     //
@@ -1012,15 +1031,17 @@ fn build_mc_vec_graph_inner(
                     //   - `main.mcu.AVDD09_CAP`   Label, parent=1010 -> direct hit
                     //                                                    (internal signal label)
                     //
-                    // Fix: after hit, create a PowerLabel (actually "boundary label" reusing the same
+                    // Fix: after hit, create a PowerLabel (actually "boundary label" reusing the
+                    // same
                     // BoxKind, visually an arrow + name, suitable for Port label semantics) so that
-                    // Phase 2 BFS can map the corresponding connection endpoints to this box, drill-down
+                    // Phase 2 BFS can map the corresponding connection endpoints to this box,
+                    // drill-down
                     // no longer loses labels.
                     //
-                    // ★ M4-fix: the top-level module also needs boundary labels. Previously
-                    // !is_top_level kept top-level ports from creating boundary label boxes,
-                    // so ports like DAC_OUT/MIC.N lost endpoints in Phase 3. The top-level
-                    // module has no SubModule frame (Phase 1.45 skips it), so ports could
+                    // ★ M4-fix: the top-level module also needs boundary labels. Gating
+                    // on `!is_top_level` keeps top-level ports from creating boundary
+                    // label boxes, so ports like DAC_OUT/MIC.N lose endpoints in Phase 3.
+                    // The top-level module has no SubModule frame (Phase 1.45 skips it),
                     // not map to any frame.
                     if block.bid >= 0 {
                         const MAX_HOPS_E1: u32 = 16;
@@ -1067,7 +1088,7 @@ fn build_mc_vec_graph_inner(
                 // supply this layer consumes, so it is never drawn as a rail symbol
                 // inside the layer. The boundary draws it instead — the parent box's
                 // lead, or the module frame of the layer's own drawing (module-port
-                // drawing, `mcd/doc/viz/module-port-drawing-design.md`). P7-8 used to
+                // drawing, `module-port-drawing-design.md`). P7-8 used to
                 // mint a `PortTerminal` box for exactly this id; that producer is
                 // retired, so skipping here is the whole answer rather than a deferral.
                 if let Some(ref bi) = net.boundary {
@@ -1145,7 +1166,7 @@ fn build_mc_vec_graph_inner(
         );
     }
 
-    // ── ★ P7-8: PortTerminal creation — retired (module-port drawing) ────────────
+    // ★ P7-8: PortTerminal creation — retired (module-port drawing)
     //
     // This step used to mint one `BoxKind::PortTerminal` per boundary port group of
     // every **non-root** layer. It was written when a sub-layer was itself drawn as
@@ -1159,7 +1180,7 @@ fn build_mc_vec_graph_inner(
     // standalone came out 366px. Same module, two drawings.
     //
     // The module's boundary is drawn now, by design, in the two places it is seen
-    // (`mcd/doc/viz/module-port-drawing-design.md`):
+    // (`module-port-drawing-design.md`):
     //   * the **parent's** block diagram — the sub-module box's leads, named by the
     //     port each wire crosses (`McVecBox::boundary_ports` + `render/sub_module.rs`);
     //   * the module's **own** layer — the dashed boundary frame with the ports on it
@@ -1180,7 +1201,7 @@ fn build_mc_vec_graph_inner(
         graph.boxes.len(),
     );
 
-    // ── D4: GHOST_PORT detection (box-level) ────────────────────────────
+    // D4: GHOST_PORT detection (box-level)
     // Scan boxes for placeholder pins (id ≥ 8e9) that were synthesized
     // because the component declared only an estimated pin count (pins = N)
     // without actual pin definitions. These placeholder pins represent
@@ -1224,7 +1245,7 @@ fn build_mc_vec_graph_inner(
         graph.nets.len()
     );
 
-    // ── ★ P7-3: Phase 3.5 (same-name label synthesis of rail/signal nets) deleted ───────────
+    // ★ P7-3: Phase 3.5 (same-name label synthesis of rail/signal nets) deleted
     // It was a pure name-matching machine (anti-pattern §2.3 "name as criterion"),
     // and after P7-2 projection it could only produce fake nets duplicating real
     // ones (measured on the main layer: MIC/[GND,VCC_1V2]/DAC_OUT/POWER_SYS all
@@ -1304,9 +1325,7 @@ pub fn build_graph_smart(block: &McVecBlock, table: &InstTable) -> McVecGraph {
     build_mc_vec_graph(block, table)
 }
 
-// ============================================================================
 // ★ NEW: VizNet generation (multi-endpoint hyperedge)
-// ============================================================================
 
 /// Directly construct [`VizNet`] list from `McVecBlock.nets`
 ///
@@ -1317,8 +1336,7 @@ pub fn build_graph_smart(block: &McVecBlock, table: &InstTable) -> McVecGraph {
 ///
 /// ## ★ P01 (S2) Changes
 /// Endpoints fetched from InstTable, IOType translated to `IoDirection`, numeric pin number
-/// extracted from pin name, filled in one go with `EndpointRef::full(...)`. Previously before
-/// P03 these two fields were both Unknown / None.
+/// extracted from pin name, filled in one go with `EndpointRef::full(...)`.
 fn generate_viznets_from_block(
     block: &McVecBlock,
     point_to_box: &HashMap<u32, u32>,
@@ -1327,7 +1345,8 @@ fn generate_viznets_from_block(
 ) -> Vec<VizNet> {
     let mut out = Vec::with_capacity(block.nets.len());
 
-    // ★ Set of discrete two-terminal passive boxes. A bus never passes through the middle of an R/C,
+    // ★ Set of discrete two-terminal passive boxes. A bus never passes through the middle of an
+    // R/C,
     //   so "the net touches a passive device" is a reliable signal that "this is not a bus".
     //   (Same criterion as the net-labeling guard at rails.rs:331.)
     //   ★ M0-C BLOCKED: after M0-A lands, this heuristic should read
@@ -1439,8 +1458,10 @@ fn generate_viznets_from_block(
         ))
     };
 
-    // ★ SPI expansion: construct port's child members (SCLK/MOSI/...) as endpoints, box reuses parent port's box.
-    //   (Child members usually aren't in point_to_box -- they're not top-level net endpoints, so separately mapped to parent box.)
+    // ★ SPI expansion: construct port's child members (SCLK/MOSI/...) as endpoints, box reuses
+    // parent port's box.
+    // (Child members usually aren't in point_to_box -- they're not top-level net endpoints, so
+    // separately mapped to parent box.)
     //
     // ★ M0-C BLOCKED: this branch will be deleted once M-1 completes.
     //   Its reason for existence is "top-level mcu.SPI collapsed into a single
@@ -1459,15 +1480,20 @@ fn generate_viznets_from_block(
         EndpointRef::full(box_id, child_id, name, io, pn)
     };
 
-    // Split-out member nets need unique nids -> increment from above all original nids, avoiding collisions.
+    // Split-out member nets need unique nids -> increment from above all original nids, avoiding
+    // collisions.
     let mut synth_nid = block.nets.iter().map(|n| n.nid).max().unwrap_or(0) + 1;
 
     for net in &block.nets {
-        // ── ★ SPI expansion: collapsed Port/Bus (1 point) <-> n peer pins -> n 2-point Signal nets ──
-        //   Top-level mcu.SPI is a collapsed Port (single "spi" pin), flash side is n independent pins (Broadcast).
-        //   Extract the Port's n signal members, pair them positionally with peer n pins into n point-to-point Signal nets
+        // ── ★ SPI expansion: collapsed Port/Bus (1 point) <-> n peer pins -> n 2-point Signal nets
+        // ──
+        // Top-level mcu.SPI is a collapsed Port (single "spi" pin), flash side is n independent
+        // pins (Broadcast).
+        // Extract the Port's n signal members, pair them positionally with peer n pins into n
+        // point-to-point Signal nets
         //   -> visually n independent straight lines, not 1 pin fan-out / brown bus trunk.
-        //   Defense: only expand when (collapsed side is indeed Port/Bus with >= n signal members, peer side exactly n pins, box mappable);
+        // Defense: only expand when (collapsed side is indeed Port/Bus with >= n signal members,
+        // peer side exactly n pins, box mappable);
         //   otherwise do nothing, fall to the regular construction below (don't drop net).
         {
             let groups: Vec<Vec<i64>> = net.nets.iter().map(|v| v.ids().to_vec()).collect();
@@ -1493,7 +1519,8 @@ fn generate_viznets_from_block(
                         && !touches_passive(&net.all_point_ids())
                     {
                         let port_box = point_to_box.get(&(port_pid as u32)).map(|&b| b as i64);
-                        // Port's signal members (in declaration order), filter out power/ground names
+                        // Port's signal members (in declaration order), filter out power/ground
+                        // names
                         let members: Vec<i64> = table
                             .children_of(port_pid as u32)
                             .into_iter()
@@ -1565,23 +1592,31 @@ fn generate_viznets_from_block(
         }
 
         // ── ★ NtoN(n) bus -> split into n independent point-to-point Signal nets ──
-        //   When a bundle interface is expanded in sub-graph, each side is n **independent pins** (NtoN: aligned shape,
-        //   member i <-> member i). Old logic promoted the whole to NetKind::Bus(n) -> BusBundle draws as "trunk + taps"
-        //   thick line, multiple ones stacked together look like a braided tree. Here changed to: each end of member i
-        //   connects into a 2-point Signal net, each goes its own orthogonal line, no more merged trunk.
-        //   Note: collapsed ports (1 pin -> n flags) in main graph are Broadcast(n), not NtoN, so don't enter
-        //   this branch -> doesn't affect main graph; only true "both sides expanded to n pins" gets split. Power/ground not split.
+        // When a bundle interface is expanded in sub-graph, each side is n **independent pins**
+        // (NtoN: aligned shape,
+        // member i <-> member i). Old logic promoted the whole to NetKind::Bus(n) -> BusBundle
+        // draws as "trunk + taps"
+        // thick line, multiple ones stacked together look like a braided tree. Here changed to:
+        // each end of member i
+        // connects into a 2-point Signal net, each goes its own orthogonal line, no more merged
+        // trunk.
+        // Note: collapsed ports (1 pin -> n flags) in main graph are Broadcast(n), not NtoN, so
+        // don't enter
+        // this branch -> doesn't affect main graph; only true "both sides expanded to n pins" gets
+        // split. Power/ground not split.
         #[allow(deprecated)]
         if let ConnectionType::NtoN(_n) = net.connection_type() {
             let kind0 = naming::classify_net(&net.name);
-            // ★ FIX: `connection_type()` only compares the **lengths** of the two groups (net.rs:87),
+            // ★ FIX: `connection_type()` only compares the **lengths** of the two groups
+            // (net.rs:87),
             // but the two groups are a byproduct of net merging —— when the endpoints of an
             // equipotential node formed by merging multiple connections happen to form [n, n], it
             // is misjudged as an n-bit bus. Observed: the 4-point node
             // `@CAP5.2 ~ @RES6.2 ~ @CAP2.2 ~ u2.6` was split into two unconnected nets
             // `@CAP2.2~@RES6.2` and `@CAP5.2~u2.6` —— the node no longer exists, which is a rewrite
             // of electrical facts, not a layout preference.
-            // Criterion: a real bus never passes through a discrete two-terminal passive device (see is_real_bus()).
+            // Criterion: a real bus never passes through a discrete two-terminal passive device
+            // (see is_real_bus()).
             if let Some(n) = is_real_bus(net, &kind0, &touches_passive) {
                 let group_a: Vec<i64> = net.nets[0].iter().copied().collect();
                 let group_b: Vec<i64> = net.nets[1].iter().copied().collect();
@@ -1591,8 +1626,10 @@ fn generate_viznets_from_block(
                     for (a, b) in group_a.iter().zip(group_b.iter()) {
                         match (make_endpoint(*a), make_endpoint(*b)) {
                             (Some(ea), Some(eb)) => {
-                                // Member net name: take the more specific pin name (signal name), fallback net.name.
-                                //   Name only affects label/classification, connectivity is determined by endpoints -> doesn't affect electrical correctness.
+                                // Member net name: take the more specific pin name (signal name),
+                                // fallback net.name.
+                                // Name only affects label/classification, connectivity is
+                                // determined by endpoints -> doesn't affect electrical correctness.
                                 let name = if !eb.pin_name.is_empty() && eb.pin_name != net.name {
                                     eb.pin_name.clone()
                                 } else if !ea.pin_name.is_empty() && ea.pin_name != net.name {
@@ -1640,14 +1677,16 @@ fn generate_viznets_from_block(
                         }
                         continue; // already split by member -> skip whole Bus construction below
                     }
-                    // Split failed (some endpoint missing box mapping) -> fall back to original whole construction, don't drop net.
+                    // Split failed (some endpoint missing box mapping) -> fall back to original
+                    // whole construction, don't drop net.
                 }
             }
         }
 
         // ── Original: one VizNet per net ──
-        // ★ FIX: Each endpoint is pushed only once. make_endpoint already does box query + pin info +
-        //   EndpointRef::full internally; the old code below was redundantly constructing and pushing
+        // ★ FIX: Each endpoint is pushed only once. make_endpoint already does box query + pin info
+        // +
+        // EndpointRef::full internally; the old code below was redundantly constructing and pushing
         //   again → endpoints doubled, topology() counts a 2-point net as 4 points → misjudges
         //   Star/MultiDriver. Endpoints with no box mapping (make_endpoint = None) are discarded
         //   here, and which ones are lost is uniformly reported by net_probe at the boundary.
@@ -1656,7 +1695,7 @@ fn generate_viznets_from_block(
             if let Some(e) = make_endpoint(pid) {
                 endpoints.push(e);
             } else if pid >= 0 {
-                // ── D4: GHOST_PORT detection ────────────────────────────────
+                // D4: GHOST_PORT detection
                 // Fire when a net endpoint can't be mapped to any box in the
                 // current layer. This includes placeholder pins (id ≥ 8e9) and
                 // pins whose InstTable entry exists but isn't mapped to any box.
@@ -1674,7 +1713,7 @@ fn generate_viznets_from_block(
                 // the fallback; if the entry is synthesized with no position,
                 // anchor on the net's own origin span before giving up.
                 let entry = table.get_entry(pid as u32);
-                // ── D4b: module-net origin override ─────────────────────────
+                // D4b: module-net origin override
                 // When the failing endpoint is the module's OWN net pseudo
                 // entry (a Bus/Label child of this block — the net has no
                 // physical box anywhere in the layer), the wiring/declaration
@@ -1768,17 +1807,18 @@ fn generate_viznets_from_block(
 
         // If net has NtoN topology and width > 1, promote to Bus
         //
-        // ── ★ P1-4 ────────────────────────────────────────────────────────
+        // ★ P1-4
         // But **power/ground are never upgraded**: V3V3/GND's fan-out (one power feeds N chips)
         // is physically still power, not a bus.
         //
-        // ── ★ iter 7 ──────────────────────────────────────────────────────
+        // ★ iter 7
         // Same guard as the split branch above: `connection_type()` only compares the lengths of
         // the two groups, so a merged equipotential node that happens to form [n,n] is misjudged
         // as an n-bit bus. Here the consequence is not splitting the net but kind=Bus(n) →
         // dispatch.rs:241 unconditionally takes BusBundle → a 4-endpoint node is drawn as a brown
         // thick trunk + taps (observed with __net_4).
-        // Criterion is the same: a real bus never passes through a discrete two-terminal passive device (see is_real_bus()).
+        // Criterion is the same: a real bus never passes through a discrete two-terminal passive
+        // device (see is_real_bus()).
         if let Some(n) = is_real_bus(net, &kind, &touches_passive) {
             kind = NetKind::Bus(n);
         }
@@ -1845,9 +1885,7 @@ fn generate_viznets_from_block(
     out
 }
 
-// ============================================================================
 // ★ Node conservation probe: building the graph must not change electrical facts
-// ============================================================================
 
 /// Every net on the block side must have its endpoint set appear verbatim in some VizNet;
 /// splitting is only allowed on **real buses** and must be recorded explicitly.
@@ -1870,9 +1908,7 @@ fn probe_node_conservation(block: &McVecBlock, nets: &[VizNet], _point_to_box: &
     }
 }
 
-// ============================================================================
 // Internal helper -- point_id -> box_id mapping
-// ============================================================================
 
 /// Build `point_id -> box_id` mapping (covering all descendants of each box)
 fn build_point_to_box(table: &InstTable, boxes: &[McVecBox]) -> HashMap<u32, u32> {
@@ -1947,7 +1983,7 @@ fn map_all_descendants(
 //  — the same-name label synthesis machinery removed wholesale —— criteria now read
 //  port declarations and the post-projection real nets.)
 
-// ── ★ Phase 1.46b: Adjust Virtual Top Module Border position/size ─────────────────────────────
+// ★ Phase 1.46b: Adjust Virtual Top Module Border position/size
 //
 // After layout computes positions for all other boxes, adjust the SubModule border box
 // to properly surround the internal components.

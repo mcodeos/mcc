@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 //! PWR-1 / PWR-2 supply reach across transparent copper and module boundaries
-//! (net-island-attribution-design.md §7 L4 — the *nominal* face of the S-set
+//! (island-attribution-design.md §7 L4 — the *nominal* face of the S-set
 //! step that budget.rs opened for capacity, rail-contract-design.md §8.5).
 //!
 //! 6019 (no-source kernel) and 6011 (mandatory nominal) adjudicate one flat net

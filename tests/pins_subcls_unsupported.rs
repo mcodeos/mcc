@@ -5,7 +5,7 @@
 // Integration test for the P1-3 top-level declaration fix (B5):
 // `pins.subcls = [...]` is parsed by mca.y (MCAST_ATTRIBUTE_PIN with an
 // mc_id sub-class child) but was silently dropped by McPins::parse. It must
-// now report NOT_SUPPORTED_YET (2171, formerly E1107) instead of silently
+// now report NOT_SUPPORTED_YET (2171) instead of silently
 // ignoring the sub-class name.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore to

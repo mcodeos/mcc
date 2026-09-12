@@ -37,9 +37,7 @@ use crate::viz::layout::entry_points::{
 use crate::viz::layout::flow::pin_abs;
 use crate::viz::semantic::SemanticModel;
 
-// ============================================================================
 // PinKey
-// ============================================================================
 
 /// Unique key for a pin within a graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -54,9 +52,7 @@ impl PinKey {
     }
 }
 
-// ============================================================================
 // PinAbsPoint
-// ============================================================================
 
 /// Absolute (x, y) position of a pin anchor.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -65,9 +61,7 @@ pub struct PinAbsPoint {
     pub y: f64,
 }
 
-// ============================================================================
 // PinAnchorSource
-// ============================================================================
 
 /// Source of a pin anchor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,9 +73,7 @@ pub enum PinAnchorSource {
     ReconciledMissingEndpoint,
 }
 
-// ============================================================================
 // PinAnchorWarning
-// ============================================================================
 
 /// A warning produced during pin anchor model construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,9 +82,7 @@ pub struct PinAnchorWarning {
     pub message: String,
 }
 
-// ============================================================================
 // PinAnchor
-// ============================================================================
 
 /// A single pin anchor with side, offset, and absolute position.
 #[derive(Debug, Clone, PartialEq)]
@@ -112,9 +102,7 @@ pub struct PinAnchor {
     pub split: bool,
 }
 
-// ============================================================================
 // BoxAnchorSummary
-// ============================================================================
 
 /// Per-box summary of anchor state.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -130,9 +118,7 @@ pub struct BoxAnchorSummary {
     pub missing_endpoint_pins: usize,
 }
 
-// ============================================================================
 // PinAnchorReport
-// ============================================================================
 
 /// Aggregate report for the pin anchor model.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -153,9 +139,7 @@ pub struct PinAnchorReport {
     pub semantic_side_honored: usize,
 }
 
-// ============================================================================
 // PinAnchorConfig
-// ============================================================================
 
 /// Configuration for building the pin anchor model.
 #[derive(Debug, Clone)]
@@ -181,9 +165,7 @@ impl Default for PinAnchorConfig {
     }
 }
 
-// ============================================================================
 // PinAnchorModel
-// ============================================================================
 
 /// The unified pin anchor model.
 #[derive(Debug, Clone, PartialEq)]
@@ -462,9 +444,7 @@ impl PinAnchorModel {
     }
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 /// Pick intent side from IO direction.
 fn intent_side_from_io(io: IoDirection, allow_top_bottom: bool) -> Option<EntrySide> {
@@ -544,9 +524,7 @@ fn assign_offsets_per_box_side(anchors: &mut BTreeMap<PinKey, PinAnchor>, _graph
     }
 }
 
-// ============================================================================
 // One-shot convenience
-// ============================================================================
 
 /// One-shot pin anchor pipeline: repair → build → apply → report.
 pub fn pin_anchor_pipeline(
@@ -570,9 +548,7 @@ pub fn pin_anchor_pipeline(
     model.report
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

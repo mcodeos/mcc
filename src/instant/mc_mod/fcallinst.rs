@@ -4,9 +4,11 @@
 
 //! Concrete execution of FuncCall instantiation
 //!
-//! - `instantiate_component_construction`  —— Inline component construction (`CAP(0.1uF)`, `Diode(...)`)
+//! - `instantiate_component_construction`  —— Inline component construction (`CAP(0.1uF)`,
+//! `Diode(...)`)
 //! - `instantiate_module_construction`     —— Inline sub-module call (`PowerDomain(dc24v)`)
-//! - `instantiate_user_func`               —— User function body expansion (`func input(sin) { ... }`)
+//! - `instantiate_user_func`               —— User function body expansion
+//! (`func input(sin) { ... }`)
 //! - `instantiate_instance_method`         —— Instance method (`uC.power(...)`)
 //! - `prefix_instance_stmt/phrase/node_element` —— Label prefixing in instance method bodies
 
@@ -40,7 +42,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-// ── P2-2: thread_local side channel ──────────────────────────────────────
+// P2-2: thread_local side channel
 // instantiate_instance_method writes to this cell when it detects
 // McFuncReturn::Endpoint, and stmt.rs's process_member_internal reads it
 // in the PassThrough path and registers it to auto_inst_map.
@@ -89,20 +91,21 @@ fn wire_series_params(
 }
 
 impl InstantiationBuilder {
-    // ========================================================================
     // 1. Inline component construction  e.g. CAP(0.1uF) / Diode('SMBJ30A') / HDR(46)
-    // ========================================================================
 
     /// Inline component construction
     ///
-    /// Handles patterns like `CAP(0.1uF, 50V)` / `Diode('SMBJ30A')` / `HDR(46)` in connection stmts.
+    /// Handles patterns like `CAP(0.1uF, 50V)` / `Diode('SMBJ30A')` / `HDR(46)` in connection
+    /// stmts.
     /// Automatically creates component instances, and generates connections from the FuncCall's
     /// own left/right to the component pins.
     ///
     /// # Multi-pin strategy (Iteration 3)
     /// - **2-pin devices**: use get_left_pin / get_right_pin (pin "1" / pin "2")
-    /// - **Multi-pin devices (with IO annotations)**: left → input pins, right → output pins (by position)
-    /// - **Multi-pin devices (without IO annotations)**: left → first pin, right → second pin (fallback)
+    /// - **Multi-pin devices (with IO annotations)**: left → input pins, right → output pins (by
+    /// position)
+    /// - **Multi-pin devices (without IO annotations)**: left → first pin, right → second pin
+    /// (fallback)
     /// - When pin counts mismatch, record a diagnostic and truncate by min
     pub(super) fn instantiate_component_construction(
         &mut self,
@@ -113,7 +116,7 @@ impl InstantiationBuilder {
         caller_name: Option<&str>,
     ) -> Result<FuncCallInst, InstError> {
         // 1. Auto-name: CAP → @CAP_1, DIO.ESD → @DIO_ESD_1, ...
-        // ── P0-2: replace '.' in type_name with '_' ──────────────────
+        // P0-2: replace '.' in type_name with '_'
         // Prevent `DIO.ESD` generating `DIO.ESD_1` (an instance name containing '.'),
         // which makes node_to_netpoint's split_once('.') mistakenly treat "DIO" as
         // the owner, causing multiple calls to share the same "DIO" label
@@ -165,7 +168,7 @@ impl InstantiationBuilder {
         };
 
         // 2. Create the component instance with parameters
-        // ── NC rule ────────────────────────────────────────────────────
+        // NC rule
         // NC is an instance modifier: it marks the instance "not connected"
         // (not fitted) but does NOT suppress binding of the remaining
         // arguments. McComponentInst::with_params strips NC from arity,
@@ -224,7 +227,7 @@ impl InstantiationBuilder {
         // the counter name, so inserting a sibling never renumbers it.
         inst.anchor = anchor;
 
-        // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
+        // Iter-3.E3 + P4
         // Filter out synthetic interface placeholders that mc_fcall.rs injects when
         // caller=None (`<X>.in` / `<X>.out`). These placeholders are intended to
         // carry interface signatures for "outer chain calls", but when they land on
@@ -417,9 +420,7 @@ impl InstantiationBuilder {
         })
     }
 
-    // ========================================================================
     // 2. Inline sub-module call  e.g. PowerDomain(dc24v) / Uart2RS485(DC.IVCC5)
-    // ========================================================================
 
     /// Inline module call
     ///
@@ -616,9 +617,7 @@ impl InstantiationBuilder {
         })
     }
 
-    // ========================================================================
     // 3. User function body expansion  e.g. func input(sin) { sin -> buffer -> out }
-    // ========================================================================
 
     pub(super) fn instantiate_user_func(
         &mut self,
@@ -637,7 +636,7 @@ impl InstantiationBuilder {
         // Check that function return type matches caller expectations.
         validate_fcall_return_shape(&func_def.returns, left, right, &func_def.name.to_string());
 
-        // ── NC is not a user-func argument ─────────────────────────────
+        // NC is not a user-func argument
         // NC (Not Connected) is valid only in a class construction
         // (`CLASS(NC)`) or a constructor argument list. A user function call
         // like `setup(GND, NC)` has no NC meaning; report E4176 and return
@@ -696,7 +695,8 @@ impl InstantiationBuilder {
         // (P6); restored on every exit (RAII).
         if !func_def.stmts.is_empty() {
             self.with_func_scope(&bindings, |this| -> Result<(), _> {
-                // ── P4-b: Isolate anonymous instance entries for each body stmt in the same func ──
+                // ── P4-b: Isolate anonymous instance entries for each body stmt in the same func
+                // ──
                 // Take an outer snapshot; reset before each stmt → @CAP/@RES entries
                 // from previous body stmts do not linger, preventing member_key pointer
                 // reuse that causes the next stmt's .Cap()/.Pullup() to be mis-paired
@@ -781,13 +781,13 @@ impl InstantiationBuilder {
 
         // 3. Apply return-value semantics
         match &func_def.returns {
-            // ── Implicit / This: caller pass-through ─────────────────────────
+            // Implicit / This: caller pass-through
             // No bridge needed — fc.right was set to caller's right by the
             // parser (or to a symbolic `func.out` label for bare calls), and
             // chain wiring will connect those into the surrounding net.
             McFuncReturn::Implicit | McFuncReturn::This => Ok(FuncCallInst::PassThrough),
 
-            // ── Endpoint(phrase): non-chainable, returns a label/bus ─────────
+            // Endpoint(phrase): non-chainable, returns a label/bus
             // Bridge fc.right (the parser-supplied placeholder) to the
             // resolved endpoint NetPoints. Union-find then merges the two
             // sides so that "func() -> X" effectively becomes "endpoint -> X".
@@ -809,7 +809,7 @@ impl InstantiationBuilder {
         }
     }
 
-    /// ── Vector-width alignment at the instantiation boundary ──────────────
+    /// Vector-width alignment at the instantiation boundary
     /// Enforce the arg-to-formal vector-width rules (matching-rules-design.md
     /// §3) for every binding whose formal is a vector (`[..]::DC(...)` parses
     /// to `McParamDeclareKind::Multiple`):
@@ -950,9 +950,7 @@ impl InstantiationBuilder {
         })
     }
 
-    // ========================================================================
     // 3.5 §3.3/§3.4 — materialize func-local sub-instances in pass2
-    // ========================================================================
     //
     // A component func body may declare sub-instances in two shapes:
     //
@@ -1030,7 +1028,7 @@ impl InstantiationBuilder {
                 self.materialize_component(&full, comp)?;
             }
         }
-        // ── §11.2: build vector grouping nodes ──────────────────────────
+        // §11.2: build vector grouping nodes
         // `func.insts` carries the `base -> ordered member names` map
         // (recorded at parse_declare). With the flat member instances now in
         // `self.components`, promote each multi-member group to a
@@ -1169,9 +1167,7 @@ impl InstantiationBuilder {
         Ok(())
     }
 
-    // ========================================================================
     // 4. Instance method call  e.g. uC.power([VDD_3V3, GND]) / flash.init()
-    // ========================================================================
 
     /// Handle method calls on sub-module instances.
     ///
@@ -1200,7 +1196,7 @@ impl InstantiationBuilder {
             self.name,
             func_def.name
         );
-        // ── NC is not a method argument ─────────────────────────────────
+        // NC is not a method argument
         // NC (Not Connected) is valid only in a class construction
         // (`CLASS(NC)`) or a constructor argument list. An instance method
         // call like `X6.setup(GND, NC)` has no NC meaning; report E4176.
@@ -1266,7 +1262,8 @@ impl InstantiationBuilder {
 
         // 2. Dispatch by inst type
         //   - Sub-module: body executes inside the sub-module (P3 core fix)
-        //   - Component:  body executes at outer (self) layer + prefix pins (peripheral circuit around leaf devices)
+        // - Component:  body executes at outer (self) layer + prefix pins (peripheral circuit
+        // around leaf devices)
         // Func scope pushed so nested calls in the method body classify a bare
         // actual as a passthrough formal (P6); restored on every exit (RAII).
         self.with_func_scope(&bindings, |this| -> Result<(), _> {
@@ -1396,14 +1393,16 @@ impl InstantiationBuilder {
         Ok(FuncCallInst::PassThrough)
     }
 
-    /// ── P3: Sub-module method ────────────────────────────────────────────────
+    /// P3: Sub-module method
     /// The method body expands **inside the sub-module instance**:
     ///   - Internal components like `uC` are resolved in place (no longer leak `mcu.uC`)
-    ///   - Pull-ups / address resistors created by `uC.i2c(0x36)` go into the **sub-module**'s components
+    /// - Pull-ups / address resistors created by `uC.i2c(0x36)` go into the **sub-module**'s
+    /// components
     ///   - `uC.I2C0 ~ I2C0` becomes an internal sub-module connection
     ///     (flattened: `mcu.uC.I2C0 ~ mcu.I2C0`)
     /// Parent-scope formals (bound to parent module's component/port/label, e.g. `flash.SPI`):
-    ///   - **Not substituted** in body; keep the formal name (e.g. `spi`) as the sub-module boundary label
+    /// - **Not substituted** in body; keep the formal name (e.g. `spi`) as the sub-module boundary
+    /// label
     ///   - In the parent module, connect by `parent_actual ~ inst.formal`
     ///     (member-level 4-lane completed by P2)
     fn run_submodule_method(
@@ -1680,7 +1679,8 @@ impl InstantiationBuilder {
                                         && !p.bus_members.is_empty()
                                 })
                             })
-                            // Finally fall back to any same-name port (for scalar boundary compatibility)
+                            // Finally fall back to any same-name port (for scalar boundary
+                            // compatibility)
                             .or_else(|| sub.ports.iter().find(|p| p.name == formal))
                             .or_else(|| {
                                 sub.ports
@@ -1790,7 +1790,7 @@ impl InstantiationBuilder {
         Ok(())
     }
 
-    /// ── P3: Component method (uC.power / uC.i2c / X6.setup ...) ──────────────
+    /// P3: Component method (uC.power / uC.i2c / X6.setup ...)
     /// Behavior is the same as before the rewrite: the body expands in the
     /// **current (outer) module** self, and pin references are prefixed to
     /// the component instance name (`VDD` → `uC.VDD`). These are peripheral
@@ -1954,7 +1954,8 @@ impl InstantiationBuilder {
                 for (name, port) in comp.def.pins.names_to_id.iter() {
                     if let crate::semantic::component::mc_pins::McPinPort::Multi(pids) = port {
                         if pids.len() >= 2 && !bus_members.contains_key(name) {
-                            // Try to find member names from Interface variant (may be stored under a different key)
+                            // Try to find member names from Interface variant (may be stored under
+                            // a different key)
                             // Fall back to using pin IDs as member names
                             let members: Vec<String> = pids.clone();
                             bus_members.insert(name.clone(), members);
@@ -2250,11 +2251,9 @@ impl InstantiationBuilder {
         })
     }
 
-    // ========================================================================
     // Label/reference prefixing inside instance method bodies
-    // ========================================================================
 
-    /// ── Iter-2.3 ────────────────────────────────────────────────────────
+    /// Iter-2.3
     /// skip-aware version: names in the `skip` set are **not** prefixed with inst_name.
     ///
     /// Typical usage:
@@ -2374,15 +2373,15 @@ impl InstantiationBuilder {
             )),
             McPhrase::Lead => phrase.clone(),
 
-            // ── Iter-3.C ────────────────────────────────────────────────
+            // Iter-3.C
             // Label endpoint: names in skip (actuals, parent ports) are not
             // prefixed; others are prefixed.
             // Example: enable() body `Vin -> RES(47kΩ) -> EN`; Vin and EN are
             // aliases for component pins and must become
             // `dcdc.Vin` / `dcdc.EN`.
-            // Previously, Label was cloned directly, producing ghosts like
-            // ".1 : Vin.Vin ~ .1" (because Vin stayed as Label, and get_points
-            // resolved it as the anonymous owner's pin).
+            // Cloning the Label directly would produce ghosts like
+            // ".1 : Vin.Vin ~ .1" (Vin stays a Label, and get_points
+            // resolves it as the anonymous owner's pin).
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Label(ref s),
                 ..
@@ -2441,10 +2440,10 @@ impl InstantiationBuilder {
                 ))))
             }
 
-            // ── P2 fix: Component / Module endpoints must also be prefixed ──────────────
-            // Previously they were kept as-is, so `uC` (an internal component of
-            // the sub-module) in the func body could not be found in the parent
-            // module's scope. Now we prefix to a `mcu.uC` form Bus, allowing
+            // P2 fix: Component / Module endpoints must also be prefixed
+            // Prefixing is required, or `uC` (an internal component of the
+            // sub-module) in the func body cannot be found in the parent
+            // module's scope. Prefixing to a `mcu.uC` form Bus lets
             // Pass2's scope-chain dispatch to correctly drill down into the
             // sub-module's internal components.
             //
@@ -2600,9 +2599,9 @@ impl InstantiationBuilder {
         }
 
         // Already has path separator — check if it's a cross-instance reference
-        // ── P2 fix: dotted names no longer skip unconditionally ─────────
-        // Previously: `uC.in`, `uC.VDD` were both skipped because they contain '.'.
-        // But `uC` is an internal component of the sub-module, which needs to be
+        // P2 fix: dotted names no longer skip unconditionally
+        // Skipping every dotted name unconditionally is wrong: `uC` is an
+        // internal component of the sub-module, so `uC.in` / `uC.VDD` must be
         // prefixed to `mcu.uC.VDD`.
         // Now: only skip when the first segment is in the skip set (e.g. `flash`
         // in `flash.SPI` is an actual); otherwise continue prefixing.
@@ -2677,7 +2676,7 @@ impl InstantiationBuilder {
         }
     }
 
-    /// ── P4: Prefix bare pin names in method-call actuals ─────────────────────
+    /// P4: Prefix bare pin names in method-call actuals
     /// In actuals of `.Cap/.Pullup/.Pulldown` calls like `.Pullup(_CS, V3V3)` /
     /// `.Cap(x)`, the component's own bare pin names (e.g. flash's
     /// `_CS`/`_WP`/`_HOLD`) must be prefixed to `flash._CS` so that
@@ -2706,7 +2705,8 @@ impl InstantiationBuilder {
         skip: &std::collections::HashSet<String>,
     ) -> McParamValue {
         use crate::semantic::basic::mc_opd::McOpd;
-        // Prefix the bare name to inst_name.name; hit skip / contain '.' / empty → return None (keep as-is)
+        // Prefix the bare name to inst_name.name; hit skip / contain '.' / empty → return None
+        // (keep as-is)
         let prefixed = |name: String| -> Option<McIds> {
             if name.is_empty() || name.contains('.') || skip.contains(&name) {
                 None
@@ -2742,7 +2742,8 @@ impl InstantiationBuilder {
 /// ★ P4.2: Validate fcall return shape consistency.
 ///
 /// Per eval.md §8.1 three-state rules:
-/// - `Implicit` / `This`: function preserves caller shape — caller's `right` interface is used for output.
+/// - `Implicit` / `This`: function preserves caller shape — caller's `right` interface is used for
+/// output.
 /// - `Endpoint`: function returns a specific label/bus — `right` buses represent the return value.
 ///
 /// Issues a warning when the function returns an Endpoint but the caller provides

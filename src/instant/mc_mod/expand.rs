@@ -21,9 +21,7 @@ use super::builder::InstantiationBuilder;
 use super::McModuleInst;
 use crate::semantic::scope::{ResolveScope, ScopeChain};
 
-// ============================================================================
 // Instance-layer scope units (§3.5)
-// ============================================================================
 // The units below read *instance-layer* tables (instantiation output), so
 // they live here instead of `semantic::scope` — only the composition
 // mechanism (`ScopeChain` / `ResolveScope`) is shared across layers.
@@ -138,9 +136,7 @@ impl ResolveScope<InstEntry> for ModuleBusesScope<'_> {
     }
 }
 
-// ============================================================================
 // InstEntry — Pass2 instance entry types
-// ============================================================================
 
 /// Pass2 analog of [`crate::McInstance`] — resolved instance in the
 /// instantiation phase.
@@ -169,9 +165,7 @@ pub enum InstEntry {
     Bus(Vec<NetPoint>),
 }
 
-// ============================================================================
 // ExpansionContext
-// ============================================================================
 
 /// Pass2 func body expansion name resolver.
 ///
@@ -192,9 +186,7 @@ impl<'a> ExpansionContext<'a> {
     }
 }
 
-// ============================================================================
 // Overlay-aware resolution (Phase E)
-// ============================================================================
 
 /// Resolve `name` inside `tree`'s module scope with the Phase E overlay:
 /// ports and components and sub-modules come from the tree; labels and buses
@@ -304,9 +296,7 @@ impl InstantiationBuilder {
     }
 }
 
-// ============================================================================
 // §7 Vector expansion matching (eval.md §7) — pure functions
-// ============================================================================
 
 /// §7 Expansion match result: the completed state of one matching layer.
 #[derive(Debug, Clone)]
@@ -368,7 +358,7 @@ pub fn expand_match(lhs: &[NetPoint], rhs: &[NetPoint]) -> Option<ExpandMatch> {
             .len()
             == rhs.len();
 
-    // ── Priority (1): member-name correspondence (§11.3 step 1) ─────────
+    // Priority (1): member-name correspondence (§11.3 step 1)
     if lhs.len() == rhs.len() && lhs_unique && rhs_unique {
         let rhs_by_name: HashMap<&str, usize> = rhs
             .iter()
@@ -647,11 +637,9 @@ mod expand_match_tests {
     }
 }
 
-// ============================================================================
 // Instance-layer scope unit tests (§3.5) — each unit is exercised with its
 // own input (field-level slices/maps), so no full `McModuleInst` is required
 // except where a real sub-module instance is needed for resolution.
-// ============================================================================
 
 #[cfg(test)]
 mod inst_scope_tests {

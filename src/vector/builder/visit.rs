@@ -57,15 +57,14 @@ fn pair_with_conn_meta(mut p: ConnPair, conn: &crate::instant::mc_net::Connectio
     p.with_meta(conn.source_span.clone(), conn.trunk.clone())
 }
 
-// ============================================================================
 // McVecBuilder
-// ============================================================================
 
 /// Pass2 → McVecBlock converter
 ///
 /// Holds `InstTable` reference to resolve global IDs, recursively traverses `McModuleInst` tree.
 ///
-/// **P02**: Also holds `BuilderReport` to accumulate diagnostics, and `BuildMode` to decide error tolerance strategy.
+/// **P02**: Also holds `BuilderReport` to accumulate diagnostics, and `BuildMode` to decide error
+/// tolerance strategy.
 pub struct McVecBuilder<'a> {
     /// Flattened instance table (provides globally unique ID + path lookup)
     inst_table: &'a InstTable,
@@ -210,9 +209,7 @@ impl<'a> McVecBuilder<'a> {
         }
     }
 
-    // ========================================================================
     // Phase 1: Recursive traversal — each McModuleInst → McVecBlock
-    // ========================================================================
 
     fn convert_module(&mut self, inst: &McModuleInst, prefix: &str) -> McVecBlock {
         let view = self.view;
@@ -240,9 +237,12 @@ impl<'a> McVecBuilder<'a> {
 
         // 2. Collect this level's component instance IDs
         //
-        // ★ S3.5 change: Detailed diagnostics — print to stderr when each component path resolve fails
-        // If upstream visit phase drops a component, downstream from_block.rs can only see empty insts
-        // and will use Phase 1.5 to substitute endpoints as PowerLabel, causing ICs/resistors/capacitors to not render at all.
+        // ★ S3.5 change: Detailed diagnostics — print to stderr when each component path resolve
+        // fails
+        // If upstream visit phase drops a component, downstream from_block.rs can only see empty
+        // insts
+        // and will use Phase 1.5 to substitute endpoints as PowerLabel, causing
+        // ICs/resistors/capacitors to not render at all.
         let comps: Vec<_> = view.components(inst).collect();
         if !comps.is_empty() {
             crate::velog!(
@@ -332,7 +332,8 @@ impl<'a> McVecBuilder<'a> {
             block.blocks.push(sub_block);
         }
 
-        // ── FIX: Use InstTable as authority, backfill this level's structural child instances by parent_id ──
+        // ── FIX: Use InstTable as authority, backfill this level's structural child instances by
+        // parent_id ──
         // The instantiated sub-module body may be empty in this McModuleInst,
         // but InstTable has already registered all Components/Modules during flatten phase.
         if bid >= 0 {
@@ -414,9 +415,7 @@ impl<'a> McVecBuilder<'a> {
         block
     }
 
-    // ========================================================================
     // ★ P8-6: Extract component inner layers
-    // ========================================================================
 
     /// For each component instance with func-created children (InstOrigin::FuncCall),
     /// create a sub-block containing those children. The parent block's insts
@@ -509,11 +508,9 @@ impl<'a> McVecBuilder<'a> {
         }
     }
 
-    // ========================================================================
     // Phase 2: Build McVecNet from connections
     //
     // ★ P02 change: Use resolve_netpoint_v2, accumulate each outcome into report
-    // ========================================================================
 
     fn build_nets_from_connections(
         &mut self,
@@ -526,11 +523,12 @@ impl<'a> McVecBuilder<'a> {
         for conn in &inst.connections {
             let net_name = conn.effective_net_name();
 
-            // ── ★ P0-1: Bracket-structure-aware resolve ─────────────────────────────────
+            // ★ P0-1: Bracket-structure-aware resolve
             //
             // Old implementation flattened all conn.points resolve results into all_ids, then
             // used `windows(2)` sliding-window pairing. This is correct for ordinary chain
-            // connections (`A - B - C`), but catastrophically wrong for bracket-expanded connections:
+            // connections (`A - B - C`), but catastrophically wrong for bracket-expanded
+            // connections:
             //
             //   `dcdc.[VDD_3V3, GND] -> [V3V3, GND]`
             //     resolve → [vdd3v3_id, gnd_id, v3v3_id, gnd2_id]
@@ -538,7 +536,8 @@ impl<'a> McVecBuilder<'a> {
             //     ↑↑↑ The middle pair (gnd, v3v3) shorts "ground" and "3V3" ↑↑↑
             //
             // And these ConnPairs all fall under the same effective_net_name (e.g. "V3V3"), so
-            // the V3V3 net ends up with 4 endpoints including dcdc.GND → whole-schematic electrical error.
+            // the V3V3 net ends up with 4 endpoints including dcdc.GND → whole-schematic electrical
+            // error.
             //
             // New implementation:
             //   - Each NetPoint individually runs resolve_netpoint_v2, gets (ids, members):
@@ -560,9 +559,11 @@ impl<'a> McVecBuilder<'a> {
 
             struct PointResult {
                 ids: Vec<i64>,
-                /// Aligned with ids: Some means bracket expanded member; None means scalar / fallback
+                /// Aligned with ids: Some means bracket expanded member; None means scalar /
+                /// fallback
                 members: Vec<Option<String>>,
-                /// Whether the entire NetPoint is a bracket expansion (at least one Some in members)
+                /// Whether the entire NetPoint is a bracket expansion (at least one Some in
+                /// members)
                 is_bracket: bool,
             }
 
@@ -580,7 +581,8 @@ impl<'a> McVecBuilder<'a> {
                 // Extract BracketExpanded { member } from records, aligned with ids.
                 // resolve_netpoint_v2 in the bracket branch pushes one record **per member**
                 // (successful BracketExpanded / failed Failed), but ids are only pushed on success.
-                // So we scan records, only append member name for successful positions, advancing in sync with ids.
+                // So we scan records, only append member name for successful positions, advancing
+                // in sync with ids.
                 let mut members: Vec<Option<String>> = Vec::with_capacity(outcome.ids.len());
                 let mut is_bracket = false;
                 for r in &outcome.records {
@@ -594,15 +596,18 @@ impl<'a> McVecBuilder<'a> {
                         | ResolutionOutcome::BareLabelFallback
                         | ResolutionOutcome::BracketPortMember { .. } => {
                             // Phase D: BracketPortMember is like Direct — "single id hit",
-                            // not positional expansion (input is bare name, not `prefix.[A,B]` list), so
-                            // goes to None branch — does not participate in downstream symmetric_bracket positional pairing.
+                            // not positional expansion (input is bare name, not `prefix.[A,B]`
+                            // list), so
+                            // goes to None branch — does not participate in downstream
+                            // symmetric_bracket positional pairing.
                             members.push(None);
                         }
                         ResolutionOutcome::Failed => { /* does not correspond to any id, don't push */
                         }
                     }
                 }
-                // Defensive: in case records/ids lengths mismatch (theoretically impossible), pad/truncate
+                // Defensive: in case records/ids lengths mismatch (theoretically impossible),
+                // pad/truncate
                 if members.len() != outcome.ids.len() {
                     crate::velog!(
                         "[NET] WARN: outcome.records/ids length mismatch (records={}, ids={}) \
@@ -625,7 +630,7 @@ impl<'a> McVecBuilder<'a> {
                 });
             }
 
-            // ── D2: FLOATING_PLACEHOLDER detection ──────────────────────────
+            // D2: FLOATING_PLACEHOLDER detection
             // Check if any `_` placeholder (path starts with "(lead)_") failed to resolve.
             for (i, p) in conn.points.iter().enumerate() {
                 if p.path.starts_with("(lead)_") {
@@ -651,7 +656,7 @@ impl<'a> McVecBuilder<'a> {
                 }
             }
 
-            // ── D3: MERGED_SHORT detection ──────────────────────────────────
+            // D3: MERGED_SHORT detection
             // Check if multiple point paths (same or different) resolve to the
             // same id, indicating a bracket expansion duplicate or a port without
             // bit width causing signal merging.
@@ -749,7 +754,7 @@ impl<'a> McVecBuilder<'a> {
                 });
             }
 
-            // ── Pairing strategy selection ─────────────────────────────────────────────────
+            // Pairing strategy selection
             // Bracket mode: at least one point is bracket-expanded, and **all non-empty points**
             // have width either equal to max_w (= that bracket's bit width), or 1 (a scalar
             // shared into every member — a legal fan that reached this layer post-gate, never
@@ -764,8 +769,10 @@ impl<'a> McVecBuilder<'a> {
                     .all(|pr| pr.ids.is_empty() || pr.ids.len() == max_w || pr.ids.len() == 1);
 
             if symmetric_bracket {
-                // Split into max_w sub-nets by position, sub-net name taken from that position's bracket member name
-                // (if that position has no bracket annotation / multiple bracket member names conflict, fall back to
+                // Split into max_w sub-nets by position, sub-net name taken from that position's
+                // bracket member name
+                // (if that position has no bracket annotation / multiple bracket member names
+                // conflict, fall back to
                 // effective_net_name + "[k]" suffix, guaranteeing uniqueness).
                 crate::velog!(
                     "[NET] bracket-mode net='{}' (module='{}'), width={}, points={} → split into {} sub-nets",
@@ -822,10 +829,11 @@ impl<'a> McVecBuilder<'a> {
                     }
                 }
             } else {
-                // ── ★ Series-chain aware pairing ─────────────────────────────────────────────
+                // ★ Series-chain aware pairing
                 //
                 // Symptom this fixes: a scalar chain `P0 -> P1 -> ... -> Pn` was flattened into a
-                // single `all_ids` and paired with `windows(2)` under **one** net_name. That group's
+                // single `all_ids` and paired with `windows(2)` under **one** net_name. That
+                // group's
                 // interior nodes appear twice each, so `merge_pairs_to_vecnet` sees `max_freq > 1`
                 // and misclassifies the whole chain as a **star** → VCC..GND all collapse into one
                 // electrical net (electrical short; `PWR.VCC -> R_LIMIT -> D_STATUS -> PWR.GND`
@@ -836,10 +844,11 @@ impl<'a> McVecBuilder<'a> {
                 //   1. Split the chain into per-segment nets at each interior pass-through device.
                 //   2. Expand each interior **bare 2-pin Component** into its two real pins
                 //      (`.1` upstream / `.2` downstream). Downstream `build_point_to_box` maps both
-                //      pins back to the component box, so `make_endpoint` yields two *distinct feet*
+                // pins back to the component box, so `make_endpoint` yields two *distinct feet*
                 //      — no reliance on `split_shared_pins` (which skips two-pin passives).
                 //
-                // Interior nodes that are NOT 2-pin devices (a shared pin / port / label / junction)
+                // Interior nodes that are NOT 2-pin devices (a shared pin / port / label /
+                // junction)
                 // do **not** split: the chain stays one net through them (`A - J - B` = one node).
                 //
                 // Non-scalar / heterogeneous / partially-failed points fall back to the original
@@ -942,36 +951,44 @@ impl<'a> McVecBuilder<'a> {
             }
         }
 
-        // ── ★ FIX-B: Cross-net merge of groups sharing endpoints ─────────────────────────────────
+        // ★ FIX-B: Cross-net merge of groups sharing endpoints
         //
-        // Symptom: In the example mcu module, the same physical pin (e.g. `cap5.1`, `CAP_1.1`) appears
+        // Symptom: In the example mcu module, the same physical pin (e.g. `cap5.1`, `CAP_1.1`)
+        // appears
         // in pairs of multiple nets simultaneously, rendering as:
         //   GND       (7 pts) : ... cap5.1 ...
         //   VCC_1V2   (2 pts) : VCC_1V2 ~ cap5.1
         //   VDD_3V3   (2 pts) : VDD_3V3 ~ cap5.1
-        // One physical node spanning 3 nets = electrically 3 main rails shorted, no router can produce
+        // One physical node spanning 3 nets = electrically 3 main rails shorted, no router can
+        // produce
         // a reasonable result. This is not a bug in the mc_net.rs::NetTable path — that path
-        // uses union-find, same id appearing multiple times inevitably merges to one root; but visit.rs's
-        // path **groups by net_name itself**, different names won't merge even if sharing endpoints.
+        // uses union-find, same id appearing multiple times inevitably merges to one root; but
+        // visit.rs's
+        // path **groups by net_name itself**, different names won't merge even if sharing
+        // endpoints.
         //
         // Fix strategy (lightweight union-find on net_groups):
         //   1. Assign each group a group_id (= ordinal position in net_groups)
         //   2. Scan all (group_id, endpoint_id) pairs, build endpoint_id → belonging
         //      group_id list
         //   3. For any endpoint "referenced by ≥2 groups", union those groups together
-        //   4. Merge same-root groups (concat pairs), choose name using "most informative" heuristic
+        // 4. Merge same-root groups (concat pairs), choose name using "most informative" heuristic
         //      (power-rail first > non-anonymous first > lexicographic)
         //
-        // Side effect: If the user **really** wrote a short (e.g. `cap5 -> [VCC_1V2, VDD_3V3, GND]`),
+        // Side effect: If the user **really** wrote a short (e.g.
+        // `cap5 -> [VCC_1V2, VDD_3V3, GND]`),
         // this pass will merge 3 nets into one, making the short appear as just "3 rails
-        // side by side in one net" output — more obviously wrong than 3 split nets, aiding diagnosis.
+        // side by side in one net" output — more obviously wrong than 3 split nets, aiding
+        // diagnosis.
         // Also logs `[FIX-B] cross-net merge` warning so the author knows this is a merge artifact.
         //
-        // Compatibility: Does not affect any scenario where groups are endpoint-disjoint (most normal netlists),
+        // Compatibility: Does not affect any scenario where groups are endpoint-disjoint (most
+        // normal netlists),
         // since no shared endpoint is found, union-find won't merge, behavior is fully equivalent.
         if net_groups.len() >= 2 {
             // Materialize net_groups into Vec to ensure stable group_id
-            // BTreeMap has no drain; the into_iter() from `take` is already ordered by name → group_id is also determined
+            // BTreeMap has no drain; the into_iter() from `take` is already ordered by name →
+            // group_id is also determined
             let mut groups_vec: Vec<(String, Vec<ConnPair>)> =
                 std::mem::take(&mut net_groups).into_iter().collect();
             let n = groups_vec.len();
@@ -995,29 +1012,39 @@ impl<'a> McVecBuilder<'a> {
 
             // endpoint_id → first group seen
             //
-            // ── ★ FIX-B correction (after first run feedback): only merge Pin-type endpoints ──────
+            // ★ FIX-B correction (after first run feedback): only merge Pin-type endpoints
             //
             // First version indiscriminately treated any id as "shared endpoint → merge": causing
-            // the `lpa` component (id=1197, InstKind::Component) on the main.speaker path to trigger
-            // a catastrophic 18-net merge into 'DIO' because multiple nets all reference its different pins
+            // the `lpa` component (id=1197, InstKind::Component) on the main.speaker path to
+            // trigger
+            // a catastrophic 18-net merge into 'DIO' because multiple nets all reference its
+            // different pins
             // (US_SPEAKER_MUTE / dc / dc.GND / DIO_ESD all mixed together).
             //
-            // Root cause: multi-pin component (lpa) only registered component id 1197 in InstTable, its
+            // Root cause: multi-pin component (lpa) only registered component id 1197 in InstTable,
+            // its
             // individual pins (VDD/GND/VO1/...) have no independent id — resolve_netpoint_v2 on the
-            // OwnerFallback path backfills with the component id; 18 different signal nets each reference
-            // component 1197's different pins, but ConnPair endpoints are all 1197, my previous Fix B
+            // OwnerFallback path backfills with the component id; 18 different signal nets each
+            // reference
+            // component 1197's different pins, but ConnPair endpoints are all 1197, my previous Fix
+            // B
             // treated them as "shared id" and merged everything into one super-net.
             //
-            // Fix: only trigger merge for InstKind::Pin (Pin is a physically unique node, appearing in
-            // multiple nets = real short or multiple connections to same node, should merge). Component/Module/
+            // Fix: only trigger merge for InstKind::Pin (Pin is a physically unique node, appearing
+            // in
+            // multiple nets = real short or multiple connections to same node, should merge).
+            // Component/Module/
             // Port/Bus/Label skip — they may appear in multiple nets due to "Owner backfill", not
             // representing a physical short.
             //
             // Side effect: top-level `V3V3` `V1V2` Port ids (1001/1002) are InstKind::Port,
-            // now also don't trigger merge. This avoids the first version's problem of incorrectly merging
+            // now also don't trigger merge. This avoids the first version's problem of incorrectly
+            // merging
             // bracket-broadcast shorts (a historical upstream artifact of the now-abolished §5.3.1
-            // single-point broadcast, today E4007-rejected with no connection) into GND — those shorts
-            // were upstream bugs, we no longer "help wrongly" here, letting symptoms surface in the net
+            // single-point broadcast, today E4007-rejected with no connection) into GND — those
+            // shorts
+            // were upstream bugs, we no longer "help wrongly" here, letting symptoms surface in the
+            // net
             // list for the author to fix source or for later smarter detection to handle.
             let mut ep_to_first_group: HashMap<i64, usize> = HashMap::new();
             for (gid, (_name, pairs)) in groups_vec.iter().enumerate() {
@@ -1066,7 +1093,8 @@ impl<'a> McVecBuilder<'a> {
             }
 
             // Name selection heuristic: first check for power-rail name (using an approximation
-            // of the same-rule lightweight helper from ITER-5 above — here at the inst layer we can't
+            // of the same-rule lightweight helper from ITER-5 above — here at the inst layer we
+            // can't
             // cross to vector layer import naming, use local small judgment). Priority:
             //   1) power-rail name (contains power/ground)
             //   2) non-`__net_N` anonymous name
@@ -1144,7 +1172,7 @@ impl<'a> McVecBuilder<'a> {
 
         // Step 2: Generate McVecNet for each group
         let mut result = Vec::with_capacity(net_groups.len());
-        // ── §8.9.4: coarse trunk aggregation ─────────────────────────────────────
+        // §8.9.4: coarse trunk aggregation
         // Each fine net whose pairs carry one shared structured group context
         // (`TrunkCtx`, same name + kind) is a member of a coarse
         // `Trunk`. Trunks are keyed by the pure group name (e.g. "SPI0"), so
@@ -1302,9 +1330,7 @@ impl<'a> McVecBuilder<'a> {
         (result, trunks)
     }
 
-    // ========================================================================
     // Internal helpers
-    // ========================================================================
 
     /// ★ M6.5: replace the builder's merged ground net(s) with the pass2
     /// frozen string net-table grouping. The builder's own path groups
@@ -1380,9 +1406,7 @@ impl<'a> McVecBuilder<'a> {
     }
 }
 
-// ============================================================================
 // ★ Series-chain helpers (net-build correctness)
-// ============================================================================
 
 /// If `id` is a **bare 2-pin Component reference** (an `InstKind::Component` with exactly two
 /// registered pins), return its two pin ids as `(upstream_pin, downstream_pin)` in a deterministic
@@ -1492,9 +1516,7 @@ fn trunk_end_from_id(table: &InstTable, id: i64, base: &str) -> TrunkEnd {
     }
 }
 
-// ============================================================================
 // Public API
-// ============================================================================
 
 /// One-step build `McVecBlock` tree from pass2 result (Tolerant mode).
 ///

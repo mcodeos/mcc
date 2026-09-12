@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Power-intent declarations — typed capture (power-intent-design.md §5).
+//! Power-intent declarations — typed capture (intent-design.md §5).
 //!
 //! Grammar (mcast/src/mca.y, clause 3.7/3.8/3.9; keyword `conduit`, legacy
 //! alias `ref` accepted since 2026-09-07):
@@ -28,7 +28,7 @@
 //! have no value sibling).
 //!
 //! Relation edges (`@bridge(a,b)` / `@couple(a,b)` / `@clamp(net)` —
-//! power-intent-design.md §3/§6 iron rule 2) trail the **connection** net
+//! intent-design.md §3/§6 iron rule 2) trail the **connection** net
 //! statement: `MCAST_NET(33).sub = [ <phrase>, (MCAST_ATTRIBUTE)* ]`. The Rust
 //! net reader consumes only the phrase head and drops those trailing nodes, so
 //! [`McPowerDecls`] re-walks the net clause and captures them as [`McNetEdge`]s
@@ -304,9 +304,7 @@ fn decode_rail(domain: &str, r: &McRailDecl) -> L1Rail {
     out
 }
 
-// ============================================================================
 // §5.2 direction-word family — component `psrc/psnk/psbi` pin `::DC(...)` decode
-// ============================================================================
 
 /// One decoded component `psrc/psnk/psbi ...::DC(...)` pin contract
 /// (design §4.1/§4.4, rail-contract-design.md §8). The **guarantee** words decode
@@ -980,9 +978,7 @@ impl McRailParam {
     }
 }
 
-// ============================================================================
 // helpers
-// ============================================================================
 
 fn collect_attrs(head: &AstNode) -> McAttributes {
     let mut attrs = McAttributes::new();
@@ -1354,7 +1350,7 @@ mod tests {
         assert_eq!(iso.rails[0].params.len(), 1);
     }
 
-    // ── §5.2 direction-word family pin-DC decode (design §4.1 / §4.4) ───────
+    // §5.2 direction-word family pin-DC decode (design §4.1 / §4.4)
 
     /// Load `src` and return the captured pwr pin contracts (`McPins.pwr`) of
     /// the component whose name equals `want` — same parse harness as
@@ -1661,7 +1657,7 @@ module main {
         );
     }
 
-    // ── module power-output port capture (rail-contract-design.md §8.5) ─────
+    // module power-output port capture (rail-contract-design.md §8.5)
 
     const SRC_PWR_PORTS: &str = r#"module main {
     psrc vin{VBUS_5V, GND}::DC(5V, capacity:2A, eff:0.9)

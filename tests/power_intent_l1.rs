@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Power-intent L1 relation-edge ERC (power-intent-design.md §3 / §13 landing 1).
+//! Power-intent L1 relation-edge ERC (intent-design.md §3 / §13 landing 1).
 //!
 //! The captured `@bridge`/`@clamp` relation edges + `ref` roles (McPowerDecls,
 //! threaded into the flat `InstTable`) are *consumed* by two FlatErc rules:
@@ -220,8 +220,7 @@ fn clamp_to_undeclared_net_is_not_adjudicated() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Landing 2 — rail DC-contract Volt decode (power-intent-design.md §4 / §13).
+// Landing 2 — rail DC-contract Volt decode (intent-design.md §4 / §13).
 //
 // The `rail [hot, ret]::DC(v, tol, capacity, eff)` guarantee line is now
 // *decoded* (the Volt-arg decode), not name-heuristic: 3.3V → 3.3, ±5% → 0.05,
@@ -278,8 +277,7 @@ fn rail_same_hot_in_two_domains_fires_two_roots() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// E-PWR-001 — sink nominal vs derived net supply S (power-intent-design.md
+// E-PWR-001 — sink nominal vs derived net supply S (intent-design.md
 // §4.3/§4.4/§11).
 //
 // A `psnk` sink must require the net's derived supply nominal S (the
@@ -390,7 +388,6 @@ fn member_bus_sink_on_wrong_rail_fires_nominal_mismatch() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // E-PWR-001 + §4.3 S-set — direct psrc/psbi supply roots.
 //
 // S(net) comes not only from a declared rail face but from any handwritten
@@ -503,7 +500,6 @@ fn disagreeing_roots_leave_net_unadjudicated() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Pin-contract decode ERC (6012, §5.2 closed word-list discipline — the pin-side Volt-arg decode).
 //
 // The pin `::DC` is a typed contract: a sink declares *only* its mandatory
@@ -607,7 +603,6 @@ fn unused_bad_contract_is_not_reported() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Pin-name parse hygiene — `::DC(v)` on a power row is a §4.1/§5.2 power
 // contract, never an interface binding.
 //
@@ -663,7 +658,6 @@ fn interface_misuse_still_warns_while_power_rows_are_silent() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // PWR-3 source contention (axis ③ — §11 / §13 landing 3).
 //
 // The narrow kernel: two or more `psrc` HARD sources landing their hot
@@ -762,10 +756,8 @@ fn rail_face_plus_single_psrc_is_not_contention() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // §3.2 role-relation contract rows 6014 (isolated zero-DC-bridge, PWR-9) and
 // 6015 (protective single-point, PWR-8), landed with the loop/clamp rows above.
-// ---------------------------------------------------------------------------
 
 /// 6014 fire: an `@role(isolated)` ref DC-`@bridge`d to the main reference is
 /// a hard tie out of the zero-DC world — a declared DC bridge across the
@@ -975,11 +967,9 @@ fn isolated_earth_singletons_do_not_break_the_main_island() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // §8.4 zero-bridge rule 6018 (quiet/protective conduit with no declared DC
 // `@bridge`) — conduit-equivalence-design.md §8.4. The upper bound is 6007 /
 // 6015; this fires on the bare zero only.
-// ---------------------------------------------------------------------------
 
 /// 6018 fire (primary §8.4 scenario): a `@role(quiet)` conduit that is a real
 /// supply face — a rail returns to it — but declares no DC `@bridge` is an
@@ -1058,7 +1048,6 @@ fn quiet_ref_with_only_ycap_couple_still_fires_6018() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // PWR-1 no-source face (§11 / axis ③): a net that carries component power-sink
 // (psnk) terminals but no supply root on the net itself — no declared
 // domain-rail face, no decodable psrc/psbi hot pin. Net-local, mirroring
@@ -1146,7 +1135,6 @@ fn rootless_net_without_sink_is_clean_6019() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Multi-source combine S-set (§6.2③, rail-contract-design.md §6) — the
 // combine-output nominal-only guard. The ∪ window merge itself rides the future
 // S-set window engine (§6.3/§7.3); this kernel lands the one piece the design
@@ -1244,7 +1232,6 @@ fn combine_nominal_only_output_is_clean_6020() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // PWR-4 net budget (§8/§8.5, rail-contract-design.md) — sink `amp` demand vs
 // the supply root's capacity, supply-root scope. `amp` is a sink-exclusive
 // opt-in key on the psnk `::DC` (§8.1); the budget accumulates declared demand
@@ -1356,7 +1343,6 @@ module main {\n    conduit GND @role(main)\n    io V33\n    SRC_BAD s\n    \
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // PWR-4 root-scope budget (§8.5, rail-contract-design.md) — 6021 raised from
 // net-local to supply-root scope. A capacity root governs downstream nets
 // separated from it only by current-transparent copper (a two-pin element with
@@ -1456,7 +1442,6 @@ fn root_scope_rail_load_does_not_double_count_upstream() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // PWR-4 budget, derived-demand tail (§8.5, rail-contract-design.md) — the three
 // semantics that close the budget axis on top of the root-scope copper walk
 // above. All fire 6021 only (zero new codes):
@@ -2020,7 +2005,6 @@ fn boundary_deep_multihop_leg_fires_6022() {
     );
 }
 
-// ============================================================================
 // §8.6 device reference-pin cross-plane (6027, conduit-equivalence-design.md
 // §8.6) — the ≥3-pin functional sibling of 6022. A device whose DC-pair
 // *return* pins resolve to two disjoint potential classes silently DC-joins
@@ -2028,7 +2012,6 @@ fn boundary_deep_multihop_leg_fires_6022() {
 // the class pair (uc/GND↔GNDA) or ② a declared isolation structure does — one
 // return class is an @role(isolated) copper carried by a source-side contract
 // AND another return class is sink-side (iso5/DC.ISO_SRC; both conditions).
-// ============================================================================
 
 /// A two-sink digital+analog device (uc-like): two `psnk` rows, two *distinct*
 /// return members G1/G2. Whether 6027 fires depends entirely on the board — on
@@ -2160,12 +2143,10 @@ fn sink_only_isolated_return_straddle_fires_6027() {
     );
 }
 
-// ============================================================================
 // Window batch (rail-contract-design.md §6.1/§6.3) — S(net) as a closed
 // interval, judged by spec + structure, never by name. A2/A3 landed the shared
 // `WindowDeriv::window_of_net` engine; these fixtures exercise its two first
 // consumers (6023 regulator gate, 6024 sink req window).
-// ============================================================================
 
 /// A regulator family component: one Snk input row + one Src output row, with a
 /// component-level `spec` block writing the Hoare gate (`input_req`, the input
@@ -2333,7 +2314,7 @@ fn full_window_board_is_clean_6023_6024() {
     );
 }
 
-// ---- 6025 partial-spec advisory -------------------------------------------
+// 6025 partial-spec advisory
 
 /// A one-sided regulator: psnk input row + psrc output row, but the spec block
 /// writes only the `output` post-condition — no `input_req` pre-condition, so
@@ -2385,10 +2366,8 @@ fn input_req_only_load_never_fires_6025() {
     );
 }
 
-// ============================================================================
 // Window-notes batch (rail-contract-design.md §6.6/§6.7) — module-boundary S
 // feed forwarding + the converter-output-vs-rail-window cross-check (6026).
-// ============================================================================
 
 /// A submodule that contains its own 5V `psrc` source and exports it through an
 /// `io` member — the A′ module-boundary feed §6.6's forward arm carries. The
@@ -2505,8 +2484,7 @@ fn converter_output_on_plain_driven_net_never_fires_6026() {
     );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Net-island L4 supply reach (net-island-attribution-design.md §7 L4) — 6011/
+// Net-island L4 supply reach (island-attribution-design.md §7 L4) — 6011/
 // 6019 close the "copper pass-through feed = later S-set step" gap through
 // reach.rs. A root-less sink net *fed* to an upstream supply root through a
 // current-transparent two-pin element (fuse/inductor/ferrite/decoupling cap)

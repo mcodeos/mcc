@@ -326,10 +326,16 @@ mod tests {
         let text = "io int x; io INT y;";
         let start = text.find("int").unwrap();
         let (t, _) = classify_token(text, 13, start, 3, &empty_lapper());
-        assert_eq!(t, 13, "lowercase `int` is in the plugin list, stays keyword-colored");
+        assert_eq!(
+            t, 13,
+            "lowercase `int` is in the plugin list, stays keyword-colored"
+        );
         let upper = text.find("INT").unwrap();
         let (t, _) = classify_token(text, 13, upper, 3, &empty_lapper());
-        assert_eq!(t, 9, "uppercase `INT` is a plain identifier, becomes a variable");
+        assert_eq!(
+            t, 9,
+            "uppercase `INT` is a plain identifier, becomes a variable"
+        );
     }
 
     #[test]
@@ -382,9 +388,12 @@ mod tests {
         assert_eq!(lines[0], (16, 0, 8)); // "/* line1"
         assert_eq!(lines[1], (16, 9, 5)); // "line2"  (byte 8 is the newline)
         assert_eq!(lines[2], (16, 15, 8)); // "line3 */" (byte 14 is the newline)
-                                           // Every piece is a complete comment line in ascending, non-overlapping
-                                           // order; the newline separators are intentionally left out so the spans
-                                           // stay per-line (consumers paint per-line, gaps fall back to plain).
+                                           // Every piece is a complete comment line in ascending,
+                                           // non-overlapping
+                                           // order; the newline separators are intentionally left
+                                           // out so the spans
+                                           // stay per-line (consumers paint per-line, gaps fall
+                                           // back to plain).
         let mut prev = 0usize;
         for (_, p, l) in &lines {
             assert!(*p >= prev, "pieces must be ordered and non-overlapping");

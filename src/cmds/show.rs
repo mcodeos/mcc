@@ -64,7 +64,7 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
         return None;
     }
     match args.target {
-        // ── overview ───────────────────────────────────────────────────────
+        // overview
         // show.all / show.defs are local-only: the RPC handler has no
         // --scope / -F concept and would bypass the layered (file/use/system)
         // filtering.
@@ -74,7 +74,7 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
             return None;
         }
 
-        // ── entity detail (name required) ──────────────────────────────────
+        // entity detail (name required)
         ShowTarget::Component | ShowTarget::Module | ShowTarget::Interface | ShowTarget::Enum => {
             if args.name.is_none() {
                 // name lists moved to `mcc list <kind>`; run_local prints the hint
@@ -102,7 +102,7 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
             return None;
         }
 
-        // ── drill-down ─────────────────────────────────────────────────────
+        // drill-down
         ShowTarget::Pins => drill_rpc("show.pins", args),
         ShowTarget::Ports => {
             if args.name.is_some() {
@@ -142,13 +142,13 @@ fn run_local(args: &ShowArgs) -> Result<()> {
 
     let name = args.name.as_deref();
     match args.target {
-        // ── overview / debug ───────────────────────────────────────────────
+        // overview / debug
         ShowTarget::All => show_all(args),
         ShowTarget::Defs => show_defs(args),
         ShowTarget::Lapper => show_lapper(args),
         ShowTarget::Ast => show_ast(args),
 
-        // ── entity detail (name required; lists moved to `mcc list`) ───────
+        // entity detail (name required; lists moved to `mcc list`)
         ShowTarget::Component => match name {
             None => need_list_hint(args, "component"),
             Some(n) => show_component(n, args),
@@ -173,7 +173,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Pwr => show_pwr(args),
         ShowTarget::Pwrflow => show_pwrflow(args),
 
-        // ── drill-down ─────────────────────────────────────────────────────
+        // drill-down
         ShowTarget::Pins => drill_pins(require_name(args), args),
         ShowTarget::Ports => match name {
             None => need_list_hint(args, "ports"),
@@ -190,9 +190,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
     }
 }
 
-// ============================================================================
 // Setup
-// ============================================================================
 
 /// One-shot environment setup: init engine, load `--lib` libraries, load the
 /// target file. All handlers assume this ran, so none of them re-init.
@@ -341,9 +339,7 @@ fn find_files_with_name(name: &str) -> Vec<String> {
     matches
 }
 
-// ============================================================================
 // Definition lookup
-// ============================================================================
 
 /// Find a definition by name across all kinds; returns its CMIE.
 fn find_def(name: &str) -> Option<mcc::McCMIE> {
@@ -434,9 +430,7 @@ fn not_applicable(what: &str, name: &str) -> ! {
     std::process::exit(1);
 }
 
-// ============================================================================
 // Containers: overview / list / detail
-// ============================================================================
 
 fn show_all(args: &ShowArgs) -> Result<()> {
     let target = target_path(args).map(resolve_file);
@@ -545,9 +539,7 @@ fn is_system_uri(uri: &str) -> bool {
         .any(|name| mcc::resolve_lib_root(name).is_some_and(|root| path.starts_with(&root)))
 }
 
-// ============================================================================
 // defs: the current definition space, in registry form
-// ============================================================================
 
 /// One live def of the current definition space as a registry display row.
 ///
@@ -963,9 +955,7 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
     output(&data, args.span)
 }
 
-// ============================================================================
 // show dianlu — whole circuit tree after instantiation (Pass2)
-// ============================================================================
 
 /// `show dianlu`: instantiate the top module (--top or first module) and walk
 /// the resulting `McModuleInst` tree. Output is organized as one section per
@@ -1060,9 +1050,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
     output(&data, args.span)
 }
 
-// ============================================================================
 // show pwr — recursive power-intent tree (Pass2 + flat InstTable)
-// ============================================================================
 
 /// `show pwr`: build the top module (`--top` or first loaded module) with the
 /// **flat** InstTable (Pass2 + flatten) so each module node can report the
@@ -1149,13 +1137,11 @@ fn show_pwr(args: &ShowArgs) -> Result<()> {
     output(&data, args.span)
 }
 
-// ============================================================================
 // `show pwrflow` — derived power-flow single view
-// ============================================================================
 
 /// Render `mcc show pwrflow`: the compiler-generated top-level power-flow
 /// single view (`semantic/validation/pwrflow.rs`; design
-/// `mcd/doc/power-signal/power-flow-single-view-design.md`). Text mode emits
+/// `flow-single-view-design.md`). Text mode emits
 /// the three projected sections — §1 world crowns, §2 rail contract table,
 /// §3 supply tree — with `--full` widening rail contract columns and `--decaps`
 /// unfolding folded decoupler annotations; JSON mode emits the whole typed view
@@ -1236,7 +1222,7 @@ fn render_pwrflow_sections(flow: &mcc::PwrFlow, args: &ShowArgs, lines: &mut Vec
     lines.push(format!("===== Power Flow: {} =====", flow.top));
     lines.push(String::new());
 
-    // ── [1] world crowns ───────────────────────────────────────────────────
+    // [1] world crowns
     lines.push("── [1] World crowns (role → return copper; EARTH carries no DC) ──".to_string());
     for c in &flow.crown {
         let star = if c.star { "*" } else { "" };
@@ -1250,7 +1236,7 @@ fn render_pwrflow_sections(flow: &mcc::PwrFlow, args: &ShowArgs, lines: &mut Vec
     }
     lines.push(String::new());
 
-    // ── [2] rail contract table ───────────────────────────────────────────
+    // [2] rail contract table
     lines.push("── [2] Rail contracts ──────────────────────────────────".to_string());
     if args.full {
         lines.push(format!(
@@ -1287,7 +1273,7 @@ fn render_pwrflow_sections(flow: &mcc::PwrFlow, args: &ShowArgs, lines: &mut Vec
     }
     lines.push(String::new());
 
-    // ── [3] supply tree ───────────────────────────────────────────────────
+    // [3] supply tree
     lines.push("── [3] Supply tree (fan-out indent; cross-world = return change) ──".to_string());
     if flow.roots.is_empty() {
         lines.push("  (no supply roots derived)".to_string());
@@ -2372,9 +2358,7 @@ fn iface_type_string(iface: &mcc::Mc2Interface) -> String {
     }
 }
 
-// ============================================================================
 // Drill-down handlers
-// ============================================================================
 
 fn drill_pins(name: &str, args: &ShowArgs) -> Result<()> {
     let cmie = def_or_exit(name);
@@ -2648,9 +2632,7 @@ fn drill_values(name: &str, args: &ShowArgs) -> Result<()> {
     output(&data, args.span)
 }
 
-// ============================================================================
 // Entity detail collection (used by `show all` file-layer text details)
-// ============================================================================
 
 /// Collect every entity defined in a single `.mc` file as full-field detail
 /// values, sorted by source position so the output follows the file layout.
@@ -2944,9 +2926,7 @@ fn dump_enum(name: &str, en: &mcc::McEnumDef) -> Value {
     })
 }
 
-// ============================================================================
 // Rendering helpers
-// ============================================================================
 
 /// Build the JSON view of a `McPins` (pins + interfaces + name/id mappings).
 /// Single implementation lives in `rpc::handlers` so the CLI and the server
@@ -3065,9 +3045,7 @@ pub(crate) fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
     })
 }
 
-// ============================================================================
 // Output
-// ============================================================================
 
 /// Render `show all` layered output (tagged `type: "layered_all"`) in text
 /// mode: one section per layer, separated by `------`. Sections follow a fixed

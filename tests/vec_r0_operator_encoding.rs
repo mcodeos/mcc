@@ -7,7 +7,7 @@
 //!
 //! Until this file, the operator encoding had no direct test anchor: `mcc`
 //! exposes no phrase tree from a string, so the `+` landing (S2 of
-//! `mcd/doc/vector-conn-r0-implementation-design.md`) could only be observed
+//! `r0-implementation-design.md`) could only be observed
 //! through a *diagnostic-code migration* in `vec_parallel_transposed_bridge.rs`
 //! — an explicitly weaker proxy (§7.1 of that draft).
 //!
@@ -133,7 +133,7 @@ fn only_with(stmt: &str, allowed: &[u32]) -> String {
     shapes.into_iter().next().unwrap()
 }
 
-// ── §2.4.1 the encoding table ───────────────────────────────────────────────
+// §2.4.1 the encoding table
 
 /// `-` ⇒ `Series(_, Undirected)`.
 #[test]
@@ -220,7 +220,7 @@ fn brackets__are_multiple_not_parallel() {
     assert_eq!(only("[R101, R102]"), "Multiple[R101, R102]");
 }
 
-// ── §2.4.3 ordering law ─────────────────────────────────────────────────────
+// §2.4.3 ordering law
 
 /// A same-direction chain flattens into **one** `Series` preserving source
 /// order (the one transform §2.4.3 permits).
@@ -244,7 +244,7 @@ fn mixed_directions__are_not_flattened() {
     );
 }
 
-// ── §2.4.4 unary operators wrap ─────────────────────────────────────────────
+// §2.4.4 unary operators wrap
 
 /// `'` is a **wrapper**: the operand survives structurally underneath, not
 /// rewritten into the operator.
@@ -263,13 +263,12 @@ fn apost__wraps_without_rewriting() {
 /// component's pins and reversing a chain's members are all applied when the
 /// expression is *evaluated* (§2.4.5) — the parse tree only records the wrap.
 ///
-/// This cell used to be a recorded baseline: the old caret arm fell into five
-/// hand-written branches that rewrote the tree (reversing members, swapping
-/// `Node` input/output, rewriting a two-pin component into a swapped `Node`),
-/// and for a parenthesized chain it produced a **vestigial one-element**
-/// `Series(Undirected)` — the `phrases.reverse()` ran on a single element,
-/// so the members were never reversed and the operator survived as a
-/// mislabelled wrapper.
+/// The cell guards that no such rewrite happens: a branch that reversed
+/// members, swapped `Node` input/output or rewrote a two-pin component into a
+/// swapped `Node` would show up here. A parenthesized chain is the sharp case —
+/// the rewrite would leave a **vestigial one-element** `Series(Undirected)`,
+/// because `phrases.reverse()` runs on a single element, so the members are
+/// never reversed and the operator survives as a mislabelled wrapper.
 #[test]
 fn caret__wraps_without_rewriting() {
     assert_eq!(
@@ -331,14 +330,14 @@ fn caret__double_reverse_nests() {
     assert_eq!(only("R101^^"), "Reversed(Reversed(R101))");
 }
 
-// ── §2.4.5 corollary: direction alone carries the reversal ─────────────────
+// §2.4.5 corollary: direction alone carries the reversal
 
 /// `<-` keeps its operands in **written source order** — the reversal is
 /// carried by `ConnDir::RtoL` alone (§2.4.5's corollary: "direction lives in
 /// `ConnDir`, a `Series`'s member list always equals the written source
-/// order"). This cell used to be a recorded baseline: the parser's
-/// left-arrow arm built the line as `[opd2, opd1]`, encoding the reversal
-/// **twice** (direction *and* order) — §2.4.2 prohibition 1.
+/// order"). The cell guards against a left-arrow arm that builds the line as
+/// `[opd2, opd1]`: that encodes the reversal **twice** (direction *and*
+/// order), which §2.4.2 prohibition 1 forbids.
 #[test]
 fn back_arrow__keeps_written_operand_order() {
     assert_eq!(

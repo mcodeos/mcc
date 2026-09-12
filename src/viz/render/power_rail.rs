@@ -29,7 +29,8 @@ pub struct PowerRailShape;
 impl BoxShape for PowerRailShape {
     fn render(&self, b: &McVecBox) -> String {
         let is_ground = matches!(b.symbol, Symbol::PowerRail { is_ground: true });
-        // Connect edge (the edge the flag's single lead faces toward the consumer); if absent, fall back to classic "up"
+        // Connect edge (the edge the flag's single lead faces toward the consumer); if absent, fall
+        // back to classic "up"
         let connect = b
             .entry_points
             .first()
@@ -47,9 +48,7 @@ impl BoxShape for PowerRailShape {
     }
 }
 
-// ============================================================================
 // Orientation helpers
-// ============================================================================
 
 /// Symbol outward direction = away from consumer = opposite of the connect edge
 fn glyph_outward(connect: &EntrySide) -> (f64, f64) {
@@ -81,13 +80,9 @@ fn escape_xml(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-// ============================================================================
 // ★ P7-3: pin decoration rendering (rail terminals / ground symbols, not in graph.boxes)
-// ============================================================================
 
-// ============================================================================
 // VCC / VDD style (triangle arrow points outward)
-// ============================================================================
 
 fn render_power(b: &McVecBox, connect: &EntrySide) -> String {
     let cx = b.x + b.w / 2.0;
@@ -154,9 +149,7 @@ fn render_power(b: &McVecBox, connect: &EntrySide) -> String {
     )
 }
 
-// ============================================================================
 // GND / VSS style (3 decreasing horizontal bars on the outside)
-// ============================================================================
 
 fn render_ground(b: &McVecBox, connect: &EntrySide) -> String {
     let cx = b.x + b.w / 2.0;
@@ -242,9 +235,7 @@ fn render_ground(b: &McVecBox, connect: &EntrySide) -> String {
     )
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

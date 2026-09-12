@@ -264,7 +264,8 @@ impl McFuncCall {
         //   CAP(10uF)          → { name: "CAP" }                              — class, no instance
         //   CAP.CER(10uF)      → { instance: "CAP", name: "CER" }             — dotted class
         //   uC.i2c(0x36)       → { instance: "uC", name: "i2c" }              — method call
-        //   mic(V3V3)          → { name: "mic" }                              — instance constructor (has no instance child, but name IS a known instance)
+        // mic(V3V3)          → { name: "mic" }                              — instance constructor
+        // (has no instance child, but name IS a known instance)
         //   RES(10kΩ).Pullup() → { instance: opd_fcall, name: "Pullup" }      — chained method call
         // Distinction: if `instance` segment is a known instance (find_inst),
         // it's a method call → skip. Otherwise it's a class → register.
@@ -536,7 +537,8 @@ impl McFuncCall {
                 }
             }
             // Case 3: First child is MCAST_INSTANCE containing pre-closure FCall
-            // Pattern: MCAST_INSTANCE(inner FCall with pre-closure) + MCAST_NAME(method) + MCAST_PARAMS(params)
+            // Pattern: MCAST_INSTANCE(inner FCall with pre-closure) + MCAST_NAME(method) +
+            // MCAST_PARAMS(params)
             else if first.get_type() == MCAST_INSTANCE {
                 if let Some(inst_inner) = first.get_sub_node() {
                     if inst_inner.get_type() == MCAST_OPD_FCALL {
@@ -606,7 +608,7 @@ impl McFuncCall {
         if pre_param_opt.is_some() && instance_name.is_some() && method_name_opt.is_some() {
             let pre_param = pre_param_opt.unwrap();
 
-            // ── R3: `=>` fold unified rules (§1) ──────────────────────────────
+            // R3: `=>` fold unified rules (§1)
             // One rule, no method-name list: the `=>` prefix is an actual that
             // fills the leading `_` placeholder position of the right-hand
             // method call. All-placeholder → the prefix is the whole actual;
@@ -1009,7 +1011,8 @@ impl McFuncCall {
                                     }
                                 }
 
-                                // Second try: if not found, check if it's a class with params (e.g., CAP(...))
+                                // Second try: if not found, check if it's a class with params
+                                // (e.g., CAP(...))
                                 if caller.is_none() {
                                     if let Some(inner) = caller_node.get_sub_node() {
                                         let names = inner.to_id_or_ida();
@@ -1084,7 +1087,8 @@ impl McFuncCall {
                 MCAST_DECLARE => {}
 
                 MCAST_INSTANCE => {
-                    // Handle MCAST_INSTANCE as caller for method calls like ldo.enable() or CAP(...).Cap(...)
+                    // Handle MCAST_INSTANCE as caller for method calls like ldo.enable() or
+                    // CAP(...).Cap(...)
                     mcc_dbg!(
                         "sem::fcall",
                         "[FCALL-INST-DBG] MCAST_INSTANCE reached, caller.is_none()={}",
@@ -1142,14 +1146,17 @@ impl McFuncCall {
                                 if !names.is_empty() {
                                     let inst_name = names[0].to_string();
 
-                                    // First try: check if it's an existing instance (e.g., ldo.enable)
+                                    // First try: check if it's an existing instance (e.g.,
+                                    // ldo.enable)
                                     if let Some(existing_inst) = context.find_inst(&inst_name) {
                                         caller = Some(Box::new(McPhrase::from(existing_inst)));
                                     } else {
-                                        // Second try: it's a class definition, create anonymous instance
+                                        // Second try: it's a class definition, create anonymous
+                                        // instance
                                         let ids = McIds::from(inst_name.as_str());
                                         let anon_name = context.gen_anon_name(&inst_name);
-                                        // Store the source span for diagnostics on this anonymous instance.
+                                        // Store the source span for diagnostics on this anonymous
+                                        // instance.
                                         let inst_span = (each.get_pos() as usize)
                                             ..((each.get_pos() + each.get_len()) as usize);
                                         context.store_inst_span(&anon_name, inst_span);
@@ -1226,7 +1233,8 @@ impl McFuncCall {
                                         }
                                     } else {
                                         let anon_name = context.gen_anon_name(class_name);
-                                        // Store the source span for diagnostics on this anonymous instance.
+                                        // Store the source span for diagnostics on this anonymous
+                                        // instance.
                                         let inst_span = (each.get_pos() as usize)
                                             ..((each.get_pos() + each.get_len()) as usize);
                                         context.store_inst_span(&anon_name, inst_span);
@@ -1265,7 +1273,8 @@ impl McFuncCall {
                                     }
                                 } else {
                                     let anon_name = context.gen_anon_name(class_name);
-                                    // Store the source span for diagnostics on this anonymous instance.
+                                    // Store the source span for diagnostics on this anonymous
+                                    // instance.
                                     let inst_span = (each.get_pos() as usize)
                                         ..((each.get_pos() + each.get_len()) as usize);
                                     context.store_inst_span(&anon_name, inst_span);
@@ -1336,7 +1345,8 @@ impl McFuncCall {
                                                             || vec![McBus::new("undefined.out")],
                                                             |phrase| phrase.get_right(),
                                                         );
-                                                        // chain validity: previous link must return `this`
+                                                        // chain validity: previous link must return
+                                                        // `this`
                                                         Self::check_chain_validity(
                                                             &caller, &name, node, context,
                                                         );
@@ -1575,8 +1585,10 @@ impl McFuncCall {
         };
 
         // Determine output interface (right side)
-        // The output interface of a function call is inherited from the caller's right (output) interface,
-        // because a function call is a transformation of the caller, and its output usually preserves the caller's output shape.
+        // The output interface of a function call is inherited from the caller's right (output)
+        // interface,
+        // because a function call is a transformation of the caller, and its output usually
+        // preserves the caller's output shape.
         let right = if let Some(ref caller_opd) = caller {
             caller_opd.as_ref().get_right()
         } else {
@@ -1606,15 +1618,19 @@ impl McFuncCall {
                     match cmie {
                         McCMIE::Component(comp_def) => {
                             let inst_name = context.gen_anon_name(&func_name.to_string());
-                            // ── Iter-3.E fix ────────────────────────────────────
+                            // Iter-3.E fix
                             // When context is McComponent, gen_anon_name returns "",
-                            // and add_component is also an empty implementation. If we wrap a component
+                            // and add_component is also an empty implementation. If we wrap a
+                            // component
                             // with name "" into Endpoint as-is, pass2 processing would produce
                             // ghost pins (empty owner) like `.1 : X ~ .1`.
                             //
-                            // Correct approach: when inst_name is empty, **do not** take the Endpoint branch;
-                            // fall through to the FuncCall construction below, letting pass2's auto_name
-                            // in `instantiate_component_construction` generate the actual @RES1/@CAP1 names.
+                            // Correct approach: when inst_name is empty, **do not** take the
+                            // Endpoint branch;
+                            // fall through to the FuncCall construction below, letting pass2's
+                            // auto_name
+                            // in `instantiate_component_construction` generate the actual
+                            // @RES1/@CAP1 names.
                             if !inst_name.is_empty() {
                                 // Store the source span for diagnostics on this anonymous instance.
                                 let inst_span = (node.get_pos() as usize)
@@ -1638,7 +1654,8 @@ impl McFuncCall {
                         }
                         McCMIE::Module(mod_def) => {
                             let inst_name = context.gen_anon_name(&func_name.to_string());
-                            // Same as Iter-3.E: only take the Endpoint branch when inst_name is non-empty
+                            // Same as Iter-3.E: only take the Endpoint branch when inst_name is
+                            // non-empty
                             if !inst_name.is_empty() {
                                 // Store the source span for diagnostics on this anonymous instance.
                                 let inst_span = (node.get_pos() as usize)
@@ -1663,7 +1680,7 @@ impl McFuncCall {
         // eprintln!("[FC-PARSE] returning FuncCall: func_name='{}' caller_is_some={}",
         //       func_name, caller.is_some());
 
-        // ── chain validity ────────────────────────────────────────────────
+        // chain validity
         // If the caller is itself a FuncCall, the previous link in the chain
         // must return `this` (or be Implicit). A function returning a bus /
         // label is an *endpoint* and cannot be chained off of.
@@ -1690,7 +1707,7 @@ impl McFuncCall {
         }
 
         // ── Construction-arg bind check for forms that skip the
-        // `caller.is_none()` Endpoint branch above ──────────────────────
+        // `caller.is_none()` Endpoint branch above
         // (1) a bare two-pin class keeps a Label caller (`DIO.ESD(...)` →
         //     caller=Label("DIO")), (2) a declareb keeps an Endpoint caller
         //     (`D1::DIO.ESD(...)`), and (3) a two-pin class with no caller
@@ -1798,7 +1815,8 @@ impl McFuncCall {
     ///
     /// # Three-state rules (per eval.md §8.1):
     /// - `Implicit` / `This` → `ReturnShape::This` — preserves caller shape
-    /// - `Endpoint(ref phrase)` → `ReturnShape::Label { bus }` — left empty, right = phrase's right interface
+    /// - `Endpoint(ref phrase)` → `ReturnShape::Label { bus }` — left empty, right = phrase's right
+    /// interface
     pub fn resolve_return_shape(&mut self, func_returns: &McFuncReturn) {
         match func_returns {
             McFuncReturn::Implicit | McFuncReturn::This => {
@@ -2038,7 +2056,7 @@ impl McFuncCall {
             crate::vector::graph::naming::two_pin_class_from_def(&DB, &fname, context.uri())
                 .unwrap_or(false);
         if is_twopin {
-            // ── Construction-arg bind check (two-pin path) ────────────────
+            // Construction-arg bind check (two-pin path)
             // `CAP(...).Cap(...)` bypasses the with_params creation points
             // above (the caller is kept as a bare FuncCall), so bind the
             // construction arguments here: an argument that does not match

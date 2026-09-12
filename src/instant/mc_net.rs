@@ -20,16 +20,15 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Mutex;
 
-/// Literal (unexpanded) vector reference count (R01). Counting only, non-blocking; also active in release builds.
+/// Literal (unexpanded) vector reference count (R01). Counting only, non-blocking; also active in
+/// release builds.
 pub static LITERAL_POINTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Literal (unexpanded) vector reference details: quarantined (original path, src_pos)
 pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<i32>)>>> =
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
-// ============================================================================
 // Pin path normalization — unified canonical form
-// ============================================================================
 
 /// Normalize a pin path to canonical form.
 ///
@@ -92,9 +91,7 @@ pub fn normalize_pin_path(path: &str) -> String {
     }
 }
 
-// ============================================================================
 // NetPoint - Network Connection Point
-// ============================================================================
 
 /// Network Connection Point, representing an endpoint in the netlist.
 ///
@@ -251,9 +248,7 @@ impl fmt::Display for NetPoint {
     }
 }
 
-// ============================================================================
 // ConnectionInst - Connection Instance
-// ============================================================================
 
 /// Connection Instance, representing a group of connected network points.
 ///
@@ -331,7 +326,7 @@ impl ConnectionInst {
     ///
     /// ── Iter-10.1: Normalize path for net_name inference ──
     pub fn new(id: u32, points: Vec<NetPoint>) -> Self {
-        // ── P5: Deduplicate points by canonical path ──────────────────────────
+        // P5: Deduplicate points by canonical path
         // `canonicalize_path` folds `X.X→X`, `X.Y.Y→X.Y`, and curly brace/arrow
         // remnants, resulting in a path string that serves as the node merge key
         // (see claude.md §2: "Path string is the net merge key").
@@ -348,10 +343,10 @@ impl ConnectionInst {
         // deduplication here does not affect shape alignment logic.
         let points = Self::dedup_canonical(points);
 
-        // ── P6: Infer net_name from first label owner ──────────────────────────
+        // P6: Infer net_name from first label owner
         // Try to infer the first label owner as the net_name.
         //
-        // ── Iter-9 (bugfix_report error 14) ─────────────────────────────
+        // Iter-9 (bugfix_report error 14)
         // Exclude path segments with >= 3 parts as net_name candidates.
         //
         // ── Iter-10.1 ──
@@ -449,9 +444,7 @@ impl fmt::Display for ConnectionInst {
     }
 }
 
-// ============================================================================
 // PortInst - Port Instance
-// ============================================================================
 
 /// Port Instance, representing an exposed port of a module.
 #[derive(Debug, Clone)]
@@ -465,7 +458,7 @@ pub struct PortInst {
     /// Corresponding network point
     pub net_point: NetPoint,
 
-    /// ── Iter-8 ────────────────────────────────────────────────────
+    /// Iter-8
     /// Bus port members (N×1 bus ports only)
     ///
     /// Example:
@@ -553,9 +546,7 @@ impl fmt::Display for PortInst {
     }
 }
 
-// ============================================================================
 // InstError - Instant Error
-// ============================================================================
 
 /// Instantiation errors
 #[derive(Debug)]
@@ -646,9 +637,7 @@ impl fmt::Display for InstError {
 
 impl std::error::Error for InstError {}
 
-// ============================================================================
 // InstDiagnostic - Instant Diagnostic (Non-Fatal)
-// ============================================================================
 
 /// Diagnostic level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -716,16 +705,16 @@ impl fmt::Display for InstDiagnostic {
     }
 }
 
-// ============================================================================
 // Iter-10.1: Path Normalization
-// ============================================================================
 
-/// ── P7: pins segment normalization (same rule as expand_member_ida, converged to this single point) ──
+/// ── P7: pins segment normalization (same rule as expand_member_ida, converged to this single
+/// point) ──
 /// Normalize the `pins` qualifier in the path to a bare physical pin id:
 ///   "uC.pins7"  → "uC.7"
 ///   "uC.pins.7" → "uC.7"
 ///   "pins[8:11]" already expanded upstream into pins8.. → here pins8 → 8
-/// Only strip when the character(s) after "pins" (or the next segment) are pure digits, to avoid damaging real segment names.
+/// Only strip when the character(s) after "pins" (or the next segment) are pure digits, to avoid
+/// damaging real segment names.
 pub(crate) fn normalize_pin_segments(path: &str) -> String {
     let segs: Vec<&str> = path.split('.').collect();
     let mut out: Vec<String> = Vec::with_capacity(segs.len());
@@ -758,9 +747,10 @@ pub(crate) fn normalize_pin_segments(path: &str) -> String {
 ///
 /// Handles the following patterns:
 ///   1. **Duplicate suffix**: `VCC_1V2.VCC_1V2` → `VCC_1V2`
-///      When the path is of the form `A.A` and the two segments are identical, remove the duplicate.
+/// When the path is of the form `A.A` and the two segments are identical, remove the duplicate.
 ///   2. **Pin number duplication**: `uC.21.21` → `uC.21`
-///      When the last two segments are identical (including numbers and non-numbers), remove the duplicate.
+/// When the last two segments are identical (including numbers and non-numbers), remove the
+/// duplicate.
 ///   3. **Curly brace duplicate suffix**: `dc{VDD_3V3, GND}.dc{VDD_3V3, GND}` → `dc{VDD_3V3, GND}`
 ///      When the segments inside curly braces are repeated, remove the duplicate.
 ///   4. **Arrow residual rejection**: if the path contains `->` or `<-`, it is
@@ -777,7 +767,8 @@ pub fn canonicalize_path(path: &str) -> String {
     if path.is_empty() {
         return path.to_string();
     }
-    // ── P7: pins segment normalization (same rule as expand_member_ida, converged to this single point) ──
+    // ── P7: pins segment normalization (same rule as expand_member_ida, converged to this single
+    // point) ──
     let path = normalize_pin_segments(path);
 
     // ── 4. Arrow residual rejection: strip arrow sides and take last valid token ──
@@ -899,9 +890,7 @@ pub fn looks_like_power_rail(name: &str) -> bool {
     found_v && has_digit_before && has_digit_after
 }
 
-// ============================================================================
 // NetTable - Network table (union-find merge)
-// ============================================================================
 
 /// Network table: merges ConnectionInsts into a unified net view
 ///
@@ -968,7 +957,7 @@ impl NetTable {
 
     /// Add a connection (merge all points into the same net)
     ///
-    /// ── Iter-9 (bugfix_report error 11) ─────────────────────────────
+    /// Iter-9 (bugfix_report error 11)
     /// Skip nodes where path == "NC".
     ///
     /// ── Iter-10.1: path normalization ──
@@ -976,10 +965,10 @@ impl NetTable {
     ///
     /// ── Iter-10.2: record connection paths for batch union ──
     ///
-    /// ── ★ FIX-A retraction note (don't reintroduce!) ────────────────────────────
-    /// An early version used to do "defensive bracket expansion" here on paths
-    /// of the form `prefix.[m1, m2, ...]` —— splitting it into N sub-paths and
-    /// unioning all into the first. **That was wrong**, because:
+    /// ★ FIX-A retraction note (don't reintroduce!)
+    /// Do NOT do "defensive bracket expansion" here on paths of the form
+    /// `prefix.[m1, m2, ...]` —— splitting it into N sub-paths and unioning
+    /// all into the first. **That is wrong**, because:
     ///
     ///   - mc_net is the union-find layer, all points within a single connection
     ///     are unioned to one root;
@@ -994,7 +983,8 @@ impl NetTable {
     ///     legitimately reaches here as "one scalar against N members" is only
     ///     the DC-bus / interface role-aligned expansion (§5.3.2) or a group
     ///     fan-in/out from `(,)` (vec-dianlu §7.3), never a raw `X -> [A,B]`.
-    ///   - the example project's top level has `dcdc.[VDD_3V3, GND] ~ V3V3` + `dcdc.[VCC_1V2, GND] ~ V1V2`
+    /// - the example project's top level has `dcdc.[VDD_3V3, GND] ~ V3V3` +
+    /// `dcdc.[VCC_1V2, GND] ~ V1V2`
     ///     two connections sharing `dcdc.GND`, after expansion → all 5 main
     ///     rails unioned to the same root, the entire top half of the graph
     ///     electrically shorted (measured net 101035 has 6 endpoints mixing
@@ -1014,7 +1004,8 @@ impl NetTable {
         }
 
         // ── Iter-9: NC filter ──
-        // ★ Patch 2-1: also filter @_phantom_ quarantined points to keep them out of union-find merging
+        // ★ Patch 2-1: also filter @_phantom_ quarantined points to keep them out of union-find
+        // merging
         let kept: Vec<&NetPoint> = conn
             .points
             .iter()
@@ -1022,7 +1013,7 @@ impl NetTable {
             .collect();
 
         if kept.is_empty() {
-            // ── §11.4 GAP2: net statement materialized 0 physical pins ──────
+            // §11.4 GAP2: net statement materialized 0 physical pins
             // Every point of this connection was an NC marker or a quarantined
             // literal phantom (`@_phantom_<N>` — a path carrying `{`, `[`, `,`
             // that NetPoint::new isolated, e.g. an undeclared `res[1:2]`). The
@@ -1232,9 +1223,9 @@ impl NetTable {
         let mut order: Vec<usize> = Vec::new();
         // Anonymous nets are numbered per module by a dedicated counter
         // (`_net0`, `_net1`, ...), independent of how many named nets precede
-        // them. Previously the number was `nets.len()` (insertion position
-        // among ALL nets), so named nets occupying earlier slots left gaps and
-        // the anonymous sequence looked arbitrary.
+        // them. Using `nets.len()` (insertion position among ALL nets) instead
+        // would let named nets in earlier slots leave gaps and make the
+        // anonymous sequence look arbitrary.
         let mut anon_count: usize = 0;
         for idx in 0..self.points.len() {
             let root = self.find(idx);
@@ -1251,7 +1242,7 @@ impl NetTable {
 
             // Net naming priority: port name > label with no owner and <3 segments > auto-number
             //
-            // ── Iter-9 (bugfix_report error 14) ──────────────────────────
+            // Iter-9 (bugfix_report error 14)
             // Exclude multi-segment paths with segment count >= 3 as net name candidates
             //
             // ── Iter-10: normalized matching against port_names ──
@@ -1303,7 +1294,7 @@ impl NetTable {
                 .or_else(|| {
                     // scan full paths for power/ground names
                     //
-                    // ── Strict DC rail identity ──────────────────────────
+                    // Strict DC rail identity
                     // The net name keeps the FULL path of the matched point
                     // (e.g. `va.GND`, `main.ldo.gnd`) instead of the normalized
                     // last segment (`GND`). Rationale: different DC rails in one
@@ -1336,7 +1327,7 @@ impl NetTable {
         nets
     }
 
-    // ==== Internal methods ====
+    // Internal methods
 
     /// Ensure the point is registered, return its index
     ///
@@ -1398,9 +1389,7 @@ impl NetTable {
     }
 }
 
-// ============================================================================
 // Iter-10 + Iter-12.3: Unit tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

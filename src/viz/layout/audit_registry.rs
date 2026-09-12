@@ -70,7 +70,7 @@ macro_rules! a_rule {
 /// A-series rows in `audit_equi_tree` collection order (§5-5: the runner
 /// order is the table order), followed by the F-series fidelity tiers.
 pub static VIZ_AUDIT_RULES: &[VizAuditRule] = &[
-    // ── A series: layout invariants (equi_audit), collection order ──────────
+    // A series: layout invariants (equi_audit), collection order
     a_rule!("A1", "rows_fallback == 0", M2, "equi_audit::check_a1_rows"),
     a_rule!(
         "A2",

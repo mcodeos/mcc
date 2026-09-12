@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Power-flow single view — L1 structural assertions (power-flow-single-view-design.md
+//! Power-flow single view — L1 structural assertions (flow-single-view-design.md
 //! §7). Mirrors the golden main shape at small scale: a psrc source face feeds
 //! a trunk bus, one converter to the DVDD rail, a DC-bridge pass off DVDD to the
 //! quiet AVDD rail (world cross), a separate-converter secondary to the isolated

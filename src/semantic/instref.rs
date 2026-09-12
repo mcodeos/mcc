@@ -91,11 +91,12 @@ fn validate_component_pin_ref(
     let valid_pin_names: Vec<&String> = comp.base.pins.names_to_id.keys().collect();
     let pin_id_to_names = &comp.base.pins.pin_id_to_names;
     // ★ FIX (Issue #1801):
-    // Accepts pin ids from raw `comp.base.pins.pins` table, so that `mic{1, 2}` can be accessed if `pin_id_to_names`
+    // Accepts pin ids from raw `comp.base.pins.pins` table, so that `mic{1, 2}` can be accessed if
+    // `pin_id_to_names`
     // is not filled yet.
     let pins_map = &comp.base.pins.pins;
 
-    // ── P0-1 (Iter-10/12): Extract user aliases from Interface declaration ──────────
+    // P0-1 (Iter-10/12): Extract user aliases from Interface declaration
     //
     // When `[4,2] = [Vin, GND]::DC(2.5V~5.5V)`, init_pins may not have registered
     // interface pins yet, leading to empty `iface_pins` list.
@@ -119,7 +120,8 @@ fn validate_component_pin_ref(
         std::collections::HashMap::new();
     for (key, port) in comp.base.pins.names_to_id.iter() {
         if let McPinPort::Interface(iface) = port {
-            // Extract user aliases from Interface declaration: curly form DC{Vin, GND} or list form [Vin, GND]
+            // Extract user aliases from Interface declaration: curly form DC{Vin, GND} or list form
+            // [Vin, GND]
             if let Some((_, user_members)) = iface.name.as_bus() {
                 for m in &user_members {
                     iface_alias_to_key.insert(m.clone(), key.clone());
@@ -146,7 +148,7 @@ fn validate_component_pin_ref(
         }
     }
 
-    // ── D1: SORT_HAZARD detection ──────────────────────────────────────────
+    // D1: SORT_HAZARD detection
     // Check if members match a Bus entry's full_members in names_to_id.
     // When pin numbers are non-monotonic (e.g. [5,2]=VOUT{Vout,GND}),
     // the sorted BTreeMap may cause member→pin mapping to be incorrect.
@@ -205,7 +207,8 @@ fn validate_component_pin_ref(
     // Whether all pin information is completely unavailable (three maps are empty).
     // This usually happens when CMIE parsing fails / system library is not loaded,
     // leading to empty base stub.
-    // In this case, we treat `Bus | Label | List` pins loosely to avoid triggering 1801/1803 double errors.
+    // In this case, we treat `Bus | Label | List` pins loosely to avoid triggering 1801/1803 double
+    // errors.
     let pins_unavailable = valid_pin_names.is_empty()
         && pin_id_to_names.is_empty()
         && pins_map.is_empty()
@@ -381,12 +384,15 @@ fn validate_interface_member_ref(
     // ★ FIX (Issue #1804):
     // For port declarations like `MIC{P, N}::ADC.DIFF()`, the user explicitly
     // lists the bus member names (P, N) used in actual wiring in `MIC{P, N}`. These member names
-    // are stored in `iface.name: McIds`'s curly bracket segment, and do not exist in `iface.base.pins`
-    // (the latter are pins defined by the interface type `ADC.DIFF` itself — may be empty, or use different naming).
+    // are stored in `iface.name: McIds`'s curly bracket segment, and do not exist in
+    // `iface.base.pins`
+    // (the latter are pins defined by the interface type `ADC.DIFF` itself — may be empty, or use
+    // different naming).
     //
     // Therefore when validating references like `MIC{P, N}`, we must accept both the pin names
     // defined by the underlying Interface and the bus member names explicitly declared by the user
-    // in the port declaration; the union of both is the set of actually accessible members for this port.
+    // in the port declaration; the union of both is the set of actually accessible members for this
+    // port.
     let mut pin_names: Vec<String> = iface.base.pins.names_to_id.keys().cloned().collect();
     if let Some((_, declared_members)) = iface.name.as_bus() {
         for m in declared_members {
@@ -396,7 +402,8 @@ fn validate_interface_member_ref(
         }
     }
     // The entire Interface has no pin info at all (both base and user-declared bus are empty).
-    // In this stub situation, be lenient and fall back to Bus member reference, avoiding 1804/1803 double error.
+    // In this stub situation, be lenient and fall back to Bus member reference, avoiding 1804/1803
+    // double error.
     let pins_unavailable = pin_names.is_empty();
     let valid_pin_names: Vec<&String> = pin_names.iter().collect();
     let mut valid_members: Vec<String> = Vec::new();
@@ -463,10 +470,12 @@ pub fn validate_inst_reference(
     }
 
     // ── P1 fix: 3-segment form `component.interface{members}` (e.g. uC.ADC{P,N}) ──
-    // as_bus() only recognizes 2-segment `name{members}`, returns None for 3-segment, so this reference
-    // previously fell into mc_phrase.rs's as_component_member branch → called
-    // McModule::add_interface_member → returned None → entire line (including MIC->cap->ADC)
-    // was dropped. Here we intercept the 3-segment form before as_bus, using the component's own pin table
+    // as_bus() only recognizes 2-segment `name{members}`, returns None for 3-segment, so this
+    // reference
+    // Falling into mc_phrase.rs's as_component_member branch would call
+    // McModule::add_interface_member → return None → drop the entire line
+    // (including MIC->cap->ADC). Intercept the 3-segment form before as_bus,
+    // using the component's own pin table
     // to resolve interface sub-pins (ADC.P / ADC.N), going through the same
     // validate_* system as mic{1,2}/MIC{P,N}, not depending on module-side add_interface_member.
     if ids.as_bus().is_none() {
@@ -506,7 +515,8 @@ pub fn validate_inst_reference(
 /// P1: Resolve `component.interface{members}` (e.g. `uC.ADC{P, N}`).
 ///
 /// Same system as `validate_component_pin_ref`, but member names must be resolved under
-/// the interface namespace: for each member `m`, first try combined pin name `interface.m` (e.g. "ADC.P").
+/// the interface namespace: for each member `m`, first try combined pin name `interface.m` (e.g.
+/// "ADC.P").
 ///
 /// ★ Output form (critical): each member produces a **full-path, empty-member** Bus
 /// (`Bus(name="uC.ADC.P", member=[])`), wrapped in `Multiple`. This way downstream
@@ -529,7 +539,8 @@ fn validate_component_interface_ref(
     let inst = context.find_inst(component)?;
     let comp = match &inst {
         McInstance::Component(c) => c.clone(),
-        // Theoretically only Component has interface pins; other types keep old behavior (return to caller)
+        // Theoretically only Component has interface pins; other types keep old behavior (return to
+        // caller)
         _ => return None,
     };
 
@@ -541,10 +552,14 @@ fn validate_component_interface_ref(
     let pins_unavailable =
         valid_pin_names.is_empty() && pin_id_to_names.is_empty() && pins_map.is_empty();
 
-    // Whether the interface pin itself is in the pin table (e.g. "ADC" registered as ADC.DIFF interface pin).
-    // Interface type (ADC.DIFF) sub-pins P/N may not be individually registered (when interface definition not loaded),
-    // but as long as the interface pin ADC is in the table (whole name "ADC", or sub-pins with "ADC." prefix),
-    // consider ADC{P,N} members valid — downstream node_to_netpoint's P7 will try its best to resolve,
+    // Whether the interface pin itself is in the pin table (e.g. "ADC" registered as ADC.DIFF
+    // interface pin).
+    // Interface type (ADC.DIFF) sub-pins P/N may not be individually registered (when interface
+    // definition not loaded),
+    // but as long as the interface pin ADC is in the table (whole name "ADC", or sub-pins with
+    // "ADC." prefix),
+    // consider ADC{P,N} members valid — downstream node_to_netpoint's P7 will try its best to
+    // resolve,
     // and if unresolvable, degrades to stable "uC.ADC.P" path, connection still works.
     let iface_dot_prefix = format!("{interface}.");
     let interface_pin_known = valid_pin_names.iter().any(|pn| pn.as_str() == interface)
@@ -567,7 +582,8 @@ fn validate_component_interface_ref(
         let hit = valid_pin_names.iter().any(|pn| pn.as_str() == combined)
             || pin_id_to_names.contains_key(&combined)
             || pins_map.contains_key(&combined)
-            // Also accept bare member name (some interfaces register sub-pins as P/N directly rather than ADC.P)
+            // Also accept bare member name (some interfaces register sub-pins as P/N directly
+            // rather than ADC.P)
             || valid_pin_names.iter().any(|pn| pn.as_str() == m.as_str())
             || pin_id_to_names.contains_key(m)
             || pins_map.contains_key(m)
@@ -604,7 +620,8 @@ fn validate_component_interface_ref(
         }
     }
 
-    // Each member → full-path empty-member Bus, goes through node_to_netpoint's P7 physical pin resolution.
+    // Each member → full-path empty-member Bus, goes through node_to_netpoint's P7 physical pin
+    // resolution.
     let phrases: Vec<McPhrase> = valid_members
         .iter()
         .map(|m| {

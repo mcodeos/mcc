@@ -32,9 +32,7 @@ impl ValidationCheck for InterfaceCheck {
     }
 }
 
-// ============================================================================
 // I4-ext: All interface pins bound to physical pins
-// ============================================================================
 
 /// When a component binds to an interface via e.g. `pins=[1=SPI.MOSI, 2=SPI.MISO]`,
 /// every pin defined in the interface must be mapped to at least one physical pin.
@@ -128,9 +126,7 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // C4-ext: Interface role referenced exists in definition
-// ============================================================================
 
 /// When a component's param selects an interface role (e.g. `role=DCE`),
 /// verify that the role actually exists in the interface definition.
@@ -224,9 +220,7 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
     }
 }
 
-// ============================================================================
 // F3: Deprecated CMIE usage
-// ============================================================================
 
 /// Detect when a component uses a deprecated interface or component.
 /// Deprecation is indicated by a `deprecated` attribute on the definition.

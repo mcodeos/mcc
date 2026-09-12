@@ -38,9 +38,7 @@ use super::obstacles::{best_orthogonal_path, ObstacleMap};
 use super::side::ExitSide;
 use crate::viz::traits::Router;
 
-// ============================================================================
 // Public pure function: orthogonal_path
-// ============================================================================
 
 /// Compute Manhattan polyline path between two points, return all turn points
 ///
@@ -104,7 +102,8 @@ fn elbow_near_dest(s: f64, d: f64, d_side: ExitSide, horizontal: bool) -> f64 {
             _ => (s + d) / 2.0,
         }
     };
-    // Must not cross over the source (otherwise the line folds back) → use only if in [min,max], else midpoint
+    // Must not cross over the source (otherwise the line folds back) → use only if in [min,max],
+    // else midpoint
     let (lo, hi) = (s.min(d), s.max(d));
     if cand >= lo && cand <= hi {
         cand
@@ -145,9 +144,7 @@ pub fn label_anchor(
     }
 }
 
-// ============================================================================
 // OrthogonalRouter (Router trait impl)
-// ============================================================================
 
 /// Route a multi-endpoint [`VizNet`] as a set of Manhattan polylines (write to `net.route`)
 ///
@@ -217,9 +214,7 @@ impl Router for OrthogonalRouter {
     }
 }
 
-// ============================================================================
 // ★ P10 (S6) — channel-aware end-to-end entry
-// ============================================================================
 
 /// P10 main entry: channel-aware orthogonal pairwise routing
 ///
@@ -333,7 +328,8 @@ fn pin_escape(
     if !b.is_two_pin_passive() {
         return (pin, None);
     }
-    // Escape distance must be > obstacle inflate (8px), otherwise escape point is still inside inflated rect
+    // Escape distance must be > obstacle inflate (8px), otherwise escape point is still inside
+    // inflated rect
     const PIN_ESCAPE: f64 = 12.0;
     let target = match side {
         ExitSide::Left => (pin.0 - PIN_ESCAPE, pin.1),
@@ -361,7 +357,8 @@ const MIN_CHANNEL_SEGMENT: f64 = 40.0;
 /// ── ★ Phase E.2 ──
 /// **Maximum allowed displacement** for elbow channel snapping. If the channel
 /// reservation pulls the elbow further than this, skip the snap and keep the natural
-/// elbow —— otherwise we'll see cases like the example project's main layer where `__net_10`/`__net_11`
+/// elbow —— otherwise we'll see cases like the example project's main layer where
+/// `__net_10`/`__net_11`
 /// signals were forcibly dragged from the middle of mcu-speaker (x≈1066) to the
 /// rightmost channel (x≈1361), a +295px big detour, visually looking like the
 /// signal line "randomly runs to the corner".
@@ -460,9 +457,7 @@ fn adjust_path_to_channels(
     vec![s0, s1, s2]
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

@@ -18,9 +18,7 @@ use crate::semantic::component::McComponent;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// ============================================================================
 // McComponentInst - Component instance
-// ============================================================================
 
 /// Pass2 Instantiation - Component instance
 #[derive(Debug, Clone)]
@@ -49,7 +47,8 @@ pub struct McComponentInst {
     /// Attributes resolved from conditional attribute blocks
     pub cond_attrs: Vec<crate::semantic::component::mc_attr::McAttribute>,
 
-    /// Resolved attributes (attr values with parameter references substituted at instantiation time)
+    /// Resolved attributes (attr values with parameter references substituted at instantiation
+    /// time)
     pub resolved_attrs: Vec<crate::semantic::component::mc_attr::McAttribute>,
 
     /// NC (Not Connected) instance
@@ -481,7 +480,8 @@ impl McComponentInst {
     }
 
     /// Helper: resolve an expression to i64 for arithmetic evaluation.
-    /// Returns Some for Int literals, Variables bound to int values, or already-resolved int strings.
+    /// Returns Some for Int literals, Variables bound to int values, or already-resolved int
+    /// strings.
     fn resolve_expr_to_i64(&self, expr: &McExpression) -> Option<i64> {
         match expr {
             McExpression::Int(i) => Some(i.value),
@@ -777,9 +777,7 @@ impl McComponentInst {
         self.pins.len()
     }
 
-    // ========================================================================
     // Iter-10 (Bucket D): Component bus port → pin_id list query
-    // ========================================================================
 
     /// Query the pin_ids of a component's bus port.
     ///
@@ -788,7 +786,8 @@ impl McComponentInst {
     /// form into `[<comp>.<pid_1>, <comp>.<pid_2>, ...]` multiple lanes. This is
     /// bugfix_report errors 1 / 3 / 4 / 8 unified root cause fix — when parent/same module
     /// body writes `uC.UART0` / `uC.SPI` / `uC.XTAL` / `uC.I2C0` "component instance
-    /// bus interface" reference, current implementation treats it as single-point path "uC.UART0", neither
+    /// bus interface" reference, current implementation treats it as single-point path "uC.UART0",
+    /// neither
     /// hitting inst_table (component pin registration path is `<comp>.<pid>` numeric form),
     /// nor doing N×N alignment connection.
     ///
@@ -859,7 +858,8 @@ impl McComponentInst {
                 let mut seen: std::collections::BTreeSet<String> =
                     std::collections::BTreeSet::new();
                 for m in &decl_members {
-                    // Members may be registered as dotted ("VOUT.Vout"), numeric-concat ("GPIO1"), or bare ("CLK")
+                    // Members may be registered as dotted ("VOUT.Vout"), numeric-concat ("GPIO1"),
+                    // or bare ("CLK")
                     let pid_opt = [
                         format!("{port_name}.{m}"),
                         format!("{port_name}{m}"),
@@ -957,12 +957,13 @@ impl McComponentInst {
             return None;
         }
 
-        // ── Iter-10.D-fix1: Remove duplicate pids ─────────────────────────────────
+        // Iter-10.D-fix1: Remove duplicate pids
         // some components (e.g., dcdc) register same physical pin with multiple
         // dotted name aliases in names_to_id (e.g., `GND.GND` and some other alias both map to
         // pid="2"), this case scan returns N entries but unique pid only 1.
         // This isn't a real bus port — real bus port should have N different physical pins.
-        // Before dedup, dcdc.GND was incorrectly expanded to 2 lanes (both pointing to pid 2), causing
+        // Before dedup, dcdc.GND was incorrectly expanded to 2 lanes (both pointing to pid 2),
+        // causing
         // `@CAP1.2 ~ dcdc.GND` single-pin connection incorrectly expanded to two identical
         // `@CAP1.2 ~ dcdc.2`.
         let unique_pid_count = {
@@ -983,7 +984,7 @@ impl McComponentInst {
             na.cmp(&nb)
         });
 
-        // ── Iter-11.D-fix2: Remove duplicate pids ─────────────────────────────────
+        // Iter-11.D-fix2: Remove duplicate pids
         {
             use std::collections::BTreeSet;
             let mut seen: BTreeSet<String> = BTreeSet::new();

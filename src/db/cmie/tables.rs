@@ -33,9 +33,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use tracing::{debug, info};
 
-// ============================================================================
 // WorkspaceKind
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceKind {
@@ -48,9 +46,7 @@ impl Default for WorkspaceKind {
     }
 }
 
-// ============================================================================
 // WorkspaceMeta -- per-workspace metadata
-// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct WorkspaceMeta {
@@ -69,9 +65,7 @@ impl Default for WorkspaceMeta {
     }
 }
 
-// ============================================================================
 // WorkspaceSnapshot -- for save/restore when switching workspaces
-// ============================================================================
 
 struct WorkspaceSnapshot {
     meta: WorkspaceMeta,
@@ -99,9 +93,7 @@ struct WorkspaceSnapshot {
     refgraph: crate::db::refgraph::DefRefGraph,
 }
 
-// ============================================================================
 // WorkspaceManager (singleton)
-// ============================================================================
 
 pub struct WorkspaceManager {
     pub(crate) mcodes: DashMap<McURI, McCode>,
@@ -189,9 +181,7 @@ impl WorkspaceManager {
         &self.registry
     }
 
-    // ================================================================
     // Query
-    // ================================================================
 
     /// Currently-active workspace id / kind — used by tests.
     #[allow(dead_code)]
@@ -253,9 +243,7 @@ impl WorkspaceManager {
         result
     }
 
-    // ================================================================
     // Clear current active workspace
-    // ================================================================
 
     pub fn clear_active(&self) {
         self.mcodes.clear();
@@ -285,9 +273,7 @@ impl WorkspaceManager {
         self.registry.checkpoint_if_changed();
     }
 
-    // ================================================================
     // Create workspace
-    // ================================================================
 
     pub fn create_and_switch(&self, id: String, kind: WorkspaceKind, root: PathBuf) -> bool {
         if self.meta.lock().unwrap().id == id {
@@ -310,9 +296,7 @@ impl WorkspaceManager {
         true
     }
 
-    // ================================================================
     // Switch workspace
-    // ================================================================
     // Auto-set project path when switching projects
     pub fn switch_to(&self, id: &str) -> bool {
         if self.meta.lock().unwrap().id == id {
@@ -332,9 +316,7 @@ impl WorkspaceManager {
         true
     }
 
-    // ================================================================
     // Remove workspace
-    // ================================================================
 
     pub fn remove(&self, id: &str) -> bool {
         if self.meta.lock().unwrap().id == id {
@@ -343,9 +325,7 @@ impl WorkspaceManager {
         self.saved.lock().unwrap().remove(id).is_some()
     }
 
-    // ================================================================
     // Internal: snapshot / restore
-    // ================================================================
 
     fn snapshot_active(&self) {
         let meta = self.meta.lock().unwrap().clone();
@@ -442,15 +422,11 @@ impl WorkspaceManager {
     }
 }
 
-// ============================================================================
 // lazy_static singleton
-// ============================================================================
 
 pub(crate) static WORKSPACE: LazyLock<WorkspaceManager> = LazyLock::new(WorkspaceManager::new);
 
-// ============================================================================
 // DiagnosticManager extension
-// ============================================================================
 
 impl DiagnosticManager {
     pub fn take(&mut self) -> Self {
@@ -458,9 +434,7 @@ impl DiagnosticManager {
     }
 }
 
-// ============================================================================
 // DashMap helpers: clone_and_clear / fill
-// ============================================================================
 
 /// Transfer all entries from `map` into a new DashMap, leaving `map` empty.
 ///
@@ -495,9 +469,7 @@ where
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

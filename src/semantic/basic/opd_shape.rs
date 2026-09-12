@@ -282,7 +282,7 @@ mod tests {
         assert_eq!(s.size_right(), 1);
     }
 
-    // ---- transpose / reverse (vec-arch.md §5.2 / §6.2 / §6.3) ----
+    // transpose / reverse (vec-arch.md §5.2 / §6.2 / §6.3)
 
     #[test]
     fn sem_opdshape__transpose_point_is_identity() {

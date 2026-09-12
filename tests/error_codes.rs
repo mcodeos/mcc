@@ -467,10 +467,10 @@ fn def_ercode__record_error_surfaces_as_located_error_diagnostic() {
 /// Fixture mirrors the original periph.mc shape: the LHS sits on a *different*
 /// bus (`_LDO ldo` component) than `vout`.
 ///
-/// The same-owner shape (`vout.VCC -> vout.VCC1V2`) used to be *hidden* from
-/// this check by `merge_adjacent_curly_split`, which folded the two Buses into
-/// `vout{VCC, VCC1V2}` before the member check ran. That pre-pass has since
-/// been retired (R0 A6 — it erased the written operator); the same-owner case
+/// The same-owner shape (`vout.VCC -> vout.VCC1V2`) must not be *hidden* from
+/// this check: `merge_adjacent_curly_split` would fold the two Buses into
+/// `vout{VCC, VCC1V2}` before the member check ran. That pre-pass is retired
+/// (R0 A6 — it erased the written operator); the same-owner case
 /// is now locked in
 /// [`vec_r0_operator_fidelity`](vec_r0_operator_fidelity.rs).
 #[test]

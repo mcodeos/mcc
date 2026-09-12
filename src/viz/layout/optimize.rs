@@ -23,9 +23,7 @@ use crate::vector::graph::McVecGraph;
 
 use super::overlap::resolve_overlaps_iterative;
 
-// ============================================================================
 // SoftConstraints — reserved for idiom injection
-// ============================================================================
 
 /// Soft placement constraints derived from idiom recognition.
 ///
@@ -42,9 +40,7 @@ pub struct SoftConstraints {
     pub anchors: Vec<(i64, (f64, f64))>,
 }
 
-// ============================================================================
 // PlaceOptimizer
-// ============================================================================
 
 /// Simulated-annealing placement optimizer.
 ///
@@ -77,7 +73,7 @@ impl Default for PlaceOptimizer {
 }
 
 impl PlaceOptimizer {
-    // ── Main entry ──────────────────────────────────────────────────────
+    // Main entry
 
     /// Run the optimizer on `graph` in-place.
     ///
@@ -115,7 +111,7 @@ impl PlaceOptimizer {
         }
     }
 
-    // ── Cost ────────────────────────────────────────────────────────────
+    // Cost
 
     /// Total cost of the current layout.
     pub fn cost(&self, graph: &McVecGraph) -> f64 {
@@ -144,7 +140,7 @@ impl PlaceOptimizer {
         // For now, calibration is disabled (calibrate_every = 0).
     }
 
-    // ── Monotonic guard ─────────────────────────────────────────────────
+    // Monotonic guard
 
     /// Compare real route scores before and after optimization.
     /// Returns `true` if the optimized graph is not worse.
@@ -167,9 +163,7 @@ impl PlaceOptimizer {
     }
 }
 
-// ============================================================================
 // Move proposal
-// ============================================================================
 
 /// A proposed box movement.
 #[derive(Debug, Clone)]
@@ -227,9 +221,7 @@ fn accept(delta: f64, t: f64) -> bool {
     delta < t
 }
 
-// ============================================================================
 // Cost components
-// ============================================================================
 
 /// Total overlap area (in px²).  Zero means no overlap.
 fn overlap_area(graph: &McVecGraph) -> f64 {
@@ -357,9 +349,7 @@ fn ensure_no_overlap(graph: &mut McVecGraph) {
     resolve_overlaps_iterative(graph, 50);
 }
 
-// ============================================================================
 // Annealing schedule
-// ============================================================================
 
 fn anneal_temp(step: usize, total: usize) -> f64 {
     if total == 0 {
@@ -370,9 +360,7 @@ fn anneal_temp(step: usize, total: usize) -> f64 {
     t.max(0.01)
 }
 
-// ============================================================================
 // Deterministic PRNG (XorShift64)
-// ============================================================================
 
 /// Deterministic pseudo-random generator for reproducible optimization.
 #[derive(Debug, Clone)]
@@ -399,9 +387,7 @@ impl XorShift64 {
     }
 }
 
-// ============================================================================
 // Graph helpers (position accessors)
-// ============================================================================
 
 /// Trait to provide position accessors on McVecGraph for the optimizer.
 /// Implemented via inherent methods on McVecGraph.
@@ -432,9 +418,7 @@ impl GraphPos for McVecGraph {
     }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

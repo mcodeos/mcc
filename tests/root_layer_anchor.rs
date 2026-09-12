@@ -5,7 +5,6 @@
 //! ★ P1 · Root-layer drawing anchor (geometry set + text set).
 //!
 //! Why this test exists
-//! --------------------
 //! Every existing gate is blind to what the root block diagram actually draws:
 //!
 //! - `mcs --test renderdiff` never looks at the rendered document at all. Its
@@ -21,7 +20,6 @@
 //! committed baseline. This is it.
 //!
 //! What is compared (do not weaken)
-//! ------------------------------
 //! Two **sets**, never bytes — the element emission order is still not stable
 //! (R0 stabilised row order, not tie-breaking on the whole emission), so an
 //! HTML `cmp`/`md5` would be a false red:
@@ -34,7 +32,6 @@
 //! misses a moved bare line.
 //!
 //! Re-pin recipe
-//! -------------
 //! `MCC_ROOT_ANCHOR_DUMP=1 cargo test --test root_layer_anchor` writes the
 //! anchor. Same discipline as `mcs`'s render golden: no silent regen path —
 //! dumping is a no-op unless the env var is set, and a re-pin must be justified

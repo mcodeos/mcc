@@ -80,7 +80,6 @@ pub use crate::refdef::SymbolKind;
 // ★ Re-exported from refdef module (single source of truth, §16)
 pub use crate::refdef::{CmieKind, RefDefEntry, RefDefMap};
 
-//---------------------------
 pub type Span = Range<usize>;
 
 oxc_index::define_index_type! {
@@ -244,7 +243,8 @@ impl LocalSymbolTable {
     }
 }
 
-// Storage strategy: store declare + inst pairs, where declare is class definition and inst is instance reference
+// Storage strategy: store declare + inst pairs, where declare is class definition and inst is
+// instance reference
 #[derive(Default, Clone, Debug)]
 pub struct GlobalSymbolTable {
     class_id_counter: DeclareId,           // Global class ID counter

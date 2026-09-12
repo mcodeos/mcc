@@ -4,20 +4,20 @@
 
 //! Adjacency list construction + connected component partition
 //!
-//! Entry-point utility for multi-strategy scheduling: partition the graph by "which boxes are connected to each other",
+//! Entry-point utility for multi-strategy scheduling: partition the graph by "which boxes are
+//! connected to each other",
 //! each chunk independently picks a suitable layouter (chain / radial / hierarchical).
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::vector::graph::McVecGraph;
 
-// ============================================================================
 // Adjacency list
-// ============================================================================
 
 /// Convert `graph.nets` into undirected adjacency list `box_id → neighbor list`
 ///
-/// N endpoints on a net are all pairwise adjacent. Only count relationships where **both endpoints are in `graph.boxes`**,
+/// N endpoints on a net are all pairwise adjacent. Only count relationships where **both endpoints
+/// are in `graph.boxes`**,
 /// drop dangling endpoints.
 ///
 /// Reads only `graph.nets`, the single net representation the graph carries.
@@ -57,9 +57,7 @@ pub fn build_adjacency(graph: &McVecGraph) -> HashMap<i64, Vec<i64>> {
     adj
 }
 
-// ============================================================================
 // Connected component partition (BFS flood-fill)
-// ============================================================================
 
 /// BFS flood-fill component partition
 ///

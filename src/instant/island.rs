@@ -4,7 +4,7 @@
 
 //! Net-island attribution index — flat net → owning-scope identity (L1).
 //!
-//! Design: `mcd/doc/net-connect/net-island-attribution-design.md` §2/§3/§5/§7.
+//! Design: `island-attribution-design.md` §2/§3/§5/§7.
 //! Built once after flatten, this is the reverse-query face for "which module
 //! owns this flat net, and which declared identity does its *name* anchor to".
 //! It replaces the historical global-name reverse-lookup shape (hot-name last

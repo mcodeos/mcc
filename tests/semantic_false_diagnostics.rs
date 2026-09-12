@@ -470,7 +470,7 @@ module main(io LIN)
     assert!(has_code(&result, 5057), "expected E5057: {result}");
 }
 
-/// ── Header-DC direction rule (E3055) ────────────────────────────────────────
+/// Header-DC direction rule (E3055)
 /// A module-header interface-typed (power/DC) parameter must carry an explicit
 /// energy-direction word. The no-direction sugar (`module X([VDD,GND]::DC(v))`,
 /// `module X(dc{VDD,GND}::DC(v))`, `module X(pwr::DC(v))`) is removed: E3055,

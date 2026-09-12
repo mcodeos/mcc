@@ -23,7 +23,7 @@
 //! | which items a lane holds, in order | `collect_lane_items` / `LaneItem` |
 //! | the lane's point within a face | `pick_lane_point` |
 //! | the transposed member's lane pin | `collect_lane_items` (`get_transposed_lane_pin`) |
-//! | connection construction | `create_connection` / `make_conn_with_provenance` / `add_connection` |
+//! | connections | `create_connection` / `make_conn_with_provenance` / `add_connection` |
 //! | width legality | `check_series_rows` (shared `opcheck` rule) |
 //!
 //! Only the loop, the leading / gap / trailing bridge placement and the

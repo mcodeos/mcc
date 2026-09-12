@@ -51,7 +51,7 @@ fn fresh_table() -> mcc::InstTable {
     mcc::InstTable::new(1000)
 }
 
-// ── Mechanism: the flat-registration collision is the GAP3 trigger ─────────
+// Mechanism: the flat-registration collision is the GAP3 trigger
 
 /// Two Pin declarations claim the same flat path with different classes: the
 /// second registration is merged into the first (same id returned) and GAP3
@@ -244,7 +244,7 @@ fn mat_gap3__structural_keeps_entry_against_net_side_claim() {
     );
 }
 
-// ── Domain split: GAP3 stays quiet where the neighbors own the fact ─────────
+// Domain split: GAP3 stays quiet where the neighbors own the fact
 
 /// `io r1` + `R r1`: the flat registration upgrades Port→Component (not both
 /// structural → GAP3 gate closed); E5151 owns the same-scope instance-name

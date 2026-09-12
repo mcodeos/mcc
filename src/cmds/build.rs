@@ -134,7 +134,7 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
 /// The server returns the [`CommandResult`] body; `command` / `workspace` are
 /// process-local truth here, so they are realigned to what a local build would
 /// emit (matching the design contract that output matches the local path). Exit code follows
-/// the summary's error count (previously RPC mode hard-coded 0).
+/// the summary's error count.
 fn emit_build_result(result: serde_json::Value) -> Result<i32> {
     let format = mcc::cli::globals().format;
     let target = mcc::cli::globals().output.as_deref().map(Path::new);
@@ -196,7 +196,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         }
     };
 
-    // Targets for the envelope and the viz (mcd docs-mc 16-export-viz §6):
+    // Targets for the envelope and the viz (mcd spec/16-export-viz §6):
     // explicit --top → all modules in the entry file → all components → all
     // interfaces. Components/interfaces are "virtually instantiated". Must be
     // resolved BEFORE any virtual build replaces the file with its synthetic
@@ -933,10 +933,8 @@ fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
     opts
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Multi-target SVG combination now lives in `viz::template::combine_svgs`
-// (shared with the RPC `build.viz` path, mcd docs-mc 16-export-viz §6).
-// ─────────────────────────────────────────────────────────────────────────────
+// (shared with the RPC `build.viz` path, mcd spec/16-export-viz §6).
 
 #[cfg(test)]
 mod phase0_golden {
@@ -947,7 +945,8 @@ mod phase0_golden {
     use std::path::{Path, PathBuf};
 
     /// hbl fixture driven by env vars; skipped if unset (CI without fixture passes).
-    ///   MCC_GOLDEN_PROJECT=<hbl project root>  [MCC_GOLDEN_ENTRY=<entry>] [MCC_GOLDEN_TOP=<top name>]
+    /// MCC_GOLDEN_PROJECT=<hbl project root>  [MCC_GOLDEN_ENTRY=<entry>]
+    /// [MCC_GOLDEN_TOP=<top name>]
     fn hbl_project() -> Option<(PathBuf, Option<String>, Option<String>)> {
         let root = std::env::var("MCC_GOLDEN_PROJECT").ok()?;
         Some((
@@ -1060,9 +1059,7 @@ mod phase0_golden {
     }
 }
 
-// ============================================================================
 // D1–D8 detector tests
-// ============================================================================
 // Each test creates a small .mc fixture that triggers a specific detector,
 // builds it, and asserts that the expected diagnostic code was emitted.
 // Tests use a global lock because mcc global state (workspace) is not thread-safe.
@@ -1131,7 +1128,7 @@ mod d_detectors {
         diags.iter().any(|d| d.code == code)
     }
 
-    // ── D1 SORT_HAZARD ─────────────────────────────────────────────────
+    // D1 SORT_HAZARD
 
     #[test]
     fn cli_build__d1_sort_hazard_non_monotonic_pins() {
@@ -1163,7 +1160,7 @@ module top {
         );
     }
 
-    // ── D2 FLOATING_PLACEHOLDER ─────────────────────────────────────────
+    // D2 FLOATING_PLACEHOLDER
 
     #[test]
     fn cli_build__d2_floating_placeholder_unbound_lead() {
@@ -1181,7 +1178,7 @@ module top {
         );
     }
 
-    // ── D3 MERGED_SHORT ─────────────────────────────────────────────────
+    // D3 MERGED_SHORT
 
     #[test]
     fn cli_build__d3_merged_short_same_physical_pin() {
@@ -1240,7 +1237,7 @@ module top {
         );
     }
 
-    // ── §5 same-name group: NET_DUPLICATE_REF / NET_SHORT_REF ──────────
+    // §5 same-name group: NET_DUPLICATE_REF / NET_SHORT_REF
     // same-name-pin-group.md §5: a same-name multi-pin group (`3 = GND; 4 = GND`)
     // is one logical net; referencing it in two slots (`spk{GND, GND}`) is
     // either redundant (all slots pair to the same peer net) or shorts the
@@ -1403,7 +1400,7 @@ module top {
         );
     }
 
-    // ── D5 BUS_ORDER_MISMATCH ───────────────────────────────────────────
+    // D5 BUS_ORDER_MISMATCH
 
     #[test]
     fn cli_build__d5_bus_order_mismatch_all_pairs() {
@@ -1438,7 +1435,7 @@ module top {
         );
     }
 
-    // ── Arity-0 gate (stmt.rs instance-method dispatch) ────────────────
+    // Arity-0 gate (stmt.rs instance-method dispatch)
     // A no-arg instance method called with arguments must NOT be dispatched:
     // dispatching it would silently drop the caller's args and wrongly expand
     // the no-arg body (e.g. `A -> GND_PIN` would short the pin to ground).
@@ -1502,7 +1499,7 @@ module top {
         );
     }
 
-    // ── D6 DROPPED_STATEMENT ────────────────────────────────────────────
+    // D6 DROPPED_STATEMENT
 
     #[test]
     fn cli_build__d6_dropped_statement_indexed_alias() {
@@ -1524,7 +1521,7 @@ module top {
         );
     }
 
-    // ── D7 PULLUP_DEGENERATE ────────────────────────────────────────────
+    // D7 PULLUP_DEGENERATE
 
     #[test]
     fn cli_build__d7_pullup_degenerate_signal_bridge() {
@@ -1554,7 +1551,7 @@ module top {
         );
     }
 
-    // ── D8 ARRAY-INSTANCE BRACKET REFERENCE (problem A) ──────────────────
+    // D8 ARRAY-INSTANCE BRACKET REFERENCE (problem A)
     // A plain Series statement referencing a declared array of instances by
     // its bracket form (`cap[4:5] -> PWR{VCC, GND}`) must re-link to the
     // already-declared instances cap4/cap5 instead of being quarantined as

@@ -28,9 +28,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 impl InstantiationBuilder {
-    // ========================================================================
     // Phase 1: Interface instantiation
-    // ========================================================================
     //
     // ## Iter-5.B — Module bus port passthrough (parent-child boundary label equivalence)
     //
@@ -41,9 +39,9 @@ impl InstantiationBuilder {
     // Sub-module `power.mc` POWER_DCDC:
     //   port: in  [VDD_3V3, GND]::DC()
     //
-    // Previously `instantiate_interface` only pushed port name `"[VDD_3V3,GND]"` into
-    // `self.ports`, **did not register VDD_3V3 / GND as independent symbols**
-    // in the sub-module's label namespace. Consequence:
+    // `instantiate_interface` must push the port name `"[VDD_3V3,GND]"` into
+    // `self.ports` **and register VDD_3V3 / GND as independent symbols**
+    // in the sub-module's label namespace. Otherwise:
     //
     // ### What happens downstream in the flatten chain
     //
@@ -66,8 +64,9 @@ impl InstantiationBuilder {
     // registers each label in `inst.labels` as `{my_path}.{label_name}`. So **as long as
     // `VDD_3V3` is in the sub-module's `self.labels`**, the expanded lookup will hit.
     //
-    // Previously no injection → `main.dcdc.VDD_3V3` doesn't exist → the corresponding
-    // endpoint in the parent's V3V3 net is empty → the entire POWER chain is electrically disconnected.
+    // Without the injection `main.dcdc.VDD_3V3` does not exist, so the
+    // corresponding endpoint in the parent's V3V3 net is empty and the entire
+    // POWER chain is electrically disconnected.
     //
     // ### Fix: inject members into `self.labels` according to port form
     //
@@ -109,7 +108,8 @@ impl InstantiationBuilder {
     //
     // To avoid this cross-port short, we'd need separate namespaces for each port's members
     // (e.g. `<port>/GND` port-scoped labels), but then `expand_bracket_list` produces
-    // `dcdc.GND` which again faces the "parent can't find label in sub-module" old problem — core goal lost.
+    // `dcdc.GND` which again faces the "parent can't find label in sub-module" old problem — core
+    // goal lost.
     //
     // **Conclusion**: bracket-list syntax's "same-name member across ports" ambiguity is a
     // parser-level issue; fully resolving it requires body `[A, B]` to expand into List
@@ -139,7 +139,7 @@ impl InstantiationBuilder {
     //     adjacency shape issue, entire body stmt is missing. Iter-5.E vector expansion scope.
 
     pub(super) fn instantiate_interface(&mut self) -> Result<(), InstError> {
-        // ── First clone port list to release immutable borrow of self.def ──────────
+        // First clone port list to release immutable borrow of self.def
         // Loop body needs &mut self (labels / buses write), so can't run
         // directly during iter_with_iotype() borrow.
         let items: Vec<(String, IOType, McInstance)> = self
@@ -150,7 +150,7 @@ impl InstantiationBuilder {
             .collect();
 
         for (port_name, iotype, inst) in &items {
-            // ── Bug fix ① ───────────────────────────────────────────
+            // Bug fix ①
             // `self.def.insts` is a symbol table **shared by ports and body declarations**:
             // contains both real module ports (Label / Bus / List / Interface) and
             // component / sub-module declarations (McInstance::Component / Module).
@@ -172,7 +172,7 @@ impl InstantiationBuilder {
                 continue;
             }
 
-            // ── Bug fix ② ───────────────────────────────────────────
+            // Bug fix ②
             // Only items with a non-None IOType are real ports.
             // Label/Bus/List items with IOType::None are internal body declarations
             // (e.g. `VCC`/`Vin` power labels in `VCC -> Q1 -> Vin`).
@@ -190,7 +190,8 @@ impl InstantiationBuilder {
             }
 
             // 1. When creating PortInst, extract bus_members according to port form
-            //    —— Iter-8: let N×1 bus ports expand according to declaration during endpoint resolution.
+            // —— Iter-8: let N×1 bus ports expand according to declaration during endpoint
+            // resolution.
             //
             //    ★ Authoritative declared shape (no usage auto-expansion): the
             //    member set comes only from the port's own declaration — a bare
@@ -375,7 +376,7 @@ impl InstantiationBuilder {
     /// **Does not push any bridge connections to `self.connections`** — reason in long comment
     /// "Why not do port↔member bridge connections" section.
     fn inject_port_member_labels(&mut self, iotype: &IOType, inst: &McInstance) {
-        // ── Step 0: Calculate which members to inject according to port form ────────────────────
+        // Step 0: Calculate which members to inject according to port form
         //
         // Returned triple meaning:
         //   bare_members    —— inject as prefix-free label into self.labels
@@ -453,15 +454,17 @@ impl InstantiationBuilder {
             _ => return,
         };
 
-        // If both member sets are empty (usually Case 1 named but no real members), return directly.
+        // If both member sets are empty (usually Case 1 named but no real members), return
+        // directly.
         if bare_members.is_empty() && dotted_members.is_empty() {
             return;
         }
 
-        // ── Step A1: Inject bare member labels ────────────────────────────────
+        // Step A1: Inject bare member labels
         //
         // Use entry().or_insert_with(...) instead of insert(...): if same-name
-        // label has already been registered by other paths (explicit declaration, earlier ports, build helpers, etc.),
+        // label has already been registered by other paths (explicit declaration, earlier ports,
+        // build helpers, etc.),
         // keep existing entry, avoid silent overwrite.
         for m in &bare_members {
             if m.is_empty() {
@@ -472,14 +475,16 @@ impl InstantiationBuilder {
                 .or_insert_with(|| NetPoint::new(m, iotype.clone()).with_member_name(m));
         }
 
-        // ── Step A2: curly form additional register prefix bus + dotted label ────────
+        // Step A2: curly form additional register prefix bus + dotted label
         //
         // This is not a "bridge", just declaring "`dc` is a bus with VDD_3V3 / GND members",
         // so that `node_to_netpoint` step 2.3 / step 3 can resolve body stmt `dc.VDD_3V3` reference
-        // by bus semantics. Does not append to `self.connections`, does not cause any union-find merges.
+        // by bus semantics. Does not append to `self.connections`, does not cause any union-find
+        // merges.
         if let Some(prefix) = dotted_prefix.as_ref() {
             if !prefix.is_empty() && !dotted_members.is_empty() {
-                // ensure_bus does incremental merge, ignore Err — current implementation always returns Ok
+                // ensure_bus does incremental merge, ignore Err — current implementation always
+                // returns Ok
                 let _ = self.ensure_bus(prefix, &dotted_members);
 
                 for m in &dotted_members {
@@ -503,9 +508,7 @@ impl InstantiationBuilder {
         // component ground pins, explicit `X.GND -> GND` connections).
     }
 
-    // ========================================================================
     // Phase 3: Declared instance instantiation
-    // ========================================================================
 
     pub(super) fn instantiate_declarations_resilient(&mut self) {
         // ★ Clone to owned Vec to release immutable borrow of self.def,
@@ -555,7 +558,7 @@ impl InstantiationBuilder {
                             McComponentInst::new(&c.name.to_string(), c.base.clone())
                         }
                     } else {
-                        // ── NC rule ────────────────────────────────────────
+                        // NC rule
                         // An NC-marked instance still binds its remaining
                         // arguments: with_params strips NC from arity, binds
                         // the rest and sets nc=true. NC occupies no slot and
@@ -681,7 +684,7 @@ impl InstantiationBuilder {
                     self.expansion.end(eidx);
                 }
                 McInstance::Bus(label) => {
-                    // ── Iter-5.B cooperation point ───────────────────────────────────
+                    // Iter-5.B cooperation point
                     // Keep old logic of treating McInstance::Bus as label name injection.
                     // Use entry().or_insert to avoid overwriting the more precise NetPoint
                     // injected by phase 1 using port's iotype.
@@ -693,7 +696,7 @@ impl InstantiationBuilder {
             }
         }
 
-        // ── §11.2: build module-level vector grouping nodes ─────────────
+        // §11.2: build module-level vector grouping nodes
         // `self.def.insts` carries the `base -> ordered member names` map
         // recorded at parse_declare; the flat member instances were just
         // materialized into `self.components`. Promote each multi-member group
@@ -703,30 +706,31 @@ impl InstantiationBuilder {
         self.materialize_vector_groups(&def.insts, "");
     }
 
-    // ========================================================================
     // Phase 1-2-4: Connection stmt processing
-    // ========================================================================
 
     pub(super) fn instantiate_stmts_resilient(&mut self) {
         let stmts = self.def.stmts.clone();
         let stmt_spans = self.def.stmt_spans.clone();
         for (_i, _l) in stmts.iter().enumerate() {}
         for (idx, stmt) in stmts.iter().enumerate() {
-            // ── Iter-6.S4.3 ──────────────────────────────────────────────
+            // Iter-6.S4.3
             // **per-stmt auto_inst_map scope reset**
             //
             // Background: auto_inst_map uses McPhrase pointer address as key, associating
             // process_member_internal's product (instance name) with resolve_funccall_*
-            // query. This pointer-key mechanism is only safe **within the lifetime of a single McPhrase tree** —
+            // query. This pointer-key mechanism is only safe **within the lifetime of a single
+            // McPhrase tree** —
             // after process_stmt call returns, the McPhrase nodes from the previous stmt
-            // are freed, their addresses may be reused by newly allocated McPhrase in the next stmt.
-            // At this point old entry is a dangling reference, hitting it by new address **points to wrong instance**.
+            // are freed, their addresses may be reused by newly allocated McPhrase in the next
+            // stmt.
+            // At this point old entry is a dangling reference, hitting it by new address **points
+            // to wrong instance**.
             //
             // Triggering example (captured in practice after Iter-6.S4 fix):
             //   stmt N:   `mcu.setup().add_caps().i2c().do_flash(flash)`
             //             — Iter-6.S4 fallback wrote 4 stale entries
             //             (Note: that insert has been removed by Iter-6.S4.2, but dispatch
-            //             success path, iterated calls, builtin twopin and other locations still write)
+            // success path, iterated calls, builtin twopin and other locations still write)
             //   stmt N+1: `mic(V3V3).MIC -> mcu{...} -> speaker{...}`
             //             — mic FuncCall new address collides with stmt N's old address
             //             — resolve_funccall_right finds "mcu"
@@ -737,13 +741,15 @@ impl InstantiationBuilder {
             //
             // **Note: can only clear here at top-level loop**, not at process_stmt entry —
             // because instantiate_user_func / instantiate_instance_method
-            // **recursively call** process_stmt (to expand function body), that layer must share the outer
+            // **recursively call** process_stmt (to expand function body), that layer must share
+            // the outer
             // auto_inst_map. Here at the true "stmt boundary", recursive calls are already in
             // deeper process_stmt call stack, not affected by this clear.
             //
             // Side effect tracking: there is no McPhrase sharing between top-level stmts
             // (each stmt is an independent AST subtree), so clear won't lose any entries
-            // that **should be shared across stmts**. The overall instantiation results (components / sub_modules /
+            // that **should be shared across stmts**. The overall instantiation results (components
+            // / sub_modules /
             // connections) are in other fields of self, not in auto_inst_map, unaffected by clear.
             self.auto_inst_map.clear();
 
@@ -755,7 +761,8 @@ impl InstantiationBuilder {
             self.current_stmt_span = stmt_span.clone();
 
             if let Err(e) = self.process_stmt(stmt) {
-                // ★ Single connection stmt failure doesn't interrupt, record diagnostics then continue processing subsequent stmts
+                // ★ Single connection stmt failure doesn't interrupt, record diagnostics then
+                // continue processing subsequent stmts
                 self.record_warning(
                     crate::errcodes::INST_STMT_PARSE_FAILED,
                     crate::errcodes::format_msg(
@@ -775,7 +782,8 @@ impl InstantiationBuilder {
         // guarded (§7.11(2)) and restores it on exit.
         self.current_stmt_span = None;
 
-        // ── P2-C2: After all body stmts processed, project accumulated bus members to bare ports ──
+        // ── P2-C2: After all body stmts processed, project accumulated bus members to bare ports
+        // ──
         // NOTE: These post-processing steps are now invoked from instantiate() after
         // auto_invoke_module_funcs(), so they cover both regular stmts and auto-invoked closures.
         // self.infer_bare_port_members_from_buses();  // moved to instantiate()
@@ -783,11 +791,13 @@ impl InstantiationBuilder {
         // self.check_unbound_param_ports();            // moved to instantiate()
     }
 
-    /// ── P5: Deduplicate equivalent connections ──────────────────────────────────────────────
+    /// P5: Deduplicate equivalent connections
     /// key = **unordered** set of each point's canonical path in connection (sort + dedup)
     /// **plus** the edge `dir` and `op` (§4.6 C-3).
-    /// Same set ⇒ same electrical connection (order irrelevant, duplicate points meaningless), keep only first.
-    /// No-op for net aggregation result (union-find already merged), only clears redundant connections and warnings.
+    /// Same set ⇒ same electrical connection (order irrelevant, duplicate points meaningless), keep
+    /// only first.
+    /// No-op for net aggregation result (union-find already merged), only clears redundant
+    /// connections and warnings.
     ///
     /// The `dir`/`op` half of the key is deliberate: two connections over the same
     /// unordered point set but written with a different arrow/operator are distinct
@@ -814,16 +824,14 @@ impl InstantiationBuilder {
         self.connections = kept;
     }
 
-    /// ── P2: unify component instance pin "alias paths" to "pid paths" ──────
+    /// P2: unify component instance pin "alias paths" to "pid paths"
     /// `ldo.Vout` / `ldo.GND` / `ldo.VIN.Vin` → `ldo.5` / `ldo.2` / `ldo.1`.
     /// These alias forms come from multiple construction paths (get_left_points
     /// member branch directly concatenates the path, component func body
     /// prefixing, etc.); they bypass node_to_netpoint and so don't get parsed;
     /// whereas .Cap() etc. use the pid form. Different strings → union-find
     /// never merges. Here we collapse them in one pass before union.
-    // ========================================================================
     // Post-expansion validation: verify NetPoint references
-    // ========================================================================
 
     /// Validate all generated NetPoints after expansion.
     ///
@@ -953,9 +961,7 @@ impl InstantiationBuilder {
         }
     }
 
-    // ========================================================================
     // P1: Args → Port binding / component constructor func
-    // ========================================================================
 
     /// Connect declared instance args to sub-module formal ports by **position**.
     ///
@@ -995,7 +1001,8 @@ impl InstantiationBuilder {
                 arg_lanes.extend(self.expand_node_element(e));
             }
 
-            // Choose formal port: ① voltage token match (order irrelevant); ② position fallback (next unused)
+            // Choose formal port: ① voltage token match (order irrelevant); ② position fallback
+            // (next unused)
             let arg_v = voltage_token(&arg_name);
             let mut chosen: Option<usize> = None;
             if let Some(ref v) = arg_v {
@@ -1131,7 +1138,7 @@ impl InstantiationBuilder {
         }
     }
 
-    /// ── Root cause A fix: Call site arg→port binding (multi-member curly/bracket ports) ──────
+    /// Root cause A fix: Call site arg→port binding (multi-member curly/bracket ports)
     ///
     /// Used for the path of "declared sub-module called again with args" (funccall.rs's
     /// `rebind_submodule_params`), e.g. main.mc's `mic(V3V3).MIC` — mic was declared
@@ -1202,7 +1209,8 @@ impl InstantiationBuilder {
                 arg_lanes.extend(self.expand_node_element(e));
             }
 
-            // Choose formal port: ① voltage token match (order irrelevant); ② positional fallback (next unused)
+            // Choose formal port: ① voltage token match (order irrelevant); ② positional fallback
+            // (next unused)
             let arg_v = voltage_token(&arg_name);
             let mut chosen: Option<usize> = None;
             if let Some(ref v) = arg_v {
@@ -1333,25 +1341,32 @@ impl InstantiationBuilder {
         out
     }
 
-    /// ── Root cause A companion diagnostic: "multi-member DC power port containing ground is never reached by any connection" ──────
+    /// Root cause A companion diagnostic: "multi-member DC power port containing ground is never
+    /// reached by any connection"
     ///
     /// Runs at the end of `instantiate_stmts_resilient` (after declared-arg binding + body stmt's
     /// rebind connections have been merged into self.connections).
     ///
-    /// **Only** targets multi-member power ports containing ground (members >= 2 and at least one is a ground name), purpose:
+    /// **Only** targets multi-member power ports containing ground (members >= 2 and at least one
+    /// is a ground name), purpose:
     ///   * Catch truly floating cases like `SPEAKER_M speaker` where the source omits the power arg
-    ///     (`dc{VDD_3V3,GND}` neither has a declared arg, nor is called via `speaker(...)` in the body stmt);
+    /// (`dc{VDD_3V3,GND}` neither has a declared arg, nor is called via `speaker(...)` in the body
+    /// stmt);
     ///   * Exclude **groundless** signal bus ports like `port1{A,B,C,D}` (no false positives);
-    ///   * Exclude ldo's scalar `vin` (no members, not in scope, its grounding is a separate matter).
+    /// * Exclude ldo's scalar `vin` (no members, not in scope, its grounding is a separate matter).
     ///
-    /// Determine "connected": self.connections has a point with path == prefix, or starting with `prefix.`.
+    /// Determine "connected": self.connections has a point with path == prefix, or starting with
+    /// `prefix.`.
     /// Prefix contains both bare `inst.MEMBER` and (for named ports) dotted `inst.base.MEMBER`,
     /// aligned with the two label forms injected by inject/bind.
     ///
-    /// Use **warning(942)** not error: this is a heuristic based on "connection path prefix matching",
-    /// not compilable-verifiable in this environment; in case of false positives on ports indirectly grounded via nets, warning does not block.
+    /// Use **warning(942)** not error: this is a heuristic based on "connection path prefix
+    /// matching",
+    /// not compilable-verifiable in this environment; in case of false positives on ports
+    /// indirectly grounded via nets, warning does not block.
     pub(super) fn check_unbound_param_ports(&mut self) {
-        // ① Read-only self.sub_modules, compute prefix set for each port to check (borrows released immediately).
+        // ① Read-only self.sub_modules, compute prefix set for each port to check (borrows released
+        // immediately).
         //    key = (instance, base name): curly power port in symbol table exists as both `Bus dc`
         //    and `Label dc{VDD_3V3,GND}` PortInst entries, both with base name `dc`,
         //    use key to dedup and avoid duplicate warnings on the same physical port.
@@ -1387,7 +1402,8 @@ impl InstantiationBuilder {
             }
         }
 
-        // ② Read-only self.connections, collect ports with "no connection hit", dedup by (instance, base name)
+        // ② Read-only self.connections, collect ports with "no connection hit", dedup by (instance,
+        // base name)
         let mut seen: HashSet<(String, String)> = HashSet::new();
         let mut unbound: Vec<(String, String)> = Vec::new();
         for (inst, key_name, prefixes) in &needs {
@@ -1417,17 +1433,21 @@ impl InstantiationBuilder {
 
     /// Execute component's "same-name constructor func".
     ///
-    /// Convention: func's last segment name == component class's last segment name, that is the constructor
+    /// Convention: func's last segment name == component class's last segment name, that is the
+    /// constructor
     /// (component `FLASH.sub` ↔ func `sub`).
-    /// Body expands inside **parent module self** (peripheral components belong to parent module BOM),
-    /// pin references prefixed with instance name (`VCC` → `flash.VCC`); arg names / parent port names not prefixed.
+    /// Body expands inside **parent module self** (peripheral components belong to parent module
+    /// BOM),
+    /// pin references prefixed with instance name (`VCC` → `flash.VCC`); arg names / parent port
+    /// names not prefixed.
     pub(super) fn run_component_constructor(
         &mut self,
         inst_name: &str,
         comp_def: &Arc<McComponent>,
         args: &[McParamValue],
     ) {
-        // Constructor = the one in funcs whose last segment name matches the class's last segment name
+        // Constructor = the one in funcs whose last segment name matches the class's last segment
+        // name
         let class_name = comp_def.name.to_string();
         let last = class_name
             .rsplit('.')
@@ -1469,7 +1489,8 @@ impl InstantiationBuilder {
             .map(|r| crate::semantic::common::SourcePos::new(self.def_uri.clone(), r.start as u32));
         bindings = self.align_vector_bindings(&bindings, anchor);
 
-        // skip set: names appearing in args (parent scope net) + parent module ports -> not prefixed
+        // skip set: names appearing in args (parent scope net) + parent module ports -> not
+        // prefixed
         let mut skip: HashSet<String> = HashSet::new();
         for b in bindings.iter() {
             if let Some(value) = b.get_value() {
@@ -1552,15 +1573,14 @@ impl InstantiationBuilder {
             );
         }
         self.expansion.end(eidx);
-        // ── P4 backstop: strip host-synthesized interface endpoints leaked during body processing ──
+        // ── P4 backstop: strip host-synthesized interface endpoints leaked during body processing
+        // ──
         // (flash's `flash.in ~ CAP_1.1` / `CAP_1.2 ~ flash.out` etc.)
         self.strip_host_iface_phantoms(inst_name, conn_start);
     }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
 // Iter-8: Bus member extraction from port declarations
-// ────────────────────────────────────────────────────────────────────────────
 //
 // Consistent with the discrimination logic in `inject_port_member_labels::Step 0`, but only
 // extracts the "suitable as dotted expansion lane name" member set——i.e. only returns a
@@ -1609,7 +1629,7 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
 
         // Interface: `[A, B]::DC()` or `dc{A, B}::DC()` or `MIC{P, N}::ADC.DIFF()`
         //
-        // ── S1 Bug D fix (Part 2) ─────────────────────────────────────
+        // S1 Bug D fix (Part 2)
         // **Bare interface ports** like `io SPI` (no curly members, e.g. `io SPI`
         // not `io SPI{CS, SCLK, MISO, MOSI}`) have no member info on iface.name
         // (as_bus / list_members both empty). But Mc2Interface.base is the full
@@ -1617,10 +1637,10 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
         // `names[0]` is the original declared pin name (e.g. SPI: CS/SCLK/MISO/
         // MOSI in BTreeMap pinid order = declaration order for numeric pinids).
         //
-        // Previously falling back to Vec::new() leaves expand_port_lanes without lanes ->
-        // cross sub-module boundary degrades to scalar (1 point) -> 1-vs-N fan (the
-        // §5.3.1-abolished single-point broadcast) shorts N physical pins into the same
-        // net (S1 SPI four-wire short).
+        // Falling back to Vec::new() leaves expand_port_lanes without lanes,
+        // so a cross sub-module boundary degrades to scalar (1 point) -> 1-vs-N
+        // fan (the §5.3.1-abolished single-point broadcast) shorts N physical
+        // pins into the same net (S1 SPI four-wire short).
         //
         // Fix: after name-based extraction fails, fall back to iface.base.pins to get names[0]
         // sequence as bus_members. This is consistent with the logic used by

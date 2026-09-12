@@ -65,7 +65,8 @@ pub struct ProjectionLog {
 }
 
 impl ProjectionLog {
-    /// Aggregated into `baseline/render_projection.md` (overwritten each projection, deterministic content).
+    /// Aggregated into `baseline/render_projection.md` (overwritten each projection, deterministic
+    /// content).
     pub fn write_md(&self) {
         let mut md = String::new();
         md.push_str("# Render Projection (P7-2)\n\n");
@@ -114,9 +115,7 @@ fn project_block_inner(
     out
 }
 
-// ============================================================================
 // Single-layer projection
-// ============================================================================
 
 /// Pseudo endpoint test: parent is the current layer module's own Port/Label
 /// (boundary declaration of this layer, not a connection point).
@@ -220,8 +219,9 @@ fn project_nets(
     let nets = &block.nets;
     log.per_layer.push((layer.to_string(), nets.len(), 0)); // after value backfilled at the end
 
-    // ── Rule (a): union grouping ─────────────────────────────────────────
-    // key1: pseudo endpoint id —— multiple nets sharing the same pseudo endpoint ⇒ one electrical net
+    // Rule (a): union grouping
+    // key1: pseudo endpoint id —— multiple nets sharing the same pseudo endpoint ⇒ one electrical
+    // net
     // NOTE: no GROUND sentinel here (strict DC rail identity). Ground-role pseudo
     // endpoints are NOT globally merged: `va.GND` and `vb.GND` stay distinct nets
     // until they share a real wiring tie. Merging happens only through key1
@@ -243,7 +243,7 @@ fn project_nets(
         }
     }
 
-    // ── Rule (a) ground-net merge extensions ──────────────────────────────
+    // Rule (a) ground-net merge extensions
     // Under strict DC rail identity, ground-role nets stay separate unless a real
     // wiring tie shares an endpoint. Three tie sources are only visible here:
     //   (1) same-name ground label: every `GND` label in a module scope belongs
@@ -382,7 +382,7 @@ fn project_nets(
         }
     }
 
-    // ── Group by root (preserving first-seen order) ──────────────────────
+    // Group by root (preserving first-seen order)
     let mut order: Vec<usize> = Vec::new();
     let mut members: HashMap<usize, Vec<usize>> = HashMap::new();
     for ni in 0..nets.len() {
@@ -398,7 +398,7 @@ fn project_nets(
     for root in order {
         let idxs = &members[&root];
 
-        // ── Endpoint collection: dedup in nid order ───────────────────────
+        // Endpoint collection: dedup in nid order
         let mut sorted: Vec<usize> = idxs.clone();
         sorted.sort_by_key(|&i| nets[i].nid);
         let mut all_ids: Vec<i64> = Vec::new();
@@ -427,7 +427,7 @@ fn project_nets(
             group_display_name(&sorted, nets, bid, table)
         };
 
-        // ── Rule (a) audit: many nets into one ────────────────────────────
+        // Rule (a) audit: many nets into one
         if !single {
             let names: Vec<&str> = sorted.iter().map(|&i| nets[i].name.as_str()).collect();
             log.records.push(ProjectionRecord {
@@ -530,7 +530,7 @@ fn project_nets(
             }
         }
 
-        // ── Real endpoints = all - (b dropped) - (c pseudo endpoints) ─────
+        // Real endpoints = all - (b dropped) - (c pseudo endpoints)
         // Rail groups: drop ALL pseudo endpoints (Labels and member ports alike —
         // the net's name / DC-face boundary, not a connection point).
         // Signal groups: keep pseudo endpoints (they become PortTerminal connections).
@@ -591,13 +591,14 @@ fn project_nets(
         //   Ground-role pseudo endpoint exists → Ground (R-1, globally the same ground, no driver);
         //   Power-role pseudo endpoint exists → Power, driver resolved in two steps:
         //     (a) a real endpoint with io==Out and member==Power (ldo.VCC / dcdc.VCC_1V2)
-        //     (b) otherwise, for each Power member endpoint (io != In) do a sub-layer generation-side
-        //         check —— if the net containing that endpoint in the raw subblock only passes through
+        // (b) otherwise, for each Power member endpoint (io != In) do a sub-layer generation-side
+        // check —— if the net containing that endpoint in the raw subblock only passes through
         //         two-pin passives (e.g. usbsocket's vin.POWER_SYS via R0603), it is the source
         //         (speaker feeding the 8-pin lpa directly ⇒ consumer side)
         let rail = detect_rail_spec(&all_ids, &real, block, table, layer);
 
-        // ── Output: a single flat group (rail/signal both consumed as flat endpoint sets in Phase 3) ──
+        // ── Output: a single flat group (rail/signal both consumed as flat endpoint sets in Phase
+        // 3) ──
         let mut net = McVecNet::new(nets[sorted[0]].nid, name_src, vec![McVec::new(real)]);
         net.rail = rail;
         net.attr = attr;
@@ -739,9 +740,7 @@ fn last_two_segments(path: &str) -> String {
     }
 }
 
-// ============================================================================
 // ★ P7-3: power net spec resolution (criteria all from port declarations, zero name matching)
-// ============================================================================
 
 use crate::semantic::common::IOType;
 use crate::semantic::component::mc_pins::PwrDir;
@@ -899,8 +898,8 @@ fn resolve_power_driver(real: &[i64], block: &McVecBlock, table: &InstTable) -> 
     // the declared energy direction (`InstEntry::pwr_dir`, recorded at flatten
     // from the component def's own `pins.pwr` rows). This is the leaf
     // counterpart of (a2): on a board whose supply faces are component pins
-    // (pwrint's `usb.vin`/`ldo.VIN`), the direction was previously dropped with
-    // the io type, so only this arm can name the generation side. `psbi` counts
+    // (pwrint's `usb.vin`/`ldo.VIN`), dropping the io type also drops the
+    // direction, so only this arm can name the generation side.
     // as a source root, exactly as it does for the canonical
     // `nets::source_contract_for` (its `::DC(v)` is the discharge guarantee).
     // Hot member only — a `ret`/ground pin never sources. Unique source wins;
@@ -1193,8 +1192,10 @@ fn detect_net_attr(
 /// endpoint touches no active device other than boundary declarations (parent == submodule)
 /// and two-pin passives ⇒ this endpoint is the "generation side".
 ///
-/// Specimens: usbsocket.vin.POWER_SYS raw net = [R0603.2, boundary] → passes only passives → source;
-///            speaker.USB_VBUS_1.VDD_3V raw net = [lpa.7(8-pin), C8.1, boundary] → touches an IC → consumer side.
+/// Specimens: usbsocket.vin.POWER_SYS raw net = [R0603.2, boundary] → passes only passives →
+/// source;
+/// speaker.USB_VBUS_1.VDD_3V raw net = [lpa.7(8-pin), C8.1, boundary] → touches an IC → consumer
+/// side.
 fn is_rail_source_in_subblock(pin_id: i64, block: &McVecBlock, table: &InstTable) -> bool {
     let Some(parent_mod) = table.get_entry(pin_id as u32).and_then(|e| e.parent_id) else {
         return false;
@@ -1228,9 +1229,7 @@ fn is_rail_source_in_subblock(pin_id: i64, block: &McVecBlock, table: &InstTable
     true
 }
 
-// ============================================================================
 // Union-Find (same shape as coalesce.rs, private copy to avoid cross-module coupling)
-// ============================================================================
 
 struct Dsu {
     parent: Vec<usize>,
