@@ -2543,6 +2543,24 @@ impl McPhrase {
                     return None;
                 }
 
+                // ── net pair: two bodiless operands must not fuse two nets ──
+                // The mirror of the body-pair rule above: a label names an
+                // equipotential region (vec-dianlu §1.4/§5.4), so `+` with no
+                // body on either side can only merge the two regions -- a dead
+                // short. `+` with exactly one body is the net attach and stays
+                // legal. Parallel only: the ruling is on `+`.
+                if let Some((l_name, r_name)) = check_net_pair_plusminus(&opd1, &opd2, context) {
+                    dlog_error(
+                        crate::errcodes::CONN_NET_CROSSNET,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::CONN_NET_CROSSNET,
+                            &[&l_name, &r_name],
+                        ),
+                    );
+                    return None;
+                }
+
                 // §5.1 parallel `+`: the paired ports must match one-to-one.
                 // The pairing side is derived from `(opd1, opd2)` alone
                 // (opcheck): a degenerate right operand attaches to the left
@@ -3070,9 +3088,12 @@ fn shape_defaults(c: &Mc2Component) -> CompPinShape {
 /// matters (`eval_port_elems`, and the E2903 diagnostic) the shape itself is
 /// read instead.
 ///
-/// The `+` case is why the test cannot be syntactic: two bare labels stack into
-/// a point (`1*1 + 1*1 = 1*1`) and are a no-op, while two two-pin parts stack
-/// into a `1*2` node whose faces differ and whose reversal is real.
+/// The `+` case is why the test cannot be syntactic: two one-pin bodies
+/// (`TP1 + TP2`) stack into a point (`1*1 + 1*1 = 1*1`) and are a no-op, while
+/// two two-pin parts stack into a `1*2` node whose faces differ and whose
+/// reversal is real. (Two *distinct labels* would read the same shape-wise, but
+/// they no longer reach here: `+` between two bodiless operands is rejected at
+/// Pass1 as a cross-net merge, `CONN_NET_CROSSNET`.)
 fn is_reverse_noop_operand(p: &McPhrase) -> bool {
     match p {
         // `'` presents a column on both faces (vec-dianlu.md §6.2).
@@ -3169,6 +3190,80 @@ fn check_body_pair_plusminus(
         r.name.to_string(),
         body_arity(&rshape),
     ))
+}
+
+/// Resolve `opd` to a **bare net name** -- a plain label, or a member-less bus
+/// reference (`VCC`, `GND`, a top label). Its potential is carried by the name
+/// (vec-dianlu §1.4: a bodyless operand names an *existing* equipotential
+/// region), so two different names are two different potentials.
+///
+/// A bus **with** members (`[A, B]`) is a column of separate nets -- the shape
+/// layer's business -- and deliberately does not resolve here.
+fn as_bare_net(opd: &McPhrase, context: &mut dyn HasFindInst) -> Option<String> {
+    let name = match opd {
+        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Label(ref label),
+            ..
+        })) => label.to_string(),
+        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Bus(ref bus),
+            ..
+        })) if bus.member.is_empty() && !bus.name.is_empty() => bus.name.clone(),
+        _ => return None,
+    };
+    // An operand that **roots at a declared instance is a body**, not a net
+    // name, so it is not this rule's case. The phrase layer keeps a pin range
+    // as a flat name (`t275[1:44]` -> `Bus { name: "t275[1:44]" }`), which is
+    // shape-identical to a free net of that spelling -- the name alone cannot
+    // decide it, the head identifier can. Two 44-wide pin ranges are two
+    // equal-port bodies, which §5.4 calls legal (the E2908 body-pair rule's
+    // own `R1 + R2` row).
+    if context.find_inst(root_ident(&name)).is_some() {
+        return None;
+    }
+    Some(name)
+}
+
+/// The head identifier of a name that may carry a range or member suffix
+/// (`t275[1:44]` -> `t275`). Used only to ask whether the operand roots at a
+/// declared instance.
+fn root_ident(name: &str) -> &str {
+    name.split(|c: char| c == '[' || c == '{' || c == '.')
+        .next()
+        .unwrap_or(name)
+}
+
+/// Check that `+` between **two bodiless operands** is not a cross-net merge
+/// (`VCC + GND` joins two different nets into one, which is a dead short).
+///
+/// A label/rail is not a connection: it names an equipotential region that
+/// already exists (vec-dianlu §1.4 / §5.4). `+` against a body extends that
+/// region onto the body's written-side pin -- the face-side law's net attach,
+/// which is legitimate. But when *neither* side is a body there is nothing to
+/// stack and nothing to extend onto: `+` can only fuse the two regions, and
+/// the operands' potentials are carried by their names, so two different names
+/// are two different potentials. Two distinct potentials have no legal merge.
+///
+/// `vcc + vcc` (identical names) is **not** a cross-net: it names one region
+/// twice, so there is nothing to fuse and nothing is reported.
+///
+/// This is the bodiless sibling of `check_body_pair_plusminus`: that one fires
+/// when *both* sides are bodies, this one when *neither* is. `+` with exactly
+/// one body is the `VCC + R1` net attach and is unconstrained by both.
+///
+/// Returns `Some((left_name, right_name))` for a rejected merge, `None` when
+/// the pair is allowed.
+fn check_net_pair_plusminus(
+    opd1: &McPhrase,
+    opd2: &McPhrase,
+    context: &mut dyn HasFindInst,
+) -> Option<(String, String)> {
+    let l = as_bare_net(opd1, context)?;
+    let r = as_bare_net(opd2, context)?;
+    if l == r {
+        return None;
+    }
+    Some((l, r))
 }
 
 // ============================================================================

@@ -289,14 +289,23 @@ fn caret__wraps_without_rewriting() {
 fn caret__on_orderless_operand_still_wraps() {
     // E2903 (`SHAPE_REVERSE_NOOP`) is raised at parse; the tree still records
     // the operator that was written.
-    // `(A + B)`: two bare labels stack into a point (`1*1 + 1*1 = 1*1`), whose
-    // two faces are the same element list. `A`/`B` are deliberately undeclared
-    // — a bare label is a point, while a declared-but-unused port is
-    // shape-by-use (unknown width) and would not present a point at all; the
-    // E3136 that undeclared func-body labels raise is incidental to this cell.
+    // `(A + A)`: one bare label written twice names **one** region, so the two
+    // operands stack into a point (`1*1 + 1*1 = 1*1`) whose two faces are the
+    // same element list. `A` is deliberately undeclared — a bare label is a
+    // point, while a declared-but-unused port is shape-by-use (unknown width)
+    // and would not present a point at all; the E3136 that undeclared
+    // func-body labels raise is incidental to this cell.
+    //
+    // The two operands must be the **same** name: two *distinct* bare labels
+    // are two distinct potentials, so `+` between them fuses two nets and
+    // Pass1 rejects the statement (`CONN_NET_CROSSNET`) before `^` is reached
+    // (vec-dianlu §1.4/§5.4). `A + A` is the reachable point-valued `+`; the
+    // other one is two one-pin bodies.
+    // No E3136 here: the helper dedups codes and `A` is a *single* undeclared
+    // label written twice, not two.
     assert_eq!(
-        only_with("(A + B)^", &[2903, 3136]),
-        "Reversed(Group[Parallel[A, B]])"
+        only_with("(A + A)^", &[2903]),
+        "Reversed(Group[Parallel[A, A]])"
     );
     // `C1'` is a column (`2*1`) — left face == right face.
     assert_eq!(only_with("C1'^", &[2903]), "Reversed(Transposed(C1))");
