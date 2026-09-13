@@ -1815,8 +1815,10 @@ impl McFuncCall {
     ///
     /// # Three-state rules (per eval.md §8.1):
     /// - `Implicit` / `This` → `ReturnShape::This` — preserves caller shape
-    /// - `Endpoint(ref phrase)` → `ReturnShape::Label { bus }` — left empty, right = phrase's right
-    /// interface
+    /// - `Endpoint(ref phrase)` → `ReturnShape::Label { bus }` — right = phrase's right
+    ///   interface
+    /// - `Group(ref phrase)` → `ReturnShape::Label { bus }` — the flattened
+    ///   member nets, one lane each (parallel members, not an aligned column)
     pub fn resolve_return_shape(&mut self, func_returns: &McFuncReturn) {
         match func_returns {
             McFuncReturn::Implicit | McFuncReturn::This => {
@@ -1825,6 +1827,17 @@ impl McFuncCall {
             McFuncReturn::Endpoint(phrase) => {
                 // Endpoint return: derive bus from the returned phrase's right side
                 let bus = get_right_bus_from_phrase(phrase);
+                self.resolved_return_shape = Some(ReturnShape::Label { bus });
+            }
+            McFuncReturn::Group(phrase) => {
+                // Group members are parallel, each with its own open face;
+                // flatten them so the call's mouth exposes every member.
+                let bus: Vec<_> = match phrase {
+                    McPhrase::Group(g) => {
+                        g.opds.iter().flat_map(get_right_bus_from_phrase).collect()
+                    }
+                    other => get_right_bus_from_phrase(other),
+                };
                 self.resolved_return_shape = Some(ReturnShape::Label { bus });
             }
         }
@@ -1951,7 +1964,10 @@ impl McFuncCall {
             return;
         }
 
-        debug_assert!(matches!(ret, McFuncReturn::Endpoint(_)));
+        debug_assert!(matches!(
+            ret,
+            McFuncReturn::Endpoint(_) | McFuncReturn::Group(_)
+        ));
         dlog_error(
             crate::errcodes::FCALL_PARSE_FAILED,
             node,

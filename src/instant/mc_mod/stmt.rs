@@ -415,6 +415,14 @@ impl InstantiationBuilder {
         // Only expand when the Multiple is on the LEFT (signal side). When the
         // Multiple is on the RIGHT (e.g. `Cap(_) -> [VDD, GND]`), it is the
         // component's own pins, NOT independent signals — do NOT expand.
+        // M11.1 / M11.4: lane-by-lane wiring is used when the chain contains a
+        // Lead (`_`) pass-through or a standalone Transposed bridge. Computed
+        // here (before the P2-5 expansion) so the expansion can leave the tail
+        // to the lane path instead of wiring it itself.
+        let needs_lane_by_lane = members
+            .iter()
+            .any(|m| Self::member_contains_lead(m) || matches!(m, McPhrase::Transposed(_)));
+
         let mut i: usize = 0;
         // Track which member indices were consumed by P2-5 expansion, so the
         // downstream connect_adjacent_pair loop doesn't re-process them and
@@ -493,33 +501,59 @@ impl InstantiationBuilder {
                     p25_consumed.insert(*idx);
                 }
 
-                for item in &lane_items {
-                    let mut fc_clone = fc.clone();
-                    // ── P2-5 fix: reset FuncCall IDs so each expanded pair
-                    // gets fresh unique IDs from assign_phrase_ids. Without this,
-                    // all pairs share the same ID, and P2-9 dedup incorrectly
-                    // skips the second (and subsequent) builtin twopin
-                    // instantiations (e.g. I2C0 SCL+SDA Pullup only creates 1 RES).
-                    Self::reset_phrase_ids(&mut fc_clone);
-                    // ── P2-5 fix: substitute the lane into the folded params so
-                    // each expanded call binds cleanly. `I2C0 => RES(10kΩ).Pullup([_, VDD])`
-                    // folds to `.Pullup([I2C0, VDD])`; per lane the bus `uC.I2C0`
-                    // inside the Set must become `uC.I2C0.SCL` (§5 lane expansion)
-                    // so the Pullup body wires pin2→VDD instead of leaving it
-                    // dangling on a failed bind.
-                    if let McPhrase::FuncCall(fc_ref) = &mut fc_clone {
-                        if let Some((base_bus, lane_name)) = Self::bus_lane_of(item) {
-                            Self::substitute_bus_in_fc_params(fc_ref, &base_bus, &lane_name);
+                // One substituted call per lane. The `=>` fold put the bus
+                // inside the call's actuals, so `I2C0 => RES(10kΩ).Pullup([_, VDD])`
+                // folds to `.Pullup([I2C0, VDD])`; per lane the bus must become
+                // its member (`uC.I2C0` -> `uC.I2C0.SCL`, param-prefix §5) so the
+                // body wires pin2 -> VDD instead of leaving it dangling.
+                let lane_calls: Vec<McPhrase> = lane_items
+                    .iter()
+                    .map(|item| {
+                        let mut fc_clone = fc.clone();
+                        // Fresh IDs per lane so P2-9 dedup does not collapse the
+                        // expanded instances (SCL+SDA Pullup must build 2 RES).
+                        Self::reset_phrase_ids(&mut fc_clone);
+                        if let McPhrase::FuncCall(fc_ref) = &mut fc_clone {
+                            if let Some((base_bus, lane_name)) = Self::bus_lane_of(item) {
+                                Self::substitute_bus_in_fc_params(fc_ref, &base_bus, &lane_name);
+                            }
                         }
+                        fc_clone
+                    })
+                    .collect();
+
+                // The members after the call are the chain tail. The `=>` sugar
+                // is an *expression*: its value is the lane-ordered vector of
+                // the N calls' return surfaces (param-prefix-design.md §5), so
+                // the tail binds lane by lane. Collect the calls into one vector
+                // operand and step it against the tail through the ordinary
+                // fold — a lane-count mismatch is then reported instead of the
+                // tail being silently dropped.
+                let tail: Vec<McPhrase> = if pair_with_lane {
+                    Vec::new()
+                } else {
+                    members[fc_idx + 1..].to_vec()
+                };
+                if !tail.is_empty() && !needs_lane_by_lane {
+                    for idx in fc_idx + 1..members.len() {
+                        p25_consumed.insert(idx);
                     }
+                    let mut collected = McPhrase::Multiple(lane_calls);
+                    Self::assign_phrase_ids(&mut collected, &mut self.next_phrase_id);
+                    let mut rewritten: Vec<McPhrase> = Vec::with_capacity(tail.len() + 1);
+                    rewritten.push(collected);
+                    rewritten.extend(tail);
+                    return self.process_series_members(&rewritten, &gaps[fc_idx..].to_vec());
+                }
+
+                for (item, fc_clone) in lane_items.iter().zip(lane_calls) {
                     // When a chain member carried the bus, the lane sits at
                     // `members[fc_idx - 1]` and the pair's boundary operator is
                     // that member's gap (edge-level). Without a chain member the
                     // lane is already inside the call's Set, so the expanded
                     // call is the whole statement.
                     let stmt = if pair_with_lane {
-                        let gap_dir = gaps[fc_idx - 1];
-                        McPhrase::Series(vec![item.clone(), fc_clone], gap_dir)
+                        McPhrase::Series(vec![item.clone(), fc_clone], gaps[fc_idx - 1])
                     } else {
                         fc_clone
                     };
@@ -554,14 +588,10 @@ impl InstantiationBuilder {
         // func return face; a genuinely mis-shaped `[2×1] -> CAP(1×2) -> [2×1]`
         // chain is reported by the series-row check below.
 
-        // M11.1 / M11.4: Lane-by-lane wiring
-        // Use lane-by-lane wiring when the chain contains:
-        // - Lead (_) pass-through elements (e.g. [RES, _])
-        // - Standalone Transposed bridge passives (e.g. CAP')
-        // - Parallel with Lead or Transposed (e.g. [RES, _] + CAP')
-        let needs_lane_by_lane = members
-            .iter()
-            .any(|m| Self::member_contains_lead(m) || matches!(m, McPhrase::Transposed(_)));
+        // M11.1 / M11.4: use lane-by-lane wiring when the chain contains a
+        // Lead (`_`) pass-through element, a standalone Transposed bridge
+        // passive, or a Parallel holding either (`needs_lane_by_lane`, hoisted
+        // above so the P2-5 expansion leaves the tail to this path).
         if needs_lane_by_lane {
             // §8.9.6.7: the lane-by-lane path bypasses connect_adjacent_pair,
             // so the AST-layer group context is never established there.
