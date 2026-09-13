@@ -52,11 +52,11 @@
   (`// previously…`, `// renamed from…`, `// an early version used to…`) and no
   commented-out code: git holds the history. No `// ───── Parse ─────` banner
   rules. Keep `///` doc comments to the contract (arguments, invariants,
-  panics, units); multi-paragraph rationale goes to a design doc under
-  `mcd/doc/` with at most a one-line pointer here. Match the file's local
-  density — appending a verbose block to a terse file is a regression even
-  when every sentence is true. Full rule: `AGENTS.md` §"keep code comments
-  lean".
+  panics, units); multi-paragraph rationale goes to a design doc with at most a
+  one-line pointer here — cited by bare document name, never by path. Match the
+  file's local density — appending a verbose block to a terse file is a
+  regression even when every sentence is true. Full rule: `AGENTS.md` §"keep
+  code comments lean".
 - Applies to the whole project including test code and test data.
 
 ***

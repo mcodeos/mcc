@@ -90,8 +90,10 @@ reader an afternoon.
 - **Keep doc comments to the contract.** A `///` states what a caller must
   know: arguments, invariants, panics, units. Not the implementation
   walkthrough, not the design rationale. Multi-paragraph explanation belongs in
-  a design doc under `mcd/doc/`, with at most a one-line pointer here. The same
-  applies to module-level `//!`.
+  the design docs, with at most a one-line pointer here — and since those docs
+  live outside this repo, that pointer is a bare document name
+  (`island-attribution-design.md` §2), never a path. The same applies to
+  module-level `//!`.
 - **Match the neighbours.** Density is local and load-bearing: a file written
   tightly stays tight. Appending a verbose block to a terse file is a
   regression even when every sentence in it is true.
