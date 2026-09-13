@@ -4,9 +4,10 @@
 
 //! Shared module-nesting overview (the "Hierarchy" tree) used by `mcc verify`
 //! and `mcc show dianlu`: the top module as root, each module node carrying
-//! every instance in source order — declared (`[src]`), declareb (`[decl]`)
-//! and funcall-generated anonymous (`[gen]`) — so the whole instance
-//! structure is visible at a glance before the per-module detail sections.
+//! every instance in source order, tagged by origin — `[src]` (declared),
+//! `[decl]` (declareb), `[gen]` (funcall-generated), `[port]` (real IOType
+//! port) and `[inl]` (inline, from a connection phrase) — so the whole
+//! instance structure is visible at a glance before the per-module sections.
 //!
 //! Pipeline: [`collect_module_nodes`] walks a Pass2 `McModuleInst` tree into
 //! per-module JSON nodes (the same `{module, uri, instances}` shape `verify`
@@ -496,10 +497,11 @@ pub fn build_hierarchy(modules: &[Value]) -> Value {
 }
 
 /// Render the global module-nesting overview as an ASCII tree: the top
-/// module header, then every instance in source order — declared (`[src]`),
-/// declareb (`[decl]`) and funcall-generated anonymous (`[gen]`) — each as
-/// `Line [origin] kind name class`. Sub-module instances become branch nodes
-/// whose children are that module's own instances.
+/// module header, then every instance in source order — tagged by origin
+/// (`[src]` declared, `[decl]` declareb, `[gen]` funcall-generated,
+/// `[port]` real IOType port, `[inl]` inline) — each as
+/// `Line [origin] kind name class`. Sub-module instances become branch
+/// nodes whose children are that module's own instances.
 pub fn render_hierarchy_text(out: &mut String, h: &Value) {
     let module = h["module"].as_str().unwrap_or("");
     let uri = h["uri"].as_str().unwrap_or("");
