@@ -598,7 +598,7 @@ pub fn print_backtrace(label: &str) {
 //
 // Pure function implementation with no dependencies, reused by the
 // semantic / instant / vector layers.
-// Semantics source: docs-new/concepts/vector-circuit/eval.md
+// Semantics source: eval.md
 //   - §1 shape system (rows; a single-sided port is always a column vector)
 //
 // `Shape` carries only the row count: the shape layer sees each operand's
