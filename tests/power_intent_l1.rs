@@ -101,7 +101,7 @@ use mcc::{McIds, McURI};
 const FB: &str = "component FB {\n    pins = [\n        io [1,2] = [X, Y]\n    ]\n}\n";
 
 /// A TVS-like device: one signal pin + one clamp-reference pin.
-const TV: &str = "component TV {\n    pins = [\n        io 1 = IO\n        ps 2 = G\n    ]\n}\n";
+const TV: &str = "component TV {\n    pins = [\n        io 1 = IO\n        psnk 2 = G\n    ]\n}\n";
 
 /// Build the source and return every diagnostic code (sorted).
 fn build_codes(src: &str) -> Vec<u32> {
@@ -2721,5 +2721,42 @@ fn port_bind_role_bare_conduit_defaults_to_main_stays_silent_6029() {
     assert!(
         !codes.contains(&mcc::errcodes::PORT_BIND_ROLE_MISMATCH),
         "a bare conduit defaults to main, witnessing an @bind_role(main) port; got codes: {codes:?}"
+    );
+}
+
+/// Model A §4.1 `[hot, ret]` pairing, the gap side: a `::DC` power row that
+/// names no return member declares an incomplete crossing. The check reads
+/// `McPwrPin.ret`, so both spellings of the gap land on one code — the bare
+/// lone name (`psnk 5 = VCC::DC(3.3V)`), which used to vanish before any pin
+/// existed, and the single-member pair (`psnk [5] = [VCC]::DC(3.3V)`).
+#[test]
+fn dc_row_without_return_member_fires_6030() {
+    let src = "component LONE {\n    pins = [\n        psnk 5 = VCC::DC(3.3V)\n        6 = GND\n    ]\n}\n\
+        component BRACKET {\n    pins = [\n        psnk [5] = [VCC]::DC(3.3V)\n    ]\n}\n\
+        module main {\n    LONE U1\n    BRACKET U2\n}\n";
+    let codes = build_codes(src);
+    let n = codes
+        .iter()
+        .filter(|c| **c == mcc::errcodes::POWER_PIN_RETURN_MISSING)
+        .count();
+    assert_eq!(
+        n, 2,
+        "one 6030 per return-less ::DC row; got codes: {codes:?}"
+    );
+}
+
+/// The completed crossing — the pair `[hot, ret]` — is clean, and a bare row
+/// carrying no `::DC` (a passive leaf's `N = GND`, whose direction belongs to
+/// the parent module port) is not a crossing at all: it must not be dragged in.
+#[test]
+fn dc_pair_and_non_dc_rows_stay_silent_6030() {
+    let src =
+        "component PAIRED {\n    pins = [\n        psnk [5,6] = [VCC, GND]::DC(3.3V)\n    ]\n}\n\
+        component PASSIVE {\n    pins = [\n        6 = GND\n    ]\n}\n\
+        module main {\n    PAIRED U1\n    PASSIVE U2\n}\n";
+    let codes = build_codes(src);
+    assert!(
+        !codes.contains(&mcc::errcodes::POWER_PIN_RETURN_MISSING),
+        "a completed pair and a non-DC row are both outside the check; got codes: {codes:?}"
     );
 }

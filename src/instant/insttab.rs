@@ -191,7 +191,7 @@ pub fn infer_member_role(
     if is_declared_power(leaf_name) {
         return (MemberRole::Power, false);
     }
-    // (b) explicit qualifier fallback: ps / ::DC power-direction → Power.
+    // (b) explicit qualifier fallback: psnk / ::DC power-direction → Power.
     if matches!(io_type, IOType::Power) {
         return (MemberRole::Power, false);
     }
@@ -1377,7 +1377,7 @@ impl InstTable {
             // declares a DC pair at its pins (ret member = declared return /
             // ground side, hot member = declared supply face). Enrich the
             // module-scope declared identity with this component's own rows so
-            // a DC return pin (US513.21 — ret of `ps [5,21]=[VDD,GND]::DC`)
+            // a DC return pin (US513.21 — ret of `psnk [5,21]=[VDD,GND]::DC`)
             // reads Ground instead of the io==Power default. Positional:
             // ret/hot come from the ::DC [hot,ret] write, never from names.
             let comp_ground_coppers: Vec<String> = comp

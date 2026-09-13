@@ -100,7 +100,7 @@ pub enum EntrySide {
 ///
 /// Only the facts a `SubModule` box's own `pins` can supply are carried here: the
 /// port name and the crossing's electrical direction. The declared port keyword
-/// (`in` / `out` / `io` / `ps`) and a rail's voltage live on the instant table's
+/// (`in` / `out` / `io` / `psnk`) and a rail's voltage live on the instant table's
 /// port entries, which a box no longer holds; a caller that needs them reads the
 /// opened module's own layer (where `McVecGraph.module_ports` carries the full
 /// triple) rather than a parent's box. Deliberately not reconstructed by guess,
@@ -153,7 +153,7 @@ pub struct BoxPin {
     pub description: String,
     /// Pin direction (input / output / power / ...)
     pub io: IoDirection,
-    /// ★ M0-2: module port direction (in/out/io/ps); non-ports are PortDir::None
+    /// ★ M0-2: module port direction (in/out/io/psrc/psnk/psbi); non-ports are PortDir::None
     pub port_dir: PortDir,
 }
 
@@ -178,7 +178,7 @@ pub enum PinConstraint {
 
 // ★ M0-2: PortDir — module port direction
 
-/// Module port direction (from `in` / `out` / `io` / `ps` declarations)
+/// Module port direction (from `in` / `out` / `io` / `psnk` declarations)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PortDir {
     In,

@@ -5,7 +5,7 @@
 //! `capability` container — a role circuit recipe (abstract-variant-capability-plan §3).
 //!
 //! A capability is a *declaration-only* container: a set of **signal
-//! declarations** (`ps [VCC,GND]`, `io uart[RO,DI]::UART.TTL(DTE)`, … — the
+//! declarations** (`psnk [VCC,GND]`, `io uart[RO,DI]::UART.TTL(DTE)`, … — the
 //! module-port family grammar, minus physical pin numbers) plus **funcs** that
 //! are written against those declared signals (contract §3.2). It is not
 //! placeable, has no partno/package/spec, no construction params, no
@@ -19,7 +19,7 @@
 //! def is self-contained and needs no AST retention.
 //!
 //! The signal table is a full [`McInstances`] (module-port machinery), so
-//! declared signals carry real IOType (ps → Power, io → InOut, in/out → …)
+//! declared signals carry real IOType (psnk → Power, io → InOut, in/out → …)
 //! and membered groups expand exactly as module ports do.
 
 use crate::ast::macros::*;
@@ -93,7 +93,7 @@ impl McCapability {
             if let Some(body_nodes) = body.get_sub_node() {
                 for clause in body_nodes.iter() {
                     match clause.get_type() {
-                        // Signal declaration (`ps …`, `io …`, `in …`): module-port family.
+                        // Signal declaration (`psnk …`, `io …`, `in …`): module-port family.
                         MCAST_NET_PORTS => {
                             cap.signals.parse(&clause, uri);
                         }

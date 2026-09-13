@@ -270,11 +270,7 @@ impl InstantiationBuilder {
             if !conflict {
                 continue;
             }
-            let word = match dir {
-                PwrDir::Src => "psrc",
-                PwrDir::Snk => "psnk",
-                PwrDir::Bi => "psbi",
-            };
+            let word = dir.as_str();
             let args: Vec<&dyn std::fmt::Display> = vec![&label, &word, &position];
             let msg = crate::errcodes::format_msg(crate::errcodes::DC_BINDING_DIR_MISMATCH, &args);
             self.log_global_diag(
@@ -1070,7 +1066,7 @@ impl InstantiationBuilder {
     ///
     /// A same-name group is a bus port whose resolved pins ALL carry the same
     /// member name — either all empty (`spk{GND}`) or all explicitly identical
-    /// (`ps [19,32,48,64] = VDD` → every pad named "VDD"). In vector circuits a
+    /// (`psnk [19,32,48,64] = VDD` → every pad named "VDD"). In vector circuits a
     /// same-name pin is taken once, not once per pad (same-name-pin-group.md §2):
     /// it is a single logical net and counts as ONE lane in shape computation
     /// (vec-dianlu.md §5.2). Distinct-member buses (SPI.CS / SPI.SCLK / …) are
@@ -1516,7 +1512,7 @@ impl InstantiationBuilder {
                 if members.len() > 1 {
                     // ── Same-name component pin group: ONE lane, not N ──
                     // `U1B.VDD` with members [19,32,48,64] are the physical pads
-                    // of a same-name pin group (`ps [19,32,48,64] = VDD`): every
+                    // of a same-name pin group (`psnk [19,32,48,64] = VDD`): every
                     // pad carries the same member name "VDD". In vector circuits
                     // a same-name pin is taken once, not once per pad
                     // (same-name-pin-group.md §2) — that is the basic rule for

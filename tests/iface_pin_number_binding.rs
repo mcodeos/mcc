@@ -33,7 +33,7 @@ component CONN
     ]
 }
 
-module main(ps GND)
+module main(psnk GND)
 {
     CONN sock
     sock.IF.GND -> GND
@@ -66,7 +66,7 @@ component FLASH
     ]
 }
 
-module main(ps GND)
+module main(psnk GND)
 {
     FLASH f
     f.SP.SCLK -> GND

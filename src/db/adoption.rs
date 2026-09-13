@@ -224,7 +224,7 @@ fn apply_attr_overrides(base: &mut McAttributes, child: &McAttributes) {
 // verdicts to diagnostics. The §4.2 matcher is the first-cut implementation
 // the plan marks as pending golden empirical tuning: presence is exact-name membership on the
 // adopter's declared member surface (`McPins.names_to_id`), and direction
-// compatibility uses the provisional table — a capability `ps` signal matches
+// compatibility uses the provisional table — a capability `psnk` signal matches
 // an adopter `in`/`io` rail (power rails parse as `in [..]::DC()`, per the
 // golden), an `in` signal never matches an adopter `out`, and so on. Grouping
 // is NOT flexible here (declared label/member names must line up); cross-group
@@ -389,9 +389,9 @@ fn pin_dir(
 }
 
 /// Provisional §4.2 direction-compatibility table (plan §4.2 — tuned by golden).
-/// A capability `ps` signal is satisfied by an adopter `in`/`io` rail: library
+/// A capability `psnk` signal is satisfied by an adopter `in`/`io` rail: library
 /// power pins are declared `in [..]::DC()` (probe-confirmed), and the doc's
-/// row `ps ↔ in/io*` marks exactly that case. Every other pair is strict.
+/// row `psnk ↔ in/io*` marks exactly that case. Every other pair is strict.
 fn dir_compatible(cap: &IOType, adopt: &IOType) -> bool {
     use IOType::*;
     match (cap, adopt) {
@@ -408,7 +408,7 @@ fn io_label(io: &IOType) -> &'static str {
         IOType::In => "in",
         IOType::Out => "out",
         IOType::InOut => "io",
-        IOType::Power => "ps",
+        IOType::Power => "pwr",
         IOType::Analog => "analog",
         IOType::Return => "return",
         IOType::NonCon => "nc",
@@ -420,7 +420,7 @@ fn io_label(io: &IOType) -> &'static str {
 fn dir_conflict_hint(cap_name: &str, cap_dir: &IOType, adopt_dir: &IOType) -> String {
     format!(
         "capability '{}' declares it {} but the component member is {}; \
-         declare a compatible direction (in/out/io, or ps for a power rail)",
+         declare a compatible direction (in/out/io, or psrc/psnk/psbi for a power rail)",
         cap_name,
         io_label(cap_dir),
         io_label(adopt_dir),

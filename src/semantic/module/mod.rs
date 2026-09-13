@@ -279,7 +279,7 @@ impl McModule {
                             self.insts.parse(&subnode, &self.uri);
                         }
                     }
-                    // IOTYPE-prefix parameter -> insts + params (e.g. ps dc24v, in GPIO[1:2])
+                    // IOTYPE-prefix parameter -> insts + params (e.g. psnk dc24v, in GPIO[1:2])
                     MCAST_IOTYPE => {
                         self.insts.parse(&param_node, &self.uri);
                         self.params.parse(&param_node); // also register for unused detection
@@ -949,7 +949,7 @@ impl HasFindInst for McModule {
         // The declaration is authoritative: the module port's member set is
         // fixed at the `io`/`in`/`out` declaration site and must never be
         // widened by body usage. Only member-capable port directions
-        // (io/in/out) carry a shape; `ps`/`analog`/`label`/component/module
+        // (io/in/out) carry a shape; `psnk`/`analog`/`label`/component/module
         // instances and internal nets (IOType::None) are usage-defined and are
         // not gated here.
         let (io, inst) = self.insts.get_with_iotype(base)?;

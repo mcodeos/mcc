@@ -45,7 +45,8 @@ impl ValidationCheck for AttrsCheck {
 
 /// Reserved keywords that should not be used as attribute names.
 const RESERVED_KEYWORDS: &[&str] = &[
-    "this", "pins", "role", "func", "return", "in", "out", "io", "ps", "anl", "nc", "if", "else",
+    "this", "pins", "role", "func", "return", "in", "out", "io", "psrc", "psnk", "psbi", "anl",
+    "nc", "if", "else",
 ];
 
 /// N1: Attribute id or dot-segment uses a reserved keyword.

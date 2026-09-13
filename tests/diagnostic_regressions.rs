@@ -19,8 +19,8 @@ component SOURCE
     name = "Source"
     voltage = 5V
     pins = [
-        ps 1 = VCC
-        ps 2 = GND
+        psnk 1 = VCC
+        psnk 2 = GND
     ]
 }
 

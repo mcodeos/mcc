@@ -349,7 +349,7 @@ fn dlu_flatchk__curly_bus_out_members_e4110_only_on_members() {
 /// 4113 (outputs without input), 4118 (power-net count). Each fixture is
 /// chosen so the target code is the *only* semantically meaningful diagnostic;
 /// the co-emitted 5454 (power pin with no voltage attribute) is intrinsic to a
-/// bare `ps` pin and is kept in the golden. 4105 (NET_VOLTAGE_MISMATCH) needs
+/// bare `psnk` pin and is kept in the golden. 4105 (NET_VOLTAGE_MISMATCH) needs
 /// the DC interface library (`interface DC(volt::UV.VOLT, …)` in a project
 /// lib) that the test harness does not load, and 4115 (NET_DANGLING_ENDPOINT)
 /// needs a single-point net that flatten never produces from top-level wiring
@@ -460,10 +460,10 @@ fn dlu_flatchk__multi_alias_part_partial_wiring_reports_pad_count() {
 
 /// One-output driver + power-supply component for the 4111/4113 fixtures.
 const DRV: &str = "component D {\n    pins = [\n        out 1 = Y\n    ]\n}\n";
-const PSU: &str = "component PSU {\n    pins = [\n        ps 1 = P\n    ]\n}\n";
+const PSU: &str = "component PSU {\n    pins = [\n        psnk 1 = P\n    ]\n}\n";
 
 /// 4111 NET_BACKFEED_RISK: `d1.Y -> ps1.P` puts an output and a power supply
-/// on the same net. The bare `ps` pin emits its intrinsic 5454 first.
+/// on the same net. The bare `psnk` pin emits its intrinsic 5454 first.
 #[test]
 fn dlu_flatchk__output_tied_to_power_net_locked() {
     let src = format!("{DRV}{PSU}module main {{\n    D d1\n    PSU ps1\n    d1.Y -> ps1.P\n}}");
@@ -471,13 +471,13 @@ fn dlu_flatchk__output_tied_to_power_net_locked() {
     let expected = [
         (
             5454,
-            93,
+            95,
             "/mcc/flat-diag.mc",
             "Component 'PSU': power pin 'P' (1) has no associated voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
         ),
         (
             4111,
-            146,
+            148,
             "/mcc/flat-diag.mc",
             "Net '_net0' has both output and power supply. Backfeed risk.",
         ),
@@ -495,25 +495,25 @@ fn dlu_flatchk__outputs_power_no_input_locked() {
     let expected = [
         (
             5454,
-            93,
+            95,
             "/mcc/flat-diag.mc",
             "Component 'PSU': power pin 'P' (1) has no associated voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
         ),
         (
             4101,
-            155,
+            157,
             "/mcc/flat-diag.mc",
             "Net '_net0' has 2 drivers: main.d1.1, main.d2.1. Possible short circuit.",
         ),
         (
             4111,
-            155,
+            157,
             "/mcc/flat-diag.mc",
             "Net '_net0' has both output and power supply. Backfeed risk.",
         ),
         (
             4113,
-            155,
+            157,
             "/mcc/flat-diag.mc",
             "Net '_net0' has 2 outputs and power but no input.",
         ),
@@ -521,14 +521,15 @@ fn dlu_flatchk__outputs_power_no_input_locked() {
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
 }
 
-/// 4118 NET_POWER_NET_COUNT: twelve `ps` pins on twelve separate io rails
+/// 4118 NET_POWER_NET_COUNT: twelve `psnk` pins on twelve separate io rails
 /// exceed the power-net consolidation threshold. This is a whole-design
 /// summary with no single per-net site, so it anchors at the built module's
 /// own `module <name>` header (byte 61 = `main` below) instead of file:1:1.
 #[test]
 fn dlu_flatchk__power_net_count_threshold_locked() {
-    let mut src =
-        String::from("component PSU {\n    pins = [\n        ps 1 = P\n    ]\n}\nmodule main {\n");
+    let mut src = String::from(
+        "component PSU {\n    pins = [\n        psnk 1 = P\n    ]\n}\nmodule main {\n",
+    );
     for i in 1..=12 {
         src.push_str(&format!("    io R{i}\n"));
     }
@@ -543,11 +544,11 @@ fn dlu_flatchk__power_net_count_threshold_locked() {
     let expected = [
         (
             5454,
-            40,
+            42,
             "/mcc/flat-diag.mc",
             "Component 'PSU': power pin 'P' (1) has no associated voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
         ),
-        (4118, 61, "/mcc/flat-diag.mc", "Design has 12 power nets. Review for consolidation."),
+        (4118, 63, "/mcc/flat-diag.mc", "Design has 12 power nets. Review for consolidation."),
     ];
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
 }

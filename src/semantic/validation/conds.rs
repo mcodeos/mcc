@@ -260,7 +260,7 @@ fn first_bracket_span(s: &str) -> Option<(usize, usize)> {
 
 /// Component pin definitions with IO types deserve scrutiny:
 ///   - `nc` (not-connected) on a component pin is unusual (typically on instances)
-///   - `ps` (power supply) without associated voltage attribute
+///   - `psnk` (power supply) without associated voltage attribute
 /// Locate the source span of a pin's name within its definition line.
 ///
 /// First finds the pin definition line by searching for `keyword [...pin_id...]`,
@@ -272,7 +272,7 @@ fn pin_definition_span(
     pin_name: Option<&str>,
 ) -> std::ops::Range<usize> {
     // Prefer the exact pin-name span recorded at parse time. This covers
-    // single pins like `ps 0 = EPAD, "..."`, which the bracket-based text
+    // single pins like `psnk 0 = EPAD, "..."`, which the bracket-based text
     // search below cannot narrow (no `[...]` group on the line) and would
     // otherwise fall back to the component name span.
     if let Some(name) = pin_name {
@@ -283,7 +283,9 @@ fn pin_definition_span(
         }
     }
     if let Ok(content) = std::fs::read_to_string(comp.uri.as_str()) {
-        for keyword in &["ps ", "in ", "io ", "out ", "anl ", "nc "] {
+        for keyword in &[
+            "psrc ", "psnk ", "psbi ", "in ", "io ", "out ", "anl ", "nc ",
+        ] {
             let mut search_from = 0;
             while let Some(kw_pos) = content[search_from..].find(keyword) {
                 let line_start = search_from + kw_pos;
@@ -442,7 +444,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
                 });
             }
 
-            // out + ps → potential backfeed risk
+            // out + psnk → potential backfeed risk
             if has_out && has_ps {
                 acc.push(CheckResult {
                     check_name: "conds",
@@ -458,7 +460,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
                 });
             }
 
-            // anl + ps → unusual combination
+            // anl + psnk → unusual combination
             if has_anl && has_ps {
                 acc.push(CheckResult {
                     check_name: "conds",

@@ -206,7 +206,7 @@ pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
 }
 
 // === pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> { ===
-/// Iterate all module port definitions (ps/io/in/out).
+/// Iterate all module port definitions (psrc/psnk/psbi/io/in/out).
 /// Returns Vec of (port_name, iotype, module_name, uri).
 pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
     use crate::semantic::common::IOType;

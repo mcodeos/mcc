@@ -830,7 +830,7 @@ impl McParamDeclare {
                 }
             }
             MCAST_OPD_SQUARE_VEC => {
-                // [VDD1, GND1] as operand (e.g. after ps/in/io).
+                // [VDD1, GND1] as operand (e.g. after psnk/in/io).
                 // Each child is an MCAST_OPD wrapping an ID — iterate and collect.
                 let mut phrases = Vec::new();
                 let mut current = subnode.get_sub_node();

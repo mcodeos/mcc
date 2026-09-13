@@ -15,7 +15,7 @@ component MCU.US513_20_F
 
         in [3,4] =  XTAL::XTAL(32kHz)
 
-        ps [5,21] = [VDD, GND]::DC(3.3V)
+        psnk [5,21] = [VDD, GND]::DC(3.3V)
 
         io [6,7] =  UART0::UART.TTL(DCE)
                     | I2C1::I2C(Master)
@@ -33,7 +33,7 @@ component MCU.US513_20_F
         io [12,13] = UART1::UART.TTL(DCE)
                     | GPIO[5, 6]::GPIO(2, Controller)
 
-        ps [14,21] = [VDD_CORE,GND]::DC(1.2V)
+        psnk [14,21] = [VDD_CORE,GND]::DC(1.2V)
 
         in 15 = AVDD09_CAP
 

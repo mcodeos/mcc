@@ -34,7 +34,7 @@ component CONN
     ]
 }}
 
-module main(ps GND)
+module main(psnk GND)
 {{
     CONN sock
     sock.VBUS -> GND

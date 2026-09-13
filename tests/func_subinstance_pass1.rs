@@ -69,7 +69,7 @@ const GATE_CODES: [u32; 6] = [
 /// The HOST component (mcp7940m.mc mirror): a 2-wide `XTAL` interface bus on
 /// pins [1,2] and a DC `[VCC,VSS]` power pair, plus `func Xtal()` whose body
 /// is the statement under test.
-const HOST_PINS: &str = "    pins = [\n        ps [8,4] = [VCC,VSS]::DC()\n        in [1,2] = XTAL{X1,X2}::XTAL()\n    ]\n";
+const HOST_PINS: &str = "    pins = [\n        psnk [8,4] = [VCC,VSS]::DC()\n        in [1,2] = XTAL{X1,X2}::XTAL()\n    ]\n";
 
 fn host_with_func(body: &str) -> String {
     format!(

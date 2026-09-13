@@ -81,6 +81,18 @@ pub enum PwrDir {
     Bi,
 }
 
+impl PwrDir {
+    /// The direction word this rode in on — the spelling diagnostics quote back
+    /// to the author (the keyword is the surface form of the enum).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Src => "psrc",
+            Self::Snk => "psnk",
+            Self::Bi => "psbi",
+        }
+    }
+}
+
 /// One `::DC(...)` ctor argument on a power-direction pin line — positional
 /// (`3.3V`) or `key:value` (`tol:±5%`). Mirrors the domain-rail param reader
 /// (pi.rs `McRailParam`); numeric decode is deferred to pi.rs.
@@ -415,7 +427,44 @@ impl McPins {
                 _ => (dot(&members[0]), Some(dot(&members[1]))),
             };
         }
+        // Bare single-name operand: `VCC::DC(3.3V)` — a lone terminal written
+        // without the return it closes over. Captured as hot with `ret: None`
+        // rather than dropped, so the incomplete crossing stays visible to
+        // POWER_PIN_RETURN_MISSING; dropping it would lose the DC contract
+        // silently, which is the failure mode this shape invites.
+        if let Some(name) = Self::find_plain_ids_deep(declare, 6)
+            .and_then(|n| Self::leaf_text(&n))
+            .filter(|s| !s.is_empty())
+        {
+            return (name, None);
+        }
         (String::new(), None)
+    }
+
+    /// First IDS under `node` (bounded descent) that is a *plain* name — not a
+    /// Bus member group (that spelling is handled by [`Self::find_bus_pair`])
+    /// and not the `::` class name, since the class IDS sits outside the
+    /// declare's INSTANCE side.
+    fn find_plain_ids_deep(node: &AstNode, depth: usize) -> Option<AstNode> {
+        if node.is_type(MCAST_IDS) {
+            if let Some(ids) = McIds::new(node) {
+                if ids.as_bus().is_none() {
+                    return Some(node.clone());
+                }
+            }
+            return None;
+        }
+        if depth == 0 {
+            return None;
+        }
+        let inst = Self::line_child(node, MCAST_INSTANCE).unwrap_or_else(|| node.clone());
+        let head = inst.get_sub_node()?;
+        for c in head.iter() {
+            if let Some(found) = Self::find_plain_ids_deep(&c, depth - 1) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     /// The member-bus operand under a declare: the first IDS whose McIds parse
@@ -2680,7 +2729,7 @@ pub struct McPinNames {
     /// Precise source span of the pin name for each option (parallel to `options`).
     /// This is the span of the name as written in the source, e.g. `ADC` in
     /// `io ... = ADC::ADC.DIFF(Receiver)` (the io label, not the class `ADC.DIFF`),
-    /// or `VDD` in `ps ... = [VDD, GND]::DC(3.3V)`. Recorded directly from the AST
+    /// or `VDD` in `psnk ... = [VDD, GND]::DC(3.3V)`. Recorded directly from the AST
     /// node that was parsed as the option's name, so LSP goto-definition does not
     /// need to re-derive it from the whole binding expression.
     pub name_spans: Vec<std::ops::Range<usize>>,
@@ -3837,14 +3886,14 @@ module main {
         assert_eq!(src.params[2].key.as_deref(), Some("capacity"));
     }
 
-    /// Direction words without a `::DC` contract (plain power `ps`, plain
-    /// psrc/psnk) and signal `io` lines must NOT appear in `pwr`.
+    /// Direction words without a `::DC` contract (plain psrc/psnk/psbi power
+    /// rows) and signal `io` lines must NOT appear in `pwr`.
     #[test]
     fn plain_power_and_signal_pins_are_not_contracts() {
         const SRC: &str = r#"component P {
     pins = [
         psnk 1 = VDD
-        ps   2 = GND
+        psnk 2 = GND
         io   3 = EN
     ]
 }

@@ -74,7 +74,7 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
         }
 
         // Unified power-pin collection: a pin is a supply pin when it is
-        // power-*typed* (`ps`/Power) or power-*named* (VCC/VREF/GND/…). Both
+        // power-*typed* (`psnk`/Power) or power-*named* (VCC/VREF/GND/…). Both
         // axes describe the same supply-rail concept, so they are handled by a
         // single rule (POWER_PIN_NO_VOLTAGE) instead of two overlapping checks.
         // Display name prefers a power keyword, else the pin's first name.

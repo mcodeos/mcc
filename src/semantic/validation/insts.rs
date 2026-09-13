@@ -342,7 +342,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
 
 // R6: IO type direction on function parameter declaration
 
-/// Function parameters should not carry IO direction (in/out/io/ps/anl/nc).
+/// Function parameters should not carry IO direction (in/out/io/psrc/psnk/psbi/anl/nc).
 /// IO types are for ports, not function arguments.
 fn check_func_param_iotype(acc: &mut CheckAccumulator) {
     // Check component functions

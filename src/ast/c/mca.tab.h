@@ -30,8 +30,8 @@
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
 
-#ifndef YY_MCA_SRC_MCA_TAB_H_INCLUDED
-# define YY_MCA_SRC_MCA_TAB_H_INCLUDED
+#ifndef YY_MCA_MCA_TAB_H_INCLUDED
+# define YY_MCA_MCA_TAB_H_INCLUDED
 /* Debug traces.  */
 #ifndef MCA_DEBUG
 # if defined YYDEBUG
@@ -122,81 +122,80 @@ extern int mca_debug;
     MCK_IO = 320,                  /* MCK_IO  */
     MCK_IN = 321,                  /* MCK_IN  */
     MCK_OUT = 322,                 /* MCK_OUT  */
-    MCK_PS = 323,                  /* MCK_PS  */
-    MCK_ANL = 324,                 /* MCK_ANL  */
-    MCK_NC = 325,                  /* MCK_NC  */
-    MCK_LABEL = 326,               /* MCK_LABEL  */
-    MCK_PSRC = 327,                /* MCK_PSRC  */
-    MCK_PSNK = 328,                /* MCK_PSNK  */
-    MCK_PSBI = 329,                /* MCK_PSBI  */
-    MCONST_HIGH = 330,             /* MCONST_HIGH  */
-    MCONST_LOW = 331,              /* MCONST_LOW  */
-    MCONST_NC = 332,               /* MCONST_NC  */
-    MCU_INT = 333,                 /* MCU_INT  */
-    MCU_HEX = 334,                 /* MCU_HEX  */
-    MCU_FLOAT = 335,               /* MCU_FLOAT  */
-    MCU_STRING = 336,              /* MCU_STRING  */
-    MCK_FUNC = 337,                /* MCK_FUNC  */
-    MCK_THIS = 338,                /* MCK_THIS  */
-    MCU_VOLT = 339,                /* MCU_VOLT  */
-    MCU_AMP = 340,                 /* MCU_AMP  */
-    MCU_CAP = 341,                 /* MCU_CAP  */
-    MCU_IND = 342,                 /* MCU_IND  */
-    MCU_TIME = 343,                /* MCU_TIME  */
-    MCU_LEN = 344,                 /* MCU_LEN  */
-    MCU_WATT = 345,                /* MCU_WATT  */
-    MCU_OHM = 346,                 /* MCU_OHM  */
-    MCU_TEMP = 347,                /* MCU_TEMP  */
-    MCU_HZ = 348,                  /* MCU_HZ  */
-    MCU_DB = 349,                  /* MCU_DB  */
-    MCU_PPM = 350,                 /* MCU_PPM  */
-    MCU_PERCENT = 351,             /* MCU_PERCENT  */
-    MCU_BAUD = 352,                /* MCU_BAUD  */
-    MCU_DATASIZE = 353,            /* MCU_DATASIZE  */
-    MCU_SPS = 354,                 /* MCU_SPS  */
-    MCU_SIEMENS = 355,             /* MCU_SIEMENS  */
-    MCU_RESPONSIVITY = 356,        /* MCU_RESPONSIVITY  */
-    MCU_ANGLE = 357,               /* MCU_ANGLE  */
-    MCU_ANGULAR_RATE = 358,        /* MCU_ANGULAR_RATE  */
-    MCU_ENERGY = 359,              /* MCU_ENERGY  */
-    MCU_EFIELD = 360,              /* MCU_EFIELD  */
-    MCU_HFIELD = 361,              /* MCU_HFIELD  */
-    MCU_FLUX = 362,                /* MCU_FLUX  */
-    MCU_BFIELD = 363,              /* MCU_BFIELD  */
-    MCU_SLEW = 364,                /* MCU_SLEW  */
-    MCU_NOISE = 365,               /* MCU_NOISE  */
-    MCU_CHARGE = 366,              /* MCU_CHARGE  */
-    MCUVAL_VOLT = 367,             /* MCUVAL_VOLT  */
-    MCUVAL_AMP = 368,              /* MCUVAL_AMP  */
-    MCUVAL_CAP = 369,              /* MCUVAL_CAP  */
-    MCUVAL_IND = 370,              /* MCUVAL_IND  */
-    MCUVAL_TIME = 371,             /* MCUVAL_TIME  */
-    MCUVAL_LEN = 372,              /* MCUVAL_LEN  */
-    MCUVAL_WATT = 373,             /* MCUVAL_WATT  */
-    MCUVAL_OHM = 374,              /* MCUVAL_OHM  */
-    MCUVAL_TEMP = 375,             /* MCUVAL_TEMP  */
-    MCUVAL_HZ = 376,               /* MCUVAL_HZ  */
-    MCUVAL_DB = 377,               /* MCUVAL_DB  */
-    MCUVAL_PPM = 378,              /* MCUVAL_PPM  */
-    MCUVAL_PERCENT = 379,          /* MCUVAL_PERCENT  */
-    MCUVAL_BAUD = 380,             /* MCUVAL_BAUD  */
-    MCUVAL_DATASIZE = 381,         /* MCUVAL_DATASIZE  */
-    MCUVAL_SPS = 382,              /* MCUVAL_SPS  */
-    MCUVAL_SIEMENS = 383,          /* MCUVAL_SIEMENS  */
-    MCUVAL_RESPONSIVITY = 384,     /* MCUVAL_RESPONSIVITY  */
-    MCUVAL_ANGLE = 385,            /* MCUVAL_ANGLE  */
-    MCUVAL_ANGULAR_RATE = 386,     /* MCUVAL_ANGULAR_RATE  */
-    MCUVAL_ENERGY = 387,           /* MCUVAL_ENERGY  */
-    MCUVAL_EFIELD = 388,           /* MCUVAL_EFIELD  */
-    MCUVAL_HFIELD = 389,           /* MCUVAL_HFIELD  */
-    MCUVAL_FLUX = 390,             /* MCUVAL_FLUX  */
-    MCUVAL_BFIELD = 391,           /* MCUVAL_BFIELD  */
-    MCUVAL_SLEW = 392,             /* MCUVAL_SLEW  */
-    MCUVAL_NOISE = 393,            /* MCUVAL_NOISE  */
-    MCUVAL_CHARGE = 394,           /* MCUVAL_CHARGE  */
-    MC_WS = 395,                   /* MC_WS  */
-    MC_SINGLE_COMMENT = 396,       /* MC_SINGLE_COMMENT  */
-    MC_MULTI_COMMENT = 397         /* MC_MULTI_COMMENT  */
+    MCK_ANL = 323,                 /* MCK_ANL  */
+    MCK_NC = 324,                  /* MCK_NC  */
+    MCK_LABEL = 325,               /* MCK_LABEL  */
+    MCK_PSRC = 326,                /* MCK_PSRC  */
+    MCK_PSNK = 327,                /* MCK_PSNK  */
+    MCK_PSBI = 328,                /* MCK_PSBI  */
+    MCONST_HIGH = 329,             /* MCONST_HIGH  */
+    MCONST_LOW = 330,              /* MCONST_LOW  */
+    MCONST_NC = 331,               /* MCONST_NC  */
+    MCU_INT = 332,                 /* MCU_INT  */
+    MCU_HEX = 333,                 /* MCU_HEX  */
+    MCU_FLOAT = 334,               /* MCU_FLOAT  */
+    MCU_STRING = 335,              /* MCU_STRING  */
+    MCK_FUNC = 336,                /* MCK_FUNC  */
+    MCK_THIS = 337,                /* MCK_THIS  */
+    MCU_VOLT = 338,                /* MCU_VOLT  */
+    MCU_AMP = 339,                 /* MCU_AMP  */
+    MCU_CAP = 340,                 /* MCU_CAP  */
+    MCU_IND = 341,                 /* MCU_IND  */
+    MCU_TIME = 342,                /* MCU_TIME  */
+    MCU_LEN = 343,                 /* MCU_LEN  */
+    MCU_WATT = 344,                /* MCU_WATT  */
+    MCU_OHM = 345,                 /* MCU_OHM  */
+    MCU_TEMP = 346,                /* MCU_TEMP  */
+    MCU_HZ = 347,                  /* MCU_HZ  */
+    MCU_DB = 348,                  /* MCU_DB  */
+    MCU_PPM = 349,                 /* MCU_PPM  */
+    MCU_PERCENT = 350,             /* MCU_PERCENT  */
+    MCU_BAUD = 351,                /* MCU_BAUD  */
+    MCU_DATASIZE = 352,            /* MCU_DATASIZE  */
+    MCU_SPS = 353,                 /* MCU_SPS  */
+    MCU_SIEMENS = 354,             /* MCU_SIEMENS  */
+    MCU_RESPONSIVITY = 355,        /* MCU_RESPONSIVITY  */
+    MCU_ANGLE = 356,               /* MCU_ANGLE  */
+    MCU_ANGULAR_RATE = 357,        /* MCU_ANGULAR_RATE  */
+    MCU_ENERGY = 358,              /* MCU_ENERGY  */
+    MCU_EFIELD = 359,              /* MCU_EFIELD  */
+    MCU_HFIELD = 360,              /* MCU_HFIELD  */
+    MCU_FLUX = 361,                /* MCU_FLUX  */
+    MCU_BFIELD = 362,              /* MCU_BFIELD  */
+    MCU_SLEW = 363,                /* MCU_SLEW  */
+    MCU_NOISE = 364,               /* MCU_NOISE  */
+    MCU_CHARGE = 365,              /* MCU_CHARGE  */
+    MCUVAL_VOLT = 366,             /* MCUVAL_VOLT  */
+    MCUVAL_AMP = 367,              /* MCUVAL_AMP  */
+    MCUVAL_CAP = 368,              /* MCUVAL_CAP  */
+    MCUVAL_IND = 369,              /* MCUVAL_IND  */
+    MCUVAL_TIME = 370,             /* MCUVAL_TIME  */
+    MCUVAL_LEN = 371,              /* MCUVAL_LEN  */
+    MCUVAL_WATT = 372,             /* MCUVAL_WATT  */
+    MCUVAL_OHM = 373,              /* MCUVAL_OHM  */
+    MCUVAL_TEMP = 374,             /* MCUVAL_TEMP  */
+    MCUVAL_HZ = 375,               /* MCUVAL_HZ  */
+    MCUVAL_DB = 376,               /* MCUVAL_DB  */
+    MCUVAL_PPM = 377,              /* MCUVAL_PPM  */
+    MCUVAL_PERCENT = 378,          /* MCUVAL_PERCENT  */
+    MCUVAL_BAUD = 379,             /* MCUVAL_BAUD  */
+    MCUVAL_DATASIZE = 380,         /* MCUVAL_DATASIZE  */
+    MCUVAL_SPS = 381,              /* MCUVAL_SPS  */
+    MCUVAL_SIEMENS = 382,          /* MCUVAL_SIEMENS  */
+    MCUVAL_RESPONSIVITY = 383,     /* MCUVAL_RESPONSIVITY  */
+    MCUVAL_ANGLE = 384,            /* MCUVAL_ANGLE  */
+    MCUVAL_ANGULAR_RATE = 385,     /* MCUVAL_ANGULAR_RATE  */
+    MCUVAL_ENERGY = 386,           /* MCUVAL_ENERGY  */
+    MCUVAL_EFIELD = 387,           /* MCUVAL_EFIELD  */
+    MCUVAL_HFIELD = 388,           /* MCUVAL_HFIELD  */
+    MCUVAL_FLUX = 389,             /* MCUVAL_FLUX  */
+    MCUVAL_BFIELD = 390,           /* MCUVAL_BFIELD  */
+    MCUVAL_SLEW = 391,             /* MCUVAL_SLEW  */
+    MCUVAL_NOISE = 392,            /* MCUVAL_NOISE  */
+    MCUVAL_CHARGE = 393,           /* MCUVAL_CHARGE  */
+    MC_WS = 394,                   /* MC_WS  */
+    MC_SINGLE_COMMENT = 395,       /* MC_SINGLE_COMMENT  */
+    MC_MULTI_COMMENT = 396         /* MC_MULTI_COMMENT  */
   };
   typedef enum mca_tokentype mca_token_kind_t;
 #endif
@@ -234,4 +233,4 @@ struct MCA_LTYPE
 
 int mca_parse (mc_value* mcast);
 
-#endif /* !YY_MCA_SRC_MCA_TAB_H_INCLUDED  */
+#endif /* !YY_MCA_MCA_TAB_H_INCLUDED  */

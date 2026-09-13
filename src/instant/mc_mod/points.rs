@@ -2064,7 +2064,7 @@ impl InstantiationBuilder {
                             // ── Same-name multi-pin group ──
                             // All resolved pins carry the SAME member name — either
                             // all empty (`spk{GND}`) or all explicitly identical
-                            // (`ps [19,32,48,64] = VDD` → every pin named VDD). A
+                            // (`psnk [19,32,48,64] = VDD` → every pin named VDD). A
                             // same-name group is ONE logical net (same-name-pin-group.md
                             // §2): in vector circuits a same-name pin is taken once,
                             // not once per physical pad — that is the basic rule for
