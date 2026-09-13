@@ -2,32 +2,18 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! MCC logging initialization
+//! MCC logging initialization.
 //!
-//! Design highlights:
+//! Three init modes share one reloadable `EnvFilter`: [`init`] (stderr),
+//! [`init_with_log_file`] (file, daemon), and [`init_with_log_file_and_stderr`]
+//! (both). The default level is `-q` / `-v` driven (`RUST_LOG` wins when set);
+//! the `mcc::pass1` / `mcc::pass2` report targets start `off`. [`reload_filter`]
+//! and its helpers swap the filter at runtime so the daemon can switch streams
+//! and toggle per-target debug flags without a rebuild.
 //!
-//! 1. **Background daemon logs only to file**: old version `Writer` writes to stderr, and
-//! `server.rs` does not close child process stderr.
-//!      This leads to debug logs being printed to the caller's terminal.
-//!
-//!   2. **Actually honor `-q` / `-v`** Here, `_verbose` / `_quiet` are unused.
-//!      They are replaced with `quiet` / `verbose` for default levels.
-//!
-//!   3. **filter runtime adjustable** Here, `EnvFilter` is wrapped in a `reload::Handle`,
-//!      using [`set_streams`] / [`reload_filter`] to dynamically switch output streams.
-//!        - server runtime (default level is `-q/-v`)
-//!        - `mcc::pass1` report (default: off)
-//!        - `mcc::pass2` report (default: off)
-//!
-//! Log target:
-//!   - server runtime (using `mcc::server` module)
-//!   - pass1 report (using `mcc::pass1` module)
-//!   - pass2 report (using `mcc::pass2` module)
-//!
-use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tracing_subscriber::fmt::format::Writer;
@@ -39,14 +25,6 @@ static ALREADY_INIT: OnceLock<bool> = OnceLock::new();
 /// Runtime reloadable filter handle. Daemon can dynamically switch output streams
 /// (server logs, pass1/pass2 reports) using this handle.
 static RELOAD_HANDLE: OnceLock<reload::Handle<EnvFilter, Registry>> = OnceLock::new();
-
-/// Current per-target level overrides (set via `-D`, config, or RPC).
-/// Used by `get_targets()` to report the active debug configuration.
-static TARGETS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
-
-fn targets_map() -> &'static Mutex<HashMap<String, String>> {
-    TARGETS.get_or_init(|| Mutex::new(HashMap::new()))
-}
 
 // Time format for logging
 
@@ -184,15 +162,6 @@ pub fn set_streams(server_level: &str, pass1: bool, pass2: bool) -> bool {
 ///
 /// Returns `true` if the filter was successfully applied.
 pub fn set_targets(base_level: &str, targets: &[(String, String)]) -> bool {
-    // Update the stored map
-    {
-        let mut map = targets_map().lock().unwrap();
-        map.clear();
-        for (t, l) in targets {
-            map.insert(t.clone(), l.clone());
-        }
-    }
-
     // Build EnvFilter spec:  base_level, target1=level1, target2=level2, ...
     let mut spec = base_level.to_string();
     for (target, level) in targets {

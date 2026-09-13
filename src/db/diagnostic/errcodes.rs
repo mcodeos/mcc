@@ -1578,16 +1578,8 @@ pub const DEVICE_RETURN_SPAN_UNDECLARED: u32 = 6027;
 /// terminal order disagrees with the declared direction contract.
 pub const DC_BINDING_DIR_MISMATCH: u32 = 6028;
 
-/// §6 port role contract (intent-design.md §6 / composition-terminal-design.md
-/// §4 / conduit-equivalence-design.md §8.7, adjudicated 2026-09-13) — a module
-/// `out` port carrying `@bind_role(<role>)` demands that its parent binding land
-/// on a reference of that role. The child names only a role, never an ancestor
-/// conduit, so the parent binding is the witness. Judged in the binding layer
-/// (`@role` defaults to `main`): the bound target must resolve to a conduit of
-/// the declared role, or to a sibling `out` port re-declaring the same
-/// `@bind_role` (layer-by-layer forwarding). A different role, or a target with
-/// no role identity, is an Error — the contract is an explicit demand, not
-/// 6022/6027's advisory forgotten declaration.
+/// §8.7 port role contract: an `out` port's `@bind_role(<role>)` parent binding
+/// must resolve to a reference of that role, else an Error.
 pub const PORT_BIND_ROLE_MISMATCH: u32 = 6029;
 
 static ALL_CODES: &[ErrorCodeInfo] = &[

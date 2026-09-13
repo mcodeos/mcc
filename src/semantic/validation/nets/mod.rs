@@ -2787,16 +2787,8 @@ pub(crate) fn check_device_return_span(table: &InstTable, results: &mut Vec<NetC
     }
 }
 
-/// §8.7 port role contract (conduit-equivalence-design.md §8.7, adjudicated
-/// 2026-09-13) — a module `out` port carrying `@bind_role(<role>)` demands its
-/// parent binding land on a reference of that role. The child names only a role,
-/// never an ancestor conduit (iron rule 1), so the parent binding is the
-/// witness. Judged in the binding layer — the owning scope of the port's
-/// parent-side co-segment: the bound target must resolve to a conduit of the
-/// declared `@role` (a bare conduit defaults to main), or to the layer's own
-/// `out` port re-declaring the same `@bind_role` (the layer-by-layer forwarding
-/// that makes arbitrary nesting work). A different role, or a target with no
-/// role identity, is an Error.
+/// §8.7 port role contract: an `out` port's `@bind_role(<role>)` parent binding
+/// must resolve to a reference of that role, else an Error (design §8.7).
 pub(crate) fn check_port_bind_role(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let idx = crate::instant::island::NetIslandIndex::build(table);
 
@@ -2881,10 +2873,7 @@ pub(crate) fn check_port_bind_role(table: &InstTable, results: &mut Vec<NetCheck
 }
 
 /// The role a parent binding witnesses for a `@bind_role` port: the target
-/// segment's owning-scope conduit `@role` (via the §8.5 class resolution, so a
-/// net merged into a conduit copper reads as that conduit; a bare conduit
-/// defaults to main), else a same-layer `out` port re-declaring a `@bind_role`
-/// (forwarding). `None` = the target carries no role identity.
+/// segment's conduit `@role`, else a forwarding `out` port; `None` = no role.
 fn resolve_bind_role(
     table: &InstTable,
     idx: &crate::instant::island::NetIslandIndex,

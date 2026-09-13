@@ -1034,15 +1034,7 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_device_return_span,
     },
-    // conduit-equivalence-design.md §8.7 port role contract (adjudicated
-    // 2026-09-13) — a module out port carrying @bind_role(<role>) demands its
-    // parent binding land on a role-<role> reference. The child names only a
-    // role, never an ancestor conduit, so the parent binding is the witness.
-    // Judged in the binding layer: the target must resolve to a conduit of the
-    // declared @role (a bare conduit defaults to main), or to a sibling out
-    // port re-declaring the same @bind_role (layer-by-layer forwarding). A
-    // different role, or a target with no role identity, is an Error.
-    // (Tail of the table, tracking the FLAT_ERC_ORDER tail append, §5-5.)
+    // §8.7 port role contract; table tail, tracking the FLAT_ERC_ORDER append (§5-5).
     declare_flat_erc_rule! {
         code = crate::errcodes::PORT_BIND_ROLE_MISMATCH,
         name = "port-bind-role-mismatch",

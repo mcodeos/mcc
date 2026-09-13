@@ -18,11 +18,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// (`cargo:rustc-env=MCC_BUILD_NR`).
 pub const BUILD: &str = env!("MCC_BUILD_NR");
 
-/// `"0.9.0.b42"` display form (`mcc --version`).
-pub fn display() -> String {
-    format!("{VERSION}.b{BUILD}")
-}
-
 /// Counter as an integer, for the JSON `"build"` fields of RPC surfaces.
 pub fn number() -> u64 {
     BUILD.parse().unwrap_or(0)
