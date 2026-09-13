@@ -2787,6 +2787,145 @@ pub(crate) fn check_device_return_span(table: &InstTable, results: &mut Vec<NetC
     }
 }
 
+/// §8.7 port role contract (conduit-equivalence-design.md §8.7, adjudicated
+/// 2026-09-13) — a module `out` port carrying `@bind_role(<role>)` demands its
+/// parent binding land on a reference of that role. The child names only a role,
+/// never an ancestor conduit (iron rule 1), so the parent binding is the
+/// witness. Judged in the binding layer — the owning scope of the port's
+/// parent-side co-segment: the bound target must resolve to a conduit of the
+/// declared `@role` (a bare conduit defaults to main), or to the layer's own
+/// `out` port re-declaring the same `@bind_role` (the layer-by-layer forwarding
+/// that makes arbitrary nesting work). A different role, or a target with no
+/// role identity, is an Error.
+pub(crate) fn check_port_bind_role(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let idx = crate::instant::island::NetIslandIndex::build(table);
+
+    // Owning-module declaration plane: conduit name -> @role (default main), and
+    // (module instance, port name) -> declared @bind_role.
+    let mut conduit_roles: std::collections::HashMap<
+        u32,
+        std::collections::HashMap<String, String>,
+    > = std::collections::HashMap::new();
+    let mut port_binds: std::collections::HashMap<(u32, String), String> =
+        std::collections::HashMap::new();
+    for (id, pi) in table.power_decls() {
+        if !table
+            .get_entry(*id)
+            .is_some_and(|e| matches!(e.kind, InstKind::Module))
+        {
+            continue;
+        }
+        let mut refs = std::collections::HashMap::new();
+        for r in pi.l1_refs() {
+            refs.insert(r.name, r.role.unwrap_or_else(|| "main".to_string()));
+        }
+        if !refs.is_empty() {
+            conduit_roles.insert(*id, refs);
+        }
+        for p in pi.l1_ports() {
+            if let Some(br) = p.bind_role {
+                port_binds.insert((*id, p.name), br);
+            }
+        }
+    }
+    if port_binds.is_empty() {
+        return; // no @bind_role anywhere — no contract to witness
+    }
+
+    for (id, entry) in table.iter() {
+        if !matches!(entry.kind, InstKind::Port) || !matches!(entry.io_type, IOType::Out) {
+            continue;
+        }
+        if entry.synthetic {
+            continue; // interface/dynamic wrapper port — no own declaration
+        }
+        let Some(owner) = entry.parent_id else {
+            continue;
+        };
+        let pname = entry.path.rsplit('.').next().unwrap_or("");
+        let Some(want) = port_binds.get(&(owner, pname.to_string())) else {
+            continue;
+        };
+
+        // The binding lives on the port's parent-side co-segment — the segment
+        // NOT produced by the port's own module scope. A port unbound in the
+        // parent has only its interior segment; that dangler is C4's (E4114).
+        let Some(net) = table
+            .nets_of(*id)
+            .iter()
+            .filter_map(|nid| table.get_net(*nid))
+            .find(|n| n.module != Some(owner))
+        else {
+            continue;
+        };
+
+        let got = resolve_bind_role(table, &idx, net, *id, &conduit_roles, &port_binds);
+        if got.as_deref() == Some(want.as_str()) {
+            continue;
+        }
+        let got_str = got.as_deref().unwrap_or("none");
+        let (pos, uri) = entry_pos(entry);
+        results.push(NetCheckResult {
+            check: "port-bind-role-mismatch",
+            severity: "error",
+            message: crate::errcodes::format_msg(
+                crate::errcodes::PORT_BIND_ROLE_MISMATCH,
+                &[&entry.path, want, &net.name, &got_str],
+            ),
+            net_name: net.name.clone(),
+            code: crate::errcodes::PORT_BIND_ROLE_MISMATCH,
+            pos,
+            uri,
+        });
+    }
+}
+
+/// The role a parent binding witnesses for a `@bind_role` port: the target
+/// segment's owning-scope conduit `@role` (via the §8.5 class resolution, so a
+/// net merged into a conduit copper reads as that conduit; a bare conduit
+/// defaults to main), else a same-layer `out` port re-declaring a `@bind_role`
+/// (forwarding). `None` = the target carries no role identity.
+fn resolve_bind_role(
+    table: &InstTable,
+    idx: &crate::instant::island::NetIslandIndex,
+    net: &NetEntry,
+    subject: u32,
+    conduit_roles: &std::collections::HashMap<u32, std::collections::HashMap<String, String>>,
+    port_binds: &std::collections::HashMap<(u32, String), String>,
+) -> Option<String> {
+    let Some(layer) = net.module else {
+        return None;
+    };
+    if let Some(attr) = idx.get(net.id) {
+        if let Some(cls) = eff_class(table, idx, attr, &mut Vec::new()) {
+            if let Some(role) = conduit_roles.get(&layer).and_then(|m| m.get(&cls.id)) {
+                return Some(role.clone());
+            }
+        }
+    }
+    // Forwarding: the layer re-exports the contract through one of its own out
+    // ports. Only the layer's own ports witness it (a sibling of the subject).
+    for pid in &net.points {
+        if *pid == subject {
+            continue;
+        }
+        let Some(pe) = table.get_entry(*pid) else {
+            continue;
+        };
+        if pe.kind != InstKind::Port || !matches!(pe.io_type, IOType::Out) {
+            continue;
+        }
+        if pe.parent_id != Some(layer) {
+            continue;
+        }
+        let pname = pe.path.rsplit('.').next().unwrap_or("");
+        if let Some(br) = port_binds.get(&(layer, pname.to_string())) {
+            return Some(br.clone());
+        }
+    }
+    None
+}
+
 /// Render an amps value for diagnostics: `< 1 A` as mA, else as A (`500mA`,
 /// `1.5A`). Sub-milli values keep two decimals.
 fn fmt_amps(a: f64) -> String {
