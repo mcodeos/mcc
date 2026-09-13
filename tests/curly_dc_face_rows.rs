@@ -455,3 +455,125 @@ fn curly_dc__lane_series_keeps_through_device_return() {
         "the shared return must be a GND net; got {ret}"
     );
 }
+
+// A1 / U28 lock — the curly two-face chain is *definition-authoritative*: a
+// member on either face resolves back to its declared child identity (a
+// component's physical pin id; a submodule's declared port), never trusted at
+// its surface spelling. One physical return pin written as a pin id on one face
+// and its pinname on the other is therefore *one* member, so the two endpoint
+// rails must land on a single net. Pre-resolver the two spellings produced two
+// loose points and the return path split in two; the unifier is now structure
+// (the same declared pin), not the coincidence that both faces spell the member
+// the same way.
+const SRC_SHARED_PIN: &str = r#"
+component MOS2
+{
+    pins = [
+        1 = GATE
+        2 = DRAIN
+        3 = SOURCE
+    ]
+}
+
+module top
+{
+    MOS2 m
+
+    [G1, R1] -> m{GATE, 3 | DRAIN, SOURCE} -> [D2, R2]
+}
+"#;
+
+#[test]
+fn curly_dc__declared_shared_pin_unifies_one_net() {
+    let codes = build_codes(SRC_SHARED_PIN);
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH)
+            && !codes.contains(&mcc::errcodes::CONN_STMT_PARSE_FAILED)
+            && !codes.contains(&mcc::errcodes::CURLY_MN_WRONG_BASE),
+        "shared-pin faces must not fire E4007/E3132/E3152; got codes: {codes:?}"
+    );
+
+    let pairs = net_pairs(SRC_SHARED_PIN);
+    // Left face names the return by pin id (`3`), the right face by pinname
+    // (`SOURCE`). Both fold onto declared pin id 3, so exactly one `m.3` entry
+    // exists and the pinname spelling leaves no loose duplicate point.
+    let n_r1 = net_of(&pairs, "R1");
+    let n_r2 = net_of(&pairs, "R2");
+    assert_eq!(
+        n_r1, n_r2,
+        "both faces reference physical pin 3 and must unify on one net: {pairs:?}"
+    );
+    assert_eq!(
+        net_of(&pairs, "m.3"),
+        n_r1,
+        "the shared return must resolve to declared pin id m.3 and join that net"
+    );
+    assert!(
+        !pairs.iter().any(|(p, _)| p.ends_with("m.SOURCE")),
+        "the pinname spelling must fold onto the declared pin id, not stay loose: {pairs:?}"
+    );
+}
+
+// A1 / U28 — module face: for a submodule the authority is the *port
+// declaration*, not the surface spelling. A whole-group face `ldo{VIN | VOUT}`
+// names two `psnk`/`psrc` port groups; each face must expand to its declared
+// port members ([hot, ret]) and wire 2x2, the mirror of the component form.
+const SRC_SUBPORT: &str = r#"
+component WIRE2
+{
+    pins = [
+        1 = A
+        2 = B
+    ]
+}
+
+module LDO_BLK(psnk VIN{Vin, GND}, psrc VOUT{Vout, GND})
+{
+    WIRE2 wire1
+
+    VIN.Vin -> wire1 -> VOUT.Vout
+    VIN.GND -> VOUT.GND
+}
+
+module top
+{
+    LDO_BLK ldo
+
+    [VMAIN_5V, GND] -> ldo{VIN | VOUT} -> [VDD_3V3, GND]
+}
+"#;
+
+#[test]
+fn curly_dc__submodule_face_expands_by_port_definition() {
+    let codes = build_codes(SRC_SUBPORT);
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH)
+            && !codes.contains(&mcc::errcodes::CONN_STMT_PARSE_FAILED)
+            && !codes.contains(&mcc::errcodes::CURLY_MN_WRONG_BASE),
+        "submodule whole-port faces must not fire E4007/E3132/E3152; got codes: {codes:?}"
+    );
+
+    let pairs = net_pairs(SRC_SUBPORT);
+    // The flat table carries both the parent scope and the child `ldo` scope,
+    // so a port path appears twice; assert on the (path, net) pairs instead of
+    // the single-hit `net_of` helper.
+    assert!(
+        pairs
+            .iter()
+            .any(|(p, n)| p.ends_with("ldo.VIN.Vin") && n == "VMAIN_5V"),
+        "the VIN port's declared hot member must join the input rail: {pairs:?}"
+    );
+    assert!(
+        pairs
+            .iter()
+            .any(|(p, n)| p.ends_with("ldo.VOUT.Vout") && n == "VDD_3V3"),
+        "the VOUT port's declared hot member must join the output rail: {pairs:?}"
+    );
+    // Each declared return member rides the shared GND return, never a hot rail.
+    for suffix in ["ldo.VIN.GND", "ldo.VOUT.GND"] {
+        assert!(
+            pairs.iter().any(|(p, n)| p.ends_with(suffix) && n == "GND"),
+            "{suffix} must be on the shared GND return: {pairs:?}"
+        );
+    }
+}

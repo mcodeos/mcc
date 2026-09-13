@@ -5,6 +5,7 @@
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::semantic::basic::mc_bus::{McBus, McList};
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_group::McGroup;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::component::Mc2Component;
 use crate::semantic::mc_inst::McInstance;
@@ -31,6 +32,9 @@ use crate::{
 ///   * `Endpoint(_)` — explicit `return <bus|label|expr>`. **Not** chainable;
 ///     the result is a value/endpoint, not the receiver, so `.next_method()`
 ///     after it is a hard error.
+///   * `Group(_)` — explicit comma-separated multi-member return
+///     (`return a, b` ≡ `return (a, b)`). A z-axis group, not a vector: its
+///     lanes are welded by the body, so it contributes no chain connection.
 #[derive(Debug, Clone, Default)]
 pub enum McFuncReturn {
     /// No explicit `return` statement.
@@ -41,6 +45,9 @@ pub enum McFuncReturn {
     /// Explicit `return <expr>` where the expression resolves to a label/bus
     /// or any other non-`this` phrase.
     Endpoint(McPhrase),
+    /// Explicit comma-separated multi-member return, carried as an
+    /// [`McPhrase::Group`].
+    Group(McPhrase),
 }
 
 impl McFuncReturn {
@@ -49,12 +56,13 @@ impl McFuncReturn {
         matches!(self, McFuncReturn::Implicit | McFuncReturn::This)
     }
 
-    /// Short tag for diagnostics ("implicit"/"this"/"endpoint").
+    /// Short tag for diagnostics ("implicit"/"this"/"endpoint"/"group").
     pub fn kind_str(&self) -> &'static str {
         match self {
             McFuncReturn::Implicit => "implicit",
             McFuncReturn::This => "this",
             McFuncReturn::Endpoint(_) => "endpoint",
+            McFuncReturn::Group(_) => "group",
         }
     }
 }
@@ -1105,30 +1113,59 @@ impl McFunction {
             return;
         };
 
-        // 3. Find the expression node — try `marker.sub_node` first (the
-        //    common "tagged wrapper" shape), then fall back to the next
-        //    sibling at the NET layer.
-        let expr_node_opt = marker.get_sub_node().or_else(|| marker.get_next());
+        // 3. Collect the return expressions. `return a, b` parses as a comma
+        //    sibling chain after the marker, so members 2..N are `next`
+        //    siblings of the first — reading a single node would silently
+        //    drop them.
+        let mut expr_nodes: Vec<AstNode> = Vec::new();
+        let mut cursor = marker.get_sub_node().or_else(|| marker.get_next());
+        while let Some(node) = cursor {
+            cursor = node.get_next();
+            expr_nodes.push(node);
+        }
 
-        let Some(expr_node) = expr_node_opt else {
+        if expr_nodes.is_empty() {
             // Bare `return` with no expression — interpret as `return this`.
-            self.returns = McFuncReturn::This;
-            return;
-        };
-
-        // 4. Recognise `return this` first: it is the only chainable variant
-        //    that needs explicit acknowledgement (we cannot represent `this`
-        //    as a McPhrase, since `this` is the receiver itself).
-        if Self::is_this_expr(&expr_node) {
             self.returns = McFuncReturn::This;
             return;
         }
 
-        // 5. Otherwise treat the expression as a phrase. A successful parse
-        //    means it's a label / bus / endpoint → non-chainable return.
-        match McPhrase::new(&expr_node, context) {
-            Some(phrase) => {
-                self.returns = McFuncReturn::Endpoint(phrase);
+        // 4. Single expression: `return this` (chainable) or a phrase endpoint.
+        if expr_nodes.len() == 1 {
+            let expr_node = &expr_nodes[0];
+            // Recognise `return this` first: it is the only chainable variant
+            // that needs explicit acknowledgement (we cannot represent `this`
+            // as a McPhrase, since `this` is the receiver itself).
+            if Self::is_this_expr(expr_node) {
+                self.returns = McFuncReturn::This;
+                return;
+            }
+            match McPhrase::new(expr_node, context) {
+                Some(phrase) => self.returns = McFuncReturn::Endpoint(phrase),
+                None => {
+                    dlog_error(
+                        crate::errcodes::FUNC_RETURN_EXPR_INVALID,
+                        body_node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::FUNC_RETURN_EXPR_INVALID,
+                            &[],
+                        ),
+                    );
+                }
+            }
+            return;
+        }
+
+        // 5. Comma-separated multi-member return = group (`return a, b` ≡
+        //    `return (a, b)`), a z-axis structure, not a vector: `[...]` /
+        //    `inst{...}` remain the vector forms.
+        let phrases: Option<Vec<McPhrase>> = expr_nodes
+            .iter()
+            .map(|node| McPhrase::new(node, context))
+            .collect();
+        match phrases {
+            Some(opds) => {
+                self.returns = McFuncReturn::Group(McPhrase::Group(McGroup::from_opds(opds)));
             }
             None => {
                 dlog_error(
@@ -1140,14 +1177,18 @@ impl McFunction {
         }
     }
 
-    /// Recognise `this` across the few plausible AST shapes.
+    /// Recognise a bare `this` return across the few plausible AST shapes.
+    ///
+    /// A member access (`this.VOUT`, `this{1}`) also carries a `MCAST_OPD_THIS`
+    /// node, but names a port of the receiver rather than the receiver itself;
+    /// it must reach `McPhrase::new` so the port face survives substitution.
     fn is_this_expr(node: &AstNode) -> bool {
         if node.get_type() == MCAST_OPD_THIS {
-            return true;
+            return node.get_next().is_none();
         }
         if let Some(sub) = node.get_sub_node() {
             if sub.get_type() == MCAST_OPD_THIS {
-                return true;
+                return sub.get_next().is_none();
             }
         }
         if let Some(s) = node.to_string() {

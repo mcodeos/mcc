@@ -282,20 +282,18 @@ impl InstantiationBuilder {
                             points.push(self.node_to_netpoint(elem));
                         } else {
                             for m in &elem.member {
-                                let path = format!("{}.{}", elem.name, m);
-                                // ── P2-4: expand bus port to member lanes ──
-                                // Submodule ports like MIC{P,N} are bus ports;
-                                // expand_port_lanes decomposes them into MIC.P / MIC.N
-                                // so the parent module sees individual member points
-                                // instead of the bare bus name leaking into unrelated nets.
-                                if let Some(lanes) = self.expand_port_lanes(&path) {
-                                    points.extend(lanes);
-                                } else {
-                                    points.push(NetPoint::with_owner(
-                                        &path,
+                                // Definition-authoritative: both faces resolve each
+                                // member through the one child resolver, so a shared
+                                // physical pin (pin id on one face, pinname on the
+                                // other) lands on one point and unifies on one net
+                                // instead of trusting the surface spelling.
+                                match self.resolve_child_points(&elem.name, m) {
+                                    Some(pts) => points.extend(pts),
+                                    None => points.push(NetPoint::with_owner(
+                                        &format!("{}.{}", elem.name, m),
                                         &elem.name,
                                         IOType::None,
-                                    ));
+                                    )),
                                 }
                             }
                         }
@@ -325,7 +323,10 @@ impl InstantiationBuilder {
         base_name: &str,
         elements: &[McBus],
     ) -> Result<Vec<NetPoint>, InstError> {
-        // 1. Component pin access
+        // 1. Component pin access — definition-authoritative through the one
+        //    child resolver: it expands a whole-group face to its declared lanes
+        //    (`ldo{VIN | VOUT}` → `ldo.VIN.{Vin,GND}`) and otherwise returns the
+        //    declared physical pin id point (`uC.VDD` → `uC.5`).
         if self.find_component(base_name).is_some() {
             return Ok(elements
                 .iter()
@@ -336,17 +337,12 @@ impl InstantiationBuilder {
                     } else {
                         format!("{}.{}", base_name, e.name)
                     };
-                    // ── P3-1: normalize alias to physical pin ID (e.g. uC.VDD → uC.5) ──
-                    let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
-                    // ── Whole-group face reference (model A, two-face DC chain) ──
-                    // A curly face that names a whole multi-member power group
-                    // (`ldo{VIN | VOUT}`, face bus = "ldo.VIN") must expand to its
-                    // sub-member physical lanes (`ldo.1`/Vin, `ldo.2`/GND) so it can
-                    // row-align to a DC `[hot, ret]` vector — mirror of the submodule
-                    // branch below. Without this the whole group collapses to a single
-                    // face point and the 2-row vector pair is rejected as E4007.
-                    if let Some(lanes) = self.expand_port_lanes(&path) {
-                        return lanes.into_iter().collect::<Vec<_>>();
+                    if let Some((owner, member)) = path.split_once('.') {
+                        if !member.contains('.') {
+                            if let Some(pts) = self.resolve_child_points(owner, member) {
+                                return pts;
+                            }
+                        }
                     }
                     // ── §3.3: owner is the deepest known component prefix of the
                     // path, not the split_once base. `U1.cap1.1` → owner=`U1.cap1`

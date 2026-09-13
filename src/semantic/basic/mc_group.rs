@@ -25,6 +25,18 @@ impl McGroup {
         Self::parse_internal(node, context, |n, ctx| McPhrase::new(n, ctx))
     }
 
+    /// Build a group from an already-parsed member list, deriving the
+    /// left/right shape-match flags. The comma forms (`return a, b`) hand their
+    /// members over this way instead of through a `GROUP` subnode.
+    pub fn from_opds(mut opds: Vec<McPhrase>) -> Self {
+        let (left_match, right_match) = group_shape_match_and_upgrade(&mut opds);
+        McGroup {
+            opds,
+            left_match,
+            right_match,
+        }
+    }
+
     /// Internal parse function, uses callback to avoid circular dependency
     fn parse_internal<F>(
         node: &AstNode,

@@ -785,7 +785,12 @@ impl InstantiationBuilder {
             // No bridge needed — fc.right was set to caller's right by the
             // parser (or to a symbolic `func.out` label for bare calls), and
             // chain wiring will connect those into the surrounding net.
-            McFuncReturn::Implicit | McFuncReturn::This => Ok(FuncCallInst::PassThrough),
+            //
+            // Group: the body already welded every member in place, so the
+            // call adds no bridge of its own.
+            McFuncReturn::Implicit | McFuncReturn::This | McFuncReturn::Group(_) => {
+                Ok(FuncCallInst::PassThrough)
+            }
 
             // Endpoint(phrase): non-chainable, returns a label/bus
             // Bridge fc.right (the parser-supplied placeholder) to the
@@ -1318,56 +1323,83 @@ impl InstantiationBuilder {
         //      → substitute the return phrase with the same bindings the body
         //      used, then record the substituted names as
         //      `AutoInst::ReturnNets`; the decoder resolves each as a net point.
+        //    - Group return (`return a, b`) → each member is already welded by
+        //      the body, so the call adds no chain wiring; the members' open
+        //      nets are exposed as the face (`AutoInst::ReturnNets`).
         //    - Implicit / `return this` (case ①) → the face is the instance's
         //      own default shape; no write, the instance-face fallback resolves
         //      it (left pin1 / right pin2 for a 1×2 twopin).
-        match &func_def.returns {
-            McFuncReturn::Endpoint(ep) => {
-                // Reuse the body's binding set so substituted names reach the
-                // return phrase (component methods substitute all formals;
-                // sub-module methods keep boundary formals unsubstituted).
-                let subst_bindings = if self.find_submodule(inst_name).is_some() {
-                    let mut boundary: std::collections::HashSet<String> =
-                        std::collections::HashSet::new();
-                    for b in bindings.iter() {
-                        if let Some(fname) = b.declare.get_primary_name() {
-                            if let Some(v) = b.get_value() {
-                                if self.actual_is_parent_ref(v) {
-                                    boundary.insert(fname.clone());
-                                }
+        //
+        // The return phrase is substituted with the same bindings the body used
+        // (component methods substitute all formals; sub-module methods keep
+        // boundary formals unsubstituted). A member naming a port of the
+        // receiver (`this.X`) also needs the `this`-to-receiver rewrite the
+        // body statements get.
+        let substitute_return = |phrase: &McPhrase| {
+            let subst_bindings = if self.find_submodule(inst_name).is_some() {
+                let mut boundary: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                for b in bindings.iter() {
+                    if let Some(fname) = b.declare.get_primary_name() {
+                        if let Some(v) = b.get_value() {
+                            if self.actual_is_parent_ref(v) {
+                                boundary.insert(fname.clone());
                             }
                         }
                     }
-                    bindings.subset_excluding(&boundary)
-                } else {
-                    bindings.clone()
+                }
+                bindings.subset_excluding(&boundary)
+            } else {
+                bindings.clone()
+            };
+            let comp_opt = self.find_component(inst_name);
+            let expansion_ctx = comp_opt.as_ref().map(|c| ExpansionContext::new(c));
+            Self::substitute_stmt(phrase, &subst_bindings, expansion_ctx.as_ref())
+        };
+
+        match &func_def.returns {
+            McFuncReturn::Group(phrase) => {
+                let substituted = substitute_return(phrase);
+                let names: Vec<String> = match &substituted {
+                    McPhrase::Group(g) => g
+                        .opds
+                        .iter()
+                        .flat_map(crate::semantic::basic::mc_fcall::get_right_bus_from_phrase)
+                        .map(|b| b.name.clone())
+                        .collect(),
+                    other => crate::semantic::basic::mc_fcall::get_right_bus_from_phrase(other)
+                        .iter()
+                        .map(|b| b.name.clone())
+                        .collect(),
                 };
-                let substituted = if subst_bindings.is_empty() {
-                    ep.clone()
+                if names.is_empty() {
+                    LAST_RETURN_ENDPOINT.with(|cell| cell.replace(None));
                 } else {
-                    Self::substitute_stmt(ep, &subst_bindings, None)
-                };
-                // An Endpoint(Single(Bus)) return references the instance's own
-                // bus port (XTAL{X1,X2}) → keep the @@RETURN_EP instance-port
-                // decode. Everything else is a net / net-list / group return →
-                // encode the substituted member names as @@RETURN_NETS.
-                let is_inst_bus = matches!(
-                    &substituted,
-                    McPhrase::Endpoint(McEndpoint::Single(iref))
-                        if matches!(iref.base, McInstance::Bus(_))
-                );
-                if is_inst_bus {
+                    LAST_RETURN_ENDPOINT
+                        .with(|cell| cell.replace(Some(AutoInst::ReturnNets(names))));
+                }
+            }
+            McFuncReturn::Endpoint(ep) => {
+                let substituted = substitute_return(ep);
+                // Which face the return names is a *semantic* question, not a
+                // shape one: substitution rewrites formals into their actuals,
+                // so a net return (`return net` with `net := SPI.SCLK`) and an
+                // instance-port return (`return XTAL{X1,X2}`) both arrive here
+                // as `Endpoint(Single(Bus(_)))`. Only a name the receiver
+                // actually declares as a port is an instance-port face.
+                let port_name: Option<String> = match &substituted {
+                    McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+                        McInstance::Bus(b) => Some(b.name.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+                .filter(|n| self.instance_declares_port(inst_name, n));
+                if let Some(port_name) = port_name {
                     // Encode the bare bus-port name (XTAL), not the substituted
                     // phrase ("XTAL{X1, X2}"): decode_return_endpoint splits
                     // `owner.port` and looks the port up in names_to_id by exact
                     // name before expanding the bus members by declaration order.
-                    let port_name = match &substituted {
-                        McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
-                            McInstance::Bus(b) => b.name.clone(),
-                            _ => substituted.to_string(),
-                        },
-                        _ => substituted.to_string(),
-                    };
                     let ep_path = format!("{inst_name}.{port_name}");
                     LAST_RETURN_ENDPOINT
                         .with(|cell| cell.replace(Some(AutoInst::ReturnPort(ep_path))));
@@ -2230,6 +2262,19 @@ impl InstantiationBuilder {
         }
     }
 
+    /// Whether `inst_name` declares a port named `name` (a component pin/bus/
+    /// interface, or a sub-module port). Distinguishes an instance-port return
+    /// face from a net return face after formal substitution.
+    fn instance_declares_port(&self, inst_name: &str, name: &str) -> bool {
+        if let Some(comp) = self.find_component(inst_name) {
+            return comp.def.pins.names_to_id.contains_key(name);
+        }
+        if let Some(sub) = self.find_submodule(inst_name) {
+            return sub.ports.iter().any(|p| p.name == name);
+        }
+        false
+    }
+
     /// ── P3: Does the formal's actual point to a parent-scope entity
     ///    (→ that formal is a "boundary formal")? ──
     /// Hits on component/sub_module/port/bus/label are treated as parent-scope
@@ -2767,6 +2812,17 @@ fn validate_fcall_return_shape(
                 mcc_dbg!(
                     "inst::fcall",
                     "[P4.2-SHAPE] func={func_name} returns Endpoint, caller right={} buses",
+                    right.len()
+                );
+            }
+        }
+        McFuncReturn::Group(_phrase) => {
+            // Group return: each member is welded by the body; the caller's
+            // right, if present, attaches to the members' open nets.
+            if !right.is_empty() {
+                mcc_dbg!(
+                    "inst::fcall",
+                    "[P4.2-SHAPE] func={func_name} returns Group, caller right={} buses",
                     right.len()
                 );
             }

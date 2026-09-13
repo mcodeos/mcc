@@ -140,6 +140,39 @@ fn resolve_bare_member_pid(
     }
 }
 
+/// Definition-authoritative component child identity: the physical pin id that
+/// `member` names in `comp`'s declaration (`uC.VDD` -> `5`). A raw pin id passes
+/// through unchanged; a declared pinname resolves through the exact
+/// `names_to_id` table, then the reverse `pin_id_to_names` lookup (full name for
+/// a dotted member, leaf segment for a bare one).
+///
+/// Every child reference — the dotted path and the curly two-face access — reads
+/// its identity through this one function, so two spellings of the same declared
+/// pin (pin id and pinname) always resolve to the same point.
+fn declared_pin_id(
+    comp: &crate::instant::mc_comp::McComponentInst,
+    member: &str,
+) -> Option<String> {
+    use crate::semantic::component::mc_pins::McPinPort;
+    if comp.def.pins.pins.contains_key(member) {
+        return Some(member.to_string());
+    }
+    // Conditional / parameter-dependent aliases live on the concrete instance,
+    // not in the component definition's static pin table.
+    if let Some(id) = comp.find_conditional_pin_id(member) {
+        return Some(id);
+    }
+    if let Some(McPinPort::Single(id)) = comp.def.pins.names_to_id.get(member) {
+        return Some(id.clone());
+    }
+    if let Some((_, last)) = member.rsplit_once('.') {
+        if let Some(id) = comp.find_conditional_pin_id(last) {
+            return Some(id);
+        }
+    }
+    resolve_bare_member_pid(&comp.def.pins, member)
+}
+
 impl InstantiationBuilder {
     pub(super) fn get_left_points(
         &mut self,
@@ -1591,33 +1624,14 @@ impl InstantiationBuilder {
                     );
                     return NetPoint::with_owner(&path, &isolated, IOType::None);
                 }
-                // ── P7 + P2: inst.IFACE.member / bare alias → physical pid, unified notation ──
-                // First try the original Single direct lookup; if that fails, use
-                // resolve_bare_member_pid to reverse-look up the dotted alias, so that
-                // bare spellings like `ldo.Vout` / `ldo.GND` also resolve to `ldo.5` /
-                // `ldo.2` and can union with the numbered spellings like `@CAP2.2 ~ ldo.5`.
-                //
-                // ── V2 (net-identity): structured lookup only. `rest` is either the
-                // full dotted member path (`VOUT.Vout`) or a bare alias (`Vout`). A
-                // dotted path must resolve EXACTLY via `names_to_id.get(rest)` — the
-                // previous leaf-name fallback `.get(last)` would silently bind a
-                // misspelled `VIN.Vout` to pin 1 (VOUT.Vout). Bare aliases still
-                // resolve through resolve_bare_member_pid (rest == last when bare, so
-                // a single `.get(rest)` covers both forms).
-                let single_hit: Option<String> =
-                    comp.def
-                        .pins
-                        .names_to_id
-                        .get(rest_part)
-                        .and_then(|port| match port {
-                            crate::semantic::component::mc_pins::McPinPort::Single(id) => {
-                                Some(id.clone())
-                            }
-                            _ => None,
-                        });
-                let resolved_pid: Option<String> =
-                    single_hit.or_else(|| resolve_bare_member_pid(&comp.def.pins, rest_part));
-                let resolved = resolved_pid
+                // ── P7 + P2: inst.IFACE.member / bare alias → physical pid ──
+                // The identity comes from `declared_pin_id` — the same resolver the
+                // curly two-face access uses — so bare spellings like `ldo.Vout` /
+                // `ldo.GND` resolve to `ldo.5` / `ldo.2` and union with the numbered
+                // spellings. Dotted paths resolve EXACTLY (the resolver's reverse
+                // lookup matches the full name when the member is dotted), so a
+                // misspelled `VIN.Vout` cannot bind to pin 1 (VOUT.Vout).
+                let resolved = declared_pin_id(&comp, rest_part)
                     .map(|id| format!("{owner_part}.{id}"))
                     .unwrap_or_else(|| canonicalize_path(&element.name));
                 // ── P2-4: preserve bus member name when resolving e.g. ldo.VIN.GND → ldo.2 ──
@@ -2148,84 +2162,63 @@ impl InstantiationBuilder {
     /// and the alias resolves to a unique pid; otherwise None (submodule ports / bus
     /// ports / labels / already-pid all return None, untouched).
     pub(super) fn normalize_one_inst_pin_path(&self, path: &str) -> Option<String> {
-        use crate::semantic::component::mc_pins::McPinPort;
-
         let (inst, member) = path.split_once('.')?;
         let comp = self.find_component(inst)?;
-        // Already a pure pid (key in pins table) → leave alone
-        if comp.def.pins.pins.contains_key(member) {
-            return None;
+        let id = declared_pin_id(&comp, member)?;
+        let new = format!("{inst}.{id}");
+        (new != path).then_some(new)
+    }
+
+    /// Definition-authoritative child access — the one resolver for
+    /// `<owner>.<member>`. `owner` is a component instance (child = pin, resolved
+    /// through the pinid/pinname table) or a submodule instance (child = port,
+    /// resolved through the port table). A group / bus / interface child expands
+    /// to its member lanes; a scalar child resolves to its canonical identity
+    /// (component: physical pin id; module: the declared port path).
+    ///
+    /// Both the dotted path ([`Self::node_to_netpoint`]) and the curly two-face
+    /// access come through here, so every spelling of the same declared child
+    /// yields the same point: a return pin named by two curly faces (pin id on
+    /// one face, pinname on the other) lands on one net by construction instead
+    /// of by string coincidence.
+    ///
+    /// `None` when `owner` is not a declared component/submodule of this module,
+    /// so callers keep their own fallbacks for ports / labels / plain buses.
+    pub(super) fn resolve_child_points(
+        &mut self,
+        owner: &str,
+        member: &str,
+    ) -> Option<Vec<NetPoint>> {
+        let path = format!("{owner}.{member}");
+        // A whole group / bus / interface child is a lane column on either kind.
+        if let Some(lanes) = self.expand_port_lanes(&path) {
+            return Some(lanes);
         }
-        let last = member.rsplit('.').next().unwrap_or(member);
-
-        // Conditional and parameter-dependent aliases live on the concrete
-        // instance rather than in the component definition's static pin map.
-        let resolved_instance_pin = comp
-            .find_conditional_pin_id(member)
-            .or_else(|| comp.find_conditional_pin_id(last));
-
-        // 1. names_to_id direct Single lookup (dotted full name "VOUT.Vout"/"IN.P" or bare name
-        // "VDD"/"FB")
-        let direct = comp
-            .def
-            .pins
-            .names_to_id
-            .get(member)
-            .or_else(|| comp.def.pins.names_to_id.get(last))
-            .and_then(|p| match p {
-                McPinPort::Single(id) => Some(id.clone()),
-                _ => None,
-            });
-
-        let pid = if let Some(id) = resolved_instance_pin.or(direct) {
-            id
-        } else {
-            // 2. bare-alias fallback: curly-bus members (VOUT{Vout,GND}) only register
-            //    the dotted form "VOUT.Vout"; bare "Vout"/"GND" is not in names_to_id
-            //    → reverse-look up the last segment in pin_id_to_names.
-            let mut hits: Vec<String> = Vec::new();
-            for (pid, names) in comp.def.pins.pin_id_to_names.iter() {
-                let matched = names.iter().any(|n| {
-                    let seg = n.rsplit('.').next().unwrap_or(n);
-                    let m = n == member
-                        || n == last
-                        || seg == member
-                        // P2-10: seg == last is too broad when last is purely numeric
-                        // (e.g. "2" matches GPIO3.2, GPIO5.2, GPIO7.2, etc.).
-                        // Only enable seg==last for non-numeric last segments
-                        // (e.g. "Vout", "GND", "FB").
-                        || (!last.chars().all(|c| c.is_ascii_digit()) && seg == last)
-                        || (member.starts_with(n)
-                            && member.as_bytes().get(n.len()) == Some(&b'.'));
-                    m
-                });
-                if matched && !hits.contains(pid) {
-                    hits.push(pid.clone());
+        if let Some(comp) = self.find_component(owner) {
+            let id = declared_pin_id(&comp, member)?;
+            let mut np = NetPoint::with_owner(&format!("{owner}.{id}"), owner, IOType::None);
+            if member.contains('.') {
+                if let Some(last) = member.rsplit('.').next() {
+                    np = np.with_member_name(last);
                 }
             }
-            match hits.len() {
-                0 => return None,
-                1 => {
-                    let id = hits.remove(0);
-                    id
-                }
-                _ => {
-                    hits.sort_by(|a, b| {
-                        a.parse::<i64>()
-                            .unwrap_or(0)
-                            .cmp(&b.parse::<i64>().unwrap_or(0))
-                    });
-                    hits.remove(0)
-                }
-            }
-        };
-
-        let new = format!("{inst}.{pid}");
-        if new == path {
-            None
-        } else {
-            Some(new)
+            return Some(vec![np]);
         }
+        if let Some(sub) = self.find_submodule(owner) {
+            let base = member.split('.').next().unwrap_or(member);
+            let rest = &member[base.len()..];
+            // Mirror `expand_port_lanes` Case 1(b): a `<sub>.<port>` reference
+            // matches the declared port by exact base name (identifiers are
+            // case-sensitive).
+            let declared = sub.ports.iter().find(|p| {
+                let pbase = super::phases::port_base_name(&p.name);
+                !pbase.is_empty() && pbase == base
+            })?;
+            let pbase = super::phases::port_base_name(&declared.name);
+            let canonical = format!("{owner}.{pbase}{rest}");
+            return Some(vec![NetPoint::with_owner(&canonical, owner, IOType::None)]);
+        }
+        None
     }
 
     // lookup helpers
