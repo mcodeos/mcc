@@ -1321,7 +1321,7 @@ The AI client discovers the tools automatically via `tools/list`; the tool
 name, description, and JSON schema are self-describing.
 
 - Binary: `target/debug/mcc-mcp` (source: `src/bin/mcc_mcp.rs`)
-- Design doc: `mcd/doc/lsp-mcp/mcc-mcp-server-design.md`
+- Design doc: `mcc-mcp-server-design.md`
 
 ### 9.1 Connection Configuration
 
