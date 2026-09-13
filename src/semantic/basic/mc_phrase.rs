@@ -34,7 +34,6 @@ use crate::{
     McIds,
 };
 
-use std::ops::{Add, Shr};
 use std::sync::Arc;
 
 /// P5.1: a prefix identifier `_X` (e.g. `_OPEN`, `__CLR`) is treated as an **independent
@@ -124,38 +123,6 @@ impl McPhrase {
     /// Create label endpoint
     pub fn label(name: String) -> Self {
         McPhrase::ep(McInstanceRef::new(McInstance::Label(name)))
-    }
-
-    /// Series (auto-flatten)
-    pub fn series(phrases: Vec<McPhrase>) -> Self {
-        let mut flat = Vec::new();
-        for p in phrases {
-            match p {
-                McPhrase::Series(items, _) => flat.extend(items),
-                other => flat.push(other),
-            }
-        }
-        match flat.len() {
-            0 => McPhrase::Series(vec![], ConnDir::Undirected),
-            1 => flat.into_iter().next().unwrap(),
-            _ => McPhrase::Series(flat, ConnDir::Undirected),
-        }
-    }
-
-    /// Parallel (auto-flatten)
-    pub fn parallel(phrases: Vec<McPhrase>) -> Self {
-        let mut flat = Vec::new();
-        for p in phrases {
-            match p {
-                McPhrase::Parallel(items) => flat.extend(items),
-                other => flat.push(other),
-            }
-        }
-        match flat.len() {
-            0 => McPhrase::Parallel(vec![]),
-            1 => flat.into_iter().next().unwrap(),
-            _ => McPhrase::Parallel(flat),
-        }
     }
 
     /// mcrule.md §10.6 — a `(,)` group is a STATEMENT LIST, never a shape.
@@ -5498,23 +5465,3 @@ fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &OpdShape, rhs: &OpdShape) -> b
     };
     matches!(verdict, crate::semantic::opcheck::OpCheck::Legal(_))
 }
-
-// Operator implementations
-
-impl<R: Into<McPhrase>> Add<R> for McPhrase {
-    type Output = McPhrase;
-    fn add(self, other: R) -> Self::Output {
-        McPhrase::parallel(vec![self, other.into()])
-    }
-}
-
-impl<R: Into<McPhrase>> Shr<R> for McPhrase {
-    type Output = McPhrase;
-    fn shr(self, other: R) -> Self::Output {
-        McPhrase::series(vec![self, other.into()])
-    }
-}
-
-// Note: Shr is used for the `->` operator in Rust code constructing McPhrase.
-// The `MCAST_OPD_RIGHTARROW` handler in `new()` is the primary path for parsing `->`
-// from source code and correctly uses ConnDir::LtoR.
