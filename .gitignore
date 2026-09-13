@@ -3,8 +3,7 @@
 debug
 target
 Cargo.lock
-# Auto-incremented per build by build.rs (MCC_BUILD_NR) — never commit
-.buildnr
+# The batch counter is shared and lives in the ledger repo: mcd/BUILDNr
 **/*.rs.bk
 *.pdb
 **/mutants.out*/

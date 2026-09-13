@@ -3,33 +3,27 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     // Rerun when any C source / header under src/ast/c changes (cp.sh updates).
     // NOTE: cargo only reads `cargo:` directives from stdout — must use println!.
     println!("cargo:rerun-if-changed=src/ast/c");
 
-    // Build counter (`MCC_BUILD_NR`): the gitignored `.buildnr` is read here,
-    // written back as n+1 and handed to rustc via rustc-env. Listing the
-    // counter itself in rerun-if-changed makes cargo rerun this script once
-    // per invocation, so the number advances exactly once per build (sandbox
-    // verified — no double count, no rerun loop). Cost: the leaf crate
-    // recompiles each invocation because the env value changes.
-    let counter = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".buildnr");
-    let prior = fs::read_to_string(&counter)
-        .ok()
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .unwrap_or(0);
-    let next = prior + 1;
-    if let Err(e) = fs::write(&counter, next.to_string()) {
-        eprintln!(
-            "mcc: failed to write build counter {}: {e}",
-            counter.display()
-        );
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+    // Build number: the ledger repo's shared batch counter (`mcd/BUILDNr`),
+    // bumped once per landed batch and committed with it, so every author
+    // bakes the same value. It is 0 when mcc is cloned standalone (no sibling
+    // `mcd/`) — a per-machine counter is not reproducible off this machine,
+    // which is the whole point of the number. Watching the file is what keeps
+    // the crate from rebuilding on every invocation: the number moves once per
+    // batch, not once per build.
+    let nr = batch_nr(&manifest);
+    println!("cargo:rustc-env=MCC_BUILD_NR={nr}");
+    if let Some(path) = batch_nr_path(&manifest) {
+        println!("cargo:rerun-if-changed={}", path.display());
     }
-    println!("cargo:rustc-env=MCC_BUILD_NR={next}");
-    println!("cargo:rerun-if-changed={}", counter.display());
 
     // add C source files
     let mut build = cc::Build::new();
@@ -57,7 +51,6 @@ fn main() {
     // no-op build: it prints as regular (verbose-only) build output while the
     // script is present, and only rises to a `cargo:warning` when the script
     // genuinely cannot be found in any layout we know of.
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let cp_candidates = [
         manifest.join("mc/mcode/cp.sh"), // original monorepo layout
         manifest.join("../mcode/cp.sh"), // sibling checkout: mcc next to mcode
@@ -135,4 +128,22 @@ fn generate_macros_from_header() {
             out_path.display()
         );
     }
+}
+
+/// Path to the ledger repo's batch number, or `None` when mcc is standalone.
+/// The in-tree `mcd/` layout mirrors the `cp.sh` probe above.
+fn batch_nr_path(manifest: &Path) -> Option<PathBuf> {
+    [
+        manifest.join("mcd/BUILDNr"),
+        manifest.join("../mcd/BUILDNr"),
+    ]
+    .into_iter()
+    .find(|p| p.exists())
+}
+
+fn batch_nr(manifest: &Path) -> u64 {
+    batch_nr_path(manifest)
+        .and_then(|p| fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0)
 }
