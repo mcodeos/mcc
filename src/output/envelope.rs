@@ -222,7 +222,7 @@ pub struct DefinitionsIndex {
     pub components: Vec<DefinitionRef>,
     pub interfaces: Vec<DefinitionRef>,
     pub enums: Vec<DefinitionRef>,
-    /// Module port definitions (ps/io/in/out)
+    /// Module port definitions (psrc/psnk/psbi/io/in/out)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<PortRef>,
 }

@@ -107,7 +107,7 @@ module main
 
 // E5456 PIN_IO_MIX_OUTPUT_POWER (conds.rs check_pin_alt_roles): a shared pin
 // name maps to one Output pin and one Power pin (potential backfeed risk).
-// Pin 1 is `out` and pin 2 is `ps`, both named PWR.
+// Pin 1 is `out` and pin 2 is `psnk`, both named PWR.
 #[test]
 fn lock_pp_conds__pin_io_mix_output_power_5456_fires() {
     let source = r#"component PWR_FB
@@ -115,7 +115,7 @@ fn lock_pp_conds__pin_io_mix_output_power_5456_fires() {
     name = "Power feedback"
     pins = [
         out 1 = PWR
-        ps 2 = PWR, voltage:3.3V
+        psnk 2 = PWR, voltage:3.3V
     ]
 }
 module main
@@ -128,7 +128,7 @@ module main
 
 // E5457 PIN_IO_MIX_ANALOG_POWER (conds.rs check_pin_alt_roles): a shared pin
 // name maps to one Analog pin and one Power pin (unusual combination). Pin 1
-// is `anl` and pin 2 is `ps`, both named PWR.
+// is `anl` and pin 2 is `psnk`, both named PWR.
 #[test]
 fn lock_pp_conds__pin_io_mix_analog_power_5457_fires() {
     let source = r#"component ANL_PWR
@@ -136,7 +136,7 @@ fn lock_pp_conds__pin_io_mix_analog_power_5457_fires() {
     name = "Analog power"
     pins = [
         anl 1 = PWR
-        ps 2 = PWR, voltage:3.3V
+        psnk 2 = PWR, voltage:3.3V
     ]
 }
 module main

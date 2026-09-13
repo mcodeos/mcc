@@ -702,7 +702,7 @@ impl McInstances {
         // Handle MCAST_NET_PORTS specially - extract spans for port definitions
         if node.get_type() == MCAST_NET_PORTS {
             if let Some(subnode) = node.get_sub_node() {
-                // First child is IOTYPE (ps, io, in, out, label)
+                // First child is IOTYPE (psrc/psnk/psbi, io, in, out, label)
                 if let Some(first) = subnode.iter().next() {
                     if let Some(iotype) = IOType::new(&first) {
                         let iotype_ref = &iotype;
@@ -1155,7 +1155,7 @@ impl McInstances {
                         }
                     }
 
-                    // Handle direct MCAST_IDS (e.g., for "ps dc24v" where dc24v is MCAST_IDS)
+                    // Handle direct MCAST_IDS (e.g., for "psnk dc24v" where dc24v is MCAST_IDS)
                     MCAST_IDS => {
                         if let Some(pname) = McIds::new(&each) {
                             // Compute span for this operand (used for LSP port_definition)

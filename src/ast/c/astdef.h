@@ -64,7 +64,6 @@
 #define MCAST_IOTYPE_OUT               40
 #define MCAST_IOTYPE_IO                41
 #define MCAST_IOTYPE_RETURN            42
-#define MCAST_IOTYPE_PS                43
 #define MCAST_IOTYPE_ANL               44
 #define MCAST_IOTYPE_NC                45
 #define MCAST_IOTYPE_LABEL             93 // 46+ already taken; 93 is the next free id in section 3
@@ -312,7 +311,7 @@ typedef struct mc_dlog_entry {
 } mc_dlog_entry;
 
 // Parser error / warning codes (unified with dlog numbering)
-// Values follow mcc-error-code-unification-plan.md: Pass1b parser
+// Values follow mcd/doc/mcc-error-code-unification-plan.md: Pass1b parser
 // cluster 2080-2110 (errors) and 2111-2116 (warnings).
 #define MCD_E1000_SYNTAX_ERROR          2080  // fallback: generic syntax error (mca_error)
 #define MCD_E1002_TOP_SKIPPED           2081  // mc_top: error — invalid top-level declaration

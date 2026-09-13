@@ -222,7 +222,7 @@ pub fn extract_instance_families(
         if let Some(kind) = kind {
             // Components and modules are always declared explicitly. Labels /
             // buses / interfaces carry three origins: `port` when the name has
-            // a real IOType (in/out/io/ps header port or `label` statement),
+            // a real IOType (in/out/io/psrc/psnk/psbi header port or `label` statement),
             // `src` for iotype-less but explicit declarations (module
             // parameters and bracket port members), and `inline` for names
             // created solely by a connection phrase (§5.1).

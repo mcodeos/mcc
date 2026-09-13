@@ -18,10 +18,10 @@ component GPIO_DEV
 {
     pins = [
         io [1:2] = GPIO[1:2]
-        ps 3 = GND
+        psnk 3 = GND
     ]
 }
-module main(ps GND)
+module main(psnk GND)
 {
     GPIO_DEV    U1
     U1.GPIO1 -> NET_A
@@ -36,10 +36,10 @@ component BUS_DEV
 {
     pins = [
         io [1,2] = SPI{SCLK, MOSI}
-        ps 3 = GND
+        psnk 3 = GND
     ]
 }
-module main(ps GND)
+module main(psnk GND)
 {
     BUS_DEV     U2
     U2.SPI.SCLK -> NET_C
@@ -136,10 +136,10 @@ component IFACE_DEV
 {
     pins = [
         io [1:2] = UART0::UART.TTL(DCE)
-        ps 3 = GND
+        psnk 3 = GND
     ]
 }
-module main(ps GND)
+module main(psnk GND)
 {
     IFACE_DEV U1
     U1.UART0.TX -> NET_A

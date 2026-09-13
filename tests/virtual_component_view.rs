@@ -527,7 +527,7 @@ fn virtual_view_skips_floating_and_boundary_port_diagnostics() {
     // the fabricated VIRT_* wrapper is marked `synthetic` at build time (the
     // wrapper, the instance AND every pin under the path prefix), and every net
     // check that fires on unwired pins must skip it. Fixture mirrors
-    // mclibs/clock/mcp7940m.mc (ps / in / io / out / nc pin shape).
+    // mcpub/clock/mcp7940m.mc (psnk / in / io / out / nc pin shape).
     let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     let (path, uri) = fixture(
         "rtc-view",
@@ -535,7 +535,7 @@ fn virtual_view_skips_floating_and_boundary_port_diagnostics() {
 component SYS.Clock.MCP7940M
 {
     pins = [
-        ps [8,4] = [VCC,VSS]::DC()
+        psnk [8,4] = [VCC,VSS]::DC()
         in [1,2] = XTAL{X1,X2}
         io [5,6] = I2C{SDA,SCL}
         out 7 = MFP

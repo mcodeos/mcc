@@ -34,10 +34,10 @@ component SPI_DEV
 {
     pins = [
         io [1:2] = SPI{SCLK, MOSI}
-        ps 3 = GND
+        psnk 3 = GND
     ]
 }
-module main(ps GND)
+module main(psnk GND)
 {
     SPI_DEV U1
     SPI_DEV U2

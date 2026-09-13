@@ -338,7 +338,7 @@ pub fn translate_io_type(t: &IOType) -> IoDirection {
         IOType::Power => IoDirection::Power,
         // pass2's Analog is mostly passive components like resistors / capacitors
         IOType::Analog => IoDirection::Passive,
-        // mc `ps`/ground return (GND rail, shield, substrate) -> Ground
+        // mc `psnk`/ground return (GND rail, shield, substrate) -> Ground
         IOType::Return => IoDirection::Ground,
         // Other cases (pass2 IOType may later extend etc.) -> fallback Unknown
         _ => IoDirection::Unknown,

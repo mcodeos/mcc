@@ -72,11 +72,10 @@ define FLASH.GD25Q32E {
         in  1 = CS,     "Chip Select (Low active)"
         out 2 = DO,     "Data Output (IO1/SO)"
         in  3 = WP,     "Write Protect (IO2, pull-up to VCC)"
-        ps  4 = GND,    "Ground (VSS)"
         in  5 = DI,     "Data Input (IO0/SI)"
         in  6 = CLK,    "Serial Clock (SCLK)"
         in  7 = HOLD,   "Hold (IO3, pull-up to VCC)"
-        ps  8 = VCC,    "Power (VDD)"
+        psnk [8,4] = [VCC, GND],    "Power (VDD); ground (VSS)"
     ]
 }
 

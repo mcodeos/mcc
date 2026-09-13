@@ -515,8 +515,8 @@ fn check_naming_convention(acc: &mut CheckAccumulator) {
 /// F1: user-defined names that match reserved keywords.
 fn check_reserved_names(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>) {
     let reserved: HashSet<&str> = [
-        "this", "pins", "role", "func", "return", "in", "out", "io", "ps", "anl", "nc", "if",
-        "else",
+        "this", "pins", "role", "func", "return", "in", "out", "io", "psrc", "psnk", "psbi", "anl",
+        "nc", "if", "else",
     ]
     .iter()
     .cloned()

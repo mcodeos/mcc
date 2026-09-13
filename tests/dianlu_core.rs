@@ -978,34 +978,34 @@ interface UART.TTL(role) {
 component BUS_DEV {
     pins = [
         io [1,2] = SPI{SCLK, MOSI}
-        ps 3 = GND
+        psnk 3 = GND
     ]
 }
 component GPIO_DEV {
     pins = [
         io [1:2] = GPIO[1:2]
-        ps 3 = GND
+        psnk 3 = GND
     ]
 }
 component PAD_DEV {
     pins = [
-        ps [1,2] = GND
-        ps 3 = VCC
+        psnk [1,2] = GND
+        psnk 3 = VCC
     ]
 }
 component IFACE_DEV {
     pins = [
         io [1:2] = UART0::UART.TTL(DCE)
-        ps 3 = GND
+        psnk 3 = GND
     ]
 }
-module SUB(in VIN, ps SGND) {
+module SUB(in VIN, psnk SGND) {
     io NET_B
     BUS_DEV s
     s.SPI.SCLK -> VIN
     NET_B -> SGND
 }
-module main(ps GND) {
+module main(psnk GND) {
     io NET_A
     BUS_DEV U2
     GPIO_DEV G1

@@ -2201,6 +2201,51 @@ pub(crate) fn check_pin_contract_decode(table: &InstTable, results: &mut Vec<Net
     }
 }
 
+/// Model A §4.1 `[hot, ret]` pairing: every `psrc`/`psnk`/`psbi` `::DC(…)` row
+/// declares a DC crossing, and a crossing *is* the pair — the hot terminal plus
+/// the return it closes over (`psnk [1,2] = VIN{Vin, GND}::DC(5V)`). `pins.pwr`
+/// holds exactly the `::DC`-carrying rows (`read_pwr_declare` returns early for
+/// any other iface), so `ret == None` here is precisely "a `::DC` row that names
+/// no second member". That declaration is incomplete rather than quieter: 6022
+/// reads the member for the return leg, 6027 for the return span, and the 6021
+/// budget kernel needs both ends of the crossing. Reported decl-locally once per
+/// used component class, like 6012. A row with no `::DC` never forms a power pin
+/// at all — that is the passive leaf (`N = GND`), whose direction belongs to the
+/// parent module port, and this rule deliberately does not touch it.
+pub(crate) fn check_pin_contract_return_member(
+    table: &InstTable,
+    results: &mut Vec<NetCheckResult>,
+) {
+    let workspace = crate::definition_space().workspace_components();
+    let defs: std::collections::HashMap<String, &McComponent> = workspace
+        .iter()
+        .map(|(sn, c)| (sn.ident.to_string(), c.as_ref()))
+        .collect();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for entry in table.get_components() {
+        if !seen.insert(entry.class_name.clone()) {
+            continue;
+        }
+        let Some(def) = defs.get(&entry.class_name).copied() else {
+            continue;
+        };
+        for contract in def.pins.pwr.iter().filter(|c| c.ret.is_none()) {
+            results.push(NetCheckResult {
+                check: "pin-contract-return-missing",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::POWER_PIN_RETURN_MISSING,
+                    &[&contract.dir.as_str(), &contract.hot],
+                ),
+                net_name: contract.hot.clone(),
+                code: crate::errcodes::POWER_PIN_RETURN_MISSING,
+                pos: contract.span.start as u32,
+                uri: entry.def_uri.clone(),
+            });
+        }
+    }
+}
+
 /// §6.2③ combine-output re-anchor (rail-contract-design.md §6.1/§6.2): a
 /// combine element — a component def with ≥2 input-direction (`psnk`, or a
 /// `psbi` charge half) power rows and ≥1 `psrc` output row — is a pass-through

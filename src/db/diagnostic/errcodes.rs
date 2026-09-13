@@ -1582,6 +1582,19 @@ pub const DC_BINDING_DIR_MISMATCH: u32 = 6028;
 /// must resolve to a reference of that role, else an Error.
 pub const PORT_BIND_ROLE_MISMATCH: u32 = 6029;
 
+/// Model A (§8.8, `[hot, ret]` pairing): a `::DC` power row declares a DC
+/// crossing, and a crossing is the *pair* — the hot terminal plus the return it
+/// closes over (`psnk [1,2] = VIN{Vin, GND}::DC(5V)`). A `::DC` row whose
+/// contract names no second member (`psnk 5 = VCC::DC(5V)`) leaves
+/// [`McPwrPin::ret`](crate::semantic::component::mc_pins::McPwrPin::ret) `None`,
+/// and every consumer that adjudicates the crossing reads that member — 6022
+/// (return leg), 6027 (device return span), the 6021 budget kernel. Structural
+/// and name-free: the test is `::DC` present ∧ second member absent. A row
+/// carrying no `::DC` is not a crossing at all (a passive leaf's bare `N = GND`,
+/// whose direction belongs to the parent module port) and never reaches this
+/// check, so no direction word is demanded of it.
+pub const POWER_PIN_RETURN_MISSING: u32 = 6030;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -1984,6 +1997,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DEVICE_RETURN_SPAN_UNDECLARED, "A device's DC return pins span disjoint return classes (planes) with no declared relation covering the span.", "device '{2}' returns across planes '{0}' and '{1}' but no net-level @bridge/@couple and no declared isolation structure covers the span — its return-side pins silently DC-join the two classes through the die/substrate: add a net-level @bridge/@couple between the return nets, or check whether one return is an @role(isolated) source-side copper the device legitimately feeds (conduit-equivalence-design.md §8.6)"),
     entry!(DC_BINDING_DIR_MISMATCH, "A direction-word power terminal sits at the wrong end of its own connection chain.", "'{0}' is declared {1} but occupies {2} — the wrong end of its own connection chain: a source (psrc) face must lead the chain (first member / right of a {L|R} through), a sink (psnk) must trail it (last member / left of a {L|R} through). The direction word stays authoritative (6011/6019/6021/pwrflow): flip the arrow or move the terminal so the chain direction agrees with the declared direction contract (intent-design.md §5.3.2, PWR-10)"),
     entry!(PORT_BIND_ROLE_MISMATCH, "An out port declaring @bind_role(<role>) is bound in its parent scope to a reference whose declared role differs, or to a net with no role identity.", "port '{0}' declares @bind_role({1}) but its parent binding '{2}' resolves to role {3} — the child names a role, never an ancestor conduit, so the parent binding must witness it: bind the port to a conduit of that role (or forward it to a sibling port re-declaring the same role). Bind to the {1} conduit, or fix the @bind_role if the contract itself is mis-declared (conduit-equivalence-design.md §8.7)"),
+    entry!(POWER_PIN_RETURN_MISSING, "A ::DC power row declares no return member, so the DC crossing is incomplete.", "{0} '{1}' carries a ::DC contract but no second (return) member — a DC crossing is the pair [hot, ret] and every consumer of the crossing reads that member: write it as a pair on one row, e.g. `psnk [1,2] = VIN{Vin, GND}::DC(...)`, naming the return the hot terminal closes over (conduit-equivalence-design.md §8.8, model A)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),

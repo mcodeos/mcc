@@ -44,7 +44,7 @@ pub struct PinRenderOpts {
     pub style: PinStyle,
     pub show_number: bool,
     pub show_name: bool,
-    /// Draw the io-type label (`in`/`out`/`io`/`ps`/`gnd`) on the stub. Used
+    /// Draw the io-type label (`in`/`out`/`io`/`psnk`/`gnd`) on the stub. Used
     /// by the virtual component view where pins carry no nets
     /// (mcd spec/16-export-viz §6).
     pub show_io: bool,
@@ -89,7 +89,7 @@ fn io_type_label(io: IoDirection) -> &'static str {
         IoDirection::Input => "in",
         IoDirection::Output => "out",
         IoDirection::Bidir => "io",
-        IoDirection::Power => "ps",
+        IoDirection::Power => "pwr",
         IoDirection::Ground => "gnd",
         IoDirection::Passive => "pas",
         IoDirection::Unknown => "",
@@ -221,7 +221,7 @@ pub fn render_pin_named(
     };
 
     // Io-type label (virtual view only): drawn on the stub, further out than
-    // the pin number, so the reader sees in/out/io/ps/gnd per pin.
+    // the pin number, so the reader sees in/out/io/psrc/psnk/psbi/gnd per pin.
     let io_svg = match (opts.show_io, pin.map(|p| p.io)) {
         (true, Some(io)) => {
             let label = io_type_label(io);

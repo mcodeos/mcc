@@ -64,7 +64,7 @@ fn sem_falsediag__valid_labels_members_and_module_ports_are_quiet() {
     ]
 }
 
-module LED_INDICATOR(in signal, ps ground)
+module LED_INDICATOR(in signal, psnk ground)
 {
     SIMPLE_LED D_STATUS
     signal -> D_STATUS.ANODE

@@ -120,10 +120,10 @@ impl InstantiationBuilder {
     // ### Coverage
     //
     //   * `in [VDD_3V3, GND]::DC()`       → Interface+is_list  ✔
-    //   * `ps dc{VDD_3V3, GND}`           → Bus               ✔
-    //   * `ps [VDD_3V3, GND]`             → List (@N anonymous)    ✔
-    //   * `ps GPIO[1:2]`                  → List (named prefix)    ✔ (bus+dotted only)
-    //   * `ps DC1{VDD, GND}`              → Bus               ✔
+    //   * `psnk dc{VDD_3V3, GND}`         → Bus               ✔
+    //   * `psnk [VDD_3V3, GND]`           → List (@N anonymous)    ✔
+    //   * `psnk GPIO[1:2]`                → List (named prefix)    ✔ (bus+dotted only)
+    //   * `psnk DC1{VDD, GND}`            → Bus               ✔
     //
     // ### Not covered (handled by separate iter)
     //
@@ -289,7 +289,6 @@ impl InstantiationBuilder {
                 Some(McIoTy::Input) => IOType::In,
                 Some(McIoTy::Output) => IOType::Out,
                 Some(McIoTy::InOut) => IOType::InOut,
-                Some(McIoTy::PowerSupply) => IOType::Power,
                 Some(McIoTy::Analog) => IOType::Analog,
                 Some(McIoTy::NotConnected) => IOType::NonCon,
                 Some(McIoTy::Label) => IOType::Label,

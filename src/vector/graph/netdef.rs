@@ -74,7 +74,7 @@ pub enum IoDirection {
 
 /// The net's semantic role in source
 ///
-/// Source: explicit source declarations (`::DC(5V)`, `ps` ports), no name heuristics.
+/// Source: explicit source declarations (`::DC(5V)`, `psnk` ports), no name heuristics.
 /// Default `Signal`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetRole {

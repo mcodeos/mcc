@@ -481,8 +481,8 @@ fn def_defspace__p09_capability_container_registers_and_rejects_foreign_body_cla
     let good = r#"
 capability DecoupledPower
 {
-    ps VCC
-    ps GND
+    psnk VCC
+    psnk GND
     io VBUS
 
     // `ref` is a reserved power-intent keyword (intent-design.md §5),
@@ -504,7 +504,7 @@ capability DecoupledPower
     assert_eq!(
         cap.signals.iter_ports().count(),
         3,
-        "declared ps/io signals land in the capability signal table"
+        "declared pwr/io signals land in the capability signal table"
     );
     assert_eq!(
         cap.funcs.len(),
@@ -623,16 +623,16 @@ fn def_defspace__p10_adoption_consistency_and_func_ambiguity() {
     let ok_src = r#"
 capability Pwr
 {
-    ps VCC
-    ps GND
+    psnk VCC
+    psnk GND
     io VBUS
 }
 
 abstract component Powered :: Pwr
 {
     pins = [
-        ps 1 = VCC
-        ps 2 = GND
+        psnk 1 = VCC
+        psnk 2 = GND
         io 3 = VBUS
     ]
 }
@@ -655,14 +655,14 @@ abstract component Powered :: Pwr
             .collect::<Vec<_>>()
     );
 
-    // ── `ps`-capability ↔ `in`-rail leniency: a power signal is satisfied by
+    // ── pwr-capability ↔ `in`-rail leniency: a power signal is satisfied by
     //    an `in` member (the library convention `in [VCC,GND]::DC(...)`), not
-    //    only by another `ps` rail.
+    //    only by another `psnk` rail.
     let rail_uri = "/virtual/p10_in_rail.mc".to_string();
     let rail_src = r#"
 capability Rail
 {
-    ps VDD
+    psnk VDD
 }
 
 abstract component InRail :: Rail
@@ -676,7 +676,7 @@ abstract component InRail :: Rail
     let rail = mcc::mcc_diagnose(&rail_uri);
     assert!(
         !any_code(&rail, mcc::errcodes::CAPABILITY_SIGNAL_MISSING, |d| d.code),
-        "a `ps` capability signal matches an `in` power-rail member; got {:?}",
+        "a `psnk` capability signal matches an `in` power-rail member; got {:?}",
         rail.iter()
             .map(|d| (d.code, d.msg.clone()))
             .collect::<Vec<_>>()
@@ -687,16 +687,16 @@ abstract component InRail :: Rail
     let miss_src = r#"
 capability Pwr2
 {
-    ps VCC
-    ps GND
+    psnk VCC
+    psnk GND
     io VBUS
 }
 
 abstract component Slim :: Pwr2
 {
     pins = [
-        ps 1 = VCC
-        ps 2 = GND
+        psnk 1 = VCC
+        psnk 2 = GND
     ]
 }
 "#;
@@ -762,14 +762,14 @@ abstract component WrongIn :: Driver
 abstract component AbsRail
 {
     pins = [
-        ps 1 = VCC
+        psnk 1 = VCC
     ]
 }
 
 component WrongCapUse :: AbsRail
 {
     pins = [
-        ps 1 = VCC
+        psnk 1 = VCC
     ]
 }
 "#;
@@ -1328,7 +1328,7 @@ fn def_defspace__p14_variant_and_adoption_relation_queries() {
     let src = r#"
 capability Pwr
 {
-    ps VCC
+    psnk VCC
 }
 
 abstract component ABuf
@@ -1348,7 +1348,7 @@ component BBuf : ABuf
 abstract component CapHost :: Pwr
 {
     pins = [
-        ps 1 = VCC
+        psnk 1 = VCC
     ]
 }
 "#;
