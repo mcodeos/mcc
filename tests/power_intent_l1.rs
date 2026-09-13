@@ -115,6 +115,20 @@ fn build_codes(src: &str) -> Vec<u32> {
     codes
 }
 
+/// The messages of one code (for wording assertions).
+fn msgs_of(code: u32, src: &str) -> Vec<String> {
+    let _lock = common::lock();
+    common::reset();
+    let uri: McURI = "/mcc/power-intent-l1.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000).expect("flat build");
+    mcc::mcc_diagnose_all()
+        .iter()
+        .filter(|d| d.code == code)
+        .map(|d| d.msg.clone())
+        .collect()
+}
+
 /// Golden: two parallel DC `@bridge(GNDA, GND)` legs are a loop, but `@star`
 /// on the GND hub discharges it (main.mc ①). No PWR-2.
 #[test]
@@ -2608,5 +2622,104 @@ fn return_net_sink_not_fed_by_decap_bead_l4_reach() {
     assert!(
         !codes.contains(&mcc::errcodes::POWER_SINK_NOMINAL_MISMATCH),
         "return copper never carries an agreed nominal, so 6011 must stay silent; got codes: {codes:?}"
+    );
+}
+
+// §8.7 port role contract (6029, conduit-equivalence-design.md §8.7) — a module
+// `out` port carrying @bind_role(<role>) demands its parent binding land on a
+// reference of that role. The child names only a role, never an ancestor
+// conduit, so the parent binding is the witness. Judged in the binding layer:
+// the target must resolve to a conduit of the declared @role (a bare conduit
+// defaults to main), or to the layer's own out port re-declaring the same
+// @bind_role (layer-by-layer forwarding). A different role, or a target with no
+// role identity, is an Error.
+
+/// A child exporting one role-contract `out` port — the golden POWER_USB shape
+/// (`shield_to_earth @bind_role(earth)`) reduced to the contract alone.
+const BIND_CHILD: &str = "module CHILD() {\n    out P @bind_role(earth)\n}\n";
+
+/// §8.7 silent control: the parent binds the earth-contract port to the EARTH
+/// conduit — the contract is witnessed (golden `usb.shield_to_earth -> EARTH`).
+#[test]
+fn port_bind_role_earth_to_earth_stays_silent_6029() {
+    let src = format!(
+        "{BIND_CHILD}\nmodule main {{\n    conduit EARTH @role(earth)\n    \
+         CHILD u\n    u.P -> EARTH\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PORT_BIND_ROLE_MISMATCH),
+        "binding the earth-contract port to the EARTH conduit witnesses it → no 6029; got codes: {codes:?}"
+    );
+}
+
+/// §8.7 fire — the wrong role: the earth-contract port is bound to a
+/// `@role(main)` conduit, so the parent binding contradicts the declared
+/// contract. The message names both roles.
+#[test]
+fn port_bind_role_wrong_role_binding_fires_6029() {
+    let src = format!(
+        "{BIND_CHILD}\nmodule main {{\n    conduit GND @role(main)\n    \
+         CHILD u\n    u.P -> GND\n}}\n"
+    );
+    let ms = msgs_of(mcc::errcodes::PORT_BIND_ROLE_MISMATCH, &src);
+    assert_eq!(
+        ms.len(),
+        1,
+        "an earth-contract port bound to a main-role conduit must fire 6029 once; got: {ms:?}"
+    );
+    assert!(
+        ms[0].contains("@bind_role(earth)"),
+        "6029 must name the declared role; got: {ms:?}"
+    );
+    assert!(
+        ms[0].contains("role main"),
+        "6029 must name the resolved target role; got: {ms:?}"
+    );
+}
+
+/// §8.7 fire — a target with no role identity: the port is bound to a plain net
+/// (no conduit, no role), so the contract is not witnessed.
+#[test]
+fn port_bind_role_no_role_target_fires_6029() {
+    let src = format!("{BIND_CHILD}\nmodule main {{\n    CHILD u\n    u.P -> SHIELD\n}}\n");
+    let ms = msgs_of(mcc::errcodes::PORT_BIND_ROLE_MISMATCH, &src);
+    assert_eq!(
+        ms.len(),
+        1,
+        "an earth-contract port bound to a role-less net must fire 6029 once; got: {ms:?}"
+    );
+    assert!(
+        ms[0].contains("role none"),
+        "6029 must report the missing role; got: {ms:?}"
+    );
+}
+
+/// §8.7 silent control — the layer-by-layer forwarding that makes nesting work:
+/// the intermediate module re-exports the same `@bind_role` through its own out
+/// port, and only the top layer binds that port to the EARTH conduit. No layer
+/// ever names an ancestor conduit.
+#[test]
+fn port_bind_role_forwarded_through_layer_stays_silent_6029() {
+    let src = "module LEAF() {\n    out P @bind_role(earth)\n}\n\
+        module MID() {\n    LEAF l\n    out P2 @bind_role(earth)\n    l.P -> P2\n}\n\
+        module main {\n    conduit EARTH @role(earth)\n    MID m\n    m.P2 -> EARTH\n}\n";
+    let codes = build_codes(src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PORT_BIND_ROLE_MISMATCH),
+        "forwarding the contract through a layer's own out port witnesses it → no 6029; got codes: {codes:?}"
+    );
+}
+
+/// §8.7 default — a bare `conduit CHASSIS` (no `@role`) defaults to `main`
+/// (§5.2), so an `@bind_role(main)` port bound to it is witnessed and silent.
+#[test]
+fn port_bind_role_bare_conduit_defaults_to_main_stays_silent_6029() {
+    let src = "module CHILD() {\n    out P @bind_role(main)\n}\n\
+        module main {\n    conduit CHASSIS\n    CHILD u\n    u.P -> CHASSIS\n}\n";
+    let codes = build_codes(src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PORT_BIND_ROLE_MISMATCH),
+        "a bare conduit defaults to main, witnessing an @bind_role(main) port; got codes: {codes:?}"
     );
 }

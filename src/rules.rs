@@ -62,13 +62,14 @@ use crate::semantic::validation::nets::{
     check_converter_output_rail_window, check_converter_spec_incomplete, check_device_return_span,
     check_driver_conflict, check_earth_dc_leak, check_floating_inputs, check_floating_outputs,
     check_isolated_dc_bridge, check_nc_connected, check_net_budget, check_pin_contract_decode,
-    check_pin_count_mismatch, check_port_io_mismatch, check_power_bridge_loop, check_power_nets,
-    check_power_rail_contract, check_power_rail_two_roots, check_power_source_contention,
-    check_protective_multi_bridge, check_pullup_degenerate, check_reference_island_root,
-    check_return_leg_undeclared, check_role_ref_missing_bridge, check_single_point_nets,
-    check_sink_nominal_mismatch, check_sink_window_mismatch, check_unconnected_outputs,
-    check_undriven_nets, check_undriven_sink_net, check_unselected_abstract,
-    check_unused_module_ports, check_unwired_instances, check_voltage_mismatch, NetCheckResult,
+    check_pin_count_mismatch, check_port_bind_role, check_port_io_mismatch,
+    check_power_bridge_loop, check_power_nets, check_power_rail_contract,
+    check_power_rail_two_roots, check_power_source_contention, check_protective_multi_bridge,
+    check_pullup_degenerate, check_reference_island_root, check_return_leg_undeclared,
+    check_role_ref_missing_bridge, check_single_point_nets, check_sink_nominal_mismatch,
+    check_sink_window_mismatch, check_unconnected_outputs, check_undriven_nets,
+    check_undriven_sink_net, check_unselected_abstract, check_unused_module_ports,
+    check_unwired_instances, check_voltage_mismatch, NetCheckResult,
 };
 use crate::semantic::validation::pins::{
     check_conflicting_pins, check_unused_pins, PinCheckResult,
@@ -1033,6 +1034,27 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_device_return_span,
     },
+    // conduit-equivalence-design.md §8.7 port role contract (adjudicated
+    // 2026-09-13) — a module out port carrying @bind_role(<role>) demands its
+    // parent binding land on a role-<role> reference. The child names only a
+    // role, never an ancestor conduit, so the parent binding is the witness.
+    // Judged in the binding layer: the target must resolve to a conduit of the
+    // declared @role (a bare conduit defaults to main), or to a sibling out
+    // port re-declaring the same @bind_role (layer-by-layer forwarding). A
+    // different role, or a target with no role identity, is an Error.
+    // (Tail of the table, tracking the FLAT_ERC_ORDER tail append, §5-5.)
+    declare_flat_erc_rule! {
+        code = crate::errcodes::PORT_BIND_ROLE_MISMATCH,
+        name = "port-bind-role-mismatch",
+        title = "an out port's @bind_role contract is not witnessed by its parent binding",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "§8.7 port role contract: a module out port carrying @bind_role(<role>) demands its parent binding land on a role-<role> reference. The child names only a role, never an ancestor conduit (iron rule 1), so the parent binding is the witness. Judged in the binding layer (the owning scope of the port's parent-side net segment): the bound target must resolve to a conduit of the declared @role (a bare conduit defaults to main), or to a sibling out port re-declaring the same @bind_role (layer-by-layer forwarding — nesting repeats the same local rule). A different role, or a target with no role identity (a plain Signal net), is an Error: the contract is an explicit demand, unlike 6022/6027's advisory forgotten declaration (conduit-equivalence-design.md §8.7).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_port_bind_role,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1591,17 +1613,18 @@ mod tests {
         NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
         NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
         NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED,
-        POWER_BRIDGE_LOOP, POWER_CONVERTER_GATE, POWER_CONVERTER_OUTPUT_RAIL_WINDOW,
-        POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
-        POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION,
-        PROTECTIVE_MULTI_BRIDGE, PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
-        ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
+        PORT_BIND_ROLE_MISMATCH, POWER_BRIDGE_LOOP, POWER_CONVERTER_GATE,
+        POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE,
+        POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS, POWER_SINK_NOMINAL_MISMATCH,
+        POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION, PROTECTIVE_MULTI_BRIDGE,
+        PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED, ROLE_REF_MISSING_BRIDGE,
+        SINK_NET_NO_SOURCE,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 37] = [
+    const FLAT_ERC_ORDER: [u32; 38] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1639,6 +1662,7 @@ mod tests {
         POWER_CONVERTER_SPEC_INCOMPLETE, // §6.1 one-sided spec advisory (window batch)
         POWER_CONVERTER_OUTPUT_RAIL_WINDOW, // §6.7 converter output vs rail window
         DEVICE_RETURN_SPAN_UNDECLARED, // §8.6 device reference-pin cross-plane (tail append)
+        PORT_BIND_ROLE_MISMATCH, // §8.7 port role contract (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2172,7 +2196,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (144, 0, 3));
+        assert_eq!((strong, doc, note), (145, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

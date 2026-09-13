@@ -1578,6 +1578,18 @@ pub const DEVICE_RETURN_SPAN_UNDECLARED: u32 = 6027;
 /// terminal order disagrees with the declared direction contract.
 pub const DC_BINDING_DIR_MISMATCH: u32 = 6028;
 
+/// §6 port role contract (intent-design.md §6 / composition-terminal-design.md
+/// §4 / conduit-equivalence-design.md §8.7, adjudicated 2026-09-13) — a module
+/// `out` port carrying `@bind_role(<role>)` demands that its parent binding land
+/// on a reference of that role. The child names only a role, never an ancestor
+/// conduit, so the parent binding is the witness. Judged in the binding layer
+/// (`@role` defaults to `main`): the bound target must resolve to a conduit of
+/// the declared role, or to a sibling `out` port re-declaring the same
+/// `@bind_role` (layer-by-layer forwarding). A different role, or a target with
+/// no role identity, is an Error — the contract is an explicit demand, not
+/// 6022/6027's advisory forgotten declaration.
+pub const PORT_BIND_ROLE_MISMATCH: u32 = 6029;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -1979,6 +1991,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(POWER_CONVERTER_OUTPUT_RAIL_WINDOW, "A converter's declared output guarantee is not covered by the declared rail window of the rail net it drives.", "converter '{2}' guarantees output {0} on rail net '{3}', but the rail's declared window is only {1} — the guarantee escapes the rail's allowed window: the converter can deliver outside what the scope declares on that net. Fix the spec.output, or the rail tolerance if the rail is mis-declared (rail-contract-design.md §6.7)"),
     entry!(DEVICE_RETURN_SPAN_UNDECLARED, "A device's DC return pins span disjoint return classes (planes) with no declared relation covering the span.", "device '{2}' returns across planes '{0}' and '{1}' but no net-level @bridge/@couple and no declared isolation structure covers the span — its return-side pins silently DC-join the two classes through the die/substrate: add a net-level @bridge/@couple between the return nets, or check whether one return is an @role(isolated) source-side copper the device legitimately feeds (conduit-equivalence-design.md §8.6)"),
     entry!(DC_BINDING_DIR_MISMATCH, "A direction-word power terminal sits at the wrong end of its own connection chain.", "'{0}' is declared {1} but occupies {2} — the wrong end of its own connection chain: a source (psrc) face must lead the chain (first member / right of a {L|R} through), a sink (psnk) must trail it (last member / left of a {L|R} through). The direction word stays authoritative (6011/6019/6021/pwrflow): flip the arrow or move the terminal so the chain direction agrees with the declared direction contract (intent-design.md §5.3.2, PWR-10)"),
+    entry!(PORT_BIND_ROLE_MISMATCH, "An out port declaring @bind_role(<role>) is bound in its parent scope to a reference whose declared role differs, or to a net with no role identity.", "port '{0}' declares @bind_role({1}) but its parent binding '{2}' resolves to role {3} — the child names a role, never an ancestor conduit, so the parent binding must witness it: bind the port to a conduit of that role (or forward it to a sibling port re-declaring the same role). Bind to the {1} conduit, or fix the @bind_role if the contract itself is mis-declared (conduit-equivalence-design.md §8.7)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
