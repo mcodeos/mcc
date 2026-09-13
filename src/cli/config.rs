@@ -784,8 +784,9 @@ pub fn base_level(verbose: u8, quiet: bool) -> &'static str {
 
 // Per-target debug level overrides (bridge between lib ↔ binary logging)
 
-/// In-library storage for per-target debug overrides.
-/// Mirrors `logging::TARGETS` in the binary so RPC handlers can read/write.
+/// In-library storage for per-target debug overrides, so RPC handlers can
+/// read/write them without depending on the binary's `logging` module. Applied
+/// to the live filter through `TARGET_APPLIER`.
 static TARGET_OVERRIDES: LazyLock<StdMutex<HashMap<String, String>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 

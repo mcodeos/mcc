@@ -115,7 +115,11 @@ change-diary wordings `previously` / `formerly` / `renamed from` /
 `an early version` / `used to be`, and a comment line over 100 columns
 (rustfmt's default `max_width` — `wrap_comments` is off, so rustfmt never
 reflows a comment). It is a net, not a proof: prose that violates the rule
-without matching one of the three passes the gate. Content inside a fenced
+without matching one of the three passes the gate. The net is deliberately
+narrow: it never counts the *length of a comment block*, because no threshold
+separates multi-paragraph design rationale (which belongs in the design docs,
+with at most a one-line pointer here) from a legitimately long contract, module
+header or table. The shape of the prose is left to review. Content inside a fenced
 block, and a table row (content starting with `|`), are exempt. To keep a line
 that is legitimately long — a diagram, a URL, a grammar production — mark it
 with `check-comments:allow`. Do not put that marker on a `//!` line: it renders

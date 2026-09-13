@@ -15,19 +15,13 @@
 /// mcc_dbg!(info, "[Pass 1] parsing {} files", count);
 /// ```
 ///
-/// ## Naming convention
+/// ## Targets
 ///
-/// | Prefix    | Meaning      | Default visibility        |
-/// |-----------|-------------|---------------------------|
-/// | `"sem::*"` | Semantic    | `debug` (needs `-vv`)     |
-/// | `"inst::*"`| Instantiate | `debug` (needs `-vv`)     |
-/// | `"parse::*"`| Parse      | `debug` (needs `-vv`)     |
-/// | `"vec"`   | Vector      | `debug` (needs `-vv`)     |
-/// | `"viz"`   | Viz/Layout  | `debug` (needs `-vv`)     |
-/// | `"lsp::*"`| LSP/Query   | `debug` (needs `-vv`)     |
-/// | `error`   | Always      | `error` (always visible)  |
-/// | `warn`    | Always      | `warn`  (always visible)  |
-/// | `info`    | Always      | `info`  (needs `-v`)      |
+/// The accepted literal set is exactly the match arms below — there is no
+/// wildcard family. Each arm logs to the same-named `tracing` target under
+/// `mcc::`; the `error` / `warn` / `info` arms log at that level under the
+/// plain `mcc` target. Every `-D` / config / `trace.set` override keys on one
+/// of these literals.
 
 #[macro_export]
 macro_rules! mcc_dbg {
