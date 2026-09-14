@@ -15,12 +15,13 @@
 //! ```
 
 use super::arena::NodeArena;
+use super::identity::NodeId;
 use super::inststore::{InstanceStore, TreeView};
 use super::mc_bus::McBusInst;
 use super::mc_mod::McModuleInst;
 use super::mc_net::NetPoint;
 use crate::instant::nettab::NetTableStore;
-use crate::semantic::common::IOType;
+use crate::semantic::common::{IOType, McSpaceName};
 use crate::semantic::component::mc_pins::PwrDir;
 use crate::semantic::module::pi::McPowerDecls;
 use std::cell::RefCell;
@@ -403,6 +404,17 @@ pub struct InstEntry {
     /// `target` first. A real bus member (only slash spelling, no dotted
     /// member port) stays `None` and remains electrical.
     pub alias_of: Option<u32>,
+    /// §3.7 two-space id contract: the frozen circuit's arena node id for this
+    /// entry (Phase C [`NodeId`]), threaded at flatten time from the
+    /// modelling-layer instance. `None` for entries that own no arena node
+    /// (pins, labels, bus members, synthetic points). Products join on this
+    /// instead of re-deriving identity from the path string.
+    pub node_id: Option<NodeId>,
+    /// §3.7: canonical def key `(uri, ident)` of the class this entry
+    /// instantiates. `def_uri` records the *usage* file, so a cross-file class
+    /// keeps its own declaring uri here. `None` for entries that name no def
+    /// (pins, ports, labels, nets).
+    pub class_def: Option<McSpaceName>,
 }
 
 // NetEntry - Network record
@@ -776,6 +788,8 @@ impl InstTable {
             origin: InstOrigin::Declared,
             synthetic: false,
             alias_of: None,
+            node_id: None,
+            class_def: None,
         };
 
         self.entries.insert(id, entry);
@@ -787,6 +801,26 @@ impl InstTable {
     pub fn set_member_info(&mut self, id: u32, member_info: MemberInfo) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.member_info = Some(member_info);
+        }
+    }
+
+    /// Thread the §3.7 two-space identity onto an entry: the frozen circuit's
+    /// arena node id plus the canonical def key of its class. The flatten sites
+    /// call this right after registering a module / component / port node.
+    /// `None` arguments never clear a value already recorded.
+    pub fn set_identity(
+        &mut self,
+        id: u32,
+        node_id: Option<NodeId>,
+        class_def: Option<McSpaceName>,
+    ) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            if node_id.is_some() {
+                entry.node_id = node_id;
+            }
+            if class_def.is_some() {
+                entry.class_def = class_def;
+            }
         }
     }
 
@@ -1116,6 +1150,11 @@ impl InstTable {
             None,
             inst.def_uri.to_string(),
         );
+        self.set_identity(
+            my_id,
+            inst.node_id,
+            Some(McSpaceName::new(&inst.def.name, inst.def.uri.clone())),
+        );
         // ★ Root header anchor: record the built module's own `module <name>`
         // declaration span so design-scope net-check summaries (4118 power-net
         // count) can anchor at the module header instead of file:1:1. Only the
@@ -1200,6 +1239,7 @@ impl InstTable {
                 None,
                 inst.def_uri.to_string(),
             );
+            self.set_identity(port_id, port.node_id, None);
             // Signature interface params (e.g. `[VDD_3V3, GND]::DC(3.3V)`)
             // are declared in `def.params`, not `def.insts` — when the body
             // instance lookup misses, fall back to the param declaration span
@@ -1403,6 +1443,11 @@ impl InstTable {
                 None,
                 inst.def_uri.to_string(),
             );
+            self.set_identity(
+                comp_id,
+                comp.node_id,
+                Some(McSpaceName::new(&comp.def.name, comp.def.uri.clone())),
+            );
             // ★ Structural pin count: comp.pins (static + resolved dynamic) is
             // exactly the set registered as Pin children below.
             self.set_pin_count(comp_id, comp.pins.len());
@@ -1596,6 +1641,11 @@ impl InstTable {
                 IOType::None,
                 None,
                 inst.def_uri.to_string(),
+            );
+            self.set_identity(
+                comp_id,
+                comp.node_id,
+                Some(McSpaceName::new(&comp.def.name, comp.def.uri.clone())),
             );
             // ★ Structural pin count (same as pass-1): pins registered below.
             self.set_pin_count(comp_id, comp.pins.len());

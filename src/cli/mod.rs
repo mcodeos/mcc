@@ -347,6 +347,40 @@ impl OutputFormat {
     pub fn is_jsonish(&self) -> bool {
         matches!(self, OutputFormat::Json | OutputFormat::JsonPretty)
     }
+
+    /// The `u8` tag the export / output protocol dispatches on.
+    pub fn id(self) -> u8 {
+        match self {
+            OutputFormat::Text => 0,
+            OutputFormat::Json => 1,
+            OutputFormat::JsonPretty => 2,
+            OutputFormat::Yaml => 3,
+            OutputFormat::Csv => 4,
+        }
+    }
+
+    /// Canonical format token, shared by the RPC `format` field and the echoed
+    /// format of the emitted envelope.
+    pub fn name(self) -> &'static str {
+        match self {
+            OutputFormat::Text => "text",
+            OutputFormat::Json => "json",
+            OutputFormat::JsonPretty => "json-pretty",
+            OutputFormat::Yaml => "yaml",
+            OutputFormat::Csv => "csv",
+        }
+    }
+
+    /// Parse a format token; an unknown spelling falls back to `text`.
+    pub fn from_name(s: &str) -> OutputFormat {
+        match s {
+            "json" => OutputFormat::Json,
+            "json-pretty" | "jsonpretty" => OutputFormat::JsonPretty,
+            "yaml" => OutputFormat::Yaml,
+            "csv" => OutputFormat::Csv,
+            _ => OutputFormat::Text,
+        }
+    }
 }
 
 /// Instance Tree pin list sorting mode
@@ -687,6 +721,47 @@ pub enum ExportKind {
     // KiCad s-expression netlist (M8)
     #[value(name = "kicad")]
     KiCad,
+    // Instance list carrying the two-space identity (build-design §3.7)
+    #[value(name = "inst-list")]
+    InstList,
+}
+
+impl ExportKind {
+    /// The `u8` tag `export::build_payload` dispatches on.
+    pub fn id(self) -> u8 {
+        match self {
+            ExportKind::Netlist => 0,
+            ExportKind::Bom => 1,
+            ExportKind::Spice => 2,
+            ExportKind::KiCad => 3,
+            ExportKind::InstList => 4,
+        }
+    }
+
+    /// The `KIND` token shared by the RPC `kind` field and the reported kind
+    /// of the emitted envelope (build-design §3.6 contract 3: one table, so a
+    /// new product changes a single place).
+    pub fn name(self) -> &'static str {
+        match self {
+            ExportKind::Netlist => "netlist",
+            ExportKind::Bom => "bom",
+            ExportKind::Spice => "spice",
+            ExportKind::KiCad => "kicad-netlist",
+            ExportKind::InstList => "inst-list",
+        }
+    }
+
+    /// Parse a `KIND` token, accepting the `kicad` short spelling; an unknown
+    /// token falls back to the netlist default.
+    pub fn from_name(s: &str) -> ExportKind {
+        match s {
+            "bom" => ExportKind::Bom,
+            "spice" => ExportKind::Spice,
+            "kicad" | "kicad-netlist" => ExportKind::KiCad,
+            "inst-list" => ExportKind::InstList,
+            _ => ExportKind::Netlist,
+        }
+    }
 }
 
 // build

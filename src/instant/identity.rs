@@ -2,18 +2,15 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Phase C1 of the dianlu-tree refactor (implementation plan §9 C / design
-//! §4, D1/D6): per-build node identity — `IdentityRegistry`, the
+//! Per-build node identity for the frozen circuit: `IdentityRegistry`, the
 //! deterministic `path ↔ NodeId` interning table with tombstone semantics.
 //!
 //! The modelling tree (`McModuleInst`) is a recursive ownership tree whose
-//! nodes carry `name + Rust reference` — no stable identity, so re-entered
-//! sub-modules produce dangling references, cross-tree references are
-//! unstable, and nothing can be incrementally rebuilt or serialized. Phase C1
-//! (identity first) attaches a per-build [`NodeId`] companion field to every
-//! node and interns its canonical path (`main.ldo.c1`, member names, not
-//! positional indices) in this registry, so *within one build* the same path
-//! always yields the same ID.
+//! nodes carry no identity of their own, so a re-entered sub-module and a
+//! cross-tree reference have nothing stable to join on. A per-build [`NodeId`]
+//! companion field on every node plus the canonical path interned here
+//! (`main.ldo.c1`, member names, not positional indices) supplies it: within
+//! one build the same path always yields the same ID.
 //!
 //! Discipline (shared with the def layer ledger, defspace invariant C):
 //! - IDs are allocated monotonically and **never reused**;
@@ -24,9 +21,9 @@
 //!   when a finished sub-module is lifted back into a builder (re-entry),
 //!   keeping re-instantiated products on the same IDs.
 //!
-//! Cross-build persistence is out of scope here — the registry travels with
-//! `CircuitWorld` (Phase G, D10); Phase C1 only guarantees per-build
-//! determinism (same path → same ID within one instantiation).
+//! The registry is a per-world field keyed by [`CircuitKey`] (`CircuitWorld`),
+//! so a `NodeId` is comparable only within one circuit; cross-build
+//! persistence keys on the canonical path instead.
 
 use crate::instant::lane::NetId;
 use std::collections::{HashMap, HashSet};

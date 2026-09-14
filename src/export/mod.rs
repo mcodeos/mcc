@@ -6,6 +6,7 @@
 //! (`cmds/export.rs`) and the JSON-RPC handler (`rpc/handlers.rs`).
 
 pub mod bom;
+pub mod instlist;
 pub mod kicad;
 pub mod netlist;
 pub mod spice;
@@ -44,36 +45,6 @@ fn for_each_module_impl(inst: &McModuleInst, view: &TreeView, f: &mut impl FnMut
     f(inst);
     for sub in view.sub_modules(inst) {
         for_each_module_impl(sub, view, f);
-    }
-}
-
-/// Kind of export.
-pub fn kind_from_str(s: &str) -> u8 {
-    match s {
-        "bom" => 1,
-        "spice" => 2,
-        "kicad" | "kicad-netlist" => 3,
-        _ => 0,
-    }
-}
-
-pub fn kind_to_str(k: u8) -> &'static str {
-    match k {
-        1 => "bom",
-        2 => "spice",
-        3 => "kicad-netlist",
-        _ => "netlist",
-    }
-}
-
-/// Output format. 0=text, 1=json, 2=json-pretty, 3=yaml, 4=csv
-pub fn format_from_str(s: &str) -> u8 {
-    match s {
-        "json" => 1,
-        "json-pretty" | "jsonpretty" => 2,
-        "yaml" => 3,
-        "csv" => 4,
-        _ => 0,
     }
 }
 
@@ -137,6 +108,7 @@ pub fn build_payload(
         1 => bom::build_bom(tree, arena, inst_store, top, format),
         2 => spice::build_spice(tree, table, arena, inst_store, top),
         3 => kicad::build_kicad_netlist(tree, table, arena, inst_store, top),
+        4 => instlist::build_inst_list(table, format),
         _ => {
             // Phase D: the tree never stores NetPoint — the netlist export
             // reads the frozen string net tables from the flat table's store.
