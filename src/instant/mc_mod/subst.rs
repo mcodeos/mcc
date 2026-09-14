@@ -489,6 +489,7 @@ impl InstantiationBuilder {
                 resolved_return_shape: f.resolved_return_shape.clone(),
                 pre_closure: f.pre_closure,
                 named_ctor: f.named_ctor,
+                receiver_is_ctor: f.receiver_is_ctor,
             }),
             McPhrase::Transposed(inner) => McPhrase::Transposed(Box::new(Self::substitute_phrase(
                 inner,

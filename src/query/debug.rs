@@ -163,20 +163,9 @@ pub(crate) fn print_phrase_internal(
             }
         }
         McPhrase::FuncCall(f) => {
-            // Check if it is a pre-closure pattern
-            let is_pre_closure = if let Some(c) = &f.caller {
-                if let McPhrase::FuncCall(inner_fc) = c.as_ref() {
-                    let func_name_str = inner_fc.func_name.to_string();
-                    func_name_str
-                        .chars()
-                        .next()
-                        .is_some_and(|c| c.is_uppercase())
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
+            // Construction receiver (`CAP(10uF).Cap(_)`) renders flat; the
+            // judgment is recorded in the def space at parse time.
+            let is_pre_closure = f.receiver_is_ctor;
 
             print!("{prefix}(funcall: ");
             if let Some(c) = &f.caller {

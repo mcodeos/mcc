@@ -152,28 +152,64 @@ impl McPhrase {
     /// members with an undirected gap and shorts them together (a returnless
     /// `Pullup` put all four pins and both nets on ONE net).
     ///
-    /// Recognised **structurally** — every member is a method call whose
-    /// receiver is a named ctor (`x1::RES(0).Pullup(…)`), which is exactly what
-    /// the fan-out builds. A `Multiple` that is a genuine lane stack
-    /// (`[VDD, GND]`) has plain endpoints, and a fan-out nested in a `Series`
-    /// (`A -> x[1:2]::RES(0).Pullup(…)`) is a real chain — neither matches, so
-    /// only the standalone-statement case is expanded.
+    /// Recognised **structurally** — every member is a call on a construction
+    /// receiver. Two producers make such a `Multiple`: the §3.3 array-member
+    /// fan-out (`x1::RES(0).Pullup(…)`, a named ctor) and the §9 R-b `=>`
+    /// **group fork** (`(A,B) => RESS(10).Pullup(…)`, an inline ctor). A
+    /// `Multiple` that is a genuine lane stack (`[VDD, GND]`) holds plain
+    /// endpoints, so it never matches.
     pub fn expand_array_member_statements(&self) -> Option<Vec<McPhrase>> {
         let McPhrase::Multiple(items) = self else {
             return None;
         };
-        if items.len() < 2 {
-            return None;
+        if Self::is_call_fanout(items) {
+            Some(items.clone())
+        } else {
+            None
         }
-        let is_fanned_member = |p: &McPhrase| {
-            matches!(p, McPhrase::FuncCall(fc)
-                if matches!(fc.caller.as_deref(),
-                    Some(McPhrase::FuncCall(ctor)) if ctor.named_ctor))
-        };
-        if !items.iter().all(is_fanned_member) {
-            return None;
+    }
+
+    /// A `Multiple` standing for N **independent statements** rather than a lane
+    /// stack: at least two members, each a call on a construction receiver.
+    fn is_call_fanout(items: &[McPhrase]) -> bool {
+        items.len() > 1 && items.iter().all(Self::is_ctor_call)
+    }
+
+    /// A call whose receiver is a construction — named (`res1::RES(0)`) or
+    /// inline (`RESS(10)`). A label receiver has an endpoint caller and names a
+    /// chain member, not a fan-out branch.
+    fn is_ctor_call(p: &McPhrase) -> bool {
+        matches!(p, McPhrase::FuncCall(fc)
+            if matches!(fc.caller.as_deref(), Some(McPhrase::FuncCall(_))))
+    }
+
+    /// A `Multiple` produced by the §9 R-b `=>` **group fork**: every member is
+    /// a call on an **inline** construction. The §3.3 array-member fan-out uses
+    /// a **named** ctor receiver and stays a chain member when a chain wraps it
+    /// (`I2C0 -> res[1:2]::RES(0).Pullup(…)`), so the two must not be conflated.
+    fn is_group_fork(items: &[McPhrase]) -> bool {
+        items.len() > 1
+            && items.iter().all(|p| {
+                matches!(p, McPhrase::FuncCall(fc)
+                    if matches!(fc.caller.as_deref(),
+                        Some(McPhrase::FuncCall(ctor)) if !ctor.named_ctor))
+            })
+    }
+
+    /// Expansion alternatives for one phrase inside a `Series`/`Parallel`: a
+    /// multi-statement group yields one branch each, a group-fork `Multiple`
+    /// yields its members, and anything else is a single option. The flag
+    /// reports whether the phrase expanded at all.
+    fn expand_options(p: McPhrase) -> (Vec<McPhrase>, bool) {
+        if let Some(sub) = Self::expand_group(p.clone()) {
+            return (sub, true);
         }
-        Some(items.clone())
+        if let McPhrase::Multiple(items) = &p {
+            if Self::is_group_fork(items) {
+                return (items.clone(), true);
+            }
+        }
+        (vec![p], false)
     }
 
     fn expand_group(phrase: McPhrase) -> Option<Vec<McPhrase>> {
@@ -191,17 +227,14 @@ impl McPhrase {
                 Some(out)
             }
             McPhrase::Series(elems, dir) => {
-                // Expand every element; any multi-statement group yields one
-                // series per branch (cross product across multiple groups).
+                // Expand every element; any multi-statement group or statement
+                // fork yields one series per branch (cross product across them).
                 let mut any = false;
                 let mut groups: Vec<Vec<McPhrase>> = Vec::with_capacity(elems.len());
                 for e in elems {
-                    if let Some(sub) = Self::expand_group(e.clone()) {
-                        any = true;
-                        groups.push(sub);
-                    } else {
-                        groups.push(vec![e]);
-                    }
+                    let (opts, did) = Self::expand_options(e);
+                    any |= did;
+                    groups.push(opts);
                 }
                 if !any {
                     return None;
@@ -217,12 +250,9 @@ impl McPhrase {
                 let mut any = false;
                 let mut groups: Vec<Vec<McPhrase>> = Vec::with_capacity(stmts.len());
                 for s in stmts {
-                    if let Some(sub) = Self::expand_group(s.clone()) {
-                        any = true;
-                        groups.push(sub);
-                    } else {
-                        groups.push(vec![s]);
-                    }
+                    let (opts, did) = Self::expand_options(s);
+                    any |= did;
+                    groups.push(opts);
                 }
                 if !any {
                     return None;
@@ -1607,6 +1637,7 @@ impl McPhrase {
                                         resolved_return_shape: None,
                                         pre_closure: false,
                                         named_ctor: true,
+                                        receiver_is_ctor: false,
                                     }));
                                 }
                                 return Some(if fcs.len() <= 1 {
@@ -1624,6 +1655,7 @@ impl McPhrase {
                                             resolved_return_shape: None,
                                             pre_closure: false,
                                             named_ctor: true,
+                                            receiver_is_ctor: false,
                                         })
                                     })
                                 } else {
@@ -4292,33 +4324,11 @@ impl std::fmt::Display for McPhrase {
             }
             McPhrase::Closure(c) => write!(f, "=>({})", c.body.len()),
             McPhrase::FuncCall(fc) => {
-                // Check if this is a pre-closure parameter pattern
-                // Pattern: pre_param -> ClassName(params).MethodName(method_params)
-                // where pre_param is the pre_closure parameter, and ClassName starts with uppercase
-                let caller_is_pre_closure = if let Some(c) = &fc.caller {
-                    if let McPhrase::FuncCall(inner_fc) = c.as_ref() {
-                        let func_name_str = inner_fc.func_name.to_string();
-                        func_name_str
-                            .chars()
-                            .next()
-                            .is_some_and(|c| c.is_uppercase())
-                    } else if let McPhrase::Endpoint(ep) = c.as_ref() {
-                        matches!(
-                            ep,
-                            McEndpoint::Single(McInstanceRef {
-                                base: McInstance::Label(_),
-                                ..
-                            }) | McEndpoint::Single(McInstanceRef {
-                                base: McInstance::Bus(_),
-                                ..
-                            })
-                        )
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
+                // A construction receiver (`CAP(10uF).Cap(_)`) renders the
+                // construction flat; any other receiver keeps its own phrase so
+                // the chain is not lost (`r1.Go(x).Run(y)`). The judgment is
+                // recorded in the def space at parse time (`receiver_is_ctor`).
+                let caller_is_ctor = fc.receiver_is_ctor;
 
                 // Print caller or pre-closure parameter.
                 // Function calls bind with `.` (source: `CAP(x).Cap(_)`),
@@ -4326,7 +4336,7 @@ impl std::fmt::Display for McPhrase {
                 // `::` per `named_ctor`.
                 let joiner = if fc.named_ctor { "::" } else { "." };
                 if let Some(c) = &fc.caller {
-                    if caller_is_pre_closure {
+                    if caller_is_ctor {
                         if let McPhrase::FuncCall(inner_fc) = c.as_ref() {
                             write!(f, "{}", inner_fc.func_name)?;
                             let inner_params: Vec<String> =

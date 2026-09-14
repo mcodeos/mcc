@@ -13,7 +13,7 @@
 //! - `prefix_instance_stmt/phrase/node_element` —— Label prefixing in instance method bodies
 
 use super::expand::ExpansionContext;
-use super::funccall::FuncCallInst;
+use super::funccall::{FaceSide, FuncCallInst};
 use super::matching::{check_vector_width, WidthCheck};
 use super::FailedRecord;
 use super::McVectorInst;
@@ -88,6 +88,70 @@ fn wire_series_params(
         }
     }
     Ok(())
+}
+
+/// Evaluate a call sitting in an argument position.
+///
+/// `R2.Go(R1.Go(SIG))` — and the same tree a `=>` chain folds into — puts a
+/// call where an argument is expected: the inner call must run first, and its
+/// return value is the actual argument. Body substitution reads only an
+/// argument phrase's left endpoint (`param_value_to_node_elements`), which a
+/// call does not have, so the inner call would otherwise be dropped silently
+/// with its formal name left in the netlist as a label.
+///
+/// Each such argument is materialized here and replaced by the net points of
+/// the inner call's return face (a stereo return node carries the same face on
+/// both mouths, so the left mouth is the value). An argument whose call
+/// resolves to no face is reported (E4152) and kept as written, so the loss is
+/// visible instead of silent.
+fn eval_nested_call_args(
+    this: &mut InstantiationBuilder,
+    params: &[McParamValue],
+) -> Result<Vec<McParamValue>, InstError> {
+    let mut evaluated: Vec<McParamValue> = Vec::with_capacity(params.len());
+    for param in params {
+        let McParamValue::Phrase(phrase) = param else {
+            evaluated.push(param.clone());
+            continue;
+        };
+        let McPhrase::FuncCall(fc) = phrase.as_ref() else {
+            evaluated.push(param.clone());
+            continue;
+        };
+        // Fresh IDs for the nested calls (the statement walker only numbers
+        // the top-level chain), so auto_inst_map keys stay unique.
+        let mut call = McPhrase::FuncCall(fc.clone());
+        InstantiationBuilder::assign_phrase_ids(&mut call, &mut this.next_phrase_id);
+        this.process_member_internal(&call)?;
+        let names: Vec<String> = this
+            .resolve_funccall_face(&call, FaceSide::Left)?
+            .into_iter()
+            .filter(|p| !p.is_lead_placeholder())
+            .map(|p| p.path)
+            .collect();
+        if names.is_empty() {
+            let func_name = fc.func_name.to_string();
+            this.log_global_diag(
+                crate::errcodes::INST_METHOD_FALLBACK,
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                crate::errcodes::format_msg(
+                    crate::errcodes::INST_METHOD_FALLBACK,
+                    &[&func_name, &this.name],
+                ),
+            );
+            evaluated.push(param.clone());
+        } else if names.len() == 1 {
+            evaluated.push(McParamValue::Ids(McIds::from(names[0].as_str())));
+        } else {
+            evaluated.push(McParamValue::Set(
+                names
+                    .iter()
+                    .map(|n| McParamValue::Ids(McIds::from(n.as_str())))
+                    .collect(),
+            ));
+        }
+    }
+    Ok(evaluated)
 }
 
 impl InstantiationBuilder {
@@ -660,6 +724,11 @@ impl InstantiationBuilder {
             return Ok(FuncCallInst::PassThrough);
         }
 
+        // U34: an argument that is itself a call must run first, its return
+        // face becoming the actual argument. See `eval_nested_call_args`.
+        let evaluated = eval_nested_call_args(self, params)?;
+        let params: &[McParamValue] = &evaluated;
+
         // 1. Param binding (formal <- actual, positional + named)
         let mut bindings = match McParamBindings::bind(&func_def.params, params) {
             Ok(b) => b,
@@ -1223,6 +1292,11 @@ impl InstantiationBuilder {
             );
             return Ok(FuncCallInst::PassThrough);
         }
+
+        // U34: an argument that is itself a call must run first, its return
+        // face becoming the actual argument. See `eval_nested_call_args`.
+        let evaluated = eval_nested_call_args(self, params)?;
+        let params: &[McParamValue] = &evaluated;
 
         // 1. Bind formal parameters. Actual arguments bind directly to formal
         //    parameters — no auto-split of a Set actual across scalar formals,
@@ -2230,6 +2304,7 @@ impl InstantiationBuilder {
                 resolved_return_shape: f.resolved_return_shape.clone(),
                 pre_closure: f.pre_closure,
                 named_ctor: f.named_ctor,
+                receiver_is_ctor: f.receiver_is_ctor,
             }),
             // ── P3-1: expand Label or empty Bus to Bus with populated members ──
             // Handles both Label (e.g. "X6.XTAL") and Bus with empty members
@@ -2384,6 +2459,7 @@ impl InstantiationBuilder {
                 );
                 McPhrase::FuncCall(McFuncCall {
                     id: 0,
+                    receiver_is_ctor: caller_is_class_construction,
                     caller: if caller_is_class_construction {
                         // Class construction caller: new anonymous component, don't prefix
                         f.caller.clone()
