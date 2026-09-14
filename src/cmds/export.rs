@@ -13,7 +13,7 @@ use crate::cmds::manifest;
 use crate::output::envelope::ExportData;
 use crate::output::{self, builder::ResultBuilder, envelope::Envelope};
 use anyhow::Result;
-use mcc::cli::{rpcclient::RpcClient, ExportArgs, ExportKind, OutputFormat};
+use mcc::cli::{rpcclient::RpcClient, ExportArgs, OutputFormat};
 use mcc::export;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -45,21 +45,10 @@ fn rpc_mapping(args: &ExportArgs) -> Option<(&'static str, Value)> {
         Some((
             "export",
             json!({
-                "kind":   match args.kind {
-                    ExportKind::Netlist => "netlist",
-                    ExportKind::Bom => "bom",
-                    ExportKind::Spice => "spice",
-                    ExportKind::KiCad => "kicad-netlist",
-                },
+                "kind":   args.kind.name(),
                 "entry":  args.file,
                 "top":    mcc::cli::globals().top,
-                "format": match mcc::cli::globals().format {
-                    OutputFormat::Text => "text",
-                    OutputFormat::Json => "json",
-                    OutputFormat::JsonPretty => "json-pretty",
-                    OutputFormat::Yaml => "yaml",
-                    OutputFormat::Csv => "csv",
-                },
+                "format": mcc::cli::globals().format.name(),
                 "libs":   mcc::cli::globals().lib,
             }),
         ))
@@ -94,25 +83,9 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         .top
         .clone()
         .unwrap_or_else(|| mcc::mcb_get_first_module_name().unwrap_or_else(|| "?".into()));
-    let kind_str = match args.kind {
-        ExportKind::Netlist => "netlist",
-        ExportKind::Bom => "bom",
-        ExportKind::Spice => "spice",
-        ExportKind::KiCad => "kicad-netlist",
-    };
-    let kind_tag = match args.kind {
-        ExportKind::Netlist => 0u8,
-        ExportKind::Bom => 1u8,
-        ExportKind::Spice => 2u8,
-        ExportKind::KiCad => 3u8,
-    };
-    let format_tag = match format {
-        OutputFormat::Text => 0u8,
-        OutputFormat::Json => 1u8,
-        OutputFormat::JsonPretty => 2u8,
-        OutputFormat::Yaml => 3u8,
-        OutputFormat::Csv => 4u8,
-    };
+    let kind_str = args.kind.name();
+    let kind_tag = args.kind.id();
+    let format_tag = format.id();
     let (raw_text, items, count) = export::build_payload(
         &tree,
         &table,
