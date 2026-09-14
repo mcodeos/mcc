@@ -221,7 +221,33 @@ impl McModule {
                             McParamTypeKind::Interface { .. }
                                 | McParamTypeKind::InterfaceWithRole { .. }
                         );
-                        if is_enum || is_interface {
+                        // Component-instance parameter: `id::Class({attrs})`.
+                        // The form parses but has no engine consumer — the
+                        // attribute body would be dropped silently. This must
+                        // be checked BEFORE the `is_enum` fork: `is_enum` is a
+                        // class-registry lookup, so routing on it would make
+                        // the diagnostic depend on the class NAME (enum class
+                        // → E3112, everything else → the instance path and a
+                        // bogus unresolved-class error). Classify on the
+                        // clause shape instead.
+                        let is_component_instance =
+                            matches!(pt.kind, McParamTypeKind::ComponentInstance { .. });
+                        if is_component_instance {
+                            let class_name = match &pt.kind {
+                                McParamTypeKind::ComponentInstance { class_name } => {
+                                    class_name.clone()
+                                }
+                                _ => String::new(),
+                            };
+                            dlog_error(
+                                crate::errcodes::PARAM_INLINE_ATTRS_UNSUPPORTED,
+                                &subnode,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::PARAM_INLINE_ATTRS_UNSUPPORTED,
+                                    &[&class_name],
+                                ),
+                            );
+                        } else if is_enum || is_interface {
                             self.params.parse(&param_node);
                             // ★ LSP: register the interface class ref of a
                             // module port (`[VDD_3V3,GND]::DC(3.3V)` → `DC`) so
