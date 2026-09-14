@@ -407,6 +407,23 @@ impl McParamType {
                                     if let Some(param_list) = pn.get_sub_node() {
                                         let mut iface_params: Vec<String> = Vec::new();
                                         for param in param_list.iter() {
+                                            // Inline attribute body: `id::Class({attrs})`.
+                                            // The grammar wraps it as
+                                            // MCAST_PARAMS > MCAST_PARAM > MCAST_BODY, i.e.
+                                            // NOT as a direct child of MCAST_CLASS — so the
+                                            // `MCAST_BODY` arm above never sees it. Detect it
+                                            // here, otherwise the declaration falls through to
+                                            // `Interface` and the attributes are dropped with
+                                            // no diagnostic (E3112 is raised by the caller).
+                                            if param.get_type() == MCAST_BODY
+                                                || param
+                                                    .get_sub_node()
+                                                    .map(|c| c.get_type() == MCAST_BODY)
+                                                    .unwrap_or(false)
+                                            {
+                                                has_inline_attrs = true;
+                                                continue;
+                                            }
                                             if let Some(ids) = McIds::new(&param) {
                                                 if !has_role_arg {
                                                     has_role_arg = true;

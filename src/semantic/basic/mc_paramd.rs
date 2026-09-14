@@ -718,6 +718,25 @@ impl McParamDeclare {
         // Syntactic type classification (handles explicitly annotated forms immediately)
         let mut param_type = McParamType::from_ast(node);
 
+        // Component-instance parameter: `id::Class({attrs})` parses (via `mc_param:
+        // mc_body`) but has no engine consumer — the attribute body would be
+        // discarded and the declaration downgraded to a plain interface param with
+        // no diagnostic. Report it instead of letting the attributes vanish (E3112).
+        if let crate::semantic::basic::mc_param_type::McParamTypeKind::ComponentInstance {
+            class_name,
+        } = &param_type.kind
+        {
+            let cls: &dyn std::fmt::Display = class_name;
+            dlog_error(
+                crate::errcodes::PARAM_INLINE_ATTRS_UNSUPPORTED,
+                node,
+                &crate::errcodes::format_msg(
+                    crate::errcodes::PARAM_INLINE_ATTRS_UNSUPPORTED,
+                    &[cls],
+                ),
+            );
+        }
+
         let kind = match subnode.get_type() {
             MCAST_ROLE => {
                 // Check for default role value via next sibling (role = Controller)
