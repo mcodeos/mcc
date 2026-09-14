@@ -532,3 +532,37 @@ module MIXED(psrc out_v{VBUS, GND}::DC(5V), psbi io_v{VCC, GND}::DC(3.3V))
          E3055-silent: {result}"
     );
 }
+
+#[test]
+fn sem_falsediag__directed_header_power_port_counts_toward_arity() {
+    // A direction-word header port (`psnk [VDD_3V3, GND]::DC(3.3V)`) is a real
+    // constructor formal: `PSUB p1(V3V3)` binds it by position, so it must
+    // count toward the declared arity and stay E5352-silent.
+    let source = r#"module PSUB(psnk [VDD_3V3, GND]::DC(3.3V))
+{
+}
+module main()
+{
+    PSUB p1(V3V3)
+}
+"#;
+    let result = parse(source);
+    assert!(
+        !has_code(&result, 5352),
+        "a direction-word header port must count toward the module arity: {result}"
+    );
+
+    // The count is real, not suppressed: one extra arg still reports.
+    let over = r#"module PSUB(psnk [VDD_3V3, GND]::DC(3.3V))
+{
+}
+module main()
+{
+    PSUB p1(V3V3, V5V)
+}
+"#;
+    assert!(
+        has_code(&parse(over), 5352),
+        "passing more args than the declared direction-word ports must report"
+    );
+}

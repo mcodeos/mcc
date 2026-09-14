@@ -2,22 +2,24 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! param-prefix §2: **group prefix** `(A, B) => f(_, _)`.
+//! param-prefix §9.1: **group prefix** `(A, B) => f(...)` is a **statement
+//! fork**, not one actual and not a fill of `_` slots.
 //!
-//! A group prefix is **not** one actual. Its members fill the bare `_`
-//! placeholder slots **one-to-one, in order**, so the fold is the plain call
-//! `f(A, B)` — ONE component, one net per slot:
+//! The group is z-axis (statement) structure — its members carry no order — so
+//! each member becomes its **own** prefix statement, folded on its own:
 //!
 //! ```text
-//! (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, _)
-//!   ≡ RESS(10).Pullup(I2C0.SCL, I2C0.SDA)
+//! (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)
+//!   ≡ I2C0.SCL => RESS(10).Pullup(_, VCC)   and
+//!     I2C0.SDA => RESS(10).Pullup(_, VCC)   -- TWO components
 //! ```
 //!
 //! This is what separates it from the **bus** prefix (§5), which *replicates*
-//! the call once per lane. The load-bearing assertion below is therefore the
-//! instance **count**: a replication bug (or the old all-placeholder rule,
-//! which folded the whole group into a single actual and then hit E4176) is
-//! caught by `heads.len() == 1`, which a `contains`-style lock would miss.
+//! the call once per lane of ONE multi-member operand. The load-bearing
+//! assertions below are therefore the instance **count** and the
+//! **order-insensitivity**: the withdrawn one-to-one fill (zip) produced ONE
+//! component whose slots followed the written order, so `(A, B)` and `(B, A)`
+//! wired different circuits — a `contains`-style lock would miss both.
 
 // Family naming `{family}__{essence}` deliberately doubles the underscore so
 // the grep-able family token stays separate.
@@ -30,13 +32,28 @@ use std::collections::BTreeSet;
 use mcc::{McIds, McURI};
 
 /// Two-pin resistor whose `Pullup` body wires `n1 - this - n2`.
+///
+/// `Pullup` declares **two scalar network formals** on purpose: the fork's
+/// branches are two-operand calls (`f(A, VCC)`), and §9.7 states the group
+/// spelling as "two scalar formals, two actuals". The library's own
+/// `Pullup([net, vcc])` is one **index** formal — that shape takes a single
+/// `_` fed by a vector prefix (`[A, B] => …Pullup(_)`), which is a different
+/// axis (§3) and not this file's subject.
 const RES: &str = "component RESS(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Pullup(n1, n2) {\n        n1 - this - n2\n    }\n}\n";
 
 /// Module skeleton: the two nets the group members name, plus a rail.
 const HEAD: &str = "module main {\n    io I2C0{SCL, SDA}\n    io VCC\n    func M() {\n";
 
+/// Same skeleton plus a third port, for the chain-tail case.
+const HEAD_TAIL: &str =
+    "module main {\n    io I2C0{SCL, SDA}\n    io VCC\n    io TAIL\n    func M() {\n";
+
 fn src_of(body: &str) -> String {
     format!("{RES}{HEAD}{body}\n    }}\n}}\n")
+}
+
+fn src_of_tail(body: &str) -> String {
+    format!("{RES}{HEAD_TAIL}{body}\n    }}\n}}\n")
 }
 
 /// The net partition of `src`: point-sets sharing a net, inner+outer sorted,
@@ -77,7 +94,20 @@ fn codes_of(src: &str, uri: &str) -> Vec<u32> {
     v
 }
 
-/// Wiring codes (`4xxx`) only — the fold must not report a wiring failure.
+/// How many diagnostics carry `code` while building `src`.
+fn count_code(src: &str, uri: &str, code: u32) -> usize {
+    let _lock = common::lock();
+    common::reset();
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, src);
+    let _ = mcc::mcc_build_with_nets(&McIds::from("main"), &u);
+    mcc::mcc_diagnose_all()
+        .iter()
+        .filter(|d| d.code == code)
+        .count()
+}
+
+/// Wiring codes (`4xxx`) only — the fork must not report a wiring failure.
 fn wiring_codes_of(src: &str, uri: &str) -> Vec<u32> {
     codes_of(src, uri)
         .into_iter()
@@ -100,152 +130,176 @@ fn instance_heads(parts: &[Vec<String>]) -> BTreeSet<String> {
         .collect()
 }
 
-/// §2: the group members fill the `_` slots one-to-one — ONE component,
-/// member[0] on pin 1 and member[1] on pin 2.
+/// Replace every auto instance head with `<inst>` so two runs compare on
+/// wiring alone — the fork's members are anonymous, and their sequential
+/// auto-names (`_RESS1` / `_RESS2`) follow statement order, which is exactly
+/// what must NOT be observable.
+fn strip_heads(parts: Vec<Vec<String>>) -> Vec<Vec<String>> {
+    let heads = instance_heads(&parts);
+    let mut out: Vec<Vec<String>> = parts
+        .into_iter()
+        .map(|ps| {
+            ps.into_iter()
+                .map(|p| {
+                    for h in &heads {
+                        if let Some(rest) = p.strip_prefix(&format!("{h}.")) {
+                            return format!("<inst>.{rest}");
+                        }
+                    }
+                    p
+                })
+                .collect()
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// §9.1: each member is its own statement — TWO components, each with the
+/// member on pin 1 and the rail on pin 2.
 #[test]
-fn group_prefix__fills_slots_one_to_one() {
+fn group_prefix__forks_into_one_statement_per_member() {
     let parts = partition_of(
-        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, _)"),
+        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)"),
         "/mcc/group-prefix.mc",
     );
 
-    // Anti-false-green: exactly one component. A replication bug (or the old
-    // all-placeholder fold) yields zero or several and is invisible to a
-    // "the net contains X" assertion.
     let heads = instance_heads(&parts);
     assert_eq!(
         heads.len(),
-        1,
-        "a group prefix is ONE call, not one per member; heads={heads:?} (nets={parts:?})"
+        2,
+        "a group prefix forks into one call per member; heads={heads:?} (nets={parts:?})"
     );
-    assert_eq!(parts.len(), 2, "one net per slot; nets={parts:?}");
-    let head = heads.iter().next().unwrap();
     let scl = parts
         .iter()
         .find(|ps| ps.iter().any(|p| p.contains("I2C0.SCL")))
         .expect("SCL net");
-    assert!(
-        scl.iter().any(|p| p == &format!("{head}.1")),
-        "member 0 must land pin 1; net={scl:?}"
-    );
     let sda = parts
         .iter()
         .find(|ps| ps.iter().any(|p| p.contains("I2C0.SDA")))
         .expect("SDA net");
-    assert!(
-        sda.iter().any(|p| p == &format!("{head}.2")),
-        "member 1 must land pin 2; net={sda:?}"
-    );
-}
-
-/// §2 states the fold directly: the group form ≡ the explicit call. The two
-/// instances are anonymous, so the comparison is on the partition, not names.
-#[test]
-fn group_prefix__equals_explicit_call() {
-    let grouped = partition_of(
-        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, _)"),
-        "/mcc/group-prefix-eq.mc",
-    );
-    let explicit = partition_of(
-        &src_of("        RESS(10).Pullup(I2C0.SCL, I2C0.SDA)"),
-        "/mcc/group-prefix-explicit.mc",
-    );
-
-    // Normalize the instance head away: the grouped form's auto-name is not
-    // the point, the wiring is.
-    let strip = |parts: Vec<Vec<String>>| -> Vec<Vec<String>> {
-        let heads = instance_heads(&parts);
-        let mut out: Vec<Vec<String>> = parts
-            .into_iter()
-            .map(|ps| {
-                ps.into_iter()
-                    .map(|p| {
-                        for h in &heads {
-                            if let Some(rest) = p.strip_prefix(&format!("{h}.")) {
-                                return format!("<inst>.{rest}");
-                            }
-                        }
-                        p
-                    })
-                    .collect()
-            })
-            .collect();
-        out.sort();
-        out
-    };
-
-    assert_eq!(
-        strip(grouped),
-        strip(explicit),
-        "the group prefix must fold to the explicit call"
-    );
-}
-
-/// The fold is the canonical spelling, not an error path.
-#[test]
-fn group_prefix__expands_quietly() {
-    assert_eq!(
-        wiring_codes_of(
-            &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, _)"),
-            "/mcc/group-prefix-quiet.mc"
-        ),
-        Vec::<u32>::new(),
-        "the group prefix must not raise a wiring code"
-    );
-}
-
-/// §7 strict arity: a group wider than the slot list is **diagnosed**, never
-/// silently expanded or silently dropped.
-#[test]
-fn group_prefix__arity_mismatch_is_diagnosed() {
-    let codes = codes_of(
-        &src_of("        (I2C0.SCL, I2C0.SDA, VCC) => RESS(10).Pullup(_, _)"),
-        "/mcc/group-prefix-mismatch.mc",
-    );
-    assert!(
-        codes.contains(&4176),
-        "a member/slot count mismatch must report E4176; codes={codes:?}"
-    );
-    assert_eq!(
-        partition_of(
-            &src_of("        (I2C0.SCL, I2C0.SDA, VCC) => RESS(10).Pullup(_, _)"),
-            "/mcc/group-prefix-mismatch.mc"
-        ),
-        Vec::<Vec<String>>::new(),
-        "and must not wire anything"
-    );
-}
-
-/// Ruling 2026-09-12 (§2): a multi-member group prefix is defined ONLY against
-/// an actual list that is exactly one bare `_` per member. Any other spelling
-/// is a strict-arity violation — E4176, nothing wired — and never "stuff the
-/// whole group into the first slot", which used to land member[0], drop
-/// member[1] and report nothing at all.
-#[test]
-fn group_prefix__non_placeholder_actuals_are_diagnosed() {
-    for body in [
-        // 2 members, 1 slot: the old silent-drop case.
-        "        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)",
-        // Already-written actual beside the slot.
-        "        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(I2C0.SCL, _)",
-    ] {
-        let codes = codes_of(&src_of(body), "/mcc/group-prefix-nonuscore.mc");
-        assert!(
-            codes.contains(&4176),
-            "a group prefix against non-`_` actuals must report E4176; body={body:?} codes={codes:?}"
-        );
-        // Anti-false-green: the old bug wired member[0] into a net and stayed
-        // silent, so an E4176-only assertion would pass on the broken engine.
+    // Each member must land pin 1 of its OWN component — the zip fingerprint
+    // was member[1] landing pin 2 of member[0]'s component.
+    for (name, net) in [("SCL", scl), ("SDA", sda)] {
+        let pin1: Vec<&String> = net.iter().filter(|p| p.ends_with(".1")).collect();
         assert_eq!(
-            partition_of(&src_of(body), "/mcc/group-prefix-nonuscore.mc"),
+            pin1.len(),
+            1,
+            "{name} must land pin 1 of one component; net={net:?}"
+        );
+    }
+}
+
+/// §9.1: the fork is the two written statements — nothing more, nothing less.
+#[test]
+fn group_prefix__equals_two_written_statements() {
+    let forked = strip_heads(partition_of(
+        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)"),
+        "/mcc/group-prefix-eq.mc",
+    ));
+    let written = strip_heads(partition_of(
+        &src_of(
+            "        I2C0.SCL => RESS(10).Pullup(_, VCC)\n        \
+             I2C0.SDA => RESS(10).Pullup(_, VCC)",
+        ),
+        "/mcc/group-prefix-written.mc",
+    ));
+
+    assert_eq!(
+        forked, written,
+        "the group fork must wire what the two written statements wire"
+    );
+}
+
+/// §9.1 + §10.6: the group has **no order** — `(A, B)` and `(B, A)` must wire
+/// the same circuit. The withdrawn zip fill failed exactly here (its slots
+/// followed the written order), so this is the fork's fingerprint lock.
+#[test]
+fn group_prefix__order_insensitive() {
+    let ab = strip_heads(partition_of(
+        &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)"),
+        "/mcc/group-prefix-ab.mc",
+    ));
+    let ba = strip_heads(partition_of(
+        &src_of("        (I2C0.SDA, I2C0.SCL) => RESS(10).Pullup(_, VCC)"),
+        "/mcc/group-prefix-ba.mc",
+    ));
+
+    assert_eq!(
+        ab, ba,
+        "writing the group in the other order must not change the circuit"
+    );
+}
+
+/// §9.7: two `_` in the actual list is E4176 per branch — and NOTHING lands.
+/// Anti-false-green: the withdrawn engine wired ONE component here (member[0]
+/// on pin 1, member[1] on pin 2), so an E4176-only assertion would pass on it.
+#[test]
+fn group_prefix__two_placeholders_is_e4176_and_nothing() {
+    for body in [
+        "        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, _)",
+        "        (I2C0.SDA, I2C0.SCL) => RESS(10).Pullup(_, _)",
+    ] {
+        assert!(
+            codes_of(&src_of(body), "/mcc/group-prefix-two.mc").contains(&4176),
+            "two `_` against one prefix operand must report E4176; body={body:?}"
+        );
+        assert_eq!(
+            count_code(&src_of(body), "/mcc/group-prefix-two.mc", 4176),
+            2,
+            "each fork branch reports its own E4176; body={body:?}"
+        );
+        assert_eq!(
+            partition_of(&src_of(body), "/mcc/group-prefix-two.mc"),
             Vec::<Vec<String>>::new(),
             "and must not wire anything; body={body:?}"
         );
     }
 }
 
+/// The fork is the canonical spelling, not an error path.
+#[test]
+fn group_prefix__expands_quietly() {
+    assert_eq!(
+        wiring_codes_of(
+            &src_of("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC)"),
+            "/mcc/group-prefix-quiet.mc"
+        ),
+        Vec::<u32>::new(),
+        "the group fork must not raise a wiring code"
+    );
+}
+
+/// §9.1 rule 3 / §10.6 rule 2: the chain tail rides **each** branch — the fold
+/// emits a `Multiple` that sits inside the `Series`, so the statement
+/// expansion has to see through the chain, not just the top level.
+#[test]
+fn group_prefix__chain_tail_rides_each_branch() {
+    let parts = partition_of(
+        &src_of_tail("        (I2C0.SCL, I2C0.SDA) => RESS(10).Pullup(_, VCC) -> TAIL"),
+        "/mcc/group-prefix-chain.mc",
+    );
+
+    let heads = instance_heads(&parts);
+    assert_eq!(
+        heads.len(),
+        2,
+        "each fork branch carries the chain tail once; heads={heads:?} (nets={parts:?})"
+    );
+    let tail = parts
+        .iter()
+        .find(|ps| ps.iter().any(|p| p.contains("TAIL")))
+        .expect("TAIL net");
+    let tail_pins: Vec<&String> = tail.iter().filter(|p| p.ends_with(".2")).collect();
+    assert_eq!(
+        tail_pins.len(),
+        2,
+        "the tail must reach BOTH branches' pin 2; net={tail:?}"
+    );
+}
+
 /// A one-member group is just its member (`(VCC)` ≡ `VCC`) — it must not be
-/// mistaken for a group prefix, and must not replicate.
+/// mistaken for a fork, and must not replicate.
 #[test]
 fn group_prefix__single_member_is_the_member() {
     let parts = partition_of(

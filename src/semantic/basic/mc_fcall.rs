@@ -53,6 +53,11 @@ pub struct McFuncCall {
     /// is the declared instance name and display joins them with `::`
     /// (instead of the `.` used for `CLASS(x).Method(y)` calls).
     pub named_ctor: bool,
+    /// The caller is a **construction** (`CAP(10uF).Cap(_)`), not an instance
+    /// receiver (`r1.Pullup(..)`). Decided in the def space when this call is
+    /// built — the name resolves to a component/module class — so display
+    /// reads this instead of inferring from the name's letter case.
+    pub receiver_is_ctor: bool,
 }
 
 /// ★ P4.1: Fcall return shape resolved from McFunction.returns.
@@ -115,42 +120,33 @@ pub(crate) fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
     }
 }
 
-/// Does a param value contain a `_` placeholder, either bare or inside a
-/// Set (`[_, VDD]`)? Used to decide whether the `=>` prefix can fold into the
-/// placeholder position (§1: prefix fills the leading `_`).
-fn param_contains_uscore(p: &McParamValue) -> bool {
+/// Count the `_` placeholders in a param value, bare or nested in a Set
+/// (`[_, VDD]` counts 1, `[_, _]` counts 2). The `=>` prefix redeems exactly
+/// one, so the fold admits a list holding exactly one `_` (param-prefix-design
+/// §4 / §9.7).
+fn count_uscores(p: &McParamValue) -> usize {
     match p {
-        McParamValue::NONE(_) | McParamValue::Opd(McOpd::Uscore) => true,
-        McParamValue::Set(vs) => vs.iter().any(param_contains_uscore),
-        _ => false,
+        McParamValue::NONE(_) | McParamValue::Opd(McOpd::Uscore) => 1,
+        McParamValue::Set(vs) => vs.iter().map(count_uscores).sum(),
+        _ => 0,
     }
 }
 
-/// A **bare** `_` placeholder — not one nested inside a Set (`[_, VDD]`).
-/// §2's group prefix fills exactly these slots, one member each.
-fn is_bare_uscore(p: &McParamValue) -> bool {
-    matches!(p, McParamValue::NONE(_)) || matches!(p, McParamValue::Opd(McOpd::Uscore))
-}
-
-/// `(A, B) => f(_, _)` — §2 **group prefix**: the group is not a single
-/// actual, its members fill the bare `_` slots **one-to-one in order**, so
-/// the folded call is `f(A, B)`. Applies only when every method actual is a
-/// bare `_` and the counts agree; anything else returns `None`, and the
-/// caller reports E4176 through `is_multi_member_group` below.
-fn group_prefix_fill(
-    prefix: &McParamValue,
-    method_params: &[McParamValue],
-) -> Option<Vec<McParamValue>> {
-    let McParamValue::Phrase(ph) = prefix else {
+/// The members of a **multi-member** group prefix `(A, B) => f(...)`, each as a
+/// standalone prefix value. A group prefix is a **statement fork** — its
+/// members are never one actual (param-prefix-design §2 withdrawn ruling, §9.1
+/// fork law) — so each member folds as its own scalar/vector prefix.
+///
+/// A single-member group `(a)` unwraps upstream to the plain scalar prefix, and
+/// anything that is not a group returns `None`; both are single-statement cases.
+fn group_prefix_members(p: &McParamValue) -> Option<Vec<McParamValue>> {
+    let McParamValue::Phrase(ph) = p else {
         return None;
     };
     let McPhrase::Group(g) = ph.as_ref() else {
         return None;
     };
-    if g.opds.len() < 2 || g.opds.len() != method_params.len() {
-        return None;
-    }
-    if !method_params.iter().all(is_bare_uscore) {
+    if g.opds.len() < 2 {
         return None;
     }
     Some(
@@ -161,26 +157,10 @@ fn group_prefix_fill(
     )
 }
 
-/// True when the `=>` prefix is a **multi-member** group (`(A, B)`).
-///
-/// A single-member group `(a)` is the plain scalar prefix — it is unwrapped
-/// upstream — so it never counts here. This is the recognition half of §2's
-/// group rule: a multi-member group prefix is well defined ONLY against an
-/// actual list of the same length that is all bare `_`. The group is never
-/// itself an actual, so when the slots do not line up there is no fallback
-/// reading to take; the caller reports E4176 and materializes nothing.
-fn is_multi_member_group(p: &McParamValue) -> bool {
-    matches!(
-        p,
-        McParamValue::Phrase(ph)
-            if matches!(ph.as_ref(), McPhrase::Group(g) if g.opds.len() >= 2)
-    )
-}
-
-/// Replace the leading `_` placeholder in `p` with `prefix`, recursing into
-/// Sets so `[_, VDD]` + `I2C0` → `[I2C0, VDD]`. Returns (new_value, replaced).
-/// Only the FIRST placeholder in the parameter list is replaced — a later
-/// `_` (e.g. `.Pullup(VDD, _)`) keeps its open-slot meaning.
+/// Replace the `_` placeholder in `p` with `prefix`, recursing into Sets so
+/// `[_, VDD]` + `I2C0` → `[I2C0, VDD]`. Returns (new_value, replaced). The
+/// caller has already established the list holds exactly one `_`, so the scan
+/// finds it wherever it sits (`.Pullup(VDD, _)` is as valid as `.Pullup(_, VDD)`).
 fn fold_prefix_into_uscore(p: &McParamValue, prefix: &McParamValue) -> (McParamValue, bool) {
     match p {
         McParamValue::NONE(_) => (prefix.clone(), true),
@@ -378,6 +358,25 @@ impl McFuncCall {
         Self::parse_internal(node, context, |n, ctx| McPhrase::new(n, ctx))
     }
 
+    /// Whether `phrase` is a **construction**: its name resolves to a
+    /// component/module class in the def space. Never a spelling test.
+    fn is_construction(phrase: &McPhrase, uri: &crate::McURI) -> bool {
+        match phrase {
+            McPhrase::FuncCall(fc) => matches!(
+                resolve_cmie(&DB, &fc.func_name, uri),
+                Some(McCMIE::Component(_)) | Some(McCMIE::Module(_))
+            ),
+            _ => false,
+        }
+    }
+
+    /// Whether `caller` is a construction — recorded as `receiver_is_ctor`.
+    fn caller_is_construction(caller: &Option<Box<McPhrase>>, uri: &crate::McURI) -> bool {
+        caller
+            .as_deref()
+            .is_some_and(|p| Self::is_construction(p, uri))
+    }
+
     /// Internal parse function, uses callback to avoid circular dependency
     fn parse_internal<F>(
         node: &AstNode,
@@ -429,6 +428,9 @@ impl McFuncCall {
         let mut instance_params: Vec<McParamValue> = Vec::new();
         let mut method_name_opt: Option<McIds> = None;
         let mut method_params: Vec<McParamValue> = Vec::new();
+        // The receiver is a declared instance (`r1.Pullup(..)`), not a
+        // construction of its class — the fold must not synthesize `r1(..)`.
+        let mut instance_is_receiver = false;
 
         // Check if first child is MCAST_PARAMS_PRE (pre-closure param)
         if let Some(first) = subnode.iter().next() {
@@ -448,28 +450,54 @@ impl McFuncCall {
 
                 if name_params_pairs.len() >= 2 {
                     let (_, name_node) = &name_params_pairs[0];
-                    if let Some(ids_node) = name_node.get_sub_node() {
-                        instance_name = McIds::new(&ids_node);
-                    }
-                    let (_, params_node) = &name_params_pairs[1];
-                    if let Some(params_sub) = params_node.get_sub_node() {
-                        for p in params_sub.iter() {
-                            if let Some(v) = McParamValue::new(&p, context) {
-                                instance_params.push(v);
+                    let name_ids = name_node.get_sub_node().and_then(|n| McIds::new(&n));
+
+                    // Instance-receiver shape `prefix => inst.Method(_)`: a
+                    // single dotted NAME holds both the declared instance and
+                    // the method, and the one params list is the method's
+                    // actuals (there are no construction args). Recognized by
+                    // resolving the head in the def space — never by spelling.
+                    if name_params_pairs.len() == 2 {
+                        if let Some((inst, method)) =
+                            name_ids.as_ref().and_then(|ids| ids.as_dot_access())
+                        {
+                            if context.find_inst(&inst).is_some() {
+                                instance_is_receiver = true;
+                                instance_name = Some(McIds::from(inst.as_str()));
+                                method_name_opt = Some(McIds::from(method.as_str()));
+                                if let Some(params_sub) = name_params_pairs[1].1.get_sub_node() {
+                                    for p in params_sub.iter() {
+                                        if let Some(v) = McParamValue::new(&p, context) {
+                                            method_params.push(v);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
 
-                    if name_params_pairs.len() >= 4 {
-                        let (_, name_node2) = &name_params_pairs[2];
-                        if let Some(ids_node2) = name_node2.get_sub_node() {
-                            method_name_opt = McIds::new(&ids_node2);
-                        }
-                        let (_, params_node2) = &name_params_pairs[3];
-                        if let Some(params_sub2) = params_node2.get_sub_node() {
-                            for p in params_sub2.iter() {
+                    if !instance_is_receiver {
+                        instance_name = name_ids;
+                        let (_, params_node) = &name_params_pairs[1];
+                        if let Some(params_sub) = params_node.get_sub_node() {
+                            for p in params_sub.iter() {
                                 if let Some(v) = McParamValue::new(&p, context) {
-                                    method_params.push(v);
+                                    instance_params.push(v);
+                                }
+                            }
+                        }
+
+                        if name_params_pairs.len() >= 4 {
+                            let (_, name_node2) = &name_params_pairs[2];
+                            if let Some(ids_node2) = name_node2.get_sub_node() {
+                                method_name_opt = McIds::new(&ids_node2);
+                            }
+                            let (_, params_node2) = &name_params_pairs[3];
+                            if let Some(params_sub2) = params_node2.get_sub_node() {
+                                for p in params_sub2.iter() {
+                                    if let Some(v) = McParamValue::new(&p, context) {
+                                        method_params.push(v);
+                                    }
                                 }
                             }
                         }
@@ -607,41 +635,35 @@ impl McFuncCall {
         // If we found all parts of the pre-closure pattern
         if pre_param_opt.is_some() && instance_name.is_some() && method_name_opt.is_some() {
             let pre_param = pre_param_opt.unwrap();
+            let instance_name = instance_name.unwrap();
+            let method_name = method_name_opt.unwrap();
+            let inst_text = instance_name.to_string();
+            let method_text = method_name.to_string();
 
-            // R3: `=>` fold unified rules (§1)
-            // One rule, no method-name list: the `=>` prefix is an actual that
-            // fills the leading `_` placeholder position of the right-hand
-            // method call. All-placeholder → the prefix is the whole actual;
-            // a leading `_` (bare or inside a Set) → replace it in place; no
-            // placeholder → prepend (legacy keep).
-            let all_ph = !method_params.is_empty() && method_params.iter().all(is_bare_uscore);
+            // §9.1/§9.3 R-b: a multi-member **group** prefix `(A, B) => f(...)`
+            // is a statement fork — its members are never one actual, so each
+            // member is its own prefix statement, folded independently below.
+            // The branches ride out as a `Multiple` and the statement layer
+            // expands them into standalone statements (`(A,B)` and `(B,A)` must
+            // yield the same circuit: the fork carries no implicit order).
+            let prefixes = group_prefix_members(&pre_param).unwrap_or_else(|| vec![pre_param]);
 
-            let all_method_params: Vec<McParamValue> =
-                if let Some(filled) = group_prefix_fill(&pre_param, &method_params) {
-                    // (a2) `(A, B) => f(_, _)`: group members fill the `_` slots
-                    // one-to-one (§2 group prefix) — the group is not one actual.
-                    // Must be tested before the all-placeholder rule, which would
-                    // otherwise treat the whole group as the single actual.
-                    filled
-                } else if is_multi_member_group(&pre_param) {
-                    // (a3) A multi-member group prefix that does NOT meet one
-                    // bare `_` per member (`(A,B) => f(_, VCC)`, `(A,B) =>
-                    // f(A, _)`, `(A,B,C) => f(_, _)`). §2 defines the group
-                    // prefix as filling `_` slots one-to-one, and the group is
-                    // never itself an actual — so there is no "stuff the whole
-                    // group into the first slot" reading to fall back on. The
-                    // spelling is a strict-arity violation: report E4176 and
-                    // materialize nothing (it used to land only member[0] and
-                    // drop the rest silently).
-                    let inst_text = instance_name
-                        .as_ref()
-                        .map(|n| n.to_string())
-                        .unwrap_or_default();
-                    let method_text = method_name_opt
-                        .as_ref()
-                        .map(|n| n.to_string())
-                        .unwrap_or_default();
-                    let reason = "group prefix fills one bare `_` per member";
+            // R3: `=>` fold, one rule. The prefix is ONE operand and redeems the
+            // single `_` in the right-hand actual list, so that list must hold
+            // exactly one `_`. Zero placeholders (including `f()`) and two or
+            // more are both E4176: the prefix is never silently prepended, and a
+            // vector prefix is one actual rather than a spread across slots
+            // (param-prefix-design §4 / §9.7).
+            let uscore_count: usize = method_params.iter().map(count_uscores).sum();
+
+            // R4: don't instantiate at parse time. Two-pin components are
+            // handled by instantiation-phase process_member_internal — the
+            // library func is the only wiring source (unified-twopin v2.0).
+            let mut branches: Vec<McPhrase> = Vec::with_capacity(prefixes.len());
+            for prefix in &prefixes {
+                if uscore_count != 1 {
+                    let reason =
+                        format!("the actual list must hold exactly one `_`; got {uscore_count}");
                     dlog_error(
                         crate::errcodes::INST_PARAM_BIND_FAILED,
                         node,
@@ -650,84 +672,86 @@ impl McFuncCall {
                             &[&inst_text, &method_text, &reason],
                         ),
                     );
-                    return None;
-                } else if all_ph {
-                    // (a) `.Cap(_)` + `=>` prefix → fold the prefix into the
-                    // placeholder position (parameter prefixing, §1.2).
-                    // `[V3V3, GND] => CAP(..).Cap(_)` → `.Cap([V3V3, GND])`,
-                    // `V3V3 => CAP(..).Cap(_)` → `.Cap(V3V3)`,
-                    // `vin -> ldo.VIN => CAP(..).Cap(_)` → `.Cap(ldo.VIN)`
-                    // (pre_param is already the last / right endpoint of the
-                    // prefix chain, per the vector circuit algebra). The single
-                    // vector fills both endpoint positions positionally at wiring
-                    // time (member[0] → pin1, member[1] → pin2, §11.6); a scalar
-                    // prefix folds to `.Cap(SIG)` which is E4176 (strict arity).
-                    vec![pre_param.clone()]
-                } else if method_params.iter().any(&param_contains_uscore) {
-                    // (b) `(_ , VDD)` / `([_, VDD])` / `(x, _)` on any method:
-                    // The `=>` prefix fills the LEADING `_` placeholder (§1). A bare
-                    // `_` is replaced outright; a `_` inside a Set is replaced in
-                    // place so the folded call keeps ONE Set actual `[I2C0, VDD]`
-                    // that binds whole to the Set formal (strict arity — actuals
-                    // bind to formals, no auto-split). P2-5 then substitutes each
-                    // bus lane into the folded Set for the per-lane calls.
-                    let mut folded: Vec<McParamValue> = Vec::with_capacity(method_params.len());
-                    let mut done = false;
-                    for p in &method_params {
-                        if done {
-                            folded.push(p.clone());
-                        } else {
-                            let (np, rep) = fold_prefix_into_uscore(p, &pre_param);
-                            folded.push(np);
-                            done = rep;
-                        }
+                    continue;
+                }
+
+                // Exactly one `_` anywhere in the list — the prefix redeems it
+                // in place: `[V3V3, GND] => CAP(..).Cap(_)` → `.Cap([V3V3, GND])`,
+                // `V3V3 => CAP(..).Cap(_)` → `.Cap(V3V3)`, `vin -> ldo.VIN =>
+                // CAP(..).Cap(_)` → `.Cap(ldo.VIN)` (prefix is already the last /
+                // right endpoint of the prefix chain, per the vector circuit
+                // algebra). A bare `_` is replaced outright; a `_` inside a Set
+                // is replaced in place so the folded call keeps ONE Set actual
+                // `[I2C0, VDD]` that binds whole to the Set formal (strict arity —
+                // actuals bind to formals, no auto-split). P2-5 then substitutes
+                // each bus lane into the folded Set for the per-lane calls.
+                let mut folded: Vec<McParamValue> = Vec::with_capacity(method_params.len());
+                let mut done = false;
+                for p in &method_params {
+                    if done {
+                        folded.push(p.clone());
+                    } else {
+                        let (np, rep) = fold_prefix_into_uscore(p, prefix);
+                        folded.push(np);
+                        done = rep;
                     }
-                    folded
-                } else {
-                    // (c) No placeholder: keep original prepend
-                    let mut v = vec![pre_param.clone()];
-                    v.extend(method_params);
-                    v
+                }
+
+                // Create inner FuncCall: ClassName(instance_params)
+                let inner_call = McFuncCall {
+                    id: 0,
+                    caller: None,
+                    func_name: instance_name.clone(),
+                    params: instance_params.clone(),
+                    left: vec![],
+                    right: vec![],
+                    dot_member: None,
+                    resolved_return_shape: None,
+                    pre_closure: false,
+                    named_ctor: false,
+                    receiver_is_ctor: false,
                 };
 
-            // R4: don't instantiate at parse time. Two-pin components are
-            // handled by instantiation-phase process_member_internal — the
-            // library func is the only wiring source (unified-twopin v2.0).
+                // Instance receiver: the caller is the declared instance
+                // itself (`r1.Pullup(..)`), not a construction `r1(..)`.
+                let receiver: McPhrase = if instance_is_receiver {
+                    match context.find_inst(&inst_text) {
+                        Some(ident) => ident.into(),
+                        None => McPhrase::FuncCall(inner_call),
+                    }
+                } else {
+                    McPhrase::FuncCall(inner_call)
+                };
+                // Create outer FuncCall: ClassName(params).MethodName(folded)
+                let outer_call = McFuncCall {
+                    id: 0,
+                    receiver_is_ctor: Self::is_construction(&receiver, context.uri()),
+                    caller: Some(Box::new(receiver)),
+                    func_name: method_name.clone(),
+                    params: folded,
+                    left: vec![],
+                    right: vec![],
+                    dot_member: None,
+                    resolved_return_shape: None,
+                    pre_closure: true,
+                    named_ctor: false,
+                };
+                branches.push(McPhrase::FuncCall(outer_call));
+            }
 
-            // Create inner FuncCall: ClassName(instance_params)
-            let inner_call = McFuncCall {
-                id: 0,
-                caller: None,
-                func_name: instance_name.unwrap(),
-                params: instance_params,
-                left: vec![],
-                right: vec![],
-                dot_member: None,
-                resolved_return_shape: None,
-                pre_closure: false,
-                named_ctor: false,
-            };
-
-            // Create outer FuncCall: ClassName(params).MethodName(all_method_params)
-            let outer_call = McFuncCall {
-                id: 0,
-                caller: Some(Box::new(McPhrase::FuncCall(inner_call))),
-                func_name: method_name_opt.unwrap(),
-                params: all_method_params,
-                left: vec![],
-                right: vec![],
-                dot_member: None,
-                resolved_return_shape: None,
-                pre_closure: true,
-                named_ctor: false,
-            };
+            if branches.is_empty() {
+                return None;
+            }
 
             // param-prefix-design v2.0 §6: the `=>` prefix folds to a plain
             // FuncCall (args already prefixed) — no pre_label chain member is
             // synthesized. For chain-prefix forms (`A -> B => f(_)`) the
             // pre-chain `A -> B` already provides B as a member; the fold only
             // appends f(B). `pre_closure` stays set for display.
-            return Some(McPhrase::FuncCall(outer_call));
+            if branches.len() == 1 {
+                return Some(branches.into_iter().next().unwrap());
+            }
+            return Some(McPhrase::Multiple(branches));
         }
 
         // === Iter 2: detect DECLARE child node ===
@@ -859,6 +883,7 @@ impl McFuncCall {
                                                 resolved_return_shape: None,
                                                 pre_closure: false,
                                                 named_ctor: true,
+                                                receiver_is_ctor: false,
                                             })
                                         };
                                         caller = if inst_names.is_empty() {
@@ -1350,9 +1375,15 @@ impl McFuncCall {
                                                         Self::check_chain_validity(
                                                             &caller, &name, node, context,
                                                         );
+                                                        let receiver_is_ctor =
+                                                            Self::caller_is_construction(
+                                                                &caller,
+                                                                context.uri(),
+                                                            );
                                                         return Some(McPhrase::FuncCall(
                                                             McFuncCall {
                                                                 id: 0,
+                                                                receiver_is_ctor,
                                                                 caller,
                                                                 func_name: name,
                                                                 params,
@@ -1779,6 +1810,7 @@ impl McFuncCall {
                     .map(|item| {
                         McPhrase::FuncCall(McFuncCall {
                             id: 0,
+                            receiver_is_ctor: Self::is_construction(item, context.uri()),
                             caller: Some(Box::new(item.clone())),
                             func_name: func_name.clone(),
                             params: params.clone(),
@@ -1797,6 +1829,7 @@ impl McFuncCall {
 
         Some(McPhrase::FuncCall(McFuncCall {
             id: 0,
+            receiver_is_ctor: Self::caller_is_construction(&caller, context.uri()),
             caller,
             func_name,
             params,
@@ -2101,6 +2134,7 @@ impl McFuncCall {
                 resolved_return_shape: None,
                 pre_closure: false,
                 named_ctor: false,
+                receiver_is_ctor: false,
             })))
         } else {
             None

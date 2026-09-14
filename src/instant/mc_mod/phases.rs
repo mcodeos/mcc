@@ -274,6 +274,25 @@ impl InstantiationBuilder {
         // and parent modules can't pass bus arguments to submodule interface ports.
         // The param list is cloned so the `self.ports` / `self.labels` writes below
         // do not fight the `self.def` read (both go through the builder deref).
+        //
+        // A direction-word signature port (`psnk [VDD_3V3,GND]::DC(3.3V)`) is an
+        // exception: it already entered `self.ports` in the loop above, because
+        // the direction word sits on the IOTYPE clause that `parse_declare`
+        // consumes. `def.params` carries the same declaration so arity and
+        // goto-def can see it; materializing it a second time here would push a
+        // duplicate PortInst — same name, direction-less io_type.
+        //
+        // The key is every name the loop above actually materialized, under the
+        // same two guards (not a component/sub-module declaration; not a
+        // direction-less non-interface item).
+        let already_registered: std::collections::HashSet<&str> = items
+            .iter()
+            .filter(|(_, io, inst)| {
+                !matches!(inst, McInstance::Component(_) | McInstance::Module(_))
+                    && !(matches!(io, IOType::None) && !matches!(inst, McInstance::Interface(_)))
+            })
+            .map(|(name, _, _)| name.as_str())
+            .collect();
         let def_params = self.def.params.clone();
         for pd in def_params.iter() {
             let is_interface_port = matches!(
@@ -285,6 +304,9 @@ impl InstantiationBuilder {
             }
 
             let port_name = pd.get_primary_name().unwrap_or_else(|| pd.display_name());
+            if already_registered.contains(port_name.as_str()) {
+                continue;
+            }
             let iotype = match pd.param_type.direction {
                 Some(McIoTy::Input) => IOType::In,
                 Some(McIoTy::Output) => IOType::Out,

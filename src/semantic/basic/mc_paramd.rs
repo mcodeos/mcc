@@ -97,57 +97,8 @@ impl McParamDeclares {
                         }
                     }
                     MCAST_DECLARE => {
-                        // diel::CAP = X7R — the name precedes the DECLARE
-                        // node by name.len() + 2 bytes (for the "::" separator).
-                        if let Some(paramd) =
-                            McParamDeclare::new(&inner, self.enclosing_component_name.as_ref())
-                        {
-                            if let Some(name) = paramd.get_primary_name() {
-                                let inner_pos = inner.get_pos() as usize;
-                                let prefix_len = name.len() + 2; // "name::"
-                                let start = if inner_pos > prefix_len {
-                                    inner_pos - prefix_len
-                                } else {
-                                    inner_pos
-                                };
-                                let name_span = start..(start + name.len());
-                                self.store_def_span(&name, name_span);
-                            }
-                            // ★ §3.4.3: typed square-vec params (e.g.
-                            // `[VDD_3V3,GND]::DC(3.3V)`) also register each member
-                            // with its precise span, so refs like
-                            // `uC.power([VDD_3V3,GND], ...)` resolve member-wise.
-                            if let Some((whole_name, whole_span)) =
-                                self.store_declare_square_member_spans(&inner)
-                            {
-                                // The square-vec formals parse as Multiple
-                                // (vector) form, whose get_primary_name() is
-                                // None — so the whole-bracket name never went
-                                // through store_def_span above. Register it
-                                // here so refs to the whole `[VDD_3V3, GND]`
-                                // still resolve, then let the override below
-                                // pin the exact byte range.
-                                if !self.def_spans.contains_key(&whole_name) {
-                                    self.store_def_span(&whole_name, whole_span.clone());
-                                }
-                                // Override the whole-bracket span with the square-vec
-                                // node's exact byte range: the canonical name renders
-                                // with `", "` separators (e.g. `[VDD_3V3, GND]`) whose
-                                // width differs from the source text `[VDD_3V3,GND]`.
-                                if let Some(spans) = self.def_spans.get_mut(&whole_name) {
-                                    if let Some(last) = spans.last_mut() {
-                                        *last = whole_span.clone();
-                                    }
-                                }
-                                if let Some(spans) = self.port_spans.get_mut(&whole_name) {
-                                    if let Some(last) = spans.last_mut() {
-                                        *last = whole_span;
-                                    }
-                                }
-                            }
-                            self.declares.push(paramd);
-                            continue;
-                        }
+                        self.register_declare_param(&inner);
+                        continue;
                     }
                     MCAST_SQUARE_VEC => {
                         // [VDD1, GND1] — iterate members and store each
@@ -248,6 +199,11 @@ impl McParamDeclares {
                                     }
                                     self.declares.push(paramd);
                                 }
+                            } else if op_type == MCAST_DECLARE {
+                                // Direction-word header port: `psnk [VDD,GND]::DC(3.3V)`.
+                                // The DECLARE carrying the interface class and the
+                                // port names sits beside the IOTYPE token.
+                                self.register_declare_param(current);
                             }
                         }
                         continue;
@@ -264,6 +220,42 @@ impl McParamDeclares {
             }
         }
         // else: empty parameter list is legal, no need to error
+    }
+
+    /// Register a `name::Class(args)` parameter declaration: the name text
+    /// precedes the DECLARE node, square-vec members get their own spans.
+    fn register_declare_param(&mut self, inner: &AstNode) {
+        if let Some(paramd) = McParamDeclare::new(inner, self.enclosing_component_name.as_ref()) {
+            if let Some(name) = paramd.get_primary_name() {
+                let inner_pos = inner.get_pos() as usize;
+                let prefix_len = name.len() + 2; // "name::"
+                let start = if inner_pos > prefix_len {
+                    inner_pos - prefix_len
+                } else {
+                    inner_pos
+                };
+                let name_span = start..(start + name.len());
+                self.store_def_span(&name, name_span);
+            }
+            // §3.4.3: typed square-vec params register each member with its
+            // precise span, and the whole bracket takes the exact span.
+            if let Some((whole_name, whole_span)) = self.store_declare_square_member_spans(inner) {
+                if !self.def_spans.contains_key(&whole_name) {
+                    self.store_def_span(&whole_name, whole_span.clone());
+                }
+                if let Some(spans) = self.def_spans.get_mut(&whole_name) {
+                    if let Some(last) = spans.last_mut() {
+                        *last = whole_span.clone();
+                    }
+                }
+                if let Some(spans) = self.port_spans.get_mut(&whole_name) {
+                    if let Some(last) = spans.last_mut() {
+                        *last = whole_span;
+                    }
+                }
+            }
+            self.declares.push(paramd);
+        }
     }
 
     /// Find parameter declaration by name
