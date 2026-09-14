@@ -177,12 +177,11 @@ pub struct McModuleInst {
 
     /// ★ §11.2: vector grouping nodes (declared vector instances).
     ///
-    /// Grouping overlay over `components` — the physical member instances still
-    /// live in `components` (existing consumption paths unchanged); each
-    /// `McVectorInst` is the modeling-layer coordinate for an ordered member
-    /// set (`c[1:2]` → base `"c"`, members `["c1","c2"]`). This is the
-    /// instance-space counterpart of `McInstances.vectors` (pass1): the
-    /// declaration no longer erases vector information.
+    /// Grouping overlay over the module's components (they live in the
+    /// `InstanceStore`); each `McVectorInst` is the modeling-layer coordinate
+    /// for an ordered member set (`c[1:2]` → base `"c"`, members `["c1","c2"]`).
+    /// This is the instance-space counterpart of `McInstances.vectors`
+    /// (pass1): the declaration no longer erases vector information.
     pub vectors: Vec<McVectorInst>,
 
     /// Phase C1: per-build node identity (canonical path interned in the
@@ -201,13 +200,13 @@ pub struct McModuleInst {
 
 /// §11.2: a declared vector instance — modeling-layer grouping node.
 ///
-/// Physical member instances are ordinary `McComponentInst` in `components`;
-/// this node groups them under the vector base name so lane-structured
-/// per-member dispatch (vec-dianlu §7.6) / member-set alignment (Phase 2
-/// GAP1) and flatten projection (Phase 1.7 `vector_info`) can operate on the
-/// ordered member set. Contract E: only multi-member ranges
-/// (`expanded.len() >= 2`) produce a node; single-member ranges are scalars
-/// and stay out of `vectors`.
+/// Physical member instances are ordinary `McComponentInst` in the module's
+/// `InstanceStore`; this node groups them under the vector base name so
+/// lane-structured per-member dispatch (vec-dianlu §7.6) / member-set
+/// alignment (Phase 2 GAP1) and flatten projection (Phase 1.7 `vector_info`)
+/// can operate on the ordered member set. Contract E: only multi-member
+/// ranges (`expanded.len() >= 2`) produce a node; single-member ranges are
+/// scalars and stay out of `vectors`.
 #[derive(Debug, Clone)]
 pub struct McVectorInst {
     /// Vector base name — `"c"` for `c[1:2]` (declaration scope, no dotted prefix).
@@ -216,11 +215,10 @@ pub struct McVectorInst {
     /// member_set product (strict written order, never sorted). Nested
     /// combinations expand cartesian, row-major (§11.2 ordering contract).
     pub member_names: Vec<String>,
-    /// Physical member instance coordinates — full instance names resolving
-    /// against `self.components` (empty prefix → module-level `"c1"`; nested
-    /// under a func invocation → `"U1.c1"`). Instance-tree nodes carry no ID
-    /// today (§11.1: name + Rust reference); a per-build node ID is a Phase 3+
-    /// option.
+    /// Physical member instance coordinates — full instance names (empty
+    /// prefix → module-level `"c1"`; nested under a func invocation →
+    /// `"U1.c1"`), resolving against the module's components in the
+    /// `InstanceStore`.
     pub member_ids: Vec<String>,
     /// Optional true 2D+ vector shape (rows × cols) for genuinely 2D declared
     /// vectors (`M[1:2][3:4]` = 8 same-type sub-instances). Real corpus has 0
