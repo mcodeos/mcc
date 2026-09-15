@@ -145,39 +145,6 @@ impl NodeArena {
             node.children.insert(pos, child);
         }
     }
-
-    /// Detach `id` from the tree: drop its parent's child edge and the node
-    /// itself, subtree included. Used by the construction-time builder for an
-    /// instance that must never enter the netlist (`mcrule.md` §11.6, "an
-    /// error blocks the build" — a component whose own bind failed is not
-    /// built).
-    ///
-    /// Idempotent and safe on an unknown id: both removals are no-ops then.
-    /// The identity registry keeps the interned key (identities are
-    /// append-only provenance, not structural storage), so a retracted node
-    /// id is never re-interned by a later instance.
-    pub(crate) fn retract(&mut self, id: NodeId) {
-        let parent = self.nodes.get(&id).and_then(|n| n.parent);
-        if let Some(parent) = parent {
-            if let Some(node) = self.nodes.get_mut(&parent) {
-                node.children.retain(|c| *c != id);
-            }
-        }
-        // Drop the node and, defensively, any surviving child edge that
-        // pointed at it from elsewhere.
-        self.nodes.remove(&id);
-        let orphans: Vec<NodeId> = self
-            .nodes
-            .values_mut()
-            .filter(|n| n.children.contains(&id))
-            .map(|n| n.id)
-            .collect();
-        for oid in orphans {
-            if let Some(node) = self.nodes.get_mut(&oid) {
-                node.children.retain(|c| *c != id);
-            }
-        }
-    }
 }
 
 /// Accessor surface — consumed by the flatten / export / viz walks and the

@@ -2,47 +2,46 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! U51 (`mcrule.md` §11.6, "an error blocks the build" - a global principle,
-//! CIMP §1 U51): a component
-//! reporting an **error** at instantiation is **not built**.
+//! `mcrule.md` §11.6 — **an error does not block the build** (2026-09-16
+//! ruling, CIMP §1 U51 withdrawn after being landed and reverted the same
+//! day): a component reporting an **error** at instantiation is **kept**.
 //!
-//! The criterion is "**the part itself cannot be bound**" — its *own* bind
-//! failed — and never
-//! "its statement reported something": well-typed siblings of the same
-//! statement are built. The shipped criterion is **structural** (`CIMP.md` U51
-//! landing criterion: keyed on no instance name and no `_` prefix special
-//! case): a chain call's artifact is the
-//! auto-named receiver (its `anchor`), and it is dropped only at the failure
-//! site that makes its own bind fail — a required formal left unfilled (E4176)
-//! or an actual whose members cannot each hand exactly one lane to a formal
-//! slot (E4180). Nothing is keyed on the instance's spelling.
+//! The rationale is findability, not permissiveness: a part that stays in the
+//! netlist shows up in listings and diagrams and is reported as unwired
+//! (E4112/E4116), whereas a dropped part is invisible everywhere — the
+//! defect its statement already reported is the only trace left of it.
 //!
-//! The ruled families and this file's locks:
+//! What this file pins, and why each case is a discriminator:
 //!
-//! 1. **bind failure** — `RX(10).Pullup(SPI)` (missing `n2`), a surplus
-//!    argument, and a `_` receiver: E4176, and the connection-free `_RX1` the
-//!    canon names is **not built**;
-//! 2. **fatal width mismatch** — `[SPI{A, B}, GND]` against two formal slots:
-//!    the group contributes **one element owning two lanes**, so the members
-//!    cannot pair; E4180, not built — and no E4007;
-//! 3. **surplus single-lane elements stay pairable** — `[SPI, GND, VDD]`:
-//!    every member pairs and only the surplus is left over, which the ruling
-//!    keeps (conclusion 1), so **both fork branches are built**. This is the
-//!    discriminator that stops family 2 from degenerating into "any width
-//!    mismatch drops the part";
-//! 4. **legitimately unwired is not unbuilt** — a declared-only part with no
-//!    connection at all (including one whose *written* name starts with `_`)
-//!    is built and kept; the canon's blocker 1 forbids "no connection at all"
-//!    from standing
-//!    alone as the criterion, and this is the case that pins it.
+//! 1. **a failed bind still builds** — `RX(10).Pullup(SPI)` (missing `n2`), a
+//!    surplus argument (E4176), and a `_` receiver: the chain's own receiver
+//!    is built and reported unwired. Neither a bind failure nor an empty
+//!    connection list may silently remove it;
+//! 2. **a fatal width mismatch still builds** — `[SPI{A, B}, GND]` against
+//!    two formal slots (E4180). This is the case that pays the ruling's
+//!    price: the residue expands the library body against a half-bound formal
+//!    set and drags that body's own shape error out (E4007). The noise is
+//!    accepted, and asserted here so the price stays visible rather than
+//!    being rediscovered;
+//! 3. **a surplus of single-lane elements stays pairable** — `[SPI, GND, VDD]`
+//!    (`param-prefix-design.md` §3.2, conclusion 1): every member pairs and
+//!    only the surplus is left over, so **both fork branches are built**,
+//!    each wire-complete;
+//! 4. **legitimately unwired is not an error at all** — a declared-only part
+//!    with no connection (including one whose *written* name starts with `_`)
+//!    is built, and reported unwired: that report is the mechanism this whole
+//!    ruling is about;
+//! 5. **a satisfiable chain is built** — the counterpart, so that "kept"
+//!    cannot be mistaken for "kept only when broken".
 //!
 //! **Built is read structurally** — the arena's `Device` nodes — never from a
-//! connection-derived listing: those render what is *wired*, and a U51 artifact
-//! is precisely what is not. The diagnostics corroborate: a built-but-unwired
-//! instance is named by E4112/E4116, which a retracted one never carries.
+//! connection-derived listing: those render what is *wired*, so a
+//! built-but-unwired part reads as absent there (`mcc show instances` reports
+//! `count: 0` for such a part). The diagnostics corroborate: E4112/E4116 name
+//! exactly the artifact a connection-derived view cannot see.
 
-// Family naming `u51__{essence}` deliberately doubles the underscore so the
-// grep-able family token stays separate.
+// Family naming `noblock__{essence}` deliberately doubles the underscore so
+// the grep-able family token stays separate.
 #![allow(non_snake_case)]
 
 mod common;
@@ -59,8 +58,8 @@ const RX: &str = "component RX(res::INT) {\n    pins = [\n        1 = 1\n       
 
 /// Two-pin device with **one indexed formal over two slots** — the shape the
 /// width family fills. The trailing `return` mirrors the library `CAP.Cap`
-/// body, whose expansion against a half-bound formal set was what the residue
-/// dragged E4007 out of (CIMP U51 blocker 3).
+/// body, whose expansion against a half-bound formal set is what drags E4007
+/// out of a kept residue.
 const CAP: &str = "component CAP(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n    func Cap([net1, net2]) {\n        net1 - this - net2\n        return [net1, net2]\n    }\n}\n";
 
 /// A device with **no func at all** — a BOM / declared-only part.
@@ -97,9 +96,9 @@ fn src_decl(body: &str) -> String {
 
 /// The names of the components the arena actually built for `main` — the
 /// structural "was it built" read: `TreeView` walks the arena's `Device`
-/// children, and a retracted node has left both stores. Every fixture here
-/// declares its call inside the root module's `func`, and the arena has no
-/// function-scope node kind, so the root walk sees all of them.
+/// children. Every fixture here declares its call inside the root module's
+/// `func`, and the arena has no function-scope node kind, so the root walk
+/// sees all of them.
 fn devices_of(src: &str, uri: &str) -> BTreeSet<String> {
     let _lock = common::lock();
     common::reset();
@@ -157,14 +156,14 @@ fn nets_of(src: &str, uri: &str) -> Vec<Vec<String>> {
     parts
 }
 
-/// §11.6: an error on **the component's own bind** means it never enters the
-/// netlist. Each spelling here fails its own bind, so each builds nothing —
-/// and, crucially, reports nothing about an unconnected instance, which is
-/// what a built residue would look like (E4112/E4116).
+/// §11.6: an error on **the component's own bind** does not remove it. Each
+/// spelling here fails its own bind — and each keeps its receiver, which is
+/// then reported unwired (E4112/E4116). That report is the whole point: it is
+/// how the broken part stays findable in a listing or a diagram.
 #[test]
-fn u51__bind_failure_builds_nothing() {
+fn noblock__failed_bind_still_builds_the_receiver() {
     for body in [
-        // Missing required formal `n2` — the canon's own `RX(10).Pullup(SPI)`.
+        // Missing required formal `n2`.
         "        RX(10).Pullup(SPI)",
         // Too many arguments: 3 against 2 slots.
         "        RX(10).Pullup(SPI, VDD, GND)",
@@ -173,62 +172,68 @@ fn u51__bind_failure_builds_nothing() {
     ] {
         let src = src_scalar(body);
         assert_eq!(
-            devices_of(&src, "/mcc/u51-bind.mc"),
-            BTreeSet::<String>::new(),
-            "a component whose own bind failed must not be built; body={body:?}"
+            devices_of(&src, "/mcc/noblock-bind.mc"),
+            BTreeSet::from(["_RX1".to_string()]),
+            "a component whose own bind failed is still built; body={body:?}"
         );
-        let codes = codes_of(&src, "/mcc/u51-bind.mc");
+        let codes = codes_of(&src, "/mcc/noblock-bind.mc");
         assert!(
             codes.contains(&4176),
-            "the failed bind must still be reported (E4176); body={body:?} codes={codes:?}"
+            "the failed bind is still reported (E4176); body={body:?} codes={codes:?}"
         );
         assert!(
-            !codes.contains(&4112) && !codes.contains(&4116),
-            "a retracted artifact carries no unconnected-instance report — \
-             that report is precisely the built-residue signature; \
-             body={body:?} codes={codes:?}"
+            codes.contains(&4112) && codes.contains(&4116),
+            "and the kept receiver is reported unwired — the reason the ruling \
+             keeps it at all; body={body:?} codes={codes:?}"
         );
     }
 }
 
-/// §11.6 + conclusion 1: a **fatal** width mismatch. `[SPI{A, B}, GND]` is an
-/// argument table of two top-level elements, the first of which owns two
-/// lanes: the members cannot each hand exactly one lane to a slot, so the
-/// bind fails and nothing is built. The deficit spellings (`[FOO]` undeclared,
-/// `[SPI]` a one-member bus — a single leaf, §11.6's whole-value fill needing
-/// a declared bus of **more than one** member) are the same family from the
-/// other side.
+/// §11.6: a **fatal** width mismatch keeps the residue too. `[SPI{A, B}, GND]`
+/// is an argument table of two top-level elements, the first owning two lanes,
+/// so the members cannot each hand exactly one lane to a slot; the deficit
+/// spellings (`[FOO]` undeclared, `[SPI]` a one-member bus — a single leaf)
+/// are the same family from the other side.
 ///
-/// No E4007: the residue used to be built with a half-bound formal set, and
-/// expanding the library `Cap` body (`return [net1, net2]`) against it dragged
-/// the shape error out (CIMP U51 blocker 3). With no residue there is no body
-/// expansion to go wrong.
+/// The price, asserted rather than hidden: the kept residue expands the
+/// library `Cap` body (`net1 - this - net2` plus `return [net1, net2]`)
+/// against a half-bound formal set. **Measured**: the library body's shape
+/// error (E4007) appears only for the *over-wide* spelling — the one where a
+/// scalar formal receives a multi-lane bundle (`SPI{A, B}` into `net1`), so
+/// the `return` is handed 3 lanes for 2 slots. The two *deficit* spellings
+/// leave a formal unfilled instead, which is the missing-formal path (E4180
+/// plus downstream E3179 / E5641 / E5642) and drags no E4007. The flag column
+/// keeps that distinction explicit rather than flattening it into one claim.
 #[test]
-fn u51__fatal_width_mismatch_builds_nothing() {
-    let cases: [(fn(&str) -> String, &str); 3] = [
+fn noblock__fatal_width_mismatch_still_builds_the_residue() {
+    let cases: [(fn(&str) -> String, &str, bool); 3] = [
         // Group element against a scalar slot: 2 lanes where 1 may go.
-        (src_bus, "        CAP(10).Cap([SPI{A, B}, GND])"),
+        (src_bus, "        CAP(10).Cap([SPI{A, B}, GND])", true),
         // Undeclared name: one leaf against two slots.
-        (src_bus, "        CAP(10).Cap([FOO])"),
+        (src_bus, "        CAP(10).Cap([FOO])", false),
         // One-member bus: one leaf against two slots.
-        (src_bus1, "        CAP(10).Cap([SPI])"),
+        (src_bus1, "        CAP(10).Cap([SPI])", false),
     ];
-    for (src_of, body) in cases {
+    for (src_of, body, drags_e4007) in cases {
         let src = src_of(body);
+        let devs = devices_of(&src, "/mcc/noblock-width.mc");
         assert_eq!(
-            devices_of(&src, "/mcc/u51-width.mc"),
-            BTreeSet::<String>::new(),
-            "an unpairable actual must not be built; body={body:?}"
+            devs,
+            BTreeSet::from(["_C1".to_string()]),
+            "an unpairable actual still builds its residue; body={body:?}"
         );
-        let codes = codes_of(&src, "/mcc/u51-width.mc");
+        let codes = codes_of(&src, "/mcc/noblock-width.mc");
         assert!(
             codes.contains(&4180),
-            "the fatal mismatch must still be reported (E4180); body={body:?} codes={codes:?}"
+            "the fatal mismatch is still reported (E4180); body={body:?} codes={codes:?}"
         );
-        assert!(
-            !codes.contains(&4007),
-            "the residue's downstream shape error must be gone with the \
-             residue; body={body:?} codes={codes:?}"
+        assert_eq!(
+            codes.contains(&4007),
+            drags_e4007,
+            "the over-wide residue drags the library body's shape error out \
+             (E4007) — the accepted cost of keeping it; a deficit residue \
+             takes the missing-formal path instead and drags none; \
+             body={body:?} codes={codes:?}"
         );
     }
 }
@@ -239,28 +244,28 @@ fn u51__fatal_width_mismatch_builds_nothing() {
 /// leftover single-lane element remains, which the ruling does not punish, so
 /// **both branches build**, each wire-complete.
 ///
-/// This is the discriminator: without it, family 2's rule would be "a width
-/// mismatch drops the part", which would drop exactly the case the ruling
-/// spares.
+/// This is the discriminator: without it, family 2's rule would degenerate
+/// into "a width mismatch drops the part", which would drop exactly the case
+/// the ruling spares.
 #[test]
-fn u51__surplus_elements_still_build() {
+fn noblock__surplus_elements_still_build() {
     let body = "        CAP(10).Cap([SPI, GND, VDD])";
     let src = src_bus(body);
-    let devs = devices_of(&src, "/mcc/u51-surplus.mc");
+    let devs = devices_of(&src, "/mcc/noblock-surplus.mc");
     assert_eq!(
         devs,
         BTreeSet::from(["_C1".to_string(), "_C2".to_string()]),
         "both fork branches are complete, so both are built; body={body:?}"
     );
     assert_eq!(
-        count_code(&src, "/mcc/u51-surplus.mc", 4180),
+        count_code(&src, "/mcc/noblock-surplus.mc", 4180),
         2,
         "and each branch reports the mismatch it saw; body={body:?}"
     );
 
     // `_C1` takes SPI.A, `_C2` takes SPI.B; each also lands on GND — 2 of 2
     // pins wired, i.e. "the part itself is complete".
-    let nets = nets_of(&src, "/mcc/u51-surplus.mc");
+    let nets = nets_of(&src, "/mcc/noblock-surplus.mc");
     for (dev, lane) in [("_C1", "SPI.A"), ("_C2", "SPI.B")] {
         let on = |net: &str| {
             nets.iter().any(|pts| {
@@ -275,24 +280,25 @@ fn u51__surplus_elements_still_build() {
     }
 }
 
-/// CIMP U51 blocker 1: "no connection at all" alone is **not** the criterion.
-/// A part that
-/// is declared and never wired is legitimate (BOM-only / NC parts), so it is
-/// built and kept — and reported as unwired, which is how it stays visible.
+/// Blocker 1 of the U51 discussion, which survives the reversal unchanged:
+/// "no connection at all" alone is **not** an error. A part that is declared
+/// and never wired is legitimate (BOM-only / NC parts), so it is built and
+/// kept — and reported as unwired, which is how it stays visible.
 ///
 /// The second spelling is the same part under a **written** name that starts
-/// with `_`: the same name shape the retracted `_RX1` carries, opposite fate.
-/// A criterion keyed on the `_` prefix — or on any instance name — fails here.
+/// with `_`. A criterion keyed on the `_` prefix — or on any instance name —
+/// fails here, which is why the (now withdrawn) retraction criterion had to
+/// be structural to begin with.
 #[test]
-fn u51__unwired_declaration_is_kept() {
+fn noblock__unwired_declaration_is_kept() {
     for (body, name) in [("    PART p1", "p1"), ("    PART _p1", "_p1")] {
         let src = src_decl(body);
         assert_eq!(
-            devices_of(&src, "/mcc/u51-decl.mc"),
+            devices_of(&src, "/mcc/noblock-decl.mc"),
             BTreeSet::from([name.to_string()]),
             "an unwired declaration is not an error and must be built; body={body:?}"
         );
-        let codes = codes_of(&src, "/mcc/u51-decl.mc");
+        let codes = codes_of(&src, "/mcc/noblock-decl.mc");
         assert!(
             codes.contains(&4112) && codes.contains(&4116),
             "and it must be reported as unwired, not silently dropped; \
@@ -301,21 +307,21 @@ fn u51__unwired_declaration_is_kept() {
     }
 }
 
-/// The counterpart of the two families above: the same chain spelling with a
-/// **satisfiable** bind builds its artifact, wire-complete. The retraction is
-/// scoped to the failure, not to the spelling.
+/// The counterpart of the families above: the same chain spelling with a
+/// **satisfiable** bind builds its artifact, wire-complete and without the
+/// unwired report — so "kept" cannot be misread as "kept only when broken".
 #[test]
-fn u51__satisfiable_chain_is_built() {
+fn noblock__satisfiable_chain_is_built() {
     let body = "        RX(10).Pullup(SPI, VDD)";
     let src = src_scalar(body);
     assert_eq!(
-        devices_of(&src, "/mcc/u51-built.mc"),
+        devices_of(&src, "/mcc/noblock-built.mc"),
         BTreeSet::from(["_RX1".to_string()]),
-        "a chain whose bind succeeds must build its receiver; body={body:?}"
+        "a chain whose bind succeeds builds its receiver; body={body:?}"
     );
-    let codes = codes_of(&src, "/mcc/u51-built.mc");
+    let codes = codes_of(&src, "/mcc/noblock-built.mc");
     assert!(
         !codes.contains(&4176) && !codes.contains(&4180),
-        "and report no bind error; body={body:?} codes={codes:?}"
+        "and reports no bind error; body={body:?} codes={codes:?}"
     );
 }
