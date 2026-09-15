@@ -211,9 +211,9 @@ impl InstantiationBuilder {
                                     }
                                 }
                             }
-                            // `get_member_value` is a stub (always None, see eval.md §11.5
-                            // design gap A), so member-level substitution does not run and
-                            // the member name stays as-is for now.
+                            // `get_member_value` projects the declared member to its
+                            // bound actual member (e.g. `dc24v.VCC` -> `my_dc.V1`);
+                            // a member with no matching binding stays as-is.
                         }
                         new_base.member = new_members;
                     }

@@ -21,6 +21,7 @@ use crate::{
         context::DB,
         diagnostic::diagnostic::{dlog_error, dlog_trace, dlog_warning},
     },
+    instant::mc_net::normalize_pin_segments,
     query::refs::{mcb_register_declare_class, mcb_register_instance_ref},
     refdef::types::SymbolKind,
     semantic::{
@@ -418,6 +419,50 @@ impl McPhrase {
                         McOpd::Id(ids) => {
                             report_subscribed_reserved_word(&ids, node);
                             let ids_str = ids.to_string();
+                            // ── P0: physical pin index normalization ──
+                            // `uC.pins[N]` / `uC.pins[N:M]` — the grammar folds the
+                            // whole chain into one IDS whose `expand()` yields
+                            // `uC.pinsN` member strings. Strip the `pins` prefix
+                            // (single point of truth: instant-layer
+                            // `normalize_pin_segments`, mc_net.rs P7) so the
+                            // reference resolves to the bare physical pin ids
+                            // (`uC.18`, `uC.3..uC.5`).
+                            if let Some((base, members)) =
+                                ids_str.split_once(".pins[").and_then(|(base, _)| {
+                                    let expanded = ids.expand();
+                                    if expanded.is_empty() {
+                                        return None;
+                                    }
+                                    let prefix = format!("{base}.");
+                                    let members: Vec<String> = expanded
+                                        .into_iter()
+                                        .map(|m| {
+                                            normalize_pin_segments(&m)
+                                                .strip_prefix(&prefix)
+                                                .unwrap_or(&m)
+                                                .to_string()
+                                        })
+                                        .collect();
+                                    Some((base.to_string(), members))
+                                })
+                            {
+                                if let Some(McInstance::Component(_)) = context.find_inst(&base) {
+                                    let ep = if members.len() == 1 {
+                                        McEndpoint::Single(McInstanceRef::new(
+                                            McInstance::Bus(McBus::member_ref(
+                                                &base, members[0].clone(),
+                                            )),
+                                        ))
+                                    } else {
+                                        McEndpoint::Single(McInstanceRef::new(
+                                            McInstance::Bus(McBus::new_with_members(
+                                                &base, members,
+                                            )),
+                                        ))
+                                    };
+                                    return Some(McPhrase::Endpoint(ep));
+                                }
+                            }
                             // ── Contract E (§11.3): single-member square range whose
                             // expanded member IS a declared instance is a scalar member
                             // reference (`res[4]` → `res4`), resolved as the instance,
@@ -857,6 +902,18 @@ impl McPhrase {
                                     }
                                 }
                             } else if let Some(raw_chain) = ids.dot_chain_parts() {
+                                // ── P0: physical pin index normalization ──
+                                // `uC.pins[1]` / `uC.pins.1` flatten to a chain
+                                // segment `pins1` (["uC", "pins1"]); strip the
+                                // `pins` prefix to the bare pin id (`uC.1`) so
+                                // `find_pin` / Pass2 pin lookups hit, converging
+                                // on the instant layer's single
+                                // `normalize_pin_segments` rule (mc_net.rs P7).
+                                let raw_chain: Vec<String> =
+                                    normalize_pin_segments(&raw_chain.join("."))
+                                        .split('.')
+                                        .map(str::to_string)
+                                        .collect();
                                 // ★ Dot chain — structured segments straight from the
                                 // AST (`uC.ADC.P` → ["uC", "ADC", "P"]), no text re-parsing.
                                 //
