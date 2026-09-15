@@ -62,10 +62,10 @@ fn assert_fires(code: u64, source: &str) {
     );
 }
 
-// E5453 PIN_NC_COMPONENT_LEVEL (conds.rs check_pin_io_context): an `nc`
-// iotype keyword on a component pin whose name is not literally "NC"/"nc".
-// Here `nc 1 = RESERVED` declares pin 1 as not-connected at the component
-// level, which is unusual (NC normally appears at instantiation).
+// E5453 PIN_NC_COMPONENT_LEVEL (conds.rs check_pin_io_context): the `nc`
+// iotype keyword on a component pin. Names carry no NC semantics, so the
+// keyword is the only way to declare this at the component level, and every
+// such declaration is reported (NC normally appears at instantiation).
 #[test]
 fn lock_pp_conds__pin_nc_component_level_5453_fires() {
     let source = r#"component RESERVED_PIN

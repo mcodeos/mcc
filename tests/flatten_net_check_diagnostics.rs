@@ -410,12 +410,24 @@ fn dlu_flatchk__no_driver_net_locked() {
 fn dlu_flatchk__nc_connected_by_pin_id_locked() {
     let src = "component TW {\n    pins = [\n        in 1 = A\n        nc 2 = NC\n    ]\n}\nmodule main {\n    io VDD\n    TW c1\n    c1.A -> VDD\n    c1.2 -> VDD\n}";
     let diags = build_flat_diags(&src);
-    let expected = [(
-        4109,
-        126,
-        "/mcc/flat-diag.mc",
-        "NC port 'main.c1.2' is connected to net 'VDD'.",
-    )];
+    // The 5453 Info fires on the direction word alone: with names carrying no
+    // NC semantics, the `nc` word is the only definition-site declaration and
+    // it always earns the "typically used at instantiation" nudge — the pin's
+    // name spelling no longer silences it.
+    let expected = [
+        (
+            5453,
+            60,
+            "/mcc/flat-diag.mc",
+            "Component 'TW': pin 'NC' (2) is declared NC (not-connected) at the component level. NC is typically used at instantiation.",
+        ),
+        (
+            4109,
+            126,
+            "/mcc/flat-diag.mc",
+            "NC port 'main.c1.2' is connected to net 'VDD'.",
+        ),
+    ];
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
 }
 

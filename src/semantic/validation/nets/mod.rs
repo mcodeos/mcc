@@ -139,20 +139,15 @@ fn entry_pos(entry: &InstEntry) -> (u32, String) {
     (0, entry.def_uri.clone())
 }
 
-/// §2.19 OR semantics: an entry is NC if its iotype is `NonCon` (the `nc`
-/// prefix) or its class name is the class `NC`/`nc` — whichever declaration is
-/// used, the pin is intentionally unconnected. Names compare exactly (spec/01 §2).
+/// §2.19: an entry is NC when its iotype is `NonCon` — the `nc` direction word,
+/// the only definition-site spelling — or, since U48, when an instance-site
+/// `@ncpin(…)` marker names it. A pin *named* `NC` is an ordinary pin
+/// (`erc/nc-design.md` §4.1: names carry no NC semantics).
 ///
-/// ★ U48 adds the third, instance-level arm: a pin/port explicitly marked at
-/// the instance site (`CHIP d1 @ncpin(1,3)`) is exactly as intentionally
-/// unconnected as one marked in the definition. That the pin is *also* wired is
-/// legal — the marker is a suppression marker, not a prohibition (E4109 stays
-/// untouched).
+/// The instance-level arm is a suppression marker, not a prohibition: a marked
+/// pin that is *also* wired is legal (E4109 stays untouched).
 fn is_nc_entry(entry: &InstEntry) -> bool {
-    matches!(entry.io_type, IOType::NonCon)
-        || entry.class_name == "NC"
-        || entry.class_name == "nc"
-        || entry.nc_marked
+    matches!(entry.io_type, IOType::NonCon) || entry.nc_marked
 }
 
 /// Find the first InstEntry that has a source position among a set of point IDs.

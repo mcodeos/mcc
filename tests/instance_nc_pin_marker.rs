@@ -66,6 +66,10 @@ const NCP: &str = "component NCP\n{\n    pins = [\n        nc 1 = A\n        io 
 /// instance — closed by both spellings at once — has members on either side.
 const MIXP: &str = "component MIXP\n{\n    pins = [\n        nc 1 = A\n        nc 2 = B\n        in 3 = C\n    ]\n}\n";
 
+/// A part whose pin 1 is merely *named* `NC` — no direction word anywhere.
+const NAME_NC: &str =
+    "component NAMED\n{\n    pins = [\n        io 1 = NC\n        io 2 = B\n    ]\n}\n";
+
 struct Built {
     /// Paths of the entries flagged not-connected at the instance site — the
     /// structural fact, read straight off the flat table.
@@ -616,4 +620,54 @@ fn sem_instncpin__class_nc_and_marker_close_one_instance_together() {
     assert!(half.marked.is_empty(), "{:?}", half.marked);
     assert_eq!(half.count(NET_INSTANCE_UNCONNECTED), 1, "{:?}", half.diags);
     assert_eq!(half.count(NET_INPUT_UNCONNECTED), 1, "{:?}", half.diags);
+}
+
+// ── 7. a name carries no NC semantics (`erc/nc-design.md` §4.1, CIMP U47) ──
+
+/// A name is a name: a pin called `NC` is an ordinary pin, so leaving it
+/// unwired is reported exactly like its neighbour, and it stays in the E4116
+/// denominator instead of leaving the instance looking smaller.
+#[test]
+fn sem_instncpin__name_nc_is_an_ordinary_pin() {
+    let b = build(NAME_NC, "    NAMED d1");
+    assert!(b.marked.is_empty());
+    assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.1"));
+    assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.2"));
+    assert_eq!(b.count(NET_BIDIR_UNCONNECTED), 2, "diags: {:?}", b.diags);
+    assert_eq!(
+        b.only(NET_PARTIAL_CONNECTION),
+        "'main.d1' has 0 of 2 pins connected."
+    );
+}
+
+/// Both faces of the judgement read the direction word alone now: wiring a pin
+/// named `NC` is ordinary (no E4109), while the `nc` twin contradicts the very
+/// same connection — the asymmetry this ruling removed.
+#[test]
+fn sem_instncpin__one_predicate_on_both_faces() {
+    let named = build(NAME_NC, "    io VDD\n    NAMED d1\n    d1.1 -> VDD");
+    assert_eq!(named.count(NET_NC_CONNECTED), 0, "diags: {:?}", named.diags);
+    assert!(named.reports(NET_BIDIR_UNCONNECTED, "main.d1.2"));
+    assert_eq!(
+        named.only(NET_PARTIAL_CONNECTION),
+        "'main.d1' has 1 of 2 pins connected."
+    );
+
+    let worded = build(NCP, "    io VDD\n    NCP d1\n    d1.1 -> VDD");
+    assert_eq!(
+        worded.count(NET_NC_CONNECTED),
+        1,
+        "diags: {:?}",
+        worded.diags
+    );
+}
+
+/// The instance-site marker is what closes a pin merely named `NC` now: the
+/// class-level arm it used to short-circuit on does not match it any more.
+#[test]
+fn sem_instncpin__marker_still_closes_a_name_nc_pin() {
+    let b = build(NAME_NC, "    NAMED d1 @ncpin(1)");
+    assert_eq!(b.marked_paths(), ["main.d1.1"]);
+    assert!(!b.reports(NET_BIDIR_UNCONNECTED, "main.d1.1"));
+    assert!(b.reports(NET_BIDIR_UNCONNECTED, "main.d1.2"));
 }

@@ -351,36 +351,27 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
         // Iterate all pins (keyed by pin ID) to check IO types
         for (pin_id, pin) in &comp.pins.pins {
             let pin_span = pin_definition_span(comp, pin_id, pin.names.first().map(|s| s.as_str()));
-            // §2.19 OR semantics: a pin is NC if its iotype is NonCon (`nc`
-            // prefix) or any name is "NC"/"nc" — either declaration marks it.
+            // §2.19: `is_nc` is set from the `nc` direction word alone, so a
+            // class-level NC is always deliberate and already excluded from the
+            // net / voltage checks downstream — it gets one Info, no warning.
             if pin.is_nc {
-                // A pin whose *name* is literally "NC"/"nc"
-                // (`io [1, 3, ...] = NC, "No connect"`) is the idiomatic
-                // no-connect declaration at the component level — deliberate,
-                // not a mistake, so no warning. The pin is already registered
-                // as NC (`is_nc` set at parse) and excluded from net/voltage
-                // checks downstream. Only NC coming from the explicit `nc`
-                // iotype keyword deserves scrutiny here.
-                let named_nc = pin.names.iter().any(|n| n == "NC" || n == "nc");
-                if !named_nc {
-                    let names = if pin.names.is_empty() {
-                        pin_id.clone()
-                    } else {
-                        pin.names.join(", ")
-                    };
-                    acc.push(CheckResult {
-                        check_name: "conds",
-                        severity: CheckSeverity::Info,
-                        uri: Some(uri.clone()),
-                        span: Some(pin_span.clone()),
-                        message: format!(
-                            "Component '{}': pin '{}' ({}) is declared NC (not-connected) at \
-                             the component level. NC is typically used at instantiation.",
-                            comp.name, names, pin_id
-                        ),
-                        code: crate::errcodes::PIN_NC_COMPONENT_LEVEL,
-                    });
-                }
+                let names = if pin.names.is_empty() {
+                    pin_id.clone()
+                } else {
+                    pin.names.join(", ")
+                };
+                acc.push(CheckResult {
+                    check_name: "conds",
+                    severity: CheckSeverity::Info,
+                    uri: Some(uri.clone()),
+                    span: Some(pin_span.clone()),
+                    message: format!(
+                        "Component '{}': pin '{}' ({}) is declared NC (not-connected) at \
+                         the component level. NC is typically used at instantiation.",
+                        comp.name, names, pin_id
+                    ),
+                    code: crate::errcodes::PIN_NC_COMPONENT_LEVEL,
+                });
                 continue;
             }
             // Power-pin voltage checking lives in the hw pass

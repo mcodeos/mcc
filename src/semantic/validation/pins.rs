@@ -56,11 +56,6 @@ fn pinid_from_path(path: &str) -> &str {
     path.rsplit('.').next().unwrap_or(path)
 }
 
-/// Check if a pin name indicates NC (Not Connected).
-fn is_nc_pin(class_name: &str) -> bool {
-    class_name == "NC" || class_name == "nc"
-}
-
 /// Pick the best display name for a pin. If the stored name is just the pinid
 /// itself (which happens for some interface-derived components), return None so
 /// the caller can omit it from the message instead of showing a redundant value.
@@ -77,7 +72,7 @@ fn pin_display_name<'a>(pinid: &'a str, class_name: &'a str) -> Option<&'a str> 
 /// For each Component instance, iterate over its Pin entries in the InstTable.
 /// A Pin entry is "unused" if it is not connected to any net (`get_net_of`
 /// returns None). For unused pins:
-/// - Skip if the pin name is "NC" (NC pins are intentionally unconnected, §2.19).
+/// - Skip if the pin is NC (`nc` direction word or an instance-site mark, §2.19).
 /// - Downgrade to Info if `iotype == IOType::Power` (power pins).
 /// - Otherwise report Warning.
 ///
@@ -99,10 +94,10 @@ pub(crate) fn check_unused_pins(table: &InstTable, results: &mut Vec<PinCheckRes
             let pinid = pinid_from_path(&pin.path);
             let pin_name = &pin.class_name;
 
-            // NC pins are intentionally unconnected (§2.19). OR semantics:
-            // either the `nc` iotype prefix or an NC/nc name marks the pin —
-            // and, since U48, an instance-site `@ncpin(…)` marker on it.
-            if matches!(pin.io_type, IOType::NonCon) || is_nc_pin(pin_name) || pin.nc_marked {
+            // NC pins are intentionally unconnected (§2.19): the `nc` direction
+            // word, or — since U48 — an instance-site `@ncpin(…)` marker. A pin
+            // merely *named* `NC` is an ordinary pin (`erc/nc-design.md` §4.1).
+            if matches!(pin.io_type, IOType::NonCon) || pin.nc_marked {
                 continue;
             }
 
