@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
+use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::{
     ast::{error::message::*, macros::*, node::AstNode},
     semantic::{
@@ -145,16 +145,20 @@ pub struct McAttribute {
     pub key_span: Option<std::ops::Range<usize>>,
 }
 
-/// A subscript glued onto a reserved key word (`pins[1]`, `io[0]`) selects
-/// nothing: the lexer keeps it inside one identifier, so the key names no
-/// `pins` (or `io`) construct and is never a legal spelling of one.
-fn warn_fused_subscript_key(ids: &McIds, node: &AstNode) {
+/// A subscript glued onto a key's first segment (`pins[1]`, `spec[0]`, `x[0]`)
+/// selects nothing: the lexer keeps it inside one identifier, so the key is
+/// never a legal spelling of anything and the row declares no attribute at all.
+///
+/// The criterion is the key's lexical form, not a word list — any first segment
+/// carrying a subscript is reported, registered word or not. The registry only
+/// decides whether the message can name the legal spelling to use instead.
+fn report_fused_subscript_key(ids: &McIds, node: &AstNode) {
     use crate::semantic::basic::attr_keys;
     use crate::semantic::basic::mc_ids::IdsSegment;
     let Some(IdsSegment::Ida(ida)) = ids.segments.first() else {
         return;
     };
-    if !ida.has_square() || !attr_keys::is_reserved(ida.prefix()) {
+    if !ida.has_square() {
         return;
     }
     let uri = crate::current_uri::get();
@@ -165,18 +169,24 @@ fn warn_fused_subscript_key(ids: &McIds, node: &AstNode) {
     ) {
         return;
     }
-    dlog_warning(
+    // A subscribed word the grammar reserves (N1) reads as an attempt at that
+    // construct, so there the honest fix is to name its legal spelling.
+    let hint = if attr_keys::is_reserved(ida.prefix()) {
+        format!(
+            " Keep the subscript separate: '{}{{...}}' or '{}.N'.",
+            ida.prefix(),
+            ida.prefix()
+        )
+    } else {
+        String::new()
+    };
+    dlog_error(
         crate::errcodes::ATTR_RESERVED_KEYWORD,
         node,
         &format!(
-            "Attribute name '{}' glues a subscript onto the reserved word '{}', so the \
-             subscript selects nothing and no '{}' construct is declared. Keep the \
-             subscript separate: '{}{{...}}' or '{}.N'.",
-            ids,
-            ida.prefix(),
-            ida.prefix(),
-            ida.prefix(),
-            ida.prefix()
+            "Attribute key '{}' carries a subscript in its first segment, where a \
+             subscript selects nothing: the row declares no attribute.{}",
+            ids, hint
         ),
     );
 }
@@ -209,7 +219,7 @@ impl McAttribute {
         let attr_id = McIds::new(&snode1_ids_node)?;
         // `pins[1] = A` glues the subscript into the key, so the lexer never
         // yields the keyword and the key silently becomes an ordinary attribute.
-        warn_fused_subscript_key(&attr_id, &snode1_ids_node);
+        report_fused_subscript_key(&attr_id, &snode1_ids_node);
         let key_span = Some(
             (snode1_ids_node.get_pos() as usize)
                 ..((snode1_ids_node.get_pos() + snode1_ids_node.get_len()) as usize),
