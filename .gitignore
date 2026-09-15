@@ -19,7 +19,7 @@ test/
 unitest/
 circuit.html
 *.html
-mcc-cli
+mcide
 mcs
 
 # Local authored content — keep out of the upstream repo
