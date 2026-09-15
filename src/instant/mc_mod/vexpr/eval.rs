@@ -52,7 +52,7 @@ use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::basic::opd_shape::OpdShape;
-use crate::semantic::common::{ConnDir, ConnOp};
+use crate::semantic::common::{ConnDir, ConnOp, IOType};
 use crate::semantic::mc_inst::McInstance;
 
 /// One lane's product inside a lane chain (unified-core §4.6 C-4 / §7.7 S4b).
@@ -210,6 +210,44 @@ impl InstantiationBuilder {
         Ok(acc)
     }
 
+    /// The faces of a bare **component body** used as a `+` operand: its
+    /// declared pin groups (in-pins left / out-pins right, or the power pins
+    /// when it has no in/out split) — the widths the shape layer derives for
+    /// the same reference. `get_left_pin` / `get_right_pin` answer with one
+    /// direction-heuristic pin, which is exact for a scalar port but shrinks a
+    /// 3+-pin body to a single pad.
+    ///
+    /// `None` for every other form, and for a class whose pin count is only
+    /// known after instantiation (the shape layer defers those to `Single`
+    /// too), leaving the callers on their raw accessors.
+    fn vexpr_body_face(&self, opd: &McPhrase) -> Option<(Vec<NetPoint>, Vec<NetPoint>)> {
+        let opd = match opd {
+            McPhrase::Group(g) if g.opds.len() == 1 => &g.opds[0],
+            other => other,
+        };
+        let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Component(c),
+            ..
+        })) = opd
+        else {
+            return None;
+        };
+        let comp = self.find_component(&c.name.to_string())?;
+        if comp.def.pins.has_dynamic_pins() || comp.def.pins.count() <= 2 {
+            return None;
+        }
+        let in_pins = comp.get_pins_by_io(&IOType::In);
+        let out_pins = comp.get_pins_by_io(&IOType::Out);
+        if !in_pins.is_empty() && !out_pins.is_empty() {
+            return Some((in_pins, out_pins));
+        }
+        let power_pins = comp.get_pins_by_io(&IOType::Power);
+        if power_pins.is_empty() {
+            return None;
+        }
+        Some((power_pins.clone(), power_pins))
+    }
+
     /// The **external face** of one `+` operand: the fold's own
     /// [`Self::vexpr_fold_member`] — so a nested `+` exposes its *merged* port
     /// rather than `opds[0]` (r0 design §3.2 D1) — with the same empty-face
@@ -225,6 +263,9 @@ impl InstantiationBuilder {
     /// resolve by name, not by pointer), while `FuncCall` / `Parallel` /
     /// `Group` / `Node` keep their original reference.
     fn vexpr_fold_parallel_face(&mut self, opd: &McPhrase) -> Result<ConcreteOpd, InstError> {
+        if let Some((left, right)) = self.vexpr_body_face(opd) {
+            return Ok(ConcreteOpd::from_sides(left, right));
+        }
         let folded = self.vexpr_fold_member(opd)?;
         if !folded.left.is_empty() || !folded.right.is_empty() {
             return Ok(folded);
@@ -283,6 +324,9 @@ impl InstantiationBuilder {
     /// `Bus` / `Node` member view first (a bare `Label` yields no face through
     /// the raw accessors).
     fn vexpr_fold_parallel_operand(&mut self, opd: &McPhrase) -> Result<ConcreteOpd, InstError> {
+        if let Some((left, right)) = self.vexpr_body_face(opd) {
+            return Ok(ConcreteOpd::from_sides(left, right));
+        }
         // The original pointer first: a `FuncCall` resolves through
         // `auto_inst_map`, and a normalized clone would carry a different key.
         let lp0 = self.get_left_points(opd).unwrap_or_default();
@@ -314,6 +358,9 @@ impl InstantiationBuilder {
     /// `Component` endpoint) normalizes to its `Bus` / `Node` member view and
     /// resolves by name, so the clone is harmless there.
     fn vexpr_fold_parallel_form(&mut self, form: &McPhrase) -> (Vec<NetPoint>, Vec<NetPoint>) {
+        if let Some(face) = self.vexpr_body_face(form) {
+            return face;
+        }
         let left = self.get_left_points(form).unwrap_or_default();
         let right = self.get_right_points(form).unwrap_or_default();
         if !left.is_empty() || !right.is_empty() {

@@ -126,7 +126,10 @@ pub struct ParallelWiring {
 ///    `'`): its `left ++ right` is a lane view zipped against the anchor;
 /// 4. a non-degenerate operand matching the anchor's width on both faces zips
 ///    to the two nets;
-/// 5. anything else is a width mismatch — reported, and the operand is dropped.
+/// 5. a **column anchor** (degenerate) with a non-degenerate operand whose
+///    left face spans it is §5.1's `column N*1 + node N*1,M*1`: the two left
+///    faces zip, and the operand's own right face is the result's free port;
+/// 6. anything else is a width mismatch — reported, and the operand is dropped.
 ///
 /// The two nets are then split into one net per lane (when the anchor is wider
 /// than one lane and the net divides evenly), dropping `_` placeholders, so a
@@ -200,6 +203,12 @@ pub fn fold_parallel_chain(ops: &[ConcreteOpd], transposed: &[bool]) -> Option<P
         } else if lp.len() == anchor_dim && rp.len() == anchor_right.len() {
             left_net.extend(lp.iter().cloned());
             right_net.extend(rp.iter().cloned());
+        } else if anchor_dim >= 2 && !anchor_is_chain && lp.len() == anchor_dim {
+            // The anchor is a column — degenerate, so it has no independent
+            // right port — and this operand's left face spans it: §5.1
+            // `column N*1 + node N*1,M*1` pairs left-to-left, and the operand's
+            // own right face is the result's free port rather than a net.
+            left_net.extend(lp.iter().cloned());
         } else {
             illegal = true; // width mismatch: drop the operand
         }

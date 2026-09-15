@@ -18,6 +18,7 @@
 //! |---|---|---|
 //! | `1*1 + 1*2` (degenerate left) | `[lopd]` (the merged net) | `ropd.2` (free port) |
 //! | `1*2 + 1*1` (degenerate right) | `lopd.1` | `lopd.2` |
+//! | `N*1 + N*1,M*1` (degenerate left) | `lopd` (N) | `ropd`'s right face (M) |
 //!
 //! `VDD + R1 -> GND` is the first row: the `-> GND` leg must land on `R1.2`,
 //! the *free* port of `opds[1]`, not on the label written first.
@@ -25,6 +26,17 @@
 //! **Both** operands degenerate (`[VCC, GND] + [R1.1, R1.2]`) is the tier
 //! *above* the law: no face has to be chosen, §5.1's `N*1 + N*1` row applies,
 //! and the columns pair **element-wise** -- one net per lane.
+//!
+//! # The width face
+//!
+//! The same law decides the **shape** a `+` presents to its neighbours
+//! (`OpdShape::of`, via `eval_port_elems`), and that half is where the third
+//! row is observable: `[A, B] + (nd) -> [X, Y, Z]` with `nd` a body whose in-
+//! and out-faces are 2 and 3 wide. Reading the width off `opds[0]` makes the
+//! `+` a two-wide column, the `-> [X, Y, Z]` leg a 2-vs-3 mismatch, and drops
+//! the whole statement (E4007); reading §5.1's result row makes it a
+//! `node{[A,B] | [nd.3, nd.4, nd.5]}` and the leg legal. The cells at the end
+//! lock both sides of that verdict.
 //!
 //! # What this fixture caught (2026-09-11)
 //!
@@ -267,5 +279,125 @@ fn degenerate_side__mirror_written_right_follows_the_table() {
             "VDD".to_string(),
         ]],
         "the label merges onto R1.2 and the ground leg reuses that face; got {nets:?}"
+    );
+}
+
+// the width face: a column against a body with unequal faces
+
+/// Body with **unequal** faces: in-pins `1`, `2` (width 2) and out-pins
+/// `3`, `4`, `5` (width 3). A two-pin body has no such asymmetry, so this is
+/// the only shape that makes §5.1's third row observable as a width.
+const BODY5: &str = "component BODY5 {\n    pins = [\n        in 1 = I1\n        in 2 = I2\n        out 3 = O1\n        out 4 = O2\n        out 5 = O3\n    ]\n}\n";
+
+/// Build `main` with a single `BODY5 U1` and return (non-benign codes sorted,
+/// net partition). Same normalization as [`build`], with the body in place of
+/// the resistor pair.
+///
+/// The five labels are declared module ports: an undeclared bare name raises
+/// `E3136` (floating label) even when the wiring is right, and the width face,
+/// not the label resolution, is what these cells are about. The handful of
+/// rail names that are exempt (`VCC` / `VDD` / `GND`) cannot supply five
+/// distinct labels.
+fn build_body5(body: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{BODY5}module main {{\n    io A\n    io B\n    io X\n    io Y\n    io Z\n    BODY5 U1\n    func M() {{\n{body}\n    }}\n}}\n"
+    );
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| !benign(*c))
+        .collect();
+    codes.sort_unstable();
+
+    let mut partition: Vec<Vec<String>> = net_store
+        .get("main")
+        .map(|t| {
+            t.iter()
+                .map(|(_, pts)| {
+                    let mut ps: Vec<String> = pts.iter().map(|p| p.path.clone()).collect();
+                    ps.sort();
+                    ps
+                })
+                .filter(|ps| !ps.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    partition.sort();
+    (codes, partition)
+}
+
+/// The [`two_nets`] contract over the [`build_body5`] header.
+fn two_nets_body5(uri: &str, body: &str) -> Vec<Vec<String>> {
+    let (codes, nets) = build_body5(body, uri);
+    assert_eq!(codes, Vec::<u32>::new(), "quiet statement; got {codes:?}");
+    nets
+}
+
+/// `[A, B] + (U1) -> [X, Y, Z]` -- the divergence cell of L0 §1.5 item 2, the
+/// width face of the same law. The `+`'s result row is `column 2*1 + node
+/// 2*1,3*1`, so its right face is `U1`'s three out-pins and the three-wide
+/// series leg is legal. Read off `opds[0]` the `+` is a two-wide column and the
+/// leg is a 2-vs-3 mismatch that drops the whole statement.
+#[test]
+fn degenerate_side__column_against_unequal_body_reads_the_result_row() {
+    let nets = two_nets_body5(
+        "/mcc/degen-width-body.mc",
+        "        [A, B] + (U1) -> [X, Y, Z]",
+    );
+    assert_eq!(
+        nets,
+        vec![
+            vec!["A".to_string(), "U1.1".to_string()],
+            vec!["B".to_string(), "U1.2".to_string()],
+            vec!["U1.3".to_string(), "X".to_string()],
+            vec!["U1.4".to_string(), "Y".to_string()],
+            vec!["U1.5".to_string(), "Z".to_string()],
+        ],
+        "the column pairs with the in-face and the out-face carries the leg; got {nets:?}"
+    );
+}
+
+/// The rejected mirror: `[A, B] + (U1) -> [X, Y]`. The **same** result row read
+/// with a two-wide leg -- `node 2*1,3*1` against a two-wide column -- is a real
+/// §5.2 mismatch, so the cell proves the width face is *read*, not merely that
+/// the statement stopped erroring: a fix that made every `+` legal would pass
+/// the cell above and fail this one.
+#[test]
+fn degenerate_side__column_against_unequal_body_narrow_leg_is_rejected() {
+    let (codes, _) = build_body5(
+        "        [A, B] + (U1) -> [X, Y]",
+        "/mcc/degen-width-narrow.mc",
+    );
+    assert!(
+        codes.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH),
+        "a 3-wide face against a 2-wide leg is a series mismatch; got {codes:?}"
+    );
+}
+
+/// The node spelling of the same cell: `[A, B] + U1{1, 2 | 3, 4, 5} -> [X, Y, Z]`.
+/// Writing the faces out instead of letting the body supply them must reach the
+/// identical partition -- the width is a property of the result row, not of how
+/// the operand was spelled.
+#[test]
+fn degenerate_side__column_against_written_node_reads_the_result_row() {
+    let nets = two_nets_body5(
+        "/mcc/degen-width-node.mc",
+        "        [A, B] + U1{1, 2 | 3, 4, 5} -> [X, Y, Z]",
+    );
+    assert_eq!(
+        nets,
+        vec![
+            vec!["A".to_string(), "U1.1".to_string()],
+            vec!["B".to_string(), "U1.2".to_string()],
+            vec!["U1.3".to_string(), "X".to_string()],
+            vec!["U1.4".to_string(), "Y".to_string()],
+            vec!["U1.5".to_string(), "Z".to_string()],
+        ],
+        "the node spelling must fold to the same result row; got {nets:?}"
     );
 }
