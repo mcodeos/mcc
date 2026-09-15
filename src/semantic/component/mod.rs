@@ -119,6 +119,32 @@ impl McComponent {
         self.attrs.key_names(self.bind_params())
     }
 
+    /// ★ U52: every pin id a call-site pin row (`pins{6:9} = SWDBG`) may name —
+    /// the static `pins` table plus every conditional block's pins, which add
+    /// ids at instantiation time. `None` for a class with dynamic pins
+    /// (`1:pin_count = 1:pin_count`): those ids exist only once an instance is
+    /// built, so a row's ids cannot be judged against the definition.
+    pub fn closed_pin_ids(&self) -> Option<std::collections::BTreeSet<String>> {
+        let dynamic = self.pins.has_dynamic_pins()
+            || self.cond_pins.iter().any(|cp| {
+                cp.if_blocks.iter().any(|(_, p)| p.has_dynamic_pins())
+                    || cp.else_pins.as_ref().is_some_and(|p| p.has_dynamic_pins())
+            });
+        if dynamic {
+            return None;
+        }
+        let mut ids = self.pins.get_all_pins();
+        for cp in self.cond_pins.iter() {
+            for (_, pins) in cp.if_blocks.iter() {
+                ids.extend(pins.get_all_pins());
+            }
+            if let Some(else_pins) = &cp.else_pins {
+                ids.extend(else_pins.get_all_pins());
+            }
+        }
+        Some(ids)
+    }
+
     /// Whether this component has any pin definitions: static pins, dynamic
     /// (range) pins, or conditional pin blocks. Conditional pins are stored
     /// separately in `cond_pins` (evaluated at instantiation time when the

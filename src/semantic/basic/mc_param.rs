@@ -809,6 +809,61 @@ impl McParamBindings {
         &self.pin_rows
     }
 
+    /// ★ U52: the pin ids a call-site pin row selects (`pins{6:9} = SWDBG`).
+    /// Digits name one pin, a slice names the closed range, anything else
+    /// names nothing — an id list is not a value, so no non-numeric member can
+    /// be a pin.
+    pub fn expand_pin_row_ids(ids: &[crate::semantic::basic::mc_ids::IdsSegment]) -> Vec<String> {
+        use crate::semantic::basic::mc_ids::IdsSegment;
+        let mut out = Vec::new();
+        for seg in ids.iter() {
+            match seg {
+                IdsSegment::Int(n) => out.push(n.value.to_string()),
+                IdsSegment::Slice { from, to } => {
+                    for i in from.value..=to.value {
+                        out.push(i.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// ★ U52: the pin ids a call-site pin row names that `declared` does not
+    /// hold, in row order and deduplicated. A row renames pins the definition
+    /// already has — naming an id it never declared invents no pin, so the
+    /// caller reports it (E4176) instead of dropping the row silently. A row
+    /// with no values states nothing and is skipped.
+    pub fn undeclared_pin_row_ids(
+        rows: &[(Vec<crate::semantic::basic::mc_ids::IdsSegment>, Vec<McAttrVal>)],
+        declared: &std::collections::BTreeSet<String>,
+    ) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for (ids, values) in rows.iter() {
+            if values.is_empty() {
+                continue;
+            }
+            for pin_id in Self::expand_pin_row_ids(ids) {
+                if declared.contains(&pin_id) || out.contains(&pin_id) {
+                    continue;
+                }
+                out.push(pin_id);
+            }
+        }
+        out
+    }
+
+    /// The reason E4176 states for a row whose ids
+    /// [`Self::undeclared_pin_row_ids`] reported.
+    pub fn undeclared_pin_row_reason(unknown: &[String]) -> String {
+        let noun = if unknown.len() == 1 { "pin" } else { "pins" };
+        format!(
+            "pin row names {noun} {}, which the class does not declare",
+            unknown.join(", ")
+        )
+    }
+
     /// Replace the definition-side values at `path` with any call-site key
     /// assignment for that key. `path` is the key path of `values` itself, so
     /// an assignment stored at `path` replaces them outright, while one stored

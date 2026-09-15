@@ -19,26 +19,6 @@ use crate::semantic::component::McComponent;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-/// ★ U52: the pin ids a call-site pin row selects (`pins{6:9} = SWDBG`).
-/// Digits name one pin, a slice names the closed range, anything else names
-/// nothing — an id list is not a value, so no non-numeric member can be a pin.
-fn expand_pin_row_ids(ids: &[crate::semantic::basic::mc_ids::IdsSegment]) -> Vec<String> {
-    use crate::semantic::basic::mc_ids::IdsSegment;
-    let mut out = Vec::new();
-    for seg in ids.iter() {
-        match seg {
-            IdsSegment::Int(n) => out.push(n.value.to_string()),
-            IdsSegment::Slice { from, to } => {
-                for i in from.value..=to.value {
-                    out.push(i.to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
 // McComponentInst - Component instance
 
 /// Pass2 Instantiation - Component instance
@@ -268,8 +248,9 @@ impl McComponentInst {
     /// the one call-site argument that names pins instead of binding a formal.
     ///
     /// A row renames only pins the definition already has: naming an id the
-    /// definition never declared does not invent a pin. The row's ids expand the
-    /// same way a definition-side pin row's do (`6:9` → 6,7,8,9).
+    /// definition never declared does not invent a pin (Pass1 reports E4176 for
+    /// it at the call site). The row's ids expand the same way a
+    /// definition-side pin row's do (`6:9` → 6,7,8,9).
     fn init_call_pin_rows(&mut self) {
         let rows = self.params.call_pin_rows().to_vec();
         for (ids, values) in rows.iter() {
@@ -277,7 +258,7 @@ impl McComponentInst {
             if names.is_empty() {
                 continue;
             }
-            for pin_id in expand_pin_row_ids(ids) {
+            for pin_id in McParamBindings::expand_pin_row_ids(ids) {
                 if !self.pins.contains_key(&pin_id) {
                     continue;
                 }

@@ -1727,11 +1727,17 @@ impl McInstances {
                         // from spec / the BOM and the instance is still
                         // created with the supplied arguments.
                         if !instance_params.is_empty() {
-                            if let Err(e) = McParamBindings::bind_component(
+                            match McParamBindings::bind_component(
                                 comp_def.bind_params(),
                                 &comp_def.attr_key_names(),
                                 &instance_params,
                             ) {
+                                Ok(bindings) => crate::semantic::basic::mc_fcall::check_ctor_pin_rows(
+                                    &inst_name,
+                                    comp_def,
+                                    bindings.call_pin_rows(),
+                                    inst_node,
+                                ),
                                 // Missing required parameters never block
                                 // instance creation: circuit topology only
                                 // needs pins, and the value comes from spec /
@@ -1740,7 +1746,7 @@ impl McInstances {
                                 // Written-but-wrong arguments (excess /
                                 // unknown / type-mismatched) are errors
                                 // (E4176).
-                                if let ParamBindError::MissingRequired { name } = e {
+                                Err(ParamBindError::MissingRequired { name }) => {
                                     if crate::cli::strict_mode() {
                                         dlog_warning(
                                             crate::errcodes::INST_PARAM_MISSING_REQUIRED,
@@ -1751,7 +1757,8 @@ impl McInstances {
                                             ),
                                         );
                                     }
-                                } else {
+                                }
+                                Err(e) => {
                                     dlog_error(
                                         crate::errcodes::INST_PARAM_BIND_FAILED,
                                         inst_node,
