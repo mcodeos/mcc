@@ -566,3 +566,103 @@ module main()
         "passing more args than the declared direction-word ports must report"
     );
 }
+
+/// A subscript fused onto a key's first segment is reported for *every* word,
+/// registered or not: the criterion is the key's lexical form. The registry
+/// only decides whether the message can name a legal spelling instead, so the
+/// hint appears for a word the grammar reserves and not for an invented one.
+#[test]
+fn sem_falsediag__fused_subscript_key_reports_every_word_as_an_error() {
+    for key in ["pins[1]", "spec[0]", "voltage[0]", "foo[0]", "layout[0]"] {
+        let source = format!("component F {{\n    {key} = 1\n}}\nmodule main {{\n    F f1\n}}\n");
+        let result = parse(&source);
+        let hit = diagnostics(&result)
+            .iter()
+            .find(|d| d["code"].as_u64() == Some(5351))
+            .unwrap_or_else(|| panic!("no 5351 for key `{key}`: {result}"));
+        assert_eq!(
+            hit["severity"], "error",
+            "`{key}` must report at error level: {result}"
+        );
+    }
+}
+
+/// The hint is the only part the registry decides: a reserved word's row names
+/// the legal spellings, an invented word's row does not.
+#[test]
+fn sem_falsediag__fused_subscript_hint_follows_the_registry() {
+    let reserved = parse("component F {\n    pins[1] = 1\n}\nmodule main {\n    F f1\n}\n");
+    assert!(
+        diagnostics(&reserved)
+            .iter()
+            .any(|d| d["code"].as_u64() == Some(5351)
+                && d["message"].as_str().unwrap_or("").contains("pins{...}")),
+        "a reserved word's report must name its legal spelling: {reserved}"
+    );
+
+    let invented = parse("component F {\n    foo[0] = 1\n}\nmodule main {\n    F f1\n}\n");
+    assert!(
+        diagnostics(&invented)
+            .iter()
+            .any(|d| d["code"].as_u64() == Some(5351)
+                && !d["message"].as_str().unwrap_or("").contains("{...}")),
+        "an invented word has no legal spelling to name: {invented}"
+    );
+}
+
+/// A key without a subscript is untouched: the check must not turn every
+/// registered word into a report.
+#[test]
+fn sem_falsediag__plain_key_without_subscript_is_quiet() {
+    let result =
+        parse("component F {\n    voltage = 1\n    foo = 1\n}\nmodule main {\n    F f1\n}\n");
+    assert!(
+        !has_code(&result, 5351),
+        "a subscript is what makes the report, not the word: {result}"
+    );
+}
+
+/// A pin-name row that materializes zero pins is reported at the row, not
+/// dropped in silence: E3004 for the arithmetic-name form (`A - B` is not a
+/// pin name) and for the non-enumerable colon (`1:A = B`). Both otherwise left
+/// the row with zero pins and the user with only an indirect downstream error.
+#[test]
+fn sem_falsediag__pin_row_that_declares_nothing_is_e3004() {
+    for (row, what) in [
+        ("1 = A - B", "an arithmetic name is not a pin name"),
+        ("1 = A + B", "an arithmetic name is not a pin name"),
+        ("1:A = B", "a colon whose endpoints are not enumerable"),
+    ] {
+        let source = format!(
+            "component P {{\n    pins = [\n        {row}\n        2 = B\n    ]\n}}\nmodule main {{\n    P p1\n}}\n"
+        );
+        let result = parse(&source);
+        let hits: Vec<&Value> = diagnostics(&result)
+            .iter()
+            .filter(|d| d["code"].as_u64() == Some(3004))
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "`{row}` ({what}) must report E3004 exactly once: {result}"
+        );
+        assert_eq!(
+            hits[0]["severity"], "error",
+            "`{row}` must report at error level: {result}"
+        );
+    }
+}
+
+/// The row above's opposite: a well-formed pin list stays E3004-silent, so the
+/// lock proves the report comes from the dropped row rather than from every
+/// `pins` block.
+#[test]
+fn sem_falsediag__well_formed_pin_rows_are_e3004_silent() {
+    let source = "component P {\n    pins = [\n        1 = A\n        [2,3] = B{C, D}\n        4:5 = E\n    ]\n}\nmodule main {\n    P p1\n}\n";
+    let result = parse(source);
+    assert!(
+        !has_code(&result, 3004),
+        "a well-formed pin list must not report E3004: {result}"
+    );
+    assert_eq!(result["result"]["summary"]["errors"], 0);
+}

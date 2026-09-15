@@ -52,8 +52,18 @@ fn check_reserved_attr_name(comp: &crate::McComponent, uri: &str, acc: &mut Chec
     use crate::semantic::basic::attr_keys;
     for attr in comp.attrs.iter() {
         let attr_id = attr.id.to_string();
+        // One row reports this code once. A key whose first segment glues a
+        // subscript onto a word (`pins[1]`, `x[0]`) is reported where the key is
+        // built, anchored on this same span, so a row that already carries the
+        // code is left to that report — it says the stronger thing.
+        let mut reported = crate::db::diagnostic::diagnostic::has_code_at(
+            crate::errcodes::ATTR_RESERVED_KEYWORD,
+            &uri.to_string(),
+            attr.key_span.as_ref().map_or(0, |span| span.start as u32),
+        );
         // Check the full id
-        if attr_keys::is_reserved(&attr_id) {
+        if !reported && attr_keys::is_reserved(&attr_id) {
+            reported = true;
             acc.push(CheckResult {
                 check_name: "attrs",
                 severity: CheckSeverity::Warning,
@@ -70,7 +80,8 @@ fn check_reserved_attr_name(comp: &crate::McComponent, uri: &str, acc: &mut Chec
         }
         // Check each dot-segment
         for seg in attr_id.split('.') {
-            if attr_keys::is_reserved(seg) {
+            if !reported && attr_keys::is_reserved(seg) {
+                reported = true;
                 acc.push(CheckResult {
                     check_name: "attrs",
                     severity: CheckSeverity::Warning,

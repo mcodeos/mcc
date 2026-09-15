@@ -553,6 +553,80 @@ fn dlu_flatchk__power_net_count_threshold_locked() {
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
 }
 
+/// The supply fixture of the voltage-key locks: `DRV` tied to a one-`psnk`
+/// supply whose body carries `attr_line` as its last line. `attr_line` is the
+/// single variable, so any 5454 difference between the fixtures below is the
+/// attribute and nothing else.
+fn supply_with(attr_line: &str) -> String {
+    format!(
+        "{DRV}component PSU {{\n    pins = [\n        psnk 1 = P\n    ]\n{attr_line}}}\nmodule main {{\n    D d1\n    PSU ps1\n    d1.Y -> ps1.P\n}}"
+    )
+}
+
+/// 5454 is silenced by a key registered as `AttrKeyClass::Voltage`. This is the
+/// registry's first reader; before it, the same question was asked by four
+/// sites with three different word lists.
+#[test]
+fn dlu_flatchk__registered_voltage_key_silences_5454() {
+    let src = supply_with("    voltage = \"5V\"\n");
+    let diags = build_flat_diags(&src);
+    let expected = [(
+        4111,
+        167,
+        "/mcc/flat-diag.mc",
+        "Net '_net0' has both output and power supply. Backfeed risk.",
+    )];
+    assert_lock(diags, &expected, "voltage-key lock changed");
+}
+
+/// A key that merely *spells* a voltage word is not a voltage declaration:
+/// matching is exact on the whole key, so the registry row set is what decides.
+/// Under the retired substring test this fixture reported no 5454.
+#[test]
+fn dlu_flatchk__word_spelling_key_outside_registry_still_reports_5454() {
+    let src = supply_with("    voltage_abs_max = \"5V\"\n");
+    let diags = build_flat_diags(&src);
+    let expected = [
+        (
+            5454,
+            95,
+            "/mcc/flat-diag.mc",
+            "Component 'PSU': power pin 'P' (1) has no associated voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
+        ),
+        (
+            4111,
+            175,
+            "/mcc/flat-diag.mc",
+            "Net '_net0' has both output and power supply. Backfeed risk.",
+        ),
+    ];
+    assert_lock(diags, &expected, "voltage-key lock changed");
+}
+
+/// Membership alone does not silence 5454 — the row's semantic class does.
+/// `spec` is registered, but as `AttrKeyClass::Nominal`, so it documents
+/// nominal values and not this pin's supply voltage.
+#[test]
+fn dlu_flatchk__nominal_class_key_does_not_silence_5454() {
+    let src = supply_with("    spec = [vout = 5V]\n");
+    let diags = build_flat_diags(&src);
+    let expected = [
+        (
+            5454,
+            95,
+            "/mcc/flat-diag.mc",
+            "Component 'PSU': power pin 'P' (1) has no associated voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
+        ),
+        (
+            4111,
+            171,
+            "/mcc/flat-diag.mc",
+            "Net '_net0' has both output and power supply. Backfeed risk.",
+        ),
+    ];
+    assert_lock(diags, &expected, "voltage-key lock changed");
+}
+
 /// Assert the actual ordered diagnostic sequence equals the expected golden
 /// sequence of (code, pos, uri, message) tuples — order-sensitive.
 fn assert_lock(
