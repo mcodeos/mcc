@@ -77,6 +77,12 @@ pub struct NetAttrMirror {
     pub copper: Option<String>,
     /// Declared supply function of the net.
     pub role: AttrRole,
+    /// ★ P3 (ret lineage): for a `Hot` net born from a declared DC pair, the
+    /// paired return member's leaf name (e.g. `"GND"`). `None` for every other
+    /// net — a return net itself, a `Reference`, a legacy `Signal`. Carried to
+    /// the drawing side so an opt-in can draw the same-bundle return lane
+    /// without re-guessing a name.
+    pub ret: Option<String>,
     /// True when identity is provable from declarations. Consumers skip when
     /// false (a `NetAttrMirror` is only ever produced with `resolvable: true`;
     /// the `false` case is the `None` net).

@@ -1130,6 +1130,7 @@ fn detect_net_attr(
     let mut has_ret = false;
     let mut has_ref = false;
     let mut has_hot = false;
+    let mut ret_name: Option<String> = None;
     for &pid in all_ids {
         let Some(e) = table.get_entry(pid as u32) else {
             continue;
@@ -1166,6 +1167,11 @@ fn detect_net_attr(
                 MemberRole::Power => {
                     has_hot = true;
                     copper.get_or_insert_with(|| leaf.clone());
+                    // P3 (ret lineage): the paired return face the instant layer
+                    // tagged on this DC-pair member (first in nid order).
+                    if ret_name.is_none() {
+                        ret_name = mi.pair.clone();
+                    }
                 }
                 MemberRole::Signal => {}
             }
@@ -1184,6 +1190,12 @@ fn detect_net_attr(
     Some(NetAttrMirror {
         copper,
         role,
+        // Only a Hot net born from a declared DC pair carries a return face.
+        ret: if role == AttrRole::Hot {
+            ret_name
+        } else {
+            None
+        },
         resolvable: true,
     })
 }
@@ -1254,5 +1266,83 @@ impl Dsu {
         if ra != rb {
             self.parent[rb] = ra;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::vector::builder::build_mc_vec_with_arena;
+    use crate::vector::graph::build_mc_vec_graph;
+    use crate::{
+        mcc_build_flat_with_arena, mcc_init, mcc_load_project, mcc_set_project_root,
+        mcc_set_system_root, McIds,
+    };
+
+    fn entry_uri(project_root: &Path, module_name: &str) -> String {
+        let target = format!("{}.mc", module_name);
+        let mut first: Option<String> = None;
+        for dir in [project_root.to_path_buf(), project_root.join("src")] {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().and_then(|s| s.to_str()) != Some("mc") {
+                        continue;
+                    }
+                    let name = p
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_lowercase();
+                    if name == target.to_lowercase() {
+                        return std::fs::canonicalize(&p)
+                            .ok()
+                            .and_then(|p| p.to_str().map(str::to_string))
+                            .expect("canonical entry");
+                    }
+                    if first.is_none() {
+                        first = std::fs::canonicalize(&p)
+                            .ok()
+                            .and_then(|p| p.to_str().map(str::to_string));
+                    }
+                }
+            }
+            if first.is_some() {
+                return first.unwrap();
+            }
+        }
+        panic!("no .mc entry under {}", project_root.display());
+    }
+
+    /// P3 (ret lineage): every declared DC-pair supply face on hbl1's root
+    /// carries its paired return, while the return net itself carries none.
+    #[test]
+    fn hbl1_root_net_ret_lineage() {
+        let root = std::path::PathBuf::from(
+            std::env::var("MCC_GOLDEN_PROJECT").unwrap_or_else(|_| "mcs/hbl1".into()),
+        );
+        let project = root.as_path();
+        mcc_set_system_root(project);
+        mcc_set_project_root(project);
+        mcc_init();
+        let entry = entry_uri(project, "hbl");
+        mcc_load_project(&entry);
+        let ident = McIds::from("main");
+        let (inst, table, arena, store) =
+            mcc_build_flat_with_arena(&ident, &entry, 1000).expect("flat");
+        let vec_block = build_mc_vec_with_arena(&inst, &table, &arena, &store);
+        let g = build_mc_vec_graph(&vec_block, &table);
+
+        let ret_of = |name: &str| -> Option<Option<String>> {
+            g.nets
+                .iter()
+                .find(|n| n.name == name)
+                .and_then(|n| n.attr.as_ref().map(|a| a.ret.clone()))
+        };
+        assert_eq!(ret_of("V5V.VCC"), Some(Some("GND".to_string())));
+        assert_eq!(ret_of("V3V3.VCC"), Some(Some("GND".to_string())));
+        assert_eq!(ret_of("V1V2.VCC"), Some(Some("GND".to_string())));
+        assert_eq!(ret_of("GND"), Some(None));
     }
 }
