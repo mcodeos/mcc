@@ -14,10 +14,12 @@
 //!   * 5001 DUP_CMIE_CROSS_FILE   — duplicate.rs:134 (cross-URI, same kind)
 //!   * 5003 DUP_ENUM_VALUE        — dupwithin.rs:102
 //!   * 5401 ENUM_DUPLICATE_VALUE  — enums.rs:61
-//!   * 5407 RANGE_REVERSED        — enums.rs:270 (duplicate attribute keys
-//!                                  share the code; exprs.rs:287 is the
-//!                                  reversed range-literal site)
 //!   * 5412 ATTR_SELF_REFERENTIAL — enums.rs:196
+//!
+//! Plus one code that is not a PostParse rule: 5359 ATTR_KEY_DUPLICATE is
+//! emitted at parse time (U43). It is locked here only for its CLI surface
+//! (`mcc parse` pass0 diagnostics); the rule's behavioural lock, one branch
+//! per surface, is tests/attr_key_duplicate.rs.
 //!
 //! NOT lockable by a positive fixture today (each is structurally un-fireable
 //! from any MCode source; the reasons follow in the two notes below):
@@ -27,6 +29,12 @@
 //!     count is always 1 and `entries.len() > 1` can never hold. Verified by
 //!     trying duplicate pin labels on two pin ids (`1 = A` / `2 = A`),
 //!     duplicate pin ids with the same label, and pure-number labels.
+//!   * 5407 RANGE_REVERSED — its reversed range-literal producer (exprs.rs) is
+//!     unreachable from attribute values (a bare Slice value like `{5:2}` does
+//!     not parse in an attr, and pin-name curly templates such as `IO0{7:0}`
+//!     are stored as name templates, not as `McExpression::Slice`). The
+//!     enums-host duplicate-attribute-key sweep that used to reach this code
+//!     from source was retired by U43 and given its own code (5359).
 //!   * 5402 ENUM_MEMBER_DOT / 5403 ENUM_MEMBER_LEADING_DIGIT /
 //!     5404 ENUM_MEMBER_RESERVED — enums.rs:125/140/155. The enum value-list
 //!     grammar only accepts plain identifiers: `enum E { UV.CAP }`,
@@ -197,16 +205,15 @@ module main
     );
 }
 
-// 5407 RANGE_REVERSED — duplicate attribute keys (enums.rs:270/299 site).
+// 5359 ATTR_KEY_DUPLICATE — parse-time, not a PostParse rule.
 //
-// The reversed range-literal site (exprs.rs:287) is not reachable through an
-// attribute value (a bare Slice value like `{5:2}` does not parse in an attr,
-// and pin-name curly templates such as `IO0{7:0}` are stored as name
-// templates, not McExpression::Slice). The enums-host duplicate-attribute-key
-// sweep emits the same code, which locks the diagnostic end to end.
+// This test used to lock 5407 here, because the duplicate-attribute-key sweep
+// borrowed that code. U43 retired the sweep and gave the rule its own code, so
+// what is asserted now is that a parse-time diagnostic reaches the CLI's
+// pass0 surface (the rule's branches are locked in tests/attr_key_duplicate.rs).
 
 #[test]
-fn ppdup__range_reversed_dup_attr_key_emits_5407() {
+fn ppdup__attr_key_duplicate_reaches_cli_pass0() {
     let source = r#"component DUP_ATTRKEY
 {
     name = "first"
@@ -221,8 +228,8 @@ module main
 "#;
     let result = parse(source);
     assert!(
-        has_code(&result, 5407),
-        "E5407 not emitted for a duplicated attribute key: {}",
+        has_code(&result, 5359),
+        "E5359 not emitted for a duplicated attribute key: {}",
         result["result"]["pass0"]["diagnostics"]
     );
 }

@@ -2192,6 +2192,14 @@ pub fn pins_json(pins: &crate::McPins) -> Value {
             if !extra_vals.is_empty() {
                 j["values"] = json!(extra_vals);
             }
+            // The pin's identity attributes — the trailing `@attr…` words its
+            // rows carried (U43), first declaration of a key winning, as
+            // `attach_row_attrs` defines. Declaration to this field alone
+            // deduplicates, so a key written twice in one row shows once here
+            // and is reported by 5359 instead.
+            if !pin.attrs.is_empty() {
+                j["attrs"] = json!(pin.attrs.iter().map(|a| a.to_string()).collect::<Vec<_>>());
+            }
             j
         })
         .collect();
@@ -3312,9 +3320,11 @@ mod tests {
         // `file://` scheme is stripped before the path check.
         assert!(!diag_in_system_lib(&diag("file:///tmp/proj/main.mc")));
         // The legacy `/mcode/` path marker marks a system library.
-        assert!(diag_in_system_lib(&diag("/Users/x/.mcode/mcode/mcode.mc")));
         assert!(diag_in_system_lib(&diag(
-            "file:///Users/x/.mcode/mcode/mcode.mc"
+            "/Users/<name>/.mcode/mcode/mcode.mc"
+        )));
+        assert!(diag_in_system_lib(&diag(
+            "file:///Users/<name>/.mcode/mcode/mcode.mc"
         )));
         // No location → not a library diagnostic.
         assert!(!diag_in_system_lib(&json!({ "severity": "error" })));
@@ -3354,7 +3364,7 @@ mod tests {
             .expect("test parse lock");
 
         let proj = crate::McURI::from("boards/dev/main.mc");
-        let lib = crate::McURI::from("/Users/x/.mcode/mcode/mcode.mc");
+        let lib = crate::McURI::from("/Users/<name>/.mcode/mcode/mcode.mc");
         // Authoritative domain: mark the lib URI as loaded from the mcode
         // system library, exactly like a real `mcb_load_lib` would.
         crate::db::cmie::tables::WORKSPACE.sources.insert(

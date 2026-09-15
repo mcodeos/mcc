@@ -1260,6 +1260,9 @@ pub const PINS_PLUS_AND_PINS_CONFLICT: u32 = 5357;
 /// nor a registered attribute key.
 pub const ATTR_DOTTED_NAME_UNRESOLVED: u32 = 5358;
 
+/// One attribute list declares the same key more than once.
+pub const ATTR_KEY_DUPLICATE: u32 = 5359;
+
 // Pass3: enum / expression checks (5400-5449)
 
 /// Enum has a duplicate value.
@@ -1979,6 +1982,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ATTR_PIN_GROUP_UNDEFINED, "Attribute references an undefined pin group, or role used outside a component.", "Attribute references an undefined pin group, or role used outside a component."),
     entry!(PINS_PLUS_AND_PINS_CONFLICT, "Component mixes pins = and pins.X = attributes, or uses a non-constant default.", "Component mixes pins = and pins.X = attributes, or uses a non-constant default."),
     entry!(ATTR_DOTTED_NAME_UNRESOLVED, "Dotted attribute name starts with an unregistered key.", "Dotted attribute name starts with a key that is neither the component name nor a registered attribute key."),
+    entry!(ATTR_KEY_DUPLICATE, "Attribute key declared more than once in one attribute list.", "Attribute key is declared more than once in one attribute list."),
     // section
     entry!(ENUM_DUPLICATE_VALUE, "Enum has a duplicate value.", "Enum has a duplicate value."),
     entry!(ENUM_MEMBER_DOT, "Enum member contains a dot.", "Enum member contains a dot."),
