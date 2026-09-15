@@ -968,7 +968,7 @@ impl InstantiationBuilder {
             // max of both faces; a parser selection left as a bare base
             // counting 1). One member, one width.
             _ => {
-                if lane == 0 && width > 0 {
+                if lane < width {
                     items.push((member_idx, LaneItem::Series(member)));
                 }
             }
