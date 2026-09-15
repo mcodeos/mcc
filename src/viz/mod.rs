@@ -12,12 +12,11 @@
 //!         ▼
 //!     viz::api::render(graph) ──→ VizDocument
 //!         │   │
-//!         │   ├── Top-level layout: HierarchicalLayouter (P3)
-//!         │   ├── Sub-layer layout: RadialLayouter    (P3)
-//!         │   ├── route:       smart_route_all       (P4) ─ pick router by NetKind
-//!         │   │     ├── Power/Ground/SubModuleIO → StarRouter
-//!         │   │     ├── Bus(n)                    → BusBundleRouter
-//!         │   │     └── Signal                    → OrthogonalRouter
+//!         │   ├── Top-level layout: FlowLayouter (circuit_flow, PR-1 single layouter)
+//!         │   ├── Sub-layer layout: FlowLayouter::sub()
+//!         │   ├── route:       scheduler::route_all_with_channels (P10) ─ channel-aware
+//!         │   │     ├── Star (Power/Ground multi-driver) → StarRouter
+//!         │   │     └── others → channel functions in route/{orthogonal,trunk_tap,bus_bundle}
 //!         │   └── render:      DefaultRenderer (new SvgRenderer) (P4)
 //!         │
 //!         ▼
@@ -70,13 +69,13 @@ pub use doc::VizDocument;
 pub use layer::VizLayer;
 
 // trait + default implementations
-pub use traits::{DefaultRenderer, Layouter, LegacyRenderer, NoopRouter, Renderer, Router};
+pub use traits::{DefaultRenderer, Layouter, LegacyRenderer, Renderer, Router};
 
 // Layout algorithms
 pub use layout::FlowLayouter;
 
 // Routing algorithms (P4 new)
-pub use route::{smart_route_all, BusBundleRouter, OrthogonalRouter, StarRouter};
+pub use route::StarRouter;
 
 // Render (P4 new)
 pub use render::SvgRenderer;

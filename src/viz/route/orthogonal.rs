@@ -19,7 +19,7 @@
 //! Iter 8 changed to 4 independent topologies, each guaranteed all-orthogonal.
 //!
 //! ## ★ P09 (S5) obstacle-aware refactor
-//! `OrthogonalRouter::route` builds [`ObstacleMap`] first before writing pairwise
+//! The router builds [`ObstacleMap`] first before writing pairwise
 //! polylines; candidates whose turn points hit boxes are eliminated, and only when
 //! no non-colliding path exists does it fall back to the detour algorithm.
 //! The pure function `orthogonal_path` (doesn't know about obstacles) is preserved
@@ -36,7 +36,6 @@ use crate::vector::graph::{McVecBox, McVecGraph, Point, Route, Segment, VizNet};
 use super::channels::ChannelMap;
 use super::obstacles::{best_orthogonal_path, ObstacleMap};
 use super::side::ExitSide;
-use crate::viz::traits::Router;
 
 // Public pure function: orthogonal_path
 
@@ -141,76 +140,6 @@ pub fn label_anchor(
         (true, true) | (false, false) => ((sx + dx) / 2.0, (sy + dy) / 2.0),
         (true, false) => (dx, (sy + dy) / 2.0),
         (false, true) => ((sx + dx) / 2.0, dy),
-    }
-}
-
-// OrthogonalRouter (Router trait impl)
-
-/// Route a multi-endpoint [`VizNet`] as a set of Manhattan polylines (write to `net.route`)
-///
-/// Simplified algorithm: connect endpoints pairwise, each pair walks a Manhattan polyline.
-/// (Same behavior as the old `render_edge`, just separating "path computation" and
-/// "SVG output".)
-///
-/// For more complex multi-endpoint topologies, use
-/// [`super::star::StarRouter`] / [`super::bus_bundle::BusBundleRouter`].
-pub struct OrthogonalRouter;
-
-impl Router for OrthogonalRouter {
-    fn route(&self, graph: &McVecGraph, net: &mut VizNet) {
-        let mut route = Route::new();
-
-        if net.endpoints.len() < 2 {
-            net.route = Some(route);
-            return;
-        }
-
-        // ★ P09: build obstacle map (exclude all endpoint boxes of this net)
-        let exclude: Vec<i64> = net.endpoints.iter().map(|e| e.box_id).collect();
-        let obstacles = ObstacleMap::from_graph(graph, 8.0, &exclude);
-
-        // pairwise: each pair of endpoints walks an obstacle-aware path
-        for i in 0..net.endpoints.len() {
-            for j in (i + 1)..net.endpoints.len() {
-                let a = &net.endpoints[i];
-                let b = &net.endpoints[j];
-                let box_a = graph.boxes.iter().find(|x| x.id == a.box_id);
-                let box_b = graph.boxes.iter().find(|x| x.id == b.box_id);
-                if let (Some(ba), Some(bb)) = (box_a, box_b) {
-                    let (sp, ss) = super::side::compute_exit_for_pin(ba, a.pin_id, Some(bb));
-                    let (dp, ds) = super::side::compute_exit_for_pin(bb, b.pin_id, Some(ba));
-
-                    // Prefer direction-aware orthogonal_path; if hits obstacles, use
-                    // best_orthogonal_path (tries 4 L/Z candidates and detours)
-                    let pts = orthogonal_path(sp, dp, ss, ds);
-                    let segs_from_pts: Vec<(f64, f64, f64, f64)> = pts
-                        .windows(2)
-                        .map(|w| (w[0].0, w[0].1, w[1].0, w[1].1))
-                        .collect();
-
-                    let final_segs = if obstacles.first_hit(&segs_from_pts).is_none() {
-                        // Direction-aware path doesn't collide, use directly
-                        segs_from_pts
-                    } else {
-                        // Collision, switch to obstacle-aware best pick
-                        best_orthogonal_path(sp.0, sp.1, dp.0, dp.1, &obstacles)
-                    };
-
-                    for (x1, y1, x2, y2) in final_segs {
-                        route.segments.push(Segment {
-                            from: Point::new(x1, y1),
-                            to: Point::new(x2, y2),
-                        });
-                    }
-                }
-            }
-        }
-
-        net.route = Some(route);
-    }
-
-    fn name(&self) -> &'static str {
-        "orthogonal"
     }
 }
 

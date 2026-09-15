@@ -738,23 +738,3 @@ pub struct FramePort {
     /// re-derived downstream from the port's name.
     pub is_supply: bool,
 }
-
-// ZoneBorder — functional zone border (M2-3)
-
-/// Border info of one zone, for the renderer to draw a dashed rounded rect + title
-#[derive(Debug, Clone)]
-pub struct ZoneBorder {
-    /// x coordinate
-    pub x: f64,
-    /// y coordinate
-    pub y: f64,
-    /// width
-    pub w: f64,
-    /// height
-    pub h: f64,
-    /// title
-    pub title: String,
-    /// title anchor
-    pub title_x: f64,
-    pub title_y: f64,
-}

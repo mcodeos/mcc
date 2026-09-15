@@ -5,8 +5,7 @@
 //! ★ NEW (P10, S6) — Channel-aware Router Scheduler
 //!
 //! ## What problem does this file solve
-//! S4's `dispatch.rs::route_all_with_dispatch` assigns each net to a router then executes
-//! sequentially.
+//! S4's dispatch assigned each net to a router then executed sequentially.
 //! After P10 introduces "channel" concept, **scheduling order is critical**:
 //!
 //! - Long trunks (large span, hard to route) occupy positions first, short lines yield to them
@@ -20,8 +19,8 @@
 //! ## Relationship with dispatch.rs
 //! - `dispatch::pick_router` is still the **dispatch table** (kind/topology → RouterChoice), P10
 //! reuses
-//! - `dispatch::route_layer_with_dispatch` is P09 era "no channel" scheduling, retained
-//! - This file's `route_layer_with_channels` is P10 upgraded version, **default entry point**
+//! - `route_layer_with_channels` in this file is the P10 channel-aware scheduler, the **default
+//! entry point**
 //!
 //! ## Order strategy
 //!
