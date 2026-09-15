@@ -69,6 +69,14 @@ pub struct LayerGolden {
     /// Expected edge list (from/to by **box name**, label = net name or bus entry name)
     #[serde(default)]
     pub edge: Vec<GEdge>,
+    /// G14: expected module-port roster (boundary port names, matched by
+    /// multiset diff; empty golden roster -> SKIP)
+    #[serde(default)]
+    pub port_names: Vec<String>,
+    /// G14: expected net-name roster (matched by multiset diff; empty golden
+    /// roster -> SKIP)
+    #[serde(default)]
+    pub net_names: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -120,6 +128,13 @@ pub struct LayerReading {
     pub wire_box: usize,
     pub s6_violations: usize,
     pub offcanvas_boxes: usize,
+    // G14 semantic rosters
+    /// Module-port names drawn behind this layer's box boundaries
+    #[serde(default)]
+    pub port_names: Vec<String>,
+    /// Net names present on this layer
+    #[serde(default)]
+    pub net_names: Vec<String>,
     // G10 connectivity (injected by the caller from RenderedConnectivityReport)
     pub pins_total: usize,
     pub pins_unreachable: usize,
@@ -275,6 +290,14 @@ impl LayerReading {
             (g, p)
         };
 
+        // G14 semantic rosters: module-port names behind box boundaries + net names.
+        let port_names: Vec<String> = graph
+            .boxes
+            .iter()
+            .flat_map(|b| b.boundary_ports.iter().map(|p| p.port_name.clone()))
+            .collect();
+        let net_names: Vec<String> = graph.nets.iter().map(|n| n.name.clone()).collect();
+
         LayerReading {
             layer: graph.name.clone(),
             bid: graph.bid,
@@ -308,6 +331,8 @@ impl LayerReading {
             wire_box: col.wire_box,
             s6_violations: s6,
             offcanvas_boxes: offcanvas,
+            port_names,
+            net_names,
             pins_total,
             pins_unreachable,
             evaluated: EvalCounts {
@@ -1182,6 +1207,29 @@ impl RenderGolden {
             "cross-module signals end on a labeled stub",
         ));
 
+        // G14 semantic rosters (module-port names / net names). Empty golden roster
+        // skips: the criterion only judges when the golden names its semantics.
+        let roster_check = |id: &str, g: &[String], a: &[String]| {
+            if g.is_empty() {
+                return (id.to_string(), Verdict::Skip(format!("golden roster empty, eval={}", a.len())));
+            }
+            let (missing, extra) = multiset_diff(&sorted_lower(g), &sorted_lower(a));
+            if missing.is_empty() && extra.is_empty() {
+                (id.to_string(), Verdict::Ok(format!("{} names all match", a.len())))
+            } else {
+                (
+                    id.to_string(),
+                    Verdict::Fail(format!(
+                        "missing={} extra={}",
+                        fmt_list(&missing),
+                        fmt_list(&extra)
+                    )),
+                )
+            }
+        };
+        findings.push(roster_check("G14.ports", &g.port_names, &r.port_names));
+        findings.push(roster_check("G14.nets", &g.net_names, &r.net_names));
+
         let red = findings
             .iter()
             .filter(|f| matches!(f.1, Verdict::Fail(_)))
@@ -1318,5 +1366,83 @@ label = "USB_5V"
         let g: RenderGolden = toml::from_str(text).unwrap();
         assert_eq!(g.layer["main"].boxes, 10);
         assert_eq!(g.layer["main"].edge.len(), 1);
+    }
+
+    fn reading_with_rosters(ports: &[&str], nets: &[&str]) -> LayerReading {
+        LayerReading {
+            layer: "main".into(),
+            bid: 0,
+            total_boxes: 0,
+            declared_boxes: 0,
+            synth_endpoint_boxes: 0,
+            rail_flag_boxes: 0,
+            box_names: vec![],
+            gnd_edges: 0,
+            power_edges: 0,
+            two_pin_passives: 0,
+            edges: vec![],
+            decorations_ground: 0,
+            decorations_power: 0,
+            geom_double_writes: 0,
+            geom_double_write_list: vec![],
+            box_box: 0,
+            wire_box: 0,
+            s6_violations: 0,
+            offcanvas_boxes: 0,
+            port_names: ports.iter().map(|s| s.to_string()).collect(),
+            net_names: nets.iter().map(|s| s.to_string()).collect(),
+            pins_total: 0,
+            pins_unreachable: 0,
+            evaluated: EvalCounts::default(),
+            g13: G13Reading::default(),
+        }
+    }
+
+    fn verdict_of<'a>(d: &'a LayerDiff, id: &str) -> &'a Verdict {
+        d.findings
+            .iter()
+            .find(|(k, _)| k == id)
+            .map(|(_, v)| v)
+            .expect("criterion present")
+    }
+
+    #[test]
+    fn g14_roster_judges_missing_extra_and_skip() {
+        let g: RenderGolden = toml::from_str(
+            r#"
+[layer.main]
+module = "main"
+boxes = 0
+port_names = ["vin", "vout"]
+net_names = ["V5V", "GND"]
+"#,
+        )
+        .unwrap();
+
+        // exact match -> green
+        let r = reading_with_rosters(&["vin", "vout"], &["V5V", "GND"]);
+        let d = g.diff_layer(&r);
+        assert!(matches!(verdict_of(&d, "G14.ports"), Verdict::Ok(_)));
+        assert!(matches!(verdict_of(&d, "G14.nets"), Verdict::Ok(_)));
+
+        // missing + extra -> red
+        let r = reading_with_rosters(&["vin"], &["V5V", "GND", "V3V3"]);
+        let d = g.diff_layer(&r);
+        assert!(matches!(verdict_of(&d, "G14.ports"), Verdict::Fail(_)));
+        assert!(matches!(verdict_of(&d, "G14.nets"), Verdict::Fail(_)));
+
+        // golden roster empty -> skip (never green)
+        let g2: RenderGolden = toml::from_str(
+            r#"
+[layer.main]
+module = "main"
+boxes = 0
+"#,
+        )
+        .unwrap();
+        let r = reading_with_rosters(&["vin"], &["V5V"]);
+        let d = g2.diff_layer(&r);
+        assert!(matches!(verdict_of(&d, "G14.ports"), Verdict::Skip(_)));
+        assert!(matches!(verdict_of(&d, "G14.nets"), Verdict::Skip(_)));
     }
 }

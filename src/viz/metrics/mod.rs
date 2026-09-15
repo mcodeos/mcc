@@ -1335,6 +1335,7 @@ mod tests {
             description: format!("P{pin_id}"),
             io: crate::vector::graph::netdef::IoDirection::Unknown,
             port_dir: crate::vector::graph::boxdef::PortDir::None,
+            src_span: None,
         });
     }
 

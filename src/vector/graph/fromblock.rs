@@ -115,6 +115,7 @@ fn build_box_pins(entries: &[&InstEntry], owner_class: &str) -> Vec<BoxPin> {
                 description,
                 io: translate_io_type(&e.io_type),
                 port_dir: PortDir::None,
+                src_span: e.src_pos.clone().or_else(|| e.fallback_pos.clone()),
             }
         })
         .collect()
@@ -141,6 +142,7 @@ fn placeholder_pins(box_id: i64, pin_count: usize) -> Vec<BoxPin> {
                 description: String::new(),
                 io: IoDirection::Unknown,
                 port_dir: PortDir::None,
+                src_span: None,
             }
         })
         .collect()
@@ -360,6 +362,17 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             b.not_fitted = entry.not_fitted;
             b.origin = entry.origin.clone();
             b.synthetic = entry.synthetic;
+            // G16: the component entry itself carries no declaration position, so
+            // fall back to its first pin's wiring site (the pin entries do carry one).
+            b.source_span = entry
+                .src_pos
+                .clone()
+                .or_else(|| entry.fallback_pos.clone())
+                .or_else(|| {
+                    pins
+                        .first()
+                        .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
+                });
             Some(b)
         }
         // ★ P7-6: DetectedKind::Label branch removed — Label entries are no longer
@@ -393,6 +406,17 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             b.boundary_ports = boundary_ports_of(&ports);
             apply_reserved_overrides(&mut b); // ★ Reserved: module port layout
             b.synthetic = entry.synthetic;
+            // G16: module ports carry declaration spans (backfill_port_decl_pos);
+            // prefer the first port when the module entry itself has none.
+            b.source_span = entry
+                .src_pos
+                .clone()
+                .or_else(|| entry.fallback_pos.clone())
+                .or_else(|| {
+                    ports
+                        .first()
+                        .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
+                });
             Some(b)
         }
         DetectedKind::PowerLabel => {
@@ -404,7 +428,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             let is_ground = declared_rail_is_ground(entry)?;
             let inst_path = entry.path.clone();
             let scope_chain = compute_scope_chain(&inst_path);
-            Some(McVecBox::new_v2(
+            let mut b = McVecBox::new_v2(
                 id as i64,
                 name,
                 String::new(),
@@ -416,7 +440,9 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 IoSummary::new(),
                 inst_path,
                 scope_chain,
-            ))
+            );
+            b.source_span = entry.src_pos.clone().or_else(|| entry.fallback_pos.clone());
+            Some(b)
         }
         DetectedKind::Skip | DetectedKind::Label => None,
     }
@@ -582,6 +608,17 @@ fn build_mc_vec_graph_inner(
                                                   // devices)
                 b.not_fitted = entry.not_fitted;
                 b.origin = entry.origin.clone();
+                // G16: the component entry carries no declaration position, so fall back to
+                // its first pin's wiring site (the pin entries do carry one).
+                b.source_span = entry
+                    .src_pos
+                    .clone()
+                    .or_else(|| entry.fallback_pos.clone())
+                    .or_else(|| {
+                        pins
+                            .first()
+                            .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
+                    });
                 graph.boxes.push(b);
                 box_ids_set.insert(id);
             }
@@ -613,6 +650,17 @@ fn build_mc_vec_graph_inner(
                 b.set_pins(box_pins);
                 b.boundary_ports = boundary_ports_of(&ports);
                 apply_reserved_overrides(&mut b); // ★ Reserved: module port layout
+                // G16: module ports carry declaration spans (backfill_port_decl_pos);
+                // prefer the first port when the module entry itself has none.
+                b.source_span = entry
+                    .src_pos
+                    .clone()
+                    .or_else(|| entry.fallback_pos.clone())
+                    .or_else(|| {
+                        ports
+                            .first()
+                            .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
+                    });
                 graph.boxes.push(b);
                 box_ids_set.insert(id);
             }
@@ -630,7 +678,7 @@ fn build_mc_vec_graph_inner(
                         let symbol = Symbol::PowerRail { is_ground };
                         let inst_path = entry.path.clone();
                         let scope_chain = compute_scope_chain(&inst_path);
-                        graph.boxes.push(McVecBox::new_v2(
+                        let mut b = McVecBox::new_v2(
                             id as i64,
                             name,
                             String::new(),
@@ -642,7 +690,9 @@ fn build_mc_vec_graph_inner(
                             IoSummary::new(),
                             inst_path,
                             scope_chain,
-                        ));
+                        );
+                        b.source_span = entry.src_pos.clone().or_else(|| entry.fallback_pos.clone());
+                        graph.boxes.push(b);
                         box_ids_set.insert(id);
                     }
                     None => {
@@ -2036,5 +2086,70 @@ pub fn layout_post_adjust_borders(graph: &mut McVecGraph) {
                 border.h = max_y - min_y + padding * 2.0 + 20.0; // extra for title
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::instant::insttab::InstOrigin;
+    use crate::semantic::common::IOType;
+
+    fn pos(offset: u32) -> crate::semantic::common::SourcePos {
+        crate::semantic::common::SourcePos::new(String::from("dir/file.mc"), offset)
+    }
+
+    fn pin_entry(
+        id: u32,
+        src: Option<crate::semantic::common::SourcePos>,
+        fallback: Option<crate::semantic::common::SourcePos>,
+    ) -> InstEntry {
+        InstEntry {
+            id,
+            path: format!("main.R1.{id}"),
+            kind: InstKind::Pin,
+            parent_id: Some(1),
+            class_name: String::new(),
+            io_type: IOType::None,
+            pin_count: 0,
+            src_pos: src,
+            fallback_pos: fallback,
+            def_uri: String::new(),
+            member_info: None,
+            pwr_dir: None,
+            vector_info: None,
+            not_fitted: false,
+            nc_marked: false,
+            unselected: false,
+            origin: InstOrigin::Declared,
+            synthetic: false,
+            alias_of: None,
+            node_id: None,
+            class_def: None,
+        }
+    }
+
+    // G16: a wired pin keeps its wiring site even when a declaration site exists.
+    #[test]
+    fn g16_pin_src_span_prefers_wiring_site_over_decl_site() {
+        let e = pin_entry(7, Some(pos(100)), Some(pos(50)));
+        let pins = build_box_pins(&[&e], "Res");
+        assert_eq!(pins[0].src_span.as_ref().map(|s| s.offset), Some(100));
+    }
+
+    // G16: an unwired pin falls back to its declaration site (never a zero offset).
+    #[test]
+    fn g16_pin_src_span_falls_back_to_decl_site_when_unwired() {
+        let e = pin_entry(7, None, Some(pos(50)));
+        let pins = build_box_pins(&[&e], "Res");
+        assert_eq!(pins[0].src_span.as_ref().map(|s| s.offset), Some(50));
+    }
+
+    // G16: synthesized placeholder pins carry no source position at all.
+    #[test]
+    fn g16_placeholder_pins_carry_no_src_span() {
+        let pins = placeholder_pins(2000, 4);
+        assert_eq!(pins.len(), 4);
+        assert!(pins.iter().all(|p| p.src_span.is_none()));
     }
 }
