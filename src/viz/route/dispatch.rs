@@ -5,10 +5,10 @@
 //! ★ NEW (P11, S4) — Tabulated router dispatch
 //!
 //! ## What problem does this file solve
-//! Before S3, how `smart_route_all` dispatched a net to a router was a black box,
-//! and multi-endpoint Signals were often wrongly routed via pairwise `OrthogonalRouter`
-//! rather than `TrunkTapRouter`, resulting in a 5-endpoint net being drawn as 4
-//! independent L-shaped wires (C(5,2)/shared mid ≈ 10 segments).
+//! Before P11, how a net got dispatched to a router was a black box, and
+//! multi-endpoint Signals were often wrongly routed via pairwise orthogonal
+//! routing rather than trunk-tap, resulting in a 5-endpoint net being drawn
+//! as 4 independent L-shaped wires (C(5,2)/shared mid ≈ 10 segments).
 //!
 //! P11 extracts the dispatch rules into a pure function [`pick_router`], tabulating
 //! all cases so you can see at a glance "which router this kind of net should go to",
@@ -36,8 +36,8 @@
 //! - **Power/Ground multi-driver** goes Star (radiating from geometric centroid,
 //!   multiple sources like a power confluence)
 //! - **Signal multi-driver** is a DRC warning (output-on-output short), but **still
-//!   drawn**, using TrunkTap, and via [`RouterChoice::should_warn`] letting
-//!   smart_route_all emit a stderr warning
+//!   drawn**, using TrunkTap, and via [`RouterChoice::should_warn`] letting the
+//!   scheduler emit a stderr warning
 //! - **SubModuleIO multi-driver** does not warn (cross-layer semantics ambiguous,
 //!   may be legitimate)
 //!
@@ -48,51 +48,9 @@
 //! sprints. After P11 changes, it remains fully compatible with the status quo,
 //! and the obstacle/channel interface can be added smoothly when P09/P10 land
 //! (just append fields to `RouteIntent`).
-//!
-//! ## Usage (smart_route_all integration)
-//! ```ignore
-//! use crate::viz::route::dispatch::{pick_router, RouteIntent};
-//!
-//! pub fn smart_route_all(graph: &mut McVecGraph) {
-//!     // 1. Compute intent + pick router for each net (this phase doesn't modify graph)
-//!     let plans: Vec<(usize, RouterChoice, String)> = graph.nets.iter().enumerate()
-//!         .map(|(i, n)| {
-//!             let intent = RouteIntent::from_net(n, graph);
-//!             let choice = pick_router(&intent);
-//!             (i, choice, n.name.clone())
-//!         })
-//!         .collect();
-//!
-//!     // 2. Execute in order (mem::take resolves the borrow)
-//!     for (i, choice, name) in plans {
-//!         if choice.should_warn() {
-//!             crate::vlog!("[route] WARN multi-driver net '{}'", name);
-//!         }
-//!         let router = choice.into_router();
-//!         let mut net = std::mem::take(&mut graph.nets[i]);
-//!         router.route(graph, &mut net);
-//!         graph.nets[i] = net;
-//!     }
-//! }
-//! ```
-//!
-//! Note: `mem::take` requires `VizNet: Default`. If VizNet doesn't implement Default,
-//! use `std::mem::replace(&mut graph.nets[i], placeholder)` or take nets out of the
-//! loop. Currently VizNet doesn't implement Default —— use the swap/replace pattern
-//! when integrating (see INTEGRATION.md).
-//!
-//! ## Sub-layer recursion
-//! Not handled in this module —— smart_route_all recurses into `graph.sub_graphs`
-//! after dispatching the top layer.
 
-use crate::vector::graph::netdef::{IoDirection, NetRole, NetTopology};
+use crate::vector::graph::netdef::{IoDirection, NetTopology};
 use crate::vector::graph::{McVecGraph, NetKind, VizNet};
-
-use super::bus_bundle::BusBundleRouter;
-use super::orthogonal::OrthogonalRouter;
-use super::star::StarRouter;
-use super::trunk_tap::TrunkTapRouter;
-use crate::viz::traits::{NoopRouter, Router};
 
 // RouteIntent — pure-data input for dispatch decision
 
@@ -176,7 +134,7 @@ impl RouteIntent {
 /// Output of `pick_router`: which specific router to use (as enum)
 ///
 /// Doesn't directly return `Box<dyn Router>` because enums are comparable and easier
-/// to test. Callers needing a concrete router call [`RouterChoice::into_router`].
+/// to test. The scheduler matches on the variants directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouterChoice {
     /// Endpoints ≤ 1, no routing needed
@@ -208,17 +166,6 @@ impl RouterChoice {
             RouterChoice::TrunkTapWithWarning => "trunk_tap_warn",
             RouterChoice::Star => "star",
             RouterChoice::BusBundle => "bus_bundle",
-        }
-    }
-
-    /// Convert to a concrete Router instance (heap-allocated, used for router.route calls)
-    pub fn into_router(self) -> Box<dyn Router> {
-        match self {
-            RouterChoice::Noop => Box::new(NoopRouter),
-            RouterChoice::Orthogonal => Box::new(OrthogonalRouter),
-            RouterChoice::TrunkTap | RouterChoice::TrunkTapWithWarning => Box::new(TrunkTapRouter),
-            RouterChoice::Star => Box::new(StarRouter),
-            RouterChoice::BusBundle => Box::new(BusBundleRouter),
         }
     }
 }
@@ -272,97 +219,13 @@ pub fn pick_router(intent: &RouteIntent) -> RouterChoice {
     }
 }
 
-// Integration helper — end-to-end function callable directly by smart_route_all
-
-/// End-to-end: route all nets of one graph layer following the P11 dispatch rules
-///
-/// This function encapsulates the complete flow of "compute intent → pick router →
-/// call route", using `mem::replace` to resolve the borrow conflict between
-/// Router::route's simultaneous need for `&graph` and `&mut net`.
-/// (Prerequisite: all existing Router impls only read graph.boxes, not graph.nets ——
-/// this invariant currently holds, and after P09/P10 introduces obstacle avoidance
-/// it still only reads boxes.)
-///
-/// **Does not recurse** ── sub-layers (`graph.sub_graphs`) are recursed by
-/// [`route_all_with_dispatch`].
-pub fn route_layer_with_dispatch(graph: &mut McVecGraph) {
-    // First pass: compute each net's intent + choice (immutable borrow).
-    // ★ Nets that already carry a route (placed by SP / ladder / other deterministic
-    // placers) are skipped here — the router will not overwrite them.
-    let plans: Vec<(usize, RouterChoice, String)> = graph
-        .nets
-        .iter()
-        .enumerate()
-        .filter(|(_, net)| net.route.is_none())
-        .map(|(i, net)| {
-            let intent = RouteIntent::from_net(net, graph);
-            let choice = pick_router(&intent);
-            (i, choice, net.name.clone())
-        })
-        .collect();
-
-    crate::vlog!(
-        "[route::dispatch] layer '{}' bid={} planned {} nets",
-        graph.name,
-        graph.bid,
-        plans.len()
-    );
-
-    // Second pass: execute according to the plan
-    for (i, choice, name) in plans {
-        // ★ Belt-and-suspenders: skip nets that already carry a route (placed by
-        // SP / ladder / other deterministic placers). The first-pass filter already
-        // excluded them, but this guards against any future code paths that might
-        // still include them.
-        if graph.nets[i].route.is_some() {
-            continue;
-        }
-
-        // DRC warning
-        if choice.should_warn() {
-            crate::vlog!(
-                "[route::dispatch] WARN net '{name}' has multi-driver Signal topology — \
-                 likely DRC violation (output-on-output), routing as trunk_tap anyway"
-            );
-        }
-
-        if crate::viz::debug::dump_enabled() {
-            crate::vlog!("[route::dispatch] net='{}' → {}", name, choice.name());
-        }
-
-        // Borrow trick: extract the net so we can have both &graph + &mut net
-        // (Router::route doesn't modify graph, so this swap is safe)
-        let mut tmp = std::mem::replace(
-            &mut graph.nets[i],
-            VizNet::new(
-                0,
-                String::new(),
-                NetKind::Signal,
-                NetRole::Signal,
-                Vec::new(),
-            ),
-        );
-        let router = choice.into_router();
-        router.route(graph, &mut tmp);
-        graph.nets[i] = tmp;
-    }
-}
-
-/// Recursive version: top layer + all sub-layers dispatched together
-pub fn route_all_with_dispatch(graph: &mut McVecGraph) {
-    route_layer_with_dispatch(graph);
-    for sub in &mut graph.sub_graphs {
-        route_all_with_dispatch(sub);
-    }
-}
-
 // Tests
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::vector::graph::EndpointRef;
-    use crate::viz::route::dispatch::IoDirection;
+    use crate::vector::graph::netdef::NetRole;
 
     // intent builder helper (independent of graph, hand-crafted directly)
 

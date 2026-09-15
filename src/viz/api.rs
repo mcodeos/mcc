@@ -16,10 +16,9 @@
 //! discontinued)
 //! - Simplified `render_layer_recursive` signature, no longer passes apply_route parameter
 //!
-//! ## ★ P10 (S6) changes — Channel-aware Routing
-//! `smart_route_all` internally upgraded from `dispatch::route_all_with_dispatch` to
-//! `scheduler::route_all_with_channels` (priority + ChannelMap to coordinate multiple trunks).
-//! Visually multiple parallel trunks no longer stack on the same y.
+//! ## ★ P10 (S6) — Channel-aware Routing
+//! Routing runs through `scheduler::route_all_with_channels` (priority + ChannelMap to
+//! coordinate multiple trunks), so parallel trunks do not stack on the same y.
 
 use std::collections::HashSet;
 
@@ -289,9 +288,6 @@ fn render_layer_recursive(
         };
         tracing::info!(target: "mcc::perf", step = "schematic_model", ms = _td.elapsed().as_millis() as u64, boxes = graph.boxes.len(), nets = graph.nets.len(), "render step");
 
-        // ★ M4-1a→P7-0: `graph.is_submodule` was written here unconditionally but
-        // its only reader is the (default-off) v2 branch in FlowLayouter::layout,
-        // which now sets it itself from `is_sub_layout`.
         let _tl = std::time::Instant::now();
         graph = layout_best(graph, candidates, is_block_diagram, Some(schematic_model));
         tracing::info!(target: "mcc::perf", step = "layout_best", ms = _tl.elapsed().as_millis() as u64, "render step");
@@ -303,12 +299,7 @@ fn render_layer_recursive(
         crate::vector::graph::fromblock::layout_post_adjust_borders(&mut graph);
         graph.claim_geom_changes(&g_snap, "15.borders");
 
-        // Compute canvas: v2 layouter sets canvas_hint to prevent recomputation
-        let cv = if let Some(hint) = graph.canvas_hint {
-            hint
-        } else {
-            super::layout::normalize::compute_canvas(&graph)
-        };
+        let cv = super::layout::normalize::compute_canvas(&graph);
         crate::vlog!(
             "[viz::api] layer {} '{}' layout done: canvas={}x{} (algo={})",
             bid,
@@ -443,8 +434,7 @@ fn render_layer_recursive(
     // ★ P7-4f: apply_net_labels is called only once in select.rs (before route).
     // The former second call here measured zero geometry writes across all 7 example
     // layers (label idempotence guard: nets already carrying a label are skipped);
-    // its only role was a canvas fallback —— but canvas is already computed by
-    // canvas_hint / compute_canvas above, so removing it is a pure equivalence.
+    // its only role was a canvas fallback, which is already computed above.
     // ★ F2: Device layer skips route/audit (the equipotential-tree pipeline
     // draws its own per-net geometry). Label placement still runs on Device
     // layers: the S8 NC-prefix contract and the S7 overlap guard apply to

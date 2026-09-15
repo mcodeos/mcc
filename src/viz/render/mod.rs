@@ -106,22 +106,6 @@ impl SvgRenderer {
                 svg.push_str(&equipotential_tree_render::render_equi_tree(tree));
             }
 
-            // ── Zone borders (M2-3) ──
-            for zb in &graph.zone_borders {
-                svg.push_str(&format!(
-                    r##"  <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" fill="none" stroke="#aaa" stroke-width="1.5" stroke-dasharray="8,4" rx="6" ry="6"/>
-  <text x="{tx:.1}" y="{ty:.1}" font-size="14" font-weight="600" fill="#666">{title}</text>"##,
-                    x = zb.x,
-                    y = zb.y,
-                    w = zb.w,
-                    h = zb.h,
-                    tx = zb.title_x,
-                    ty = zb.title_y,
-                    title = zb.title,
-                ));
-                svg.push('\n');
-            }
-
             // ── Boxes (top layer) ──
             // ★ C1b: skip label-kind boxes — they are rendered as tree symbols
             // (PowerLabel / Dot / PortTerminal), not as physical component boxes.

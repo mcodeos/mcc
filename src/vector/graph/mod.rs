@@ -52,7 +52,6 @@ pub mod promote;
 pub use boxdef::{
     AnchorHint, BoundaryPort, BoxLabelPlacement, EntryPoint, EntrySide, FramePort, IoSummary,
     LabelPlacementKind, McVecBox, ModuleFrame, PinConstraint, PinSlot, PortDir, VisualRole,
-    ZoneBorder,
 };
 pub use graphdef::{LayerStyle, McVecGraph};
 pub use json::json_escape;

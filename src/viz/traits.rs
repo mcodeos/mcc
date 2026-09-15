@@ -7,7 +7,6 @@
 //! ## P4 Changes
 //! - `LegacyRenderer` is removed, replaced with [`crate::viz::render::SvgRenderer`]
 //! - `LegacyLayouter` is now a compatibility alias for `RadialLayouter` (P3 changed)
-//! - `NoopRouter` is still used (for debugging)
 
 use crate::vector::graph::{McVecGraph, VizNet};
 
@@ -74,15 +73,3 @@ impl Renderer for DefaultRenderer {
 ///
 /// (References to old `LegacyRenderer` continue to work, but behavior is updated)
 pub use DefaultRenderer as LegacyRenderer;
-
-// NoopRouter
-
-pub struct NoopRouter;
-
-impl Router for NoopRouter {
-    fn route(&self, _graph: &McVecGraph, _net: &mut VizNet) {}
-
-    fn name(&self) -> &'static str {
-        "noop_router"
-    }
-}
