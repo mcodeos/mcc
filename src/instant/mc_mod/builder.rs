@@ -580,56 +580,6 @@ impl InstantiationBuilder {
         }
     }
 
-    /// U51 (`mcrule.md` §11.6, "an error blocks the build"): drop a component that must not
-    /// be built — one whose **own** bind failed at instantiation time.
-    ///
-    /// The criterion is structural and name-free (the ruling forbids
-    /// instance-name / `_`-prefix tests):
-    ///
-    /// * `anchor.is_some()` — only an **auto-named chain receiver**, i.e. an
-    ///   instance the call chain created to be called on. A declared instance
-    ///   (`RX r1(10)`) or a func-local named declaration (`RX tmp(10)`) keeps
-    ///   its identity: for those the failed method is the *statement's* error,
-    ///   not the part's (they carry no anchor — see
-    ///   `instantiate_component_construction` / `materialize_component`).
-    /// * no connection references the instance — defensive. Retraction runs
-    ///   before the failing hop expands its body, so the receiver has no
-    ///   wiring yet; a shape that wired it through the construction hop
-    ///   instead keeps its instance (the conservative outcome).
-    ///
-    /// Returns whether the instance was retracted.
-    pub(super) fn retract_chain_artifact(&mut self, name: &str) -> bool {
-        let Some(comp) = self.find_component(name) else {
-            return false;
-        };
-        if comp.anchor.is_none() {
-            return false;
-        }
-        let Some(node_id) = comp.node_id else {
-            return false;
-        };
-        // A point references the instance when the connection's owner is it,
-        // or when a path segment is its name (`_C1.1`, `main._C1.2`).
-        let referenced = self.tree.connections.iter().any(|conn| {
-            conn.points.iter().any(|p| {
-                p.owner.as_deref() == Some(name) || p.path.split('.').any(|seg| seg == name)
-            })
-        });
-        if referenced {
-            return false;
-        }
-        self.store.borrow_mut().remove(node_id);
-        self.arena.borrow_mut().retract(node_id);
-        // The instance never reaches the netlist, so neither does its
-        // provenance-tagged record of a failed build.
-        mcc_dbg!(
-            "inst::comp",
-            "[U51] retracted '{}' (chain artifact whose own bind failed)",
-            name
-        );
-        true
-    }
-
     /// Push a sub-module instance, tagging it with the current expansion id
     /// and interning its canonical path (Phase C1).
     pub(super) fn add_submodule(&mut self, inst: McModuleInst) {
