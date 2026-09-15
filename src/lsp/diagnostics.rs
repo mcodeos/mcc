@@ -20,15 +20,6 @@ pub fn collect(uri: &McURI) -> Vec<Value> {
     diagnostics.iter().map(|d| diagnostic_to_json(d)).collect()
 }
 
-/// Collect all diagnostics across all files (AI check format, with
-/// `end_line`/`end_column`/`suggestions`/`related`).
-pub fn collect_all_full() -> Vec<Value> {
-    crate::mcc_diagnose_all()
-        .iter()
-        .map(|d| diagnostic_to_json_full(d))
-        .collect()
-}
-
 // ── Single diagnostic formatters ──
 
 /// Format a diagnostic for LSP (compact format: code, level, message, location).

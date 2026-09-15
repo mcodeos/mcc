@@ -503,9 +503,9 @@ pub fn handle_show_pins(params: Option<Value>) -> RpcResult {
     let (cmie, _) = find_def_by_name(name)
         .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
-    let pins = match &cmie {
-        crate::McCMIE::Component(c) => &c.pins,
-        crate::McCMIE::Interface(i) => &i.pins,
+    let (pins, funcs) = match &cmie {
+        crate::McCMIE::Component(c) => (&c.pins, component_funcs_json(c)),
+        crate::McCMIE::Interface(i) => (&i.pins, json!([])),
         _ => {
             return Err(JsonRpcError::custom(
                 32111,
@@ -515,7 +515,24 @@ pub fn handle_show_pins(params: Option<Value>) -> RpcResult {
     };
     let mut data = pins_json(pins);
     data["name"] = json!(name);
+    data["funcs"] = funcs;
     Ok(data)
+}
+
+/// The component's callable functions (e.g. `Pullup`/`Pulldown` on RES), so an
+/// AI agent looking up `component_pins` also learns which methods it may call —
+/// it cannot guess them from the pins alone.
+fn component_funcs_json(c: &crate::McComponent) -> Value {
+    c.funcs
+        .iter()
+        .map(|f| {
+            json!({
+                "name": f.name.to_string(),
+                "params": f.params.names_full_annotated(),
+                "returns": f.returns.kind_str(),
+            })
+        })
+        .collect()
 }
 
 // === handle_show_ports (lines 2936-2961 in original) ===

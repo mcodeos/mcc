@@ -1231,6 +1231,50 @@ pub(crate) fn is_system_uri(uri: &str) -> bool {
     uri.contains("/mcode/") || uri.contains("\\mcode\\")
 }
 
+/// True when a diagnostic's location lives in a system-library source file.
+///
+/// Compiler fault tolerance: a bug inside an external library's `.mc` sources
+/// is pre-existing library noise, not the user's circuit. The AI `check`
+/// dry-run decides pass/fail from its diagnostic summary, so library
+/// diagnostics must be excluded from that summary — a broken third-party
+/// library must not block the user's project when the user's own code is
+/// clean.
+pub(crate) fn diag_in_system_lib(d: &Value) -> bool {
+    let file = d
+        .get("location")
+        .and_then(|l| l.get("file"))
+        .and_then(|f| f.as_str())
+        .unwrap_or("");
+    !file.is_empty() && diag_file_in_system_lib(file)
+}
+
+fn diag_file_in_system_lib(file: &str) -> bool {
+    // In-memory overlay URIs (`/mcc/check_N.mc`, the AI's own content) are
+    // never library files. `file://` and plain paths go to the path check;
+    // any other URI scheme is treated as non-library.
+    if let Some(path) = file.strip_prefix("file://") {
+        return path_in_system_lib(path);
+    }
+    if !file.contains("://") {
+        return path_in_system_lib(file);
+    }
+    false
+}
+
+fn path_in_system_lib(path: &str) -> bool {
+    // Authoritative domain from the definition-space source manifest first.
+    let uri = crate::McURI::from(path);
+    match crate::definition_space().source_of(&uri) {
+        Some(crate::db::defspace::SourceDomain::SystemLib(_)) => return true,
+        Some(crate::db::defspace::SourceDomain::Project) => return false,
+        None => {}
+    }
+    // Fallback: canonicalized on-disk library roots, then the legacy
+    // `/mcode/` path marker (covers files loaded before the manifest existed).
+    crate::db::infra::libmgr::file_is_system_library(std::path::Path::new(path))
+        || is_system_uri(path)
+}
+
 pub(crate) fn refs_json(items: &[(String, String, [usize; 2])]) -> Vec<Value> {
     items
         .iter()
@@ -3251,5 +3295,122 @@ mod tests {
         let mut mixed2 = vec!["B", "2", "A", "1"];
         mixed2.sort_by(|a, b| pin_id_cmp(a, b));
         assert_eq!(mixed2, vec!["1", "2", "A", "B"]);
+    }
+
+    /// `diag_in_system_lib` classifies a diagnostic by its location file:
+    /// system-library files are excluded so a broken third-party library does
+    /// not fail the user's `check` dry-run.
+    #[test]
+    fn cli_rpc__diag_in_system_lib_classifies_by_source_domain() {
+        let diag =
+            |file: &str| json!({ "severity": "error", "location": { "file": file, "line": 1 } });
+
+        // In-memory overlay URIs (the AI's own content) are never library files.
+        assert!(!diag_in_system_lib(&diag("/mcc/check_0.mc")));
+        // Plain project paths are not library files.
+        assert!(!diag_in_system_lib(&diag("boards/dev/main.mc")));
+        // `file://` scheme is stripped before the path check.
+        assert!(!diag_in_system_lib(&diag("file:///tmp/proj/main.mc")));
+        // The legacy `/mcode/` path marker marks a system library.
+        assert!(diag_in_system_lib(&diag("/Users/x/.mcode/mcode/mcode.mc")));
+        assert!(diag_in_system_lib(&diag(
+            "file:///Users/x/.mcode/mcode/mcode.mc"
+        )));
+        // No location → not a library diagnostic.
+        assert!(!diag_in_system_lib(&json!({ "severity": "error" })));
+
+        // Authoritative branch: the definition-space source manifest decides,
+        // independent of the path string. Insert a unique temp URI into the
+        // manifest, assert both domains, then clean up so no state leaks.
+        let lib_uri =
+            crate::McURI::from(format!("/tmp/mcc-syslib-check-{}.mc", std::process::id()).as_str());
+        crate::db::cmie::tables::WORKSPACE.sources.insert(
+            lib_uri.clone(),
+            crate::db::defspace::SourceDomain::SystemLib("acme".into()),
+        );
+        assert!(diag_in_system_lib(&diag(lib_uri.as_str())));
+        crate::db::cmie::tables::WORKSPACE
+            .sources
+            .insert(lib_uri.clone(), crate::db::defspace::SourceDomain::Project);
+        assert!(!diag_in_system_lib(&diag(lib_uri.as_str())));
+        crate::db::cmie::tables::WORKSPACE.sources.remove(&lib_uri);
+    }
+
+    /// End-to-end: `handle_check` Mode A (the AI dry-run) is scoped to the
+    /// candidate overlay file only. Unrelated on-disk project / system-library
+    /// diagnostics must never fail a clean candidate — during an agent edit the
+    /// disk project is frequently mid-edit (broken), and that noise used to make
+    /// every `check_dry_run` report errors. The candidate's own errors still
+    /// count toward pass/fail.
+    #[test]
+    fn cli_rpc__handle_check_scopes_to_candidate_overlay() {
+        use crate::db::diagnostic::diagnostic::{diagnostic_log_at, DiagnosticLevel};
+
+        // The check dry-run drives the C parser via mcc_load_from_string,
+        // which is not re-entrant across threads — serialize against every
+        // other workspace-driving test in the crate.
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .expect("test parse lock");
+
+        let proj = crate::McURI::from("boards/dev/main.mc");
+        let lib = crate::McURI::from("/Users/x/.mcode/mcode/mcode.mc");
+        // Authoritative domain: mark the lib URI as loaded from the mcode
+        // system library, exactly like a real `mcb_load_lib` would.
+        crate::db::cmie::tables::WORKSPACE.sources.insert(
+            lib.clone(),
+            crate::db::defspace::SourceDomain::SystemLib("mcode".into()),
+        );
+
+        // One pre-existing error in the project file, one in the system lib.
+        // Neither belongs to the candidate, so neither may fail the dry-run.
+        diagnostic_log_at(1, DiagnosticLevel::Error, proj.clone(), 0, 0, "user bug", &[]);
+        diagnostic_log_at(2, DiagnosticLevel::Error, lib.clone(), 0, 0, "lib bug", &[]);
+
+        let clean = super::handle_check(Some(json!({ "content": "module main {}\n" })))
+            .expect("check dry-run succeeds");
+        assert_eq!(
+            clean["summary"]["errors"].as_u64().unwrap(),
+            0,
+            "unrelated project/lib diagnostics must not fail a clean candidate"
+        );
+        assert_eq!(
+            clean["library"]["errors"].as_u64().unwrap(),
+            0,
+            "unrelated lib diagnostics are not counted either"
+        );
+        let files: Vec<&str> = clean["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|d| d["location"]["file"].as_str())
+            .collect();
+        assert!(
+            !files.contains(&"boards/dev/main.mc"),
+            "project diagnostics must not leak into a dry-run of candidate content"
+        );
+
+        // The candidate's own syntax error still counts toward pass/fail.
+        let broken = super::handle_check(Some(json!({ "content": "module main {\n" })))
+            .expect("check dry-run succeeds");
+        assert_eq!(
+            broken["summary"]["errors"].as_u64().unwrap() >= 1,
+            true,
+            "the candidate's own parse error still counts toward pass/fail"
+        );
+
+        // Cleanup: drop the injected manifest entry and diagnostics so no
+        // state leaks into other tests in this process.
+        crate::db::cmie::tables::WORKSPACE.sources.remove(&lib);
+        crate::db::cmie::tables::WORKSPACE
+            .diagnostics
+            .lock()
+            .unwrap()
+            .clear_file(&proj);
+        crate::db::cmie::tables::WORKSPACE
+            .diagnostics
+            .lock()
+            .unwrap()
+            .clear_file(&lib);
     }
 }

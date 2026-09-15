@@ -4,6 +4,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use super::mc_ids::IdsSegment;
 use super::mc_opd::McOpd;
 pub use super::mc_paramd::*;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
@@ -681,29 +682,25 @@ impl McParamBinding {
 
     /// Get the member value of the parameter binding
     ///
-    /// STUB — NOT IMPLEMENTED: this function unconditionally returns `None`
-    /// (the `_idx`/`_value` locals below are unused). The member-level formal
-    /// parameter substitution it was meant to serve (subst.rs `dc24v.VCC` ->
-    /// actual member `V1`) therefore does not run and member names stay as-is.
-    /// Documented as design gap A in eval.md §11.5.
-    ///
     /// Used for parameter declarations with members like `dc24v{VCC24, GND}`,
-    /// to get the corresponding member at the position of the given member name in the bound value.
+    /// to get the corresponding member at the position of the given member name
+    /// in the bound value.
     ///
     /// # How it works
     /// 1. Get the member list from the formal parameter declaration and the index of `member_name`
     /// 2. Extract the value at the corresponding index from the actual argument value
     ///
     /// # Supported actual argument forms
-    /// - `McOpd::WithMember { member: [...] }` -> get member by index
-    /// - `McParamValue::Set([...])` -> get Set element by index
+    /// - `McParamValue::Set([...])` (`[V1, G1]` square-bracket argument) -> Set element by index
+    /// - `McParamValue::Ids(...)` (`my_dc[V1, G1]` square-member argument) -> member by index
+    /// - scalar value bound to a single-member declaration -> the whole value (index 0)
     ///
     /// # Example
     /// ```text
     /// // declaration: dc24v{VCC24, GND}
     /// // argument: my_dc[V1, G1]
-    /// binding.get_member_value("VCC24") -> Some(Opd(Id("V1")))
-    /// binding.get_member_value("GND")   -> Some(Opd(Id("G1")))
+    /// binding.get_member_value("VCC24") -> Some(Ids("V1"))
+    /// binding.get_member_value("GND")   -> Some(Ids("G1"))
     /// ```
     pub fn get_member_value(&self, member_name: &str) -> Option<McParamValue> {
         // 1. Get the member list of the formal parameter declaration
@@ -713,13 +710,33 @@ impl McParamBinding {
         }
 
         // 2. Find the position of member_name in the formal parameter member list
-        let _idx = declare_members
+        let idx = declare_members
             .iter()
             .position(|m: &String| m == member_name)?;
 
         // 3. Extract the value at the corresponding index from the actual argument value
-        let _value = self.get_value()?;
-        None
+        let value = self.get_value()?;
+        match value {
+            // `[V1, G1]` square-bracket argument -> Set element by index
+            McParamValue::Set(vals) => vals.get(idx).cloned(),
+            // `my_dc[V1, G1]` parsed as an Ids chain with a square member list ->
+            // the idx-th square member, re-wrapped as a bare Ids value
+            McParamValue::Ids(ids) => {
+                let square = ids
+                    .segments
+                    .iter()
+                    .find_map(|seg| match seg {
+                        IdsSegment::Square(inner) => Some(inner),
+                        _ => None,
+                    })?;
+                let member = square.get(idx)?.to_string();
+                Some(McParamValue::Ids(McIds::from(member.as_str())))
+            }
+            // A scalar value bound to a single-member declaration serves as the
+            // whole (and only) member value
+            _ if idx == 0 => Some(value.clone()),
+            _ => None,
+        }
     }
 
     /// Get the list of expanded names for the parameter binding
@@ -1925,6 +1942,80 @@ mod tests {
             McParamBindings::bind(&declares, &values).expect("uC.I2C0 should bind positionally");
         let bus = bindings.find("bus").expect("bus should be bound");
         assert_eq!(bus.get_value().unwrap().to_string(), "uC.I2C0");
+    }
+
+    /// P0: get_member_value projects a declared member to its bound actual
+    /// member. Declaration `dc24v{VCC24, GND}` (Multiple kind), argument
+    /// `[V1, G1]` (Set form).
+    #[test]
+    fn sem_mcparam__get_member_value_projects_set_member() {
+        let binding = McParamBinding::new(
+            McParamDeclare {
+                kind: McParamDeclareKind::Multiple(vec![
+                    McIds::from("VCC24"),
+                    McIds::from("GND"),
+                ]),
+                param_type: McParamType {
+                    kind: McParamTypeKind::Unknown,
+                    direction: None,
+                },
+            },
+            Some(McParamValue::Set(vec![
+                McParamValue::Ids(McIds::from("V1")),
+                McParamValue::Ids(McIds::from("G1")),
+            ])),
+        );
+        assert_eq!(
+            binding.get_member_value("VCC24").map(|v| v.to_string()),
+            Some("V1".to_string()),
+            "VCC24 projects to the bound V1"
+        );
+        assert_eq!(
+            binding.get_member_value("GND").map(|v| v.to_string()),
+            Some("G1".to_string()),
+            "GND projects to the bound G1"
+        );
+        assert!(
+            binding.get_member_value("NOPE").is_none(),
+            "unknown member projects to None"
+        );
+    }
+
+    /// P0: get_member_value on an Ids value (`my_dc[V1, G1]`) — the square
+    /// member list maps by the same declared-member index.
+    #[test]
+    fn sem_mcparam__get_member_value_projects_ids_square_member() {
+        let binding = McParamBinding::new(
+            McParamDeclare {
+                kind: McParamDeclareKind::Multiple(vec![
+                    McIds::from("VCC24"),
+                    McIds::from("GND"),
+                ]),
+                param_type: McParamType {
+                    kind: McParamTypeKind::Unknown,
+                    direction: None,
+                },
+            },
+            Some(McParamValue::Ids(McIds {
+                segments: vec![
+                    IdsSegment::Ida(Box::new(McIda::from("my_dc"))),
+                    IdsSegment::Square(vec![
+                        IdsSegment::Ida(Box::new(McIda::from("V1"))),
+                        IdsSegment::Ida(Box::new(McIda::from("G1"))),
+                    ]),
+                ],
+            })),
+        );
+        assert_eq!(
+            binding.get_member_value("VCC24").map(|v| v.to_string()),
+            Some("V1".to_string()),
+            "VCC24 projects to the bound V1"
+        );
+        assert_eq!(
+            binding.get_member_value("GND").map(|v| v.to_string()),
+            Some("G1".to_string()),
+            "GND projects to the bound G1"
+        );
     }
 }
 
