@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::eval::{self, Compare, Value};
 use crate::semantic::basic::mc_literal::strip_string_quotes;
 use crate::{
     ast::{macros::*, node::AstNode},
@@ -483,93 +484,64 @@ impl McConds {
     }
 
     pub fn check_condition(cond: &McCondition, params: &[(McIds, String)]) -> bool {
+        // A condition with no node cannot carry a diagnostic, so the error half
+        // is dropped here; `check_condition_result` is the same evaluation with
+        // the failure preserved.
+        Self::check_condition_result(cond, params).unwrap_or(false)
+    }
+
+    /// Evaluate one condition through the value engine (doc/eval V7). The
+    /// operands are bound argument text, so they enter the engine by text and
+    /// are normalized by the one suffix table — `1200mV` and `1.2V` are the
+    /// same value, which the old suffix-stripping comparison could not see.
+    pub fn check_condition_result(
+        cond: &McCondition,
+        params: &[(McIds, String)],
+    ) -> Result<bool, eval::EvalError> {
         // Handle "in" condition separately (different structure)
         if let McCondition::In { left, values } = cond {
-            let left_val = Self::resolve_operand(left, params);
-            return values.iter().any(|v| v == &left_val);
+            let left_val = Value::from_text(&Self::resolve_operand(left, params));
+            for value in values {
+                if eval::satisfies(Compare::Eq, &left_val, &Value::from_text(value))? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
         }
 
         // Bitwise conditions (`if (address & 0x01)` / `if (address | 0x01)`):
-        // resolve both operands to integers, apply the bitwise operation, and
-        // treat a non-zero result as true.
+        // apply the operation to the two integers and treat a non-zero result
+        // as true. A non-integer operand keeps its historical reading — the
+        // condition is simply not satisfied.
         if let McCondition::BitAnd { left, right } | McCondition::BitOr { left, right } = cond {
-            let left_val = Self::resolve_operand(left, params);
-            let right_val = Self::resolve_operand(right, params);
-            let (Some(l), Some(r)) = (Self::parse_int(&left_val), Self::parse_int(&right_val))
-            else {
-                return false; // Non-numeric operands -> condition not satisfied
+            let left_val = Value::from_text(&Self::resolve_operand(left, params));
+            let right_val = Value::from_text(&Self::resolve_operand(right, params));
+            let (Value::Int(l), Value::Int(r)) = (left_val, right_val) else {
+                return Ok(false);
             };
             let result = if matches!(cond, McCondition::BitAnd { .. }) {
                 l & r
             } else {
                 l | r
             };
-            return result != 0;
+            return Ok(result != 0);
         }
 
-        let (left_val, right_val) = match cond {
-            McCondition::Eq { left, right } => (
-                Self::resolve_operand(left, params),
-                Self::resolve_operand(right, params),
-            ),
-            McCondition::NotEq { left, right } => (
-                Self::resolve_operand(left, params),
-                Self::resolve_operand(right, params),
-            ),
-            McCondition::Lt { left, right } => (
-                Self::resolve_operand(left, params),
-                Self::resolve_operand(right, params),
-            ),
-            McCondition::Gt { left, right } => (
-                Self::resolve_operand(left, params),
-                Self::resolve_operand(right, params),
-            ),
-            McCondition::LtEq { left, right } => (
-                Self::resolve_operand(left, params),
-                Self::resolve_operand(right, params),
-            ),
-            McCondition::GtEq { left, right } => (
-                Self::resolve_operand(left, params),
-                Self::resolve_operand(right, params),
-            ),
-            McCondition::BitAnd { .. } | McCondition::BitOr { .. } => unreachable!(),
-            McCondition::In { .. } => unreachable!(),
+        let (left_op, right_op, cmp) = match cond {
+            McCondition::Eq { left, right } => (left, right, Compare::Eq),
+            McCondition::NotEq { left, right } => (left, right, Compare::NotEq),
+            McCondition::Lt { left, right } => (left, right, Compare::Lt),
+            McCondition::Gt { left, right } => (left, right, Compare::Gt),
+            McCondition::LtEq { left, right } => (left, right, Compare::LtEq),
+            McCondition::GtEq { left, right } => (left, right, Compare::GtEq),
+            McCondition::BitAnd { .. } | McCondition::BitOr { .. } | McCondition::In { .. } => {
+                unreachable!()
+            }
         };
 
-        match cond {
-            McCondition::Eq { .. } => {
-                Self::compare_values(&left_val, &right_val) == std::cmp::Ordering::Equal
-            }
-            McCondition::NotEq { .. } => {
-                Self::compare_values(&left_val, &right_val) != std::cmp::Ordering::Equal
-            }
-            McCondition::Lt { .. } => {
-                Self::compare_values(&left_val, &right_val) == std::cmp::Ordering::Less
-            }
-            McCondition::Gt { .. } => {
-                Self::compare_values(&left_val, &right_val) == std::cmp::Ordering::Greater
-            }
-            McCondition::LtEq { .. } => {
-                let cmp = Self::compare_values(&left_val, &right_val);
-                cmp == std::cmp::Ordering::Less || cmp == std::cmp::Ordering::Equal
-            }
-            McCondition::GtEq { .. } => {
-                let cmp = Self::compare_values(&left_val, &right_val);
-                cmp == std::cmp::Ordering::Greater || cmp == std::cmp::Ordering::Equal
-            }
-            McCondition::BitAnd { .. } | McCondition::BitOr { .. } => unreachable!(),
-            McCondition::In { .. } => unreachable!(),
-        }
-    }
-
-    /// Parse an integer operand, supporting decimal and `0x`/`0X` hex forms.
-    fn parse_int(s: &str) -> Option<i64> {
-        let s = s.trim();
-        if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-            i64::from_str_radix(hex, 16).ok()
-        } else {
-            s.parse::<i64>().ok()
-        }
+        let left_val = Value::from_text(&Self::resolve_operand(left_op, params));
+        let right_val = Value::from_text(&Self::resolve_operand(right_op, params));
+        eval::satisfies(cmp, &left_val, &right_val)
     }
 
     fn resolve_operand(op: &McCondOperand, params: &[(McIds, String)]) -> String {
@@ -587,33 +559,6 @@ impl McConds {
         }
     }
 
-    fn compare_values(left: &str, right: &str) -> std::cmp::Ordering {
-        let left_num = Self::extract_number(left);
-        let right_num = Self::extract_number(right);
-        if let (Some(l), Some(r)) = (left_num, right_num) {
-            l.partial_cmp(&r).unwrap_or(std::cmp::Ordering::Equal)
-        } else {
-            left.cmp(right)
-        }
-    }
-
-    fn extract_number(s: &str) -> Option<f64> {
-        let s = s.trim();
-        if let Ok(n) = s.parse::<f64>() {
-            return Some(n);
-        }
-
-        // Compile the unit-suffix pattern once and reuse it. Compiling a regex
-        // on every call was the dominant cost of interface condition evaluation
-        // (~90us per call on the mcode library), dwarfing the actual matching.
-        static NUMBER_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        let re = NUMBER_RE.get_or_init(|| {
-            regex::Regex::new(r"^(-?[\d.]+)([a-zA-Z]*)$").expect("valid unit-suffix number regex")
-        });
-        re.captures(s)
-            .and_then(|caps| caps.get(1))
-            .and_then(|m| m.as_str().parse::<f64>().ok())
-    }
 }
 
 // McFuncConds — parsed conditional blocks, storing McPhrase stmts for evaluation at instantiation
