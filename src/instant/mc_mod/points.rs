@@ -149,7 +149,7 @@ fn resolve_bare_member_pid(
 /// Every child reference — the dotted path and the curly two-face access — reads
 /// its identity through this one function, so two spellings of the same declared
 /// pin (pin id and pinname) always resolve to the same point.
-fn declared_pin_id(
+pub(crate) fn declared_pin_id(
     comp: &crate::instant::mc_comp::McComponentInst,
     member: &str,
 ) -> Option<String> {

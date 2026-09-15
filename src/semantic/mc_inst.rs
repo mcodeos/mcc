@@ -330,6 +330,13 @@ pub struct McInstances {
     /// declaration span; `lapper_module_ports` registers `InstDef` at that
     /// span and `resolve_net_ref_kind` answers `InstRef` for use sites.
     declareb_defs: HashMap<String, (SymbolKind, Range<usize>)>,
+    /// ★ NC layer ③: the `@ncpin(…)` trailer of the declaration clause about to
+    /// be parsed. The marker is a sibling of the `MCAST_DECLARE` node
+    /// (`mc_net: mc_phrase mc_tattrs_opt`), so it cannot be read from inside
+    /// `parse_declare`; the caller stages it here and `parse_declare` moves it
+    /// onto every instance record the clause builds. Always emptied by that
+    /// take, so a declaration without a marker never inherits a stale one.
+    nc_pins: Vec<crate::semantic::nc_pin::NcPinSpec>,
 }
 
 impl McInstances {
@@ -344,7 +351,17 @@ impl McInstances {
             label_kinds: HashMap::new(),
             bus_defs: BTreeMap::new(),
             declareb_defs: HashMap::new(),
+            nc_pins: Vec::new(),
         }
+    }
+
+    /// ★ NC layer ③: stage the declaration clause's `@ncpin(…)` trailer for the
+    /// `parse` call that follows. `parse_declare` takes it onto the instance
+    /// records it builds; an unclaimed slot would carry the marker to the next
+    /// declaration, so the caller must stage immediately before parsing (the
+    /// only caller is `parse_body`'s `MCAST_DECLARE` arm).
+    pub(crate) fn set_nc_pins(&mut self, specs: Vec<crate::semantic::nc_pin::NcPinSpec>) {
+        self.nc_pins = specs;
     }
 
     /// Read the ordered member set of a declared vector group, if any.
@@ -1428,6 +1445,11 @@ impl McInstances {
     }
 
     pub(crate) fn parse_declare(&mut self, node: &AstNode, uri: &McURI, iotype: &IOType) {
+        // ★ NC layer ③: the clause's `@ncpin(…)` trailer, staged by the caller
+        // (it is a sibling of this node, not a child). Claimed here, once, so
+        // the two declaration forms below — and every instance a vector
+        // declaration expands into — carry the same marker.
+        let nc_pins = std::mem::take(&mut self.nc_pins);
         // MCAST_DECLARE structure:
         // |- MCAST_CLASS (class_id, class_params)
         // |- MCAST_INSTANCE (instance_id, instance_params)
@@ -1705,9 +1727,11 @@ impl McInstances {
                         // from spec / the BOM and the instance is still
                         // created with the supplied arguments.
                         if !instance_params.is_empty() {
-                            if let Err(e) =
-                                McParamBindings::bind(comp_def.bind_params(), &instance_params)
-                            {
+                            if let Err(e) = McParamBindings::bind_component(
+                                comp_def.bind_params(),
+                                &comp_def.attr_key_names(),
+                                &instance_params,
+                            ) {
                                 // Missing required parameters never block
                                 // instance creation: circuit topology only
                                 // needs pins, and the value comes from spec /
@@ -1743,11 +1767,12 @@ impl McInstances {
                                 }
                             }
                         }
-                        let mc2_comp = Mc2Component::with_params(
+                        let mut mc2_comp = Mc2Component::with_params(
                             &inst_name,
                             comp_def.clone(),
                             instance_params,
                         );
+                        mc2_comp.nc_pins = nc_pins.clone();
                         (McInstance::Component(Arc::new(mc2_comp)), inst_name)
                     }
                     Some(McCMIE::Module(mod_def)) => {
@@ -1756,11 +1781,15 @@ impl McInstances {
                         );
                         (
                             // ── P1: bring construction args into module instance ──
-                            McInstance::Module(Arc::new(Mc2Module::with_params(
-                                &inst_name,
-                                mod_def.clone(),
-                                ctor_args.clone(),
-                            ))),
+                            McInstance::Module(Arc::new({
+                                let mut m = Mc2Module::with_params(
+                                    &inst_name,
+                                    mod_def.clone(),
+                                    ctor_args.clone(),
+                                );
+                                m.nc_pins = nc_pins.clone();
+                                m
+                            })),
                             inst_name,
                         )
                     }

@@ -142,8 +142,17 @@ fn entry_pos(entry: &InstEntry) -> (u32, String) {
 /// §2.19 OR semantics: an entry is NC if its iotype is `NonCon` (the `nc`
 /// prefix) or its class name is the class `NC`/`nc` — whichever declaration is
 /// used, the pin is intentionally unconnected. Names compare exactly (spec/01 §2).
+///
+/// ★ U48 adds the third, instance-level arm: a pin/port explicitly marked at
+/// the instance site (`CHIP d1 @ncpin(1,3)`) is exactly as intentionally
+/// unconnected as one marked in the definition. That the pin is *also* wired is
+/// legal — the marker is a suppression marker, not a prohibition (E4109 stays
+/// untouched).
 fn is_nc_entry(entry: &InstEntry) -> bool {
-    matches!(entry.io_type, IOType::NonCon) || entry.class_name == "NC" || entry.class_name == "nc"
+    matches!(entry.io_type, IOType::NonCon)
+        || entry.class_name == "NC"
+        || entry.class_name == "nc"
+        || entry.nc_marked
 }
 
 /// Find the first InstEntry that has a source position among a set of point IDs.
@@ -650,7 +659,14 @@ pub(crate) fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCh
             && !entry.synthetic
         {
             let pins = table.get_pins_of(entry.id);
-            if !pins.is_empty() && pins.iter().all(|p| !connected.contains(&p.id)) {
+            // ★ U48: an instance whose every pin is explicitly marked
+            // not-connected at the declaration site (`TWO d1 @ncpin(1,2)`) is
+            // *deliberately* unwired — this report is one of the things the
+            // marker exists to suppress. Only the all-marked case: a partly
+            // marked instance still has pins somebody wants wired, and E4112
+            // speaks about the instance, not about one pin.
+            let all_marked = !pins.is_empty() && pins.iter().all(|p| p.nc_marked);
+            if !all_marked && !pins.is_empty() && pins.iter().all(|p| !connected.contains(&p.id)) {
                 let (pos, uri) = entry_pos(entry);
                 results.push(NetCheckResult {
                     check: "unwired-instance",
@@ -946,6 +962,19 @@ pub(crate) fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetC
             }
             let pins = table.get_pins_of(entry.id);
             let connected_pins = pins.iter().filter(|p| connected.contains(&p.id)).count();
+            // ★ U48: an instance-site `@ncpin(…)` marker removes the pin from
+            // the denominator the same way a class-level `nc` does. Only the
+            // *unconnected* marked pins: a marked pin that is nevertheless wired
+            // is connected in the numerator, so subtracting it here would turn
+            // a complete part into a false "N of M-1".
+            let marked_unconnected = pins
+                .iter()
+                .filter(|p| p.nc_marked && !connected.contains(&p.id))
+                .count();
+            let def_pin_count = def_pin_count.saturating_sub(marked_unconnected);
+            if def_pin_count == 0 {
+                continue;
+            }
             if connected_pins < def_pin_count {
                 let (pos, uri) = entry_pos(entry);
                 results.push(NetCheckResult {

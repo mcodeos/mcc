@@ -96,9 +96,24 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
     }
 }
 
-/// I1: references in spec/attr blocks to undeclared variables.
+/// I1: references in spec blocks to undeclared variables.
+///
+/// The two spellings of a spec key are one fact (G2): the dotted key
+/// `spec.X = v` and the table row `spec = [ X = v ]`. Both must be checked by
+/// the same rule, so the table form recurses into its rows instead of passing in
+/// silence.
+///
+/// Not every bare word is a param reference: `_` (unassigned), a boolean, and a
+/// declared enum value (`safety_class = SC_NONE`) are values in their own right,
+/// and the spec tables in the system library are written with them.
 fn check_spec_refs(acc: &mut CheckAccumulator) {
-    let comps = crate::definition_space().workspace_components();
+    let ds = crate::definition_space();
+    let enum_values: std::collections::HashSet<String> = ds
+        .all_enums()
+        .iter()
+        .flat_map(|(_, e)| e.values.iter().map(|v| v.name.to_string()))
+        .collect();
+    let comps = ds.workspace_components();
     for (sn, comp) in comps.iter() {
         let comp_name = sn.ident.to_string();
         let uri = sn.uri.to_string();
@@ -111,30 +126,117 @@ fn check_spec_refs(acc: &mut CheckAccumulator) {
             .filter_map(|d| d.get_primary_name())
             .collect();
         for attr in comp.attrs.iter() {
-            // Check if attr.id starts with "spec." using structured segments
-            let is_spec = attr.id.segments.len() > 1 && attr.id.segments[0].to_string() == "spec";
-            if is_spec {
+            // Structured segments decide whether the attr sits on the spec face;
+            // the name is compared exactly.
+            let segs = &attr.id.segments;
+            let is_table_spec = segs.len() == 1 && attr.id.to_string() == "spec";
+            let is_dotted_spec = segs.len() > 1 && segs[0].to_string() == "spec";
+            if is_table_spec {
                 for val in &attr.values {
-                    // Use the parsed McAttrVal type instead of string heuristic.
-                    // AttrVariable is a bare identifier — check if it matches a known param.
-                    if let crate::semantic::component::mc_attr::McAttrVal::AttrVariable(opd, _) =
-                        val
-                    {
-                        let word = opd.to_string();
-                        if !param_names.contains(&word) {
-                            acc.push(CheckResult {
-                                check_name: "ref-integrity", severity: CheckSeverity::Error,
-                                uri: Some(uri.clone()), span: attr.key_span.clone(),
-                                message: format!(
-                                    "Spec key '{}' in component '{}' references '{}' which is not a declared parameter.",
-                                    attr.id, comp_name, word
-                                ),
-                                code: crate::errcodes::SPEC_KEY_UNDECLARED_PARAM,
-                            });
-                        }
+                    if let crate::semantic::component::mc_attr::McAttrVal::Attributes(rows) = val {
+                        check_spec_rows(
+                            rows,
+                            "spec",
+                            &param_names,
+                            &enum_values,
+                            &comp_name,
+                            &uri,
+                            acc,
+                        );
+                    }
+                }
+            } else if is_dotted_spec {
+                let key = attr.id.to_string();
+                check_spec_value_refs(
+                    &key,
+                    attr,
+                    &param_names,
+                    &enum_values,
+                    &comp_name,
+                    &uri,
+                    acc,
+                );
+                for val in &attr.values {
+                    if let crate::semantic::component::mc_attr::McAttrVal::Attributes(rows) = val {
+                        check_spec_rows(
+                            rows,
+                            &key,
+                            &param_names,
+                            &enum_values,
+                            &comp_name,
+                            &uri,
+                            acc,
+                        );
                     }
                 }
             }
         }
     }
+}
+
+/// I1 helper: check the rows of one spec table. `path` is the dotted key of the
+/// table itself, so a row's own key is `path.<row id>` — the same name the
+/// dotted spelling of that row would carry.
+fn check_spec_rows(
+    rows: &[crate::semantic::component::mc_attr::McAttribute],
+    path: &str,
+    param_names: &std::collections::HashSet<String>,
+    enum_values: &std::collections::HashSet<String>,
+    comp_name: &str,
+    uri: &str,
+    acc: &mut CheckAccumulator,
+) {
+    for row in rows {
+        let key = format!("{path}.{}", row.id);
+        check_spec_value_refs(&key, row, param_names, enum_values, comp_name, uri, acc);
+        for val in &row.values {
+            if let crate::semantic::component::mc_attr::McAttrVal::Attributes(inner) = val {
+                check_spec_rows(inner, &key, param_names, enum_values, comp_name, uri, acc);
+            }
+        }
+    }
+}
+
+/// I1 helper: flag bare-identifier values of one spec key that name no declared
+/// parameter. Uses the parsed `McAttrVal` type rather than a string heuristic.
+///
+/// A word that stands on its own as a value is not a dangling reference: the
+/// placeholder `_`, the boolean literals (lexed as bare variables), and any
+/// declared enum value. Only a word that is neither those nor a declared
+/// parameter is reported.
+fn check_spec_value_refs(
+    key: &str,
+    attr: &crate::semantic::component::mc_attr::McAttribute,
+    param_names: &std::collections::HashSet<String>,
+    enum_values: &std::collections::HashSet<String>,
+    comp_name: &str,
+    uri: &str,
+    acc: &mut CheckAccumulator,
+) {
+    for val in &attr.values {
+        if let crate::semantic::component::mc_attr::McAttrVal::AttrVariable(opd, _) = val {
+            let word = opd.to_string();
+            if param_names.contains(&word) || is_standalone_spec_value(&word, enum_values) {
+                continue;
+            }
+            acc.push(CheckResult {
+                check_name: "ref-integrity",
+                severity: CheckSeverity::Error,
+                uri: Some(uri.to_string()),
+                span: attr.key_span.clone(),
+                message: format!(
+                    "Spec key '{}' in component '{}' references '{}' which is not a declared parameter.",
+                    key, comp_name, word
+                ),
+                code: crate::errcodes::SPEC_KEY_UNDECLARED_PARAM,
+            });
+        }
+    }
+}
+
+/// A bare word that is a spec value in its own right, not a parameter reference:
+/// the placeholder `_` (unassigned), the boolean literals, or a declared enum
+/// value (`safety_class = SC_NONE`).
+fn is_standalone_spec_value(word: &str, enum_values: &std::collections::HashSet<String>) -> bool {
+    matches!(word, "_" | "true" | "false") || enum_values.contains(word)
 }

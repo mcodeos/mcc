@@ -528,6 +528,21 @@ impl McIds {
                             }
                         }
 
+                        // The `pins` keyword keeps its own node type in a key
+                        // position too (`pins{6:9} = SWDBG`, mca.y) — it never
+                        // arrives as an MCAST_IDA, so without this arm the word
+                        // is dropped and the key renders as a bare `{6:9}`. Read
+                        // it as the word it spells, exactly as the
+                        // MCAST_OPD_THIS/MCAST_OPD_PINS arm above does for the
+                        // phrase position.
+                        MCAST_OPD_PINS => {
+                            let keyword = each
+                                .data_as_cstr()
+                                .and_then(|c| c.to_str().ok())
+                                .unwrap_or("pins");
+                            new_segments.push(IdsSegment::Ida(Box::new(McIda::from(keyword))));
+                        }
+
                         MCAST_OPD_DOT => {
                             let Some(subnode) = each.get_sub_node() else {
                                 dlog_error(

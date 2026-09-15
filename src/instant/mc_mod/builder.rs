@@ -93,6 +93,12 @@ pub(crate) struct InstantiationBuilder {
     /// fcallinst) and written by `instantiate_stmts_resilient` (phases.rs).
     pub(super) current_stmt_span: Option<SourcePos>,
 
+    /// Exclusive byte end of that same stmt (the next stmt's start; `u32::MAX`
+    /// for the last one), so a fact Pass1 anchors anywhere inside the stmt can
+    /// be recognized from Pass2's stmt-start anchor. `None` outside a top-level
+    /// stmt, where only the exact anchor applies.
+    pub(super) current_stmt_end: Option<u32>,
+
     /// Func-body expansion provenance. Read by the construction impl modules
     /// (bus / group / fcallinst); set by [`Self::with_func_stmt`].
     pub(super) current_func_span: Option<SourcePos>,
@@ -349,6 +355,7 @@ impl InstantiationBuilder {
             auto_inst_counter,
             next_phrase_id,
             current_stmt_span: None,
+            current_stmt_end: None,
             current_func_span: None,
             current_trunk: None,
             current_trunk_kind: None,
@@ -932,6 +939,33 @@ impl InstantiationBuilder {
             (None, None) => (self.def_uri.clone(), 0),
         };
         self.record_error_at(code, message, uri, pos);
+    }
+
+    /// Has `code` already been stated for the site [`Self::record_error`]
+    /// would anchor at? Two anchors count: the exact one (enclosing func body,
+    /// else the enclosing statement start, else the module file start), and —
+    /// for a top-level statement — anywhere inside it, because Pass1 anchors a
+    /// construction fact at the construction's own node, which sits wherever
+    /// the construction does in the statement, not at its start.
+    pub(super) fn has_error_at_current_site(&self, code: u32) -> bool {
+        let (uri, pos) = match (&self.current_func_span, &self.current_stmt_span) {
+            (Some(sp), _) => (sp.uri.clone(), sp.offset),
+            (None, Some(s)) => (s.uri.clone(), s.offset),
+            (None, None) => (self.def_uri.clone(), 0),
+        };
+        if crate::db::diagnostic::diagnostic::has_code_at(code, &uri, pos) {
+            return true;
+        }
+        match (
+            &self.current_func_span,
+            &self.current_stmt_span,
+            self.current_stmt_end,
+        ) {
+            (None, Some(s), Some(end)) => {
+                crate::db::diagnostic::diagnostic::has_code_in_range(code, &s.uri, s.offset, end)
+            }
+            _ => false,
+        }
     }
 
     /// Record a non-fatal error at an explicit source position (declaration

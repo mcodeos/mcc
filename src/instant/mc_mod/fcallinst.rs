@@ -243,14 +243,20 @@ impl InstantiationBuilder {
         let mut inst = match McComponentInst::with_params(&inst_name, comp_def.clone(), params) {
             Ok(inst) => inst,
             Err(e) => {
-                let reason = format!("{:?}", e);
-                self.record_error(
-                    crate::errcodes::INST_PARAM_BIND_FAILED,
-                    crate::errcodes::format_msg(
+                let reason = e.to_string();
+                // Pass1's `check_ctor_bind` reports this same bind failure at
+                // the construction's own call site; a report here too would
+                // state one fact twice, the second with a coarser anchor. Ask
+                // first and stay silent when Pass1 already spoke.
+                if !self.has_error_at_current_site(crate::errcodes::INST_PARAM_BIND_FAILED) {
+                    self.record_error(
                         crate::errcodes::INST_PARAM_BIND_FAILED,
-                        &[&inst_name, &type_name, &reason],
-                    ),
-                );
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_PARAM_BIND_FAILED,
+                            &[&inst_name, &type_name, &reason],
+                        ),
+                    );
+                }
                 mcc_dbg!(
                     "inst::fcall",
                     "[ERROR] Failed to instantiate anonymous component '{}' (class '{}'): {}",
@@ -967,7 +973,7 @@ impl InstantiationBuilder {
                 }
             }
         }
-        McParamBindings::from_bindings(out)
+        McParamBindings::from_bindings(out).with_key_overrides_of(bindings)
     }
 
     /// Build bridge `ConnectionInst`s linking the parser-supplied right-side
@@ -1279,16 +1285,12 @@ impl InstantiationBuilder {
             let reason = format!(
                 "NC is not allowed as an argument of method '{func_str}'; NC is valid only in CLASS(NC) or a constructor argument list"
             );
-            crate::db::diagnostic::diagnostic::diagnostic_log(
+            self.record_error(
                 crate::errcodes::INST_PARAM_BIND_FAILED,
-                crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                0,
-                0,
-                &crate::errcodes::format_msg(
+                crate::errcodes::format_msg(
                     crate::errcodes::INST_PARAM_BIND_FAILED,
                     &[&inst_name.to_string(), &func_str, &reason],
                 ),
-                &[],
             );
             return Ok(FuncCallInst::PassThrough);
         }
@@ -1305,30 +1307,41 @@ impl InstantiationBuilder {
         //    below then expands a bus actual to its member lanes (a DC
         //    annotated bus like `V3V3` resolves to `[VDD_3V3, GND]` from its
         //    definition, never guessed).
-        let mut bindings = match McParamBindings::bind(&func_def.params, params) {
-            Ok(b) => b,
-            Err(e) => {
-                // Strict arity for net-endpoint method calls
-                // (Component-Spec Separation, func methods): every formal is
-                // a net endpoint that becomes a connection, so a missing or
-                // excess argument is reported (E4176) and never silently
-                // dropped. The call is skipped so the body cannot emit
-                // garbage connections for unbound formals.
-                let func_str = func_def.name.to_string();
-                crate::db::diagnostic::diagnostic::diagnostic_log(
-                    crate::errcodes::INST_PARAM_BIND_FAILED,
-                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                    0,
-                    0,
-                    &crate::errcodes::format_msg(
+        //
+        //    A call-site name may also be one of the receiver class's declared
+        //    attribute keys (`contract-design.md` §2.4): those keys join the
+        //    method's formal names as bindable names, matched by exact name,
+        //    and an assignment through one is carried to the receiver below.
+        //    The key face belongs to the receiver, not to the func — a func
+        //    declares no attribute keys, so a key's formal link is dropped.
+        let receiver_keys = self
+            .find_component(inst_name)
+            .map(|c| c.def.attr_key_names())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|key| key.without_formal_link())
+            .collect::<Vec<_>>();
+        let mut bindings =
+            match McParamBindings::bind_component(&func_def.params, &receiver_keys, params) {
+                Ok(b) => b,
+                Err(e) => {
+                    // Strict arity for net-endpoint method calls
+                    // (Component-Spec Separation, func methods): every formal is
+                    // a net endpoint that becomes a connection, so a missing or
+                    // excess argument is reported (E4176) and never silently
+                    // dropped. The call is skipped so the body cannot emit
+                    // garbage connections for unbound formals.
+                    let func_str = func_def.name.to_string();
+                    self.record_error(
                         crate::errcodes::INST_PARAM_BIND_FAILED,
-                        &[&inst_name.to_string(), &func_str, &format!("{e}")],
-                    ),
-                    &[],
-                );
-                return Ok(FuncCallInst::PassThrough);
-            }
-        };
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_PARAM_BIND_FAILED,
+                            &[&inst_name.to_string(), &func_str, &format!("{e}")],
+                        ),
+                    );
+                    return Ok(FuncCallInst::PassThrough);
+                }
+            };
         // Vector-formal width rules at the boundary (matching-rules-design.md
         // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
         bindings = self.align_vector_bindings(&bindings, None);
@@ -1383,6 +1396,28 @@ impl InstantiationBuilder {
                 store
                     .borrow_mut()
                     .insert(cid, NodeInstance::Component(comp));
+            }
+        }
+
+        // A call-site argument assigning one of the receiver class's declared
+        // attribute keys (`contract-design.md` §2.4) overrides the value the
+        // receiver carries. The receiver is built and its attributes resolved
+        // before this call, so the assignment is a post-hoc rewrite; landing it
+        // back in the store is what makes it visible.
+        if bindings.has_key_overrides() {
+            if let Some(mut comp) = self.find_component(inst_name) {
+                if let Some(cid) = comp.node_id {
+                    {
+                        let inner = Rc::make_mut(&mut comp);
+                        for attr in inner.resolved_attrs.iter_mut() {
+                            let path = [attr.id.to_string()];
+                            bindings.apply_key_overrides(&path, &mut attr.values);
+                        }
+                    }
+                    store
+                        .borrow_mut()
+                        .insert(cid, NodeInstance::Component(comp));
+                }
             }
         }
 

@@ -710,10 +710,10 @@ impl McParamDeclare {
         // Syntactic type classification (handles explicitly annotated forms immediately)
         let mut param_type = McParamType::from_ast(node);
 
-        // Component-instance parameter: `id::Class({attrs})` parses (via `mc_param:
-        // mc_body`) but has no engine consumer — the attribute body would be
-        // discarded and the declaration downgraded to a plain interface param with
-        // no diagnostic. Report it instead of letting the attributes vanish (E3112).
+        // Component-instance parameter: `id::Class(k = v)` parses but has no
+        // engine consumer — the attributes would be discarded and the
+        // declaration downgraded to a plain interface param with no
+        // diagnostic. Report it instead of letting the attributes vanish (E3112).
         if let crate::semantic::basic::mc_param_type::McParamTypeKind::ComponentInstance {
             class_name,
         } = &param_type.kind

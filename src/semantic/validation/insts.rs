@@ -78,8 +78,37 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             !matches!(p, crate::semantic::basic::mc_param::McParamValue::NC(_))
                         })
                         .count();
+                    // …and strip named arguments (`k = v`, `contract-design.md`
+                    // §2.4) from the **over**-count side: a named argument claims
+                    // a slot by name, so it is not a positional argument and must
+                    // not be counted as one. `D d1( volt = 9V )` on a class with no
+                    // formal parameters is one key assignment, not one stray arg.
+                    // Matching the name against its two faces — and reporting the
+                    // orphan when it hits neither — is the binder's job, not this
+                    // arity check's.
+                    //
+                    // The under-count branch below deliberately keeps counting
+                    // named arguments: a formal supplied by name *is* supplied, so
+                    // removing it there would manufacture spurious "requires at
+                    // least N" warnings. Splitting that branch correctly needs the
+                    // key → formal map that the two-name-face binding produces;
+                    // see CIMP §1 U52.
+                    //
+                    // Scoped to this arm on purpose: the module and interface arms
+                    // below read `args` / `params` and have no attribute-key face
+                    // plumbed in (`attr_key_names` is the class body's), so the
+                    // six rulings do not reach them. Their counting is left
+                    // unchanged rather than quietly made consistent here.
+                    let positional_arg_count = c2
+                        .params
+                        .iter()
+                        .filter(|p| {
+                            !matches!(p, crate::semantic::basic::mc_param::McParamValue::NC(_))
+                        })
+                        .filter(|p| !p.is_named_param())
+                        .count();
 
-                    if call_arg_count > def_param_count {
+                    if positional_arg_count > def_param_count {
                         acc.push(CheckResult {
                             check_name: "insts",
                             severity: CheckSeverity::Warning,
@@ -87,7 +116,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             span,
                             message: format!(
                                 "Instance '{}' of component '{}' passes {} args, but '{}' declares {} param(s).",
-                                inst_name, class_name, call_arg_count, class_name, def_param_count
+                                inst_name, class_name, positional_arg_count, class_name, def_param_count
                             ),
                             code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                         });

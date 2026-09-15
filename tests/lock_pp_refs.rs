@@ -120,3 +120,67 @@ module main
         result["result"]["pass0"]["diagnostics"]
     );
 }
+
+#[test]
+fn lock_pp_refs__table_spec_undeclared_param_emits_5101() {
+    // G2: the table row `spec = [ enable = UNDECLARED_FLAG ]` and the dotted
+    // `spec.enable = UNDECLARED_FLAG` are one fact, so both spellings reach the
+    // same verdict.
+    let source = r#"component CRITICAL(threshold::INT)
+{
+    name = "Critical"
+    spec = [
+        enable = UNDECLARED_FLAG
+    ]
+    pins = [ 1 = SIGNAL ]
+}
+
+module main
+{
+    io VDD
+}
+"#;
+    let result = parse(source);
+    assert!(
+        has_code(&result, 5101),
+        "expected E5101 SPEC_KEY_UNDECLARED_PARAM: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}
+
+#[test]
+fn lock_pp_refs__standalone_spec_values_stay_silent() {
+    // A spec value may be a value in its own right rather than a parameter
+    // reference: the placeholder `_` (unassigned), a boolean, or a declared
+    // enum value. The system library writes its spec tables this way, so
+    // reporting these would flood every library.
+    let source = r#"enum SC
+{
+    SC_NONE,
+    SC_X1
+}
+
+component OK(threshold::INT)
+{
+    name = "Ok"
+    spec = [
+        enable = _
+        polarized = false
+        safety_class = SC_NONE
+    ]
+    spec.enable_flag = true
+    pins = [ 1 = SIGNAL ]
+}
+
+module main
+{
+    io VDD
+}
+"#;
+    let result = parse(source);
+    assert!(
+        !has_code(&result, 5101),
+        "standalone spec values must not be read as param references: {}",
+        result["result"]["pass0"]["diagnostics"]
+    );
+}

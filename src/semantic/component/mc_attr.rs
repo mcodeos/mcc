@@ -25,6 +25,17 @@ impl McAttributes {
         }
     }
 
+    /// Call-site-bindable names implied by these attribute keys
+    /// (`contract-design.md` §2.4), one per leaf key.
+    pub fn key_names(
+        &self,
+        declares: &crate::semantic::basic::mc_paramd::McParamDeclares,
+    ) -> Vec<crate::semantic::basic::mc_param::AttrKeyName> {
+        let mut out = Vec::new();
+        collect_key_names(&self.attributes, &mut Vec::new(), declares, &mut out);
+        out
+    }
+
     pub fn parse(&mut self, node: &AstNode) {
         if let Some(attribute) = McAttribute::new(node) {
             self.push(attribute);
@@ -143,6 +154,74 @@ pub struct McAttribute {
     pub values: Vec<McAttrVal>,
     /// Source span of the key identifier (for LSP goto-definition).
     pub key_span: Option<std::ops::Range<usize>>,
+    /// Set when the key is rooted in the `pins` keyword (`pins{6:9} = SWDBG`):
+    /// then the curly's members are pin ids and `values` are that pin row's
+    /// names — the compact, attribute-shaped spelling of one `pins = [ … ]`
+    /// row. `None` for every ordinary key, including `foo{6:9}`.
+    ///
+    /// `pins` is a keyword, so the root carries its own AST node type
+    /// (`MCAST_OPD_PINS`); `McIds` reads it back as the word it spells, which
+    /// leaves the two spellings with the *same* id. The distinction is taken
+    /// from the node type — structure, not the key name (§1.7) — and recorded
+    /// here, where the binder can act on it.
+    pub pins_ids: Option<Vec<crate::semantic::basic::mc_ids::IdsSegment>>,
+}
+
+/// Collect the bindable name of every leaf attribute key, one level at a time.
+///
+/// A key whose value is a table (`spec = [ Vout = vout ]`) is a namespace, not
+/// a name: it contributes no entry of its own, only its rows — so the table
+/// spelling and its dotted equivalent (`spec.Vout = vout`) yield the same
+/// single name `Vout` (G2).
+fn collect_key_names(
+    attrs: &[McAttribute],
+    prefix: &mut Vec<String>,
+    declares: &crate::semantic::basic::mc_paramd::McParamDeclares,
+    out: &mut Vec<crate::semantic::basic::mc_param::AttrKeyName>,
+) {
+    use crate::semantic::basic::mc_param::AttrKeyName;
+    for attr in attrs {
+        let mut path = prefix.clone();
+        path.push(attr.id.to_string());
+        let is_table = attr
+            .values
+            .iter()
+            .any(|v| matches!(v, McAttrVal::Attributes(_)));
+        if !is_table {
+            let name = path
+                .last()
+                .and_then(|key| key.rsplit('.').next())
+                .unwrap_or_default()
+                .to_string();
+            out.push(AttrKeyName {
+                name,
+                path: path.clone(),
+                formal: key_formal(&attr.values, declares),
+            });
+        }
+        for val in attr.values.iter() {
+            if let McAttrVal::Attributes(rows) = val {
+                collect_key_names(rows, &mut path, declares, out);
+            }
+        }
+    }
+}
+
+/// The formal parameter a key stands for, when its value is a bare reference to
+/// a declared one (`spec.Vout = vout`). Any other value leaves the key with no
+/// parameter behind it, so a call-site assignment carries the value instead.
+fn key_formal(
+    values: &[McAttrVal],
+    declares: &crate::semantic::basic::mc_paramd::McParamDeclares,
+) -> Option<String> {
+    let [McAttrVal::AttrVariable(opd, _)] = values else {
+        return None;
+    };
+    let word = opd.to_string();
+    declares
+        .iter()
+        .any(|d| d.get_primary_name().as_deref() == Some(word.as_str()))
+        .then_some(word)
 }
 
 /// A subscript glued onto a key's first segment (`pins[1]`, `spec[0]`, `x[0]`)
@@ -217,6 +296,26 @@ impl McAttribute {
         let snode1_ids_node = subnode1.get_sub_node().expect(MISSING_SUBNODE);
 
         let attr_id = McIds::new(&snode1_ids_node)?;
+        // A pins-rooted key (`pins{6:9} = SWDBG`) is marked by its node type,
+        // which is the only thing left to mark it with: `pins` is a keyword, so
+        // it arrives as MCAST_OPD_PINS rather than an MCAST_IDA, and `McIds`
+        // reads it back as the word it spells — leaving the id identical to an
+        // ordinary `foo{6:9}`. Judging by that name is what §1.7 forbids, so the
+        // test is the node type and the pin ids come from the curly member list.
+        let pins_ids = snode1_ids_node
+            .get_sub_node()
+            .filter(|root| root.is_type(MCAST_OPD_PINS))
+            .map(|_| {
+                use crate::semantic::basic::mc_ids::IdsSegment;
+                attr_id
+                    .segments
+                    .iter()
+                    .find_map(|seg| match seg {
+                        IdsSegment::Curly(members) => Some(members.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default()
+            });
         // `pins[1] = A` glues the subscript into the key, so the lexer never
         // yields the keyword and the key silently becomes an ordinary attribute.
         report_fused_subscript_key(&attr_id, &snode1_ids_node);
@@ -232,6 +331,7 @@ impl McAttribute {
                 id: attr_id,
                 values: Vec::new(),
                 key_span,
+                pins_ids,
             });
         };
 
@@ -245,6 +345,7 @@ impl McAttribute {
                     id: attr_id,
                     values: kvs_values,
                     key_span,
+                    pins_ids,
                 });
             }
         }
@@ -254,6 +355,7 @@ impl McAttribute {
             id: attr_id,
             values: McAttribute::new_attr_values(&subnode2)?,
             key_span,
+            pins_ids,
         })
     }
 

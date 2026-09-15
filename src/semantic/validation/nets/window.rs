@@ -27,7 +27,6 @@
 use super::NetCheckResult;
 use crate::instant::insttab::{InstKind, InstTable, NetEntry};
 use crate::semantic::basic::mc_expr::McExpression;
-use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
 use crate::semantic::component::mc_pins::PwrDir;
@@ -95,13 +94,16 @@ pub(crate) struct DecodedSpec {
     pub output: Option<(PwrWindow, String)>,
 }
 
-/// Decode a component def's `spec = [ input_req = a~b, output = c~d ]` block.
+/// Decode a component def's spec face for the two keys this layer reads —
+/// `input_req` and `output`.
 ///
-/// The block sits on the component top-level as an attribute whose value is a
-/// bracketed set of inner attributes (`McAttrVal::Attributes`), each keyed
-/// `input_req` / `output` and valued with a `lo ~ hi` range expression. A
-/// missing `spec`, a non-`Attributes` value, an unknown key, or an un-parseable
-/// window all contribute `None` — never a fabricated window.
+/// Both spellings of a spec key are one fact (G2) and must give the same read:
+/// the table form `spec = [ input_req = a~b, output = c~d ]` (an attribute
+/// valued with a bracketed set of inner attributes, `McAttrVal::Attributes`)
+/// and the dotted form `spec.output = c~d` (an attribute whose key is the dotted
+/// name). Each row's value is a `lo ~ hi` range expression. A missing spec face,
+/// a non-`Attributes` table value, an unknown key, or an un-parseable window all
+/// contribute `None` — never a fabricated window.
 ///
 /// Storage shape pinned by an end-to-end load probe (window-layer A1, since
 /// removed): `input_req = 3.6V ~ 5.5V` lands as `AttrExpr(Range(UnitValue(3.6V),
@@ -109,23 +111,43 @@ pub(crate) struct DecodedSpec {
 /// (endpoint raw text echoes the author's source; `Range` Display is `lo~hi`).
 pub(crate) fn decode_component_spec(def: &McComponent) -> DecodedSpec {
     let mut out = DecodedSpec::default();
-    let Some(spec_attr) = def.attrs.find(&McIds::from("spec")) else {
-        return out;
-    };
-    out.has_spec = true;
-    for val in &spec_attr.values {
-        let McAttrVal::Attributes(inner) = val else {
+    for attr in def.attrs.iter() {
+        let segs = &attr.id.segments;
+        let is_table = segs.len() == 1 && attr.id.to_string() == "spec";
+        let is_dotted = segs.len() > 1 && segs[0].to_string() == "spec";
+        if !is_table && !is_dotted {
             continue;
-        };
-        for attr in inner {
-            let key = attr.id.to_string();
-            let Some((win, text)) = window_of_attr(attr) else {
+        }
+        out.has_spec = true;
+        if is_dotted {
+            let key = segs[1..]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+                .join(".");
+            if let Some((win, text)) = window_of_attr(attr) {
+                match key.as_str() {
+                    "input_req" => out.input_req = Some((win, text)),
+                    "output" => out.output = Some((win, text)),
+                    _ => {}
+                }
+            }
+            continue;
+        }
+        for val in &attr.values {
+            let McAttrVal::Attributes(inner) = val else {
                 continue;
             };
-            match key.as_str() {
-                "input_req" => out.input_req = Some((win, text)),
-                "output" => out.output = Some((win, text)),
-                _ => {}
+            for row in inner {
+                let key = row.id.to_string();
+                let Some((win, text)) = window_of_attr(row) else {
+                    continue;
+                };
+                match key.as_str() {
+                    "input_req" => out.input_req = Some((win, text)),
+                    "output" => out.output = Some((win, text)),
+                    _ => {}
+                }
             }
         }
     }

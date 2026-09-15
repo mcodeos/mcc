@@ -666,3 +666,55 @@ fn sem_falsediag__well_formed_pin_rows_are_e3004_silent() {
     );
     assert_eq!(result["result"]["summary"]["errors"], 0);
 }
+
+/// A call-site named argument (`k = v`, `contract-design.md` §2.4) claims a
+/// slot **by name**, so it is not a positional argument. A class that declares
+/// no formal parameters, constructed with one key assignment, must stay
+/// E5352-silent: matching the name against its two faces — and reporting the
+/// orphan when it hits neither — is the binder's job (E4176), not this check's.
+#[test]
+fn sem_falsediag__named_argument_is_not_a_positional_arg() {
+    let source = r#"component D
+{
+    spec = [
+        volt = 5V
+    ]
+    pins = [
+        1 = A
+        2 = B
+    ]
+}
+module main
+{
+    D d1( volt = 9V )
+}
+"#;
+    let result = parse(source);
+    assert!(
+        !has_code(&result, 5352),
+        "a named argument must not be counted as a positional one: {result}"
+    );
+
+    // The positional count stays real rather than suppressed: one extra
+    // positional argument on the same class still reports.
+    let over = r#"component D
+{
+    spec = [
+        volt = 5V
+    ]
+    pins = [
+        1 = A
+        2 = B
+    ]
+}
+module main
+{
+    D d1( volt = 9V, 5V )
+}
+"#;
+    assert!(
+        has_code(&parse(over), 5352),
+        "a positional argument the class cannot take must still report: {}",
+        parse(over)
+    );
+}

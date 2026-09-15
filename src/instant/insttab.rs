@@ -378,6 +378,16 @@ pub struct InstEntry {
     pub vector_info: Option<VectorMemberInfo>,
     /// ★ M0-B-D: not-fitted marker (from McComponentInst.nc)
     pub not_fitted: bool,
+    /// ★ U48: this individual pin/port is explicitly marked not-connected at
+    /// the instance site (`CHIP d1 @ncpin(1,3)`) — the instance-level
+    /// counterpart of the class-level `nc` direction word.
+    ///
+    /// Pure suppression marker: it never touches the netlist, the connections,
+    /// the BOM or the viz. Its only consumers are the "unconnected" diagnostic
+    /// family (`is_nc_entry`, `check_unused_pins`, the E4116 denominator).
+    /// A pin that is already class-level NC never carries it, so a marked entry
+    /// and a `NonCon` entry never overlap and no count subtracts twice.
+    pub nc_marked: bool,
     /// ★ abstract-variant plan §6.1/§3.2: unselected marker — set when the
     /// instance's def is an `abstract component` placed without a materialized
     /// variant (`component Y : X`), so a BOM tool must still pick a part.
@@ -784,6 +794,7 @@ impl InstTable {
             pwr_dir: None,
             vector_info: None,
             not_fitted: false,
+            nc_marked: false,
             unselected: false,
             origin: InstOrigin::Declared,
             synthetic: false,
@@ -865,6 +876,24 @@ impl InstTable {
     pub fn set_pin_count(&mut self, id: u32, pin_count: usize) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.pin_count = pin_count;
+        }
+    }
+
+    /// ★ U48: flag one entry as explicitly not-connected at the instance site.
+    ///
+    /// Idempotence by construction: an entry that is *already* NC at class
+    /// level — the `nc` direction word, or a pin option named `NC`/`nc` — is
+    /// left untouched, so [`InstEntry::nc_marked`] and the class-level markers
+    /// never overlap and no downstream count subtracts the same pin twice. The
+    /// predicate is the same two arms `is_nc_entry` reads.
+    fn mark_nc(&mut self, id: u32) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            let class_nc = matches!(entry.io_type, IOType::NonCon)
+                || entry.class_name == "NC"
+                || entry.class_name == "nc";
+            if !class_nc {
+                entry.nc_marked = true;
+            }
         }
     }
 
@@ -1229,7 +1258,8 @@ impl InstTable {
 
         // 2. Register ports
         for port in &inst.ports {
-            let port_path = format!("{}.{}", my_path, port.name);
+            let suffixes = port.path_suffixes();
+            let port_path = format!("{}.{}", my_path, suffixes.header);
             let port_id = self.register(
                 port_path,
                 InstKind::Port,
@@ -1247,6 +1277,12 @@ impl InstTable {
             // instead of file:1:1.
             let port_decl_span = Self::port_decl_span_of(inst, &port.name);
             self.backfill_port_decl_pos(port_id, &inst.def_uri, port_decl_span.clone());
+            // ★ U48: the instance-site NC marker carries the port's registered
+            // suffixes (resolved in `mc_mod::phases`, never re-derived here), so
+            // this is a plain lookup — no parsing, no name heuristics.
+            if inst.nc_ports.contains(&suffixes.header) {
+                self.mark_nc(port_id);
+            }
 
             // ★ A′ (2026-09-04): a port that carries members is a *grouping
             // header*, not a leaf conductor — the members registered below are
@@ -1260,8 +1296,7 @@ impl InstTable {
             // NOT for Bus ports (e.g., rs485{A,B}) because Bus ports can be accessed
             // via the dot syntax (rs485.A, rs485.B).
             // Check if the port name contains '[' to identify List-style ports.
-            if port.is_bus_port() && port.name.contains('[') {
-                let bracket_name = format!("[{}]", port.bus_members.join(", "));
+            if let Some(bracket_name) = suffixes.bracket.clone() {
                 let bracket_path = format!("{my_path}.{bracket_name}");
                 let bracket_id = self.register(
                     bracket_path,
@@ -1273,6 +1308,11 @@ impl InstTable {
                     inst.def_uri.to_string(),
                 );
                 self.backfill_port_decl_pos(bracket_id, &inst.def_uri, port_decl_span.clone());
+                // ★ U48: same lookup as the header — the bracket alias is part
+                // of the port's registered name surface.
+                if inst.nc_ports.contains(&bracket_name) {
+                    self.mark_nc(bracket_id);
+                }
                 aggregate_headers.push(bracket_id);
             }
 
@@ -1290,24 +1330,8 @@ impl InstTable {
             //   main.ldo.vin.VCC
             // This preserves the port→member relationship so netdiff can match
             // golden references like "vin.VCC" and "USB_VBUS_1.VDD_3V".
-            for member in &port.bus_members {
-                let member_path = if port.name.contains('[') {
-                    // Bracket port: flat member path (e.g. [VDD_3V3, GND] → main.dcdc.VDD_3V3)
-                    format!("{}.{}", my_path, member)
-                } else if port.name.contains('{') {
-                    // Curly port: extract base name prefix
-                    // e.g. vin{VCC, GND} → main.ldo.vin.VCC
-                    // e.g. {VCC, GND} → main.xxx.VCC (no base name, flat)
-                    let base = port.name.split('{').next().unwrap_or("");
-                    if base.is_empty() {
-                        format!("{}.{}", my_path, member)
-                    } else {
-                        format!("{}.{}.{}", my_path, base, member)
-                    }
-                } else {
-                    // Named port without brackets: include port name prefix
-                    format!("{}.{}.{}", my_path, port.name, member)
-                };
+            for (mi, member) in port.bus_members.iter().enumerate() {
+                let member_path = format!("{my_path}.{}", suffixes.members[mi]);
                 let member_id = self.register(
                     member_path,
                     InstKind::Port,
@@ -1318,6 +1342,12 @@ impl InstTable {
                     inst.def_uri.to_string(),
                 );
                 self.backfill_port_decl_pos(member_id, &inst.def_uri, port_decl_span.clone());
+                // ★ U48: same lookup — naming the member suppresses exactly
+                // that member; the resolver is what widens a header into its
+                // members (see `McModuleInst::nc_ports`).
+                if inst.nc_ports.contains(&suffixes.members[mi]) {
+                    self.mark_nc(member_id);
+                }
 
                 // Set member_info role (Ground/Power) — consumed by the viz
                 // projection layer for rail classification, not for net merging.
@@ -1528,6 +1558,13 @@ impl InstTable {
                         inst.def_uri.to_string(),
                     );
 
+                    // ★ U48: the per-pin NC marker of the declaration line
+                    // (`CHIP d1 @ncpin(1,3)`), already resolved to pin ids at
+                    // instantiation — `pin_name` here *is* the pin id.
+                    if comp.nc_pins.contains(pin_name) {
+                        self.mark_nc(pin_id);
+                    }
+
                     // ── Fallback position for unconnected pins ──
                     // An unconnected pin never appears in a net, so `flatten_nets`
                     // can't back-fill a wiring site into `src_pos`. Anchor the
@@ -1710,6 +1747,11 @@ impl InstTable {
                         net_point.src_pos.clone(),
                         inst.def_uri.to_string(),
                     );
+
+                    // ★ U48: per-pin NC marker (same lookup as pass 1).
+                    if comp.nc_pins.contains(pin_name) {
+                        self.mark_nc(pin_id);
+                    }
 
                     let (role, _inferred) = infer_member_role(
                         &pin_func_name,

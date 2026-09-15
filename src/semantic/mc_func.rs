@@ -110,6 +110,17 @@ pub trait HasFindInst {
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
         self.find_inst(id).map(|inst| (inst, None))
     }
+
+    /// The enclosing container's terminal face alone (pin names / pin ids /
+    /// ports), skipping the definition-space categories that precede it in the
+    /// scope chain. G10 terminal-first: a name that resolved to an attribute
+    /// key is re-asked here, because a terminal of the same name is the
+    /// terminal, not the value. `None` where no terminal face exists.
+    fn find_terminal(&self, id: &str) -> Option<McInstance> {
+        let _ = id;
+        None
+    }
+
     /// Add a label, optionally recording its source span for LSP goto-def.
     fn add_label(&mut self, name: String) -> Option<McPhrase> {
         self.add_label_at(name, None)
@@ -439,6 +450,10 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
         crate::semantic::scope::instance_chain(self.param_names, &*self.parent)
             .resolve(id)
             .map(|r| (r.inst, r.span))
+    }
+
+    fn find_terminal(&self, id: &str) -> Option<McInstance> {
+        self.parent.find_terminal(id)
     }
 
     fn get_vector_members(&self, base: &str) -> Option<Vec<String>> {

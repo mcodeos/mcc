@@ -227,7 +227,10 @@ fn paren_list__with_a_sibling_is_e4180() {
     );
     assert_eq!(
         codes_of(&src_of(PAREN_SIBLING), "/mcc/paren-list-sibling-code.mc"),
-        codes_of(&src_of(CURLY_SIBLING), "/mcc/paren-list-sibling-code-ref.mc"),
+        codes_of(
+            &src_of(CURLY_SIBLING),
+            "/mcc/paren-list-sibling-code-ref.mc"
+        ),
         "the overflowing parenthesized list must report what the overflowing \
          curly selection reports"
     );
@@ -256,7 +259,10 @@ fn paren_list__does_not_fork_the_statement() {
 /// diagnostics, no extra leaf and no fork.
 #[test]
 fn paren_list__single_member_is_the_member() {
-    let one = partition_of(&src_of("        RES(10).Pullup([(SPI.SCLK), VDD])"), "/mcc/paren-list-one.mc");
+    let one = partition_of(
+        &src_of("        RES(10).Pullup([(SPI.SCLK), VDD])"),
+        "/mcc/paren-list-one.mc",
+    );
     let bare = partition_of(
         &src_of("        RES(10).Pullup([SPI.SCLK, VDD])"),
         "/mcc/paren-list-one-bare.mc",
