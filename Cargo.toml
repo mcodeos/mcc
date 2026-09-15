@@ -2,8 +2,23 @@
 #
 # Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+# Iteration profile. `opt-level = 1` keeps the binary fast to run while staying
+# cheap to codegen. `debug = 1` (line tables only) is what a backtrace needs and
+# is a fraction of full DWARF; dependencies drop debuginfo entirely because it
+# is never read from here and it dominates both link time and `target/` size.
 [profile.dev]
-opt-level = 1      # Light‑weight optimization, almost no increase in compile time, 2‑3× faster runtime
+opt-level = 1
+debug = 1
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+opt-level = 1
+debug = 1
+
+[profile.test.package."*"]
+debug = false
 
 [package]
 name = "mcc"
