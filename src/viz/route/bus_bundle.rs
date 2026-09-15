@@ -45,59 +45,10 @@ use super::channels::ChannelMap;
 use super::obstacles::ObstacleMap;
 use super::side::{compute_exit_for_pin, ExitSide};
 use super::trunk_tap::{build_trunk_tap_route, BuildOptions};
-use crate::viz::traits::Router;
 
 /// Bus trunk extension length on both ends (thick line extends past outermost tap,
 /// visually like a real bus trunk)
 const BUS_TRUNK_OVERHANG: f64 = 12.0;
-
-pub struct BusBundleRouter;
-
-impl Router for BusBundleRouter {
-    fn route(&self, graph: &McVecGraph, net: &mut VizNet) {
-        if net.endpoints.len() < 2 {
-            net.route = Some(Route::new());
-            return;
-        }
-
-        let exits: Vec<((f64, f64), ExitSide)> = net
-            .endpoints
-            .iter()
-            .filter_map(|e| {
-                graph
-                    .boxes
-                    .iter()
-                    .find(|b| b.id == e.box_id)
-                    .map(|b| compute_exit_for_pin(b, e.pin_id, None))
-            })
-            .collect();
-
-        if exits.len() < 2 {
-            net.route = Some(Route::new());
-            return;
-        }
-
-        // P09 only (no channels in stand-alone trait call)
-        let exclude: Vec<i64> = net.endpoints.iter().map(|e| e.box_id).collect();
-        let obstacles = ObstacleMap::from_graph(graph, 8.0, &exclude);
-
-        let route = build_trunk_tap_route(
-            &exits,
-            BuildOptions {
-                trunk_overhang: BUS_TRUNK_OVERHANG,
-                obstacles: Some(&obstacles),
-                net_id: net.nid,
-                ..Default::default()
-            },
-        );
-
-        net.route = Some(route);
-    }
-
-    fn name(&self) -> &'static str {
-        "bus_bundle"
-    }
-}
 
 // ★ P10 (S6) channel-aware end-to-end entry
 

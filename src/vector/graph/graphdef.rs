@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use super::boxdef::{McVecBox, ModuleFrame, PortDir, ZoneBorder};
+use super::boxdef::{McVecBox, ModuleFrame, PortDir};
 use super::netdef::{NetRole, VizNet};
 use crate::vector::model::trunk::Trunk;
 
@@ -49,14 +49,6 @@ pub struct McVecGraph {
     pub islands_total: usize,
     /// ★ M0-2: module port list (port name, direction, net role), from the module declaration
     pub module_ports: Vec<(String, PortDir, NetRole)>,
-    /// ★ M2-3: zone border list (dashed rounded rect + title), filled by v2 layout
-    pub zone_borders: Vec<ZoneBorder>,
-    /// ★ M4-0: canvas hint (once set by v2 layout, normalize no longer recomputes from box
-    /// coordinates)
-    pub canvas_hint: Option<(f64, f64)>,
-    /// ★ M4-1a: whether this is a sub-module graph (sub-modules use a smaller canvas minimum
-    /// constraint)
-    pub is_submodule: bool,
     /// ★ P7-3: rail terminal decorations (discipline 11: terminals are not boxes).
     ///
     /// Power/ground endpoints adjudicated by R-1/R-3 as "symbols placed in situ",
@@ -173,10 +165,7 @@ impl McVecGraph {
             islands_claimed: 0,
             islands_total: 0,
             module_ports: vec![],
-            zone_borders: vec![],
             module_frame: None,
-            canvas_hint: None,
-            is_submodule: false,
             rail_decorations: vec![],
             geom_double_writes: vec![],
             pin_parent: HashMap::new(),
