@@ -1234,6 +1234,10 @@ pub const ATTR_PIN_GROUP_UNDEFINED: u32 = 5356;
 /// Component mixes pins = and pins.X = attributes, or uses a non-constant default.
 pub const PINS_PLUS_AND_PINS_CONFLICT: u32 = 5357;
 
+/// Dotted attribute name starts with a key that is neither the component name
+/// nor a registered attribute key.
+pub const ATTR_DOTTED_NAME_UNRESOLVED: u32 = 5358;
+
 // Pass3: enum / expression checks (5400-5449)
 
 /// Enum has a duplicate value.
@@ -1935,6 +1939,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ATTR_NESTING_TOO_DEEP, "Attribute nesting depth exceeds 16.", "Attribute nesting depth exceeds 16."),
     entry!(ATTR_PIN_GROUP_UNDEFINED, "Attribute references an undefined pin group, or role used outside a component.", "Attribute references an undefined pin group, or role used outside a component."),
     entry!(PINS_PLUS_AND_PINS_CONFLICT, "Component mixes pins = and pins.X = attributes, or uses a non-constant default.", "Component mixes pins = and pins.X = attributes, or uses a non-constant default."),
+    entry!(ATTR_DOTTED_NAME_UNRESOLVED, "Dotted attribute name starts with an unregistered key.", "Dotted attribute name starts with a key that is neither the component name nor a registered attribute key."),
     // section
     entry!(ENUM_DUPLICATE_VALUE, "Enum has a duplicate value.", "Enum has a duplicate value."),
     entry!(ENUM_MEMBER_DOT, "Enum member contains a dot.", "Enum member contains a dot."),

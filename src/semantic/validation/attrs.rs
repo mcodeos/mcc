@@ -43,99 +43,86 @@ impl ValidationCheck for AttrsCheck {
     }
 }
 
-/// Reserved keywords that should not be used as attribute names.
-const RESERVED_KEYWORDS: &[&str] = &[
-    "this", "pins", "role", "func", "return", "in", "out", "io", "psrc", "psnk", "psbi", "anl",
-    "nc", "if", "else",
-];
-
 /// N1: Attribute id or dot-segment uses a reserved keyword.
+///
+/// "Reserved" is a column of the key registry
+/// (`semantic::basic::attr_keys`), not a list kept here: one dictionary, one
+/// place to add a key.
 fn check_reserved_attr_name(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccumulator) {
+    use crate::semantic::basic::attr_keys;
     for attr in comp.attrs.iter() {
         let attr_id = attr.id.to_string();
         // Check the full id
-        for kw in RESERVED_KEYWORDS {
-            if attr_id == *kw {
+        if attr_keys::is_reserved(&attr_id) {
+            acc.push(CheckResult {
+                check_name: "attrs",
+                severity: CheckSeverity::Warning,
+                uri: Some(uri.to_string()),
+                span: attr.key_span.clone(),
+                message: format!(
+                    "Attribute '{}' in component '{}' uses reserved keyword '{}'.",
+                    attr_id,
+                    entry_key_ident(comp),
+                    attr_id
+                ),
+                code: crate::errcodes::ATTR_RESERVED_KEYWORD,
+            });
+        }
+        // Check each dot-segment
+        for seg in attr_id.split('.') {
+            if attr_keys::is_reserved(seg) {
                 acc.push(CheckResult {
                     check_name: "attrs",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.to_string()),
                     span: attr.key_span.clone(),
                     message: format!(
-                        "Attribute '{}' in component '{}' uses reserved keyword '{}'.",
+                        "Attribute '{}' in component '{}' has segment '{}' which is a reserved keyword.",
                         attr_id,
                         entry_key_ident(comp),
-                        kw
+                        seg
                     ),
                     code: crate::errcodes::ATTR_RESERVED_KEYWORD,
                 });
-                continue;
-            }
-        }
-        // Check each dot-segment
-        for seg in attr_id.split('.') {
-            for kw in RESERVED_KEYWORDS {
-                if seg == *kw {
-                    acc.push(CheckResult {
-                        check_name: "attrs",
-                        severity: CheckSeverity::Warning,
-                        uri: Some(uri.to_string()),
-                        span: attr.key_span.clone(),
-                        message: format!(
-                            "Attribute '{}' in component '{}' has segment '{}' which is a reserved keyword.",
-                            attr_id,
-                            entry_key_ident(comp),
-                            seg
-                        ),
-                        code: crate::errcodes::ATTR_RESERVED_KEYWORD,
-                    });
-                }
             }
         }
     }
 }
 
-/// N2: Dotted attribute name where first segment is not the component name
-/// nor a known first-level attribute key.
-fn check_unresolvable_dotted_name(
-    comp: &crate::McComponent,
-    uri: &str,
-    acc: &mut CheckAccumulator,
-) {
+/// N2: Dotted attribute name where first segment is neither the component name
+/// nor a registered first-level attribute key.
+///
+/// The first segment is resolved against the key registry
+/// (`semantic::basic::attr_keys`, contract-design.md §1.7) — a *closed* set, so
+/// the check can actually fire. The previous form collected the first segments
+/// of the component's own attributes as the known set, which always contained
+/// the segment under test and made the predicate a tautology.
+fn check_unresolvable_dotted_name(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccumulator) {
     let comp_name = entry_key_ident(comp);
-
-    // Collect known first-level attribute keys from this component
-    let known_keys: HashSet<String> = comp
-        .attrs
-        .iter()
-        .map(|a| {
-            // First segment of a dotted name, or the whole name if single-segment.
-            a.id.segments
-                .first()
-                .map(|s| s.to_string())
-                .unwrap_or_default()
-        })
-        .collect();
 
     for attr in comp.attrs.iter() {
         if attr.id.segments.len() <= 1 {
             continue;
         }
         let first_seg = attr.id.segments[0].to_string();
-        if first_seg != comp_name && !known_keys.contains(&first_seg) && !first_seg.is_empty() {
-            acc.push(CheckResult {
-                check_name: "attrs",
-                severity: CheckSeverity::Error,
-                uri: Some(uri.to_string()),
-                span: attr.key_span.clone(),
-                message: format!(
-                    "Attribute '{}' starts with '{}' which is not the component name \
-                     or a recognized attribute group.",
-                    attr.id, first_seg
-                ),
-                code: crate::errcodes::ROLE_EMPTY_BODY,
-            });
+        if first_seg.is_empty() || first_seg == comp_name {
+            continue;
         }
+        if crate::semantic::basic::attr_keys::is_known_key(&first_seg) {
+            continue;
+        }
+        acc.push(CheckResult {
+            check_name: "attrs",
+            severity: CheckSeverity::Error,
+            uri: Some(uri.to_string()),
+            span: attr.key_span.clone(),
+            message: format!(
+                "Attribute '{}' starts with '{}', which is neither the name of component '{}' \
+                 nor a registered attribute key.",
+                attr.id, first_seg, comp_name
+            ),
+            code: crate::errcodes::ATTR_DOTTED_NAME_UNRESOLVED,
+        });
     }
 }
 
