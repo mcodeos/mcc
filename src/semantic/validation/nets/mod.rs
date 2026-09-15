@@ -659,14 +659,16 @@ pub(crate) fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCh
             && !entry.synthetic
         {
             let pins = table.get_pins_of(entry.id);
-            // ★ U48: an instance whose every pin is explicitly marked
-            // not-connected at the declaration site (`TWO d1 @ncpin(1,2)`) is
-            // *deliberately* unwired — this report is one of the things the
-            // marker exists to suppress. Only the all-marked case: a partly
-            // marked instance still has pins somebody wants wired, and E4112
-            // speaks about the instance, not about one pin.
-            let all_marked = !pins.is_empty() && pins.iter().all(|p| p.nc_marked);
-            if !all_marked && !pins.is_empty() && pins.iter().all(|p| !connected.contains(&p.id)) {
+            // ★ U48: an instance whose every pin is intentionally unconnected
+            // is *deliberately* unwired, and this report is one of the things
+            // the marker exists to suppress. Both ways of saying so count as
+            // one fact — the class-level `nc` (`nc 2 = B`) and the instance-site
+            // `@ncpin(1,2)` — so a mixed instance closes as one instance must;
+            // `is_nc_entry` is that one predicate. Only the all-open case: a
+            // partly open instance still has pins somebody wants wired, and
+            // E4112 speaks about the instance, not about one pin.
+            let all_open = !pins.is_empty() && pins.iter().all(|p| is_nc_entry(p));
+            if !all_open && !pins.is_empty() && pins.iter().all(|p| !connected.contains(&p.id)) {
                 let (pos, uri) = entry_pos(entry);
                 results.push(NetCheckResult {
                     check: "unwired-instance",
