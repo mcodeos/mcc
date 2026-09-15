@@ -31,7 +31,6 @@ use crate::output::{
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, BuildArgs, OutputFormat};
 use mcc::mcc_dbg;
-use mcc::viz::layout::FlowLayouter;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -911,23 +910,14 @@ fn emit_err(fmt: &OutputFormat, err: RpcError) -> Result<()> {
 }
 
 fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
-    let mut opts = mcc::viz::api::RenderOpts::default();
+    let opts = mcc::viz::api::RenderOpts::default();
     if let Some(name) = layouter_name {
-        match name {
-            "flow" => {
-                opts.top_layouter = Box::new(FlowLayouter::default());
-                opts.sub_layouter = Box::new(FlowLayouter::sub());
-                opts.top_candidates = vec![Box::new(FlowLayouter::default())];
-                opts.sub_candidates = vec![Box::new(FlowLayouter::sub())];
-                mcc_dbg!("build", "[viz] locked layouter: top=flow sub=flow");
-            }
-            other => {
-                mcc_dbg!(
-                    "build",
-                    "[viz] unknown layouter '{}', using default (flow). Only 'flow' is supported.",
-                    other
-                );
-            }
+        if name != "flow" {
+            mcc_dbg!(
+                "build",
+                "[viz] unknown layouter '{}', using default (flow). Only 'flow' is supported.",
+                name
+            );
         }
     }
     opts

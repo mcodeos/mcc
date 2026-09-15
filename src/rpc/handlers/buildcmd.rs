@@ -262,32 +262,12 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
 /// radial / schematic_radial / schematic_sub) were removed as dead code;
 /// only `flow` remains selectable.
 fn build_viz_render_opts(layouter_name: Option<&str>) -> crate::viz::api::RenderOpts {
-    use crate::viz::layout::FlowLayouter;
-    use crate::viz::traits::Layouter;
-
-    let mut opts = crate::viz::api::RenderOpts::default();
-    let name = match layouter_name {
-        Some(n) => n,
-        None => return opts,
-    };
-    let (top, sub, top_cands, sub_cands): (
-        Box<dyn Layouter>,
-        Box<dyn Layouter>,
-        Vec<Box<dyn Layouter>>,
-        Vec<Box<dyn Layouter>>,
-    ) = match name {
-        "flow" => (
-            Box::new(FlowLayouter::default()) as Box<dyn Layouter>,
-            Box::new(FlowLayouter::sub()),
-            vec![Box::new(FlowLayouter::default()) as Box<dyn Layouter>],
-            vec![Box::new(FlowLayouter::sub())],
-        ),
-        _ => return opts,
-    };
-    opts.top_layouter = top;
-    opts.sub_layouter = sub;
-    opts.top_candidates = top_cands;
-    opts.sub_candidates = sub_cands;
+    let opts = crate::viz::api::RenderOpts::default();
+    if let Some(name) = layouter_name {
+        if name != "flow" {
+            return opts;
+        }
+    }
     opts
 }
 

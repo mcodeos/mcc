@@ -1320,11 +1320,6 @@ fn build_mc_vec_graph_inner(
     graph
 }
 
-/// Smart build (equivalent to `build_mc_vec_graph`, keeps API compatibility)
-pub fn build_graph_smart(block: &McVecBlock, table: &InstTable) -> McVecGraph {
-    build_mc_vec_graph(block, table)
-}
-
 // ★ NEW: VizNet generation (multi-endpoint hyperedge)
 
 /// Directly construct [`VizNet`] list from `McVecBlock.nets`

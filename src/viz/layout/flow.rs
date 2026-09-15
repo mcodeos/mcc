@@ -104,8 +104,7 @@ pub struct FlowLayouter {
     /// region intent, and bus trunk corridor intent after phase_placement.
     pub schematic_model: Option<SchematicLayoutModel>,
     /// ★ P7-0: whether this instance is the sub-level configuration (`sub()`).
-    /// Used by the v2 experimental branch to set `graph.is_submodule`, and by
-    /// the per-layer startup log to tag `circuit_flow(sub)`.
+    /// Used by the per-layer startup log to tag `circuit_flow(sub)`.
     pub is_sub_layout: bool,
 }
 
@@ -488,17 +487,6 @@ impl Layouter for FlowLayouter {
             self.hub_min_degree,
             self.recompute_sizes
         );
-
-        // ★ M2-1: v2 strangler pipeline. MC_LAYOUT_V2=1 takes the new path;
-        // the default is the old path, with not one line of the old path changed.
-        // ★ P7-0: the only reader of is_submodule is v2; it is set here,
-        // api.rs no longer writes this field unconditionally.
-        if std::env::var("MC_LAYOUT_V2").as_deref() == Ok("1") {
-            graph.is_submodule = self.is_sub_layout;
-            let plan = super::v2::solve(graph);
-            super::v2::geom::apply(graph, &plan);
-            return plan.canvas;
-        }
 
         mcc_dbg!(
             "viz",

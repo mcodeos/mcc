@@ -38,7 +38,7 @@
 //!
 //! ## Usage
 //! ```ignore
-//! impl Router for OrthogonalRouter {
+//! impl Router for MyRouter {
 //!     fn route(&self, graph: &McVecGraph, net: &mut VizNet) {
 //!         // Exclude this net's endpoint boxes (they are the routing start/end, not obstacles)
 //!         let exclude: Vec<i64> = net.endpoints.iter().map(|e| e.box_id).collect();

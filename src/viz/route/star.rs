@@ -22,7 +22,7 @@
 //! - `SubModuleIO`: cross-module port connections after promotion
 //!
 //! ## Not applicable
-//! - `Bus(n)`: use [`super::bus_bundle::BusBundleRouter`] to draw thick line + taps
+//! - `Bus(n)`: bus routing (thick line + taps) is handled by `bus_bundle`
 //!
 //! ## ★ P09 (S5) refactor
 //! The geometric centroid often **lands inside some box** (especially when

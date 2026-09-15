@@ -48,16 +48,4 @@ pub mod sp_model;
 pub mod sp_place;
 pub mod supply_bundle;
 pub mod two_lane_ladder;
-pub mod v2;
 pub use flow::FlowLayouter;
-// Top-level re-exports
-
-// Utilities
-pub use components::{build_adjacency, find_connected_components};
-pub use entry_points::assign_entry_points;
-pub use normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN, CANVAS_PADDING};
-pub use overlap::{resolve_overlaps, resolve_overlaps_iterative};
-pub use size::{assign_default_sizes, box_size, MIN_GAP};
-
-// Single-strategy
-pub use chain::{layout_chain_horizontal, try_linearize_chain};

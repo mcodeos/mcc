@@ -66,7 +66,6 @@ use super::channels::ChannelMap;
 use super::obstacles::ObstacleMap;
 use super::orthogonal::orthogonal_path;
 use super::side::{compute_exit_for_pin, ExitSide};
-use crate::viz::traits::Router;
 
 // Constants
 
@@ -75,38 +74,6 @@ use crate::viz::traits::Router;
 /// Too short (<6) still looks like a direct corner from the box edge; too long (>15)
 /// wastes canvas space.
 pub const PIN_STUB_LEN: f64 = 10.0;
-
-// TrunkTapRouter
-
-/// Router using one trunk + taps for multi-endpoint nets (default for multi-endpoint Signal)
-pub struct TrunkTapRouter;
-
-impl Router for TrunkTapRouter {
-    fn route(&self, graph: &McVecGraph, net: &mut VizNet) {
-        let exits = collect_exits(graph, net);
-
-        // ★ P09: build obstacle map, exclude this net's endpoint boxes
-        let exclude: Vec<i64> = net.endpoints.iter().map(|e| e.box_id).collect();
-        let obstacles = ObstacleMap::from_graph(graph, 8.0, &exclude);
-
-        let route = match exits.len() {
-            0 | 1 => Route::new(),
-            2 => build_two_point_route(&exits, &obstacles),
-            _ => build_trunk_tap_route(
-                &exits,
-                BuildOptions {
-                    obstacles: Some(&obstacles),
-                    ..Default::default()
-                },
-            ),
-        };
-
-        net.route = Some(route);
-    }
-    fn name(&self) -> &'static str {
-        "trunk_tap"
-    }
-}
 
 // Shared helper: build_trunk_tap_route
 
@@ -133,7 +100,7 @@ pub struct BuildOptions<'a> {
     pub net_id: i64,
 }
 
-// ★ P10 (S6) end-to-end entry — channel-aware TrunkTapRouter
+// ★ P10 (S6) end-to-end entry — channel-aware trunk-tap
 
 /// P10 main entry: channel-aware trunk-tap routing for one net
 ///
@@ -168,7 +135,7 @@ pub fn route_trunk_tap_with_channels(
 
 /// Build a trunk-tap route from a set of (exit point, exit direction)
 ///
-/// Public for reuse by `BusBundleRouter` —— bus routing is essentially trunk-tap with
+/// Public for reuse by `bus_bundle` —— bus routing is essentially trunk-tap with
 /// thick-line styling.
 pub fn build_trunk_tap_route<'a>(
     exits: &[((f64, f64), ExitSide)],
