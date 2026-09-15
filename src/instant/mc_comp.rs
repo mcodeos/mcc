@@ -7,6 +7,7 @@
 //! McComponentInst
 
 use super::mc_net::{InstError, NetPoint};
+use crate::eval::{self, Op, Value};
 use crate::instant::identity::NodeId;
 use crate::instant::insttab::InstOrigin;
 use crate::semantic::basic::mc_conds::McConds;
@@ -219,10 +220,10 @@ impl McComponentInst {
             return;
         }
 
+        // An empty binding list is a legitimate environment: a condition over
+        // literals alone (`if (1 == 1)`) is still a condition, so a definition
+        // with no parameters must not skip its conditional blocks.
         let eval_params = self.params.to_params_for_eval();
-        if eval_params.is_empty() {
-            return;
-        }
 
         for cond_pins in &self.def.cond_pins {
             let mut matched = false;
@@ -268,10 +269,9 @@ impl McComponentInst {
             return;
         }
 
+        // Same rule as the conditional pins above: no bindings is a legitimate
+        // environment, not a reason to skip the block.
         let eval_params = self.params.to_params_for_eval();
-        if eval_params.is_empty() {
-            return;
-        }
 
         for cond_attrs in &self.def.cond_attrs {
             let mut matched = false;
@@ -421,6 +421,9 @@ impl McComponentInst {
     ///
     /// Replaces Variable nodes with their bound parameter values (strings or ints),
     /// evaluates arithmetic and concatenation, and returns the final string.
+    /// The operations run on the value engine (doc/eval V2/V7), so an argument
+    /// that carries a unit suffix is normalized by the one suffix table instead
+    /// of having the suffix sliced off the text.
     fn resolve_expr_to_literal(&self, expr: &McExpression) -> Option<String> {
         match expr {
             // Substitute a variable with its bound parameter value
@@ -437,33 +440,21 @@ impl McComponentInst {
             McExpression::Int(i) => Some(i.value.to_string()),
             McExpression::Float(f) => Some(f.value.to_string()),
             McExpression::String(s) => Some(s.value.clone()),
-            // String concatenation via +
+            // `+` concatenates without the "+" separator; the engine reads a
+            // text operand as interpolation, so `"cols: " + cols` renders the
+            // same string it always did.
             McExpression::Plus(l, r) => {
-                let left = self.resolve_expr_to_literal(l)?;
-                let right = self.resolve_expr_to_literal(r)?;
-                // Concatenate without the "+" separator
-                Some(format!("{left}{right}"))
+                let left = self.resolve_expr_to_value(l)?;
+                let right = self.resolve_expr_to_value(r)?;
+                eval::apply(Op::Add, &left, &right)
+                    .ok()
+                    .map(|v| v.text())
             }
-            // Arithmetic: evaluate both sides as integers, compute, return result as string
-            McExpression::Multiply(l, r) => {
-                let left = self.resolve_expr_to_i64(l)?;
-                let right = self.resolve_expr_to_i64(r)?;
-                Some((left * right).to_string())
-            }
-            McExpression::Divide(l, r) => {
-                let left = self.resolve_expr_to_i64(l)?;
-                let right = self.resolve_expr_to_i64(r)?;
-                if right == 0 {
-                    None
-                } else {
-                    Some((left / right).to_string())
-                }
-            }
-            McExpression::Minus(l, r) => {
-                let left = self.resolve_expr_to_i64(l)?;
-                let right = self.resolve_expr_to_i64(r)?;
-                Some((left - right).to_string())
-            }
+            // Arithmetic: evaluated by the engine, then read back as a whole
+            // number.
+            McExpression::Multiply(l, r) => self.resolve_expr_to_int(Op::Mul, l, r),
+            McExpression::Divide(l, r) => self.resolve_expr_to_int(Op::Div, l, r),
+            McExpression::Minus(l, r) => self.resolve_expr_to_int(Op::Sub, l, r),
             McExpression::Slice(l, r) => {
                 let left = self.resolve_expr_to_literal(l)?;
                 let right = self.resolve_expr_to_literal(r)?;
@@ -479,48 +470,53 @@ impl McComponentInst {
         }
     }
 
-    /// Helper: resolve an expression to i64 for arithmetic evaluation.
-    /// Returns Some for Int literals, Variables bound to int values, or already-resolved int
-    /// strings.
-    fn resolve_expr_to_i64(&self, expr: &McExpression) -> Option<i64> {
+    /// Apply an operator to two sub-expressions and keep the result when it is a
+    /// whole number.
+    ///
+    /// An expression that does not come out integral is left unresolved, so the
+    /// attribute keeps the form it was written in. A division by zero or an
+    /// integer overflow is one of those cases (the engine reports them rather
+    /// than letting the arithmetic truncate or wrap silently).
+    fn resolve_expr_to_int(&self, op: Op, l: &McExpression, r: &McExpression) -> Option<String> {
+        let left = self.resolve_expr_to_value(l)?;
+        let right = self.resolve_expr_to_value(r)?;
+        match eval::apply(op, &left, &right) {
+            Ok(Value::Int(n)) => Some(n.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Resolve an expression to an engine value (V1): the forms that take part
+    /// in an operation. A form with no value reading falls back to its own
+    /// resolution, as text — that keeps `Slice`/`Range`/`Set` operands
+    /// interpolating exactly as they did before the engine existed.
+    fn resolve_expr_to_value(&self, expr: &McExpression) -> Option<Value> {
         match expr {
-            McExpression::Int(i) => Some(i.value),
             McExpression::Variable(opd) => {
                 let names = opd.expand();
                 if names.len() == 1 {
                     self.lookup_param_value(&names[0])
-                        .and_then(|s| s.parse::<i64>().ok())
+                        .map(|s| Value::from_text(&s))
                 } else {
-                    None
+                    Some(Value::Str(names.join(" ")))
                 }
             }
-            // Recurse into arithmetic sub-expressions
-            McExpression::Multiply(l, r) => {
-                let left = self.resolve_expr_to_i64(l)?;
-                let right = self.resolve_expr_to_i64(r)?;
-                Some(left * right)
-            }
-            McExpression::Divide(l, r) => {
-                let left = self.resolve_expr_to_i64(l)?;
-                let right = self.resolve_expr_to_i64(r)?;
-                if right == 0 {
-                    None
-                } else {
-                    Some(left / right)
-                }
-            }
-            McExpression::Minus(l, r) => {
-                let left = self.resolve_expr_to_i64(l)?;
-                let right = self.resolve_expr_to_i64(r)?;
-                Some(left - right)
-            }
-            McExpression::Plus(l, r) => {
-                let left = self.resolve_expr_to_i64(l)?;
-                let right = self.resolve_expr_to_i64(r)?;
-                Some(left + right)
-            }
-            _ => None,
+            McExpression::Int(i) => Some(Value::Int(i.value)),
+            McExpression::Float(f) => Some(Value::Float(f.value)),
+            McExpression::String(s) => Some(Value::Str(s.value.clone())),
+            McExpression::UnitValue(u) => Some(Value::from_quantity(u.clone())),
+            McExpression::Plus(l, r) => self.apply_operands(Op::Add, l, r),
+            McExpression::Minus(l, r) => self.apply_operands(Op::Sub, l, r),
+            McExpression::Multiply(l, r) => self.apply_operands(Op::Mul, l, r),
+            McExpression::Divide(l, r) => self.apply_operands(Op::Div, l, r),
+            _ => self.resolve_expr_to_literal(expr).map(Value::Str),
         }
+    }
+
+    fn apply_operands(&self, op: Op, l: &McExpression, r: &McExpression) -> Option<Value> {
+        let left = self.resolve_expr_to_value(l)?;
+        let right = self.resolve_expr_to_value(r)?;
+        eval::apply(op, &left, &right).ok()
     }
 
     /// Initialize dynamic pins

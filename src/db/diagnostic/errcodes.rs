@@ -1281,6 +1281,18 @@ pub const EXPR_PLACEHOLDER_ONLY: u32 = 5411;
 /// Attribute value equals its own key; likely a copy-paste mistake.
 pub const ATTR_SELF_REFERENTIAL: u32 = 5412;
 
+/// Division by zero while evaluating a value expression.
+pub const EVAL_DIVIDE_BY_ZERO: u32 = 5413;
+
+/// Arithmetic operator applied to operands it is not defined for (a value mixed
+/// with text, two unit families that do not meet, or a family that forbids the
+/// operator — temperature addition, decibel arithmetic, ordering of a
+/// non-ordered family).
+pub const EVAL_OPERAND_NOT_NUMERIC: u32 = 5414;
+
+/// Arithmetic overflowed the integer (or finite real) range.
+pub const EVAL_OVERFLOW: u32 = 5415;
+
 // Pass3: condition blocks (5450-5499)
 
 /// Conditional block has an empty body.
@@ -1959,6 +1971,9 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(EXPR_THIS_TOP_LEVEL, "'this' used in a top-level net statement; it is only valid inside instance/function contexts.", "'this' used in a top-level net statement; it is only valid inside instance/function contexts."),
     entry!(EXPR_PLACEHOLDER_ONLY, "Net connects only to '_' placeholder; the connection has no effect.", "Net connects only to '_' placeholder; the connection has no effect."),
     entry!(ATTR_SELF_REFERENTIAL, "Attribute value equals its own key; likely a copy-paste mistake.", "Attribute value equals its own key; likely a copy-paste mistake."),
+    entry!(EVAL_DIVIDE_BY_ZERO, "Division by zero while evaluating a value expression.", "Division by zero while evaluating a value expression."),
+    entry!(EVAL_OPERAND_NOT_NUMERIC, "Arithmetic operator applied to operands it is not defined for.", "Operator '{0}' is not defined for {1} and {2}."),
+    entry!(EVAL_OVERFLOW, "Arithmetic overflowed the representable range.", "Integer overflow in '{0}' with operands {1} and {2}."),
     // section
     entry!(COND_EMPTY_BODY, "Conditional block has an empty body.", "Conditional block has an empty body."),
     entry!(COND_IF_WITHOUT_ELSE, "if without a matching else.", "if without a matching else."),

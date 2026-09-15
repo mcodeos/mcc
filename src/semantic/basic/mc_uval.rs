@@ -250,6 +250,14 @@ impl McUnitValue {
         self
     }
 
+    /// Build a value that is already normalized to `unit` — the entry point for
+    /// the text path (`eval::Value::from_text`), which reads its numbers from
+    /// the same suffix table the AST path uses. `raw` keeps the author's text
+    /// for display only.
+    pub fn from_normalized(value: f64, unit: McUnit, raw: Option<String>) -> Self {
+        Self { value, unit, raw }
+    }
+
     /// Parse a unit value from a data string + type node (when data is embedded directly)
     pub fn from_data_and_type(node: &AstNode, data: &str) -> Option<Self> {
         let parsed = match node.get_type() {
