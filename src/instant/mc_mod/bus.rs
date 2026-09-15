@@ -26,7 +26,7 @@ impl InstantiationBuilder {
     /// ```text
     /// uC.XTAL    - X6.2          # → ensure_bus("uC", ["XTAL"])
     /// uC.UART0   - cap4.1         # → ensure_bus("uC", ["UART0"])
-    /// uC.pins[8:11] - SPI.SCLK    # → ensure_bus("uC", ["pins[8:11]"])
+    /// uC.pins{8:11} - SPI.SCLK    # → ensure_bus("uC", ["pins{8:11}"])
     /// ```
     ///
     /// ## Iter 4: incremental merge

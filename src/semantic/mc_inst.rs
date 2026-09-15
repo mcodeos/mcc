@@ -122,7 +122,7 @@ pub enum McInstance {
         class_name: String,
     },
     /// "pins" keyword — transparent under pins transparency rules,
-    /// but preserved for explicit index-based access (e.g. `uC.pins[8]`).
+    /// but preserved for explicit index-based access (e.g. `uC.pins.8`).
     Pins,
     /// Physical pin ID — a key in the component's pin_id_to_names table,
     /// resolved during chain lookup (e.g. `uC.19`, `uC.W1`).

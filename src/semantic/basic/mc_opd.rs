@@ -96,27 +96,26 @@ impl McOpd {
                     None
                 }
             }
-            // | MCK_THIS
-            // | MCK_THIS mc_idm
-            // | MCK_THIS MCPT_DOT mc_int
-            // | MCK_THIS mc_idm MCPT_DOT mc_int
-            MCAST_OPD_THIS => {
-                let mut thisid = McIds::from("this");
+            // | MCK_THIS | MCK_PINS
+            // | (MCK_THIS|MCK_PINS) mc_idm
+            // | (MCK_THIS|MCK_PINS) MCPT_DOT mc_int
+            // | (MCK_THIS|MCK_PINS) mc_idm MCPT_DOT mc_int
+            MCAST_OPD_THIS | MCAST_OPD_PINS => {
+                // The payload holds the spelling the source used, and that text
+                // picks the self face to build.
+                let keyword = snode
+                    .data_as_cstr()
+                    .and_then(|c| c.to_str().ok())
+                    .unwrap_or("this");
+                let mut selfid = McIds::from(keyword);
                 if let Some(nextnode) = snode.get_next() {
-                    thisid.append(&nextnode);
-                    return Some(McOpd::This(thisid));
+                    selfid.append(&nextnode);
                 }
-                Some(McOpd::This(thisid))
-            }
-            // | MCK_PINS mc_idm
-            // | MCK_PINS MCPT_DOT mc_int
-            MCAST_OPD_PINS => {
-                let mut pinsid = McIds::from("pins");
-                if let Some(nextnode) = snode.get_next() {
-                    pinsid.append(&nextnode);
-                    return Some(McOpd::Pins(pinsid));
+                if keyword == "pins" {
+                    Some(McOpd::Pins(selfid))
+                } else {
+                    Some(McOpd::This(selfid))
                 }
-                Some(McOpd::Pins(pinsid))
             }
             // When MCAST_INSTANCE appears as MCAST_OPD child node,
             // extract instance name as McOpd::Id

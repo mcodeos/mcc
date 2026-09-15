@@ -285,7 +285,7 @@ fn push_curly_token(segments: &mut Vec<IdsSegment>, token: &str) {
 /// text and the ordered raw member names.
 ///
 /// Structural counterpart of the old `find('{')` + prefix-strip ports
-/// (`param_name_to_inst`, `this_ref_to_bus`, `group_members`): the base is
+/// (`param_name_to_inst`, `self_ref_to_bus`, `group_members`): the base is
 /// the segment text before the group and the members come straight out of the
 /// trailing `Curly` segment (R12 slices expanded by their segment, no
 /// `base.member` path to strip). Returns `None` unless the display is a
@@ -401,17 +401,16 @@ impl McIds {
         //     |- MCAST_ID/MCAST_IDA
         // |- MCAST_OPD_CURLY
         //     |- (MCAST_ID / MCAST_IDA / MCAST_INT / MCAST_OPD_COLON)*
-        // 2. MCK_THIS / MCK_PINS
-        //    |- MCK_THIS
-        //    |- MCK_THIS mc_idm
-        //    |- MCK_THIS MCPT_DOT mc_int
-        //    |- MCK_THIS mc_idm MCPT_DOT mc_int
-        //    |- MCK_PINS mc_idm
-        //    |- MCK_PINS MCPT_DOT mc_int
+        // 2. MCK_THIS / MCK_PINS (own node types, same tail forms; the payload
+        //    spells the keyword and is what names the self face)
+        //    |- MCK_THIS | MCK_PINS
+        //    |- (MCK_THIS|MCK_PINS) mc_idm
+        //    |- (MCK_THIS|MCK_PINS) MCPT_DOT mc_int
+        //    |- (MCK_THIS|MCK_PINS) mc_idm MCPT_DOT mc_int
 
         let mut segments = Vec::new();
 
-        // Handle MCAST_OPD_THIS and MCAST_OPD_PINS cases
+        // Handle the `this` / `pins` self-face node
         match node.get_type() {
             // Use McIda to handle ID and IDA processing
             // Treat the entire IDA string as one IdsSegment::Ida to maintain consistency with
@@ -431,18 +430,18 @@ impl McIds {
             }
 
             MCAST_OPD_THIS | MCAST_OPD_PINS => {
-                // Add "this" or "pins" as an Ida segment
-                let keyword = if node.get_type() == MCAST_OPD_THIS {
-                    "this"
-                } else {
-                    "pins"
-                };
+                // The payload holds the spelling the source used, and that text
+                // is what names the self face.
+                let keyword = node
+                    .data_as_cstr()
+                    .and_then(|c| c.to_str().ok())
+                    .unwrap_or("this");
                 let ida = McIda::from(keyword);
                 segments.push(IdsSegment::Ida(Box::new(ida)));
 
                 // Handle subsequent child nodes
                 let Some(mut current) = node.get_next() else {
-                    // Only "this" or "pins" case
+                    // Only the keyword itself
                     return Some(McIds { segments });
                 };
 
@@ -1402,14 +1401,21 @@ impl McIds {
                 let component = base_ida.expand().first()?.clone();
                 let member = dot_ida.expand().join(".");
 
-                let members: Vec<String> = curly_segs
-                    .iter()
-                    .filter_map(|seg| match seg {
-                        IdsSegment::Ida(ida) => Some(ida.expand().join(".")),
-                        IdsSegment::Int(int_val) => Some(int_val.to_string()),
-                        _ => None,
-                    })
-                    .collect();
+                let mut members: Vec<String> = Vec::new();
+                for seg in curly_segs {
+                    match seg {
+                        IdsSegment::Ida(ida) => members.push(ida.expand().join(".")),
+                        IdsSegment::Int(int_val) => members.push(int_val.to_string()),
+                        // Same expansion as the curly group in `as_bus`: a range
+                        // member (`d1.pins{2:3}`) is N members, not one literal.
+                        IdsSegment::Slice { from, to } => {
+                            for i in expand_numeric_slice(from.value, to.value) {
+                                members.push(i.to_string());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
 
                 if !members.is_empty() {
                     return Some((component, member, members));

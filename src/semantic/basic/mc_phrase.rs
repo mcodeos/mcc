@@ -306,8 +306,15 @@ impl McPhrase {
         match node_type {
             MCAST_OPD_USCORE => Some(McPhrase::Lead),
 
-            MCAST_OPD_THIS => {
-                // this.X ≡ X (pins transparency) — resolve member through find_inst
+            MCAST_OPD_THIS | MCAST_OPD_PINS => {
+                // this.X ≡ X (pins transparency): `pins` is the same self face
+                // spelled differently. The payload keeps the spelling, so a
+                // `pins.X` miss must not fall back to a `this.X` label.
+
+                let keyword = node
+                    .data_as_cstr()
+                    .and_then(|c| c.to_str().ok())
+                    .unwrap_or("this");
                 if let Some(nextnode) = node.get_next() {
                     let member_ids = McIds::new(&nextnode);
                     if let Some(member) = member_ids {
@@ -323,7 +330,7 @@ impl McPhrase {
                     // miss (2+ dot siblings) silently becomes a literal `this.y` label
                     // with the tail dropped. Single-segment `this.X` is the legitimate
                     // pin-transparency path (`this.ANODE` → component pin) — excluded.
-                    let mut this_ids = McIds::from("this");
+                    let mut this_ids = McIds::from(keyword);
                     this_ids.append(&nextnode);
                     if nextnode.get_next().is_some() {
                         ledger::record(
@@ -338,8 +345,8 @@ impl McPhrase {
                     }
                     context.add_label(this_ids.to_string())
                 } else {
-                    // bare "this" — keep as label (2-pin passthrough handled later)
-                    context.add_label("this".to_string())
+                    // bare self face — 2-pin passthrough handled later
+                    context.add_label(keyword.to_string())
                 }
             }
 
@@ -792,10 +799,32 @@ impl McPhrase {
                                         context.add_label(ids.to_string())
                                     }
                                 }
-                            } else if let Some(chain) = ids.dot_chain_parts() {
+                            } else if let Some(raw_chain) = ids.dot_chain_parts() {
                                 // ★ Dot chain — structured segments straight from the
                                 // AST (`uC.ADC.P` → ["uC", "ADC", "P"]), no text re-parsing.
                                 //
+                                // Pins transparency: `inst.pins.X ≡ inst.X` — `pins`
+                                // names the self face, never a member, so drop it as the
+                                // nested-DOT path already does. After the drop the chain
+                                // is the same one a `grep`-free reader would write by hand.
+                                let mut chain: Vec<String> = Vec::with_capacity(raw_chain.len());
+                                let mut dropped_pins = false;
+                                for (i, seg) in raw_chain.into_iter().enumerate() {
+                                    if i > 0 && seg == "pins" {
+                                        dropped_pins = true;
+                                        continue;
+                                    }
+                                    chain.push(seg);
+                                }
+                                // `inst.pins` alone is the instance itself, matching the
+                                // nested-DOT path's transparent `return left_opd`.
+                                if dropped_pins && chain.len() == 1 {
+                                    if let Some(inst) = context.find_inst(&chain[0]) {
+                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(inst),
+                                        )));
+                                    }
+                                }
                                 // `uC.ADC.P` (3+ segments): component-bus member access.
                                 if chain.len() >= 3 {
                                     let base = &chain[0];

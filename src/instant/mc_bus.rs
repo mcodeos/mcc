@@ -61,14 +61,14 @@ impl McBusInst {
     ///
     /// ```text
     /// uC.XTAL - X6.2          # First: ensure_bus("uC", ["XTAL"])
-    /// uC.pins[8:11] - SPI.SCLK # Second: ensure_bus("uC", ["pins[8:11]"])
+    /// uC.pins{8:11} - SPI.SCLK # Second: ensure_bus("uC", ["pins{8:11}"])
     /// uC.UART0 - cap4.1        # Third:  ensure_bus("uC", ["UART0"])
     /// ```
     ///
     /// Equality comparison would report false positives (WARN #921) for
     /// later contributions, and **drop new members**. The drop consequence
     /// is not just noise—it affects `InstTable` path registration
-    /// (`main.mcu.uC/pins[8:11]`, etc.), where missing members break
+    /// (`main.mcu.uC/pins{8:11}`, etc.), where missing members break
     /// Iter 1's fallback bus member paths, leading to silent wire loss
     /// from the graph.
     ///

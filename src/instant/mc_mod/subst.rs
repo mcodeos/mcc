@@ -400,33 +400,48 @@ impl InstantiationBuilder {
 
     // McPhrase tree substitution
 
-    /// Resolve a `this` reference to the caller instance bus.
+    /// Does this label spell a container self face (`this` / `pins`)?
     ///
-    /// Supported forms:
-    /// - `this`       → `caller_inst_name`
-    /// - `this.xxx`   → `caller_inst_name.xxx`
-    /// - `this{a, b}` → `caller_inst_name{a, b}` (curly member access, e.g. `this{1}`)
+    /// Both keywords name the same self face, each in its own spelling: a
+    /// container body reads `this` and `pins` interchangeably, so the
+    /// instantiation layer rewrites either one to the caller instance.
+    fn self_ref_keyword(s: &str) -> Option<&'static str> {
+        ["this", "pins"].into_iter().find(|kw| {
+            s == *kw
+                || s.strip_prefix(*kw).is_some_and(|rest| {
+                    rest.starts_with('.') || (rest.starts_with('{') && rest.ends_with('}'))
+                })
+        })
+    }
+
+    /// Resolve a self-face reference to the caller instance bus.
+    ///
+    /// Supported forms (the keyword is either spelling):
+    /// - `kw`       → `caller_inst_name`
+    /// - `kw.xxx`   → `caller_inst_name.xxx`
+    /// - `kw{a, b}` → `caller_inst_name{a, b}` (curly member access, e.g. `this{1}`)
     ///
     /// The curly split reads the shared text entry (`mc_ids::parse_display`,
     /// §3.1 late binding) and takes base + members from the trailing `Curly`
     /// segment — `|` pipes, `,` separators and numeric slices (`this{1:3}` →
     /// R12) expand structurally, with no `strip_prefix("this.")`-style text
     /// re-derivation of the member list.
-    fn this_ref_to_bus(s: &str, ctx: &ExpansionContext) -> McBus {
-        let this_name = ctx.instance.name.as_str();
-        // Dotted / plain labels rewrite the `this` token; the suffix is a
+    fn self_ref_to_bus(s: &str, ctx: &ExpansionContext) -> McBus {
+        let inst_name = ctx.instance.name.as_str();
+        let kw = Self::self_ref_keyword(s).unwrap_or("this");
+        // Dotted / plain labels rewrite the self token; the suffix is a
         // literal bus name (it may carry its own group text later).
-        if let Some(rest) = s.strip_prefix("this.") {
-            return McBus::new(&format!("{this_name}.{rest}"));
+        if let Some(rest) = s.strip_prefix(kw).and_then(|r| r.strip_prefix('.')) {
+            return McBus::new(&format!("{inst_name}.{rest}"));
         }
-        if s == "this" {
-            return McBus::new(this_name);
+        if s == kw {
+            return McBus::new(inst_name);
         }
-        // Curly member access `this{...}`: base is `this` (guaranteed after
-        // the dotted check above) and members come straight from the group.
+        // Curly member access `kw{...}`: base is `kw` (guaranteed after the
+        // dotted check above) and members come straight from the group.
         if let Some((base, members)) = crate::semantic::basic::mc_ids::curly_base_members(s) {
-            if base == "this" {
-                return McBus::new_with_members(this_name, members);
+            if base == kw {
+                return McBus::new_with_members(inst_name, members);
             }
             return McBus::new(s);
         }
@@ -512,19 +527,18 @@ impl InstantiationBuilder {
             // Component/Module/Interface are "already declared concrete instances", formal params
             // should not override them, keep as-is.
             //
-            // this substitution
-            // Replace "this" / "this.xxx" / "this{a, b}" with the caller instance
-            // bus ("caller_inst_name" / "caller_inst_name.xxx" / "caller_inst_name{a, b}").
+            // self-face substitution
+            // Replace "this" / "pins" (and their `.xxx` / `{a, b}` tails) with the
+            // caller instance bus ("caller_inst_name" / "caller_inst_name.xxx" /
+            // "caller_inst_name{a, b}").
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Label(s),
                 ..
             })) => {
-                let is_this_ref = s == "this"
-                    || s.starts_with("this.")
-                    || (s.starts_with("this{") && s.ends_with('}'));
+                let is_self_ref = Self::self_ref_keyword(s).is_some();
                 let mut elem = McBus::new(s);
 
-                // BARE `this`: the component's own default 1×2 face. In a body
+                // BARE self face: the component's own default 1×2 face. In a body
                 // chain `net1 - this - net2` the instance is vector-evaluated
                 // against its pins (user rule): net1 → this.pin1, this.pin2 →
                 // net2. A plain `McInstance::Bus(inst_name)` endpoint would make
@@ -532,7 +546,7 @@ impl InstantiationBuilder {
                 // (shorting net1 and net2 into one net); an
                 // `McInstance::Component` reference resolves to the component's
                 // default face (left pin1 / right pin2) instead.
-                if s == "this" {
+                if Self::self_ref_keyword(s) == Some(s) {
                     if let Some(ctx) = expansion_ctx {
                         let comp = McInstance::Component(std::sync::Arc::new(
                             crate::semantic::component::Mc2Component::new(
@@ -544,10 +558,10 @@ impl InstantiationBuilder {
                     }
                 }
 
-                // Check whether it's a this reference
+                // Check whether it's a self-face reference
                 if let Some(ctx) = expansion_ctx {
-                    if is_this_ref {
-                        elem = Self::this_ref_to_bus(s, ctx);
+                    if is_self_ref {
+                        elem = Self::self_ref_to_bus(s, ctx);
                     }
                 }
 
@@ -557,12 +571,12 @@ impl InstantiationBuilder {
                 } else if substituted.len() == 1
                     && substituted[0].name == elem.name
                     && substituted[0].member.is_empty()
-                    && !is_this_ref
+                    && !is_self_ref
                 {
-                    // No substitution hit for a non-this label, return as-is
+                    // No substitution hit for a non-self label, return as-is
                     phrase.clone()
                 } else {
-                    // Substitution hit (or a this-reference resolved to the
+                    // Substitution hit (or a self-face reference resolved to the
                     // caller instance bus): merge into a Bus endpoint.
                     let bus = Self::node_elements_to_bus(&substituted);
                     McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(bus))))
@@ -572,23 +586,21 @@ impl InstantiationBuilder {
                 base: McInstance::Bus(ref b),
                 ..
             })) => {
-                // Check whether the Bus name is a this reference
-                let is_this_ref = b.name == "this"
-                    || b.name.starts_with("this.")
-                    || (b.name.starts_with("this{") && b.name.ends_with('}'));
+                // Check whether the Bus name is a self-face reference
+                let is_self_ref = Self::self_ref_keyword(&b.name).is_some();
                 let mut bus_name = b.name.clone();
-                let mut this_members: Option<Vec<String>> = None;
+                let mut self_members: Option<Vec<String>> = None;
                 if let Some(ctx) = expansion_ctx {
-                    if is_this_ref {
-                        let bus = Self::this_ref_to_bus(&b.name, ctx);
+                    if is_self_ref {
+                        let bus = Self::self_ref_to_bus(&b.name, ctx);
                         bus_name = bus.name;
-                        this_members = Some(bus.member);
+                        self_members = Some(bus.member);
                     }
                 }
 
                 let elem = McBus::new_with_members(
                     &bus_name,
-                    this_members.unwrap_or_else(|| b.member.clone()),
+                    self_members.unwrap_or_else(|| b.member.clone()),
                 );
                 let substituted = Self::substitute_node_element(&elem, bindings);
                 if substituted.is_empty() {
@@ -596,9 +608,9 @@ impl InstantiationBuilder {
                 } else if substituted.len() == 1
                     && substituted[0].name == bus_name
                     && substituted[0].member == b.member
-                    && !is_this_ref
+                    && !is_self_ref
                 {
-                    // No substitution hit for a non-this bus, return as-is
+                    // No substitution hit for a non-self bus, return as-is
                     phrase.clone()
                 } else {
                     let bus = Self::node_elements_to_bus(&substituted);
