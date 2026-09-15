@@ -1,0 +1,1 @@
+/Users/dan/work/mo/mcc/scripts/mcc-slot.sh
