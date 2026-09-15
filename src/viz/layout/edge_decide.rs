@@ -63,6 +63,12 @@ pub struct BlockEdge {
     /// `Some` when this edge belongs to a trunk (e.g., SPI, I2C); the
     /// trunk `name` is the R-M merge key and the edge label.
     pub trunk: Option<TrunkCtx>,
+    /// ★ P3 (ret lineage): for a power edge, the paired return face of its
+    /// hot net (`net.attr.ret`), stamped at edge-decision time so the drawing
+    /// side can opt-in a same-bundle return lane without re-reading the net
+    /// (the root ground net is deleted before the renderer runs). `None` for
+    /// signal/bus edges and for power nets with no declared DC pair.
+    pub ret: Option<String>,
     /// ★ B2: whether this edge is bidirectional (e.g., SPI bus).
     /// Set to true when the original nets had edges in both directions.
     pub bidirectional: bool,
@@ -321,6 +327,9 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
                     if let Some(dep) = driver_ep {
                         let dbox = dep.box_id;
                         let label = strip_power_label(&net.name);
+                        // P3: the paired return face rides the edge so the drawing
+                        // side never re-derives it from the (deleted) ground net.
+                        let ret = net.attr.as_ref().and_then(|a| a.ret.clone());
                         for ep in &projected {
                             if ep.box_id != dbox {
                                 edges.push(BlockEdge {
@@ -334,6 +343,7 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
                                     kind: EdgeKind::Power,
                                     source_span: net.source_span.clone(),
                                     trunk: net.trunk.clone(),
+                                    ret: ret.clone(),
                                     bidirectional: false,
                                 });
                             }
@@ -392,6 +402,7 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
                 kind: EdgeKind::Signal,
                 source_span: net.source_span.clone(),
                 trunk: net.trunk.clone(),
+                ret: None,
                 bidirectional: false,
             });
         } else if unique_boxes.len() > 2 {
@@ -419,6 +430,7 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
                         kind: EdgeKind::Signal,
                         source_span: net.source_span.clone(),
                         trunk: net.trunk.clone(),
+                        ret: None,
                         bidirectional: false,
                     });
                 }
@@ -546,6 +558,12 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
             }
             // Preserve bidirectional flag
             merged[idx].bidirectional = merged[idx].bidirectional || edge.bidirectional;
+            // P3: keep the first declared return face of the group (the merge
+            // key is the label, so a differing pair would mean two distinct
+            // pairs in one group — never a silent tie).
+            if merged[idx].ret.is_none() {
+                merged[idx].ret = edge.ret.clone();
+            }
             // Use the trunk name as the label
             merged[idx].label = merged[idx]
                 .trunk

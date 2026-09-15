@@ -1006,6 +1006,7 @@ mod tests {
                 kind: EdgeKind::Signal,
                 source_span: None,
                 trunk: None,
+                ret: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -1019,6 +1020,7 @@ mod tests {
                 kind: EdgeKind::Power,
                 source_span: None,
                 trunk: None,
+                ret: None,
                 bidirectional: false,
             },
         ];
@@ -1045,6 +1047,7 @@ mod tests {
                 kind: EdgeKind::Signal,
                 source_span: None,
                 trunk: None,
+                ret: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -1058,6 +1061,7 @@ mod tests {
                 kind: EdgeKind::Power,
                 source_span: None,
                 trunk: None,
+                ret: None,
                 bidirectional: false,
             },
         ];
@@ -1107,6 +1111,7 @@ mod tests {
                 kind: EdgeKind::Signal,
                 source_span: None,
                 trunk: None,
+                ret: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -1120,6 +1125,7 @@ mod tests {
                 kind: EdgeKind::Signal,
                 source_span: None,
                 trunk: None,
+                ret: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -1133,6 +1139,7 @@ mod tests {
                 kind: EdgeKind::Signal,
                 source_span: None,
                 trunk: None,
+                ret: None,
                 bidirectional: false,
             },
             BlockEdge {
@@ -1146,6 +1153,7 @@ mod tests {
                 kind: EdgeKind::Power,
                 source_span: None,
                 trunk: None,
+                ret: None,
                 bidirectional: false,
             },
         ];
@@ -1228,6 +1236,7 @@ mod tests {
             kind: EdgeKind::Signal,
             source_span: None,
             trunk: None,
+            ret: None,
             bidirectional: false,
         }];
 
@@ -1292,6 +1301,7 @@ mod tests {
             kind,
             source_span: None,
             trunk: None,
+            ret: None,
             bidirectional: false,
         };
         let edges = vec![
@@ -1323,6 +1333,7 @@ mod tests {
             kind: EdgeKind::Power,
             source_span: None,
             trunk: None,
+            ret: None,
             bidirectional: false,
         };
         let edges = vec![e(1, 2), e(2, 1)];

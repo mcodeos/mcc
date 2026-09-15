@@ -231,6 +231,13 @@ fn render_block_edges(graph: &McVecGraph) -> String {
     let plan = supply_bundle::build_plan(graph);
     let mut svg = String::new();
 
+    // ★ P3 (ret lineage, opt-in): the same-bundle return lane is suppressed at
+    // draw time by default (decision C — the whole-board return stays hidden).
+    // `MCC_VIZ_RET_LANE=1` draws the parallel return lane / driver-end stub the
+    // plan already carries; the underlying edges and net topology never change.
+    let ret_lanes = std::env::var("MCC_VIZ_RET_LANE").map_or(false, |v| v == "1");
+    const RET_STROKE: &str = "#388E3C";
+
     // ── Bus trunks: one vertical rail per power label, one tap per consumer ──
     let stroke = "#E65100";
     for trunk in &plan.trunks {
@@ -253,6 +260,23 @@ fn render_block_edges(graph: &McVecGraph) -> String {
             let line_svg =
                 render_ortho_path(dx, dy, trunk.x, dy, label, stroke, trunk.stroke_width, false);
             svg.push_str(&line_svg);
+        }
+
+        // P3 (ret lineage, opt-in): a fan-out draws one return lead at the
+        // driver end — a short tick below the driver anchor.
+        if ret_lanes {
+            if let (Some((dx, dy)), Some((rx, ry))) = (trunk.driver, trunk.ret_stub) {
+                svg.push_str(&format!(
+                    r##"  <line x1="{dx:.1}" y1="{dy:.1}" x2="{rx:.1}" y2="{ry:.1}"
+       stroke="{stroke}" stroke-width="1.5"/>"##,
+                    dx = dx,
+                    dy = dy,
+                    rx = rx,
+                    ry = ry,
+                    stroke = RET_STROKE,
+                ));
+                svg.push('\n');
+            }
         }
 
         // Trunk-to-consumer lines
@@ -325,6 +349,37 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                 sw = stroke_w,
             ));
             svg.push('\n');
+        }
+
+        // P3 (ret lineage, opt-in): a point-to-point power edge draws a
+        // parallel second return lane along the same spine.
+        if ret_lanes {
+            if let Some(lane) = &draw.ret_lane {
+                let (lx1, ly1) = lane.from;
+                let (lx2, ly2) = lane.to;
+                if lane.ortho {
+                    svg.push_str(&format!(
+                        r##"  <polyline points="{x1:.1},{y1:.1} {x2:.1},{y1:.1} {x2:.1},{y2:.1}"
+       fill="none" stroke="{stroke}" stroke-width="1.5"/>"##,
+                        x1 = lx1,
+                        y1 = ly1,
+                        x2 = lx2,
+                        y2 = ly2,
+                        stroke = RET_STROKE,
+                    ));
+                } else {
+                    svg.push_str(&format!(
+                        r##"  <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"
+       stroke="{stroke}" stroke-width="1.5"/>"##,
+                        x1 = lx1,
+                        y1 = ly1,
+                        x2 = lx2,
+                        y2 = ly2,
+                        stroke = RET_STROKE,
+                    ));
+                }
+                svg.push('\n');
+            }
         }
 
         // ★ W3: bus slash marks for lane_count>1 edges

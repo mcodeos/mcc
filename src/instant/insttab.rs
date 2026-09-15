@@ -117,11 +117,22 @@ impl std::fmt::Display for Volt {
 pub struct MemberInfo {
     pub role: MemberRole,
     pub voltage: Option<Volt>,
+    /// ★ P3 (ret lineage): for a member of a declared connection-point DC pair,
+    /// the paired face's leaf name — the return member on a supply face, the
+    /// supply member on the return. Set at flatten from `port.dc_pair`;
+    /// viz/project.rs mirrors it onto the nets born from the pair so a draw-time
+    /// opt-in can anchor a return lane. `None` for any member the pair does not
+    /// name (component DC pins, inferred roles).
+    pub pair: Option<String>,
 }
 
 impl MemberInfo {
     pub fn new(role: MemberRole, voltage: Option<Volt>) -> Self {
-        Self { role, voltage }
+        Self {
+            role,
+            voltage,
+            pair: None,
+        }
     }
 }
 
@@ -1376,7 +1387,17 @@ impl InstTable {
                     )
                 };
                 if !matches!(role, MemberRole::Signal) {
-                    self.set_member_info(member_id, MemberInfo::new(role, None));
+                    // P3 (ret lineage): a member the pair names carries the other
+                    // face — the ret on the hot member, the hot on the ret member.
+                    let mut info = MemberInfo::new(role, None);
+                    if let Some((hot, ret)) = &port.dc_pair {
+                        if member == ret {
+                            info.pair = Some(hot.clone());
+                        } else if member == hot {
+                            info.pair = Some(ret.clone());
+                        }
+                    }
+                    self.set_member_info(member_id, info);
                 }
             }
 

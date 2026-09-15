@@ -244,6 +244,23 @@ pub struct TrunkDraw {
     pub taps: Vec<(f64, f64)>,
     /// P2: stroke width of the rail and its taps (bundle presence decides it).
     pub stroke_width: f64,
+    /// ★ P3 (ret lineage, opt-in): the end of the single return lead drawn at
+    /// the driver end of a fan-out (the design draws one return lead, not one
+    /// per load). `Some` when the bundle's members carry a declared DC-pair
+    /// return and a driver anchor exists; `None` otherwise. The renderer only
+    /// draws it under the ret-lane opt-in flag — it never touches the edges.
+    pub ret_stub: Option<(f64, f64)>,
+}
+
+/// The paired return lane of a point-to-point power edge (opt-in drawing).
+#[derive(Debug, Clone)]
+pub struct RetLane {
+    /// The lane start — the hot lane's `from` translated by the offset.
+    pub from: (f64, f64),
+    /// The lane end — the hot lane's `to` translated by the same offset.
+    pub to: (f64, f64),
+    /// Whether the hot lane draws an L (the return lane mirrors the shape).
+    pub ortho: bool,
 }
 
 /// One edge drawn on its own, both endpoints already resolved.
@@ -259,6 +276,11 @@ pub struct IndividualDraw {
     pub ortho: bool,
     /// P2: stroke width, decided here with the edge (bus / power / signal).
     pub stroke_width: f64,
+    /// ★ P3 (ret lineage, opt-in): for a point-to-point power edge whose net
+    /// carries a declared DC-pair return, the parallel second lane along the
+    /// same spine (design §6). `None` for every other edge. Drawn only under
+    /// the ret-lane opt-in flag.
+    pub ret_lane: Option<RetLane>,
 }
 
 /// Everything the renderer needs to draw the root layer's edges: no geometry and
@@ -418,6 +440,17 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
         let trunk_y_min = all_ys.first().copied().unwrap_or(100.0);
         let trunk_y_max = all_ys.last().copied().unwrap_or(740.0);
 
+        // P3 (ret lineage): a fan-out draws one return lead at the driver end —
+        // a short tick below the driver anchor, from the first member that
+        // carries a declared DC-pair return.
+        let ret_stub: Option<(f64, f64)> = if driver_anchor.is_some()
+            && indices.iter().any(|&idx| edges[idx].ret.is_some())
+        {
+            driver_anchor.map(|(dx, dy)| (dx, dy + 10.0))
+        } else {
+            None
+        };
+
         trunks.push(TrunkDraw {
             label: label.clone(),
             x: trunk_x,
@@ -426,6 +459,7 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
             driver: driver_anchor,
             taps,
             stroke_width: TRUNK_WIDTH,
+            ret_stub,
         });
     }
 
@@ -486,14 +520,35 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
             }
         };
 
+        // P3 (ret lineage): a point-to-point power edge with a declared DC-pair
+        // return draws a parallel second lane along the same spine. The lane is
+        // the hot lane translated by a fixed perpendicular offset, so both the
+        // straight and the L shape stay parallel (every segment is axis-aligned).
+        let ortho = (x1 - x2).abs() > 1.0 && (y1 - y2).abs() > 1.0 && edge.kind == EdgeKind::Power;
+        let ret_lane = if edge.kind == EdgeKind::Power && edge.ret.is_some() {
+            let (ox, oy) = if (x2 - x1).abs() >= (y2 - y1).abs() {
+                (0.0, 7.0) // dominant horizontal → shift down
+            } else {
+                (7.0, 0.0) // dominant vertical → shift right
+            };
+            Some(RetLane {
+                from: (x1 + ox, y1 + oy),
+                to: (x2 + ox, y2 + oy),
+                ortho,
+            })
+        } else {
+            None
+        };
+
         individual.push(IndividualDraw {
             kind: edge.kind,
             label: edge.label.clone(),
             lane_count: edge.lane_count,
             from: (x1, y1),
             to: (x2, y2),
-            ortho: (x1 - x2).abs() > 1.0 && (y1 - y2).abs() > 1.0 && edge.kind == EdgeKind::Power,
+            ortho,
             stroke_width,
+            ret_lane,
         });
     }
 
@@ -517,6 +572,7 @@ mod tests {
             kind,
             source_span: None,
             trunk: None,
+            ret: None,
             bidirectional: false,
         }
     }
@@ -598,5 +654,85 @@ mod tests {
             .map(|t| t.label.clone())
             .collect();
         assert_eq!(labels, vec!["[B, GND]", "[A, GND]"]);
+    }
+
+    // ── P3 (ret lineage) ──
+
+    fn box_at(id: i64, name: &str, x: f64, y: f64) -> crate::vector::graph::McVecBox {
+        use crate::vector::graph::{BoxKind, IoSummary};
+        let mut b = crate::vector::graph::McVecBox::new(
+            id,
+            name.into(),
+            "IC".into(),
+            BoxKind::MultiPin,
+            4,
+            IoSummary::new(),
+        );
+        b.x = x;
+        b.y = y;
+        b.w = 100.0;
+        b.h = 100.0;
+        b
+    }
+
+    /// P3: a point-to-point power edge with a declared DC-pair return carries a
+    /// parallel second lane (translated by the perpendicular offset, the hot
+    /// lane itself untouched); an edge without a declared return carries none.
+    #[test]
+    fn point_to_point_power_edge_carries_ret_lane() {
+        let mut g = crate::vector::graph::McVecGraph::new(0, "test".into());
+        g.boxes.push(box_at(1, "src", 0.0, 0.0));
+        g.boxes.push(box_at(2, "ld", 300.0, 0.0));
+        let mut e = edge(1, 2, "V5V", EdgeKind::Power);
+        e.driver_box = Some(1);
+        e.ret = Some("GND".into());
+        let plan = build_plan_for(&g, &[e]);
+        assert_eq!(plan.individual.len(), 1);
+        let d = &plan.individual[0];
+        let lane = d.ret_lane.as_ref().expect("declared ret draws a lane");
+        // Dominant horizontal: shift down by 7.
+        assert_eq!(lane.from, (d.from.0, d.from.1 + 7.0));
+        assert_eq!(lane.to, (d.to.0, d.to.1 + 7.0));
+        assert!(!lane.ortho);
+
+        let plain = build_plan_for(&g, &[edge(1, 2, "V5V", EdgeKind::Power)]);
+        assert!(plain.individual[0].ret_lane.is_none());
+    }
+
+    /// P3: a fan-out trunk whose members carry a declared DC-pair return draws
+    /// one return stub at the driver end (not one per load); a trunk without a
+    /// declared return draws none.
+    #[test]
+    fn fan_out_trunk_carries_driver_return_stub() {
+        let mut g = crate::vector::graph::McVecGraph::new(0, "test".into());
+        g.boxes.push(box_at(1, "src", 0.0, 0.0));
+        g.boxes.push(box_at(2, "a", 300.0, 0.0));
+        g.boxes.push(box_at(3, "b", 300.0, 200.0));
+        g.boxes.push(box_at(4, "c", 300.0, 400.0));
+        let mk = |to: i64| {
+            let mut e = edge(1, to, "V5V", EdgeKind::Power);
+            e.driver_box = Some(1);
+            e.ret = Some("GND".into());
+            e
+        };
+        let edges = vec![mk(2), mk(3), mk(4)];
+        let plan = build_plan_for(&g, &edges);
+        assert_eq!(plan.trunks.len(), 1);
+        let t = &plan.trunks[0];
+        assert_eq!(t.taps.len(), 3);
+        let stub = t.ret_stub.expect("fan-out draws one return stub");
+        let driver = t.driver.expect("driver anchor");
+        assert_eq!(stub, (driver.0, driver.1 + 10.0));
+
+        let plain: Vec<_> = [2, 3, 4]
+            .iter()
+            .map(|&to| {
+                let mut e = edge(1, to, "V5V", EdgeKind::Power);
+                e.driver_box = Some(1);
+                e
+            })
+            .collect();
+        let plan = build_plan_for(&g, &plain);
+        assert!(plan.trunks[0].ret_stub.is_none());
     }
 }
