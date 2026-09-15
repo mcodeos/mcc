@@ -125,6 +125,31 @@ that is legitimately long — a diagram, a URL, a grammar production — mark it
 with `check-comments:allow`. Do not put that marker on a `//!` line: it renders
 into the published rustdoc.
 
+## Rule: name comparisons are exact
+
+Every name in mcc — class, instance, pin, net, function, constructor, enum and
+enum value — compares by exact string equality, with no case normalization.
+`eq_ignore_ascii_case` is therefore a normalizing shortcut, and one is legal
+only where it is registered. A registered face is never a name: it is a
+user-facing input word table (query-DSL keywords, `--type` kind words, the
+`...GATE=0|false` environment variables), which users spell in any case they
+like.
+
+This is enforced mechanically, on git-tracked `src/**/*.rs` only:
+
+- Pre-commit hook (`.githooks/pre-commit`) rejects staged `src/` Rust that adds
+  an unregistered call.
+- CI workflow (`.github/workflows/check-name-case.yml`) scans every git-tracked
+  `src/**/*.rs` file on every push / pull request.
+- Local scanner: `python3 scripts/check-name-case.py` — exit 0 clean, 1 otherwise.
+- Run `scripts/check.sh` for the full local gate (step 12).
+
+The whitelist is the `REGISTERED` table in `scripts/check-name-case.py`, counted
+per file. Adding or removing a registered call means updating both that table and
+the registry in `01-lexical.md` §2.2, so the two cannot drift. The gate is a net,
+not a proof: a comparison written by hand
+(`a.to_lowercase() == b.to_lowercase()`) passes it.
+
 ## Rule: no auto-commit; manual testing and manual commit
 
 Never commit (nor stage, amend, push, or open a PR) automatically after

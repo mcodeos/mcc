@@ -40,7 +40,7 @@ fn build_flat(src: &str) -> (mcc::InstTable, mcc::NetIslandIndex) {
 fn gnd_lines(table: &mcc::InstTable) -> Vec<String> {
     let mut lines = Vec::new();
     for net in table.get_nets() {
-        if !net.name.eq_ignore_ascii_case("gnd") {
+        if net.name != "GND" {
             continue;
         }
         let mut pts: Vec<String> = net

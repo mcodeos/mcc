@@ -130,9 +130,9 @@ module US513(psnk [VDD_3V3,GND]::DC(3.3V), psnk [VCC_1V2,GND]::DC(1.2V))
         UC.i2c(0x36).I2C0 -> I2C0
     }
 
-    func loadFlash(spi)
+    func loadFlash(SPI)
     {
-        spi + UC.SPI
+        SPI + UC.SPI
     }
 
     UART0 - res[1:2]::RES(0Ω) - UC.UART0

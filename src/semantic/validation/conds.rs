@@ -361,7 +361,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                 // as NC (`is_nc` set at parse) and excluded from net/voltage
                 // checks downstream. Only NC coming from the explicit `nc`
                 // iotype keyword deserves scrutiny here.
-                let named_nc = pin.names.iter().any(|n| n.eq_ignore_ascii_case("nc"));
+                let named_nc = pin.names.iter().any(|n| n == "NC" || n == "nc");
                 if !named_nc {
                     let names = if pin.names.is_empty() {
                         pin_id.clone()

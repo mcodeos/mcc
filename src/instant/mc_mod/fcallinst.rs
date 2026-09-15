@@ -1622,11 +1622,11 @@ impl InstantiationBuilder {
             // bus with the component's pin IDs, the body connection zips N×N
             // instead of fanning 1×N.
             for (formal, _) in &boundary_pairs {
-                // Resolve formal to declared port name (case-insensitive)
+                // Resolve formal to declared port name (exact, spec/01 §2)
                 let resolved_port = b
                     .ports
                     .iter()
-                    .find(|p| p.name.eq_ignore_ascii_case(formal))
+                    .find(|p| p.name == *formal)
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| formal.clone());
                 if let Some(pin_ids) = b
@@ -1753,18 +1753,16 @@ impl InstantiationBuilder {
         //
         // ── S1 Bug D fix (Part 1): Build boundary using the declared port
         //    name instead of the formal ──
-        // The formal is the function parameter name (case may not match the
-        // declared port name, e.g. `spi` vs `SPI`).
-        // expand_port_lanes Case 1 strictly matches the port name (Case 1.a:
-        // ports.iter().filter(p.name == port_base)) → case mismatch → fall
-        // back to scalar → 1-vs-N fan (the §5.3.1-abolished single-point
-        // broadcast) → all 4 uC SPI pins short into the same spi net (S1).
+        // The formal is the function parameter name, which may differ from the
+        // declared port name in spelling. expand_port_lanes Case 1 matches the
+        // port name exactly (Case 1.a: ports.iter().filter(p.name == port_base)),
+        // so a formal that does not carry the port's own spelling falls back to
+        // scalar → 1-vs-N fan (the §5.3.1-abolished single-point broadcast) →
+        // all uC SPI pins short into the same spi net (S1).
         //
-        // Fix: look up via self.find_submodule(inst_name).ports,
-        //   - First strict match (p.name == formal)
-        //   - Then case-insensitive fallback (p.name.eq_ignore_ascii_case(formal))
-        // If both fail, fall back to the original formal (safe fallback,
-        // preserving old behavior).
+        // Fix: look up via self.find_submodule(inst_name).ports with an exact
+        // match (spec/01 §2), preferring a bus/interface port. If it fails, fall
+        // back to the original formal (safe fallback, preserving old behavior).
         let resolved: Vec<(String, String, IOType, McParamValue)> = boundary_pairs
             .into_iter()
             .map(|(formal, actual)| {
@@ -1779,20 +1777,9 @@ impl InstantiationBuilder {
                         sub.ports
                             .iter()
                             .find(|p| p.name == formal && !p.bus_members.is_empty())
-                            .or_else(|| {
-                                sub.ports.iter().find(|p| {
-                                    p.name.eq_ignore_ascii_case(&formal)
-                                        && !p.bus_members.is_empty()
-                                })
-                            })
                             // Finally fall back to any same-name port (for scalar boundary
                             // compatibility)
                             .or_else(|| sub.ports.iter().find(|p| p.name == formal))
-                            .or_else(|| {
-                                sub.ports
-                                    .iter()
-                                    .find(|p| p.name.eq_ignore_ascii_case(&formal))
-                            })
                             .map(|p| (p.name.clone(), p.iotype.clone()))
                     })
                     .unwrap_or_else(|| (formal.clone(), IOType::None));

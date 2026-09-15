@@ -140,10 +140,10 @@ fn entry_pos(entry: &InstEntry) -> (u32, String) {
 }
 
 /// §2.19 OR semantics: an entry is NC if its iotype is `NonCon` (the `nc`
-/// prefix) or its class name is "NC"/"nc" (case-insensitive) — whichever
-/// declaration is used, the pin is intentionally unconnected.
+/// prefix) or its class name is the class `NC`/`nc` — whichever declaration is
+/// used, the pin is intentionally unconnected. Names compare exactly (spec/01 §2).
 fn is_nc_entry(entry: &InstEntry) -> bool {
-    matches!(entry.io_type, IOType::NonCon) || entry.class_name.eq_ignore_ascii_case("nc")
+    matches!(entry.io_type, IOType::NonCon) || entry.class_name == "NC" || entry.class_name == "nc"
 }
 
 /// Find the first InstEntry that has a source position among a set of point IDs.
@@ -523,8 +523,8 @@ fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64
     let is_ground = is_ground_name(leaf)
         || is_ground_name(pin_id)
         || pin.names.iter().any(|n| is_ground_name(n))
-        || leaf.eq_ignore_ascii_case("EPAD")
-        || pin_id.eq_ignore_ascii_case("EPAD");
+        || leaf == "EPAD"
+        || pin_id == "EPAD";
     if is_ground {
         return None;
     }
@@ -731,8 +731,7 @@ pub(crate) fn check_pullup_degenerate(table: &InstTable, results: &mut Vec<NetCh
             InstOrigin::FuncCall { fn_name, .. } => fn_name.as_str(),
             _ => continue,
         };
-        let is_pull =
-            fn_name.eq_ignore_ascii_case("pullup") || fn_name.eq_ignore_ascii_case("pulldown");
+        let is_pull = fn_name == "Pullup" || fn_name == "Pulldown";
         if !is_pull || !matches!(entry.kind, InstKind::Component) {
             continue;
         }

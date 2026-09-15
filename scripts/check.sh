@@ -14,6 +14,7 @@
 #   cjk      — project rule: English only (scripts/check-cjk.py)
 #   paths    — project rule: no user-specific absolute paths (scripts/check-paths.py)
 #   comments — project rule: lean code comments (scripts/check-comments.py)
+#   namecase — project rule: exact name comparisons (scripts/check-name-case.py)
 #
 # Opt-in steps are gated behind env vars because they change the working
 # tree (fix) or need a nightly toolchain and are very slow (miri):
@@ -71,5 +72,8 @@ python3 scripts/check-paths.py
 
 echo "===== 11. comment scan (lean comments rule) ====="
 python3 scripts/check-comments.py
+
+echo "===== 12. name-case scan (exact name comparisons rule) ====="
+python3 scripts/check-name-case.py
 
 echo "all checks passed"
