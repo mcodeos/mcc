@@ -17,6 +17,7 @@ use std::fmt;
 use super::boxdef::{McVecBox, ModuleFrame, PortDir};
 use super::netdef::{NetRole, VizNet};
 use crate::vector::model::trunk::Trunk;
+use crate::viz::layout::edge_decide::BlockEdge;
 
 // McVecGraph
 
@@ -81,6 +82,11 @@ pub struct McVecGraph {
     /// is not a module's own schematic. Filled by the post-layout `module_frame`
     /// pass; the renderer draws it verbatim.
     pub module_frame: Option<ModuleFrame>,
+    /// ★ P1-c: this layer's block-diagram edges, decided once at the end of the
+    /// layout phase and carried here so the renderer is a pure consumer (it no
+    /// longer re-runs `decide_edges`). Populated for Block layers only; Device
+    /// layers leave it empty.
+    pub block_edges: Vec<BlockEdge>,
 }
 
 /// ★ C1b F0: rendering style — determines which pipeline a layer uses.
@@ -172,6 +178,7 @@ impl McVecGraph {
             col_pitch: 480.0,
             is_root: false,
             layer_style: LayerStyle::Block,
+            block_edges: vec![],
         }
     }
 

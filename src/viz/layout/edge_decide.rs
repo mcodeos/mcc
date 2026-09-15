@@ -146,7 +146,8 @@ fn pins_of_box(projected: &[&crate::vector::graph::netdef::EndpointRef], box_id:
 /// ★ B2: a stable fingerprint of everything [`decide_edges`] reads.
 ///
 /// The function runs **three times per render** (facade in the prepare phase,
-/// `place_radial` for the anchors, `render_block_edges` for the lines) and its
+/// `place_radial` for the anchors, the api fill that lands on
+/// `graph.block_edges` for the lines) and its
 /// consumers must agree on the answer -- the whole point of the anchor law is
 /// that the line drawn is the line the anchor was computed for. Nothing forces
 /// those three calls to see the same graph, though: each reads whatever state

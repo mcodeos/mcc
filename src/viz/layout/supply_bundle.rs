@@ -32,6 +32,12 @@ use crate::viz::layout::edge_decide::{BlockEdge, EdgeKind};
 /// check in the renderer.
 pub const TRUNK_MIN_CONSUMERS: usize = 3;
 
+/// Stroke width of a drawn supply trunk and its taps. A bundle draws heavier
+/// than its individual edges so the shared path reads as one thick trunk
+/// (P2: the width is decided here with the bundle, not by a literal in the
+/// renderer).
+pub const TRUNK_WIDTH: f64 = 3.0;
+
 /// One power label drawn as a shared trunk: a vertical rail plus one tap per
 /// member edge.
 #[derive(Debug, Clone)]
@@ -80,6 +86,19 @@ fn trunk_key(edges: &[BlockEdge], members: &[usize]) -> (u32, i64, i64, String) 
         .unwrap_or((u32::MAX, 0, 0, String::new()))
 }
 
+/// The bundle identity of a power edge: the structured trunk name when the
+/// source carries one (P0), else the stripped power label. The drawn label is
+/// display-only; grouping keys on this identity, never on label text.
+fn bundle_key(edge: &BlockEdge) -> Option<String> {
+    if edge.kind != EdgeKind::Power {
+        return None;
+    }
+    edge.trunk
+        .as_ref()
+        .and_then(|t| t.name.clone())
+        .or_else(|| (!edge.label.is_empty()).then(|| edge.label.clone()))
+}
+
 /// Split `edges` into shared-trunk bundles and individual edges.
 ///
 /// Grouping rule (unchanged from the inline original): a `Power` edge with a
@@ -92,24 +111,23 @@ fn trunk_key(edges: &[BlockEdge], members: &[usize]) -> (u32, i64, i64, String) 
 /// members are pinned by an explicit sort below. Without it they follow the hash
 /// iteration order, which is stable within a process and different across runs.
 pub fn plan_groups(edges: &[BlockEdge]) -> SupplyGroups {
-    let mut by_label: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut by_bundle: HashMap<String, Vec<usize>> = HashMap::new();
     let mut individual: Vec<usize> = Vec::new();
 
     for (i, edge) in edges.iter().enumerate() {
-        if edge.kind == EdgeKind::Power && !edge.label.is_empty() {
-            by_label.entry(edge.label.as_str()).or_default().push(i);
-        } else {
-            individual.push(i);
+        match bundle_key(edge) {
+            Some(key) => by_bundle.entry(key).or_default().push(i),
+            None => individual.push(i),
         }
     }
 
     let mut trunks: Vec<SupplyTrunk> = Vec::new();
     let mut demoted: Vec<usize> = Vec::new();
-    for (label, mut members) in by_label {
+    for (key, mut members) in by_bundle {
         members.sort_unstable();
         if members.len() >= TRUNK_MIN_CONSUMERS {
             trunks.push(SupplyTrunk {
-                label: label.to_string(),
+                label: key,
                 members,
             });
         } else {
@@ -224,6 +242,8 @@ pub struct TrunkDraw {
     pub driver: Option<(f64, f64)>,
     /// One landing point per consumer, already slid clear of other anchors.
     pub taps: Vec<(f64, f64)>,
+    /// P2: stroke width of the rail and its taps (bundle presence decides it).
+    pub stroke_width: f64,
 }
 
 /// One edge drawn on its own, both endpoints already resolved.
@@ -237,6 +257,8 @@ pub struct IndividualDraw {
     /// The ends differ on both axes, so a power edge draws an L instead of a
     /// straight segment.
     pub ortho: bool,
+    /// P2: stroke width, decided here with the edge (bus / power / signal).
+    pub stroke_width: f64,
 }
 
 /// Everything the renderer needs to draw the root layer's edges: no geometry and
@@ -247,10 +269,11 @@ pub struct SupplyBundlePlan {
     pub individual: Vec<IndividualDraw>,
 }
 
-/// Build the drawing plan for the root layer of `graph`.
+/// Build the drawing plan for the root layer of `graph` from the edges the
+/// layout phase already projected onto it (P1-c: the renderer no longer runs
+/// `decide_edges`).
 pub fn build_plan(graph: &McVecGraph) -> SupplyBundlePlan {
-    let (edges, _report) = crate::viz::layout::edge_decide::decide_edges(graph);
-    build_plan_for(graph, &edges)
+    build_plan_for(graph, &graph.block_edges)
 }
 
 /// Build the plan from already-decided edges. Split out so a test can drive the
@@ -402,6 +425,7 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
             y_max: trunk_y_max,
             driver: driver_anchor,
             taps,
+            stroke_width: TRUNK_WIDTH,
         });
     }
 
@@ -450,6 +474,18 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
             )
         };
 
+        // P2: the stroke width is decided here, by kind and lane count, so the
+        // renderer only draws what the plan names.
+        let stroke_width = if edge.lane_count > 1 {
+            4.0
+        } else {
+            match edge.kind {
+                EdgeKind::Power => 2.5,
+                EdgeKind::Bus => 2.5,
+                EdgeKind::Signal => 2.0,
+            }
+        };
+
         individual.push(IndividualDraw {
             kind: edge.kind,
             label: edge.label.clone(),
@@ -457,6 +493,7 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
             from: (x1, y1),
             to: (x2, y2),
             ortho: (x1 - x2).abs() > 1.0 && (y1 - y2).abs() > 1.0 && edge.kind == EdgeKind::Power,
+            stroke_width,
         });
     }
 

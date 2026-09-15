@@ -19,9 +19,9 @@
 //! ```
 //!
 //! ## Root layer (P9-B)
-//! For the root layer, nets are not rendered. Instead, block edges (from
-//! `edge_decide::decide_edges`) are drawn as straight lines with arrows and
-//! labels. Sub-module boxes use solid-line block-diagram styling.
+//! For the root layer, nets are not rendered. Instead, block edges
+//! (pre-projected onto `graph.block_edges`) are drawn as straight lines with
+//! arrows and labels. Sub-module boxes use solid-line block-diagram styling.
 //!
 //! ## Sub-modules
 //! - [`shape`]       —— `BoxShape` trait + `render_box` dispatch
@@ -239,23 +239,26 @@ fn render_block_edges(graph: &McVecGraph) -> String {
         // Trunk rail
         svg.push_str(&format!(
             r##"  <line x1="{tx:.1}" y1="{y1:.1}" x2="{tx:.1}" y2="{y2:.1}"
-       stroke="{stroke}" stroke-width="2.5"/>"##,
+       stroke="{stroke}" stroke-width="{sw:.1}"/>"##,
             tx = trunk.x,
             y1 = trunk.y_min,
             y2 = trunk.y_max,
             stroke = stroke,
+            sw = trunk.stroke_width,
         ));
         svg.push('\n');
 
         // Driver-to-trunk line
         if let Some((dx, dy)) = trunk.driver {
-            let line_svg = render_ortho_path(dx, dy, trunk.x, dy, label, stroke, 2.5, false);
+            let line_svg =
+                render_ortho_path(dx, dy, trunk.x, dy, label, stroke, trunk.stroke_width, false);
             svg.push_str(&line_svg);
         }
 
         // Trunk-to-consumer lines
         for (cx, cy) in &trunk.taps {
-            let line_svg = render_ortho_path(trunk.x, *cy, *cx, *cy, label, stroke, 2.5, false);
+            let line_svg =
+                render_ortho_path(trunk.x, *cy, *cx, *cy, label, stroke, trunk.stroke_width, false);
             svg.push_str(&line_svg);
         }
 
@@ -284,15 +287,9 @@ fn render_block_edges(graph: &McVecGraph) -> String {
             EdgeKind::Bus => "#1565C0",
             EdgeKind::Signal => "#424242",
         };
-        let stroke_w = if is_bus {
-            4.0
-        } else {
-            match draw.kind {
-                EdgeKind::Power => 2.5,
-                EdgeKind::Bus => 2.5,
-                EdgeKind::Signal => 2.0,
-            }
-        };
+        // P2: the width comes from the plan (decided with the edge in
+        // supply_bundle), never from a literal here.
+        let stroke_w = draw.stroke_width;
 
         let label_text = if is_bus {
             format!("{} [{}]", draw.label, draw.lane_count)
