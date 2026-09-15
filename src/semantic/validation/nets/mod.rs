@@ -538,7 +538,7 @@ fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64
     for val in pin.values.iter() {
         if let McAttrVal::KVS(kvs) = val {
             let key = kvs.key.to_string().to_lowercase();
-            if key.contains("volt") {
+            if crate::semantic::basic::attr_keys::is_voltage_key(&key) {
                 collect_kvs_voltage(&kvs.value, &mut out);
             }
         }
