@@ -1950,20 +1950,15 @@ impl InstantiationBuilder {
         // Same as Case 1 (b): match by base name, take most effective members, tolerate
         // duplicate ports (dc / dc{VDD_3V3,GND}) and bus_members unfilled.
         //
-        // S1 Bug A companion (2026-06)
-        // after strict match fails, add eq_ignore_ascii_case fallback (e.g., body
-        // boundary formal `spi` vs declared port `SPI`). Symmetric with Bug D Part 1 fix.
+        // Names compare exactly (spec/01 §2): a bare `spi` no longer matches a
+        // declared port `SPI`. A body formal whose name differs from the port it
+        // is paired with must be renamed to the port's own spelling.
         {
             let port_base = strip_brace_suffix(name);
             let best_info = self
                 .ports
                 .iter()
-                .filter(|p| {
-                    p.name == port_base
-                        || strip_brace_suffix(&p.name) == port_base
-                        || p.name.eq_ignore_ascii_case(port_base)
-                        || strip_brace_suffix(&p.name).eq_ignore_ascii_case(port_base)
-                })
+                .filter(|p| p.name == port_base || strip_brace_suffix(&p.name) == port_base)
                 .map(|p| {
                     let m = if !p.bus_members.is_empty() {
                         p.bus_members.clone()

@@ -341,7 +341,7 @@ impl McParamValue {
     /// Check whether any attribute inside this named-parameter block matches
     /// the given formal parameter name.
     ///
-    /// Matching is case-insensitive on the attribute key; a bracketed key
+    /// Matching is exact on the attribute key (spec/01 §2); a bracketed key
     /// (`pins[6:9]`) matches its root segment (`pins`).
     pub fn matches_param_name(&self, name: &str) -> bool {
         match self {
@@ -361,15 +361,14 @@ impl McParamValue {
     }
 }
 
-/// Case-insensitive key match against a formal parameter name, falling back
+/// Exact key match against a formal parameter name, falling back
 /// to the root segment for indexed keys (`pins[6:9]` → `pins`).
 fn attr_key_matches(key: &McIds, name: &str) -> bool {
     let full = key.to_string();
-    if full.eq_ignore_ascii_case(name) {
+    if full == name {
         return true;
     }
-    key.root_name()
-        .is_some_and(|r| r.eq_ignore_ascii_case(name))
+    key.root_name().is_some_and(|r| r == name)
 }
 
 /// Convert an attribute value into a [`McParamValue`] so a named argument can
@@ -844,7 +843,7 @@ impl McParamBindings {
 
         // Round 1: Named binding
         // Each named argument (`{ cap = 1uF; ... }`) claims the formal slot
-        // whose name matches (case-insensitive). Orphan named arguments —
+        // whose name matches exactly (spec/01 §2). Orphan named arguments —
         // names that match no formal parameter — are a hard error.
         let mut named_claimed: Vec<bool> = vec![false; named_entries.len()];
         for (di, declare) in declares.iter().enumerate() {
@@ -855,7 +854,7 @@ impl McParamBindings {
                 if named_claimed[ni] {
                     continue;
                 }
-                if name.eq_ignore_ascii_case(&param_name) || declare.match_name(name) {
+                if name == &param_name || declare.match_name(name) {
                     bindings[di] = Some(McParamBinding::new(declare.clone(), Some(value.clone())));
                     slot_claimed[di] = true;
                     named_claimed[ni] = true;
@@ -1391,16 +1390,15 @@ mod tests {
         }
     }
 
-    /// t4: `{ cap = 10; volt = 25 }` binds by name, case-insensitively.
+    /// t4: `{ cap = 10; volt = 25 }` binds by name.
     #[test]
-    fn sem_mcparam__named_args_bind_by_name_case_insensitive() {
+    fn sem_mcparam__named_args_bind_by_name_exact_case() {
         let mut declares = McParamDeclares::new();
         declares.push(single_declare("cap"));
         declares.push(single_declare("volt"));
 
-        // Uppercase attribute key must still claim the `cap` slot.
         let values = vec![McParamValue::InlineAttrs(vec![
-            attr_int("CAP", 10),
+            attr_int("cap", 10),
             attr_int("volt", 25),
         ])];
 
@@ -1410,6 +1408,20 @@ mod tests {
         assert!(matches!(cap.get_value(), Some(McParamValue::Int(i)) if i.value == 10));
         let volt = bindings.find("volt").expect("volt should be bound");
         assert!(matches!(volt.get_value(), Some(McParamValue::Int(i)) if i.value == 25));
+    }
+
+    /// t4b: a named arg matches a formal by exact name only (spec/01 §2).
+    #[test]
+    fn sem_mcparam__named_arg_key_case_is_significant() {
+        let mut declares = McParamDeclares::new();
+        declares.push(single_declare("cap"));
+
+        let values = vec![McParamValue::InlineAttrs(vec![attr_int("CAP", 10)])];
+
+        match McParamBindings::bind(&declares, &values) {
+            Err(ParamBindError::UnknownParameter { name }) => assert_eq!(name, "CAP"),
+            other => panic!("expected UnknownParameter, got {:?}", other),
+        }
     }
 
     /// t5: named args in reversed written order still claim the correct slots.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Pre-commit hook: reject commits that are not English-only (non-ASCII), that
-# embed a user-specific absolute path, or that carry non-lean code comments.
+# embed a user-specific absolute path, that carry non-lean code comments, or
+# that add an unregistered case-insensitive name comparison.
 #
 # Installed via `git config core.hooksPath .githooks` so this file is shared
 # with every developer who clones the repo (see AGENTS.md).
@@ -10,6 +11,8 @@
 #   2. Staged file contents — no home-directory paths (`/Users/<name>/...`).
 #   3. Staged `.rs` comments — lean-comments rule (decorative banner rules,
 #      change-diary wording, comment lines over 100 columns).
+#   4. Staged `.rs` files under `src/` — exact name comparisons only (the
+#      registered exemptions are listed in scripts/check-name-case.py).
 #   (Commit-message checks live in `commit-msg`, which receives the
 #    message file path; pre-commit takes no arguments.)
 set -euo pipefail
@@ -38,6 +41,15 @@ fi
 if ! git diff --cached --name-only --diff-filter=ACM -z \
     | xargs -0 -r python3 "$ROOT/scripts/check-comments.py"; then
     echo "pre-commit: staged comments violate the lean-comments rule (AGENTS.md)." >&2
+    exit 1
+fi
+
+# ── 4. Staged `src/` Rust: exact name comparisons ───────────────────────────
+# The scanner filters by extension and by the `src/` prefix, so tests and
+# non-Rust files pass through untouched.
+if ! git diff --cached --name-only --diff-filter=ACM -z \
+    | xargs -0 -r python3 "$ROOT/scripts/check-name-case.py"; then
+    echo "pre-commit: staged code adds a case-insensitive name comparison (AGENTS.md)." >&2
     exit 1
 fi
 

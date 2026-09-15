@@ -86,14 +86,14 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
                 let named = pin
                     .names
                     .iter()
-                    .any(|n| POWER_PIN_NAMES.iter().any(|pn| n.eq_ignore_ascii_case(pn)));
+                    .any(|n| POWER_PIN_NAMES.iter().any(|pn| n == pn));
                 named || matches!(pin.iotype, crate::IOType::Power)
             })
             .map(|(pin_id, pin)| {
                 let name = pin
                     .names
                     .iter()
-                    .find(|n| POWER_PIN_NAMES.iter().any(|pn| n.eq_ignore_ascii_case(pn)))
+                    .find(|n| POWER_PIN_NAMES.iter().any(|pn| n == pn))
                     .or_else(|| pin.names.first())
                     .cloned()
                     .unwrap_or_else(|| pin_id.clone());
@@ -108,11 +108,9 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
         // GND-only passives: a component whose only power-related pins are
         // ground pins (GND/VSS) has no supply rail to document, so the
         // voltage-attribute hint does not apply (e.g. passive mics/speakers).
-        let has_supply_pin = power_pins.iter().any(|(_, name)| {
-            !GROUND_PIN_NAMES
-                .iter()
-                .any(|g| name.eq_ignore_ascii_case(g))
-        });
+        let has_supply_pin = power_pins
+            .iter()
+            .any(|(_, name)| !GROUND_PIN_NAMES.iter().any(|g| name == g));
         if !has_supply_pin {
             continue;
         }

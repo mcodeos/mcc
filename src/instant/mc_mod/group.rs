@@ -633,8 +633,8 @@ impl InstantiationBuilder {
     /// Fix: when scalar.path contains no '.', treat scalar as a "boundary formal of the
     /// current submodule", look up self.ports for one with the same name and a non-empty
     /// bus_members (a declared interface port), and use its bus_members to expand into
-    /// `[<formal>.<member_i>]` then zip with the peer. Case mismatch between formal name
-    /// and port name also falls back to eq_ignore_ascii_case.
+    /// `[<formal>.<member_i>]` then zip with the peer. The name compares exactly
+    /// (spec/01 §2), so the formal must carry the port's own spelling.
     ///
     /// Note: this is the P2 round-2 **boundary fallback (A2)**, fixing the parent-level
     /// `mic.MIC -> mcu.MIC` differential-pair short; it does not fix the missing
@@ -780,16 +780,10 @@ impl InstantiationBuilder {
             if is_power_rail_name(formal) || is_ground_name(formal) {
                 return None;
             }
-            // Prefer exact match, then case-insensitive fallback (same fix as Bug D)
             let bus_members: Vec<String> = self
                 .ports
                 .iter()
                 .find(|p| p.name == formal && !p.bus_members.is_empty())
-                .or_else(|| {
-                    self.ports
-                        .iter()
-                        .find(|p| p.name.eq_ignore_ascii_case(formal) && !p.bus_members.is_empty())
-                })
                 .map(|p| p.bus_members.clone())?;
             if bus_members.len() != members.len() {
                 // Lane count mismatch → degrade, do not force zip (avoid misalignment)
