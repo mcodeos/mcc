@@ -205,16 +205,19 @@ pub(crate) fn check_ctor_bind(
     if params.is_empty() {
         return;
     }
-    if let Err(e) =
-        McParamBindings::bind_component(comp_def.bind_params(), &comp_def.attr_key_names(), params)
-    {
-        // Component-Spec Separation: a missing required parameter never
-        // blocks instance creation — circuit topology only needs pins, and
-        // the parameter value is supplied later via spec or the BOM. It is
-        // silent in dev mode and reported as a warning (E4178) in strict
-        // mode. Written-but-wrong arguments (excess / unknown /
-        // type-mismatched) are hard errors (E4176).
-        if let ParamBindError::MissingRequired { name } = e {
+    // Component-Spec Separation: a missing required parameter never
+    // blocks instance creation — circuit topology only needs pins, and
+    // the parameter value is supplied later via spec or the BOM. It is
+    // silent in dev mode and reported as a warning (E4178) in strict
+    // mode. Written-but-wrong arguments (excess / unknown /
+    // type-mismatched) are hard errors (E4176).
+    match McParamBindings::bind_component(
+        comp_def.bind_params(),
+        &comp_def.attr_key_names(),
+        params,
+    ) {
+        Ok(bindings) => check_ctor_pin_rows(inst_name, comp_def, bindings.call_pin_rows(), node),
+        Err(ParamBindError::MissingRequired { name }) => {
             if crate::cli::strict_mode() {
                 dlog_warning(
                     crate::errcodes::INST_PARAM_MISSING_REQUIRED,
@@ -225,7 +228,8 @@ pub(crate) fn check_ctor_bind(
                     ),
                 );
             }
-        } else {
+        }
+        Err(e) => {
             dlog_error(
                 crate::errcodes::INST_PARAM_BIND_FAILED,
                 node,
@@ -236,6 +240,41 @@ pub(crate) fn check_ctor_bind(
             );
         }
     }
+}
+
+/// ★ U52: report E4176 once for the call-site pin rows that name pins
+/// `comp_def` does not declare (`pins{9:9} = SWDBG` on a two-pin class). A row
+/// renames pins the definition already has — an id it never declared invents no
+/// pin, so it is a bind failure, not a silent no-op. A class with dynamic pins
+/// has no closed id set ([`McComponent::closed_pin_ids`]) and is not judged.
+pub(crate) fn check_ctor_pin_rows(
+    inst_name: &str,
+    comp_def: &crate::semantic::component::McComponent,
+    rows: &[(
+        Vec<crate::semantic::basic::mc_ids::IdsSegment>,
+        Vec<crate::semantic::component::mc_attr::McAttrVal>,
+    )],
+    node: &AstNode,
+) {
+    let Some(declared) = comp_def.closed_pin_ids() else {
+        return;
+    };
+    let unknown = McParamBindings::undeclared_pin_row_ids(rows, &declared);
+    if unknown.is_empty() {
+        return;
+    }
+    dlog_error(
+        crate::errcodes::INST_PARAM_BIND_FAILED,
+        node,
+        &crate::errcodes::format_msg(
+            crate::errcodes::INST_PARAM_BIND_FAILED,
+            &[
+                &inst_name,
+                &comp_def.name.to_string(),
+                &McParamBindings::undeclared_pin_row_reason(&unknown),
+            ],
+        ),
+    );
 }
 
 impl McFuncCall {

@@ -22,6 +22,12 @@
 //! only a bare name can collide — a dotted path such as `spec.volt` is not a
 //! name there.
 //!
+//! The `pins` root is a third shape — a row, not an attribute key: it renames
+//! pins the definition already declares, so it is exempt from both guards. An
+//! id the definition never declared invents no pin and is the same bind failure
+//! (E4176) at the call site; a class with dynamic pins closes no id set and is
+//! not judged.
+//!
 //! Family naming `{family}__{essence}` uses a doubled underscore to separate
 //! the grep-able family token from the essence (matrix §1 taxonomy).
 //!
@@ -492,19 +498,70 @@ fn pa_keys__only_the_pins_root_is_exempt() {
     assert!(hits[0].msg.contains("foo{1:2}"), "got {}", hits[0].msg);
 }
 
-/// Naming an id the definition never declared invents no pin.
+/// Naming an id the definition never declared invents no pin, so the row is a
+/// bind failure at the call site — not a silent no-op. The class declares 1, 2
+/// and 3, so 9 is unknown.
 #[test]
-fn pa_keys__pins_rooted_argument_adds_no_pin() {
+fn pa_keys__pins_rooted_argument_naming_an_undeclared_pin_errors() {
     let src = format!("{NAMED_PINS}\nmodule main {{\n    C c1( pins{{9:9}} = GHOST )\n}}\n");
     let (diags, _) = probe(&src, "/mcc/keys-pins-absent.mc");
+    let hits = bind_hits(&diags);
+    assert_eq!(hits.len(), 1, "one unknown id is one fact; got {diags:?}");
+    assert_eq!(hits[0].level, DiagnosticLevel::Error, "got {diags:?}");
+    assert!(
+        hits[0].msg.contains("pin row names pin 9"),
+        "the message must name the unknown id; got {}",
+        hits[0].msg
+    );
     assert_eq!(
-        diags.iter().filter(|d| d.code == CODE).count(),
-        0,
-        "got {diags:?}"
+        hits[0].row, 10,
+        "the error belongs on the instance declaration; got {diags:?}"
     );
     assert_eq!(
         pin_names_of(&probe_pin_names(&src, "/mcc/keys-pins-absent.mc"), "c1"),
         Vec::<String>::new(),
-        "no pin 9 is declared, so nothing is named"
+        "the error does not make the row invent a pin"
     );
+}
+
+/// A row that names several unknown ids states them in row order, deduplicated.
+#[test]
+fn pa_keys__pins_rooted_argument_names_every_undeclared_pin() {
+    let src = format!("{NAMED_PINS}\nmodule main {{\n    C c1( pins{{8:9}} = GHOST )\n}}\n");
+    let (diags, _) = probe(&src, "/mcc/keys-pins-range-absent.mc");
+    let hits = bind_hits(&diags);
+    assert_eq!(hits.len(), 1, "got {diags:?}");
+    assert!(
+        hits[0].msg.contains("pins 8, 9"),
+        "the message must list the unknown ids; got {}",
+        hits[0].msg
+    );
+}
+
+/// An id a conditional block adds is declared: 3 exists only under
+/// `partno == "one"`, and the declaration is judged closed, so the row binds.
+const COND_PINS: &str = "component K (partno::STRING = \"one\") {\n    pins = [\n        1 = A\n        2 = B\n    ]\n\n    if (partno == \"one\")\n    {\n        pins += [\n            3 = P\n        ]\n    }\n}\n";
+
+#[test]
+fn pa_keys__pins_rooted_argument_accepts_a_conditional_pin() {
+    let src = format!("{COND_PINS}\nmodule main {{\n    K(\"one\") k1( pins{{3:3}} = ALT )\n}}\n");
+    let (diags, _) = probe(&src, "/mcc/keys-pins-cond.mc");
+    assert_eq!(bind_hits(&diags).len(), 0, "got {diags:?}");
+    assert_eq!(
+        pin_names_of(&probe_pin_names(&src, "/mcc/keys-pins-cond.mc"), "k1"),
+        vec!["3 = ALT".to_string()],
+        "the conditional pin is declared, so the row names it"
+    );
+}
+
+/// A class with dynamic pins closes no id set — its ids exist only once an
+/// instance is built — so its pin rows escape the judgement.
+const DYNAMIC_PINS: &str =
+    "component D (n::INT) {\n    pins = [\n        1:n = 1:n\n    ]\n}\n";
+
+#[test]
+fn pa_keys__pins_rooted_argument_on_dynamic_pins_is_not_judged() {
+    let src = format!("{DYNAMIC_PINS}\nmodule main {{\n    D(4) d1( pins{{9:9}} = GHOST )\n}}\n");
+    let (diags, _) = probe(&src, "/mcc/keys-pins-dynamic.mc");
+    assert_eq!(bind_hits(&diags).len(), 0, "got {diags:?}");
 }
