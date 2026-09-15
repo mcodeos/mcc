@@ -132,9 +132,7 @@ impl EvalError {
     /// The canonical message for this failure.
     pub fn message(&self) -> String {
         match self {
-            EvalError::DivideByZero => {
-                crate::errcodes::format_msg(self.code(), &[])
-            }
+            EvalError::DivideByZero => crate::errcodes::format_msg(self.code(), &[]),
             EvalError::OperandNotNumeric { op, lhs, rhs }
             | EvalError::Overflow { op, lhs, rhs } => {
                 crate::errcodes::format_msg(self.code(), &[op, lhs, rhs])
@@ -402,26 +400,14 @@ fn numeric_apply(
         (Num::Dim(q), Num::Float(f)) => dim_and_number(op, q, *f, true, lhs_value, rhs_value),
         (Num::Float(f), Num::Dim(q)) => dim_and_number(op, q, *f, false, lhs_value, rhs_value),
         (Num::Int(a), Num::Float(b)) => Ok(Value::Float(real_apply(
-            op,
-            *a as f64,
-            *b,
-            lhs_value,
-            rhs_value,
+            op, *a as f64, *b, lhs_value, rhs_value,
         )?)),
         (Num::Float(a), Num::Int(b)) => Ok(Value::Float(real_apply(
-            op,
-            *a,
-            *b as f64,
-            lhs_value,
-            rhs_value,
+            op, *a, *b as f64, lhs_value, rhs_value,
         )?)),
-        (Num::Float(a), Num::Float(b)) => Ok(Value::Float(real_apply(
-            op,
-            *a,
-            *b,
-            lhs_value,
-            rhs_value,
-        )?)),
+        (Num::Float(a), Num::Float(b)) => {
+            Ok(Value::Float(real_apply(op, *a, *b, lhs_value, rhs_value)?))
+        }
     }
 }
 
@@ -574,8 +560,7 @@ pub fn ordering(lhs: &Value, rhs: &Value) -> Result<Ordering, EvalError> {
             .ok_or_else(|| not_numeric("compare", lhs, rhs))?
     };
     // Non-ordered families (decibel, noise density) admit equality only.
-    if !matches!(ordering, Ordering::Equal)
-        && family.as_ref().is_some_and(|u| !family_ops(u).order)
+    if !matches!(ordering, Ordering::Equal) && family.as_ref().is_some_and(|u| !family_ops(u).order)
     {
         return Err(not_numeric("compare", lhs, rhs));
     }
@@ -590,7 +575,11 @@ pub fn satisfies(cmp: Compare, lhs: &Value, rhs: &Value) -> Result<bool, EvalErr
         if !cmp.is_equality() {
             return Err(not_numeric(cmp.symbol(), lhs, rhs));
         }
-        return Ok(if matches!(cmp, Compare::Eq) { a == b } else { a != b });
+        return Ok(if matches!(cmp, Compare::Eq) {
+            a == b
+        } else {
+            a != b
+        });
     }
     let ordering = ordering(lhs, rhs)?;
     // Ordering comparisons additionally require an ordered family.
@@ -730,10 +719,7 @@ mod tests {
         assert_eq!(v("0x36").number(), Some(54.0));
         assert_eq!(v("0X36").number(), Some(54.0));
         assert!(satisfies(Compare::Eq, &v("0x36"), &v("54")).unwrap());
-        assert_eq!(
-            apply(Op::Add, &v("0x01"), &v("0x01")).unwrap().text(),
-            "2"
-        );
+        assert_eq!(apply(Op::Add, &v("0x01"), &v("0x01")).unwrap().text(), "2");
     }
 
     #[test]

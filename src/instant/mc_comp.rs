@@ -446,9 +446,7 @@ impl McComponentInst {
             McExpression::Plus(l, r) => {
                 let left = self.resolve_expr_to_value(l)?;
                 let right = self.resolve_expr_to_value(r)?;
-                eval::apply(Op::Add, &left, &right)
-                    .ok()
-                    .map(|v| v.text())
+                eval::apply(Op::Add, &left, &right).ok().map(|v| v.text())
             }
             // Arithmetic: evaluated by the engine, then read back as a whole
             // number.

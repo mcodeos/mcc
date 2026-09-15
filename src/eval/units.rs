@@ -61,7 +61,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("KV", McUnit::Volt, 1e3),
     sfx("MV", McUnit::Volt, 1e6),
     sfx("GV", McUnit::Volt, 1e9),
-
     // Amp
     sfx("A", McUnit::Amp, 1.0),
     sfx("mA", McUnit::Amp, 1e-3),
@@ -75,7 +74,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("KA", McUnit::Amp, 1e3),
     sfx("MA", McUnit::Amp, 1e6),
     sfx("GA", McUnit::Amp, 1e9),
-
     // Cap
     sfx("F", McUnit::Cap, 1.0),
     sfx("mF", McUnit::Cap, 1e-3),
@@ -88,7 +86,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("KF", McUnit::Cap, 1e3),
     sfx("MF", McUnit::Cap, 1e6),
     sfx("GF", McUnit::Cap, 1e9),
-
     // Ind
     sfx("H", McUnit::Ind, 1.0),
     sfx("mH", McUnit::Ind, 1e-3),
@@ -101,7 +98,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("KH", McUnit::Ind, 1e3),
     sfx("MH", McUnit::Ind, 1e6),
     sfx("GH", McUnit::Ind, 1e9),
-
     // Time
     sfx("s", McUnit::Time, 1.0),
     sfx("ms", McUnit::Time, 1e-3),
@@ -118,7 +114,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("min", McUnit::Time, 60.0),
     sfx("h", McUnit::Time, 3600.0),
     sfx("hr", McUnit::Time, 3600.0),
-
     // Len
     sfx("m", McUnit::Len, 1.0),
     sfx("dm", McUnit::Len, 1e-1),
@@ -138,7 +133,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("mils", McUnit::Len, 25.4e-6),
     sfx("ft", McUnit::Len, 0.3048),
     sfx("yd", McUnit::Len, 0.9144),
-
     // Wat
     sfx("W", McUnit::Wat, 1.0),
     sfx("mW", McUnit::Wat, 1e-3),
@@ -162,7 +156,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("Wh", McUnit::Wat, 1.0),
     sfx("kWh", McUnit::Wat, 1e3),
     sfx("MWh", McUnit::Wat, 1e6),
-
     // Hz
     sfx("Hz", McUnit::Hz, 1.0),
     sfx("mHz", McUnit::Hz, 1e-3),
@@ -174,7 +167,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("MHz", McUnit::Hz, 1e6),
     sfx("GHz", McUnit::Hz, 1e9),
     sfx("THz", McUnit::Hz, 1e12),
-
     // Db (the legacy gain path keeps the value as-is: 3dB is 3.0, no scaling)
     sfx("dB", McUnit::Db, 1.0),
     sfx("dBm", McUnit::Db, 1.0),
@@ -188,19 +180,16 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("dBμV", McUnit::Db, 1.0),
     sfx("dBµV", McUnit::Db, 1.0),
     sfx("dBuV", McUnit::Db, 1.0),
-
     // Ppm
     sfx("ppm", McUnit::Ppm, 1.0),
     sfx("ppb", McUnit::Ppm, 1e-3),
     sfx("ppt", McUnit::Ppm, 1e-6),
     sfx("ppq", McUnit::Ppm, 1e-9),
-
     // Percent
     sfx("%", McUnit::Percent, 1.0),
     sfx("‰", McUnit::Percent, 1e-3),
     sfx("‱", McUnit::Percent, 1e-4),
     sfx("%RH", McUnit::Percent, 1.0),
-
     // Baud
     sfx("bps", McUnit::Baud, 1.0),
     sfx("Bps", McUnit::Baud, 8.0),
@@ -213,7 +202,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("Tbps", McUnit::Baud, 1e12),
     sfx("TBps", McUnit::Baud, 8e12),
     sfx("sym/s", McUnit::Baud, 1.0),
-
     // DataSize
     sfx("b", McUnit::DataSize, 0.125),
     sfx("bit", McUnit::DataSize, 0.125),
@@ -239,11 +227,26 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("GiB", McUnit::DataSize, 1024.0 * 1024.0 * 1024.0),
     sfx("Tib", McUnit::DataSize, 1024.0 * 1024.0 * 1024.0 * 1024.0),
     sfx("TiB", McUnit::DataSize, 1024.0 * 1024.0 * 1024.0 * 1024.0),
-    sfx("Pib", McUnit::DataSize, 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0),
-    sfx("PiB", McUnit::DataSize, 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0),
-    sfx("Eib", McUnit::DataSize, 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0),
-    sfx("EiB", McUnit::DataSize, 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0),
-
+    sfx(
+        "Pib",
+        McUnit::DataSize,
+        1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0,
+    ),
+    sfx(
+        "PiB",
+        McUnit::DataSize,
+        1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0,
+    ),
+    sfx(
+        "Eib",
+        McUnit::DataSize,
+        1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0,
+    ),
+    sfx(
+        "EiB",
+        McUnit::DataSize,
+        1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0,
+    ),
     // Sps
     sfx("SPS", McUnit::Sps, 1.0),
     sfx("kSPS", McUnit::Sps, 1e3),
@@ -258,7 +261,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("kSa/s", McUnit::Sps, 1e3),
     sfx("MSa/s", McUnit::Sps, 1e6),
     sfx("GSa/s", McUnit::Sps, 1e9),
-
     // Siemens
     sfx("S", McUnit::Siemens, 1.0),
     sfx("mS", McUnit::Siemens, 1e-3),
@@ -270,27 +272,22 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("kS", McUnit::Siemens, 1e3),
     sfx("MS", McUnit::Siemens, 1e6),
     sfx("GS", McUnit::Siemens, 1e9),
-
     // Energy
     sfx("J", McUnit::Energy, 1.0),
     sfx("mJ", McUnit::Energy, 1e-3),
     sfx("kJ", McUnit::Energy, 1e3),
-
     // Efield
     sfx("V/m", McUnit::Efield, 1.0),
     sfx("mV/m", McUnit::Efield, 1e-3),
-
     // Hfield
     sfx("A/m", McUnit::Hfield, 1.0),
     sfx("mA/m", McUnit::Hfield, 1e-3),
-
     // Flux
     sfx("Wb", McUnit::Flux, 1.0),
     sfx("mWb", McUnit::Flux, 1e-3),
     sfx("μWb", McUnit::Flux, 1e-6),
     sfx("µWb", McUnit::Flux, 1e-6),
     sfx("uWb", McUnit::Flux, 1e-6),
-
     // Bfield
     sfx("T", McUnit::Bfield, 1.0),
     sfx("mT", McUnit::Bfield, 1e-3),
@@ -298,7 +295,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("µT", McUnit::Bfield, 1e-6),
     sfx("uT", McUnit::Bfield, 1e-6),
     sfx("G", McUnit::Bfield, 1e-4),
-
     // Slew
     sfx("V/μs", McUnit::Slew, 1e6),
     sfx("V/µs", McUnit::Slew, 1e6),
@@ -306,7 +302,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("A/μs", McUnit::Slew, 1e6),
     sfx("A/µs", McUnit::Slew, 1e6),
     sfx("A/us", McUnit::Slew, 1e6),
-
     // Charge
     sfx("Ah", McUnit::Charge, 1.0),
     sfx("mAh", McUnit::Charge, 1e-3),
@@ -318,7 +313,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("kAh", McUnit::Charge, 1e3),
     sfx("MAh", McUnit::Charge, 1e6),
     sfx("GAh", McUnit::Charge, 1e9),
-
     // Temp (affine: normalizes to Celsius)
     sfx_off("℃", McUnit::Temp, 1.0, 0.0),
     sfx_off("°C", McUnit::Temp, 1.0, 0.0),
@@ -327,18 +321,19 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx_off("°F", McUnit::Temp, 5.0 / 9.0, -160.0 / 9.0),
     sfx_off("degF", McUnit::Temp, 5.0 / 9.0, -160.0 / 9.0),
     sfx_off("K", McUnit::Temp, 1.0, -273.15),
-
     // Angle (normalizes to radians)
     sfx("rad", McUnit::Angle, 1.0),
     sfx("deg", McUnit::Angle, std::f64::consts::PI / 180.0),
     sfx("°", McUnit::Angle, std::f64::consts::PI / 180.0),
-
     // AngularRate (normalizes to rad/s)
     sfx("rad/s", McUnit::AngularRate, 1.0),
     sfx("deg/s", McUnit::AngularRate, std::f64::consts::PI / 180.0),
-    sfx("rpm", McUnit::AngularRate, 2.0 * std::f64::consts::PI / 60.0),
+    sfx(
+        "rpm",
+        McUnit::AngularRate,
+        2.0 * std::f64::consts::PI / 60.0,
+    ),
     sfx("rps", McUnit::AngularRate, 2.0 * std::f64::consts::PI),
-
     // Ohm (symbol, R-code, and spelled forms; see mc_uval::resist_multiplier)
     sfx("R", McUnit::Ohm, 1.0),
     sfx("Ω", McUnit::Ohm, 1.0),
@@ -373,7 +368,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("GΩ", McUnit::Ohm, 1e9),
     sfx("Gohm", McUnit::Ohm, 1e9),
     sfx("GOhm", McUnit::Ohm, 1e9),
-
     // Responsivity (normalizes to A/W)
     sfx("A/W", McUnit::Responsivity, 1.0),
     sfx("mA/W", McUnit::Responsivity, 1e-3),
@@ -382,7 +376,6 @@ pub static UNIT_SUFFIXES: &[UnitSuffix] = &[
     sfx("uA/W", McUnit::Responsivity, 1e-6),
     sfx("nA/W", McUnit::Responsivity, 1e-9),
     sfx("kA/W", McUnit::Responsivity, 1e3),
-
     // Noise density: the lexer's forms (lex.re UV_NOISE / UV_NOISE_BARE). The
     // AST path accepts any suffix for this family, so these rows only serve the
     // text path (round-tripping Display's "nV/√Hz").
@@ -510,8 +503,9 @@ mod tests {
         // Every symbol `McUnit`'s Display can emit must be re-readable, or a
         // normalized value could not survive a trip through text.
         for text in [
-            "V", "A", "F", "H", "s", "m", "W", "Ω", "°C", "Hz", "dB", "ppm", "%", "bps", "B", "SPS",
-            "S", "A/W", "rad", "rad/s", "J", "V/m", "A/m", "Wb", "T", "V/μs", "nV/√Hz", "Ah",
+            "V", "A", "F", "H", "s", "m", "W", "Ω", "°C", "Hz", "dB", "ppm", "%", "bps", "B",
+            "SPS", "S", "A/W", "rad", "rad/s", "J", "V/m", "A/m", "Wb", "T", "V/μs", "nV/√Hz",
+            "Ah",
         ] {
             assert!(
                 any_family(text).is_some(),

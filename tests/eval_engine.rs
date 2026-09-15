@@ -285,8 +285,8 @@ module main
 "#;
     let uri: McURI = "/mcc/eval-noparam-cond.mc".to_string();
     mcc::mcc_load_from_string(&uri, source);
-    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &uri)
-        .expect("build failed");
+    let (_, _, _, net_store) =
+        mcc::mcc_build_with_nets(&McIds::from("main"), &uri).expect("build failed");
 
     // A dropped block leaves the connection pointing at a pin the instance
     // never got, and the only sign is the downstream warning. The net path
