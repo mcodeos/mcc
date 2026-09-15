@@ -1758,6 +1758,7 @@ mod tests {
                 description: "Base".into(),
                 io: IoDirection::Bidir,
                 port_dir: PortDir::None,
+                src_span: None,
             },
             BoxPin {
                 id: 2,
@@ -1765,6 +1766,7 @@ mod tests {
                 description: "Collector".into(),
                 io: IoDirection::Bidir,
                 port_dir: PortDir::None,
+                src_span: None,
             },
             BoxPin {
                 id: 3,
@@ -1772,6 +1774,7 @@ mod tests {
                 description: "Emmiter".into(),
                 io: IoDirection::Bidir,
                 port_dir: PortDir::None,
+                src_span: None,
             },
             BoxPin {
                 id: 4,
@@ -1779,6 +1782,7 @@ mod tests {
                 description: String::new(),
                 io: IoDirection::Unknown,
                 port_dir: PortDir::None,
+                src_span: None,
             },
         ]);
         b.set_layout_hint(PinLayout {
@@ -1846,6 +1850,7 @@ mod tests {
                     description: format!("S{i}"),
                     io: IoDirection::Unknown,
                     port_dir: PortDir::None,
+                    src_span: None,
                 })
                 .collect(),
         );

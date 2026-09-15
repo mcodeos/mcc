@@ -244,11 +244,22 @@ pub fn render_pin_named(
         _ => String::new(),
     };
 
+    // G16: the pin's own source position (when the physical pin exists and carries
+    // one) travels as attributes for draw→code jumps.
+    let src_attrs = match pin.and_then(|p| p.src_span.as_ref()) {
+        Some(sp) => format!(
+            r##" data-src-uri="{}" data-src-offset="{}""##,
+            escape_xml(&sp.uri),
+            sp.offset
+        ),
+        None => String::new(),
+    };
+
     format!(
-        r##"    <g class="pin" data-pin-id="{}">{}{}{}{}
+        r##"    <g class="pin" data-pin-id="{}"{}>{}{}{}{}
     </g>
 "##,
-        ep.pin_id, marker, number_svg, name_svg, io_svg
+        ep.pin_id, src_attrs, marker, number_svg, name_svg, io_svg
     )
 }
 

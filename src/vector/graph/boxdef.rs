@@ -155,6 +155,9 @@ pub struct BoxPin {
     pub io: IoDirection,
     /// ★ M0-2: module port direction (in/out/io/psrc/psnk/psbi); non-ports are PortDir::None
     pub port_dir: PortDir,
+    /// ★ G16: source position of this pin in the .mc source (None for
+    /// placeholder / synthesized pins).
+    pub src_span: Option<crate::semantic::common::SourcePos>,
 }
 
 // ★ M0-3: PinConstraint — pin placement constraint level

@@ -2390,6 +2390,7 @@ pub(crate) mod fixture {
                 description: (*desc).into(),
                 io: *io,
                 port_dir: PortDir::None,
+                src_span: None,
             });
         }
         b

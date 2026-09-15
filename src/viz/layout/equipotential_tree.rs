@@ -7191,6 +7191,7 @@ mod tests {
                 description: String::new(),
                 io: IoDirection::Unknown,
                 port_dir: PortDir::None,
+                src_span: None,
             });
         }
         b
@@ -7217,6 +7218,7 @@ mod tests {
                 description: String::new(),
                 io: IoDirection::Unknown,
                 port_dir: PortDir::None,
+                src_span: None,
             });
         }
         b

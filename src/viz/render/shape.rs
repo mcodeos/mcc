@@ -54,6 +54,25 @@ pub trait BoxShape {
 /// When `is_root` is true, sub-module boxes use root layer block-diagram styling
 /// (solid lines, centered name, no + corner).
 pub fn render_box(b: &McVecBox, is_root: bool) -> String {
+    let inner = render_box_inner(b, is_root);
+    // G16: source position travels on the rendered box so the viewer can jump
+    // from the drawing back to the declaring line.
+    if let Some(sp) = &b.source_span {
+        format!(
+            r##"  <g data-src-uri="{}" data-src-offset="{}">{}
+  </g>
+"##,
+            escape_xml_attr(&sp.uri),
+            sp.offset,
+            inner
+        )
+    } else {
+        inner
+    }
+}
+
+/// Body of [`render_box`]; separate so the source-position wrapper stays in one place.
+fn render_box_inner(b: &McVecBox, is_root: bool) -> String {
     // ★ The manifest's custom symbol is the author's own drawing of the part, so it
     // wins in **every** layer — block diagram and device schematic alike. A part then
     // looks the same whether it is opened on its own or expanded inside its project;

@@ -585,6 +585,7 @@ mod tests {
             description: name.into(),
             io,
             port_dir: PortDir::None,
+            src_span: None,
         });
     }
 
