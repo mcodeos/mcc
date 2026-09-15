@@ -496,6 +496,14 @@ fn render_layer_recursive(
 
     super::route::wire_hops::apply_wire_hops(&mut graph);
 
+    // ── ★ P1-c: decide the block edges once, here, after layout ──
+    // The root block diagram used to re-run `decide_edges` inside
+    // `render_block_edges`; the projection is prep work now, carried on the
+    // graph so the renderer is a pure consumer.
+    if graph.layer_style == crate::vector::graph::LayerStyle::Block {
+        graph.block_edges = crate::viz::layout::edge_decide::decide_edges(&graph).0;
+    }
+
     // ── Phase 3: render ──
     let svg = renderer.render(&graph, canvas, viewbox_origin);
     crate::vlog!(
