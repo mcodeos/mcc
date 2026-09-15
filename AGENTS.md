@@ -165,3 +165,24 @@ every change. After each change run only the targeted tests that cover the
 modified area (for example `cargo test --lib`, a specific `--test` target, or
 a single named test), and verify the build compiles. The full regression suite
 is launched manually by the user (`cargo test` / `cargo test --no-fail-fast`).
+
+## Rule: build in a private slot, not the shared target dir
+
+Several sessions work in this checkout at once (agent sessions, and
+rust-analyzer's `cargo check`). Cargo holds `<target-dir>/<profile>/.cargo-lock`
+for the whole of a build, so sessions sharing one target dir queue behind each
+other — one editor check can block a build for minutes.
+
+Start a session with:
+
+    eval "$(scripts/mcc-slot.sh)"
+
+That pins the session to an idle slot and exports `CARGO_TARGET_DIR`, `MCC_BIN`
+and `MCC_SLOT`. Slot `a` is `target/`; slot `b` is `target/b/`. The pin is per
+session and survives the fresh shell each command runs in, so later commands
+reuse the same slot and the same binary without re-picking. Run the session's
+binary as `"$MCC_BIN"`; a `mcc` symlink to `scripts/mcc-slot.sh` resolves the
+slot for you. `MCC_SLOT=a|b` forces one command without moving the pin.
+
+Never run `cargo clean`: slot `a` *is* `target/`, so a plain clean also deletes
+slot `b` and the pins in `target/.slots`. Delete `target/debug` instead.
