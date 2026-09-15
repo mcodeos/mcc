@@ -849,58 +849,23 @@ impl InstantiationBuilder {
     }
 
     // ── M11.2: determine lane count for a chain member ──
-    // Lane-wiring only (the `num_lanes` loop in `vexpr_lane_chain`):
-    // how many independent parallel lanes a member spans. NOT a §5 port-width
-    // source — width legality now goes through the unified
-    // `get_left_points`/`get_right_points` → `Shape::vvec` → `check_series_rows`
-    // chain (vec-arch.md stage D). A bare port label here is `1` lane, which is
-    // correct for lane wiring even when the port declares multiple members.
-    pub(super) fn member_lane_width(&self, member: &McPhrase) -> usize {
-        match member {
-            McPhrase::Multiple(inner) => inner.len(),
-            McPhrase::Parallel(stmts) => stmts
-                .iter()
-                .map(|l| self.member_lane_width(l))
-                .max()
-                .unwrap_or(1),
-            McPhrase::Transposed(_) => {
-                // Transposed 2-pin components expose each pin as a lane
-                2
-            }
-            // `^` is a view of the same expression, so it presents exactly
-            // the lanes its operand does.
-            McPhrase::Reversed(inner) => self.member_lane_width(inner),
-            // ── M11.5: handle Bus with multiple members as multi-lane ──
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Bus(ref bus),
-                ..
-            })) if !bus.member.is_empty() => bus.member.len(),
-            // ── model A §5.3 whole-DC-pair curly face ──
-            // A Node (`ldo{VIN | VOUT}`) spans its input face's [hot, ret]
-            // lanes (collect_one_lane_item mirrors this), so a lane chain
-            // containing one is sized by the face width, not 1.
-            McPhrase::Endpoint(McEndpoint::Node { input, .. }) => Self::node_face_lanes(input),
-            _ => 1,
-        }
-    }
-
-    /// Number of lane slots a curly-face Node exposes on one side. A face is a
-    /// list of bus refs; a whole-DC-pair face (`bk{VIN | VOUT}`) is usually ONE
-    /// ref whose Bus carries the port's members (`Bus(bk{VIN.Vin, VIN.GND})`),
-    /// so the count is the sum of each ref's bus-member count — matching the
-    /// points `get_left_points`/`get_right_points` resolve for the face.
-    fn node_face_lanes(face: &[McEndpoint]) -> usize {
-        let mut n = 0usize;
-        for f in face {
-            match f {
-                McEndpoint::Single(McInstanceRef {
-                    base: McInstance::Bus(ref bus),
-                    ..
-                }) if !bus.member.is_empty() => n += bus.member.len(),
-                _ => n += 1,
-            }
-        }
-        n.max(1)
+    // Lane-wiring only (the `num_lanes` loop in `vexpr_lane_chain`): how many
+    // independent parallel lanes a member spans. NOT a §5 port-width source —
+    // width legality goes through the unified `get_left_points` /
+    // `get_right_points` → `Shape::vvec` → `check_series_rows` chain
+    // (vec-arch.md stage D).
+    //
+    // The count is taken from **that same expansion**, never from a second
+    // hand-maintained walk of the AST. A private walk drifts: the former one
+    // answered `1` for an interface-suffixed ghost label (`VMIC::DC()`), `1`
+    // for a selection the parser left as a bare base (`usb{vin}`) and `2` for
+    // any `Transposed` — all three disagree with the points the wiring
+    // actually resolves, and each was masked only because some other member of
+    // the same chain happened to be at least as wide.
+    pub(super) fn member_lane_width(&mut self, member: &McPhrase) -> usize {
+        let left = self.get_left_points(member).map_or(0, |v| v.len());
+        let right = self.get_right_points(member).map_or(0, |v| v.len());
+        left.max(right)
     }
 
     /// Pick the lane-specific point from a list of points.
@@ -926,11 +891,13 @@ impl InstantiationBuilder {
     pub(super) fn collect_lane_items<'a>(
         &mut self,
         members: &'a [McPhrase],
+        widths: &[usize],
         lane: usize,
     ) -> Vec<(usize, LaneItem<'a>)> {
         let mut items: Vec<(usize, LaneItem<'a>)> = Vec::new();
         for (member_idx, member) in members.iter().enumerate() {
-            self.collect_one_lane_item(member, member_idx, lane, &mut items);
+            let width = widths.get(member_idx).copied().unwrap_or(1);
+            self.collect_one_lane_item(member, member_idx, width, lane, &mut items);
         }
         items
     }
@@ -939,6 +906,7 @@ impl InstantiationBuilder {
         &mut self,
         member: &'a McPhrase,
         member_idx: usize,
+        width: usize,
         lane: usize,
         items: &mut Vec<(usize, LaneItem<'a>)>,
     ) {
@@ -992,37 +960,15 @@ impl InstantiationBuilder {
                 }
                 self.try_record_bridge_passive(inner);
             }
-            // whole-DC-pair curly face (model A §5.3)
-            // `ldo{VIN | VOUT}` / `buck{VIN | LX}` expands to a Node whose
-            // input/output faces are the port's [hot, ret] member refs,
-            // spanning `node_face_lanes` lanes. The default arm below would
-            // place it on lane 0 only, so a lane-series right side
-            // (`- [IND(2.2uH), _] ->`, golden main.mc buck12) wired the hot
-            // lane but silently dropped the return member — the device's GND
-            // pin never reached the return net (4116, zero explicit error).
-            // A Node must appear on every lane of its face: per-lane left /
-            // right points are the input / output face members in order
-            // (get_left_points / get_right_points → resolve_curly_mn_points),
-            // so the shared return participates on the return lane.
-            McPhrase::Endpoint(McEndpoint::Node { input, .. }) => {
-                if lane < Self::node_face_lanes(input) {
-                    items.push((member_idx, LaneItem::Series(member)));
-                }
-            }
-            // ── P2-7: bus endpoint (e.g. XTAL interface with 2 pins) ──
-            // Treat as multi-lane series element: each lane gets its own pin.
-            // The lane-specific pin is picked in vexpr_lane_chain via
-            // pick_lane_point.
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Bus(ref bus),
-                ..
-            })) if !bus.member.is_empty() => {
-                if lane < bus.member.len() {
-                    items.push((member_idx, LaneItem::Series(member)));
-                }
-            }
+            // Every other member — a whole-DC-pair curly face (model A §5.3),
+            // a multi-pin bus endpoint (P2-7), or a plain scalar — occupies
+            // exactly the lanes its own points span, which `width` already
+            // holds. Counting a member separately from that width lets the two
+            // disagree (a Node sized by its input face while the loop took the
+            // max of both faces; a parser selection left as a bare base
+            // counting 1). One member, one width.
             _ => {
-                if lane == 0 {
+                if lane == 0 && width > 0 {
                     items.push((member_idx, LaneItem::Series(member)));
                 }
             }
