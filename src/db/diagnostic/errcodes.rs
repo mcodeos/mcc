@@ -716,6 +716,11 @@ pub const PHRASE_AST_TYPE_UNEXPECTED: u32 = 4009;
 /// Member not found in the interface.
 pub const PHRASE_IFACE_MEMBER_NOT_FOUND: u32 = 4022;
 
+/// An iotype-prefixed port row carries a connection phrase. The row is read as a
+/// port declaration, so nothing about the connection is registered; without this
+/// check the whole statement is dropped in silence.
+pub const PORT_ROW_WITH_CONNECTION: u32 = 4023;
+
 // Pass2: netlist heuristics (D-series / layout) (4050-4099)
 
 /// A box has a placeholder pin not mapped to any real component pin.
@@ -1785,6 +1790,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CONN_OPERATOR_UNSUPPORTED, "The operator is not supported in connection statements; use '+' for parallel, '-' / '->' for series.", "Operator '{1}' is not supported in connection statements; use '+' for parallel, '-' / '->' for series"),
     entry!(PHRASE_AST_TYPE_UNEXPECTED, "Unexpected AST node type in a phrase.", "Unexpected AST node type {1} in McPhrase::new"),
     entry!(PHRASE_IFACE_MEMBER_NOT_FOUND, "Member not found in the interface.", "Member '{0}' not found in interface"),
+    entry!(PORT_ROW_WITH_CONNECTION, "An iotype-prefixed port row carries a connection.", "port row carries a connection ('{0}'); a port row only declares ports — write the connection on a line of its own"),
     // section
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),

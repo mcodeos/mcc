@@ -780,7 +780,28 @@ impl McInstances {
                                     self.parse_opd_square_vec(&child, iotype_ref.clone());
                                     self.store_port_span(&port_key, span);
                                 }
-                                _ => {}
+                                // Trailing identity words (`io MIC{P,N} @class(analog)`,
+                                // `out … @bind_role(earth)`): re-captured by
+                                // `parse_port` / `parse_port_pwr`, nothing to do here.
+                                MCAST_ATTRIBUTE => {}
+                                // Every remaining shape is a connection phrase — the row
+                                // is read as a port declaration, so the phrase would
+                                // register nothing and the statement would vanish without
+                                // a word (`nc N1 -> d1.A`, `in N1 -> d1.A` measured
+                                // 2026-09-15: 0 connections, 0 diagnostics, `N1` never
+                                // entering the symbol table). The grammar accepts these
+                                // rows, so the silence was a missing consumer, not a
+                                // missing production — report it here instead.
+                                _ => {
+                                    dlog_error(
+                                        crate::errcodes::PORT_ROW_WITH_CONNECTION,
+                                        &child,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::PORT_ROW_WITH_CONNECTION,
+                                            &[&child.to_string().unwrap_or_default()],
+                                        ),
+                                    );
+                                }
                             }
                         }
                         return;
