@@ -182,8 +182,8 @@ fn p25__bus_form_expands_without_diagnostics() {
     );
 }
 
-/// A whole-value bus actual (`Cap(BUS)`, not inside a Set) is the §11.6
-/// vector fill, not lane expansion — one component, not N.
+/// A whole-value bus actual (`Cap(BUS)`, no sibling actual) is the
+/// whole-value fill, not lane expansion — one component, not N.
 #[test]
 fn p25__whole_value_bus_actual_is_not_lane_expanded() {
     let parts = partition_of(
@@ -195,6 +195,45 @@ fn p25__whole_value_bus_actual_is_not_lane_expanded() {
         1,
         "a whole-value bus actual fills the call once, it does not lane-expand; \
          partition={parts:?}"
+    );
+}
+
+/// The **Set** face of the same whole-value rule: a bus alone in the Set
+/// (`Pullup([SPI])`, no sibling actual) fills the indexed formal once — the
+/// bus's lanes take the member slots positionally — instead of lane-expanding.
+/// This is the `Cap([BUS])` case, and it must land the partition of the
+/// handwritten two-slot form `Pullup([SPI.SCLK, SPI.MOSI])`.
+#[test]
+fn p25__set_form_whole_value_bus_actual_is_not_lane_expanded() {
+    let whole = partition_of(
+        &src_of("        RES(10).Pullup([SPI])"),
+        "/mcc/vec-p25-whole-set.mc",
+    );
+    let handwritten = partition_of(
+        &src_of("        RES(10).Pullup([SPI.SCLK, SPI.MOSI])"),
+        "/mcc/vec-p25-whole-set-hand.mc",
+    );
+
+    // Anti-false-green: one component, both lanes landed, and on *different*
+    // nets — the positional fill, not a share-into-one-net degenerate.
+    assert_eq!(
+        instance_names(&whole).len(),
+        1,
+        "a whole-value bus actual inside a Set fills the call once, it does not \
+         lane-expand; partition={whole:?}"
+    );
+    let sclk = net_holding(&whole, "SPI.SCLK")
+        .unwrap_or_else(|| panic!("SCLK lane must land on a net; partition={whole:?}"));
+    let mosi = net_holding(&whole, "SPI.MOSI")
+        .unwrap_or_else(|| panic!("MOSI lane must land on a net; partition={whole:?}"));
+    assert_ne!(
+        sclk, mosi,
+        "the two lanes must fill the two member slots separately; partition={whole:?}"
+    );
+
+    assert_eq!(
+        whole, handwritten,
+        "the whole-value Set form must land the handwritten two-slot partition"
     );
 }
 
