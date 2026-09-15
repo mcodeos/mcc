@@ -817,12 +817,10 @@ impl McPins {
         // H3: Track pin range spans
         let pin_span = (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
 
+        // Only the grammar's empty-list arms build a childless pins node, and
+        // they report the emptiness themselves; repeating it here would
+        // duplicate the same fact at a worse position.
         let Some(plinenodes) = node.get_sub_node() else {
-            dlog_error(
-                crate::errcodes::PINS_MISSING_SUBNODE,
-                node,
-                &crate::errcodes::format_msg(crate::errcodes::PINS_MISSING_SUBNODE, &[]),
-            );
             return;
         };
 

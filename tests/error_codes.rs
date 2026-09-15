@@ -13,7 +13,7 @@
 //!    build runs over representative snippets are all registered (no hardcoded
 //!    stray codes reaching the output).
 //! 4. `def_ercode__parser_{errors,warnings}_reachable` — the C grammar's reachable
-//!    PARSER codes (2081/2082/2083 + 2111/2112/2115/2116) each have a positive
+//!    PARSER codes (2081/2082/2083/2116 + 2111/2112/2115) each have a positive
 //!    fixture asserting the dedicated code fires (reorg-doc §9.3 G3). 2086 is
 //!    structurally unreachable (its `mc_phrase`-root guard never sees a literal
 //!    leaf) and so is deliberately not asserted here.
@@ -516,7 +516,8 @@ fn def_ercode__undeclared_bus_member_reference_fires_e3181() {
 /// Reorg-doc §9.3 G3: the C grammar's reachable PARSER *error* codes each need
 /// a positive fixture. The recovery arms in mca.y surface a dedicated code per
 /// construct: `mc_top` error → 2081, `mc_clause` error → 2082, `mc_pins_line`
-/// error → 2083. (2086 NET_NOT_PORT is *not* reachable: it guards the bare
+/// error → 2083, and the empty-list arms of `mc_attribute_pin` → 2116.
+/// (2086 NET_NOT_PORT is *not* reachable: it guards the bare
 /// `mc_phrase` net arm for a root of literal type, but every `mc_phrase`
 /// production wraps into an operator/list/declare node — there is no bare-leaf
 /// alias — so its guard never fires. Same class as the 2113/2114 literal-LHS
@@ -546,6 +547,12 @@ fn def_ercode__parser_errors_reachable() {
             "component C { pins = [ 1 ] }\nmodule main { io VDD }",
             mcc::errcodes::PARSER_PIN_INVALID,
         ),
+        // mc_attribute_pin empty-list arm: an empty pin list is an error.
+        (
+            "empty-pins",
+            "component C { pins = [ ] }\nmodule main { io VDD }",
+            mcc::errcodes::PARSER_EMPTY_PINS,
+        ),
     ];
     for (name, src, want) in cases {
         common::reset();
@@ -561,9 +568,9 @@ fn def_ercode__parser_errors_reachable() {
 }
 
 /// Reorg-doc §9.3 G3: the reachable PARSER *warning* codes each need a positive
-/// fixture. 2115/2116 guard empty bodies / empty pin lists; 2111/2112 warn when
-/// a single `|` / `±` is used as a binary operator outside its pin / tolerance
-/// context (here inside a legal component `if/else` cond_attr).
+/// fixture. 2115 guards empty bodies; 2111/2112 warn when a single `|` / `±` is
+/// used as a binary operator outside its pin / tolerance context (here inside a
+/// legal component `if/else` cond_attr).
 #[test]
 fn def_ercode__parser_warnings_reachable() {
     let _lock = common::lock();
@@ -576,12 +583,6 @@ fn def_ercode__parser_warnings_reachable() {
             "empty-body",
             "module main { }",
             mcc::errcodes::PARSER_EMPTY_BODY,
-        ),
-        // Empty pins list.
-        (
-            "empty-pins",
-            "component C { pins = [ ] }\nmodule main { io VDD }",
-            mcc::errcodes::PARSER_EMPTY_PINS,
         ),
         // Single `|` used as a cond operator outside a pin context.
         ("single-or", cond_attr, mcc::errcodes::PARSER_SINGLE_OR),
