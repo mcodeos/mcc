@@ -4842,16 +4842,35 @@ fn eval_port_elems(phrase: &McPhrase, right: bool, context: &mut dyn HasFindInst
                 }
             }
         }
-        // A Parallel exposes the port of its first operand (mirroring
-        // get_left/get_right and the Pass2 anchoring on opds[0]); recurse for a
-        // transposed first operand.
-        McPhrase::Parallel(opds) => match opds.first() {
-            Some(first) => eval_port_elems(first, right, context),
-            None => {
-                // empty parallel: degenerate, emit the same sentinel as before.
-                vec![McBus::new("<error:empty_parallel>")]
+        // `+` consumes no port, so a Parallel exposes the §5.1 **result** row's
+        // faces, not `opds[0]`'s: while the accumulator is degenerate (both of
+        // its faces the same list) a non-degenerate operand's own right face is
+        // the free port, and it belongs to that operand
+        // (`l0-operand-fold-design.md` §1.6). The symbol-level
+        // `get_left`/`get_right` keep their `opds[0]` external-face contract.
+        McPhrase::Parallel(opds) => {
+            let Some((first, rest)) = opds.split_first() else {
+                // empty parallel: nothing to read a port from; sentinel.
+                return vec![McBus::new("<error:empty_parallel>")];
+            };
+            let acc_left = eval_port_elems(first, false, context);
+            if !right {
+                return acc_left;
             }
-        },
+            let mut acc_right = eval_port_elems(first, true, context);
+            for opd in rest {
+                let opd_left = eval_port_elems(opd, false, context);
+                let opd_right = eval_port_elems(opd, true, context);
+                // Degenerate = the two faces are the same non-empty list; an
+                // all-empty (`Unknown`) side is a wildcard, not a face.
+                let acc_degenerate = !acc_left.is_empty() && acc_left == acc_right;
+                let opd_degenerate = !opd_left.is_empty() && opd_left == opd_right;
+                if acc_degenerate && !opd_degenerate {
+                    acc_right = opd_right;
+                }
+            }
+            acc_right
+        }
         // A multi-member Interface (e.g. a 2-pin XTAL::XTAL port, or
         // PDM[CLK, DATA] / {VDD, GND}) presents its full member count, not the
         // 1*1 shorthand that get_left/get_right return for `McInstance::Interface`
