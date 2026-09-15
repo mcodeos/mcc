@@ -51,20 +51,6 @@ pub(crate) const POWER_PIN_NAMES: &[&str] = &[
 /// ground pins has no supply rail to document, so HW1 does not flag it.
 const GROUND_PIN_NAMES: &[&str] = &["GND", "GNDA", "VSS", "VSSA"];
 
-const VOLTAGE_ATTR_KEYS: &[&str] = &[
-    "voltage",
-    "volt",
-    "vcc",
-    "vdd",
-    "vss",
-    "power",
-    "supply",
-    "operating_voltage",
-    "input_voltage",
-    "output_voltage",
-    "vrange",
-];
-
 fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
     let comps = crate::definition_space().workspace_components();
     for (sn, comp) in comps.iter() {
@@ -118,13 +104,13 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
         // Check if component has voltage-related attributes
         let has_voltage_attr = comp.attrs.iter().any(|a| {
             let key = a.id.to_string().to_lowercase();
-            VOLTAGE_ATTR_KEYS.iter().any(|vk| key.contains(vk))
+            crate::semantic::basic::attr_keys::is_voltage_key(&key)
         });
 
         // Check if component has voltage-related params (e.g., volt::UV.VOLT)
         let has_voltage_param = comp.params.iter().any(|d| {
             let pname = d.get_primary_name().unwrap_or_default().to_lowercase();
-            pname.contains("volt") || pname.contains("vcc") || pname.contains("vdd")
+            crate::semantic::basic::attr_keys::is_voltage_key(&pname)
         });
 
         // Check if any interface binding provides voltage info (e.g. ::DC(3.3V)).
@@ -173,7 +159,7 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
                     pin.values.iter().any(|v| {
                         if let crate::semantic::component::mc_attr::McAttrVal::KVS(kvs) = v {
                             let key = kvs.key.to_string().to_lowercase();
-                            key.contains("volt") || key.contains("vcc") || key.contains("vdd")
+                            crate::semantic::basic::attr_keys::is_voltage_key(&key)
                         } else {
                             false
                         }

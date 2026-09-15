@@ -34,6 +34,9 @@ pub(crate) enum AttrKeyClass {
     Reserved,
     /// Nominal electrical values — the value-parameter table (`spec`).
     Nominal,
+    /// A supply voltage (HW1): the key documents the voltage of the thing it
+    /// is written on.
+    Voltage,
 }
 
 /// One row of the dictionary: a first-level key and its two columns.
@@ -43,12 +46,22 @@ pub(crate) struct AttrKeyDef {
     pub(crate) general: bool,
     /// Semantic class of the values stored under the key (D5).
     ///
-    /// No reader yet: the D5 consumer (value semantics, and the `spec` value
-    /// table behind `spec_key_to_unit`) lands with the `spec/07-attrs.md` key
-    /// ledger. The column is filled now so that landing adds a reader rather
-    /// than a second table.
-    #[allow(dead_code)]
+    /// The voltage rows below are its only reader today ([`is_voltage_key`]);
+    /// the D5 consumer (value semantics, and the `spec` value table behind
+    /// `spec_key_to_unit`) lands with the `spec/07-attrs.md` key ledger. The
+    /// column is filled now so that landing adds a reader rather than a second
+    /// table.
     pub(crate) class: AttrKeyClass,
+}
+
+/// Does `key` name a supply voltage? (HW1)
+///
+/// The three former substring tests (`contains("volt")`, `contains("vcc")`,
+/// `contains("vdd")`) asked the same question with three different word sets;
+/// they now share this one row set. `key` is matched exactly; callers fold
+/// case first, as the substring tests did.
+pub(crate) fn is_voltage_key(key: &str) -> bool {
+    matches!(lookup(key), Some(d) if d.class == AttrKeyClass::Voltage)
 }
 
 /// The dictionary. Rows are added when a consumer needs them; a key with no
@@ -74,6 +87,18 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     // Recognized first-level attribute keys. `spec` is the nominal value
     // table (`spec.Vout = vout`, `spec = [resistance = rs]`).
     row("spec", true, AttrKeyClass::Nominal),
+    // Voltage words (HW1).
+    row("voltage", true, AttrKeyClass::Voltage),
+    row("volt", true, AttrKeyClass::Voltage),
+    row("vcc", true, AttrKeyClass::Voltage),
+    row("vdd", true, AttrKeyClass::Voltage),
+    row("vss", true, AttrKeyClass::Voltage),
+    row("power", true, AttrKeyClass::Voltage),
+    row("supply", true, AttrKeyClass::Voltage),
+    row("operating_voltage", true, AttrKeyClass::Voltage),
+    row("input_voltage", true, AttrKeyClass::Voltage),
+    row("output_voltage", true, AttrKeyClass::Voltage),
+    row("vrange", true, AttrKeyClass::Voltage),
 ];
 
 const fn row(key: &'static str, general: bool, class: AttrKeyClass) -> AttrKeyDef {
