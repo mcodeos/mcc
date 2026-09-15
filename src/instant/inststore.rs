@@ -57,6 +57,16 @@ impl InstanceStore {
         self.instances.get(&id)
     }
 
+    /// Remove the instance content at `id`, returning it when present.
+    ///
+    /// A retracted instance is one that never enters the netlist
+    /// (`mcrule.md` §11.6, "an error blocks the build"): the builder drops the content
+    /// here and the structural [`NodeArena`] edge in the same step, so no
+    /// read path (netlist, BOM, ERC, viz) can resolve it afterwards.
+    pub(crate) fn remove(&mut self, id: NodeId) -> Option<NodeInstance> {
+        self.instances.remove(&id)
+    }
+
     /// The module instance content at `id`, if the node is a module
     /// (Phase C S3-C: derefs the stored `Rc` — callers holding a plain
     /// [`&InstanceStore`] get a reference as long as the store borrow).

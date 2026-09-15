@@ -762,7 +762,9 @@ impl InstantiationBuilder {
         };
         // Vector-formal width rules at the boundary (matching-rules-design.md
         // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
-        bindings = self.align_vector_bindings(&bindings, None);
+        // A user func builds no component of its own, so the unpairable
+        // signal has no receiver to retract here (U51 covers instances).
+        bindings = self.align_vector_bindings(&bindings, None).0;
 
         // 2. Expand function body stmts with parameter substitution.
         // The func scope is pushed for the whole expansion so nested calls
@@ -907,11 +909,26 @@ impl InstantiationBuilder {
     /// context (component constructor invoked from a declaration — no func/stmt
     /// span); call sites inside statements pass `None` and the func/stmt span
     /// fallback places the diagnostic.
+    ///
+    /// Returns the aligned bindings plus whether some binding's actual is
+    /// **unpairable**: the elements the member pairing consumes cannot each
+    /// hand exactly one lane to their slot — an element spans several lanes
+    /// (`[SPI{A,B}, GND]` against `[net1, net2]` — a bad endpoint) or there
+    /// are fewer elements than members (a required formal left unfilled).
+    /// Values decide, never
+    /// names. Such a component cannot be bound — the caller neither expands
+    /// its body nor keeps it (`mcrule.md` §11.6, U51).
+    ///
+    /// A pure **surplus of single-lane elements** is not unpairable: the
+    /// extra tail leaves drop and the members still pair positionally
+    /// (`Cap([SPI, GND, VDD])` reports E4180 and builds its 2 components,
+    /// `param-prefix-design.md` §3.2, conclusion 1).
     pub(super) fn align_vector_bindings(
         &mut self,
         bindings: &McParamBindings,
         anchor: Option<crate::semantic::common::SourcePos>,
-    ) -> McParamBindings {
+    ) -> (McParamBindings, bool) {
+        let mut unpairable = false;
         let mut out: Vec<McParamBinding> = Vec::with_capacity(bindings.len());
         for b in bindings.iter() {
             let members = b.declare.expand();
@@ -923,10 +940,28 @@ impl InstantiationBuilder {
                 out.push(b.clone());
                 continue;
             };
-            let elems = Self::param_value_to_node_elements(value);
+            // `elems` / `lanes` are the flat leaf view the diagnostic counts
+            // (`provides N`). `spans` keeps the same leaves grouped by the
+            // element they came from, because that grouping — not the flat
+            // list — is what the member pairing consumes: an argument table's
+            // members are separate elements, a curly selection's members are
+            // one element's lanes. The Mismatch arm below reads `spans`.
+            let top: Vec<&McParamValue> = match value {
+                McParamValue::Set(values) => values.iter().collect(),
+                other => vec![other],
+            };
+            let mut elems: Vec<McBus> = Vec::new();
             let mut lanes: Vec<NetPoint> = Vec::new();
-            for e in &elems {
-                lanes.extend(self.expand_node_element(e));
+            let mut spans: Vec<usize> = Vec::with_capacity(top.len());
+            for t in &top {
+                let mut span = 0usize;
+                for e in Self::param_value_to_node_elements(t) {
+                    let ls = self.expand_node_element(&e);
+                    span += ls.len();
+                    elems.push(e);
+                    lanes.extend(ls);
+                }
+                spans.push(span);
             }
             // A passthrough variable (an enclosing-scope formal whose shape is
             // decided at an outer call site) has an undecided shape: upgrade
@@ -969,11 +1004,35 @@ impl InstantiationBuilder {
                         ),
                         None => self.record_error(crate::errcodes::VECTOR_WIDTH_MISMATCH, message),
                     }
+                    // U51: the pairing consumes the actual's elements member
+                    // by member, so it is usable only while every element it
+                    // consumes hands exactly one lane to its slot. Fewer
+                    // elements than members leaves a member unbound (a
+                    // required formal unfilled), a multi-lane element hands a
+                    // bundle to a scalar slot (a bad endpoint) — both mean the component
+                    // cannot be bound, and the binding is unusable apart from
+                    // its report above.
+                    // A pure surplus of single-lane elements stays pairable:
+                    // the tail leaves drop and the members pair positionally
+                    // (`Cap([SPI, GND, VDD])` — 2 components built,
+                    // param-prefix-design §3.2, conclusion 1).
+                    let member_count = members.len();
+                    if spans.len() < member_count
+                        || spans.iter().take(member_count).any(|s| *s != 1)
+                    {
+                        unpairable = true;
+                    }
+                    if lanes.len() > elems.len() {
+                        unpairable = true;
+                    }
                     out.push(b.clone());
                 }
             }
         }
-        McParamBindings::from_bindings(out).with_key_overrides_of(bindings)
+        (
+            McParamBindings::from_bindings(out).with_key_overrides_of(bindings),
+            unpairable,
+        )
     }
 
     /// Build bridge `ConnectionInst`s linking the parser-supplied right-side
@@ -1292,6 +1351,10 @@ impl InstantiationBuilder {
                     &[&inst_name.to_string(), &func_str, &reason],
                 ),
             );
+            // U51 (`mcrule.md` §11.6): same as the bind-failure arm below —
+            // the call is rejected before the body runs, so a chain-created
+            // receiver would stay behind unwired.
+            self.retract_chain_artifact(inst_name);
             return Ok(FuncCallInst::PassThrough);
         }
 
@@ -1339,12 +1402,27 @@ impl InstantiationBuilder {
                             &[&inst_name.to_string(), &func_str, &format!("{e}")],
                         ),
                     );
+                    // U51 (`mcrule.md` §11.6): the call bound nothing, so the
+                    // chain's own receiver is a residue — it exists only to be
+                    // called on, and nothing was wired to it.
+                    self.retract_chain_artifact(inst_name);
                     return Ok(FuncCallInst::PassThrough);
                 }
             };
         // Vector-formal width rules at the boundary (matching-rules-design.md
         // §3): equal width pairs member-to-lane, scalar/unequal reports E4180.
-        bindings = self.align_vector_bindings(&bindings, None);
+        // U51 (`mcrule.md` §11.6, "an error blocks the build"): an unpairable actual is a
+        // component that cannot be bound. Report the E4180 (already done
+        // above) and take the receiver out of the netlist instead of
+        // expanding the body against a broken binding — entering the body
+        // would leak its own shape error from the library definition and
+        // leave a half-wired part behind.
+        let (aligned, unpairable) = self.align_vector_bindings(&bindings, None);
+        bindings = aligned;
+        if unpairable {
+            self.retract_chain_artifact(inst_name);
+            return Ok(FuncCallInst::PassThrough);
+        }
 
         // ── P2-13: wire Series net-expression params before body expansion ──
         // `[[dc.VDD_3V3 -> wm7121.VCC], dc.GND]` carries an internal `->`

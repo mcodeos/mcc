@@ -101,6 +101,21 @@ fn benign(c: u32) -> bool {
     matches!(c, 5641 | 5642 | 5643)
 }
 
+/// How many diagnostics carry `code` while building `src`. [`codes_of`] dedups,
+/// so it cannot show "reported once per branch" — which is exactly how a
+/// forked statement reads.
+fn count_code(src: &str, uri: &str, code: u32) -> usize {
+    let _lock = common::lock();
+    common::reset();
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, src);
+    let _ = mcc::mcc_build_with_nets(&McIds::from("main"), &u);
+    mcc::mcc_diagnose_all()
+        .iter()
+        .filter(|d| d.code == code)
+        .count()
+}
+
 /// Diagnostic messages for `src`, in emit order.
 fn messages_of(src: &str, uri: &str) -> Vec<String> {
     let _lock = common::lock();
@@ -240,12 +255,33 @@ fn paren_list__with_a_sibling_is_e4180() {
 /// table must not fork the call: the ruling is "enumerating form", not "the
 /// group's z-axis meaning carried into the argument face". Locking it here is
 /// what keeps `param_group_prefix.rs` from being the only word on the subject.
+///
+/// Two observables, because "built once" no longer carries the law alone:
+///
+/// - **judged once** — the overflowing spelling reports exactly **one** E4180,
+///   where a fork reports its own per branch (`param_group_prefix.rs`,
+///   `group_prefix__two_placeholders_is_e4176_and_nothing`). This is the
+///   observable that outlives U51 (`mcrule.md` §11.6, "an error blocks the
+///   build"): the
+///   unpairable call's residue is dropped, so the instance count can no longer
+///   say "exactly one call was written here";
+/// - **built once** — read off a *pairable* table of the same shape, which U51
+///   leaves alone: `[(A), (B)]` fills both formals and yields one component.
+///   Zero-built cannot tell "no fork" from "forked, then both retracted", so
+///   the positive case is what actually pins the law.
 #[test]
 fn paren_list__does_not_fork_the_statement() {
-    let parts = partition_of(
-        &src_of("        RES(10).Pullup([(SPI.SCLK, SPI.MOSI), VDD])"),
-        "/mcc/paren-list-nofork.mc",
+    const OVERFLOWING: &str = "        RES(10).Pullup([(SPI.SCLK, SPI.MOSI), VDD])";
+    const PAIRABLE: &str = "        RES(10).Pullup([(SPI.SCLK), (SPI.MOSI)])";
+
+    assert_eq!(
+        count_code(&src_of(OVERFLOWING), "/mcc/paren-list-nofork.mc", 4180),
+        1,
+        "the call is written once and must be judged once — a forked statement \
+         reports its own E4180 per branch"
     );
+
+    let parts = partition_of(&src_of(PAIRABLE), "/mcc/paren-list-nofork-built.mc");
     assert_eq!(
         instance_names(&parts).len(),
         1,
