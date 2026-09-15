@@ -23,8 +23,9 @@ use crate::semantic::basic::mc_paramd::McParamDeclareKind;
 use crate::semantic::common::{ConnDir, ConnOp, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_inst::McInstance;
+use crate::semantic::nc_pin::{NcPinKind, NcPinSpec};
 use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
 impl InstantiationBuilder {
@@ -570,7 +571,7 @@ impl InstantiationBuilder {
                         call_site,
                         def_site,
                     );
-                    let inst = if c.params.is_empty() {
+                    let mut inst = if c.params.is_empty() {
                         // No arguments: plain instance. An NC-marked declaration
                         // with no parameter list keeps the not-connected flag.
                         if c.nc {
@@ -596,14 +597,36 @@ impl InstantiationBuilder {
                         ) {
                             Ok(inst) => inst,
                             Err(e) => {
-                                let reason = format!("{:?}", e);
-                                self.record_error(
+                                let reason = format!("{e}");
+                                let message = crate::errcodes::format_msg(
                                     crate::errcodes::INST_PARAM_BIND_FAILED,
-                                    crate::errcodes::format_msg(
-                                        crate::errcodes::INST_PARAM_BIND_FAILED,
-                                        &[&c.name.to_string(), &c.base.name.to_string(), &reason],
-                                    ),
+                                    &[&c.name.to_string(), &c.base.name.to_string(), &reason],
                                 );
+                                // Pass1 already reports this same bind failure at
+                                // the instance's own declaration (E4176); a second
+                                // report here would only duplicate it, and with no
+                                // span in scope it collapsed to row 1. Report only
+                                // when Pass1 did not, anchored at the declaration.
+                                match self.def.insts.get_port_span(&c.name.to_string()) {
+                                    Some(r) => {
+                                        if !crate::db::diagnostic::diagnostic::has_code_at(
+                                            crate::errcodes::INST_PARAM_BIND_FAILED,
+                                            &self.def_uri,
+                                            r.start as u32,
+                                        ) {
+                                            self.record_error_at(
+                                                crate::errcodes::INST_PARAM_BIND_FAILED,
+                                                message,
+                                                self.def_uri.clone(),
+                                                r.start as u32,
+                                            );
+                                        }
+                                    }
+                                    None => self.record_error(
+                                        crate::errcodes::INST_PARAM_BIND_FAILED,
+                                        message,
+                                    ),
+                                }
                                 mcc_dbg!(
                                     "inst::mod",
                                     "[ERROR] Failed to instantiate component '{}' (class '{}'): {}",
@@ -629,6 +652,13 @@ impl InstantiationBuilder {
                             }
                         }
                     };
+                    // ★ U48: the declaration's `@ncpin(…)` marker becomes this
+                    // instance's marked pin-id set. Resolved after the instance
+                    // is built (so conditional / dynamic pins are already in
+                    // `pins`) and before it is added (so the table can never
+                    // see the instance without its marker).
+                    let nc_pins = self.resolve_component_nc_pins(&inst, &c.nc_pins);
+                    inst.set_nc_pins(nc_pins);
                     self.add_component(inst);
 
                     // ── P1-C5: Execute same-name constructor func ──
@@ -700,6 +730,13 @@ impl InstantiationBuilder {
                         let ports = inst.ports.clone(); // Avoid borrow conflict with self
                         self.bind_actual_args_to_ports(&inst_name, &ports, &m.args);
                     }
+                    // ★ U48: resolve the declaration's `@ncpin(…)` marker into
+                    // the sub-module's registered port suffixes. After
+                    // `instantiate_in_scope` (the ports exist only then), before
+                    // `add_submodule` (so the frozen table sees them), and after
+                    // the arg binding above (which does not touch port identity).
+                    let nc_ports = self.resolve_module_nc_ports(&inst, &m.nc_pins);
+                    inst.set_nc_ports(nc_ports);
                     self.merge_diagnostics_from(&inst);
                     self.add_submodule(inst);
                     self.expansion.end(eidx);
@@ -725,6 +762,183 @@ impl InstantiationBuilder {
         // the `&McInstances` borrow off `self` so `&mut self` is available.
         let def = self.def.clone();
         self.materialize_vector_groups(&def.insts, "");
+    }
+
+    // ── U48: instance-site per-pin NC marker (`@ncpin(…)`) ──
+    //
+    // The marker is carried down from the declaration as written AST operands
+    // (`Mc2Component.nc_pins` / `Mc2Module.nc_pins`) and resolved *here*, once
+    // per instance, into the exact strings the flat table registers: pin ids
+    // for a component, port path suffixes for a sub-module. Everything
+    // downstream is then a plain set lookup — no second parsing, no name
+    // heuristics, and no way for the two sides to drift.
+
+    /// Compile a component declaration's `@ncpin(…)` marker into the pin ids
+    /// this instance actually carries.
+    ///
+    /// Every written pin name goes through [`super::points::declared_pin_id`] —
+    /// the one authority for "written pin identity → physical pin id" (raw pin
+    /// id, declared pinname, conditional alias), the same one the connection
+    /// face reads — so `@ncpin(VDD)` and `@ncpin(5)` land on the same pin. A
+    /// written range (`1:3`, both ends inclusive) selects numeric pin ids.
+    /// Names that resolve to nothing are reported (E3179, with the pins the
+    /// instance does have) and mark nothing.
+    fn resolve_component_nc_pins(
+        &mut self,
+        comp: &McComponentInst,
+        specs: &[NcPinSpec],
+    ) -> BTreeSet<String> {
+        let mut marked = BTreeSet::new();
+        for spec in specs {
+            match &spec.kind {
+                NcPinKind::Names(names) => {
+                    let mut missing: Vec<String> = Vec::new();
+                    for name in names {
+                        match super::points::declared_pin_id(comp, name) {
+                            Some(id) => {
+                                marked.insert(id);
+                            }
+                            None => missing.push(name.clone()),
+                        }
+                    }
+                    if !missing.is_empty() {
+                        // Sorted so the message is deterministic: `comp.pins` is
+                        // a HashMap and its key order is not.
+                        let mut available: Vec<&str> =
+                            comp.pins.keys().map(|k| k.as_str()).collect();
+                        available.sort();
+                        self.report_nc_operand_miss(
+                            crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                            &missing.join(", "),
+                            &comp.name,
+                            &comp.def.uri,
+                            spec,
+                            &available,
+                        );
+                    }
+                }
+                NcPinKind::Range(from, to) => {
+                    let before = marked.len();
+                    for id in comp.pins.keys() {
+                        if id.parse::<i64>().is_ok_and(|n| *from <= n && n <= *to) {
+                            marked.insert(id.clone());
+                        }
+                    }
+                    if marked.len() == before {
+                        let mut available: Vec<&str> =
+                            comp.pins.keys().map(|k| k.as_str()).collect();
+                        available.sort();
+                        self.report_nc_operand_miss(
+                            crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                            &format!("{from}:{to}"),
+                            &comp.name,
+                            &comp.def.uri,
+                            spec,
+                            &available,
+                        );
+                    }
+                }
+            }
+        }
+        marked
+    }
+
+    /// Compile a sub-module declaration's `@ncpin(…)` marker into the port path
+    /// suffixes this instance's flat rows answer to.
+    ///
+    /// The strings stored are the registered ones ([`PortInst::path_suffixes`]),
+    /// never the written spelling, so the table side stays a pure lookup.
+    /// Naming a port's own header or bracket alias means the whole port,
+    /// members included (see [`nc_port_hits`] for why); naming a member means
+    /// that member. Names that resolve to nothing are reported (E3175, with the
+    /// ports the sub-module does have) and mark nothing.
+    fn resolve_module_nc_ports(
+        &mut self,
+        sub: &McModuleInst,
+        specs: &[NcPinSpec],
+    ) -> BTreeSet<String> {
+        let mut marked = BTreeSet::new();
+        for spec in specs {
+            match &spec.kind {
+                NcPinKind::Names(names) => {
+                    let mut missing: Vec<String> = Vec::new();
+                    for name in names {
+                        let mut hit = false;
+                        for port in &sub.ports {
+                            if let Some(suffixes) = nc_port_hits(name, port) {
+                                marked.extend(suffixes);
+                                hit = true;
+                            }
+                        }
+                        if !hit {
+                            missing.push(name.clone());
+                        }
+                    }
+                    if !missing.is_empty() {
+                        self.report_nc_operand_miss(
+                            crate::errcodes::MODULE_PORT_NOT_FOUND,
+                            &missing.join(", "),
+                            &sub.name,
+                            &sub.def_uri,
+                            spec,
+                            &sub.ports
+                                .iter()
+                                .map(|p| p.name.as_str())
+                                .collect::<Vec<_>>(),
+                        );
+                    }
+                }
+                NcPinKind::Range(from, to) => {
+                    let before = marked.len();
+                    for port in &sub.ports {
+                        marked.extend(nc_port_range_hits(*from, *to, port));
+                    }
+                    if marked.len() == before {
+                        self.report_nc_operand_miss(
+                            crate::errcodes::MODULE_PORT_NOT_FOUND,
+                            &format!("{from}:{to}"),
+                            &sub.name,
+                            &sub.def_uri,
+                            spec,
+                            &sub.ports
+                                .iter()
+                                .map(|p| p.name.as_str())
+                                .collect::<Vec<_>>(),
+                        );
+                    }
+                }
+            }
+        }
+        marked
+    }
+
+    /// Report one `@ncpin(…)` operand that names nothing on its instance.
+    ///
+    /// Anchored at the operand itself — the wrong name is written there, not at
+    /// the instance — and deduplicated by position, so a module instantiated
+    /// twice reports the same written mistake once. Warning level, like every
+    /// other unresolved reference of this family.
+    fn report_nc_operand_miss(
+        &mut self,
+        code: u32,
+        operand: &str,
+        owner: &str,
+        uri: &crate::McURI,
+        spec: &NcPinSpec,
+        available: &[&str],
+    ) {
+        if crate::db::diagnostic::diagnostic::has_code_at(code, uri, spec.offset) {
+            return;
+        }
+        crate::db::diagnostic::diagnostic::diagnostic_log_at(
+            code,
+            crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+            uri.to_string(),
+            spec.offset,
+            operand.len() as u32,
+            &crate::errcodes::format_msg(code, &[&operand, &owner, &available.join(", ")]),
+            &[],
+        );
     }
 
     // Phase 1-2-4: Connection stmt processing
@@ -780,6 +994,10 @@ impl InstantiationBuilder {
                 crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.start as u32)
             });
             self.current_stmt_span = stmt_span.clone();
+            // The next stmt's start bounds this one; the last stmt is bounded
+            // by the file end, which `u32::MAX` stands in for.
+            let stmt_end = stmt_spans.get(idx + 1).map_or(u32::MAX, |s| s.start as u32);
+            self.current_stmt_end = Some(stmt_end);
 
             if let Err(e) = self.process_stmt(stmt) {
                 // ★ Single connection stmt failure doesn't interrupt, record diagnostics then
@@ -802,6 +1020,7 @@ impl InstantiationBuilder {
         // `current_trunk` needs no reset here: every producer is RAII
         // guarded (§7.11(2)) and restores it on exit.
         self.current_stmt_span = None;
+        self.current_stmt_end = None;
 
         // ── P2-C2: After all body stmts processed, project accumulated bus members to bare ports
         // ──
@@ -1741,4 +1960,42 @@ fn port_members(port: &PortInst) -> Vec<String> {
         }
     }
     Vec::new()
+}
+
+// ── U48: `@ncpin(…)` matching against a module port ──
+
+/// The registered path suffixes of `port` that the written operand `operand`
+/// names. `None` when it names nothing on this port.
+///
+/// Matching is against the port's *registered* surface
+/// ([`PortInst::path_suffixes`]) — the strings the flat table actually carries —
+/// so the marker and the connection face agree on what a spelling denotes.
+///
+/// Naming the port's own header (`VIN`, `GPIO[1:2]`) or its bracket alias
+/// (`[VDD_3V3, GND]`) covers the whole port, members included. That is not
+/// generosity: the header is de-electrified and never reported on its own
+/// (E4114 fires on the members), so a marker that covered only the header would
+/// suppress nothing at all — a silent no-op, which is the one outcome this
+/// marker must never produce. Naming one member covers that member only, so
+/// `@ncpin(MIC.P)` keeps `MIC.N` reported.
+fn nc_port_hits(operand: &str, port: &PortInst) -> Option<Vec<String>> {
+    let s = port.path_suffixes();
+    if s.header == operand || s.bracket.as_deref() == Some(operand) {
+        let mut whole = vec![s.header.clone()];
+        whole.extend(s.bracket.iter().cloned());
+        whole.extend(s.members.iter().cloned());
+        return Some(whole);
+    }
+    (s.members.iter().any(|m| m == operand)).then(|| vec![operand.to_string()])
+}
+
+/// The member suffixes of `port` whose name is a number inside the inclusive
+/// range. A range only ever selects members: no header spelling of a
+/// member-bearing port is a number.
+fn nc_port_range_hits(from: i64, to: i64, port: &PortInst) -> Vec<String> {
+    port.path_suffixes()
+        .members
+        .into_iter()
+        .filter(|m| m.parse::<i64>().is_ok_and(|v| from <= v && v <= to))
+        .collect()
 }

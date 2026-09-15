@@ -49,7 +49,7 @@ use crate::semantic::common::IOType;
 use crate::semantic::module::McModule;
 use crate::{current_uri, McURI};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -190,6 +190,18 @@ pub struct McModuleInst {
     /// it is interned as the circuit root; the frozen tree always carries it.
     pub node_id: Option<NodeId>,
 
+    /// ★ U48: the registered path suffixes of the ports this instance was
+    /// explicitly marked not-connected at the declaration site
+    /// (`MyMod m1 @ncpin(VIN)`). Resolved at instantiation from the written
+    /// port ids through [`PortInst::path_suffixes`] — the very strings the
+    /// flat table registers — so the consumer is a plain lookup.
+    ///
+    /// Naming a grouping header covers its whole port (header, bracket alias
+    /// and every member): the header is de-electrified and never reported on
+    /// its own, so marking it alone would be a silent no-op. Naming one member
+    /// covers that member only. Empty for an unmarked instance.
+    pub nc_ports: BTreeSet<String>,
+
     /// Phase G (plan §9 G item 5): the "source span + role" identity anchor
     /// of an auto-named module instance. `Some` → the registry interns the
     /// instance by the anchor key instead of its counter name, so inserting a
@@ -297,6 +309,13 @@ impl McModuleInst {
         current_uri::try_get().unwrap_or_default()
     }
 
+    /// ★ U48: attach the port path suffixes the declaration line marked
+    /// not-connected. Post-hoc setter (same shape as the other instance flags)
+    /// so the construction sites keep their signatures.
+    pub fn set_nc_ports(&mut self, ports: BTreeSet<String>) {
+        self.nc_ports = ports;
+    }
+
     /// Create a new module instance
     pub fn new(name: &str, def: Arc<McModule>) -> Self {
         let def_uri = Self::resolve_def_uri(&def);
@@ -316,6 +335,7 @@ impl McModuleInst {
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
             vectors: Vec::new(),
+            nc_ports: BTreeSet::new(),
             node_id: None,
             anchor: None,
         }
@@ -328,7 +348,7 @@ impl McModuleInst {
         param_values: &[McParamValue],
     ) -> Result<Self, InstError> {
         let params = McParamBindings::bind(&def.params, param_values)
-            .map_err(|e| InstError::Other(format!("Parameter binding failed: {e:?}")))?;
+            .map_err(|e| InstError::Other(e.to_string()))?;
         let def_uri = Self::resolve_def_uri(&def);
 
         Ok(Self {
@@ -347,6 +367,7 @@ impl McModuleInst {
             expansion: crate::instant::provenance::ExpansionLog::default(),
             expansion_id: None,
             vectors: Vec::new(),
+            nc_ports: BTreeSet::new(),
             node_id: None,
             anchor: None,
         })

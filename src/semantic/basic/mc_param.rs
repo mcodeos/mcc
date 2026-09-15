@@ -95,6 +95,12 @@ impl McParamValue {
             // Handle function body nodes - support attribute block as parameter
             MCAST_BODY => Self::inline_attrs_from_body(node),
 
+            // Bare call-site key assignment `k = v`: the grammar hands the
+            // parameter through as one attribute, with no body wrapper.
+            MCAST_ATTRIBUTE => {
+                McAttribute::new(node).map(|attr| McParamValue::InlineAttrs(vec![attr]))
+            }
+
             // Square bracket vector: [a -> b] is parsed as MCAST_SQUARE_VEC
             MCAST_SQUARE_VEC => {
                 if let Some(subnodes) = node.get_sub_node() {
@@ -234,6 +240,10 @@ impl McParamValue {
             MCAST_OPD_USCORE => Some(McParamValue::NONE(String::from("_"))),
             MCAST_OPD_NC => Some(McParamValue::NC(String::from("NC"))),
             MCAST_BODY => Self::inline_attrs_from_body(node),
+            // Bare call-site key assignment `k = v` (no body wrapper).
+            MCAST_ATTRIBUTE => {
+                McAttribute::new(node).map(|attr| McParamValue::InlineAttrs(vec![attr]))
+            }
             MCAST_CONST => McConst::new(node).map(McParamValue::Const),
             MCAST_INT => McInt::new(node).map(McParamValue::Int),
             MCAST_HEX => McHex::new(node).map(McParamValue::Hex),
@@ -359,6 +369,16 @@ impl McParamValue {
             _ => None,
         }
     }
+}
+
+/// One named argument of a call-site `{ … }` block, before it is matched
+/// against the definition's name faces. `assigned` keeps the values exactly as
+/// written, which is what carries to the instance when the name is an
+/// attribute key with no formal parameter behind it.
+struct NamedEntry {
+    name: String,
+    value: McParamValue,
+    assigned: Vec<McAttrVal>,
 }
 
 /// Exact key match against a formal parameter name, falling back
@@ -719,24 +739,130 @@ impl McParamBinding {
     }
 }
 
+/// A call-site-bindable name implied by a definition-side attribute key.
+///
+/// `name` is the key's bare last segment — the spelling a call site uses —
+/// because a key and a formal parameter share one namespace there, so a bare
+/// name is what can collide. `path` is the key's full path, one element per
+/// attribute level (`spec.Vout` or `spec` / `Vout`), used to find the key
+/// again in the definition. `formal` is the formal parameter the key stands
+/// for when its value is a bare reference to a declared parameter
+/// (`spec.Vout = vout`): that key is the parameter's second naming face, so
+/// an assignment through it binds the parameter. Any other definition-side
+/// value leaves `formal` `None`, and an assignment through such a key carries
+/// the value to the instance instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttrKeyName {
+    pub name: String,
+    pub path: Vec<String>,
+    pub formal: Option<String>,
+}
+
+impl AttrKeyName {
+    /// The same key with [`formal`](Self::formal) dropped, for a call site
+    /// whose formal table belongs to another definition than the key table
+    /// (`inst.method( … )`: keys from the receiver's class, formals from the
+    /// func). Following the link there would resolve it against the wrong
+    /// table, so such a site matches keys by name and assigns them.
+    pub(crate) fn without_formal_link(mut self) -> Self {
+        self.formal = None;
+        self
+    }
+}
+
 /// Parameter binding list
 #[derive(Debug, Clone, Default)]
 pub struct McParamBindings {
     bindings: Vec<McParamBinding>,
+    /// Call-site assignments to definition-side attribute keys that carry no
+    /// formal parameter (see [`AttrKeyName`]). Each entry replaces the values
+    /// of the key at `path` on this instance.
+    key_overrides: Vec<(Vec<String>, Vec<McAttrVal>)>,
+    /// Call-site pin rows written as attribute keys (`pins{6:9} = SWDBG`): the
+    /// first element selects the pin ids, the second carries the names to write
+    /// onto them. Held apart from `key_overrides` because `pins` is an identity
+    /// clause, not an attribute (§1.6 contract-design §1.6), so these must never
+    /// be resolved against the definition's key table.
+    pin_rows: Vec<(
+        Vec<crate::semantic::basic::mc_ids::IdsSegment>,
+        Vec<McAttrVal>,
+    )>,
 }
 
 impl McParamBindings {
     pub fn new() -> Self {
         Self {
             bindings: Vec::new(),
+            key_overrides: Vec::new(),
+            pin_rows: Vec::new(),
         }
+    }
+
+    /// The call-site pin rows (see [`Self::pin_rows`]), for the instance to
+    /// write onto its pin-name face.
+    pub fn call_pin_rows(
+        &self,
+    ) -> &[(
+        Vec<crate::semantic::basic::mc_ids::IdsSegment>,
+        Vec<McAttrVal>,
+    )] {
+        &self.pin_rows
+    }
+
+    /// Replace the definition-side values at `path` with any call-site key
+    /// assignment for that key. `path` is the key path of `values` itself, so
+    /// an assignment stored at `path` replaces them outright, while one stored
+    /// below it (`spec.Vout` under `spec`) replaces the matching table row.
+    pub(crate) fn apply_key_overrides(&self, path: &[String], values: &mut Vec<McAttrVal>) {
+        for (key, assigned) in self.key_overrides.iter() {
+            if key.as_slice() == path {
+                *values = assigned.clone();
+                continue;
+            }
+            if key.len() <= path.len() || !key.starts_with(path) {
+                continue;
+            }
+            let next = &key[path.len()];
+            for val in values.iter_mut() {
+                let McAttrVal::Attributes(rows) = val else {
+                    continue;
+                };
+                for row in rows.iter_mut() {
+                    if &row.id.to_string() != next {
+                        continue;
+                    }
+                    let mut child = path.to_vec();
+                    child.push(next.clone());
+                    self.apply_key_overrides(&child, &mut row.values);
+                }
+            }
+        }
+    }
+
+    /// Whether any call-site argument assigns a definition-side attribute key
+    /// rather than binding a formal parameter (see [`AttrKeyName`]).
+    pub(crate) fn has_key_overrides(&self) -> bool {
+        !self.key_overrides.is_empty()
     }
 
     /// Build a binding list from pre-built bindings. Used by the instantiation
     /// boundary to rewrite vector-formal bound values (lane alignment,
     /// matching-rules-design.md §3) before substitution.
     pub(crate) fn from_bindings(bindings: Vec<McParamBinding>) -> Self {
-        Self { bindings }
+        Self {
+            bindings,
+            key_overrides: Vec::new(),
+            pin_rows: Vec::new(),
+        }
+    }
+
+    /// Carry `source`'s call-site key assignments onto `self`. A rewrite that
+    /// republishes the bound values only ([`Self::from_bindings`] through
+    /// `align_vector_bindings`) would otherwise drop the assignments.
+    pub(crate) fn with_key_overrides_of(mut self, source: &Self) -> Self {
+        self.key_overrides = source.key_overrides.clone();
+        self.pin_rows = source.pin_rows.clone();
+        self
     }
 
     /// Create bindings from parameter declarations and parameter values.
@@ -754,7 +880,7 @@ impl McParamBindings {
         declares: &McParamDeclares,
         values: &[McParamValue],
     ) -> Result<Self, ParamBindError> {
-        Self::bind_inner(declares, values)
+        Self::bind_inner(declares, &[], values)
     }
 
     /// Component-construction binding. Kept as an alias of [`Self::bind`]:
@@ -765,36 +891,71 @@ impl McParamBindings {
         declares: &McParamDeclares,
         values: &[McParamValue],
     ) -> Result<Self, ParamBindError> {
-        Self::bind_inner(declares, values)
+        Self::bind_inner(declares, &[], values)
+    }
+
+    /// Component-construction binding with the class's declared attribute keys
+    /// in scope (`contract-design.md` §2.4): a call-site name may also be one
+    /// of those keys, not only a formal parameter.
+    pub fn bind_component(
+        declares: &McParamDeclares,
+        keys: &[AttrKeyName],
+        values: &[McParamValue],
+    ) -> Result<Self, ParamBindError> {
+        Self::bind_inner(declares, keys, values)
     }
 
     fn bind_inner(
         declares: &McParamDeclares,
+        keys: &[AttrKeyName],
         values: &[McParamValue],
     ) -> Result<Self, ParamBindError> {
         // ── Separate named parameters (InlineAttrs) and positional parameters ──
         // Each attribute inside `{ cap = 1uF; volt = 50V }` becomes one named
         // argument `(formal_name, value)`; everything else is positional.
-        let mut named_entries: Vec<(String, McParamValue)> = Vec::new();
+        let mut named_entries: Vec<NamedEntry> = Vec::new();
         let mut positional_values: Vec<McParamValue> = Vec::new();
+        let mut pin_rows: Vec<(
+            Vec<crate::semantic::basic::mc_ids::IdsSegment>,
+            Vec<McAttrVal>,
+        )> = Vec::new();
 
         for v in values.iter() {
             match v {
                 McParamValue::InlineAttrs(attrs) => {
                     for attr in attrs {
+                        // A pins-rooted key is not a name on either face: it is
+                        // the compact spelling of one `pins = [ … ]` row, so it
+                        // carries to the instance's pin-name face instead of
+                        // being matched against the definition's formals and
+                        // attribute keys. Without this branch it stays an orphan
+                        // (E4176, "named 'pins{6:9}'") — no key or formal can
+                        // ever be spelled `pins{…}`.
+                        if let Some(ids) = attr.pins_ids.clone() {
+                            pin_rows.push((ids, attr.values.clone()));
+                            continue;
+                        }
                         let name = attr.id.to_string();
                         let value = attr
                             .values
                             .first()
                             .map(attr_val_to_param_value)
                             .unwrap_or_else(|| McParamValue::NONE(String::from("_")));
-                        named_entries.push((name, value));
+                        named_entries.push(NamedEntry {
+                            name,
+                            value,
+                            assigned: attr.values.clone(),
+                        });
                     }
                 }
                 other if other.is_named_param() => {
                     // Other named forms (future): keep the whole value.
                     if let Some(name) = other.get_param_name() {
-                        named_entries.push((name, other.clone()));
+                        named_entries.push(NamedEntry {
+                            name,
+                            value: other.clone(),
+                            assigned: Vec::new(),
+                        });
                     }
                 }
                 _ => positional_values.push(v.clone()),
@@ -842,30 +1003,72 @@ impl McParamBindings {
         let mut pos_claimed: Vec<bool> = vec![false; positional_values.len()];
 
         // Round 1: Named binding
-        // Each named argument (`{ cap = 1uF; ... }`) claims the formal slot
-        // whose name matches exactly (spec/01 §2). Orphan named arguments —
-        // names that match no formal parameter — are a hard error.
-        let mut named_claimed: Vec<bool> = vec![false; named_entries.len()];
-        for (di, declare) in declares.iter().enumerate() {
-            let Some(param_name) = declare.get_primary_name() else {
-                continue;
-            };
-            for (ni, (name, value)) in named_entries.iter().enumerate() {
-                if named_claimed[ni] {
-                    continue;
-                }
-                if name == &param_name || declare.match_name(name) {
-                    bindings[di] = Some(McParamBinding::new(declare.clone(), Some(value.clone())));
-                    slot_claimed[di] = true;
-                    named_claimed[ni] = true;
-                    break;
-                }
+        // Each named argument (`{ cap = 1uF; ... }`) is matched against the
+        // definition's two name faces: the formal parameters, and the declared
+        // attribute keys (`contract-design.md` §2.4). A key whose value is a
+        // bare reference to a declared parameter is that parameter's second
+        // naming face (`spec.Vout = vout`), so an argument through it binds the
+        // parameter; any other key carries its call-site value to the instance
+        // and overrides the definition's value there. The two faces are one
+        // namespace at the call site, so a name that resolves to more than one
+        // of them refers to nothing — a hard error. So is an orphan, a name on
+        // neither face.
+        let mut key_overrides: Vec<(Vec<String>, Vec<McAttrVal>)> = Vec::new();
+        // Formal slots the named arguments claimed, whichever face they were
+        // written with — the arity check below subtracts them from `total`.
+        let mut named_slots = 0usize;
+        for entry in named_entries.iter() {
+            let name = &entry.name;
+            let formal = declares
+                .iter()
+                .find(|d| d.get_primary_name().is_some_and(|p| &p == name) || d.match_name(name));
+            let keys_hit: Vec<&AttrKeyName> = keys.iter().filter(|k| &k.name == name).collect();
+            if formal.is_some() as usize + keys_hit.len() > 1 {
+                return Err(ParamBindError::AmbiguousKeyName { name: name.clone() });
             }
-        }
-        // Orphan named arguments: no formal parameter has this name.
-        for (ni, (name, _)) in named_entries.iter().enumerate() {
-            if !named_claimed[ni] {
+            if formal.is_none() && keys_hit.is_empty() {
                 return Err(ParamBindError::UnknownParameter { name: name.clone() });
+            }
+            if let Some(declare) = formal {
+                let di = declares
+                    .iter()
+                    .position(|d| std::ptr::eq(d, declare))
+                    .expect("formal was found in declares");
+                if slot_claimed[di] {
+                    return Err(ParamBindError::UnknownParameter { name: name.clone() });
+                }
+                bindings[di] = Some(McParamBinding::new(
+                    declare.clone(),
+                    Some(entry.value.clone()),
+                ));
+                slot_claimed[di] = true;
+                named_slots += 1;
+                continue;
+            }
+            let key = keys_hit
+                .first()
+                .expect("one name face matched, and it is not a formal");
+            match &key.formal {
+                // The key names a formal parameter: assign the parameter.
+                Some(formal_name) => {
+                    let found = declares
+                        .iter()
+                        .enumerate()
+                        .find(|(_, d)| d.get_primary_name().is_some_and(|p| &p == formal_name));
+                    let Some((di, declare)) = found else {
+                        return Err(ParamBindError::UnknownParameter { name: name.clone() });
+                    };
+                    if slot_claimed[di] {
+                        return Err(ParamBindError::UnknownParameter { name: name.clone() });
+                    }
+                    bindings[di] = Some(McParamBinding::new(
+                        declare.clone(),
+                        Some(entry.value.clone()),
+                    ));
+                    slot_claimed[di] = true;
+                }
+                // A plain key: its value comes from the call site.
+                None => key_overrides.push((key.path.clone(), entry.assigned.clone())),
             }
         }
 
@@ -1044,7 +1247,7 @@ impl McParamBindings {
         // already occupied them) are too many — hard error.
         if rp_idx < remaining_pos.len() {
             let got = positional_values.len();
-            let expected = total - named_claimed.iter().filter(|c| **c).count();
+            let expected = total - named_slots;
             return Err(ParamBindError::TooManyArguments { expected, got });
         }
 
@@ -1100,6 +1303,8 @@ impl McParamBindings {
 
         Ok(Self {
             bindings: final_bindings,
+            key_overrides,
+            pin_rows,
         })
     }
 
@@ -1171,6 +1376,8 @@ impl McParamBindings {
                 })
                 .cloned()
                 .collect(),
+            key_overrides: self.key_overrides.clone(),
+            pin_rows: self.pin_rows.clone(),
         }
     }
 }
@@ -1193,6 +1400,10 @@ pub enum ParamBindError {
 
     /// Named argument whose name matches no formal parameter
     UnknownParameter { name: String },
+
+    /// Named argument whose name is claimed by more than one name face — a
+    /// formal parameter and a declared attribute key, or two keys.
+    AmbiguousKeyName { name: String },
 }
 
 impl std::fmt::Display for ParamBindError {
@@ -1215,7 +1426,16 @@ impl std::fmt::Display for ParamBindError {
                 )
             }
             ParamBindError::UnknownParameter { name } => {
-                write!(f, "Unknown parameter: no formal parameter named '{name}'")
+                write!(
+                    f,
+                    "Unknown parameter: no formal parameter or declared attribute key named '{name}'"
+                )
+            }
+            ParamBindError::AmbiguousKeyName { name } => {
+                write!(
+                    f,
+                    "Ambiguous name: '{name}' is claimed by more than one parameter or attribute key, so it refers to nothing"
+                )
             }
         }
     }
@@ -1369,6 +1589,7 @@ mod tests {
             id: McIds::from(name),
             values: vec![McAttrVal::AttrLiteral(McLiteral::Int(McInt { value }))],
             key_span: None,
+            pins_ids: None,
         }
     }
 
@@ -1465,7 +1686,7 @@ mod tests {
         declares.push(single_declare("cap"));
         declares.push(single_declare("volt"));
 
-        // f({ volt = 25 }, 10) — volt by name, cap positionally.
+        // f(volt = 25, 10) — volt by name, cap positionally.
         let values = vec![
             McParamValue::InlineAttrs(vec![attr_int("volt", 25)]),
             McParamValue::Int(McInt { value: 10 }),
@@ -1486,7 +1707,7 @@ mod tests {
         declares.push(single_declare("cap"));
         declares.push(single_declare("volt"));
 
-        // f({ cap = 10 }, 25, 99) — cap by name; 25 → volt; 99 has no slot left.
+        // f(cap = 10, 25, 99) — cap by name; 25 → volt; 99 has no slot left.
         let values = vec![
             McParamValue::InlineAttrs(vec![attr_int("cap", 10)]),
             McParamValue::Int(McInt { value: 25 }),

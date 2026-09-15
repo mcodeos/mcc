@@ -221,9 +221,9 @@ impl McModule {
                             McParamTypeKind::Interface { .. }
                                 | McParamTypeKind::InterfaceWithRole { .. }
                         );
-                        // Component-instance parameter: `id::Class({attrs})`.
+                        // Component-instance parameter: `id::Class(k = v)`.
                         // The form parses but has no engine consumer — the
-                        // attribute body would be dropped silently. This must
+                        // attributes would be dropped silently. This must
                         // be checked BEFORE the `is_enum` fork: `is_enum` is a
                         // class-registry lookup, so routing on it would make
                         // the diagnostic depend on the class NAME (enum class
@@ -357,6 +357,13 @@ impl McModule {
                                 // (`speaker(V3V3)`) — record
                                 // them like MCAST_NET operands so F12 works.
                                 self.collect_declare_ctor_refs(&subnode);
+                                // ★ NC layer ③: the declaration's trailing `@ncpin(…)`
+                                // marker rides as a *sibling* of this node
+                                // (`mc_net: mc_phrase mc_tattrs_opt`), so it is
+                                // staged for `parse` instead of being read from
+                                // inside the declare node.
+                                self.insts
+                                    .set_nc_pins(crate::semantic::nc_pin::read_nc_pins(&subnode));
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
@@ -1917,6 +1924,10 @@ pub struct Mc2Module {
     pub name: McIds,
     pub args: Vec<McParamValue>,
     pub insts: Vec<McInst>,
+    /// ★ NC layer ③: the declaration clause's `@ncpin(…)` trailer, in written
+    /// form (see [`crate::semantic::nc_pin`]) — the module-instance sibling of
+    /// [`Mc2Component::nc_pins`].
+    pub(crate) nc_pins: Vec<crate::semantic::nc_pin::NcPinSpec>,
 }
 
 impl Mc2Module {
@@ -1926,6 +1937,7 @@ impl Mc2Module {
             name: McIds::from(name),
             args: Vec::new(),
             insts: Vec::new(),
+            nc_pins: Vec::new(),
         }
     }
 
@@ -1935,6 +1947,7 @@ impl Mc2Module {
             name: McIds::from(name),
             args,
             insts: Vec::new(),
+            nc_pins: Vec::new(),
         }
     }
 

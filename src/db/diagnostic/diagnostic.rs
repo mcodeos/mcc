@@ -242,6 +242,23 @@ impl DiagnosticManager {
             .unwrap_or(false)
     }
 
+    /// Has a diagnostic with `code` already been logged anywhere in the byte
+    /// range `[start, end)` of `uri`? Used when the two channels that state
+    /// one fact anchor it at *different* offsets inside the same construct —
+    /// the exact-offset check above cannot see the duplication.
+    pub fn has_code_in_range(&self, code: u32, uri: &McURI, start: u32, end: u32) -> bool {
+        self.file_to_diagnostics
+            .get(uri)
+            .map(|indices| {
+                indices.iter().any(|&i| {
+                    self.diagnostics[i].code == code
+                        && self.diagnostics[i].loc.pos >= start
+                        && self.diagnostics[i].loc.pos < end
+                })
+            })
+            .unwrap_or(false)
+    }
+
     pub fn clear(&mut self) {
         self.diagnostics.clear();
         self.file_to_diagnostics.clear();
@@ -352,6 +369,16 @@ pub fn has_code_at(code: u32, uri: &McURI, pos: u32) -> bool {
         .lock()
         .unwrap()
         .has_code_at(code, uri, pos)
+}
+
+/// Has a diagnostic with `code` already been logged anywhere in `[start, end)`
+/// of `uri`? See [`DiagnosticManager::has_code_in_range`].
+pub fn has_code_in_range(code: u32, uri: &McURI, start: u32, end: u32) -> bool {
+    workspace::WORKSPACE
+        .diagnostics
+        .lock()
+        .unwrap()
+        .has_code_in_range(code, uri, start, end)
 }
 
 pub fn dlog_trace(code: u32, msg: &str) {

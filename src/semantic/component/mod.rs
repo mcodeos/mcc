@@ -111,6 +111,14 @@ impl McComponent {
         }
     }
 
+    /// The call-site-bindable names this class's declared attribute keys
+    /// contribute (`contract-design.md` §2.4). Derived from the definition body
+    /// on every call — the keys are the class's own attributes, so there is no
+    /// separate name table to keep in sync.
+    pub fn attr_key_names(&self) -> Vec<crate::semantic::basic::mc_param::AttrKeyName> {
+        self.attrs.key_names(self.bind_params())
+    }
+
     /// Whether this component has any pin definitions: static pins, dynamic
     /// (range) pins, or conditional pin blocks. Conditional pins are stored
     /// separately in `cond_pins` (evaluated at instantiation time when the
@@ -543,6 +551,12 @@ impl HasFindInst for McComponent {
             .map(|r| (r.inst, r.span))
     }
 
+    fn find_terminal(&self, id: &str) -> Option<crate::McInstance> {
+        crate::semantic::scope::component_terminal_scope(self)
+            .resolve(id)
+            .map(|r| r.inst)
+    }
+
     fn add_label_at(
         &mut self,
         name: String,
@@ -672,6 +686,11 @@ pub struct Mc2Component {
     pub params: Vec<McParamValue>,
     pub insts: Vec<McInst>,
     pub nc: bool,
+    /// ★ NC layer ③: the declaration clause's `@ncpin(…)` trailer, in written
+    /// form (see [`crate::semantic::nc_pin`]). Consumed at instantiation time,
+    /// where the written identities are resolved against this instance's own
+    /// declared pins; the model layer only carries them.
+    pub(crate) nc_pins: Vec<crate::semantic::nc_pin::NcPinSpec>,
 }
 
 // Display implementation - concise format output
@@ -690,6 +709,7 @@ impl Mc2Component {
             base: base.clone(),
             params: Vec::new(),
             insts: Vec::new(),
+            nc_pins: Vec::new(),
             nc: false,
         }
     }
@@ -700,6 +720,7 @@ impl Mc2Component {
             base: base.clone(),
             params: Vec::new(),
             insts: Vec::new(),
+            nc_pins: Vec::new(),
             nc: is_nc,
         }
     }
@@ -711,6 +732,7 @@ impl Mc2Component {
             base: base.clone(),
             params,
             insts: Vec::new(),
+            nc_pins: Vec::new(),
             nc,
         }
     }

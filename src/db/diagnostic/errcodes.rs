@@ -575,7 +575,7 @@ pub const PARAM_INST_LOOKUP_FAILED: u32 = 3110;
 /// Interface pin count does not match the number of declared pin IDs.
 pub const PARAM_DECLARE_IFACE_PINS: u32 = 3111;
 
-/// Parameter declaration carries an inline attribute body (`id::Class({attrs})`).
+/// Parameter declaration carries inline attributes (`id::Class(k = v)`).
 /// The component-instance parameter form (A5) parses but has no engine consumer,
 /// so the attributes are dropped silently.
 pub const PARAM_INLINE_ATTRS_UNSUPPORTED: u32 = 3112;
@@ -628,6 +628,12 @@ pub const INST_CLASS_IDS_PARSE_FAILED: u32 = 3156;
 
 /// Unresolved class — the library may not be loaded.
 pub const INST_CLASS_UNRESOLVED: u32 = 3157;
+
+/// Instance NC marker without a pin list.
+pub const INST_NC_PIN_LIST_MISSING: u32 = 3158;
+
+/// Instance NC marker operand is not a pin id list.
+pub const INST_NC_PIN_VALUE_INVALID: u32 = 3159;
 
 /// Malformed return statement.
 pub const FUNC_RETURN_MALFORMED: u32 = 3161;
@@ -720,6 +726,17 @@ pub const PHRASE_IFACE_MEMBER_NOT_FOUND: u32 = 4022;
 /// port declaration, so nothing about the connection is registered; without this
 /// check the whole statement is dropped in silence.
 pub const PORT_ROW_WITH_CONNECTION: u32 = 4023;
+
+/// A subscript is glued onto a reserved word in a phrase (`pins[2:3]`,
+/// `this[2:3]`). The lexer keeps the subscript inside the identifier, so the
+/// keyword is gone and the name addresses nothing.
+pub const PHRASE_RESERVED_WORD_SUBSCRIBED: u32 = 4024;
+
+/// An attribute key stands where a connection endpoint is required
+/// (`uH.partno -> N1`, or a bare attribute name on a connection line). The name
+/// does resolve — but in the definition space, to a value, and a value is not a
+/// position, so the connection has no endpoint to attach to.
+pub const ATTR_VALUE_NOT_A_TERMINAL: u32 = 4025;
 
 // Pass2: netlist heuristics (D-series / layout) (4050-4099)
 
@@ -1762,7 +1779,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARAM_NAME_EXTRACT_FAILED, "Failed to extract the parameter name.", "Failed to extract parameter name from MCAST_DECLARE"),
     entry!(PARAM_INST_LOOKUP_FAILED, "Instance::class lookup failed; the binding is treated as a plain pin alias.", "'{0}::{1}' lookup failed; treating '{0}' as plain pin alias. If you intended an interface binding, check that '{1}' is defined (and `use`d, if from a library)."),
     entry!(PARAM_DECLARE_IFACE_PINS, "Interface pin count does not match the number of declared pin IDs.", "Interface '{0}' declares {1} pin(s) (members: {2}) but {3} {4} given; the counts must match. Use a range like `a:b` to declare exactly {1} pin(s)."),
-    entry!(PARAM_INLINE_ATTRS_UNSUPPORTED, "Inline attributes on a parameter declaration are not supported.", "Parameter type '{0}' is declared with an inline attribute body — the component-instance parameter form (`id::Class({attrs})`, A5) has no engine consumer, so its attributes would be dropped silently. Declare the attributes where the instance is written instead."),
+    entry!(PARAM_INLINE_ATTRS_UNSUPPORTED, "Inline attributes on a parameter declaration are not supported.", "Parameter type '{0}' is declared with inline attributes — the component-instance parameter form (`id::Class(k = v)`, A5) has no engine consumer, so its attributes would be dropped silently. Declare the attributes where the instance is written instead."),
     entry!(FUNC_CALL_MISSING_NAME, "Missing function name in a function call.", "Missing function name in a function call."),
     entry!(CONN_STMT_PARSE_FAILED, "A connection statement failed to parse.", "connection statement failed to parse"),
     entry!(FUNC_BODY_INVALID, "Invalid function body node.", "Invalid function body node."),
@@ -1778,6 +1795,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_CLASS_ID_MISSING, "Missing class id node.", "Missing class id node"),
     entry!(INST_CLASS_IDS_PARSE_FAILED, "Failed to parse class ids.", "Failed to parse class ids"),
     entry!(INST_CLASS_UNRESOLVED, "Unresolved class — the library may not be loaded.", "unresolved class '{0}' — the library may not be loaded"),
+    entry!(INST_NC_PIN_LIST_MISSING, "Instance NC marker with no pin list.", "`@{0}` lists no pins; write the pin ids to mark as not connected (e.g. `@{0}(1,3)`), or drop the marker."),
+    entry!(INST_NC_PIN_VALUE_INVALID, "Instance NC marker operand is not a pin id.", "`@{0}(...)` operand `{1}` is not a pin id list; write pin ids, pin names, or an inclusive numeric range (`1:3`)."),
     entry!(FUNC_RETURN_MALFORMED, "Malformed return statement.", "Malformed return statement."),
     entry!(FUNC_RETURN_EXPR_INVALID, "Invalid return expression — expected this or a label/bus.", "Invalid `return` expression: expected `this` or a label/bus."),
     entry!(FUNC_MULTIPLE_RETURNS, "A function may have at most one return statement.", "Multiple `return` statements are not allowed; a function may have at most one return."),
@@ -1803,6 +1822,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PHRASE_AST_TYPE_UNEXPECTED, "Unexpected AST node type in a phrase.", "Unexpected AST node type {1} in McPhrase::new"),
     entry!(PHRASE_IFACE_MEMBER_NOT_FOUND, "Member not found in the interface.", "Member '{0}' not found in interface"),
     entry!(PORT_ROW_WITH_CONNECTION, "An iotype-prefixed port row carries a connection.", "port row carries a connection ('{0}'); a port row only declares ports — write the connection on a line of its own"),
+    entry!(PHRASE_RESERVED_WORD_SUBSCRIBED, "A subscript is glued onto a reserved word, which addresses nothing.", "name carries a subscript in the reserved word '{0}', where a subscript selects nothing: write '{0}{...}' or '{0}.N'"),
+    entry!(ATTR_VALUE_NOT_A_TERMINAL, "An attribute used as a connection endpoint.", "'{0}' is an attribute key: it holds a value, not a terminal, so it cannot be a connection endpoint; connect a pin, a port, or a net instead"),
     // section
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),

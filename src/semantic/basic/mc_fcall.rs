@@ -205,7 +205,9 @@ pub(crate) fn check_ctor_bind(
     if params.is_empty() {
         return;
     }
-    if let Err(e) = McParamBindings::bind(comp_def.bind_params(), params) {
+    if let Err(e) =
+        McParamBindings::bind_component(comp_def.bind_params(), &comp_def.attr_key_names(), params)
+    {
         // Component-Spec Separation: a missing required parameter never
         // blocks instance creation — circuit topology only needs pins, and
         // the parameter value is supplied later via spec or the BOM. It is

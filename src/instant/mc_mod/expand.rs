@@ -696,6 +696,7 @@ mod inst_scope_tests {
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
+            nc_pins: Default::default(),
             nc: false,
             degraded: false,
             origin: Default::default(),

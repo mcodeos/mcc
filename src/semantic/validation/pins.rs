@@ -100,8 +100,9 @@ pub(crate) fn check_unused_pins(table: &InstTable, results: &mut Vec<PinCheckRes
             let pin_name = &pin.class_name;
 
             // NC pins are intentionally unconnected (§2.19). OR semantics:
-            // either the `nc` iotype prefix or an NC/nc name marks the pin.
-            if matches!(pin.io_type, IOType::NonCon) || is_nc_pin(pin_name) {
+            // either the `nc` iotype prefix or an NC/nc name marks the pin —
+            // and, since U48, an instance-site `@ncpin(…)` marker on it.
+            if matches!(pin.io_type, IOType::NonCon) || is_nc_pin(pin_name) || pin.nc_marked {
                 continue;
             }
 

@@ -5294,6 +5294,14 @@ impl McCode {
             if !attr_node.is_type(MCAST_ATTRIBUTE) {
                 continue;
             }
+            // ★ U48: the instance NC pin marker's operands are pin paths, not
+            // enum references — `@ncpin(MIC.P)` names the `P` pin of the `MIC`
+            // group, and the class walk below would report the false
+            // `INST_CLASS_UNRESOLVED` on `MIC`. The marker key has one owner
+            // (`semantic::nc_pin`), which is what this asks.
+            if crate::semantic::nc_pin::is_nc_pin_marker(&attr_node) {
+                continue;
+            }
             // Process all attribute keys for DOT-pattern enum refs (e.g., CAP.X7R)
             let att_id = match attr_node.get_sub_node() {
                 Some(s) => s,

@@ -537,6 +537,19 @@ pub fn component_scope<'a>(c: &'a McComponent) -> ScopeChain<'a, Resolved> {
     ])
 }
 
+/// Component terminal face alone — categories ④–⑥ of the chain above
+/// (pin names whole / expanded, then pin ids), without the definition-space
+/// categories ①–③ that precede them. G10 terminal-first: the connection face
+/// asks here for a name that resolved to an attribute key, because a terminal
+/// of the same name is the terminal, not the value.
+pub fn component_terminal_scope<'a>(c: &'a McComponent) -> ScopeChain<'a, Resolved> {
+    ScopeChain::new(vec![
+        Box::new(PinNamesScope::new(&c.pins)),
+        Box::new(PinNamesExpandedScope::new(&c.pins)),
+        Box::new(PinIdsScope::new(&c.pins)),
+    ])
+}
+
 /// P2 module category chain (① param ports → ② param defs → ③ ports →
 /// ④ labels → ⑤ non-port insts → ⑥ funcs). No independent buses category:
 /// Bus/List/Interface/Component instances are covered by ⑤.
@@ -975,6 +988,7 @@ mod tests {
             id: McIds::from("partno"),
             values: vec![McAttrVal::AttrLiteral(McLiteral::Int(McInt { value: 10 }))],
             key_span: Some(7..13),
+            pins_ids: None,
         });
         let hit = AttrsScope::new(&attrs).resolve("partno").unwrap();
         assert!(matches!(hit.inst, McInstance::Attr(_)));

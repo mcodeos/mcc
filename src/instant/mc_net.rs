@@ -532,6 +532,61 @@ impl PortInst {
     pub fn is_bus_port(&self) -> bool {
         self.bus_members.len() >= 2
     }
+
+    /// The path suffixes this port answers to inside its owner's InstTable rows
+    /// — the port's whole registered name surface, `path = "{owner}.{suffix}"`.
+    ///
+    /// One law, one home: `insttab` builds its registered paths from here and
+    /// the instance NC marker resolver matches the same strings, so a marker can
+    /// neither name a suffix the table does not carry nor miss one it does.
+    /// `my_path` stays out of it, which is what makes the suffixes comparable
+    /// across nesting depths.
+    pub(crate) fn path_suffixes(&self) -> PortPathSuffixes {
+        // ── Phase-D support: a bracketed alias exists only for list-shaped bus
+        // ports (`[A,B]`, `GPIO[1:2]`), not for curly ones (`rs485{A,B}`),
+        // because curly members are already reachable through the dot syntax.
+        let bracket = (self.is_bus_port() && self.name.contains('['))
+            .then(|| format!("[{}]", self.bus_members.join(", ")));
+
+        let members = self
+            .bus_members
+            .iter()
+            .map(|member| {
+                if self.name.contains('[') {
+                    // Bracket port: flat member path ([VDD_3V3, GND] -> VDD_3V3)
+                    member.clone()
+                } else if self.name.contains('{') {
+                    // Curly port: the base name prefixes the member
+                    // (vin{VCC, GND} -> vin.VCC); a bare group ({VCC, GND}) is flat.
+                    let base = self.name.split('{').next().unwrap_or("");
+                    if base.is_empty() {
+                        member.clone()
+                    } else {
+                        format!("{base}.{member}")
+                    }
+                } else {
+                    // Named port without brackets: the port name prefixes the member.
+                    format!("{}.{}", self.name, member)
+                }
+            })
+            .collect();
+
+        PortPathSuffixes {
+            header: self.name.clone(),
+            bracket,
+            members,
+        }
+    }
+}
+
+/// The registered name surface of one [`PortInst`] (see `PortInst::path_suffixes`).
+pub(crate) struct PortPathSuffixes {
+    /// The grouping header — always registered.
+    pub header: String,
+    /// The bracketed alias, registered only for list-shaped bus ports.
+    pub bracket: Option<String>,
+    /// One suffix per member, in `bus_members` order (empty for a scalar port).
+    pub members: Vec<String>,
 }
 
 impl fmt::Display for PortInst {

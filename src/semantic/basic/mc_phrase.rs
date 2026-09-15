@@ -51,6 +51,55 @@ fn warn_prefix_id_as_wire(node: &AstNode, name: &str) {
     }
 }
 
+/// A subscript glued onto a reserved word (`pins[2:3]`, `this[2:3]`) selects
+/// nothing: the lexer keeps the whole spelling inside one identifier, so the
+/// keyword never exists and the name addresses nothing — the phrase would fall
+/// through to the ghost path. The criterion is the segment's lexical form read
+/// against the key registry (the code-side mirror of the reserved words), not a
+/// word list of its own: `A[1]`, a name a `A[1:2]` declaration flattens to, is a
+/// legal reference and is not reported.
+fn report_subscribed_reserved_word(ids: &McIds, node: &AstNode) {
+    use crate::semantic::basic::attr_keys;
+    use crate::semantic::basic::mc_ids::IdsSegment;
+    for seg in &ids.segments {
+        let ida = match seg {
+            IdsSegment::Ida(ida) | IdsSegment::DotIda(ida) => ida,
+            _ => continue,
+        };
+        let word = ida.prefix();
+        if !ida.has_square() || !attr_keys::is_reserved(word) {
+            continue;
+        }
+        dlog_error(
+            crate::errcodes::PHRASE_RESERVED_WORD_SUBSCRIBED,
+            node,
+            &crate::errcodes::format_msg(
+                crate::errcodes::PHRASE_RESERVED_WORD_SUBSCRIBED,
+                &[&word as &dyn std::fmt::Display],
+            ),
+        );
+        return;
+    }
+}
+
+/// A wiring phrase whose name resolves to a definition-side attribute value:
+/// the name is real and it resolves, but it resolves to a *value*, and a value
+/// carries no position, so there is nothing to wire. Drops the phrase (`None`)
+/// so no net is built from the value. G10 terminal-first holds — every caller
+/// reaches here only after the terminal face missed (`find_pin` / port), or
+/// after an explicit terminal lookup on the colliding name failed.
+fn attr_value_as_terminal(name: &str, node: &AstNode) -> Option<McPhrase> {
+    dlog_error(
+        crate::errcodes::ATTR_VALUE_NOT_A_TERMINAL,
+        node,
+        &crate::errcodes::format_msg(
+            crate::errcodes::ATTR_VALUE_NOT_A_TERMINAL,
+            &[&name as &dyn std::fmt::Display],
+        ),
+    );
+    None
+}
+
 /// Split a vector spelling's trailing dot-member chain off its segment tree
 /// (`c[1:2].1` → prefix `McIds([Ida(c[1:2])])` + member `"1"`; a multi-dot
 /// suffix `a[1:2].SPI.SCLK` keeps the whole `"SPI.SCLK"` member). The AST
@@ -318,6 +367,7 @@ impl McPhrase {
                 if let Some(nextnode) = node.get_next() {
                     let member_ids = McIds::new(&nextnode);
                     if let Some(member) = member_ids {
+                        report_subscribed_reserved_word(&member, node);
                         let member_str = member.to_string();
                         if let Some(inst) = context.find_inst(&member_str) {
                             return Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -366,6 +416,7 @@ impl McPhrase {
                     // Convert McOpd to McPhrase
                     match opdc {
                         McOpd::Id(ids) => {
+                            report_subscribed_reserved_word(&ids, node);
                             let ids_str = ids.to_string();
                             // ── Contract E (§11.3): single-member square range whose
                             // expanded member IS a declared instance is a scalar member
@@ -537,6 +588,12 @@ impl McPhrase {
                                         decl_id,
                                         scope.as_deref(),
                                     );
+                                }
+                                if matches!(ident, McInstance::Attr(_)) {
+                                    if let Some(terminal) = context.find_terminal(&ids_str) {
+                                        return Some(terminal.into());
+                                    }
+                                    return attr_value_as_terminal(&ids_str, node);
                                 }
                                 Some(ident.into())
                             } else if ids.is_curly_bracket() {
@@ -883,6 +940,16 @@ impl McPhrase {
                                             context.find_inst(base)
                                         {
                                             if c.find_pin(&rest).is_none() {
+                                                if c.base
+                                                    .attrs
+                                                    .find(&McIds::from(rest.as_str()))
+                                                    .is_some()
+                                                {
+                                                    return attr_value_as_terminal(
+                                                        &format!("{base}.{rest}"),
+                                                        &subnode,
+                                                    );
+                                                }
                                                 let available: Vec<&str> = c
                                                     .base
                                                     .pins
@@ -1085,6 +1152,12 @@ impl McPhrase {
                                 scope.as_deref(),
                             );
                         }
+                        if matches!(ident, crate::McInstance::Attr(_)) {
+                            if let Some(terminal) = context.find_terminal(&data[0]) {
+                                return Some(terminal.into());
+                            }
+                            return attr_value_as_terminal(&data[0], node);
+                        }
                         Some(ident.into())
                     } else {
                         let id = &data[0];
@@ -1115,6 +1188,12 @@ impl McPhrase {
                                         // E1802: Check if the member is a valid pin in the
                                         // component
                                         if c.find_pin(member).is_none() {
+                                            if c.base.attrs.find(&McIds::from(member)).is_some() {
+                                                return attr_value_as_terminal(
+                                                    &format!("{base}.{member}"),
+                                                    node,
+                                                );
+                                            }
                                             let available: Vec<&str> = c
                                                 .base
                                                 .pins
@@ -1857,6 +1936,16 @@ impl McPhrase {
                                 if right.len() == 1 {
                                     let member = &right[0];
                                     if c.find_pin(member).is_none() {
+                                        if c.base
+                                            .attrs
+                                            .find(&McIds::from(member.as_str()))
+                                            .is_some()
+                                        {
+                                            return attr_value_as_terminal(
+                                                &format!("{inst_name}.{member}"),
+                                                node,
+                                            );
+                                        }
                                         let available: Vec<&str> = c
                                             .base
                                             .pins
@@ -1901,6 +1990,12 @@ impl McPhrase {
                             // E1802: pin not found in component
                             if right.len() == 1 {
                                 let member = &right[0];
+                                if c.base.attrs.find(&McIds::from(member.as_str())).is_some() {
+                                    return attr_value_as_terminal(
+                                        &format!("{inst_name}.{member}"),
+                                        node,
+                                    );
+                                }
                                 let available: Vec<&str> =
                                     c.base.pins.names_to_id.keys().map(|s| s.as_str()).collect();
                                 dlog_error(

@@ -102,8 +102,10 @@ fn net_holding<'a>(parts: &'a [Vec<String>], needle: &str) -> Option<&'a Vec<Str
 /// The two spellings wire the same nets: the self face is one face.
 #[test]
 fn pins_selfface__same_wiring_as_this() {
-    let (pins_body, this_body) =
-        body_pair_lines(["pins.1 -> a", "b -> pins.3"], ["this.1 -> a", "b -> this.3"]);
+    let (pins_body, this_body) = body_pair_lines(
+        ["pins.1 -> a", "b -> pins.3"],
+        ["this.1 -> a", "b -> this.3"],
+    );
     let pins = nets_of(&src_of(&pins_body), "/mcc/pins-selfface.mc");
     let this = nets_of(&src_of(&this_body), "/mcc/this-selfface.mc");
 
@@ -128,16 +130,19 @@ fn pins_selfface__same_wiring_as_this() {
 #[test]
 fn pins_selfface__every_spelling_resolves_like_this() {
     let cases = [
-        body_pair_lines(["pins.1 -> a", "b -> pins.3"], ["this.1 -> a", "b -> this.3"]),
+        body_pair_lines(
+            ["pins.1 -> a", "b -> pins.3"],
+            ["this.1 -> a", "b -> this.3"],
+        ),
         body_pair_lines(
             ["pins.P1 -> a", "b -> pins.P3"],
             ["this.P1 -> a", "b -> this.P3"],
         ),
-        body_pair_lines(["pins{1} -> a", "b -> pins{3}"], ["this{1} -> a", "b -> this{3}"]),
         body_pair_lines(
-            ["pins{1:2} -> [a, b]", ""],
-            ["this{1:2} -> [a, b]", ""],
+            ["pins{1} -> a", "b -> pins{3}"],
+            ["this{1} -> a", "b -> this{3}"],
         ),
+        body_pair_lines(["pins{1:2} -> [a, b]", ""], ["this{1:2} -> [a, b]", ""]),
     ];
 
     for (pins_body, this_body) in cases {

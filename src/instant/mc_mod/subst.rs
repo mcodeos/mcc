@@ -753,6 +753,7 @@ mod tests {
                 value: "red".to_string(),
             }))],
             key_span: None,
+            pins_ids: None,
         };
         let value = McParamValue::InlineAttrs(vec![attr]);
         let elems = InstantiationBuilder::param_value_to_node_elements(&value);

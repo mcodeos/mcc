@@ -16,8 +16,28 @@ use crate::semantic::basic::mc_param::{McParamBindings, McParamValue, ParamBindE
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
 use crate::semantic::common::IOType;
 use crate::semantic::component::McComponent;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
+
+/// ★ U52: the pin ids a call-site pin row selects (`pins{6:9} = SWDBG`).
+/// Digits name one pin, a slice names the closed range, anything else names
+/// nothing — an id list is not a value, so no non-numeric member can be a pin.
+fn expand_pin_row_ids(ids: &[crate::semantic::basic::mc_ids::IdsSegment]) -> Vec<String> {
+    use crate::semantic::basic::mc_ids::IdsSegment;
+    let mut out = Vec::new();
+    for seg in ids.iter() {
+        match seg {
+            IdsSegment::Int(n) => out.push(n.value.to_string()),
+            IdsSegment::Slice { from, to } => {
+                for i in from.value..=to.value {
+                    out.push(i.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
 
 // McComponentInst - Component instance
 
@@ -51,6 +71,16 @@ pub struct McComponentInst {
     /// Resolved attributes (attr values with parameter references substituted at instantiation
     /// time)
     pub resolved_attrs: Vec<crate::semantic::component::mc_attr::McAttribute>,
+
+    /// ★ U48: pin ids this instance was explicitly marked not-connected at the
+    /// declaration site (`CHIP d1 @ncpin(1,3)`), already resolved from the
+    /// written pin ids / names / ranges to physical pin ids.
+    ///
+    /// The [semantic carry](crate::semantic::nc_pin) rides on the
+    /// *declaration* record (`Mc2Component.nc_pins`); this is its
+    /// *instantiation* counterpart, filled right after the instance is built
+    /// and read by the flat table. Empty for an unmarked instance.
+    pub nc_pins: BTreeSet<String>,
 
     /// NC (Not Connected) instance
     pub nc: bool,
@@ -90,6 +120,7 @@ impl McComponentInst {
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
+            nc_pins: BTreeSet::new(),
             nc: false,
             origin: InstOrigin::Declared,
             degraded: false,
@@ -113,6 +144,7 @@ impl McComponentInst {
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
+            nc_pins: BTreeSet::new(),
             nc: false,
             origin: InstOrigin::Declared,
             degraded: true,
@@ -131,7 +163,11 @@ impl McComponentInst {
         // §P1 C6: when a same-name constructor func exists, its params are
         // the arity authority (`FLASH.GD25Q32E flash(V3V3)` binds `V3V3` to
         // `func GD25Q32E([V3V3, GND]::DC(3.3V))`), not the class header params.
-        let params = match McParamBindings::bind_quiet(def.bind_params(), param_values) {
+        let params = match McParamBindings::bind_component(
+            def.bind_params(),
+            &def.attr_key_names(),
+            param_values,
+        ) {
             Ok(p) => p,
             // Component-Spec Separation: a missing required core parameter
             // does not block instantiation — pass1 reports it only in strict
@@ -139,7 +175,7 @@ impl McComponentInst {
             // supplied arguments. Excess / unknown / type-mismatched
             // arguments remain hard errors.
             Err(ParamBindError::MissingRequired { .. }) => McParamBindings::new(),
-            Err(e) => return Err(InstError::Other(format!("Parameter binding failed: {e:?}"))),
+            Err(e) => return Err(InstError::Other(e.to_string())),
         };
 
         let nc = param_values
@@ -155,6 +191,7 @@ impl McComponentInst {
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
+            nc_pins: BTreeSet::new(),
             nc,
             origin: InstOrigin::Declared,
             degraded: false,
@@ -179,6 +216,7 @@ impl McComponentInst {
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
+            nc_pins: BTreeSet::new(),
             nc: true,
             origin: InstOrigin::Declared,
             degraded: false,
@@ -189,6 +227,13 @@ impl McComponentInst {
 
         inst.init_pins();
         inst
+    }
+
+    /// ★ U48: attach the pin ids the declaration line marked not-connected.
+    /// Post-hoc setter (same shape as the other instance flags) so the three
+    /// construction sites keep their signatures.
+    pub fn set_nc_pins(&mut self, pins: BTreeSet<String>) {
+        self.nc_pins = pins;
     }
 
     /// Initialize pins of the component instance
@@ -212,6 +257,33 @@ impl McComponentInst {
         self.init_cond_attrs();
         // Resolve attribute values by substituting parameter references
         self.init_resolved_attrs();
+        // ★ U52: call-site pin rows win over everything the definition decided
+        self.init_call_pin_rows();
+    }
+
+    /// ★ U52: write the call site's pin rows (`pins{6:9} = SWDBG`) onto this
+    /// instance's pin-name face — the same face the definition's conditional
+    /// pin blocks write, so `insttab` / `show` / `print` consume them with no
+    /// change. `pins` is an identity clause, not an attribute (§1.6), so this is
+    /// the one call-site argument that names pins instead of binding a formal.
+    ///
+    /// A row renames only pins the definition already has: naming an id the
+    /// definition never declared does not invent a pin. The row's ids expand the
+    /// same way a definition-side pin row's do (`6:9` → 6,7,8,9).
+    fn init_call_pin_rows(&mut self) {
+        let rows = self.params.call_pin_rows().to_vec();
+        for (ids, values) in rows.iter() {
+            let names: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+            if names.is_empty() {
+                continue;
+            }
+            for pin_id in expand_pin_row_ids(ids) {
+                if !self.pins.contains_key(&pin_id) {
+                    continue;
+                }
+                self.cond_pin_names.insert(pin_id, names.clone());
+            }
+        }
     }
 
     /// Evaluate conditional pin blocks stored in the component definition
@@ -296,6 +368,8 @@ impl McComponentInst {
 
     /// Resolve attribute values by substituting parameter references at instantiation time.
     /// For example, `spec.volt = volt` with param binding `volt=12V` becomes `spec.volt = 12V`.
+    /// A call-site assignment to the key itself (`spec.volt = 12V` in the call's
+    /// `{ … }` block) replaces the definition's value outright.
     fn init_resolved_attrs(&mut self) {
         if self.def.attrs.is_empty() {
             return;
@@ -307,6 +381,8 @@ impl McComponentInst {
                 .iter()
                 .map(|v| self.resolve_attr_value(v))
                 .collect();
+            self.params
+                .apply_key_overrides(&[attr.id.to_string()], &mut resolved.values);
             self.resolved_attrs.push(resolved);
         }
     }
