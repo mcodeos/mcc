@@ -5,7 +5,7 @@
             "name": "mcc",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/mcc",
+            "program": "${workspaceFolder}/target/0/debug/mcc",
             "args": [
                 "parse",
                 "../mcs/hbl/src/hbl.mc"

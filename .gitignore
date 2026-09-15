@@ -2,6 +2,7 @@
 .claude/settings.json
 debug
 target
+target-slots
 Cargo.lock
 # The batch counter is shared and lives in the ledger repo: mcd/BUILDNr
 **/*.rs.bk

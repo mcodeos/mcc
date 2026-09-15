@@ -23,11 +23,13 @@
 //!
 //! ## Installation
 //!
-//!   1. Build the project with `cargo build --release`.
-//!   2. Create a symlink to the binary/bin`:
+//!   1. Build the project with `cargo build --release` (see `AGENTS.md`, "build
+//!      in a private slot", for where that lands).
+//!   2. Create a symlink to the slot launcher, which resolves the session's
+//!      build directory and execs the binary inside it:
 //!
 //!     ```bash
-//!     sudo ln -sf "$(pwd)/target/debug/mcc" /usr/local/bin/mcc
+//!     sudo ln -sf "$(pwd)/scripts/mcc-slot.sh" /usr/local/bin/mcc
 //!     ```
 //!
 //!     Alternatively, you can add the project directory to your `$PATH`.
