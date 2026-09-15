@@ -860,6 +860,7 @@ impl McPins {
 
             let mut iotype: Option<IOType> = None;
             let mut pinids: Option<McPinPort> = None;
+            let mut pin_id_node: Option<AstNode> = None;
             let mut pinnames: Option<McPinNames> = None;
             let mut pinnames_node: Option<AstNode> = None;
             let mut values: Option<Vec<McAttrVal>> = None;
@@ -876,6 +877,7 @@ impl McPins {
                     }
                     MCAST_PIN_ID => {
                         pinids = McPins::parse_pinid(&subnode);
+                        pin_id_node = Some(subnode.clone());
                         // §3.2.2: Track pin ID spans for LSP.
                         // subnode is MCAST_PIN_ID, whose `len` may have been
                         // extended by mc_value_link (C-side) to include the
@@ -1076,6 +1078,20 @@ impl McPins {
 
             // Only check pinids when there's no parameter reference
             let Some(pinids) = pinids else {
+                // The name side is static here (parameter-driven rows took the
+                // branch above), so the id side had to resolve statically too. An
+                // id that is parameter-driven instead (`1:A = B`) ships no pin at
+                // all; report the row instead of dropping it without a word.
+                if let Some(pid_node) = &pin_id_node {
+                    dlog_error(
+                        crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                        pid_node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                            &[],
+                        ),
+                    );
+                }
                 continue;
             };
 
@@ -3143,6 +3159,20 @@ impl McPinNames {
                                         );
                                     }
                                 }
+                            } else {
+                                // Static judgement: the option node yielded no pin. A
+                                // colon whose endpoints are not enumerable (e.g.
+                                // `1:A = B`) would otherwise be dropped without a word,
+                                // leaving the line with zero pins and the user with only
+                                // an indirect downstream error.
+                                dlog_error(
+                                    crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                    &exp_node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                        &[],
+                                    ),
+                                );
                             }
                         }
                         MCAST_OPD_SQUARE_VEC => {
@@ -3168,20 +3198,21 @@ impl McPinNames {
                                 }
                             }
                         }
-                        // Handle arithmetic expressions in pin names: + - * /
+                        // An arithmetic expression is not a pin name. The live
+                        // parameter-driven templates are the colon range
+                        // (`1:count`) and the bracketed name (`R[1:rows]C[1:cols]`),
+                        // both handled above; a bare identifier alone is a parameter
+                        // reference, but `A - B` is not a dynamic row and would
+                        // materialize no pin at all.
                         MCAST_OPD_MULTI | MCAST_OPD_DIVID | MCAST_OPD_PLUS | MCAST_OPD_MINUS => {
-                            if let Some(expr) = McExpression::new(&exp_node) {
-                                // Check for parameter references
-                                if dynamic::DynamicPinExpr::check_param_ref(&expr) {
-                                    myself.has_param_ref = true;
-                                    continue;
-                                }
-
-                                // For arithmetic expressions in pin names, try to evaluate
-                                if let Some(s) = expr.evaluate() {
-                                    myself.push_option(McPinPort::Single(s), err_node);
-                                }
-                            }
+                            dlog_error(
+                                crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                &exp_node,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                    &[],
+                                ),
+                            );
                         }
                         MCAST_DECLARE | MCAST_DECLARE_UV => {
                             // Parse MCAST_DECLARE directly to get class and instance names
