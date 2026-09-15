@@ -62,6 +62,10 @@ const LEAF: &str =
 /// A part whose pin 1 is NC at class level (`nc` direction word).
 const NCP: &str = "component NCP\n{\n    pins = [\n        nc 1 = A\n        io 2 = B\n    ]\n}\n";
 
+/// Two pins NC at class level (`nc` word) plus one ordinary pin, so the mixed
+/// instance — closed by both spellings at once — has members on either side.
+const MIXP: &str = "component MIXP\n{\n    pins = [\n        nc 1 = A\n        nc 2 = B\n        in 3 = C\n    ]\n}\n";
+
 struct Built {
     /// Paths of the entries flagged not-connected at the instance site — the
     /// structural fact, read straight off the flat table.
@@ -573,4 +577,43 @@ fn sem_instncpin__fully_marked_instance_reports_no_unwired_instance() {
         "{:?}",
         partial.diags
     );
+}
+
+/// The two spellings of "intentionally unconnected" are one fact for E4112 as
+/// well as for the pin-level family: an instance closed *partly* by the
+/// class-level `nc` and *partly* by the instance marker is still wholly
+/// deliberate, so nothing is reported. A class-level NC pin never carries
+/// `nc_marked` (the idempotence lock above), so reading the instance marker
+/// alone left this mixed instance loud — the boundary this test closes.
+#[test]
+fn sem_instncpin__class_nc_and_marker_close_one_instance_together() {
+    // Pins 1/2 are class-level NC, pin 3 is closed by the marker: nothing is
+    // connected and nothing of it is accidental.
+    let mixed = build(MIXP, "    MIXP d1 @ncpin(3)");
+    assert_eq!(mixed.marked_paths(), ["main.d1.3"]);
+    assert_eq!(
+        mixed.count(NET_INSTANCE_UNCONNECTED),
+        0,
+        "{:?}",
+        mixed.diags
+    );
+    assert_eq!(mixed.count(NET_INPUT_UNCONNECTED), 0, "{:?}", mixed.diags);
+    assert_eq!(mixed.count(NET_PARTIAL_CONNECTION), 0, "{:?}", mixed.diags);
+
+    // Control: the very same class-NC pins, the ordinary pin left open — the
+    // instance is not closed by anybody, so both reports stand.
+    let open = build(MIXP, "    MIXP d1");
+    assert_eq!(open.count(NET_INSTANCE_UNCONNECTED), 1, "{:?}", open.diags);
+    assert_eq!(open.count(NET_INPUT_UNCONNECTED), 1, "{:?}", open.diags);
+    assert_eq!(
+        open.only(NET_PARTIAL_CONNECTION),
+        "'main.d1' has 0 of 1 pins connected."
+    );
+
+    // Half-closed: the marker names the class-NC pin, which is a no-op — an
+    // ordinary pin is still open, so "deliberate" must not leak to it.
+    let half = build(MIXP, "    MIXP d1 @ncpin(1)");
+    assert!(half.marked.is_empty(), "{:?}", half.marked);
+    assert_eq!(half.count(NET_INSTANCE_UNCONNECTED), 1, "{:?}", half.diags);
+    assert_eq!(half.count(NET_INPUT_UNCONNECTED), 1, "{:?}", half.diags);
 }
