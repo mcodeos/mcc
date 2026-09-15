@@ -7,7 +7,13 @@
             "command": "cargo",
             "args": ["build"],
             "options": {
-                "cwd": "${workspaceFolder}"
+                "cwd": "${workspaceFolder}",
+                // Build into the editor's own slot, the one rust-analyzer
+                // already checks in (`.vscode/settings.json`), so the two warm
+                // each other instead of each paying for a cold target dir.
+                "env": {
+                    "CARGO_TARGET_DIR": "${workspaceFolder}/target/0"
+                }
             },
             "problemMatcher": ["$rustc"],
             "group": {

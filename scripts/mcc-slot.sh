@@ -7,11 +7,31 @@
 # whole of a build, so every session sharing one target dir queues behind the
 # others. A slot is a private target dir per session.
 #
-#   slot a -> target/       (the historical path; `target/debug/mcc` stays valid)
-#   slot b -> target/b/
+#   slot a -> target-slots/a/
+#   slot b -> target-slots/b/
+#   slot c -> target-slots/c/
+#
+# Slot 0 -> `target/0/` is **not claimable**: it belongs to the IDE, whose
+# rust-analyzer would otherwise hold a session's slot for the whole of a
+# `cargo check` and block that session's build. Point rust-analyzer at it with
+# `rust-analyzer.cargo.targetDir` (see `.vscode/settings.json`) and reach it
+# from a shell with `MCC_SLOT=0`. Because a claim never lands on 0, the IDE
+# never has to queue behind a session and a session never queues behind the IDE.
+#
+# The session slots live in `target-slots/`, **outside** slot 0's `target/`:
+# nested roots share a name space, so a `cargo clean` (or any stray file) at the
+# outer root would reach every slot inside it. Disjoint roots make each slot's
+# `cargo clean` reach only that slot.
+#
+# `mcc` on PATH and anything else that hardcoded `target/debug/mcc` must move to
+# the slot's own path (`target-slots/a/debug/mcc`) or to `$MCC_BIN`. A
+# compatibility symlink at `target/debug` would serve both, but it cannot exist
+# yet: an editor window that has not picked up `rust-analyzer.cargo.targetDir`
+# still checks in `target/debug`, and a symlink there would route those writes
+# back into slot `a`.
 #
 # The slot is pinned per session, so every command in one session keeps using
-# the same target dir and the same binary. The pin lives in `target/.slots/`
+# the same target dir and the same binary. The pin lives in `target-slots/.pins/`
 # keyed by the session identity, and records the top-most ancestor PID of the
 # session so a pin left behind by a dead session is reclaimed on the next claim.
 #
@@ -21,9 +41,12 @@
 #   eval "$(scripts/mcc-slot.sh)"    -> CARGO_TARGET_DIR, MCC_BIN, MCC_SLOT
 #
 #   mcc ...                          (symlinked as `mcc` on PATH) exec the
-#                                    pinned slot's binary with the given args
+#                                    pinned slot's binary with the given args.
+#                                    A bare `mcc` claims no slot: it uses the
+#                                    session's pin if there is one, else the
+#                                    first slot that holds a binary.
 #
-# Set MCC_SLOT=a or MCC_SLOT=b to force a slot.
+# Set MCC_SLOT=a, MCC_SLOT=b, MCC_SLOT=c or MCC_SLOT=0 to force a slot.
 
 set -eu
 
@@ -39,13 +62,17 @@ while [ -L "$script" ]; do
     esac
 done
 root=$(cd "$(dirname "$script")/.." && pwd)
-slots="a b"
-pin_dir="$root/target/.slots"
+slots="a b c"
+# Slot 0 is known but never claimed: it is the IDE's, not a session's.
+known_slots="0 $slots"
+pin_dir="$root/target-slots/.pins"
 
 slot_dir() {
     case "$1" in
-        a) printf '%s/target' "$root" ;;
-        b) printf '%s/target/b' "$root" ;;
+        0) printf '%s/target/0' "$root" ;;
+        a) printf '%s/target-slots/a' "$root" ;;
+        b) printf '%s/target-slots/b' "$root" ;;
+        c) printf '%s/target-slots/c' "$root" ;;
     esac
 }
 
@@ -139,6 +166,7 @@ claim_slot() {
 mkdir -p "$pin_dir"
 key=$(session_key)
 pin="$pin_dir/$key"
+mode=${0##*/}
 
 # An explicit MCC_SLOT is a one-off override; it leaves the session's pin alone.
 slot=${MCC_SLOT:-}
@@ -148,14 +176,30 @@ if [ -z "$slot" ]; then
     fi
     case " $slots " in
         *" $slot "*) ;;
-        *) slot=$(claim_slot) ;;
+        *)
+            if [ "$mode" = mcc ]; then
+                # A bare `mcc` is not a session and must not claim one: every
+                # terminal that ran it would take a slot and never give it
+                # back. Run the first slot that has a binary, else `a`.
+                slot=a
+                for s in $slots; do
+                    slot_warm "$s" && { slot=$s; break; }
+                done
+            else
+                slot=$(claim_slot)
+            fi
+            ;;
     esac
+fi
+
+# Only a session records a pin; a bare `mcc` reads one at most.
+if [ "$mode" != mcc ] || [ -f "$pin" ]; then
     printf '%s %s\n' "$slot" "$(top_ancestor)" > "$pin"
 fi
-case " $slots " in
+case " $known_slots " in
     *" $slot "*) ;;
     *)
-        printf 'mcc-slot: unknown slot "%s" (use a or b)\n' "$slot" >&2
+        printf 'mcc-slot: unknown slot "%s" (use %s)\n' "$slot" "$known_slots" >&2
         exit 2
         ;;
 esac
@@ -163,12 +207,12 @@ esac
 bin=$(slot_dir "$slot")/debug/mcc
 case "${0##*/}" in
     mcc)
-        if [ ! -x "$bin" ] && [ -x "$root/target/debug/mcc" ]; then
-            # A slot with no build yet must not break `mcc`; fall back to the
-            # historical path rather than failing.
+        if [ ! -x "$bin" ] && [ -x "$root/target-slots/a/debug/mcc" ]; then
+            # A slot with no build yet must not break `mcc`; fall back to
+            # slot a's binary rather than failing.
             printf 'mcc: slot %s has no binary yet, using %s\n' \
-                "$slot" "$root/target/debug/mcc" >&2
-            bin=$root/target/debug/mcc
+                "$slot" "$root/target-slots/a/debug/mcc" >&2
+            bin=$root/target-slots/a/debug/mcc
         fi
         if [ ! -x "$bin" ]; then
             printf 'mcc: no binary in build slot %s (%s)\n' "$slot" "$bin" >&2

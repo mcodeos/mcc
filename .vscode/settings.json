@@ -1,0 +1,9 @@
+{
+    // The editor gets a target dir of its own: rust-analyzer's `cargo check`
+    // holds `<target-dir>/<profile>/.cargo-lock` for its whole run, so pointing
+    // it at the shared `target/` (slot a) blocks whichever agent session holds
+    // that slot. Slot 0 is `target/0/`; `scripts/mcc-slot.sh` never hands it
+    // out, and `MCC_SLOT=0` reaches it from a shell. See AGENTS.md, "build in a
+    // private slot, not the shared target dir".
+    "rust-analyzer.cargo.targetDir": "target/0"
+}
