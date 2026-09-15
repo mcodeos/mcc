@@ -558,7 +558,6 @@ impl McConds {
             McCondOperand::Literal(val) => val.clone(),
         }
     }
-
 }
 
 // McFuncConds — parsed conditional blocks, storing McPhrase stmts for evaluation at instantiation
