@@ -882,16 +882,13 @@ impl InstTable {
     /// ★ U48: flag one entry as explicitly not-connected at the instance site.
     ///
     /// Idempotence by construction: an entry that is *already* NC at class
-    /// level — the `nc` direction word, or a pin option named `NC`/`nc` — is
-    /// left untouched, so [`InstEntry::nc_marked`] and the class-level markers
+    /// level (the `nc` direction word — the only definition-site spelling) is
+    /// left untouched, so [`InstEntry::nc_marked`] and the class-level marker
     /// never overlap and no downstream count subtracts the same pin twice. The
-    /// predicate is the same two arms `is_nc_entry` reads.
+    /// predicate is the same arm `is_nc_entry` reads.
     fn mark_nc(&mut self, id: u32) {
         if let Some(entry) = self.entries.get_mut(&id) {
-            let class_nc = matches!(entry.io_type, IOType::NonCon)
-                || entry.class_name == "NC"
-                || entry.class_name == "nc";
-            if !class_nc {
+            if !matches!(entry.io_type, IOType::NonCon) {
                 entry.nc_marked = true;
             }
         }

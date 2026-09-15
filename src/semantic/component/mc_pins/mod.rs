@@ -2340,12 +2340,10 @@ impl McPins {
         //     .push((iotype.clone(), names.to_vec(), self.current_line_idx));
         // §2.8: detect active-low if any name starts with '_'
         let active_low = names.iter().any(|n| n.starts_with('_'));
-        // §2.19: detect NC pin with OR semantics — either the `nc` iotype
-        // prefix maps to IOType::NonCon, or a name is the pin name `NC`/`nc`.
-        // Names compare exactly (spec/01 §2). Whichever hits first marks the
-        // pin as NC.
-        let is_nc =
-            matches!(&iotype, IOType::NonCon) || names.iter().any(|n| n == "NC" || n == "nc");
+        // §2.19: only the `nc` direction word (`IOType::NonCon`) marks a pin
+        // as NC. A pin merely *named* `NC` is a name like any other
+        // (`erc/nc-design.md` §4.1: names carry no NC semantics).
+        let is_nc = matches!(&iotype, IOType::NonCon);
 
         // If pinid already exists, append names instead of overwriting
         if let Some(existing) = self.pins.get_mut(pinid) {
