@@ -312,7 +312,7 @@ typedef struct mc_dlog_entry {
 
 // Parser error / warning codes (unified with dlog numbering)
 // Values follow mcd/doc/mcc-error-code-unification-plan.md: Pass1b parser
-// cluster 2080-2110 (errors) and 2111-2116 (warnings).
+// cluster 2080-2110 (errors), 2111-2115 (warnings), 2116 (error level).
 #define MCD_E1000_SYNTAX_ERROR          2080  // fallback: generic syntax error (mca_error)
 #define MCD_E1002_TOP_SKIPPED           2081  // mc_top: error — invalid top-level declaration
 #define MCD_E1003_CLAUSE_SKIPPED        2082  // mc_clause: error — invalid clause in body
@@ -349,7 +349,7 @@ typedef struct mc_dlog_entry {
 #define MCD_W1103_TRANSPOSE_ON_LITERAL  2113  // transpose (') on a literal has no effect
 #define MCD_W1104_CARET_ON_LITERAL      2114  // caret (^) on a literal has no effect
 #define MCD_W1105_EMPTY_BODY            2115  // empty body — component/module/func/role has no clauses
-#define MCD_W1106_EMPTY_PINS            2116  // empty pins declaration
+#define MCD_W1106_EMPTY_PINS            2116  // empty pins declaration — emitted at level 1 (error)
 
 void mc_dlog_add(unsigned int code, int level, unsigned int pos, unsigned int len, const char* msg);
 mc_dlog_entry* mcc_get_dlog_entries(void);
