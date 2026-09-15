@@ -2187,6 +2187,14 @@ impl InstantiationBuilder {
     fn stash_pass_through(&mut self, key: u32, inst_name: &str) {
         let return_ep =
             super::fcallinst::LAST_RETURN_ENDPOINT.with(|cell| cell.borrow_mut().take());
+        // U51 (`mcrule.md` §11.6): a chain artifact whose own call failed was
+        // retracted, so it is gone from both stores. Its return face is gone
+        // with it (the body never ran) — do not publish a key that resolves
+        // to nothing. The take above still happens either way so a stale
+        // endpoint cannot leak into the next statement.
+        if self.find_component(inst_name).is_none() && self.find_submodule(inst_name).is_none() {
+            return;
+        }
         let entry = return_ep.unwrap_or_else(|| AutoInst::Name(inst_name.to_string()));
         self.auto_inst_map.insert(key, entry);
     }

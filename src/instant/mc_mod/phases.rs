@@ -1727,7 +1727,10 @@ impl InstantiationBuilder {
             .get(inst_name)
             .and_then(|v| v.first().cloned())
             .map(|r| crate::semantic::common::SourcePos::new(self.def_uri.clone(), r.start as u32));
-        bindings = self.align_vector_bindings(&bindings, anchor);
+        // The unpairable signal (U51) belongs to the component-method
+        // channel; a declared instance's port binding reports through the
+        // port-connection path instead.
+        bindings = self.align_vector_bindings(&bindings, anchor).0;
 
         // skip set: names appearing in args (parent scope net) + parent module ports -> not
         // prefixed
