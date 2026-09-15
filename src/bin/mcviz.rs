@@ -30,7 +30,6 @@ use mcc::{
 
 // New P2 pipeline
 use mcc::viz::api::{render_with, RenderOpts};
-use mcc::viz::layout::FlowLayouter;
 use mcc::viz::template::wrap_document;
 
 fn main() {
@@ -207,22 +206,14 @@ fn build_opts(apply_promote: bool, layouter_name: Option<&str>) -> RenderOpts {
     opts.apply_promote = apply_promote;
 
     if let Some(name) = layouter_name {
-        match name {
-            "flow" => {
-                opts.top_layouter = Box::new(FlowLayouter::default());
-                opts.sub_layouter = Box::new(FlowLayouter::sub());
-                opts.top_candidates = vec![Box::new(FlowLayouter::default())];
-                opts.sub_candidates = vec![Box::new(FlowLayouter::sub())];
-                mcc_dbg!("viz", "[mcviz] locked layouter: top=flow sub=flow");
-            }
-            other => {
-                eprintln!(
-                    "Error: unknown layouter '{}'. Only 'flow' is supported.",
-                    other
-                );
-                process::exit(1);
-            }
+        if name != "flow" {
+            eprintln!(
+                "Error: unknown layouter '{}'. Only 'flow' is supported.",
+                name
+            );
+            process::exit(1);
         }
+        // "flow" is the default configuration; nothing to override.
     }
     opts
 }
