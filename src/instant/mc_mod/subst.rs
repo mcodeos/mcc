@@ -61,13 +61,7 @@ impl InstantiationBuilder {
                 .iter()
                 .flat_map(Self::param_value_to_node_elements)
                 .collect(),
-            McParamValue::Phrase(phrase) => {
-                // Net expression as parameter (e.g., [dc.VDD_3V3 -> wm7121.VCC])
-                // Return the left endpoint as the primary connection target.
-                // The -> connection itself is wired by the normal instantiation
-                // path (method body / func-return face, unified-twopin v2.0).
-                phrase.get_left()
-            }
+            McParamValue::Phrase(phrase) => Self::phrase_to_node_elements(phrase),
             McParamValue::InlineAttrs(attrs) => {
                 // P1-6: Attribute blocks (`key = value`) are NOT net elements.
                 // The previous `_ =>` fallback degraded them into a fabricated
@@ -93,6 +87,29 @@ impl InstantiationBuilder {
                     full_members: Vec::new(),
                 }]
             }
+        }
+    }
+
+    /// Convert a phrase actual to McBus(s).
+    ///
+    /// A net expression as parameter (e.g., `[dc.VDD_3V3 -> wm7121.VCC]`)
+    /// contributes its left endpoint as the primary connection target; the
+    /// `->` connection itself is wired by the normal instantiation path
+    /// (method body / func-return face, unified-twopin v2.0).
+    ///
+    /// A parenthesized list `(a, b)` written in an argument table is one of
+    /// the enumerating forms (param-prefix-design §3.1): it contributes one
+    /// leaf per member, exactly like `X{a, b}` or `X[1:2]`. Taking the group's
+    /// own face would report only `opds[0]` and drop the remaining members
+    /// before the leaf count is made — a silent member loss.
+    fn phrase_to_node_elements(phrase: &McPhrase) -> Vec<McBus> {
+        match phrase {
+            McPhrase::Group(g) => g
+                .opds
+                .iter()
+                .flat_map(Self::phrase_to_node_elements)
+                .collect(),
+            _ => phrase.get_left(),
         }
     }
 
