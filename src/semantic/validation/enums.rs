@@ -29,7 +29,13 @@ impl ValidationCheck for EnumsCheck {
         check_duplicate_enum_values(acc); // U2
         check_invalid_enum_member_names(acc); // U3
         check_self_ref_attr(acc); // N3
-        check_duplicate_attr_keys(acc); // N6-extra
+
+        // The duplicate-attribute-key sweep (N6-extra) is gone as of U43: it
+        // covered only component and interface bodies, it reported under
+        // 5407 (RANGE_REVERSED, a borrowed code), and it claimed the last
+        // declaration takes effect. The check now sits where every source-fed
+        // attribute list is built — `McAttributes::parse` — under its own code
+        // 5359, so bodies and pin/port/net rows are judged alike.
     }
 }
 
@@ -227,71 +233,6 @@ fn check_self_ref_attr(acc: &mut CheckAccumulator) {
                     });
                     break;
                 }
-            }
-        }
-    }
-}
-
-// Duplicate attribute keys (N6-extra)
-
-/// Detect duplicate attribute keys within a single component or interface.
-/// e.g. `manufacturer = "TI"` followed by `manufacturer = "ST"` silently
-/// overwrites — the second value wins, which may not be intended.
-fn check_duplicate_attr_keys(acc: &mut CheckAccumulator) {
-    let comps = crate::definition_space().workspace_components();
-    for (sn, comp) in comps.iter() {
-        let uri = sn.uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let mut seen: HashSet<String> = HashSet::new();
-        for attr in comp.attrs.iter() {
-            let key_str = attr.id.to_string();
-            if key_str.is_empty() {
-                continue;
-            }
-            if !seen.insert(key_str.clone()) {
-                acc.push(CheckResult {
-                    check_name: "enums",
-                    severity: CheckSeverity::Warning,
-                    uri: Some(uri.clone()),
-                    span: attr.key_span.clone(),
-                    message: format!(
-                        "Component '{}': attribute '{}' is defined multiple times. \
-                         Only the last value takes effect.",
-                        comp.name, key_str
-                    ),
-                    code: crate::errcodes::RANGE_REVERSED,
-                });
-            }
-        }
-    }
-
-    let ifaces = crate::definition_space().workspace_interfaces();
-    for (sn, iface) in ifaces.iter() {
-        let uri = sn.uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let mut seen: HashSet<String> = HashSet::new();
-        for attr in iface.attrs.iter() {
-            let key_str = attr.id.to_string();
-            if key_str.is_empty() {
-                continue;
-            }
-            if !seen.insert(key_str.clone()) {
-                acc.push(CheckResult {
-                    check_name: "enums",
-                    severity: CheckSeverity::Warning,
-                    uri: Some(uri.clone()),
-                    span: attr.key_span.clone(),
-                    message: format!(
-                        "Interface '{}': attribute '{}' is defined multiple times. \
-                         Only the last value takes effect.",
-                        iface.name, key_str
-                    ),
-                    code: crate::errcodes::RANGE_REVERSED,
-                });
             }
         }
     }

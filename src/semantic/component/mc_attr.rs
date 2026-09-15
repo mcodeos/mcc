@@ -38,6 +38,7 @@ impl McAttributes {
 
     pub fn parse(&mut self, node: &AstNode) {
         if let Some(attribute) = McAttribute::new(node) {
+            report_duplicate_key(self, &attribute, node);
             self.push(attribute);
         }
     }
@@ -266,6 +267,41 @@ fn report_fused_subscript_key(ids: &McIds, node: &AstNode) {
             "Attribute key '{}' carries a subscript in its first segment, where a \
              subscript selects nothing: the row declares no attribute.{}",
             ids, hint
+        ),
+    );
+}
+
+/// One attribute list, one declaration per key: report a key that arrives in a
+/// list that already holds it (U43).
+///
+/// The list *is* the declaration site — one row's trailing `@attr…`, one body —
+/// and it is flat, so `@class(analog) @class(digital)` leaves two entries
+/// standing and no merge ever happened. Which of the two a reader sees is the
+/// reader's business (`find` takes the first; `decode_component_spec` walks
+/// them all), and that is why the duplicate is worth naming once, here, instead
+/// of leaving each reader to it. A key whose declarations are meant to
+/// accumulate says so in the registry's arity column; the values are not
+/// compared, so a repeat of the *same* value is reported too.
+///
+/// Keys are compared whole: `spec` and `spec.sub1` are two keys, and two
+/// different sub-keys of one namespace are never duplicates of each other.
+///
+/// Only source-fed lists come through here: a list a later row merges into
+/// (`attach_row_attrs`, first declaration wins) is built by `push`, not by
+/// `parse`, so a pin declared twice on two rows is not this check's business.
+fn report_duplicate_key(attrs: &McAttributes, attribute: &McAttribute, node: &AstNode) {
+    use crate::semantic::basic::attr_keys::{self, AttrKeyArity};
+    let repeated = attrs.iter().any(|a| a.id == attribute.id);
+    if !repeated || attr_keys::arity_of(&attribute.id.to_string()) != AttrKeyArity::Single {
+        return;
+    }
+    crate::db::diagnostic::diagnostic::dlog_warning(
+        crate::errcodes::ATTR_KEY_DUPLICATE,
+        node,
+        &format!(
+            "Attribute key '{}' is declared more than once in one attribute list. \
+             A single-valued key carries one declaration; the declarations are not merged.",
+            attribute.id
         ),
     );
 }

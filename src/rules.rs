@@ -1702,6 +1702,8 @@ mod tests {
         crate::errcodes::ENUM_MEMBER_LEADING_DIGIT,
         crate::errcodes::ENUM_MEMBER_RESERVED,
         crate::errcodes::ATTR_SELF_REFERENTIAL,
+        // Not this block's host: the code's producer is `exprs`. The entry
+        // sits here because this array mirrors table order, not producers.
         crate::errcodes::RANGE_REVERSED,
         // attrs
         crate::errcodes::ATTR_RESERVED_KEYWORD,
@@ -2431,15 +2433,17 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         doc = "Attribute value equals its own key; likely a copy-paste mistake.",
         lock = "tests/lock_pp_duplicates.rs",
     },
-    // Range/vector syntax check; also fired by the exprs host at the same
-    // Warning level (range-literal reversal), so this single row covers both.
+    // Range/vector syntax check, fired by the exprs host (range-literal
+    // reversal). Until U43 the enums host also emitted this code, for a
+    // duplicate attribute key that had borrowed it; that producer is retired
+    // and the duplicate-key rule now has its own code (5359, parse-time).
     declare_post_parse_rule! {
         code = crate::errcodes::RANGE_REVERSED,
         name = "range-reversed",
         title = "range appears reversed",
         severity = Warning,
         domain = Structure,
-        host = "enums",
+        host = "exprs",
         doc = "Range appears reversed; did you mean the opposite order?",
         lock = "tests/lock_pp_duplicates.rs",
     },

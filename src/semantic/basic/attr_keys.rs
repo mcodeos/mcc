@@ -11,13 +11,15 @@
 //! yields a nested attribute list or a KVS record, an unbounded shape that
 //! carries no schema of its own.
 //!
-//! Every row answers two questions, asked by different consumers:
+//! Every row answers three questions, asked by different consumers:
 //!
 //!   * [`AttrKeyDef::general`] — may the word be used as a general attribute
 //!     key at all? Words the grammar reserves in attribute position answer
 //!     `false` (N1, `validation/attrs.rs`).
 //!   * [`AttrKeyDef::class`] — which semantic class does a value stored under
 //!     this key belong to? (D5, `doc/attribute/contract-design.md` §3.3).
+//!   * [`AttrKeyDef::arity`] — how many declarations of this key may one
+//!     attribute list hold? ([`arity_of`], U43).
 //!
 //! Contract: `mcd/doc/attribute/contract-design.md` §1.7 (G6, the single
 //! registration point) and §3.3 (D5, the key decides value semantics). The key
@@ -39,7 +41,29 @@ pub(crate) enum AttrKeyClass {
     Voltage,
 }
 
-/// One row of the dictionary: a first-level key and its two columns.
+/// How many declarations of one key a single attribute list may hold.
+///
+/// A list is one declaration site (a row's trailing `@attr…`, a body), and it
+/// is flat: `@class(analog) @class(digital)` leaves both entries standing, so
+/// which one a reader sees depends on the reader. This column is where a key
+/// says whether that is allowed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AttrKeyArity {
+    /// The default, and the rule for every key not registered below: one
+    /// declaration. A second one in the same list is a duplicate.
+    Single,
+    /// The declarations accumulate. This is the exception the column exists
+    /// for; **no row claims it today** — no key in the 116-file live corpus is
+    /// declared twice at one site, and none has a union rather than a clash
+    /// behind its repetition. The registration point is open here (U43).
+    ///
+    /// Unconstructed on purpose: the arm is live the day a key needs it, and
+    /// the compiler must not be told the question is closed.
+    #[allow(dead_code)]
+    Set,
+}
+
+/// One row of the dictionary: a first-level key and its three columns.
 pub(crate) struct AttrKeyDef {
     pub(crate) key: &'static str,
     /// May the key be used as a general attribute key (`key = ...`)?
@@ -52,6 +76,9 @@ pub(crate) struct AttrKeyDef {
     /// column is filled now so that landing adds a reader rather than a second
     /// table.
     pub(crate) class: AttrKeyClass,
+    /// How many declarations of this key one attribute list may hold (U43).
+    /// [`arity_of`] is its reader.
+    pub(crate) arity: AttrKeyArity,
 }
 
 /// Does `key` name a supply voltage? (HW1)
@@ -66,6 +93,10 @@ pub(crate) fn is_voltage_key(key: &str) -> bool {
 
 /// The dictionary. Rows are added when a consumer needs them; a key with no
 /// registered row is not yet known to the compiler, not silently accepted.
+///
+/// A key that may repeat in one attribute list is written out as a literal
+/// row carrying `AttrKeyArity::Set` rather than through [`row`], so the one
+/// exception is visible where it is made.
 pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     // Words the grammar reserves in attribute position (N1). They name no
     // value, so they can never be general attribute keys.
@@ -106,12 +137,24 @@ const fn row(key: &'static str, general: bool, class: AttrKeyClass) -> AttrKeyDe
         key,
         general,
         class,
+        arity: AttrKeyArity::Single,
     }
 }
 
 /// Look up one key in the dictionary.
 pub(crate) fn lookup(key: &str) -> Option<&'static AttrKeyDef> {
     ATTR_KEYS.iter().find(|d| d.key == key)
+}
+
+/// How many declarations of `key` one attribute list may hold (U43).
+///
+/// An unregistered key is [`AttrKeyArity::Single`]: the default is that a key
+/// written twice in one list is a duplicate, and the rows above are where a
+/// key says otherwise. `key` is the whole dotted key as written
+/// (`spec.sub1`), not its first segment — two different sub-keys of one
+/// namespace are two keys, and never duplicates of each other.
+pub(crate) fn arity_of(key: &str) -> AttrKeyArity {
+    lookup(key).map_or(AttrKeyArity::Single, |d| d.arity)
 }
 
 /// Is `key` reserved in attribute position? (N1)
