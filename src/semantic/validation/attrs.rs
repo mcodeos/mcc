@@ -97,7 +97,11 @@ fn check_reserved_attr_name(comp: &crate::McComponent, uri: &str, acc: &mut Chec
 /// the check can actually fire. The previous form collected the first segments
 /// of the component's own attributes as the known set, which always contained
 /// the segment under test and made the predicate a tautology.
-fn check_unresolvable_dotted_name(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccumulator) {
+fn check_unresolvable_dotted_name(
+    comp: &crate::McComponent,
+    uri: &str,
+    acc: &mut CheckAccumulator,
+) {
     let comp_name = entry_key_ident(comp);
 
     for attr in comp.attrs.iter() {

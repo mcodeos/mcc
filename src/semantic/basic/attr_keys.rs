@@ -77,7 +77,11 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
 ];
 
 const fn row(key: &'static str, general: bool, class: AttrKeyClass) -> AttrKeyDef {
-    AttrKeyDef { key, general, class }
+    AttrKeyDef {
+        key,
+        general,
+        class,
+    }
 }
 
 /// Look up one key in the dictionary.
