@@ -19,7 +19,7 @@
 //!
 //! | need | reused from |
 //! |---|---|
-//! | how many lanes a member spans | `member_lane_width` |
+//! | how many lanes a member spans | `member_lane_width` — the member's own point expansion |
 //! | which items a lane holds, in order | `collect_lane_items` / `LaneItem` |
 //! | the lane's point within a face | `pick_lane_point` |
 //! | the transposed member's lane pin | `collect_lane_items` (`get_transposed_lane_pin`) |
@@ -60,11 +60,13 @@ impl InstantiationBuilder {
         gaps: &[ConnDir],
     ) -> Result<Vec<LaneOutcome>, InstError> {
         debug_assert_eq!(gaps.len(), members.len().saturating_sub(1));
-        let num_lanes = members
-            .iter()
-            .map(|m| self.member_lane_width(m))
-            .max()
-            .unwrap_or(0);
+
+        // One expansion per member, computed once and reused by both the lane
+        // loop (how many lanes the chain spans) and the per-lane item
+        // collection (which of those lanes a given member occupies). Neither
+        // may keep its own count of the member's width.
+        let widths: Vec<usize> = members.iter().map(|m| self.member_lane_width(m)).collect();
+        let num_lanes = widths.iter().copied().max().unwrap_or(0);
         if num_lanes == 0 {
             return Ok(Vec::new());
         }
@@ -115,7 +117,7 @@ impl InstantiationBuilder {
 
         let mut out = Vec::new();
         for lane in 0..num_lanes {
-            out.push(self.vexpr_one_lane(members, gaps, lane)?);
+            out.push(self.vexpr_one_lane(members, &widths, gaps, lane)?);
         }
         Ok(out)
     }
@@ -125,6 +127,7 @@ impl InstantiationBuilder {
     fn vexpr_one_lane(
         &mut self,
         members: &[McPhrase],
+        widths: &[usize],
         gaps: &[ConnDir],
         lane: usize,
     ) -> Result<LaneOutcome, InstError> {
@@ -135,7 +138,7 @@ impl InstantiationBuilder {
         // produced `series[i]`, which is what maps an element gap back to its
         // member-boundary direction (a member may be skipped on a lane, so the
         // element index is not the member index).
-        let items = self.collect_lane_items(members, lane);
+        let items = self.collect_lane_items(members, widths, lane);
         let mut series: Vec<&McPhrase> = Vec::new();
         let mut origins: Vec<usize> = Vec::new();
         let mut bridges_at: Vec<Vec<NetPoint>> = Vec::new();

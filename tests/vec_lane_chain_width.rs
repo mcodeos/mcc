@@ -20,6 +20,12 @@
 //!   multi-lane series operand. The reduction must keep **width = N**, i.e.
 //!   every lane including the middle ones (lanes 2..3, pins 9/10) must wire --
 //!   the truncation the fixture guards against drops the middle lanes.
+//! * **④ declared port label lane chain** -- a two-member port (`psnk
+//!   dc{VDD_3V3, GND}`) as the head of a chain that passes through a `_` return
+//!   lane into a resistor pair (`periph.mc:39`). The label owns no member list
+//!   (the port declaration does), so a walk that reads the label's members
+//!   answers 1 and the port drops off every lane but the first -- leaving the
+//!   return lane headless and the return-side resistor unwired.
 
 // Family naming `{family}__{essence}` uses a doubled underscore to separate the
 // grep-able family token from the essence (matrix §1 taxonomy).
@@ -40,6 +46,17 @@ const SPI4: &str =
 /// The four-member counterpart the bracket bus is chained to.
 const LOAD4: &str =
     "component LOAD4 {\n    pins = [\n        io [8:11] = SPI{SCLK, MOSI, CSN, MISO}\n    ]\n}\n";
+
+/// A two-member declared port (`psnk dc{VDD_3V3, GND}`) at the head of a lane
+/// chain, wired through a return-lane pass (`_`) into a resistor pair -- the
+/// real-board `MIC_SIP.dc` bias-network shape (`mcs` `periph.mc:39`).
+const PORT_HEAD_CHAIN: &str = r#"module top(psnk dc{VDD_3V3, GND}::DC(3.3V)) {
+    SINK2 sink
+    dc -> [r1::RES(1kΩ, ±1%), _] + c1::CAP(1uF, ±10%)'
+        -> [r2::RES(1kΩ, ±1%), r3::RES(1kΩ, ±1%)]
+        -> sink{A, B}
+}
+"#;
 
 /// Return every (entry path, net name) pair of the flat pass-2 netlist.
 fn net_pairs(src: &str, uri: &str) -> Vec<(String, String)> {
@@ -198,5 +215,44 @@ fn bracket_bus__middle_two_members_keep_their_lanes() {
     assert_ne!(
         n9, n10,
         "the two middle lanes must stay distinct; pairs: {pairs:?}"
+    );
+}
+
+/// ④ -- a **declared two-member port label** as the head of a lane chain
+/// (`periph.mc:39`, `hbl.mc:38`). The label carries no member list of its own
+/// -- the members live in the port declaration -- so a walk that reads a
+/// label's members answers 1 and the port lands on the first lane only. The
+/// chain is then headless on the return lane: the return-side resistor's input
+/// pin wires to nothing. That is the dropped DC return the real board patched
+/// by hand (`VMIC.GND - dc.GND`). Width must come from the port's own
+/// expansion, so the port occupies every lane its face spans.
+#[test]
+fn port_label__lane_chain_keeps_the_return_lane_head() {
+    let src = format!("{SINK2}{PORT_HEAD_CHAIN}");
+    let c = codes(&src, "/mcc/lcw-port-head.mc");
+    assert!(
+        !c.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH)
+            && !c.contains(&mcc::errcodes::CONN_STMT_PARSE_FAILED),
+        "the port-head lane chain must be legal; got codes: {c:?}"
+    );
+
+    let pairs = net_pairs(&src, "/mcc/lcw-port-head.mc");
+    // `net_of` panics when a point reached no net at all -- which is exactly
+    // what a dropped return-lane head leaves behind.
+    assert_eq!(
+        net_of(&pairs, "r3.1"),
+        net_of(&pairs, "dc.GND"),
+        "the return lane's head must reach the return-side resistor; pairs: {pairs:?}"
+    );
+    assert_eq!(
+        net_of(&pairs, "r3.2"),
+        net_of(&pairs, "sink.2"),
+        "the return lane must wire through to the sink; pairs: {pairs:?}"
+    );
+    // No mirror: the hot rail stays on the hot lane.
+    assert_ne!(
+        net_of(&pairs, "dc.VDD_3V3"),
+        net_of(&pairs, "dc.GND"),
+        "the two rails must stay distinct lanes; pairs: {pairs:?}"
     );
 }
