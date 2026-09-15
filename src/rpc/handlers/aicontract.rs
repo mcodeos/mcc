@@ -16,17 +16,35 @@ pub fn handle_check(params: Option<Value>) -> RpcResult {
         let uri = super::make_overlay_uri();
         crate::mcc_load_from_string(&uri, content);
 
-        // Phase 8.2: unified diagnostic serialization via lsp/diagnostics
-        let diags = crate::lsp::diagnostics::collect_all_full();
-        let errors = diags.iter().filter(|d| d["severity"] == "error").count();
-        let warnings = diags.iter().filter(|d| d["severity"] == "warning").count();
+        // Phase 8.2: unified diagnostic serialization via lsp/diagnostics,
+        // scoped to the overlay candidate file only. `collect_all_full` would
+        // also surface every other file in the workspace — during an agent
+        // edit the on-disk project is frequently mid-edit (broken), and that
+        // noise must not fail a dry-run of the candidate content.
+        let diags: Vec<Value> = crate::mcc_diagnose(&uri)
+            .iter()
+            .map(crate::lsp::diagnostics::diagnostic_to_json_full)
+            .collect();
+        // Compiler fault tolerance: diagnostics located in system-library
+        // files are external library noise, not the user's circuit. A broken
+        // third-party library must not fail the user's check — count them
+        // separately, keep the summary over the user's own files only, and
+        // drop the library entries from the returned list.
+        let (user, lib): (Vec<Value>, Vec<Value>) = diags
+            .into_iter()
+            .partition(|d| !super::diag_in_system_lib(d));
+        let errors = user.iter().filter(|d| d["severity"] == "error").count();
+        let warnings = user.iter().filter(|d| d["severity"] == "warning").count();
+        let lib_errors = lib.iter().filter(|d| d["severity"] == "error").count();
+        let lib_warnings = lib.iter().filter(|d| d["severity"] == "warning").count();
 
         // Phase 8.1: clean up overlay so it doesn't accumulate in workspace
         super::remove_overlay(&uri);
 
         return Ok(json!({
             "summary": { "errors": errors, "warnings": warnings },
-            "diagnostics": diags,
+            "diagnostics": user,
+            "library": { "errors": lib_errors, "warnings": lib_warnings },
         }));
     }
 

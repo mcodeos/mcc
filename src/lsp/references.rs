@@ -14,10 +14,32 @@
 //! same symbol in every file, making the cross-file span scan exact.
 
 use crate::db::cmie::tables::WORKSPACE;
+use crate::refdef::types::SymbolKind;
 use crate::semantic::common::uri_intern;
 use crate::McURI;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+/// P1 refs whitelist — reference kinds worth showing in the refs panel.
+///
+/// Netlist-meaningful symbols: component/module classes, instances, enum
+/// values and net labels (both def and ref sides). Type-level noise — pin
+/// interfaces (`cap::UV.CAP`), params, ports, funcs, bus members — never
+/// reaches the panel, so "find references" stays on the circuit structure
+/// instead of the type system.
+pub fn is_whitelisted_ref_kind(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::ClassDef
+            | SymbolKind::ClassRef
+            | SymbolKind::InstDef
+            | SymbolKind::InstRef
+            | SymbolKind::EnumDef
+            | SymbolKind::EnumRef
+            | SymbolKind::LabelDef
+            | SymbolKind::LabelRef
+    )
+}
 
 /// Legacy name-based find-references (kept for `mcc refs <name>` and the
 /// name-only RPC path). Scans the workspace local symbol tables for instance
@@ -94,12 +116,17 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
     let def_file_id = uri_intern(&def_uri).0;
 
     // ② Reverse index: every (ref_kind, ref_id) that resolved to the def.
+    // P1: the whitelist gates which ref kinds enter the panel — type-level
+    // noise (pin interfaces, params, ...) is dropped here so the frontend
+    // only renders circuit-meaningful references.
     let mut refs: BTreeSet<(u8, u32)> = BTreeSet::new();
     for entry in WORKSPACE.mcodes.iter() {
         if let Ok(s) = entry.value().symbols.lock() {
             if let Some(m) = s.ref_def_map.as_ref() {
                 for &(rk, rid) in m.get_refs_for_def(def_kind, def_file_id, def_start, def_end) {
-                    refs.insert((rk as u8, rid));
+                    if is_whitelisted_ref_kind(rk) {
+                        refs.insert((rk as u8, rid));
+                    }
                 }
             }
         }
@@ -122,7 +149,8 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
         }
     }
 
-    // ④ Assemble: the definition itself plus every located ref.
+    // ④ Assemble: the definition itself plus every located ref. Each item
+    // carries its `kind` so the frontend can badge the symbol type.
     let mut out: BTreeMap<(String, usize, usize), Value> = BTreeMap::new();
     out.insert(
         (def_uri.clone(), def_start as usize, def_end as usize),
@@ -132,6 +160,7 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
             "pos": def_start,
             "end": def_end,
             "def": true,
+            "kind": def_kind as u8,
         }),
     );
     for (rk, rid) in refs {
@@ -139,10 +168,109 @@ pub fn find_at(uri: &str, offset: usize, name_hint: Option<&str>) -> Vec<Value> 
             for (u, s, e) in spans {
                 out.insert(
                     (u.clone(), *s, *e),
-                    json!({ "uri": u, "scope": "", "pos": s, "end": e, "def": false }),
+                    json!({ "uri": u, "scope": "", "pos": s, "end": e, "def": false, "kind": rk }),
                 );
             }
         }
     }
     out.into_values().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// P1 refs whitelist regression: the panel must only ever receive
+    /// netlist-meaningful kinds. A class reference resolves to the ClassDef
+    /// and its ClassRef usage sites; the definition site is returned with
+    /// `def: true`; every item carries a whitelisted `kind`. Enum defs
+    /// resolve to their own site with no reference noise.
+    #[test]
+    fn find_at_respects_refs_whitelist() {
+        let _guard = crate::db::infra::init::MCC_TEST_PARSE_LOCK
+            .lock()
+            .expect("lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let src = r#"
+enum PKG { DIP8, SOIC8 }
+component RES (ohm::UV.OHM)
+{
+    pins = [ 1 = 1, 2 = 2 ]
+}
+component CAP (cap::UV.CAP, volt::UV.VOLT, tolerance::UV.PERCENT)
+{
+    pins = [ 1 = 1, 2 = 2 ]
+}
+module main
+{
+    RES r1(10K)
+    CAP c1
+    r1.1 -> c1.1
+    r1.2 -> V5V
+    c1.2 -> GND
+}
+"#;
+        let uri: McURI = "/mcc/refs-whitelist.mc".to_string();
+        crate::mcc_load_from_string(&uri, src);
+        crate::mcc_build(&crate::McIds::from("main"), &uri).expect("build failed");
+        // App flow: load_project parses all modules AFTER string-loading the
+        // entry, which is what builds the lapper with instance/label intervals.
+        crate::build::pass1::mcb_parse_all_modules();
+
+        // Class reference: the `CAP` in `CAP c1` resolves to the ClassDef;
+        // the reverse index contributes the ClassRef at the usage site, and
+        // the definition site is returned with def=true.
+        let cap_off = src.find("CAP c1").expect("CAP c1");
+        let cap_items = find_at(&uri, cap_off, Some("CAP"));
+        assert!(!cap_items.is_empty(), "class ref must resolve");
+        let cap_kinds: Vec<u8> = cap_items
+            .iter()
+            .map(|it| it["kind"].as_u64().unwrap_or(0) as u8)
+            .collect();
+        assert!(
+            cap_kinds
+                .iter()
+                .all(|&k| is_whitelisted_ref_kind(SymbolKind::from_raw(k).expect("raw kind"))),
+            "every CAP ref kind must be whitelisted, got {cap_kinds:?}"
+        );
+        let cap_defs = cap_items
+            .iter()
+            .filter(|it| it["def"].as_bool().unwrap_or(false))
+            .count();
+        assert_eq!(cap_defs, 1, "class ref must include the definition site");
+        // The usage site `CAP c1` must be among the refs.
+        assert!(
+            cap_items.iter().any(|it| {
+                it["pos"].as_u64().unwrap_or(0) as usize == cap_off
+                    && it["def"].as_bool().unwrap_or(false) == false
+            }),
+            "class usage site must be reported as a reference"
+        );
+
+        // Enum definition: resolves to the EnumDef site; still whitelisted
+        // and carries def=true — no type-level noise leaks in.
+        let pkg_off = src.find("enum PKG").expect("enum PKG");
+        let pkg_items = find_at(&uri, pkg_off, Some("PKG"));
+        assert!(!pkg_items.is_empty(), "enum def must resolve");
+        let pkg_kinds: Vec<u8> = pkg_items
+            .iter()
+            .map(|it| it["kind"].as_u64().unwrap_or(0) as u8)
+            .collect();
+        assert!(
+            pkg_kinds
+                .iter()
+                .all(|&k| is_whitelisted_ref_kind(SymbolKind::from_raw(k).expect("raw kind"))),
+            "every PKG kind must be whitelisted, got {pkg_kinds:?}"
+        );
+        assert_eq!(
+            pkg_items
+                .iter()
+                .filter(|it| it["def"].as_bool().unwrap_or(false))
+                .count(),
+            1
+        );
+    }
 }

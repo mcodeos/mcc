@@ -108,8 +108,15 @@ impl ValidationCheck for DuplicateCmieCheck {
             }
 
             for (kind, uris) in &kind_uris {
-                // Filter out test files
-                let non_test: Vec<_> = uris.iter().filter(|u| !super::is_test_file(u)).collect();
+                // Filter out test files and AI dry-run overlays. An overlay
+                // (`/mcc/check_N.mc`) is a candidate *replacement* for a file in
+                // the workspace, not a second definition — it must not trip the
+                // cross-file duplicate check against the file it will replace.
+                let non_test: Vec<_> = uris
+                    .iter()
+                    .filter(|u| !super::is_test_file(u))
+                    .filter(|u| !u.starts_with("/mcc/"))
+                    .collect();
                 if non_test.len() > 1 {
                     let kind_str = match kind {
                         CmieKind::Component => "component",
