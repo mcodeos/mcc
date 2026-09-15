@@ -5,10 +5,9 @@
 //! Top-level rendering API
 //!
 //! ## ★ PR-1 — single-layouter pipeline
-//! The default candidate pool is collapsed to a single layouter, **circuit_flow**
-//! (`FlowLayouter`), at both top and sub level. generate-and-rank is retired in
-//! `layout::select::layout_best`, which now runs one layouter and applies a
-//! fidelity gate instead of ranking N candidates. "What you edit is what you see."
+//! One layouter, **circuit_flow** (`FlowLayouter`), runs at both top and sub level.
+//! generate-and-rank is retired; `layout::select::layout_best` runs the single
+//! layouter and applies a fidelity gate instead of ranking N candidates.
 //!
 //! ## ★ P03 (S1) changes
 //! - Deleted `apply_route: bool` field, route now always executes (single pipeline)
@@ -42,37 +41,17 @@ pub struct RenderOpts {
     pub renderer: Box<dyn Renderer>,
     /// Whether to promote at top level (P1)
     pub apply_promote: bool,
-    /// Top-level candidate layouters for the layout pipeline.
-    /// PR-1: single candidate (circuit_flow).
-    pub top_candidates: Vec<Box<dyn Layouter>>,
-    /// Sub-level candidate layouters for the layout pipeline.
-    /// PR-1: single candidate (circuit_flow / FlowLayouter::sub()).
-    pub sub_candidates: Vec<Box<dyn Layouter>>,
 }
 
 impl Default for RenderOpts {
     fn default() -> Self {
-        let top = FlowLayouter::default();
-        let sub = FlowLayouter::sub();
         Self {
-            top_layouter: Box::new(top),
-            sub_layouter: Box::new(sub),
+            top_layouter: Box::new(FlowLayouter::default()),
+            sub_layouter: Box::new(FlowLayouter::sub()),
             renderer: Box::new(DefaultRenderer),
             apply_promote: true,
-            // ★ PR-1: single-layouter pipeline. circuit_flow (FlowLayouter) is the
-            //   only candidate at both levels. generate-and-rank is retired — see
-            //   layout::select::layout_best. The alternate layouters are kept in the
-            //   tree and reachable via the explicit constructors below.
-            top_candidates: vec![Box::new(FlowLayouter::default())],
-            sub_candidates: vec![Box::new(FlowLayouter::sub())],
         }
     }
-}
-
-impl RenderOpts {
-    // Only FlowLayouter is retained after M1-1 dead code removal.
-    // All alternative layouters (Radial, Hierarchical, SchematicRadial, Layered)
-    // have been removed along with their implementations.
 }
 
 // Top-level API
@@ -120,8 +99,8 @@ pub fn render_with_metrics(
         graph,
         None,
         true,
-        &opts.top_candidates,
-        &opts.sub_candidates,
+        &*opts.top_layouter,
+        &*opts.sub_layouter,
         &*opts.renderer,
         &mut metrics,
     );
@@ -135,7 +114,10 @@ pub fn render_with_metrics(
     // ── ★ P7-1: renderdiff report (readings vs baseline/render_golden.toml) ──
     // Large-scale red mid-way is the expected shape (v6 §4); reported here without
     // blocking —— the Tier 1 electrical gate (RENDER_GATE_FAILED) is the hard failure.
-    let _ = renderdiff_report(&metrics);
+    // The report is vlog-only, so skip the full diff when MC_VIZ_DUMP is off.
+    if super::debug::dump_enabled() {
+        let _ = renderdiff_report(&metrics);
+    }
 
     debug::dump_document(&doc);
     (doc, metrics)
@@ -186,8 +168,8 @@ fn render_layer_recursive(
     mut graph: McVecGraph,
     parent: Option<i64>,
     is_root: bool,
-    top_candidates: &[Box<dyn Layouter>],
-    sub_candidates: &[Box<dyn Layouter>],
+    top_layouter: &dyn Layouter,
+    sub_layouter: &dyn Layouter,
     renderer: &dyn Renderer,
     metrics: &mut crate::viz::metrics::MetricsAccumulator,
 ) {
@@ -223,10 +205,10 @@ fn render_layer_recursive(
         graph.layer_style = crate::vector::graph::LayerStyle::Device;
     }
 
-    let candidates = if is_block_diagram {
-        top_candidates
+    let layouter = if is_block_diagram {
+        top_layouter
     } else {
-        sub_candidates
+        sub_layouter
     };
     // flow / radial / facade read the graph field (not the parameter) to decide
     // block-diagram vs schematic behaviour; keep the two in step.
@@ -269,7 +251,7 @@ fn render_layer_recursive(
         );
         ((vw, vh), (vx, vy))
     } else {
-        let layouter_name = candidates.first().map(|c| c.name()).unwrap_or("none");
+        let layouter_name = layouter.name();
 
         // ── Phase D: build SchematicLayoutModel before layout for low-risk intent ──
         // Semantic and special analysis are read-only and don't need positions.
@@ -289,7 +271,7 @@ fn render_layer_recursive(
         tracing::info!(target: "mcc::perf", step = "schematic_model", ms = _td.elapsed().as_millis() as u64, boxes = graph.boxes.len(), nets = graph.nets.len(), "render step");
 
         let _tl = std::time::Instant::now();
-        graph = layout_best(graph, candidates, is_block_diagram, Some(schematic_model));
+        graph = layout_best(graph, layouter, is_block_diagram, Some(schematic_model));
         tracing::info!(target: "mcc::perf", step = "layout_best", ms = _tl.elapsed().as_millis() as u64, "render step");
 
         // ── Phase 1.46b: Adjust Virtual Top Module Border position/size ──
@@ -571,8 +553,8 @@ fn render_layer_recursive(
             sub,
             Some(bid),
             false,
-            top_candidates,
-            sub_candidates,
+            top_layouter,
+            sub_layouter,
             renderer,
             metrics,
         );
