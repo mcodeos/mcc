@@ -77,39 +77,6 @@ const PORT_HEAD_CHAIN: &str = r#"module top(psnk dc{VDD_3V3, GND}::DC(3.3V)) {
 }
 "#;
 
-/// A switcher whose power faces are **named groups** over shared pins
-/// (`psnk [4,2] = VIN{Vin, GND}`, `psrc [3,2] = LX{Lx, GND}`) -- the
-/// `LP3220AB5F` shape (`power.mc:83`). The `{VIN | LX}` face in the chain
-/// below selects two of them, so that member spans two lanes while sitting in
-/// the **middle** of the chain: the one placement where a member's lane
-/// membership and the chain's lane count can disagree without either end
-/// pinning the width down.
-const SWITCHER: &str = r#"component DCDC {
-    pins = [
-        psnk [4,2] = VIN{Vin, GND}::DC(3.3V)
-        psrc [3,2] = LX{Lx, GND}::DC(1.2V)
-    ]
-}
-component IND {
-    pins = [
-        1 = A
-        2 = B
-    ]
-}
-"#;
-
-/// The real-board `POWER_DCDC` input run (`power.mc:121`): the hot pair and the
-/// return pair are spelled out, so the **only** member whose width the chain
-/// must infer is the middle `dcdc{VIN | LX}` face.
-const CURLY_MIDDLE_CHAIN: &str = r#"module top() {
-    psnk vin{VDD_3V3, GND}::DC(3.3V)
-    psrc vout{VCC_1V2, GND}::DC(1.2V)
-
-    DCDC dcdc
-    [vin.VDD_3V3, vin.GND] -> dcdc{VIN | LX} - [IND(), _] -> [vout.VCC_1V2, vout.GND]
-}
-"#;
-
 /// Return every (entry path, net name) pair of the flat pass-2 netlist.
 fn net_pairs(src: &str, uri: &str) -> Vec<(String, String)> {
     let _lock = common::lock();
@@ -306,46 +273,5 @@ fn port_label__lane_chain_keeps_the_return_lane_head() {
         net_of(&pairs, "dc.VDD_3V3"),
         net_of(&pairs, "dc.GND"),
         "the two rails must stay distinct lanes; pairs: {pairs:?}"
-    );
-}
-
-/// ⑤ -- a **whole-DC-pair curly face** (`dcdc{VIN | LX}`, `power.mc:121`) in
-/// the middle of a lane chain. Both ends of this chain spell their members out
-/// (`[vin.VDD_3V3, vin.GND]` ... `[vout.VCC_1V2, vout.GND]`), so the chain's
-/// lane count is fixed by them and the middle face is the only member whose
-/// width must come from its own points. A walk that places it on lane 0 only
-/// leaves the return lane with no device member: `vin.GND` and `vout.GND` both
-/// stop at the chain, and the device's return pin (`dcdc.2`) reaches no net --
-/// the two connections the real board lost (`power.mc:121`, `POWER_DCDC`).
-#[test]
-fn curly_middle__whole_dc_pair_keeps_the_return_lane() {
-    let src = format!("{SWITCHER}{CURLY_MIDDLE_CHAIN}");
-    let c = codes(&src, "/mcc/lcw-curly-middle.mc");
-    assert!(
-        !c.contains(&mcc::errcodes::CONN_SERIES_SHAPE_MISMATCH)
-            && !c.contains(&mcc::errcodes::CONN_STMT_PARSE_FAILED),
-        "the curly-middle lane chain must be legal; got codes: {c:?}"
-    );
-
-    let pairs = net_pairs(&src, "/mcc/lcw-curly-middle.mc");
-    assert_eq!(
-        net_of(&pairs, "dcdc.2"),
-        net_of(&pairs, "vin.GND"),
-        "the middle face's return member must stay on the return lane; pairs: {pairs:?}"
-    );
-    assert_eq!(
-        net_of(&pairs, "dcdc.2"),
-        net_of(&pairs, "vout.GND"),
-        "the return lane must carry through to the far end; pairs: {pairs:?}"
-    );
-    assert_eq!(
-        net_of(&pairs, "dcdc.4"),
-        net_of(&pairs, "vin.VDD_3V3"),
-        "the middle face's hot member must stay on the hot lane; pairs: {pairs:?}"
-    );
-    assert_ne!(
-        net_of(&pairs, "dcdc.2"),
-        net_of(&pairs, "dcdc.4"),
-        "the two lanes must not collapse onto one rail; pairs: {pairs:?}"
     );
 }

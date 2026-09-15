@@ -178,11 +178,10 @@ Start a session with:
     eval "$(scripts/mcc-slot.sh)"
 
 That pins the session to an idle slot and exports `CARGO_TARGET_DIR`, `MCC_BIN`
-and `MCC_SLOT`. The session slots live in **`target-slots/`** — slot `a` is
-`target-slots/a/`, slot `b` is `target-slots/b/`, slot `c` is
-`target-slots/c/`. The pin is per session and survives the fresh shell each
-command runs in, so later commands reuse the same slot and the same binary
-without re-picking. Run the session's binary as `"$MCC_BIN"`; a `mcc` symlink to
+and `MCC_SLOT`. Slot `a` is `target/`; slot `b` is `target/b/`; slot `c` is
+`target/c/`. The pin is per session and survives the fresh shell each command
+runs in, so later commands reuse the same slot and the same binary without
+re-picking. Run the session's binary as `"$MCC_BIN"`; a `mcc` symlink to
 `scripts/mcc-slot.sh` resolves the slot for you. `MCC_SLOT=a|b|c` forces one
 command without moving the pin.
 
@@ -192,16 +191,6 @@ Slot `0` (`target/0/`) is the editor's and is **never** handed out by a claim:
 build share one dir and neither holds a slot an agent session needs. Reach it
 from a shell with `MCC_SLOT=0`.
 
-Slots and the editor are kept in **disjoint roots on purpose**: session slots
-are under `target-slots/`, the editor's is under `target/`. Nested roots share a
-name space, so anything that wipes or sweeps the outer root (a `cargo clean`, an
-editor's scratch dir) would reach every slot inside it; disjoint roots bound
-`cargo clean` to the one slot it was run in. The pins live in
-`target-slots/.pins/`, alongside the slots they hand out.
-
-**The binary path moved.** Slot `a`'s binary is `target-slots/a/debug/mcc`, not
-the historical `target/debug/mcc`; the same is true of `mcc-mcp`, which sits
-beside it in the slot. Anything that hardcoded the old path — a
-`/usr/local/bin/mcc` symlink, `mcext`'s binary search, the `mcexpl` README
-commands — must move to `$MCC_BIN`, to `scripts/mcc-slot.sh` (symlink it as
-`mcc` and it resolves the slot), or to the slot path directly.
+Never run `cargo clean`: slot `a` *is* `target/`, so a plain clean also deletes
+slots `b`, `c`, `0` and the pins in `target/.slots`. Delete `target/debug`
+instead.
