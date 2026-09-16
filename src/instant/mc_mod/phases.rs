@@ -22,6 +22,7 @@ use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::{ConnDir, ConnOp, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_inst::McInstance;
+use crate::semantic::module::McModule;
 use crate::semantic::nc_pin::{NcPinKind, NcPinSpec};
 use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use std::collections::{BTreeSet, HashSet};
@@ -735,7 +736,8 @@ impl InstantiationBuilder {
                     // ── P1-C4: Connect declared args (V3V3, V1V2) to sub-module ports ──
                     if !m.args.is_empty() {
                         let ports = inst.ports.clone(); // Avoid borrow conflict with self
-                        self.bind_actual_args_to_ports(&inst_name, &ports, &m.args);
+                        let sub_def = inst.def.clone();
+                        self.bind_actual_args_to_ports(&inst_name, &sub_def, &ports, &m.args);
                     }
                     // ★ U48: resolve the declaration's `@ncpin(…)` marker into
                     // the sub-module's registered port suffixes. After
@@ -1231,7 +1233,8 @@ impl InstantiationBuilder {
     /// Connect declared instance args to sub-module formal ports by **position**.
     ///
     /// Formal port order = order of interface ports in sub-module signature
-    /// (`module mod.sub([VDD_3V3,GND]::DC, [VCC_1V2,GND]::DC)` → port0, port1).
+    /// (`module mod.sub([VDD_3V3,GND]::DC, [VCC_1V2,GND]::DC)` → port0, port1),
+    /// over the ports a rail can legally land on — see `bindable_formals`.
     ///
     /// Member alignment strategy (short-circuit safe, matching-rules-design.md
     /// §3):
@@ -1244,13 +1247,11 @@ impl InstantiationBuilder {
     pub(super) fn bind_actual_args_to_ports(
         &mut self,
         inst_name: &str,
+        sub_def: &McModule,
         ports: &[PortInst],
         args: &[McParamValue],
     ) {
-        let formal: Vec<&PortInst> = ports
-            .iter()
-            .filter(|p| p.name.trim_start().starts_with('[') || !p.bus_members.is_empty())
-            .collect();
+        let formal = bindable_formals(Some(sub_def), ports);
 
         let mut used = vec![false; formal.len()];
 
@@ -1442,6 +1443,14 @@ impl InstantiationBuilder {
         // formal = non-Out ports "with >=2 members / name contains {} / name starts with [".
         // Note: `formal` borrows the `ports` parameter (caller-provided clone), unrelated to self,
         // so subsequent `&mut self` calls (next_conn_id/expand_node_element/...) don't conflict.
+        //
+        // NOT `bindable_formals`: a call's argument list is an ordered list of
+        // CONNECTION endpoints (`CAP(10uF).Cap([vin.V5V, vin.GND])`), not a
+        // rail supply list, and the callee is often a leaf whose pins declare
+        // no power contract at all (`component CAP` = `pins = [1 = 1, 2 = 2]`).
+        // Narrowing this set to power terminals empties it for every passive
+        // leaf and the args silently stop binding (CIMP §2 b3399; the same
+        // latent shape as U31 lives here, now tracked as CIMP §1 U63).
         let formal: Vec<&PortInst> = ports
             .iter()
             .filter(|p| {
@@ -1874,18 +1883,15 @@ impl InstantiationBuilder {
 // single source of truth.
 fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> {
     match inst {
-        // Named List: `GPIO[1:2]`
-        McInstance::List(list) if !list.member.is_empty() => {
-            let is_anonymous = list.name.is_empty() || list.name.starts_with('@');
-            if is_anonymous {
-                // Anonymous `[A, B]`: no valid prefix, don't expand
-                Vec::new()
-            } else if list.member.len() >= 2 {
-                list.member.clone()
-            } else {
-                Vec::new()
-            }
-        }
+        // List: `[A, B]` or `GPIO[1:2]`
+        //
+        // Both spellings carry their members the same way — the written list IS
+        // the member list. The unnamed form used to return nothing, on the
+        // grounds that it has no prefix to hang members from; that left a
+        // declared `psnk [VDDIO,GND]` a port with no members at all, so its
+        // argument could never be bound and its member paths were never
+        // registered for the parent to connect to (CIMP §1 U31).
+        McInstance::List(list) if list.member.len() >= 2 => list.member.clone(),
 
         // Curly: `name{A, B}`
         McInstance::Bus(bus) if bus.member.len() >= 2 => bus.member.clone(),
@@ -1983,6 +1989,47 @@ fn port_members(port: &PortInst) -> Vec<String> {
         }
     }
     Vec::new()
+}
+
+/// Is this port a power terminal — the only kind of formal an actual
+/// argument may be bound to?
+///
+/// The evidence is declaration-borne, never name-borne (AGENTS.md, "no
+/// guessing from names"): a power direction word (`psrc`/`psnk`/`psbi` →
+/// `IOType::Power`), a supply/return face pair (`::DC` → `dc_pair`), or a
+/// declared voltage. Shape is not evidence either: `io MIC{P,N}` and
+/// `port1{A,B,C,D}` carry members, and under the old "name starts with `[`
+/// or has members" criterion they entered the candidate set, where the
+/// positional fallback could land a caller's rail on a signal bus with zero
+/// diagnostics (CIMP §1 U31).
+fn is_power_terminal(p: &PortInst) -> bool {
+    matches!(p.iotype, IOType::Power) || p.dc_pair.is_some() || p.volt.is_some()
+}
+
+/// Candidate formals for an argument list, in **declaration order**.
+///
+/// Neither set the binder wants is `self.ports` order: `def.insts` is a
+/// sorted map, so the port table comes out alphabetical, and interface-typed
+/// signature params are appended after the body ports. Declaration position
+/// comes from the recorded source spans instead (§11 — member/declaration
+/// order is source order, never alphabetical). Ports with no recorded span
+/// sort last, by table index, so the order stays total.
+fn bindable_formals<'a>(def: Option<&McModule>, ports: &'a [PortInst]) -> Vec<&'a PortInst> {
+    let mut keyed: Vec<(usize, usize, &'a PortInst)> = ports
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| is_power_terminal(p))
+        .map(|(i, p)| {
+            (
+                def.and_then(|d| d.port_decl_span(&p.name))
+                    .map_or(usize::MAX, |r| r.start),
+                i,
+                p,
+            )
+        })
+        .collect();
+    keyed.sort_by_key(|(pos, i, _)| (*pos, *i));
+    keyed.into_iter().map(|(_, _, p)| p).collect()
 }
 
 // ── Declared voltage of a port / of an argument (CIMP U12) ──

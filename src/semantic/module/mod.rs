@@ -918,6 +918,18 @@ impl McModule {
             .map(|p| p.to_node_element())
             .collect()
     }
+
+    /// Source span of the declaration that introduced port `name`.
+    ///
+    /// Two declaration shapes introduce a port: a signature / body item
+    /// (`insts`, the common case) and an interface-typed signature parameter
+    /// that the item loop never materialized (`params`). Both readers live
+    /// here so callers agree on where a port was declared.
+    pub(crate) fn port_decl_span(&self, name: &str) -> Option<std::ops::Range<usize>> {
+        self.insts
+            .get_port_span(name)
+            .or_else(|| self.params.get_def_span(name))
+    }
 }
 
 impl HasFindInst for McModule {

@@ -1155,10 +1155,7 @@ impl InstTable {
     /// as `[VDD_3V3, GND]::DC(3.3V)`, whose whole-name span lives in
     /// `def.params` and is dropped from `port_spans` by `filter_port_spans`.
     fn port_decl_span_of(inst: &McModuleInst, name: &str) -> Option<Range<usize>> {
-        inst.def
-            .insts
-            .get_port_span(name)
-            .or_else(|| inst.def.params.get_def_span(name))
+        inst.def.port_decl_span(name)
     }
 
     /// Recursively flatten a module instance
