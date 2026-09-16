@@ -195,6 +195,7 @@ impl McInstance {
             name: format!("{prefix}.{name}"),
             member: Vec::new(),
             full_members: Vec::new(),
+            synthetic: None,
         }
     }
 

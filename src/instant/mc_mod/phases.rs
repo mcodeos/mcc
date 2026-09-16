@@ -1467,10 +1467,14 @@ impl InstantiationBuilder {
     /// without args (`MIC_SIP mic`), the real arg `V3V3` is given in the body stmt.
     ///
     /// Key differences from `bind_actual_args_to_ports` (declared args path):
-    ///   * **formal filter relaxed**: no longer only `[...]`. Any "non-Out and with ≥2 members
-    ///     (or name containing `{`/`[`)" port is considered bindable — so `dc{VDD_3V3,GND}`
-    ///     (iotype=None) curly power ports also enter binding logic, no longer blocked by
-    ///     `starts_with('[')`.
+    ///   * **candidate set, two stages**: the declaration-borne set first
+    ///     (`is_power_terminal` — a power direction word, a `::DC` face pair or a
+    ///     declared voltage — in declaration order, so `dc{VDD_3V3,GND}`
+    ///     (iotype=None) curly power ports are included and `io MIC{P,N}` is
+    ///     not); the shape set only when that comes out EMPTY, i.e. the callee
+    ///     declares no power contract at all, so a leaf (`component CAP` =
+    ///     `pins = [1 = 1, 2 = 2]`) still binds its ordered endpoint list
+    ///     (CIMP §1 U63).
     ///   * **Named ports connect two sets of labels**: curly named ports (`dc{…}`) in sub-module
     ///     have both bare(`VDD_3V3`) and dotted(`dc.VDD_3V3`) labels injected by
     ///     `inject_port_member_labels`, so here for each member **simultaneously** connect
@@ -1493,31 +1497,33 @@ impl InstantiationBuilder {
     pub(super) fn bind_call_args_to_ports(
         &mut self,
         inst_name: &str,
+        sub_def: &McModule,
         ports: &[PortInst],
         args: &[McParamValue],
     ) -> Vec<ConnectionInst> {
         let mut out: Vec<ConnectionInst> = Vec::new();
 
-        // formal = non-Out ports "with >=2 members / name contains {} / name starts with [".
-        // Note: `formal` borrows the `ports` parameter (caller-provided clone), unrelated to self,
-        // so subsequent `&mut self` calls (next_conn_id/expand_node_element/...) don't conflict.
+        // Stage 1 — the declaration-borne set. Stage 2 runs only when it is
+        // empty: a callee declaring no power contract at all has no declaration
+        // to bind by, and its argument list is an ordered list of CONNECTION
+        // endpoints (`CAP(10uF).Cap([vin.V5V, vin.GND])`). Narrowing
+        // unconditionally would empty the set for every passive leaf and the
+        // args would silently stop binding (CIMP §1 U63).
         //
-        // NOT `bindable_formals`: a call's argument list is an ordered list of
-        // CONNECTION endpoints (`CAP(10uF).Cap([vin.V5V, vin.GND])`), not a
-        // rail supply list, and the callee is often a leaf whose pins declare
-        // no power contract at all (`component CAP` = `pins = [1 = 1, 2 = 2]`).
-        // Narrowing this set to power terminals empties it for every passive
-        // leaf and the args silently stop binding (CIMP §2 b3399; the same
-        // latent shape as U31 lives here, now tracked as CIMP §1 U63).
-        let formal: Vec<&PortInst> = ports
-            .iter()
-            .filter(|p| {
-                !matches!(p.iotype, IOType::Out)
-                    && (!p.bus_members.is_empty()
-                        || p.name.contains('{')
-                        || p.name.trim_start().starts_with('['))
-            })
-            .collect();
+        // `formal` borrows the `ports` parameter (caller-provided clone), unrelated to self,
+        // so subsequent `&mut self` calls (next_conn_id/expand_node_element/...) don't conflict.
+        let mut formal: Vec<&PortInst> = bindable_formals(Some(sub_def), ports);
+        if formal.is_empty() {
+            formal = ports
+                .iter()
+                .filter(|p| {
+                    !matches!(p.iotype, IOType::Out)
+                        && (!p.bus_members.is_empty()
+                            || p.name.contains('{')
+                            || p.name.trim_start().starts_with('['))
+                })
+                .collect();
+        }
         if formal.is_empty() {
             return out;
         }

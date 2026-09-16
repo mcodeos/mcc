@@ -46,6 +46,7 @@ impl InstantiationBuilder {
                         name: ids.to_string(),
                         member: Vec::new(),
                         full_members: Vec::new(),
+                        synthetic: None,
                     }]
                 }
             }
@@ -55,6 +56,7 @@ impl InstantiationBuilder {
                     name: format!("{c}"),
                     member: Vec::new(),
                     full_members: Vec::new(),
+                    synthetic: None,
                 }]
             }
             McParamValue::Set(values) => values
@@ -85,6 +87,7 @@ impl InstantiationBuilder {
                     name,
                     member: Vec::new(),
                     full_members: Vec::new(),
+                    synthetic: None,
                 }]
             }
         }
@@ -184,6 +187,7 @@ impl InstantiationBuilder {
                                 name: elem.name.clone(),
                                 member: vec![],
                                 full_members: vec![],
+                                synthetic: elem.synthetic,
                             }];
                         }
                     }
@@ -227,6 +231,7 @@ impl InstantiationBuilder {
             name: elem.name.clone(),
             member: elem.member.clone(),
             full_members: elem.full_members.clone(),
+            synthetic: elem.synthetic,
         }]
     }
 
