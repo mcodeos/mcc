@@ -59,20 +59,20 @@
 use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
     check_backfeed, check_clamp_ref_role, check_combine_output_tol, check_converter_gate_window,
-    check_converter_output_rail_window, check_converter_spec_incomplete, check_device_return_span,
-    check_driver_conflict, check_earth_dc_leak, check_exposed_clamp_coverage,
-    check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
-    check_net_budget, check_pin_contract_decode, check_pin_contract_return_member,
-    check_pin_count_mismatch, check_port_bind_role, check_port_io_mismatch,
-    check_power_bridge_loop, check_power_nets, check_power_rail_contract,
-    check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
-    check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
-    check_rail_nature_consistency, check_reference_island_root, check_return_leg_undeclared,
-    check_role_ref_missing_bridge, check_shunt_dissipation, check_single_point_nets,
-    check_sink_nominal_mismatch,
-    check_sink_window_mismatch, check_unconnected_outputs, check_undriven_nets,
-    check_undriven_sink_net, check_unselected_abstract, check_unused_module_ports,
-    check_unwired_instances, check_voltage_mismatch, NetCheckResult,
+    check_converter_output_rail_window, check_converter_spec_incomplete,
+    check_decoupling_return_face, check_device_return_span, check_driver_conflict,
+    check_earth_dc_leak, check_exposed_clamp_coverage, check_floating_inputs,
+    check_floating_outputs, check_isolated_dc_bridge, check_nc_connected, check_net_budget,
+    check_pin_contract_decode, check_pin_contract_return_member, check_pin_count_mismatch,
+    check_port_bind_role, check_port_io_mismatch, check_power_bridge_loop, check_power_nets,
+    check_power_rail_contract, check_power_rail_two_roots, check_power_source_contention,
+    check_protect_series_path, check_protect_shunt_reference, check_protective_multi_bridge,
+    check_pullup_degenerate, check_rail_nature_consistency, check_reference_island_root,
+    check_return_leg_undeclared, check_role_ref_missing_bridge, check_shunt_dissipation,
+    check_single_point_nets, check_sink_nominal_mismatch, check_sink_window_mismatch,
+    check_unconnected_outputs, check_undriven_nets, check_undriven_sink_net,
+    check_unselected_abstract, check_unused_module_ports, check_unwired_instances,
+    check_voltage_mismatch, NetCheckResult,
 };
 use crate::semantic::validation::pins::{
     check_conflicting_pins, check_unused_pins, PinCheckResult,
@@ -1132,6 +1132,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_shunt_dissipation,
     },
+    // PI-3 decoupling-return face (power-quality-design.md §2.3, ruled
+    // 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::DECOUPLING_RETURN_MISMATCH,
+        name = "decoupling-return-face",
+        title = "a decoupling capacitor's return leg does not land on the return member of the rail it sits across",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "PI-3 (power-quality-design.md §2.3): a decoupling capacitor's two legs are one declared DC pair — the rail the part sits across states it as `rail [hot, ret]::DC(…)`, and closing that loop is the element's whole job — so its return leg must land on that rail's return member. The candidate is read from the flat carries, never from a name: the definition's spec table says the class is capacitive (the ledger's element certificate), the part is a two-terminal element, and its two legs land on two nets. Both legs are read through the net's effective class — the same read the whole axis uses — so the verdict holds across a module boundary (a part instantiated in a sub-module whose leg the parent layer owns resolves to the parent's class; reading the raw island attribution instead would treat every sub-module net as unjudged and go silently green). The comparison is class-to-class, not name-to-name: a sub-module net `vin.GND` and the parent's `GND` are one fact. The rail side is resolved in the scope that declares it (its members are looked up by the name written there), and only rails on the part's own owning-scope chain are candidates, so a sibling scope's rail never supplies the pair. Error, deliberately unfiltered by @class(analog): the return leg is a structural position and the DC pair is explicit, so a mis-placed return is wrong on every face, not just the analog one. Not judged, never guessed: a part that is not a declared capacitor, one not sitting across a declared rail at all (no rail on the chain whose hot member resolves to the hot leg's class and whose domain that leg anchors — a capacitor between two hot faces is not a decoupling placement), a leg whose class does not resolve, and a rail whose return member reads no class in its own scope.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_decoupling_return_face,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1685,14 +1699,15 @@ mod tests {
     use super::*;
     use crate::errcodes::{
         ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL,
-        DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK, EXPOSED_NET_NO_CLAMP, ISOLATED_DC_BRIDGE,
-        NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT,
-        NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED,
-        NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT,
-        NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH,
-        PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED, PORT_BIND_ROLE_MISMATCH, POWER_BRIDGE_LOOP,
-        POWER_CONVERTER_GATE, POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE,
-        POWER_PIN_DECODE, POWER_PIN_RETURN_MISSING, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
+        DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK,
+        EXPOSED_NET_NO_CLAMP, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED,
+        NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
+        NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
+        NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
+        NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED,
+        PORT_BIND_ROLE_MISMATCH, POWER_BRIDGE_LOOP, POWER_CONVERTER_GATE,
+        POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE,
+        POWER_PIN_RETURN_MISSING, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
         POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION,
         PROTECTIVE_MULTI_BRIDGE, PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE,
         PULLUP_DEGENERATE, RAIL_NATURE_MISMATCH, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
@@ -1702,7 +1717,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 44] = [
+    const FLAT_ERC_ORDER: [u32; 45] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1747,6 +1762,7 @@ mod tests {
         PROTECT_SERIES_NOT_IN_PATH, // PWR-5 series element must sit in series on a supply path
         RAIL_NATURE_MISMATCH,       // §3.1 @nature word vs rail axis (ac-axis)
         SHUNT_DISSIPATION_OVER_RATING, // PWR-4b shunt heat vs package rating (tail append)
+        DECOUPLING_RETURN_MISMATCH, // PI-3 decoupling return leg vs the rail's declared pair
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2282,7 +2298,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (151, 0, 3));
+        assert_eq!((strong, doc, note), (152, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

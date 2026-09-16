@@ -1715,6 +1715,31 @@ pub const RAIL_NATURE_MISMATCH: u32 = 6034;
 /// window is deliberately the conservative one.
 pub const SHUNT_DISSIPATION_OVER_RATING: u32 = 6035;
 
+/// PI-3 (power-quality-design.md §2.3, ruled 2026-09-16): a decoupling
+/// capacitor's two legs are **one declared DC pair**. The rail a part sits
+/// across states that pair — `rail [hot, ret]::DC(…)` — and the cap is the
+/// element whose job is to close the loop the rail declares, so its return leg
+/// must land on that rail's `ret` member. The certificate is the element class
+/// ([`crate::semantic::basic::attr_keys::ElementClass`] `Capacitive`, read off
+/// the definition's spec table), never a name or a pin shape: a capacitor with
+/// no spec table is not a decoupling capacitor here.
+///
+/// Both legs are read through the net's **effective class** — the same read the
+/// whole axis uses — so the verdict holds across a module boundary (a part
+/// instantiated in a sub-module whose leg the parent layer owns resolves to the
+/// parent's class; reading the raw island attribution instead would treat every
+/// sub-module net as unjudged). The comparison is class-to-class (`EffClass.id`),
+/// not name-to-name: the sub-module net `vin.GND` and the parent's `GND` are one
+/// fact.
+///
+/// Error, and deliberately not filtered by `@class(analog)`: the return leg is a
+/// **structural position** and the DC pair is explicit, so a decoupling cap whose
+/// return lands on another plane is wrong everywhere, not just on the analog face
+/// (§9.1's wording comes from this being the general law). A leg whose class does
+/// not resolve, and a part not sitting across a declared rail at all, are never
+/// guessed — that silence is the family's standing rule (§1.3), not a pass.
+pub const DECOUPLING_RETURN_MISMATCH: u32 = 6038;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -2136,6 +2161,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PROTECT_SERIES_NOT_IN_PATH, "A class declaring protect = series is not a two-terminal element on a supply path.", "component '{0}' declares protect = series in its definition body but {1} — a series protection element (fuse/PTC) must carry the supply through itself, so it has to be a two-terminal device whose ends sit on two different nets, both on a supply tree. Put it in series on the path it protects instead of bypassing it or leaving an end off the supply tree (exposed-protection-design.md §4, PWR-5)"),
     entry!(RAIL_NATURE_MISMATCH, "A domain's @nature word contradicts the axis of a rail contract declared inside it.", "domain '{0}' declares @nature({1}) but its rail row writes {2} — @nature and the rail contract name the same axis, so writing both makes them agree: fix the @nature word, or the rail's `::` contract if the domain's word is the true one (ac-axis-interface-design.md §3.1)"),
     entry!(SHUNT_DISSIPATION_OVER_RATING, "A shunt element's dissipation at the rail window's worst corner exceeds its declared package rating.", "shunt '{0}' dissipates {1} W at the rail window's worst corner ({2} V across {3}), above its declared power_rated {4} W: raise the resistance, use a package rated for more, or narrow the rail window (series pass elements are not judged — package-thermal-design.md §3.2)"),
+    entry!(DECOUPLING_RETURN_MISMATCH, "A decoupling capacitor's return leg does not land on the return member the rail it sits across declares.", "capacitor '{0}' sits across the declared rail {1} whose return member is {2}, but its other leg lands on {3} — a decoupling capacitor's two legs are one declared DC pair, so its return must close the loop the rail declares: move the return leg onto {2}, or declare the pair this capacitor actually bridges (power-quality-design.md §2.3, PI-3)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
