@@ -2989,6 +2989,181 @@ fn resolve_bind_role(
     None
 }
 
+/// PWR-6 (exposed-protection-design.md §3, ruled 2026-09-16): a port row
+/// declaring `@exposed(<threat>)` puts its net at the board's transient
+/// boundary, and a boundary net must carry a declared clamp onto a
+/// `@role(protective)`/`@role(earth)` reference — else the declared exposure
+/// has no discharge path and a transient pours straight into the interior.
+///
+/// Coverage (the ruled same-net kernel; the downstream chain is a later step):
+/// an exposed port is covered when one of its net segments carries a device
+/// that is on that segment *and* on the clamped reference net —
+///
+/// ```text
+/// ∃ device C, ∃ net M of C:  C has a pin on an exposed segment S,
+///                            C has a pin on M,
+///                            M's effective class resolves in M's scope to a
+///                            reference that scope declares, and
+///                            that scope declares @clamp(<that reference>).
+/// ```
+///
+/// The `@clamp` declaration is required (ruled 2026-09-16): an ordinary
+/// decoupling capacitor or series resistor onto the protective island is not a
+/// clamp, so coverage is the declaration rather than the topology alone.
+/// [`L1Edge`](crate::semantic::module::pi::L1Edge) carries no host net (only
+/// kind / endpoints / span), so the dump leg is read through the reference it
+/// names, resolved in the declaration scope exactly like 6029's role lookup.
+///
+/// The reference's *role* is not part of coverage: PWR-6 is the existence half
+/// and sits upstream of PWR-7, which owns "the reference is not
+/// protective/earth" (a clamp declared onto a main/quiet reference fires 6008
+/// alone — the defect is the wrong reference, not a missing clamp).
+///
+/// Not adjudicated, never guessed: an exposed port whose segment does not
+/// resolve in its own scope (a library port row, a dangling declaration) and a
+/// reference whose class cannot be resolved — the role of those is supplied by
+/// an ancestor world / port contract (iron rule 1 §6).
+pub(crate) fn check_exposed_clamp_coverage(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let idx = crate::instant::island::NetIslandIndex::build(table);
+
+    // Declaration plane per module instance: the references it declares, and
+    // the references its own `@clamp(ref)` legs name.
+    let mut ref_names: std::collections::HashMap<u32, HashSet<String>> =
+        std::collections::HashMap::new();
+    let mut clamp_refs: std::collections::HashMap<u32, HashSet<String>> =
+        std::collections::HashMap::new();
+    for (id, pi) in table.power_decls() {
+        if !table
+            .get_entry(*id)
+            .is_some_and(|e| matches!(e.kind, InstKind::Module))
+        {
+            continue;
+        }
+        let refs: HashSet<String> = pi.l1_refs().into_iter().map(|r| r.name).collect();
+        if !refs.is_empty() {
+            ref_names.insert(*id, refs);
+        }
+        let clamps: HashSet<String> = pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| e.kind == crate::semantic::module::pi::L1EdgeKind::Clamp)
+            .filter_map(|e| e.endpoints.first().cloned())
+            .collect();
+        if !clamps.is_empty() {
+            clamp_refs.insert(*id, clamps);
+        }
+    }
+
+    for (id, pi) in table.power_decls() {
+        let Some(m) = table.get_entry(*id) else {
+            continue;
+        };
+        if !matches!(m.kind, InstKind::Module) {
+            continue;
+        }
+        for p in pi.l1_ports() {
+            if p.exposed.is_empty() {
+                continue;
+            }
+            // The port instance of this scope, by its canonical path — never by
+            // splitting a path string back into names.
+            let port_path = format!("{}.{}", m.path, p.name);
+            let Some(pid) = table.get_id_by_path(&port_path) else {
+                continue;
+            };
+            let segs: Vec<&NetEntry> = table
+                .nets_of(pid)
+                .iter()
+                .filter_map(|n| table.get_net(*n))
+                .collect();
+            if segs.is_empty() {
+                continue; // no resolvable segment — not adjudicated
+            }
+            if segs
+                .iter()
+                .any(|s| segment_is_clamped(table, &idx, s, &ref_names, &clamp_refs))
+            {
+                continue;
+            }
+            let (pos, uri) = table
+                .get_entry(pid)
+                .map(entry_pos)
+                .unwrap_or((0, String::new()));
+            results.push(NetCheckResult {
+                check: "exposed-net-no-clamp",
+                severity: "error",
+                message: crate::errcodes::format_msg(
+                    crate::errcodes::EXPOSED_NET_NO_CLAMP,
+                    &[&port_path, &p.exposed.join(","), &segs[0].name],
+                ),
+                net_name: segs[0].name.clone(),
+                code: crate::errcodes::EXPOSED_NET_NO_CLAMP,
+                pos,
+                uri,
+            });
+        }
+    }
+}
+
+/// Is this exposed segment clamped? A device on the segment whose dump leg sits
+/// on a reference the same scope declares `@clamp` on.
+///
+/// A net's points are the *pins* (and labels) that land on it, so the device is
+/// read through a point's parent instance — the pin belongs to the component.
+fn segment_is_clamped(
+    table: &InstTable,
+    idx: &crate::instant::island::NetIslandIndex,
+    seg: &NetEntry,
+    ref_names: &std::collections::HashMap<u32, HashSet<String>>,
+    clamp_refs: &std::collections::HashMap<u32, HashSet<String>>,
+) -> bool {
+    for &pt in &seg.points {
+        let Some(entry) = table.get_entry(pt) else {
+            continue;
+        };
+        let comp_id = match entry.kind {
+            InstKind::Pin => entry.parent_id,
+            InstKind::Component => Some(entry.id),
+            _ => None,
+        };
+        let Some(comp_id) = comp_id else {
+            continue;
+        };
+        if !table
+            .get_entry(comp_id)
+            .is_some_and(|c| matches!(c.kind, InstKind::Component))
+        {
+            continue;
+        }
+        for pin in table.get_pins_of(comp_id) {
+            for &leg in table.nets_of(pin.id) {
+                if leg == seg.id {
+                    continue;
+                }
+                let Some(net) = table.get_net(leg) else {
+                    continue;
+                };
+                let Some(layer) = net.module else {
+                    continue;
+                };
+                let Some(attr) = idx.get(net.id) else {
+                    continue;
+                };
+                let Some(cls) = eff_class(table, idx, attr, &mut Vec::new()) else {
+                    continue;
+                };
+                if !ref_names.get(&layer).is_some_and(|s| s.contains(&cls.id)) {
+                    continue; // the dump leg does not land on a declared ref
+                }
+                if clamp_refs.get(&layer).is_some_and(|s| s.contains(&cls.id)) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Render an amps value for diagnostics: `< 1 A` as mA, else as A (`500mA`,
 /// `1.5A`). Sub-milli values keep two decimals.
 fn fmt_amps(a: f64) -> String {
