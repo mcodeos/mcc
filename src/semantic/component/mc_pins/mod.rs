@@ -177,7 +177,9 @@ pub struct PwrParam {
 #[derive(Debug, Clone)]
 pub struct McPwrPin {
     pub dir: PwrDir,
-    /// Interface name after `::` — `DC` today (AC-axis rails/pins come later).
+    /// Interface name after `::` — `DC` or an `::AC*` variant. Which of the two
+    /// axes the row belongs to decides the list it lands in (see
+    /// [`McPins::pwr`] / [`McPins::pwr_ac`]).
     pub iface: String,
     /// First `::` member — the power/hot terminal (e.g. `VDD`, `OUT`).
     pub hot: String,
@@ -319,7 +321,17 @@ pub struct McPins {
     /// §4.1 power-intent pin contracts: every `psrc/psnk/psbi` pin line that
     /// carries a trailing `::DC(...)`, in declaration order. Structural only —
     /// numeric decode happens in pi.rs (same value language as domain rails).
+    /// Exactly the `::DC`-carrying rows: the AC axis lives in [`Self::pwr_ac`].
     pub pwr: Vec<McPwrPin>,
+
+    /// The same capture for the **AC axis** — every `psrc/psnk/psbi` pin line
+    /// whose trailing `::` contract is not `::DC`, in declaration order
+    /// (`::AC`, `::AC_1P3W`, `::AC_3P3W`, `::AC_3P4W`, `::AC_3P5W`). A separate
+    /// list rather than a second flavour inside [`Self::pwr`]: the DC readers
+    /// (the `[hot, ret]` pair face, the pin-contract checks) treat a row's `ret`
+    /// as the return it closes over, which only holds for the DC pair. AC has
+    /// its own terminal-group shape (ac-axis-interface-design.md §3.2).
+    pub pwr_ac: Vec<McPwrPin>,
 }
 
 impl Default for McPins {
@@ -349,6 +361,7 @@ impl McPins {
             groups: Vec::new(),
             pin_group_cursor: None,
             pwr: Vec::new(),
+            pwr_ac: Vec::new(),
         }
     }
 
@@ -364,12 +377,14 @@ impl McPins {
         !self.pins.is_empty() || !self.names_to_id.is_empty() || !self.dynamic_pins.is_empty()
     }
 
-    /// §4.1 — capture power-direction pin `::DC(...)` contracts. Walks the pin
+    /// §4.1 — capture power-direction pin `::iface(...)` contracts. Walks the pin
     /// body AST (the `MCAST_PIN_LINE` list) once per `pins = [...]` body; for
     /// each line whose iotype keyword is `psrc/psnk/psbi` and whose name side
-    /// carries a trailing `::DC(...)` declare, appends a structural
-    /// [`McPwrPin`]. Purely additive — never gates generic pin registration;
-    /// numeric decode is pi.rs's job (§4 value language shared with rails).
+    /// carries a trailing `::iface(...)` declare, appends a structural
+    /// [`McPwrPin`] to the list its iface names an axis for — `::DC` rows to
+    /// [`Self::pwr`], the AC variants to [`Self::pwr_ac`]. Purely additive —
+    /// never gates generic pin registration; numeric decode is pi.rs's job
+    /// (§4 value language shared with rails).
     fn capture_pwr_lines(&mut self, plinenodes: &AstNode) {
         for pnode in plinenodes.iter().filter(|n| n.get_type() == MCAST_PIN_LINE) {
             // The direction word rides the line's iotype keyword.
@@ -388,7 +403,11 @@ impl McPins {
                 // Trailing `@attr…` run lives on the pin *line* (siblings after
                 // the name side), not inside the `::` declare — collect it here.
                 pin.attrs = Self::collect_line_attrs(&pnode);
-                self.pwr.push(pin);
+                if pin.iface == "DC" {
+                    self.pwr.push(pin);
+                } else {
+                    self.pwr_ac.push(pin);
+                }
             }
         }
     }
@@ -445,6 +464,9 @@ impl McPins {
 
     /// Read a `::<iface>(params)` declare into a structural [`McPwrPin`],
     /// mirroring pi.rs's rail reader over the same `[hot, ret]::DC(...)` sub-AST.
+    /// Iface-agnostic: whichever axis the `::` class names is carried, and the
+    /// caller files the row under that axis. A declare with no `::` class name
+    /// is not a contract.
     fn read_pwr_declare(dir: PwrDir, declare: &AstNode) -> Option<McPwrPin> {
         let span = (declare.get_pos() as usize)..((declare.get_pos() + declare.get_len()) as usize);
         let mut iface = String::new();
@@ -460,9 +482,7 @@ impl McPins {
                 }
             }
         }
-        // Only the DC-axis contract is decoded in this increment (AC/nature pin
-        // contracts belong to the later AC-axis step).
-        if iface != "DC" {
+        if iface.is_empty() {
             return None;
         }
         // Operand side: `[hot, ret]` square vector (or a bare single member).
@@ -1156,10 +1176,10 @@ impl McPins {
                     MCAST_ATTRIBUTE => {
                         // Trailing `@attr…` run (intent-design.md §5.1) —
                         // an extra sibling after the name side. Power-direction
-                        // lines keep it on `pwr[].attrs` (capture_pwr_lines);
-                        // generic rows carry it onto the registered pins
-                        // (`.attrs`) — identity-axis adjudication is a later
-                        // ERC step, but the words are never dropped.
+                        // lines keep it on the captured contract row
+                        // (capture_pwr_lines, `pwr[]`/`pwr_ac[]`); generic rows
+                        // carry it onto the registered pins (`.attrs`) — the
+                        // words are never dropped.
                         line_attrs.parse(&subnode);
                     }
                     _ => {
@@ -4107,6 +4127,45 @@ module main {
             pins.pwr.is_empty(),
             "no ::DC contract on any line; got pwr: {:?}",
             pins.pwr
+        );
+        assert!(
+            pins.pwr_ac.is_empty(),
+            "no :: contract on any line; got pwr_ac: {:?}",
+            pins.pwr_ac
+        );
+    }
+
+    /// The AC axis is captured beside the DC one instead of being dropped at the
+    /// `::` gate: an `::AC_*` row lands in `pwr_ac` with its direction word, its
+    /// written members and its tail identity note intact, while `pwr` keeps
+    /// holding exactly the `::DC` rows.
+    #[test]
+    fn captures_ac_row_beside_the_dc_axis() {
+        const SRC: &str = r#"component MAINS_ENTRY {
+    pins = [
+        psbi [1,2,3] = [L, N, PE]::AC_1P3W(230V, 50Hz) @class(analog)
+        psnk [4,5]   = [IN, GND]::DC(5V)
+    ]
+}
+module main {
+}
+"#;
+        let pins = parse_component_pins(SRC, "MAINS_ENTRY");
+        assert_eq!(pins.pwr.len(), 1, "pwr holds the ::DC row only");
+        assert_eq!(pins.pwr[0].iface, "DC");
+        assert_eq!(pins.pwr_ac.len(), 1, "ac rows: {:?}", pins.pwr_ac);
+        let ac = &pins.pwr_ac[0];
+        assert_eq!(ac.iface, "AC_1P3W");
+        assert_eq!(ac.dir, PwrDir::Bi);
+        assert_eq!(ac.hot, "L");
+        assert_eq!(ac.ret.as_deref(), Some("N"));
+        assert_eq!(ac.params.len(), 2, "params: {:?}", ac.params);
+        assert_eq!(ac.params[0].text, "230V");
+        assert_eq!(ac.params[1].text, "50Hz");
+        let attrs: Vec<String> = ac.attrs.iter().map(|a| a.to_string()).collect();
+        assert!(
+            attrs.contains(&"class = analog".to_string()),
+            "the tail identity note must not be dropped with the row: {attrs:?}"
         );
     }
 

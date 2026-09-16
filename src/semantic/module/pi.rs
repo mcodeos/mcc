@@ -197,9 +197,10 @@ impl McPowerDecls {
 
     /// Decode every DC `rail [hot, ret]::DC(v, tol, capacity, eff)` guarantee
     /// into a typed L1 contract (§4.1). Only `::DC` rails are DC pairs here —
-    /// a non-`DC` iface (an AC/nature rail) belongs to the later AC-axis step
-    /// and is skipped. A rail whose ctor args fail to decode still lists with
-    /// `bad: Some(..)` so the two-root check stays independent of value decode.
+    /// an AC rail is [`Self::l1_ac_rails`]'s list, so the two readers partition
+    /// the rail rows and the DC consumers keep seeing exactly DC. A rail whose
+    /// ctor args fail to decode still lists with `bad: Some(..)` so the
+    /// two-root check stays independent of value decode.
     pub fn l1_rails(&self) -> Vec<L1Rail> {
         let mut out = Vec::new();
         for d in &self.domains {
@@ -211,6 +212,47 @@ impl McPowerDecls {
             }
         }
         out
+    }
+
+    /// Decode every AC `rail [L, N]::AC(v, f)` guarantee into a typed L1 contract
+    /// (§3.2/§3.3) — the AC axis's projection beside [`Self::l1_rails`]. Only
+    /// rows whose iface is a registered `::AC*` variant are AC rails; any other
+    /// iface belongs to neither reader. A row whose ctor args fail to decode
+    /// still lists with `bad: Some(..)`, like the DC side.
+    pub fn l1_ac_rails(&self) -> Vec<L1AcRail> {
+        let mut out = Vec::new();
+        for d in &self.domains {
+            for r in &d.rails {
+                if ac_terminal_group(&r.iface).is_some() {
+                    out.push(decode_ac_rail(&d.name, r));
+                }
+            }
+        }
+        out
+    }
+
+    /// Decode every domain's `@nature(ac|dc)` word beside the iface of each rail
+    /// row it declares (§3.1) — the AC/DC consistency rule's read. Both sides
+    /// are carried exactly as written; mapping them onto an axis is the rule's
+    /// step ([`RailAxis`]), not this projection's. A domain with no `nature`
+    /// word still lists (`nature: None`): its rail contracts stand alone.
+    pub fn l1_domain_natures(&self) -> Vec<L1DomainNature> {
+        self.domains
+            .iter()
+            .map(|d| L1DomainNature {
+                name: d.name.clone(),
+                nature: first_text(&d.attrs, "nature"),
+                rails: d
+                    .rails
+                    .iter()
+                    .map(|r| L1RailAxisRow {
+                        iface: r.iface.clone(),
+                        hot: r.hot.clone(),
+                        span: r.span.clone(),
+                    })
+                    .collect(),
+            })
+            .collect()
     }
 
     /// Decode identity-bearing module port rows into typed L1 identity reads
@@ -318,6 +360,235 @@ fn decode_rail(domain: &str, r: &McRailDecl) -> L1Rail {
     }
     if r.params.is_empty() {
         flag_bad(&mut out.bad, "missing nominal 'v'".to_string());
+    }
+    out
+}
+
+// §3.2/§3.3 AC axis — the `::AC*` terminal groups and their typed rail read
+
+/// One terminal of an `::AC*` variant's group. The role is the variant's, read
+/// off the position in the group the registry declares — never off the spelling
+/// of the net name the row happens to write there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcTerminal {
+    /// `L` / `U` — a phase conductor.
+    Phase,
+    /// `N` — the neutral: the member the pair's return runs on (§3.3, model A).
+    Neutral,
+    /// `PE` — the protective conductor. Not a return: it belongs to the
+    /// protective-earth identity net (§3.6).
+    Protective,
+}
+
+/// The `::AC*` variants and the terminal group each one declares, in the order
+/// it declares them (ac-axis-interface-design.md §3.2). The table is the AC
+/// axis's identity anchor: an iface name absent from it is not an AC contract,
+/// and a row's written members take their roles by position — the shape comes
+/// from the variant, never from counting or reading the names.
+const AC_VARIANTS: &[(&str, &[AcTerminal])] = &[
+    ("AC", &[AcTerminal::Phase, AcTerminal::Neutral]),
+    (
+        "AC_1P3W",
+        &[
+            AcTerminal::Phase,
+            AcTerminal::Neutral,
+            AcTerminal::Protective,
+        ],
+    ),
+    (
+        "AC_3P3W",
+        &[AcTerminal::Phase, AcTerminal::Phase, AcTerminal::Phase],
+    ),
+    (
+        "AC_3P4W",
+        &[
+            AcTerminal::Phase,
+            AcTerminal::Phase,
+            AcTerminal::Phase,
+            AcTerminal::Neutral,
+        ],
+    ),
+    (
+        "AC_3P5W",
+        &[
+            AcTerminal::Phase,
+            AcTerminal::Phase,
+            AcTerminal::Phase,
+            AcTerminal::Neutral,
+            AcTerminal::Protective,
+        ],
+    ),
+];
+
+/// The terminal group an `::AC*` variant declares, or `None` for any iface the
+/// registry does not hold (`DC` included) — the AC reader's one test.
+pub fn ac_terminal_group(iface: &str) -> Option<&'static [AcTerminal]> {
+    AC_VARIANTS
+        .iter()
+        .find(|(name, _)| *name == iface)
+        .map(|(_, group)| *group)
+}
+
+/// The supply axis a domain's `@nature` word and a rail row's `::` contract both
+/// name (§3.1). The two sides are written in different vocabularies (a lowercase
+/// value word / a `::` iface name), so a comparison has to bring them onto one
+/// axis first — there is no spelling shortcut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RailAxis {
+    Ac,
+    Dc,
+}
+
+impl RailAxis {
+    /// The axis a `@nature` value word names. §5.2 registers exactly `ac` and
+    /// `dc`; any other word is outside the closed vocabulary and names no axis,
+    /// so the rule has no verdict for it.
+    pub fn of_nature_word(word: &str) -> Option<Self> {
+        match word {
+            "ac" => Some(Self::Ac),
+            "dc" => Some(Self::Dc),
+            _ => None,
+        }
+    }
+
+    /// The axis a rail row's iface names: `::DC`, or one of the registered
+    /// `::AC*` variants (§3.2). An iface that names neither — a bare row, a
+    /// foreign contract — names no axis.
+    pub fn of_iface(iface: &str) -> Option<Self> {
+        if iface == "DC" {
+            Some(Self::Dc)
+        } else if ac_terminal_group(iface).is_some() {
+            Some(Self::Ac)
+        } else {
+            None
+        }
+    }
+}
+
+/// One domain's `@nature` word beside every rail row it declares (§3.1): the
+/// declaration-local pair the AC/DC consistency rule reads. `nature` is the
+/// written word verbatim (`None` when the domain writes none, which leaves its
+/// rail contracts as the only statement of the axis); each rail carries its own
+/// span so a contradicting row is reported on itself.
+#[derive(Debug, Clone)]
+pub struct L1DomainNature {
+    pub name: String,
+    pub nature: Option<String>,
+    pub rails: Vec<L1RailAxisRow>,
+}
+
+/// One rail row as the §3.1 consistency rule reads it: the `::` contract it
+/// writes, the net its first member opens (the row's subject, like [`L1Rail`]'s
+/// hot), and the row's own span (the rule's anchor).
+#[derive(Debug, Clone)]
+pub struct L1RailAxisRow {
+    pub iface: String,
+    pub hot: String,
+    pub span: Span,
+}
+
+/// One decoded AC rail guarantee — the AC axis's typed rail read, beside the
+/// DC-only [`L1Rail`]. `v_rms` is `None` only when the written nominal does not
+/// decode to a volts value; that failure is kept as `bad` (reported by the
+/// rail-contract check) rather than silently dropped. No window is derived: an
+/// AC tolerance (grid swing) is a power-quality question for sim, so the
+/// schematic-ERC face reads the RMS nominal and the frequency (§3.3).
+#[derive(Debug, Clone)]
+pub struct L1AcRail {
+    pub domain: String,
+    /// The `::AC*` variant — the identity of the terminal group below.
+    pub variant: String,
+    /// Written member net names in declaration order (`[L, N]` → `["L", "N"]`).
+    pub members: Vec<String>,
+    /// The leading member — the phase the row opens with.
+    pub hot: String,
+    /// The member the variant's group puts in the neutral slot, when the shape
+    /// has one and the row writes it. A delta three-wire shape has none: its
+    /// return runs phase-to-phase, which this read leaves blank (§8 boundary 2).
+    pub ret: Option<String>,
+    /// Verbatim nominal text as written (`230V`) — for messages.
+    pub v_text: String,
+    /// RMS volts; `None` when `v_text` is not a volts value.
+    pub v_rms: Option<f64>,
+    /// Line frequency in Hz (`50Hz`); `None` when the row writes none.
+    pub f: Option<f64>,
+    /// First decode problem, if any (a member count the variant's group does not
+    /// declare, a non-volts RMS, a non-hertz frequency, an unknown key).
+    pub bad: Option<String>,
+    pub span: Span,
+}
+
+/// Decode one rail row whose iface is a registered `::AC*` variant: the two
+/// scalars are positional (`::AC(230V, 50Hz)` — RMS volts, then hertz), and the
+/// written members must match the variant's declared group size.
+fn decode_ac_rail(domain: &str, r: &McRailDecl) -> L1AcRail {
+    let group = ac_terminal_group(&r.iface).unwrap_or(&[]);
+    let mut out = L1AcRail {
+        domain: domain.to_string(),
+        variant: r.iface.clone(),
+        members: r.members.clone(),
+        hot: r.members.first().cloned().unwrap_or_default(),
+        ret: group
+            .iter()
+            .position(|t| *t == AcTerminal::Neutral)
+            .and_then(|i| r.members.get(i).cloned()),
+        v_text: String::new(),
+        v_rms: None,
+        f: None,
+        bad: None,
+        span: r.span.clone(),
+    };
+    if r.members.len() != group.len() {
+        flag_bad(
+            &mut out.bad,
+            format!(
+                "iface '{}' declares a {}-member terminal group but the row writes {}",
+                r.iface,
+                group.len(),
+                r.members.len()
+            ),
+        );
+    }
+    let mut positional = 0usize;
+    for p in &r.params {
+        match p.key.as_deref() {
+            None => {
+                positional += 1;
+                match positional {
+                    1 => {
+                        out.v_text = p.text.clone();
+                        match eval::quantity_in(&p.text, &McUnit::Volt) {
+                            Some(x) => out.v_rms = Some(x),
+                            None => flag_bad(
+                                &mut out.bad,
+                                format!("RMS nominal '{}' is not a volts value", p.text),
+                            ),
+                        }
+                    }
+                    2 => match eval::quantity_in(&p.text, &McUnit::Hz) {
+                        Some(x) => out.f = Some(x),
+                        None => flag_bad(
+                            &mut out.bad,
+                            format!("frequency '{}' is not a hertz value", p.text),
+                        ),
+                    },
+                    _ => flag_bad(
+                        &mut out.bad,
+                        format!(
+                            "the AC contract carries two scalars (RMS volts, hertz); '{}' is a third",
+                            p.text
+                        ),
+                    ),
+                }
+            }
+            Some(k) => flag_bad(
+                &mut out.bad,
+                format!("unknown AC rail contract parameter '{k}'"),
+            ),
+        }
+    }
+    if positional == 0 {
+        flag_bad(&mut out.bad, "missing nominal RMS 'v'".to_string());
     }
     out
 }
@@ -866,7 +1137,7 @@ impl McDomainDecl {
     }
 }
 
-/// One `rail [hot, ret]::iface(params)` line (the domain's DC power pair).
+/// One `rail [hot, ret]::iface(params)` line (the domain's power pair).
 /// `hot`/`ret` are the member net names; `iface` e.g. `DC`. Params are the
 /// iface constructor arguments (3.3V, tol:±5%, …) held as text for now.
 #[derive(Debug, Clone)]
@@ -874,6 +1145,11 @@ pub struct McRailDecl {
     pub hot: String,
     pub ret: String,
     pub iface: String,
+    /// Every written member of the row's square vector, in declaration order.
+    /// `hot`/`ret` are its first two for the two-member shapes; a multi-terminal
+    /// AC group (`::AC_3P5W`) declares five, and only the full list states the
+    /// group the variant's registry entry describes (§3.2).
+    pub members: Vec<String>,
     pub params: Vec<McRailParam>,
     pub span: Span,
 }
@@ -903,25 +1179,22 @@ impl McRailDecl {
         }
 
         // Operand side: the [hot, ret] square vector.
-        let (mut hot, mut ret) = (String::new(), String::new());
+        let mut members: Vec<String> = Vec::new();
         if let Some(inst) = child_of_type(&declare, MCAST_INSTANCE) {
             if let Some(sq) = find_square_vec(&inst) {
                 if let Some(first) = sq.get_sub_node() {
-                    let mut parts = first.iter().filter_map(|opd| net_name(&opd));
-                    if let Some(h) = parts.next() {
-                        hot = h;
-                    }
-                    if let Some(r) = parts.next() {
-                        ret = r;
-                    }
+                    members.extend(first.iter().filter_map(|opd| net_name(&opd)));
                 }
             }
         }
+        let hot = members.first().cloned().unwrap_or_default();
+        let ret = members.get(1).cloned().unwrap_or_default();
 
         Some(Self {
             hot,
             ret,
             iface,
+            members,
             params,
             span,
         })
@@ -1295,6 +1568,139 @@ mod tests {
         let r = &rails[0];
         assert_eq!(r.v, None, "5A must not decode as volts");
         assert!(r.bad.is_some(), "expected a decode problem, got {rails:?}");
+    }
+
+    /// §3.2 the registry is the AC axis's identity anchor: the five variants and
+    /// their terminal groups, and nothing else. `DC` is not an AC variant, and a
+    /// name the table does not hold is not a contract however AC-shaped it looks.
+    #[test]
+    fn ac_variant_registry_holds_the_terminal_group_table() {
+        use AcTerminal::{Neutral, Phase, Protective};
+        assert_eq!(ac_terminal_group("AC").unwrap(), &[Phase, Neutral]);
+        assert_eq!(
+            ac_terminal_group("AC_1P3W").unwrap(),
+            &[Phase, Neutral, Protective]
+        );
+        assert_eq!(
+            ac_terminal_group("AC_3P3W").unwrap(),
+            &[Phase, Phase, Phase],
+            "a delta three-wire group has no neutral member"
+        );
+        assert_eq!(
+            ac_terminal_group("AC_3P4W").unwrap(),
+            &[Phase, Phase, Phase, Neutral]
+        );
+        assert_eq!(
+            ac_terminal_group("AC_3P5W").unwrap(),
+            &[Phase, Phase, Phase, Neutral, Protective]
+        );
+        assert!(ac_terminal_group("DC").is_none());
+        assert!(ac_terminal_group("AC_2P").is_none(), "unregistered variant");
+    }
+
+    /// §3.1 the two vocabularies meet on one axis: the registered `{ac, dc}`
+    /// value words and the rail ifaces (`::DC` / the `::AC*` registry), each
+    /// matched exactly and anything else naming no axis.
+    #[test]
+    fn rail_axis_maps_words_and_ifaces_onto_the_two_axes() {
+        assert_eq!(RailAxis::of_nature_word("ac"), Some(RailAxis::Ac));
+        assert_eq!(RailAxis::of_nature_word("dc"), Some(RailAxis::Dc));
+        assert_eq!(RailAxis::of_nature_word("AC"), None, "words are exact");
+        assert_eq!(RailAxis::of_nature_word("unsure"), None);
+        assert_eq!(RailAxis::of_iface("DC"), Some(RailAxis::Dc));
+        assert_eq!(RailAxis::of_iface("AC_3P5W"), Some(RailAxis::Ac));
+        assert_eq!(RailAxis::of_iface("AC_2P"), None, "unregistered variant");
+        assert_eq!(RailAxis::of_iface(""), None);
+    }
+
+    /// §3.1 the consistency rule's read: each domain's written word verbatim
+    /// (`None` when absent) beside every rail row's contract and span.
+    #[test]
+    fn l1_domain_natures_carry_the_word_and_every_rail_row() {
+        let pi = parse_pi(SRC_AC);
+        let doms = pi.l1_domain_natures();
+        assert_eq!(doms.len(), 3, "domains: {doms:?}");
+        let mains = doms.iter().find(|d| d.name == "MAINS").expect("MAINS");
+        assert_eq!(mains.nature.as_deref(), Some("ac"));
+        assert_eq!(mains.rails.len(), 1);
+        assert_eq!(mains.rails[0].iface, "AC");
+        assert_eq!(mains.rails[0].hot, "L");
+        assert!(mains.rails[0].span.end > mains.rails[0].span.start);
+        let vbulk = doms.iter().find(|d| d.name == "VBULK").expect("VBULK");
+        assert_eq!(vbulk.nature, None, "a face writing no word states no axis");
+        assert_eq!(vbulk.rails[0].iface, "DC");
+    }
+
+    const SRC_AC: &str = r#"module main {
+    ref GND @role(main)
+    domain MAINS  @nature(ac) { rail [L, N]::AC(230V, 50Hz) }
+    domain MAINS3 @nature(ac) { rail [U1, U2, U3]::AC_3P3W(400V, 50Hz) }
+    domain VBULK             { rail [Vb, N]::DC(310V) }
+}
+"#;
+
+    /// §3.3 `::AC(v, f)` decodes into the AC read — RMS nominal and hertz — and
+    /// the two readers partition the rail rows: `l1_rails` still holds exactly
+    /// the DC pair, so every DC consumer keeps seeing DC only.
+    #[test]
+    fn l1_ac_rails_decode_rms_and_frequency_beside_the_dc_axis() {
+        let pi = parse_pi(SRC_AC);
+        let dc = pi.l1_rails();
+        assert_eq!(dc.len(), 1, "the DC reader must not see AC rails: {dc:?}");
+        assert_eq!(dc[0].hot, "Vb");
+
+        let ac = pi.l1_ac_rails();
+        assert_eq!(ac.len(), 2, "ac rails: {ac:?}");
+        let mains = ac.iter().find(|r| r.domain == "MAINS").expect("MAINS");
+        assert_eq!(mains.variant, "AC");
+        assert_eq!(mains.members, vec!["L".to_string(), "N".to_string()]);
+        assert_eq!(mains.hot, "L");
+        assert_eq!(
+            mains.ret.as_deref(),
+            Some("N"),
+            "the neutral slot is the pair's return (§3.3, model A)"
+        );
+        assert_eq!(mains.v_rms, Some(230.0));
+        assert_eq!(mains.f, Some(50.0));
+        assert!(mains.bad.is_none(), "MAINS: {:?}", mains.bad);
+
+        let three = ac.iter().find(|r| r.domain == "MAINS3").expect("MAINS3");
+        assert_eq!(three.variant, "AC_3P3W");
+        assert_eq!(three.v_rms, Some(400.0));
+        assert_eq!(
+            three.ret, None,
+            "a delta three-wire group declares no neutral, so no member is the return"
+        );
+        assert!(three.bad.is_none(), "MAINS3: {:?}", three.bad);
+    }
+
+    /// A row whose shape or values contradict the contract it names is flagged
+    /// rather than silently accepted: a member count the variant's group does
+    /// not declare, a nominal that is not volts, a second scalar that is not
+    /// hertz, and an unknown key.
+    #[test]
+    fn l1_ac_rails_flag_shape_and_value_failures() {
+        const BAD: &str = r#"module main {
+    domain A { rail [L, N, PE]::AC(230V, 50Hz) }
+    domain B { rail [L, N]::AC(50Hz) }
+    domain C { rail [L, N]::AC(230V, 5A) }
+    domain D { rail [L, N]::AC(230V, tol:±10%) }
+}
+"#;
+        let pi = parse_pi(BAD);
+        let ac = pi.l1_ac_rails();
+        assert_eq!(ac.len(), 4, "ac rails: {ac:?}");
+        let bad = |d: &str| {
+            ac.iter()
+                .find(|r| r.domain == d)
+                .unwrap_or_else(|| panic!("domain {d}"))
+                .bad
+                .clone()
+        };
+        assert!(bad("A").is_some(), "three members on a two-member group");
+        assert!(bad("B").is_some(), "50Hz is not a volts RMS");
+        assert!(bad("C").is_some(), "5A is not a hertz frequency");
+        assert!(bad("D").is_some(), "an AC contract carries no tol key");
     }
 
     #[test]
