@@ -725,7 +725,19 @@ impl InstantiationBuilder {
     /// Set member). A bus that **is** the whole argument list is the §11.6
     /// vector fill, not lane expansion: `.Cap(_)` with a bus prefix folds to
     /// `Cap(BUS)` and fills the formal once.
+    ///
+    /// Only a **construction** call lane-expands. A re-call of a declared
+    /// sub-module instance (`SINK s` then `s(V3V3, V1V2)`) builds no instance
+    /// per lane: its actuals are port arguments, and the port binder expands a
+    /// whole interface actual into that port's member set itself. Shredding
+    /// them into single-member lanes first leaves one lane against a
+    /// multi-member port, which the binder can only reject (vector width
+    /// mismatch) or drop (no free port left) — so the parent's netlist comes
+    /// out empty with nothing on screen (CIMP §1 U68).
     fn fc_lane_bus(&self, fc: &crate::semantic::basic::mc_fcall::McFuncCall) -> Option<String> {
+        if self.find_submodule(&fc.func_name.to_string()).is_some() {
+            return None;
+        }
         if fc.params.len() > 1 {
             if let Some(name) = fc.params.iter().find_map(|p| self.bus_actual_name(p)) {
                 return Some(name);

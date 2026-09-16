@@ -177,3 +177,59 @@ fn u63__a_contract_less_callee_still_binds_its_endpoints() {
         dump(&n)
     );
 }
+
+// ── Two-actual re-calls: the whole netlist used to come out empty, silently ──
+//
+// CIMP U68. The defect sat upstream of this binder: `A -> V3V3::PWRLINE(3.3V)`
+// registers `V3V3` in the BUS table (a declared interface instance is a bus of
+// its members), so the P2-5 lane expansion claimed the call once per bus member
+// and shredded the actuals into single-member lanes. One lane against a
+// two-member port is either a vector width mismatch or an argument with no free
+// port -- so both actuals were lost and the parent's nets were empty with
+// nothing on screen (`mcc check` reports the file clean: it does not
+// instantiate). Only a CONSTRUCTION expands once per lane; a re-call binds
+// ports, and a whole interface actual is the binder's own business.
+
+/// Two declared supply ports, two actuals on one re-call line: each supply
+/// takes its own port, in declaration order.
+#[test]
+fn u68__a_two_arg_re_call_binds_both_supplies() {
+    let ports = "psnk ZRAIL{ZVDD,GND}, psnk ARAIL{AVDD,GND}";
+    let n = nets("two-arg-recall", &board(ports, "s(V3V3, V1V2)"));
+
+    assert!(
+        pairs_with(&n, "V3V3", "ZVDD"),
+        "the first actual takes the first declared supply port: {}",
+        dump(&n)
+    );
+    assert!(
+        pairs_with(&n, "V1V2", "AVDD"),
+        "the second actual takes the second declared supply port; before the fix both were shredded and the table was empty: {}",
+        dump(&n)
+    );
+    assert!(
+        !pairs_with(&n, "V1V2", "ZVDD") && !pairs_with(&n, "V3V3", "AVDD"),
+        "the two supplies must not swap ports: {}",
+        dump(&n)
+    );
+}
+
+/// One declared supply port and one signal bus, two actuals: the first actual
+/// takes the supply port and the second lands on nothing -- never on the signal
+/// bus. Shredding the actuals into lanes would also have handed the bus a lane.
+#[test]
+fn u68__an_extra_actual_never_lands_on_the_signal_bus() {
+    let ports = "psnk ZRAIL{VDDIO,GND}, io AAA{P,N}";
+    let n = nets("two-arg-extra", &board(ports, "s(V3V3, V1V2)"));
+
+    assert!(
+        pairs_with(&n, "V3V3", "s.ZRAIL.VDDIO"),
+        "the first actual takes the declared supply port: {}",
+        dump(&n)
+    );
+    assert!(
+        !took_supply(&n, "V1V2", &["s.AAA.P", "s.AAA.N"]),
+        "the second actual has no port to reach and must not take the signal bus: {}",
+        dump(&n)
+    );
+}
