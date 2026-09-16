@@ -112,7 +112,7 @@ pub fn render_with_metrics(
     );
 
     // ── ★ P7-1: renderdiff report (readings vs baseline/render_golden.toml) ──
-    // Large-scale red mid-way is the expected shape (v6 §4); reported here without
+    // Large-scale red mid-way is the expected shape; reported here without
     // blocking —— the Tier 1 electrical gate (RENDER_GATE_FAILED) is the hard failure.
     // The report is vlog-only, so skip the full diff when MC_VIZ_DUMP is off.
     if super::debug::dump_enabled() {
@@ -126,7 +126,7 @@ pub fn render_with_metrics(
 /// ★ P7-1: compare renderdiff readings against golden, reporting layer by layer.
 ///
 /// golden path: `MC_RENDER_GOLDEN` env var > `./baseline/render_golden.toml`.
-/// When golden is not found, prints a SKIP (a visible skip, not a false green —— discipline 9).
+/// When golden is not found, prints a SKIP (a visible skip, not a false green).
 pub fn renderdiff_report(
     metrics: &crate::viz::metrics::MetricsAccumulator,
 ) -> Option<Vec<crate::viz::metrics::renderdiff::LayerDiff>> {

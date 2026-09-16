@@ -130,8 +130,7 @@ impl SvgRenderer {
                 svg.push_str(&render_module_frame(mf));
             }
 
-            // ── ★ P7-3: rail terminal decorations (pin render attributes, not boxes, discipline
-            // 11) ──
+            // ── ★ P7-3: rail terminal decorations (pin render attributes, not boxes) ──
             // ★ C1b: disabled — equipotential trees handle all power/ground symbols
             // (Power dots above the pin, ground symbols below the pin).
         }

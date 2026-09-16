@@ -202,8 +202,7 @@ pub enum PortDir {
 ///   endpoints (products of netlist stubs / duplicate endpoints / label pseudo-points
 ///   entering viz directly; golden target = 0)
 /// - `SynthesizedRailFlag`: per-consumer flag boxes synthesized when `rails.rs` explodes
-///   a rail (golden target = 0 —— terminals should be pin decorations, not boxes;
-///   see discipline 11)
+///   a rail (golden target = 0 —— terminals should be pin decorations, not boxes)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BoxProvenance {
     #[default]
@@ -442,7 +441,7 @@ pub struct McVecBox {
     /// ★ P7-4: the last pipeline stage that changed this box's geometry
     /// (x/y/w/h/entry_points).
     ///
-    /// For observation (roadmap P7-4 task 1): written by stage-boundary snapshot
+    /// For observation: written by stage-boundary snapshot
     /// comparison (see `McVecGraph::claim_geom_changes`), **observe-only, no
     /// blocking**. The target shape is Placement (x/y) → PinPlace
     /// (entry_point) → Route (read-only), three stages with no write-back
@@ -632,7 +631,7 @@ impl McVecBox {
     }
 
     /// ★ R-C2: return physical pins that are not connected to any net (NC pins).
-    /// These pins should be drawn with an NC mark (discipline 27).
+    /// These pins should be drawn with an NC mark.
     pub fn nc_pins(&self) -> Vec<&BoxPin> {
         let connected: std::collections::HashSet<i64> =
             self.entry_points.iter().map(|ep| ep.pin_id).collect();

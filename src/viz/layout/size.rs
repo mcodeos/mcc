@@ -27,7 +27,7 @@ use crate::vector::graph::{BoxKind, EntrySide, McVecBox, McVecGraph};
 /// Minimum spacing between boxes (overlap check + chain gap baseline)
 pub const MIN_GAP: f64 = 40.0;
 
-/// ★ R-D (discipline 30): minimum pin pitch for box sizing
+/// ★ R-D: minimum pin pitch for box sizing
 pub const PIN_PITCH: f64 = 40.0;
 
 /// ★ R-D: margin on each end of pin row

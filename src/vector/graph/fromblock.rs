@@ -1296,7 +1296,7 @@ fn build_mc_vec_graph_inner(
     );
 
     // ★ P7-3: Phase 3.5 (same-name label synthesis of rail/signal nets) deleted
-    // It was a pure name-matching machine (anti-pattern §2.3 "name as criterion"),
+    // It was a pure name-matching machine ("name as criterion"),
     // and after P7-2 projection it could only produce fake nets duplicating real
     // ones (measured on the main layer: MIC/[GND,VCC_1V2]/DAC_OUT/POWER_SYS all
     // duplicate __net_32/34/V5V.VCC). Cross-module connections are carried by the

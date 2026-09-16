@@ -78,7 +78,7 @@ fn render_box_inner(b: &McVecBox, is_root: bool) -> String {
     // looks the same whether it is opened on its own or expanded inside its project;
     // the picture never depends on the scope it was reached from.
     //
-    // This supersedes the earlier per-layer split (R-S discipline 26: "device layers
+    // This supersedes the earlier per-layer split (R-S: "device layers
     // render by device category, never by a manifest SVG"). Only the component *body*
     // changes here — pin anchors still come from `entry_points`, so the custom symbol
     // never moves an electrical anchor.

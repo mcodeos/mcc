@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! ★ R-N (discipline 29): Equipotential tree — four-layer architecture
+//! ★ R-N: Equipotential tree — four-layer architecture
 //!
 //! Layer 1: Topology   — pure logic, zero coordinates
 //! Layer 2: Layout     — places boxes by topology, writes x/y/w/h and entry_points

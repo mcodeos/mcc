@@ -164,7 +164,7 @@ fn run_single(
 
 /// ★ P7-1: global failure flag for the Tier 1 real gate.
 ///
-/// Fix for v5 §0.2 "four false greens" / v6 §2 root cause J: fidelity_gate Tier 1
+/// Fix for the four false greens: fidelity_gate Tier 1
 /// used to just log and `return;` —— the gate could falsify nothing. Now a Tier 1
 /// failure sets this flag; `mcviz` checks it after rendering and exits non-zero
 /// (integration tests assert this flag directly).
@@ -580,7 +580,7 @@ mod tests {
     }
 
     /// ★ P7-1: Tier 1 failure must set RENDER_GATE_FAILED (a real gate, not just logging).
-    /// Render-layer fix for v5 §0.2 "four false greens" —— directly constructs a
+    /// Render-layer fix for the four false greens —— directly constructs a
     /// report with is_correct()==false and calls fidelity_gate, asserting the global
     /// failure flag gets set (mcviz checks it and exits 2).
     #[test]

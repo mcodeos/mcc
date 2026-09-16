@@ -50,7 +50,7 @@ pub struct McVecGraph {
     pub islands_total: usize,
     /// ★ M0-2: module port list (port name, direction, net role), from the module declaration
     pub module_ports: Vec<(String, PortDir, NetRole)>,
-    /// ★ P7-3: rail terminal decorations (discipline 11: terminals are not boxes).
+    /// ★ P7-3: rail terminal decorations (terminals are not boxes).
     ///
     /// Power/ground endpoints adjudicated by R-1/R-3 as "symbols placed in situ",
     /// existing as pin render attributes: zero layout cost, zero routing cost,
@@ -96,7 +96,7 @@ pub enum LayerStyle {
     Device,
 }
 
-/// ★ P7-4e: geometry stages (the roadmap's three stages, refined for implementation)
+/// ★ P7-4e: geometry stages (the three stages, refined for implementation)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeomStage {
     /// Decides x/y/w/h: prepare / size / placement / schematic_model / two_lane /
@@ -106,7 +106,7 @@ pub enum GeomStage {
     /// allocation + hub enlargement) → islands/passives placed against pins.
     /// These writers relaying each other is a functional need (placing against
     /// pins depends on pin allocation results); all dimensions are free within
-    /// the stage. Corresponds to the roadmap's PinPlace stage, named after
+    /// the stage. Corresponds to the PinPlace stage, named after
     /// real dependencies.
     PinFinal,
     /// Read-only geometry: route / feedback (reroute variant) / borders
