@@ -338,7 +338,7 @@ impl Mc2Interface {
         if let Some(ref cond_block) = inst.base.body.get_sub_node() {
             if let Some(conds) = McConds::new(cond_block) {
                 if let Some(selected_block) = conds.evaluate(&param_tuples, None, anchor) {
-                    inst.parsed_pins = Self::parse_pins_from_block(&selected_block);
+                    inst.parsed_pins = Self::parse_pins_from_block(&inst.base.uri, &selected_block);
                 }
             }
         }
@@ -391,7 +391,8 @@ impl Mc2Interface {
                 if child_type == MCAST_COND_IF {
                     if let Some(conds) = McConds::new(&child) {
                         if let Some(selected_block) = conds.evaluate(&param_tuples, None, anchor) {
-                            inst.parsed_pins = Self::parse_pins_from_block(&selected_block);
+                            inst.parsed_pins =
+                                Self::parse_pins_from_block(&inst.base.uri, &selected_block);
                             break; // Found matching condition, stop searching
                         }
                     }
@@ -410,21 +411,17 @@ impl Mc2Interface {
     /// value may still arrive from the instance or the spec — and must not be
     /// reported as an operator error.
     fn args_are_literals(params: &[McParamValue], arity: usize) -> bool {
-        params.len() == arity
-            && params.iter().all(|p| {
-                matches!(
-                    p,
-                    McParamValue::Const(_)
-                        | McParamValue::Int(_)
-                        | McParamValue::Hex(_)
-                        | McParamValue::Float(_)
-                        | McParamValue::String(_)
-                        | McParamValue::UValue(_)
-                )
-            })
+        params.len() == arity && params.iter().all(McParamValue::is_literal)
     }
 
-    fn parse_pins_from_block(block: &AstNode) -> Option<McPins> {
+    /// Parse an interface body's pin block. `uri` is the file that owns the
+    /// block, not the file being parsed: the interface may be declared in
+    /// another file (or a library) while the current file is only the one
+    /// instantiating it, and every diagnostic this raises belongs to the
+    /// declaration's own syntax (CIMP U39).
+    fn parse_pins_from_block(uri: &McURI, block: &AstNode) -> Option<McPins> {
+        let _uri = crate::current_uri::UriGuard::new(uri);
+
         let mut pins = McPins::new();
 
         // If the block itself is an ATTRIBUTE_PIN or ATTRIBUTE_PINADD, parse it directly

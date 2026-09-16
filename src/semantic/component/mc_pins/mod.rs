@@ -2208,9 +2208,9 @@ impl McPins {
                                                                                 );
                                                                             }
                                                                             _ => {
-                                                                                if let Some(s) = deep.evaluate() {
-                                                                                    grp.push(s);
-                                                                                }
+                                                                                grp.push(
+                                                                                    deep.to_string(),
+                                                                                );
                                                                             }
                                                                         }
                                                                     }
@@ -2240,11 +2240,9 @@ impl McPins {
                                                                             );
                                                                         }
                                                                         _ => {
-                                                                            if let Some(s) =
-                                                                                inner.evaluate()
-                                                                            {
-                                                                                grp.push(s);
-                                                                            }
+                                                                            grp.push(
+                                                                                inner.to_string(),
+                                                                            );
                                                                         }
                                                                     }
                                                                 }
@@ -2282,8 +2280,10 @@ impl McPins {
                                                                 parts
                                                                     .push(PinPart::Group(expanded));
                                                             }
-                                                        } else if let Some(s) = item.evaluate() {
-                                                            parts.push(PinPart::Scalar(s));
+                                                        } else {
+                                                            parts.push(PinPart::Scalar(
+                                                                item.to_string(),
+                                                            ));
                                                         }
                                                     }
                                                 }
@@ -2339,10 +2339,8 @@ impl McPins {
                                                         None
                                                     }
                                                 }
-                                            } else if let Some(s) = expr.evaluate() {
-                                                return Some(McPinPort::Single(s));
                                             } else {
-                                                return None;
+                                                return Some(McPinPort::Single(expr.to_string()));
                                             }
                                         }
                                     }
@@ -2361,8 +2359,18 @@ impl McPins {
                                         return None;
                                     }
 
-                                    // For arithmetic expressions, try to evaluate to a single value
-                                    expr.evaluate().map(McPinPort::Single)
+                                    // Arithmetic in a pin id is computed, not
+                                    // rendered: `1 + 2` names pin 3. A division
+                                    // by zero or an overflow names no pin, and
+                                    // the reason is stated here — the expression
+                                    // is this file's own syntax.
+                                    match expr.eval_int() {
+                                        Ok(id) => Some(McPinPort::Single(id.to_string())),
+                                        Err(err) => {
+                                            crate::eval::report(&err, &exp_node);
+                                            None
+                                        }
+                                    }
                                 } else {
                                     None
                                 }

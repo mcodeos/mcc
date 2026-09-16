@@ -86,6 +86,13 @@ pub struct McComponentInst {
     /// statement never renumbers existing anonymous devices. `None` for
     /// user-written names and phantom/stub isolation nodes.
     pub anchor: Option<crate::instant::identity::AutoAnchor>,
+
+    /// The reasons a conditional block of the class could not be evaluated
+    /// against the arguments this instance binds, one entry per block at most.
+    /// The condition node belongs to the file that declares the class, so this
+    /// instance cannot position the diagnostic: it carries the failure out and
+    /// the consumer that holds the declaration site reports it there.
+    pub cond_eval_errors: Vec<eval::EvalError>,
 }
 
 impl McComponentInst {
@@ -107,6 +114,7 @@ impl McComponentInst {
             expansion_id: None,
             node_id: None,
             anchor: None,
+            cond_eval_errors: Vec::new(),
         };
 
         inst.init_pins();
@@ -131,6 +139,7 @@ impl McComponentInst {
             expansion_id: None,
             node_id: None,
             anchor: None,
+            cond_eval_errors: Vec::new(),
         }
     }
 
@@ -185,6 +194,7 @@ impl McComponentInst {
             expansion_id: None,
             node_id: None,
             anchor: None,
+            cond_eval_errors: Vec::new(),
         };
 
         inst.init_pins();
@@ -210,6 +220,7 @@ impl McComponentInst {
             expansion_id: None,
             node_id: None,
             anchor: None,
+            cond_eval_errors: Vec::new(),
         };
 
         inst.init_pins();
@@ -287,8 +298,9 @@ impl McComponentInst {
 
         for cond_pins in &self.def.cond_pins {
             let mut matched = false;
+            let mut failure: Option<eval::EvalError> = None;
             for (condition, pins) in &cond_pins.if_blocks {
-                if McConds::check_condition(
+                match McConds::check_condition_result(
                     condition,
                     &eval_params,
                     Some(CondDefCtx {
@@ -296,21 +308,35 @@ impl McComponentInst {
                         attrs: &self.def.attrs,
                     }),
                 ) {
-                    for pin_id in pins.get_all_pins() {
-                        // Copy pin names from conditional block to instance
-                        if let Some(names) = pins.pin_id_to_names.get(&pin_id) {
-                            self.cond_pin_names.insert(pin_id.clone(), names.clone());
+                    Ok(true) => {
+                        for pin_id in pins.get_all_pins() {
+                            // Copy pin names from conditional block to instance
+                            if let Some(names) = pins.pin_id_to_names.get(&pin_id) {
+                                self.cond_pin_names.insert(pin_id.clone(), names.clone());
+                            }
+                            if !self.pins.contains_key(&pin_id) {
+                                let path = format!("{}.{}", self.name, pin_id);
+                                let iotype = pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
+                                let net_point = NetPoint::with_owner(&path, &self.name, iotype);
+                                self.pins.insert(pin_id, net_point);
+                            }
                         }
-                        if !self.pins.contains_key(&pin_id) {
-                            let path = format!("{}.{}", self.name, pin_id);
-                            let iotype = pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
-                            let net_point = NetPoint::with_owner(&path, &self.name, iotype);
-                            self.pins.insert(pin_id, net_point);
+                        matched = true;
+                        break;
+                    }
+                    Ok(false) => {}
+                    // The failing branch is read as "not satisfied" either way;
+                    // the reason is kept only when this instance had everything
+                    // the condition asked for (U39).
+                    Err(err) => {
+                        if failure.is_none() && !self.condition_reads_unreduced_param(condition) {
+                            failure = Some(err);
                         }
                     }
-                    matched = true;
-                    break;
                 }
+            }
+            if let Some(err) = failure {
+                self.cond_eval_errors.push(err);
             }
             if !matched {
                 if let Some(else_pins) = &cond_pins.else_pins {
@@ -342,8 +368,9 @@ impl McComponentInst {
 
         for cond_attrs in &self.def.cond_attrs {
             let mut matched = false;
+            let mut failure: Option<eval::EvalError> = None;
             for (condition, attrs) in &cond_attrs.if_blocks {
-                if McConds::check_condition(
+                match McConds::check_condition_result(
                     condition,
                     &eval_params,
                     Some(CondDefCtx {
@@ -351,12 +378,23 @@ impl McComponentInst {
                         attrs: &self.def.attrs,
                     }),
                 ) {
-                    for attr in attrs.iter() {
-                        self.cond_attrs.push(attr.clone());
+                    Ok(true) => {
+                        for attr in attrs.iter() {
+                            self.cond_attrs.push(attr.clone());
+                        }
+                        matched = true;
+                        break;
                     }
-                    matched = true;
-                    break;
+                    Ok(false) => {}
+                    Err(err) => {
+                        if failure.is_none() && !self.condition_reads_unreduced_param(condition) {
+                            failure = Some(err);
+                        }
+                    }
                 }
+            }
+            if let Some(err) = failure {
+                self.cond_eval_errors.push(err);
             }
             if !matched {
                 if let Some(else_attrs) = &cond_attrs.else_attrs {
@@ -366,6 +404,36 @@ impl McComponentInst {
                 }
             }
         }
+    }
+
+    /// Whether `condition` reads a formal this instance holds no value for.
+    /// Such a formal is either bound to a name (a net, a class) or not bound at
+    /// all while its declaration records no default; the condition is then
+    /// undecided rather than wrong — the value may still arrive from the
+    /// instance or the spec — so the engine's error is not this instance's to
+    /// report (U39).
+    ///
+    /// The declaration's own formals are read as well as the bound ones: a
+    /// formal no argument reached has no binding to inspect, and reading it
+    /// would otherwise leave the guard open.
+    fn condition_reads_unreduced_param(
+        &self,
+        condition: &crate::semantic::basic::mc_conds::McCondition,
+    ) -> bool {
+        let unreduced: Vec<String> = self
+            .def
+            .params
+            .names()
+            .into_iter()
+            .chain(self.def.bind_params().names())
+            .filter(|name| {
+                !self.params.find(name).is_some_and(|b| match b.get_value() {
+                    Some(value) => value.is_literal(),
+                    None => b.declare.default_val.is_some(),
+                })
+            })
+            .collect();
+        condition.references_param(&unreduced)
     }
 
     /// Resolve attribute values by substituting parameter references at instantiation time.
@@ -542,7 +610,7 @@ impl McComponentInst {
                 Some(format!("{left}~{right}"))
             }
             // Fallback: use the expression's Display representation
-            _ => expr.evaluate(),
+            _ => Some(expr.to_string()),
         }
     }
 
