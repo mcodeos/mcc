@@ -65,8 +65,9 @@ use crate::semantic::validation::nets::{
     check_isolated_dc_bridge, check_nc_connected, check_net_budget, check_pin_contract_decode,
     check_pin_contract_return_member, check_pin_count_mismatch, check_port_bind_role,
     check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
-    check_power_rail_two_roots, check_power_source_contention, check_protective_multi_bridge,
-    check_pullup_degenerate, check_reference_island_root, check_return_leg_undeclared,
+    check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
+    check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
+    check_reference_island_root, check_return_leg_undeclared,
     check_role_ref_missing_bridge, check_single_point_nets, check_sink_nominal_mismatch,
     check_sink_window_mismatch, check_unconnected_outputs, check_undriven_nets,
     check_undriven_sink_net, check_unselected_abstract, check_unused_module_ports,
@@ -1076,6 +1077,32 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_exposed_clamp_coverage,
     },
+    // PWR-5 protection-device placement (exposed-protection-design.md §4, ruled
+    // 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::PROTECT_SHUNT_NO_REFERENCE,
+        name = "protect-shunt-reference",
+        title = "a class declaring protect = shunt has no leg on a protective/earth reference",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "PWR-5 shunt half (exposed-protection-design.md §4): a definition body declaring `protect = shunt` says the device dumps the transient it exists for onto a reference, so at least one leg must land on a reference its scope (or an ancestor world) declares @role(protective)/@role(earth). The class body is the host — the declaration is the only witness, since a TVS and an ordinary two-terminal pass are structurally identical (no name table, no pin-shape inference). The leg is read through the net's effective class, so a leg on a @clamp target, on the protective copper itself, or on a rail's return member all discharge it. Whether the reference is a legitimate dump target is 6008/6015's verdict, not repeated here; a device with no net at all is the floating-input family's business, never guessed here.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_protect_shunt_reference,
+    },
+    declare_flat_erc_rule! {
+        code = crate::errcodes::PROTECT_SERIES_NOT_IN_PATH,
+        name = "protect-series-path",
+        title = "a class declaring protect = series is not a two-terminal element on a supply path",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "PWR-5 series half (exposed-protection-design.md §4): a definition body declaring `protect = series` says the device (fuse/PTC) carries the supply through itself, so it must be a two-terminal element with no DC row whose ends sit on two different nets, both on a supply tree. A DC row on the device makes it a power face rather than raw copper; two ends on one net means it bypasses itself; an end off every supply tree means it protects nothing (the fed face 6019 owns — not the 6021 budget root, which is deliberately Opaque at a capacity-less source boundary). A series device with an end on a return/reference net is not adjudicated: a protective earth-bond element sits in series on a reference path, a face §4 does not rule. The declared order (which side of the protected device the element sits on) is design §6 R4's.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_protect_series_path,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1639,14 +1666,15 @@ mod tests {
         POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE,
         POWER_PIN_RETURN_MISSING, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
         POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION,
-        PROTECTIVE_MULTI_BRIDGE, PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
+        PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE, PROTECTIVE_MULTI_BRIDGE,
+        PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
         ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 40] = [
+    const FLAT_ERC_ORDER: [u32; 42] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1687,6 +1715,8 @@ mod tests {
         PORT_BIND_ROLE_MISMATCH, // §8.7 port role contract (tail append)
         POWER_PIN_RETURN_MISSING, // §8.8 [hot, ret] pairing (tail append)
         EXPOSED_NET_NO_CLAMP,     // PWR-6 exposed-net clamp coverage (tail append)
+        PROTECT_SHUNT_NO_REFERENCE, // PWR-5 shunt leg must reach a protective/earth ref (tail append)
+        PROTECT_SERIES_NOT_IN_PATH, // PWR-5 series element must sit in series on a supply path
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2222,7 +2252,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (147, 0, 3));
+        assert_eq!((strong, doc, note), (149, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

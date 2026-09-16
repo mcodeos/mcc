@@ -2122,6 +2122,7 @@ mod tests {
             not_fitted: false,
             nc_marked: false,
             unselected: false,
+            protection: None,
             origin: InstOrigin::Declared,
             synthetic: false,
             alias_of: None,

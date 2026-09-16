@@ -2854,3 +2854,269 @@ fn exposed_port_with_no_net_is_not_adjudicated_6031() {
         "a dangling exposed port has no segment; got codes: {codes:?}"
     );
 }
+
+// ── PWR-5 protection-device placement (exposed-protection-design.md §4, ruled 2026-09-16) ──
+//
+// A class declares itself a protection element in its own definition body
+// (`protect = shunt|series`); the declaration is the sole witness, since a fuse
+// and an ordinary copper pass are structurally identical two-terminal elements.
+// The decoded value rides the flat entry (`InstEntry::protection`), decoded once
+// at flatten time from the definition's resolved attributes. Two Error verdicts:
+//
+// * **shunt** (6032) — the device dumps to a reference, so a leg of it must land
+//   on a reference its scope (or an ancestor world) declares protective/earth.
+// * **series** (6033) — the device carries the supply through itself, so it must
+//   be a two-terminal element with no DC row whose ends sit on two different
+//   nets, both on a supply tree. "On a supply tree" is the *fed* face 6019 owns,
+//   not the 6021 budget root (a capacity-less source boundary is deliberately
+//   Opaque to the budget walk); a series device with an end on a return/reference
+//   net is not adjudicated (a protective earth-bond element is in series on a
+//   reference path, a face §4 does not rule).
+
+/// A class declaring itself an in-line (series) protection element.
+const PROT_FUSE: &str =
+    "component FUSE.PROT {\n    protect = series\n    pins = [\n        io 1 = A\n        io 2 = B\n    ]\n}\n";
+
+/// A class declaring itself a dumping (shunt) protection element.
+const PROT_TVS: &str =
+    "component TVS.PROT {\n    protect = shunt\n    pins = [\n        io 1 = A\n        io 2 = B\n    ]\n}\n";
+
+/// The same two-terminal shape with no declaration at all — the control for
+/// "the declaration is the only witness".
+const PROT_TWOPIN: &str =
+    "component TWOPIN.PLAIN {\n    pins = [\n        io 1 = A\n        io 2 = B\n    ]\n}\n";
+
+/// A three-terminal class that still declares itself series.
+const PROT_FUSE3: &str = "component FUSE3.PROT {\n    protect = series\n    pins = [\n        \
+                          io 1 = A\n        io 2 = B\n        io 3 = C\n    ]\n}\n";
+
+/// A series declaration on a class that also carries a DC power row: a power
+/// face, not raw copper, so the supply does not pass through it.
+const PROT_FUSE_DC: &str =
+    "component FUSEDC.PROT {\n    protect = series\n    pins = [\n        psrc [1,2] = [A, B]::DC(5V)\n    ]\n}\n";
+
+/// A series declaration whose value is misspelled: the decode matches the two
+/// words whole, so the class is silently unmarked and both halves stay quiet
+/// (the value vocabulary belongs to the declaration plane — design §6 R9).
+const PROT_TYPO: &str =
+    "component TYPO.PROT {\n    protect = serise\n    pins = [\n        io 1 = A\n        io 2 = B\n    ]\n}\n";
+
+/// A 5V source with no declared capacity — its net is a source boundary, not a
+/// budget root (§8.5), which is exactly the oracle the series half must not use.
+const PROT_SRC_NOCAP: &str = "component SRC.PLAIN {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(5V)\n    ]\n}\n";
+
+/// A shunt device dumping onto the protective island is the ruled shape → 6032
+/// is silent.
+#[test]
+fn shunt_leg_on_a_protective_ref_is_silent_6032() {
+    let src = format!(
+        "{PROT_TVS}{SRC_CAP}\nmodule main {{\n    conduit GND @role(main)\n    \
+         conduit ESDGND @role(protective)\n    io V33\n    SRC_CAP s\n    s.OUT -> V33\n    s.GND -> GND\n    \
+         TVS.PROT tv\n    tv.A -> V33\n    tv.B -> ESDGND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECT_SHUNT_NO_REFERENCE),
+        "a leg on a @role(protective) reference discharges the shunt declaration; got codes: {codes:?}"
+    );
+}
+
+/// The ruled defect: the device declares itself a shunt element but every leg
+/// lands on an ordinary reference, so it cannot dump anything.
+#[test]
+fn shunt_with_no_protective_leg_fires_6032() {
+    let src = format!(
+        "{PROT_TVS}{SRC_CAP}\nmodule main {{\n    conduit GND @role(main)\n    io V33\n    \
+         SRC_CAP s\n    s.OUT -> V33\n    s.GND -> GND\n    \
+         TVS.PROT tv\n    tv.A -> V33\n    tv.B -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::PROTECT_SHUNT_NO_REFERENCE),
+        "a shunt declaration with no leg on a protective/earth reference must fire 6032; got codes: {codes:?}"
+    );
+}
+
+/// A reference's role may be supplied by an ancestor world (iron rule 1): the
+/// child module only forwards its dump leg to an `io` port, and the parent binds
+/// that port to its own protective conduit — the declaration is read along the
+/// module chain, so the child device is discharged.
+#[test]
+fn shunt_leg_forwarded_through_a_layer_child_is_silent_6032() {
+    let src = format!(
+        "{PROT_TVS}{SRC_CAP}\n\
+         module LEAF {{\n    io EARTHP\n    io VIN\n    TVS.PROT tv\n    tv.A -> VIN\n    tv.B -> EARTHP\n}}\n\
+         module main {{\n    conduit GND @role(main)\n    conduit ESDGND @role(protective)\n    \
+         io V33\n    SRC_CAP s\n    s.OUT -> V33\n    s.GND -> GND\n    \
+         LEAF u\n    u.VIN -> V33\n    u.EARTHP -> ESDGND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECT_SHUNT_NO_REFERENCE),
+        "the forwarded leg resolves to the parent's protective conduit; got codes: {codes:?}"
+    );
+}
+
+/// A device with no wired leg at all is the floating-input family's business —
+/// the declaration is adjudicated only where the wiring exists.
+#[test]
+fn shunt_class_with_no_wired_leg_is_not_adjudicated_6032() {
+    let src = format!(
+        "{PROT_TVS}\nmodule main {{\n    TVS.PROT tv\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECT_SHUNT_NO_REFERENCE),
+        "no leg means no wiring witness — never guessed here; got codes: {codes:?}"
+    );
+}
+
+/// The unmarked twin of the same shape is never judged: the declaration is the
+/// only witness, so no name table and no pin shape can mark it.
+#[test]
+fn unmarked_two_terminal_class_is_not_adjudicated_6032_6033() {
+    let src = format!(
+        "{PROT_TWOPIN}{SRC_CAP}\nmodule main {{\n    conduit GND @role(main)\n    io V33\n    \
+         SRC_CAP s\n    s.OUT -> V33\n    s.GND -> GND\n    \
+         TWOPIN.PLAIN tp\n    tp.A -> V33\n    tp.B -> GND\n    \
+         TWOPIN.PLAIN tb\n    tb.A -> V33\n    tb.B -> V33\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECT_SHUNT_NO_REFERENCE)
+            && !codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "an unmarked two-terminal class is an ordinary pass element; got codes: {codes:?}"
+    );
+}
+
+/// A series declaration really in line on a supply path (source → fuse → load,
+/// both ends fed) is the healthy shape → 6033 is silent.
+#[test]
+fn series_element_in_line_on_a_supply_path_is_silent_6033() {
+    let src = format!(
+        "{PROT_FUSE}{SRC_CAP}{SNK_AMP3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC_CAP s\n    SNK_AMP3 a\n    FUSE.PROT f\n    \
+         s.OUT -> V33\n    s.GND -> GND\n    f.A -> V33\n    f.B -> VLOAD\n    \
+         a.VDD -> VLOAD\n    a.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "a two-terminal fuse in line between source and load is the ruled shape; got codes: {codes:?}"
+    );
+}
+
+/// The ruled defect: both terminals on one net means the device bypasses itself.
+#[test]
+fn series_element_bypassing_itself_fires_6033() {
+    let src = format!(
+        "{PROT_FUSE}{SRC_CAP}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC_CAP s\n    FUSE.PROT f\n    s.OUT -> V33\n    s.GND -> GND\n    \
+         f.A -> V33\n    f.B -> V33\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "both ends on one net is a bypass, not an in-line element; got codes: {codes:?}"
+    );
+}
+
+/// The oracle is the *fed* face (6019), not the 6021 budget root: a
+/// capacity-less source is a source boundary — deliberately Opaque to the budget
+/// walk — so a fuse downstream of it must stay silent. Reading the budget root
+/// here would call an ordinary fuse "off the supply tree".
+#[test]
+fn series_element_downstream_of_a_capacity_less_source_is_silent_6033() {
+    let src = format!(
+        "{PROT_FUSE}{PROT_SRC_NOCAP}{SNK_AMP5}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC.PLAIN s\n    SNK_AMP5 a\n    FUSE.PROT f\n    \
+         s.OUT -> V5\n    s.GND -> GND\n    f.A -> V5\n    f.B -> VLOAD\n    \
+         a.VDD -> VLOAD\n    a.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "a capacity-less source boundary is not a budget root, but its net is still fed; got codes: {codes:?}"
+    );
+}
+
+/// An end off every supply tree means the device protects nothing: a fuse on an
+/// island with no supply root anywhere is not in series on a supply path.
+#[test]
+fn series_element_with_no_supply_tree_fires_6033() {
+    let src = format!(
+        "{PROT_FUSE}\nmodule main {{\n    conduit GND @role(main)\n    \
+         FUSE.PROT f\n    f.A -> N1\n    f.B -> N2\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "a fuse between two supply-less nets protects nothing; got codes: {codes:?}"
+    );
+}
+
+/// A series device with an end on a return/reference net is not adjudicated: a
+/// protective earth-bond element is in series on a *reference* path, a face §4
+/// does not rule (a return/reference net is never "fed" by construction).
+#[test]
+fn series_element_in_the_return_path_is_not_adjudicated_6033() {
+    let src = format!(
+        "{PROT_FUSE}\nmodule main {{\n    conduit GND @role(main)\n    conduit PGND @role(main)\n    \
+         FUSE.PROT f\n    f.A -> GND\n    f.B -> PGND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "a reference-path series element is not a supply-path face — never guessed; got codes: {codes:?}"
+    );
+}
+
+/// Not a two-terminal element: a three-terminal class declaring series cannot be
+/// an in-line element, whatever its wiring.
+#[test]
+fn three_terminal_series_class_fires_6033() {
+    let src = format!(
+        "{PROT_FUSE3}{SRC_CAP}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC_CAP s\n    FUSE3.PROT f\n    s.OUT -> V33\n    s.GND -> GND\n    \
+         f.A -> V33\n    f.B -> N1\n    f.C -> N2\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "a three-terminal class is not an in-line element; got codes: {codes:?}"
+    );
+}
+
+/// A DC row on the device itself: the supply does not pass through a power face
+/// (the same transparent-copper test §8.5 reads, taken on the declaration).
+#[test]
+fn series_class_with_a_dc_row_fires_6033() {
+    let src = format!(
+        "{PROT_FUSE_DC}{SRC_CAP}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC_CAP s\n    FUSEDC.PROT f\n    s.OUT -> V33\n    s.GND -> GND\n    \
+         f.A -> V33\n    f.B -> N1\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "a DC row makes the device a power face, not a transparent pass; got codes: {codes:?}"
+    );
+}
+
+/// A misspelled value is silently unmarked — the decode matches the two ruled
+/// words whole, so nothing here guesses an intent from a near-miss
+/// (exposed-protection-design.md §6 R9 owns the value vocabulary).
+#[test]
+fn misspelled_protect_value_is_silently_unmarked_6032_6033() {
+    let src = format!(
+        "{PROT_TYPO}{SRC_CAP}\nmodule main {{\n    conduit GND @role(main)\n    io V33\n    \
+         SRC_CAP s\n    s.OUT -> V33\n    s.GND -> GND\n    \
+         TYPO.PROT t\n    t.A -> V33\n    t.B -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECT_SHUNT_NO_REFERENCE)
+            && !codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "a value that is neither ruled word leaves the class unmarked; got codes: {codes:?}"
+    );
+}

@@ -1661,6 +1661,30 @@ pub const POWER_PIN_RETURN_MISSING: u32 = 6030;
 /// missing clamp only.
 pub const EXPOSED_NET_NO_CLAMP: u32 = 6031;
 
+/// PWR-5 (exposed-protection-design.md §4, ruled 2026-09-16): a class whose
+/// definition body declares `protect = shunt` says it dumps the transient it
+/// exists for onto a reference — so at least one of its legs must land on a
+/// reference the owning scope declares `@role(protective)`/`@role(earth)`.
+/// Without that leg the declaration names an obligation the device cannot
+/// discharge. The classification is the declaration alone (a fuse and an
+/// ordinary copper pass are structurally identical two-terminal elements), and
+/// whether that reference is *legitimate* — role correct, island single-point —
+/// stays PWR-7/PWR-8's verdict, not repeated here.
+pub const PROTECT_SHUNT_NO_REFERENCE: u32 = 6032;
+
+/// PWR-5 (exposed-protection-design.md §4, ruled 2026-09-16): a class whose
+/// definition body declares `protect = series` says it is an in-line
+/// protective element (fuse/PTC), so it must actually be one — a two-terminal
+/// element whose ends sit on two different nets, both on a supply tree — the
+/// fed face (6019), not the budget root: a capacity-less source boundary is
+/// deliberately opaque to the budget walk, so the budget root would call an
+/// ordinary fuse downstream of such a source off the supply tree. Either
+/// failure makes the placement meaningless: both ends on one net means the
+/// device bypasses itself, and an end on no supply tree means it protects
+/// nothing. The declared order (which side of the protected device the element
+/// sits on) is deferred — §6 R4 owns it.
+pub const PROTECT_SERIES_NOT_IN_PATH: u32 = 6033;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -2078,6 +2102,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PORT_BIND_ROLE_MISMATCH, "An out port declaring @bind_role(<role>) is bound in its parent scope to a reference whose declared role differs, or to a net with no role identity.", "port '{0}' declares @bind_role({1}) but its parent binding '{2}' resolves to role {3} — the child names a role, never an ancestor conduit, so the parent binding must witness it: bind the port to a conduit of that role (or forward it to a sibling port re-declaring the same role). Bind to the {1} conduit, or fix the @bind_role if the contract itself is mis-declared (conduit-equivalence-design.md §8.7)"),
     entry!(POWER_PIN_RETURN_MISSING, "A ::DC power row declares no return member, so the DC crossing is incomplete.", "{0} '{1}' carries a ::DC contract but no second (return) member — a DC crossing is the pair [hot, ret] and every consumer of the crossing reads that member: write it as a pair on one row, e.g. `psnk [1,2] = VIN{Vin, GND}::DC(...)`, naming the return the hot terminal closes over (conduit-equivalence-design.md §8.8, model A)"),
     entry!(EXPOSED_NET_NO_CLAMP, "An @exposed port's net carries no declared clamp onto a protective/earth reference.", "port '{0}' declares @exposed({1}) but net '{2}' carries no clamp onto a protective/earth reference — an exposed net is at the board's transient boundary, so a device on it must have its dump leg on a @role(protective)/@role(earth) conduit that the same scope declares @clamp(<ref>) on: add the clamp (an ESD array channel onto the protective island), or drop the @exposed when the port is not at the transient boundary (exposed-protection-design.md §3, PWR-6)"),
+    entry!(PROTECT_SHUNT_NO_REFERENCE, "A class declaring protect = shunt has no leg on a protective/earth reference.", "component '{0}' declares protect = shunt in its definition body but no leg of it lands on a reference its scope declares @role(protective)/@role(earth) (its legs carry {1}) — a shunt protection device must be able to dump the transient it exists for, so route one of its legs to the protective island, or drop the declaration when the device is not a shunt protection element (exposed-protection-design.md §4, PWR-5)"),
+    entry!(PROTECT_SERIES_NOT_IN_PATH, "A class declaring protect = series is not a two-terminal element on a supply path.", "component '{0}' declares protect = series in its definition body but {1} — a series protection element (fuse/PTC) must carry the supply through itself, so it has to be a two-terminal device whose ends sit on two different nets, both on a supply tree. Put it in series on the path it protects instead of bypassing it or leaving an end off the supply tree (exposed-protection-design.md §4, PWR-5)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),

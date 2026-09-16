@@ -248,6 +248,31 @@ pub(crate) fn pwr_row_for_pin<'a>(
         .find(|c| names.iter().any(|n| *n == c.hot))
 }
 
+/// The class's own protection declaration, decoded for the flat carry
+/// ([`InstEntry::protection`]) — exposed-protection-design.md §4, PWR-5.
+///
+/// The key is read off the instance's *resolved* attribute list, so whatever
+/// lands there is what the flat entry records: the definition-body value, or —
+/// on a func call site — the key assignment that rewrites it (contract-design
+/// §2.4). The value is matched whole and case-sensitively against the two words
+/// the design rules; an absent key — or a value that is neither — leaves the
+/// entry unmarked, and PWR-5 then says nothing about the device. Nothing here
+/// reads a class name or a pin shape: the declaration is the only witness
+/// (world-axioms §1 A1).
+pub(crate) fn protection_of(
+    comp: &crate::instant::mc_comp::McComponentInst,
+) -> Option<ProtectionKind> {
+    let attr = comp
+        .resolved_attrs
+        .iter()
+        .find(|a| a.id.to_string() == "protect")?;
+    match crate::semantic::component::mc_attr::attr_values_text(attr.values.iter()).as_deref() {
+        Some("shunt") => Some(ProtectionKind::Shunt),
+        Some("series") => Some(ProtectionKind::Series),
+        _ => None,
+    }
+}
+
 /// The declared power face of one pin of a component: the `::DC(hot, ret)`
 /// contract of the row that owns it when the row writes one, else the face its
 /// declared role names (a bare `psrc/psnk/psbi` row declares a face without
@@ -335,6 +360,24 @@ impl Default for InstOrigin {
 
 // InstEntry - Single instance record
 
+/// How a class declares itself a protection device (`protect = shunt|series`
+/// in the definition body — exposed-protection-design.md §4, PWR-5).
+///
+/// A fuse/PTC and a TVS/MOV are both two-terminal pass elements in the
+/// netlist, and neither carries a DC row, so nothing structural tells a
+/// protection device from an ordinary copper pass: the *declaration* is the
+/// only witness, and this is its decoded value. An unmarked class (the
+/// default) is an ordinary pass element and PWR-5 says nothing about it —
+/// no name table, no inferred classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtectionKind {
+    /// The device dumps to a reference: it must reach a protective/earth one.
+    Shunt,
+    /// The device sits in series: it must be a two-terminal element on a
+    /// supply path, never a bypass.
+    Series,
+}
+
 /// Single instance record
 #[derive(Debug, Clone)]
 pub struct InstEntry {
@@ -421,6 +464,14 @@ pub struct InstEntry {
     /// Pure def-marker (`McComponent.is_abstract`); never inferred from a
     /// `partno` sentinel (abstract defs may legally carry a reference partno).
     pub unselected: bool,
+    /// ★ PWR-5: protection classification carried from the class's own
+    /// definition-body declaration (`protect = shunt|series`,
+    /// exposed-protection-design.md §4). Def-marker, exactly like
+    /// [`Self::unselected`]: decoded once at flatten time from the definition's
+    /// resolved attributes, never inferred from a class name or pin shape.
+    /// `None` = ordinary pass element (the unmarked default), which no PWR-5
+    /// half adjudicates.
+    pub protection: Option<ProtectionKind>,
     /// ★ M0-B-E: instance origin (declaration vs funcall)
     pub origin: InstOrigin,
     /// ★ virtual: true when this entry belongs to a synthetic wrapper module
@@ -855,6 +906,7 @@ impl InstTable {
             not_fitted: false,
             nc_marked: false,
             unselected: false,
+            protection: None,
             origin: InstOrigin::Declared,
             synthetic: false,
             alias_of: None,
@@ -1632,6 +1684,14 @@ impl InstTable {
                     entry.unselected = true;
                 }
             }
+            // ★ PWR-5: the class's protection declaration (`protect =
+            // shunt|series` in its body) rides the flat entry the same way the
+            // def-markers above do — decoded here, consumed by the rule.
+            if let Some(kind) = protection_of(comp) {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.protection = Some(kind);
+                }
+            }
             // ★ M0-B-E: pass through origin
             if let Some(entry) = self.entries.get_mut(&comp_id) {
                 entry.origin = comp.origin.clone();
@@ -1828,6 +1888,12 @@ impl InstTable {
             if comp.def.is_abstract {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
                     entry.unselected = true;
+                }
+            }
+            // ★ PWR-5: protection declaration (same as pass-1)
+            if let Some(kind) = protection_of(comp) {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.protection = Some(kind);
                 }
             }
             if let Some(entry) = self.entries.get_mut(&comp_id) {
