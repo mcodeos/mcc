@@ -72,6 +72,33 @@ pub(crate) enum AttrValueKind {
     Count,
 }
 
+/// What an element **is**, as its own `spec` table declares it — the class a
+/// registered `spec` key's presence marks.
+///
+/// The default question ("is this a decoupling capacitor?") is answered from the
+/// declaration, never from a class name or a pin shape (world-axioms §1 A1):
+/// `spec.capacitance` marks a capacitor because the key *is* a capacitance, and
+/// the unit column of that same row already says `F`. The classes are the three
+/// the power-quality axis (PI-1~4) asks about; the fold over a component's whole
+/// `spec` key set — which resolves clashes and maps the absence of every marked
+/// key to "no class" — lives where the flat table is built
+/// ([`crate::instant::insttab::InstEntry::element_class`]).
+///
+/// Only keys that *decide* the class are registered here. A quantity that merely
+/// accompanies an element (`spec.esr` on a capacitor, `spec.dcr` on an inductor)
+/// marks nothing: it is written on a part that is already classified by a key
+/// that does decide, and a bare `esr` on its own would name no element at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ElementClass {
+    /// It stores charge across its two legs (`spec.capacitance`).
+    Capacitive,
+    /// It resists a change of current, or presents a frequency-dependent
+    /// impedance (`spec.inductance`, `spec.impedance`).
+    Magnetic,
+    /// It dissipates in a declared resistance (`spec.resistance`).
+    Resistive,
+}
+
 /// Which half of a demand/supply contract a key states.
 ///
 /// A requirement and its guarantee are written under *different* keys — a
@@ -136,6 +163,10 @@ pub(crate) struct AttrKeyDef {
     /// How many declarations of this key one attribute list may hold (U43).
     /// [`arity_of`] is its reader.
     pub(crate) arity: AttrKeyArity,
+    /// The element class this key's presence marks, where it marks one
+    /// ([`ElementClass`]); `None` for every key that does not answer "what is
+    /// this element". [`element_of_spec_key`] is its reader.
+    pub(crate) element: Option<ElementClass>,
 }
 
 /// Does `key` name a supply voltage, written in `face`?
@@ -213,24 +244,43 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     // General electrical quantities of the `spec` table. Keys beyond these —
     // the unbounded tail of device parameters — are deliberately absent: they
     // are legal, and they carry no registered unit.
-    value_row(
+    element_row(
         "spec.resistance",
         SPEC,
         AttrValueKind::Quantity(McUnit::Ohm),
+        ElementClass::Resistive,
     ),
-    value_row("spec.impedance", SPEC, AttrValueKind::Quantity(McUnit::Ohm)),
+    // The bead's only classification key, and the power-quality axis's filter
+    // element (PI-2 / SN-2) — the golden board's `IND.FB` legs carry no other
+    // spec key. Deliberately read as magnetic on its own: in the library the
+    // bare `impedance` key is written by more than one part family — the
+    // two-leg ferrite bead (`ind.mc`, `spec = [impedance, rated_current,
+    // test_frequency, …]`) and the common-mode choke, but also the antenna
+    // (`ant.mc`) and the circular connector (`conn/circular.mc`). No key
+    // separates them and A1 forbids asking the class name, so this row is a
+    // named over-approximation, not a certificate: a consumer reading the class
+    // must judge the element's *shape and placement* too, and may not conclude
+    // "filter" from the class alone.
+    element_row(
+        "spec.impedance",
+        SPEC,
+        AttrValueKind::Quantity(McUnit::Ohm),
+        ElementClass::Magnetic,
+    ),
     value_row("spec.esr", SPEC, AttrValueKind::Quantity(McUnit::Ohm)),
     value_row("spec.voltage", SPEC, AttrValueKind::Quantity(McUnit::Volt)),
     value_row("spec.HBM", SPEC, AttrValueKind::Quantity(McUnit::Volt)),
-    value_row(
+    element_row(
         "spec.capacitance",
         SPEC,
         AttrValueKind::Quantity(McUnit::Cap),
+        ElementClass::Capacitive,
     ),
-    value_row(
+    element_row(
         "spec.inductance",
         SPEC,
         AttrValueKind::Quantity(McUnit::Ind),
+        ElementClass::Magnetic,
     ),
     value_row("spec.current", SPEC, AttrValueKind::Quantity(McUnit::Amp)),
     value_row(
@@ -255,6 +305,15 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
         AttrValueKind::Quantity(McUnit::Hz),
     ),
     value_row("spec.power", SPEC, AttrValueKind::Quantity(McUnit::Wat)),
+    // The package's own dissipation ceiling (`res.mc` writes it on every
+    // resistor family). Registering it is what lets a rule compare an
+    // application power against a declared rating instead of reading the key
+    // as an unregistered, meaningless tail parameter.
+    value_row(
+        "spec.power_rated",
+        SPEC,
+        AttrValueKind::Quantity(McUnit::Wat),
+    ),
     value_row(
         "spec.capacity",
         SPEC,
@@ -330,6 +389,7 @@ const fn row(key: &'static str, faces: &'static [AttrFace], general: bool) -> At
         contract: AttrContract::Plain,
         supply_voltage: false,
         arity: AttrKeyArity::Single,
+        element: None,
     }
 }
 
@@ -346,6 +406,28 @@ const fn value_row(
         contract: AttrContract::Plain,
         supply_voltage: false,
         arity: AttrKeyArity::Single,
+        element: None,
+    }
+}
+
+/// A row for a key whose presence marks what an element **is**
+/// ([`AttrKeyDef::element`]). Separate from [`value_row`] so the class is
+/// written where the key is, next to the unit that says the same thing.
+const fn element_row(
+    key: &'static str,
+    faces: &'static [AttrFace],
+    value: AttrValueKind,
+    element: ElementClass,
+) -> AttrKeyDef {
+    AttrKeyDef {
+        key,
+        faces,
+        general: true,
+        value: Some(value),
+        contract: AttrContract::Plain,
+        supply_voltage: false,
+        arity: AttrKeyArity::Single,
+        element: Some(element),
     }
 }
 
@@ -362,6 +444,7 @@ const fn voltage_row(
         contract: AttrContract::Plain,
         supply_voltage: true,
         arity: AttrKeyArity::Single,
+        element: None,
     }
 }
 
@@ -379,6 +462,7 @@ const fn contract_row(
         contract,
         supply_voltage: false,
         arity: AttrKeyArity::Single,
+        element: None,
     }
 }
 
@@ -406,6 +490,45 @@ pub(crate) fn value_kind(key: &str) -> Option<AttrValueKind> {
 /// namespace are two keys, and never duplicates of each other.
 pub(crate) fn arity_of(key: &str) -> AttrKeyArity {
     lookup(key).map_or(AttrKeyArity::Single, |d| d.arity)
+}
+
+/// What does this key's presence mark the element as ([`ElementClass`])?
+///
+/// `key` is the whole dotted key as written (`spec.capacitance`), like every
+/// other reader here. `None` for every key that answers no such question —
+/// including the quantities that merely accompany a marked element
+/// (`spec.esr`, `spec.dcr`).
+pub(crate) fn element_of_key(key: &str) -> Option<ElementClass> {
+    lookup(key).and_then(|d| d.element)
+}
+
+/// [`element_of_key`] asked with a **`spec` sub-key** the way the body writes
+/// it (`capacitance`) — the spelling the `spec` table hands its reader. The
+/// registered path is built here, where the path form lives, so no caller
+/// re-spells it.
+pub(crate) fn element_of_spec_key(sub: &str) -> Option<ElementClass> {
+    element_of_key(&format!("spec.{sub}"))
+}
+
+/// Does `key` open a value-table namespace — a name the dictionary registers
+/// rows *under*, by path?
+///
+/// A definition writes such a table two ways (G2, one fact): as a table-valued
+/// attribute (`spec = [capacitance = cap]`, the namespace is the whole key) and
+/// as dotted keys (`spec.capacitance = cap`, the namespace is the first
+/// segment). A reader that walks a definition's attribute list for one of them
+/// asks this first, so the namespace name is written in one place instead of in
+/// each walker.
+///
+/// Derived, not registered: a namespace is exactly a prefix under which the
+/// dictionary holds path rows, so the [`AttrFace::Spec`] rows answer for `spec`
+/// without a column restating what their keys already say. A name nothing is
+/// registered under opens no table.
+pub(crate) fn is_table_namespace(key: &str) -> bool {
+    let prefix = format!("{key}.");
+    ATTR_KEYS
+        .iter()
+        .any(|d| d.faces.contains(&AttrFace::Spec) && d.key.starts_with(&prefix))
 }
 
 /// Is `key` reserved in attribute position? (N1)
@@ -559,5 +682,60 @@ mod tests {
         assert!(is_reserved("this"));
         assert!(!is_voltage_key("spec.voltage", AttrFace::Spec));
         assert!(is_voltage_key("vcc", AttrFace::Body));
+    }
+
+    #[test]
+    fn attrkeys__element_column_marks_the_keys_that_decide_the_class() {
+        // The key that *is* the quantity decides the class (world-axioms §1 A1).
+        assert_eq!(
+            element_of_key("spec.capacitance"),
+            Some(ElementClass::Capacitive)
+        );
+        assert_eq!(
+            element_of_key("spec.resistance"),
+            Some(ElementClass::Resistive)
+        );
+        assert_eq!(
+            element_of_key("spec.inductance"),
+            Some(ElementClass::Magnetic)
+        );
+        // `impedance` is the column's one over-approximation: a ferrite bead, a
+        // common-mode choke, an antenna and a connector all declare it and no
+        // key separates them, so the surplus is silence, never a false class.
+        assert_eq!(
+            element_of_key("spec.impedance"),
+            Some(ElementClass::Magnetic)
+        );
+        // An accompanying quantity decides nothing: `esr`/`dcr` ride on a part
+        // the deciding key already classified, and alone they name no element.
+        assert_eq!(element_of_key("spec.esr"), None);
+        assert_eq!(element_of_key("spec.dcr"), None);
+        assert_eq!(element_of_key("spec.tolerance"), None);
+        assert_eq!(element_of_key("voltage"), None);
+        assert_eq!(element_of_key("name"), None);
+    }
+
+    #[test]
+    fn attrkeys__element_lookup_is_whole_and_exact() {
+        // Same read as every other column here: the dotted key is the key, so a
+        // bare sub-key is not one (and case is not folded).
+        assert_eq!(element_of_key("capacitance"), None);
+        assert_eq!(element_of_spec_key("capacitance"), Some(ElementClass::Capacitive));
+        assert_eq!(element_of_spec_key("Capacitance"), None);
+        assert_eq!(element_of_spec_key("spec.capacitance"), None);
+        // A longer key is a different key: a crystal's `load_capacitance` is
+        // not the bare capacitance the class is asked about.
+        assert_eq!(element_of_spec_key("load_capacitance"), None);
+    }
+
+    #[test]
+    fn attrkeys__spec_namespace_is_derived_from_the_rows() {
+        // "Is this attribute the spec table?" is answered by the registered
+        // Spec-face rows, so no consumer writes the word `spec` itself.
+        assert!(is_table_namespace("spec"));
+        assert!(!is_table_namespace("name"));
+        assert!(!is_table_namespace("voltage"));
+        // A whole dotted key is a key, not the namespace it lives in.
+        assert!(!is_table_namespace("spec.capacitance"));
     }
 }

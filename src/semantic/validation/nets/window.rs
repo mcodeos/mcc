@@ -122,11 +122,12 @@ pub(crate) fn decode_component_spec(def: &McComponent) -> DecodedSpec {
         }
         out.has_spec = true;
         if is_dotted {
-            let key = segs[1..]
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>()
-                .join(".");
+            // The sub-key of the dotted spelling, read off the segments: the
+            // dotted segment spells its own separator, so `segs[1..]` printed
+            // as a path is `.input_req` and matches no registered key.
+            let Some(key) = attr.id.sub_path() else {
+                continue;
+            };
             if let Some((win, text)) = window_of_attr(attr) {
                 match key.as_str() {
                     "input_req" => out.input_req = Some((win, text)),
@@ -810,5 +811,60 @@ mod tests {
         // union of a point with a window keeps the window
         let pt = PwrWindow { lo: 5.0, hi: 5.0 };
         approx(&b.union(&pt), 4.6, 5.4);
+    }
+
+    /// Both spellings of a spec key are one fact (G2), so the dotted form must
+    /// decode to the same window as the table form. The dotted tail arrives as
+    /// its own segment kind (`DotIda`), whose spelling carries the separator —
+    /// a reader that prints the tail as a path asks for a key called
+    /// `.input_req` and silently finds nothing.
+    const SPELLINGS: &str = r#"component REG_TABLE {
+    pins = [ io [1:2] = [VIN, G1] ]
+    spec = [
+        input_req = 4.5V ~ 5.5V
+        output    = 3.2V ~ 3.4V
+    ]
+}
+component REG_DOTTED {
+    pins = [ io [1:2] = [VIN, G1] ]
+    spec.input_req = 4.5V ~ 5.5V
+    spec.output    = 3.2V ~ 3.4V
+}
+"#;
+
+    fn decoded_both_spellings() -> (DecodedSpec, DecodedSpec) {
+        use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
+        let _guard = MCC_TEST_PARSE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+        let uri: crate::McURI = "/mcc/window-spec-spelling-lock.mc".to_string();
+        crate::mcc_load_from_string(&uri, SPELLINGS);
+        let def_of = |want: &str| {
+            crate::definition_space()
+                .workspace_components()
+                .into_iter()
+                .find(|(sn, _)| sn.ident.to_string() == want)
+                .unwrap_or_else(|| panic!("component `{want}` not parsed"))
+                .1
+        };
+        (
+            decode_component_spec(&def_of("REG_TABLE")),
+            decode_component_spec(&def_of("REG_DOTTED")),
+        )
+    }
+
+    #[test]
+    fn decode_spec_dotted_spelling_is_the_table_spelling() {
+        let (table, dotted) = decoded_both_spellings();
+        assert_eq!(dotted.has_spec, table.has_spec);
+        assert_eq!(dotted.output, table.output);
+        assert_eq!(dotted.input_req, table.input_req);
+        // ... and not two silent `None`s agreeing with each other.
+        let (req, text) = dotted.input_req.expect("dotted `spec.input_req` decoded");
+        approx(&req, 4.5, 5.5);
+        assert_eq!(text, table.input_req.expect("table `spec.input_req` decoded").1);
     }
 }
