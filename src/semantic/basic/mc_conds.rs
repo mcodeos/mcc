@@ -105,6 +105,36 @@ impl std::fmt::Display for McCondition {
     }
 }
 
+impl McCondition {
+    /// Whether this condition reads one of `param_names`.
+    ///
+    /// A formal parameter is answered by the call site, so a condition that
+    /// reads one is decided per instance. A consumer that decides the whole
+    /// definition at once — the definition-time fold — is unsound for it
+    /// (CIMP U54).
+    pub fn references_param(&self, param_names: &[String]) -> bool {
+        let named = |op: &McCondOperand| match op {
+            McCondOperand::Ident(ids) => {
+                let name = ids.to_string();
+                param_names.iter().any(|p| p == &name)
+            }
+            McCondOperand::Literal(_) => false,
+        };
+
+        match self {
+            McCondition::In { left, .. } => named(left),
+            McCondition::Eq { left, right }
+            | McCondition::NotEq { left, right }
+            | McCondition::Lt { left, right }
+            | McCondition::Gt { left, right }
+            | McCondition::LtEq { left, right }
+            | McCondition::GtEq { left, right }
+            | McCondition::BitAnd { left, right }
+            | McCondition::BitOr { left, right } => named(left) || named(right),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct McConds {
     pub if_blocks: Vec<McCond>,
@@ -140,6 +170,14 @@ impl McConds {
             if_blocks,
             else_block,
         })
+    }
+
+    /// Whether any branch of this chain reads one of `param_names` — see
+    /// [`McCondition::references_param`].
+    pub fn references_param(&self, param_names: &[String]) -> bool {
+        self.if_blocks
+            .iter()
+            .any(|c| c.condition.references_param(param_names))
     }
 
     fn collect_nested_branches(

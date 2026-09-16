@@ -22,6 +22,9 @@ use std::ops::Range;
 /// The retired code, kept numeric: it must never appear in output again.
 const RETIRED_UNSUPPORTED: u32 = 2171;
 
+/// A pin the component instance does not have.
+const PIN_NOT_FOUND: u32 = 3179;
+
 /// The declaration block of one group: its name, the pin ids it registered and
 /// the block's source extent.
 type Group = (String, Vec<String>, Range<usize>);
@@ -565,11 +568,15 @@ module main
     assert_eq!(branch_groups[0].pins, vec!["2".to_string()]);
 }
 
-/// When the condition IS evaluable at definition time, the branch's rows are
-/// parsed straight into the definition, and so is its group.
+/// A condition that reads a parameter is answered by the call site, so the
+/// branch stays deferred even when the parameter declares a default: the
+/// definition's group table stays empty, the branch keeps its group, and the
+/// pin lands on the instances the condition selects. Deciding it on the
+/// definition — which a default alone used to justify — hands the group to
+/// every instance, including the one whose argument the condition rejects.
 #[test]
-fn sem_pingroup__evaluated_condition_lands_in_the_definition() {
-    let uri = "/mcc/pin-group-conditional-eval.mc";
+fn sem_pingroup__a_parameter_condition_is_answered_per_instance() {
+    let uri = "/mcc/pin-group-conditional-default.mc";
     let src = r#"
 component C1(mode::INT = 1)
 {
@@ -585,13 +592,41 @@ module main
 {
     io VDD
     C1 u1
+    C1(2) u2
+    u1.B -> VDD
+    u2.B -> VDD
 }
 "#;
-    let groups = groups_of(src, uri, "u1");
-    assert_eq!(
-        groups.iter().map(|g| g.0.as_str()).collect::<Vec<_>>(),
-        vec!["bank"],
-        "an evaluated branch declares its group on the definition; got {groups:?}"
+    let def = def_of(src, uri, "u1");
+    assert!(
+        def.pins.groups.is_empty(),
+        "a parameter condition is not decided on the definition; got {:?}",
+        def.pins.groups
     );
-    assert_eq!(groups[0].1, vec!["2".to_string()]);
+    let branches = def
+        .cond_pins
+        .first()
+        .expect("a parameter condition is deferred, defaults or not");
+    let branch_groups = &branches.if_blocks[0].1.groups;
+    assert_eq!(
+        branch_groups.len(),
+        1,
+        "the branch captures the group; got {branch_groups:?}"
+    );
+    assert_eq!(branch_groups[0].name, "bank");
+
+    let missed: Vec<String> = diags_of(src, uri)
+        .into_iter()
+        .filter(|(code, _, _)| *code == PIN_NOT_FOUND)
+        .map(|(_, _, msg)| msg)
+        .collect();
+    assert_eq!(
+        missed.len(),
+        1,
+        "only the instance the condition does not select may miss the pin; got {missed:?}"
+    );
+    assert!(
+        missed[0].contains("u2"),
+        "the instance missing the pin is the one whose argument rejects the branch; got {missed:?}"
+    );
 }

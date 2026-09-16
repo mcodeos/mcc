@@ -977,10 +977,35 @@ impl McParamBindings {
         Self::bind_inner(declares, keys, values)
     }
 
+    /// The bindings a call site's arguments produce, with the arity veto off:
+    /// a formal left unbound contributes its declaration's default, and a
+    /// formal left unbound with no default contributes nothing. Used where a
+    /// missing required parameter must not block the work (CIMP U54) — the
+    /// instance is still created, and its conditional blocks read the defaults
+    /// the declaration records.
+    pub fn bind_tolerant(
+        declares: &McParamDeclares,
+        keys: &[AttrKeyName],
+        values: &[McParamValue],
+    ) -> Self {
+        Self::bind_inner_opts(declares, keys, values, false).unwrap_or_else(|_| Self::new())
+    }
+
     fn bind_inner(
         declares: &McParamDeclares,
         keys: &[AttrKeyName],
         values: &[McParamValue],
+    ) -> Result<Self, ParamBindError> {
+        Self::bind_inner_opts(declares, keys, values, true)
+    }
+
+    /// `enforce_arity` is the "too few arguments" veto: with it off, a formal
+    /// left unbound is a binding without a value, not a failure.
+    fn bind_inner_opts(
+        declares: &McParamDeclares,
+        keys: &[AttrKeyName],
+        values: &[McParamValue],
+        enforce_arity: bool,
     ) -> Result<Self, ParamBindError> {
         // ── Separate named parameters (InlineAttrs) and positional parameters ──
         // Each attribute inside `{ cap = 1uF; volt = 50V }` becomes one named
@@ -1159,7 +1184,7 @@ impl McParamBindings {
             })
             .filter_map(|(_, d)| d.get_primary_name())
             .collect();
-        if effective_count < unclaimed_required.len() {
+        if enforce_arity && effective_count < unclaimed_required.len() {
             return Err(ParamBindError::MissingRequired {
                 name: unclaimed_required
                     .get(effective_count)
@@ -1385,13 +1410,22 @@ impl McParamBindings {
         self.bindings.iter().find(|b| b.declare.match_name(name))
     }
 
-    /// Convert bindings to (McIds, String) pairs for condition evaluation
+    /// Convert bindings to (McIds, String) pairs for condition evaluation.
+    ///
+    /// A parameter no call site bound contributes the default its declaration
+    /// records (CIMP U54) — the rule [`McParamBinding::get_value`]'s own doc
+    /// comment states. Reading only the bound value here is what made an
+    /// author's written default invisible to every condition that asked for it.
     pub fn to_params_for_eval(&self) -> Vec<(McIds, String)> {
         self.bindings
             .iter()
             .filter_map(|b| {
                 let name = b.declare.get_primary_name()?;
-                let value = b.get_value().map(|v| format!("{v}")).unwrap_or_default();
+                let value = b
+                    .get_value()
+                    .map(|v| format!("{v}"))
+                    .or_else(|| b.declare.default_val.clone())
+                    .unwrap_or_default();
                 Some((McIds::from(name.as_str()), value))
             })
             .collect()
@@ -1536,6 +1570,7 @@ mod tests {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
             },
+            default_val: None,
         });
 
         // Call: setup(GND, NC)
@@ -1569,6 +1604,7 @@ mod tests {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
             },
+            default_val: None,
         });
         declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("rating")),
@@ -1576,6 +1612,7 @@ mod tests {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
             },
+            default_val: None,
         });
 
         // Call: DIO.ESD("ESD9B5V-2/TR", NC)
@@ -1617,6 +1654,7 @@ mod tests {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
             },
+            default_val: None,
         });
         declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("rating")),
@@ -1624,6 +1662,7 @@ mod tests {
                 kind: McParamTypeKind::Unknown,
                 direction: None,
             },
+            default_val: None,
         });
 
         let values = vec![
@@ -1651,6 +1690,7 @@ mod tests {
         McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from(name)),
             param_type: McParamType::default(),
+            default_val: None,
         }
     }
 
@@ -1841,6 +1881,7 @@ mod tests {
                 default_val: None,
             }),
             param_type: McParamType::default(),
+            default_val: None,
         });
 
         let values = vec![McParamValue::Ids(McIds::from("X7R"))];
@@ -1862,6 +1903,7 @@ mod tests {
                 default_val: None,
             }),
             param_type: McParamType::default(),
+            default_val: None,
         });
 
         let values = vec![McParamValue::Opd(McOpd::Id(dotted(&["CAP", "X7R"])))];
@@ -1898,6 +1940,7 @@ mod tests {
                 default_val: None,
             }),
             param_type: McParamType::default(),
+            default_val: None,
         });
 
         // ZZZ is not a CAP member: claiming fails and validation rejects it.
@@ -1921,6 +1964,7 @@ mod tests {
                 },
                 direction: None,
             },
+            default_val: None,
         });
 
         let values = vec![McParamValue::Opd(McOpd::Id(dotted(&["DC", "IVCC5"])))];
@@ -1956,6 +2000,7 @@ mod tests {
                     kind: McParamTypeKind::Unknown,
                     direction: None,
                 },
+                default_val: None,
             },
             Some(McParamValue::Set(vec![
                 McParamValue::Ids(McIds::from("V1")),
@@ -1989,6 +2034,7 @@ mod tests {
                     kind: McParamTypeKind::Unknown,
                     direction: None,
                 },
+                default_val: None,
             },
             Some(McParamValue::Ids(McIds {
                 segments: vec![
