@@ -66,8 +66,7 @@ pub const SYMBOL_DROP: f64 = 60.0;
 pub const TWO_PIN_SYMBOL_W: f64 = 60.0;
 pub const TWO_PIN_SYMBOL_H: f64 = 20.0;
 
-/// Minimum anchor box width (device_layout_v2.md sec.4.5) when the North/South
-/// sides carry few or no pins.
+/// Minimum anchor box width when the North/South sides carry few or no pins.
 pub const MIN_BOX_W: f64 = 120.0;
 
 /// ★ M7.6: minimum height of a NON-anchor multi-pin box (a connector, a second
@@ -140,7 +139,7 @@ pub const TOOTH_GAP: f64 = 20.0;
 /// [`COL_MARGIN`]: super::equi_column::COL_MARGIN
 pub const SYMBOL_LANE: f64 = 40.0;
 
-// Region / Lane — direction as a first-class citizen (device_layout_v2.md)
+// Region / Lane — direction as a first-class citizen
 
 /// A net's orientation relative to the layer anchor. Pins inherit the Region of
 /// the net they belong to — no pass hardcodes `Right`/`Left` anymore.
@@ -691,7 +690,7 @@ fn trunk_axis_from_anchor(_anchor_id: i64, pin_ids: &[i64], _graph: &McVecGraph)
 
 // Layer 2: Layout (topology determines coordinates)
 
-/// ★ P1: assign each net's Region from its electrical role (device_layout_v2.md sec.3).
+/// ★ P1: assign each net's Region from its electrical role.
 /// Pure function of (graph, topos) — layout and render both replay it, so the
 /// regions are guaranteed identical. Rules, in order:
 ///   0. Ground net                      → South  (ungated: pure function of kind)
@@ -3545,9 +3544,9 @@ fn anchor_box_rect(graph: &McVecGraph, box_id: i64) -> (f64, f64, f64, f64) {
 /// ALL tap points along the trunk direction: the anchor pins plus every member's
 /// entry pin (the point where its tap lands on this trunk).
 ///
-/// This is the general fix for "the trunk does not reach the cap hanging below"
-/// (device_layout_v2.md sec.5): trunk length is the envelope of the endpoint set,
-/// not a hand-computed extension amount. The old per-NetKind
+/// This is the general fix for "the trunk does not reach the cap hanging below":
+/// trunk length is the envelope of the endpoint set, not a hand-computed
+/// extension amount. The old per-NetKind
 /// `extend_trunk_for_symbols` table (Ground +60 / Power −20 / Signal +40) is
 /// deleted — it was patching a span that ignored member taps.
 ///
@@ -4198,7 +4197,7 @@ fn resolve_columns_for_side(graph: &mut McVecGraph, topos: &[NetTopology], layer
     }
 }
 
-// ★ M3.3: TapRole — electrical role by partner ROW (device_layout_v2.md sec.3.3)
+// ★ M3.3: TapRole — electrical role by partner ROW
 
 /// Electrical role of a member box, decided by where the member's OTHER pin's
 /// net ROW lies relative to this net's row — the formal answer to "which way
@@ -4835,7 +4834,7 @@ fn side_label_width(b: &crate::vector::graph::McVecBox, pin_ids: &[i64]) -> f64 
     max_chars as f64 * LABEL_CHAR_W
 }
 
-/// ★ P2: assign anchor pin slots by Region (device_layout_v2.md sec.4).
+/// ★ P2: assign anchor pin slots by Region.
 /// Pins inherit the Region of the net they belong to; box size is driven by the
 /// single most-crowded side, not the total pin count. Row y's and the IC extent
 /// come exclusively from the `RowPlan` produced by P0 `assign_rows` (single
@@ -7257,7 +7256,7 @@ mod tests {
         g
     }
 
-    /// ★ Assertion 1 (device_layout_v2.md §7.1): the layout phase and the render
+    /// ★ Assertion 1: the layout phase and the render
     /// phase must compute identical lanes. Both call `assign_regions` + `resolve_lanes`
     /// + `envelop_lanes` on the post-anchor-placement graph; if they drift, members
     /// and trunks diverge ("two layers each compute x" bug class).
@@ -7300,7 +7299,7 @@ mod tests {
         );
     }
 
-    /// ★ Assertion 2 (device_layout_v2.md §7.2): no dangling segments — every
+    /// ★ Assertion 2: no dangling segments — every
     /// segment endpoint must land on a pin point, on a terminal symbol, or on
     /// another segment of the same net. Catches the "line crossing the whole
     /// graph" bug class.
@@ -7528,7 +7527,7 @@ mod tests {
         dangling
     }
 
-    /// ★ Assertion 3 (device_layout_v2.md §7.3): no single side is overloaded —
+    /// ★ Assertion 3: no single side is overloaded —
     /// `max(side_count) ≤ ceil(total_pins / 2) + 1`. "5 pins on the right" fails.
     #[test]
     fn anchor_side_not_overloaded() {
@@ -7560,7 +7559,7 @@ mod tests {
         );
     }
 
-    /// ★ Assertion 4 (device_layout_v2.md §7.4): every Ground-direction pin must
+    /// ★ Assertion 4: every Ground-direction pin must
     /// live on the South edge (Region::South.entry_side()).
     #[test]
     fn ground_pins_on_south() {
@@ -7586,7 +7585,6 @@ mod tests {
         }
     }
 
-    /// ★ Assertion 6 (device_layout_v2.md §7.6): the `[region] fallback` path is
     /// ★ Unified layout policy: inside a DEVICE layer (every module sub-layer),
     /// a `layout=[...]` box keeps the author's sides and per-edge order for
     /// EVERY listed pin — including pins with no net at all — and the automatic
@@ -7671,7 +7669,7 @@ mod tests {
         assert_eq!(fallbacks, 0, "unexpected [region] fallback hits");
     }
 
-    /// ★ Assertion 5 (device_layout_v2.md §7.5): a two-pin passive whose OTHER
+    /// ★ Assertion 5: a two-pin passive whose OTHER
     /// pin net is N/S (Ground below a power rail) hangs vertically — h > w.
     /// This is the decoupling-cap-to-ground look.
     #[test]
