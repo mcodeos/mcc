@@ -11,6 +11,16 @@ pub struct McSemTokenFFI {
     pub next: *mut McSemTokenFFI,
 }
 
+// FFI binding for C struct mc_lex_token (the lexer's own list, `mcc_get_tokens`).
+#[repr(C)]
+pub struct McLexTokenFFI {
+    pub tid: i16,
+    pub tstring: *mut libc::c_char,
+    pub tpos: u32,
+    pub tlen: u32,
+    pub next: *mut McLexTokenFFI,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McSemToken {
     pub type_: i16,

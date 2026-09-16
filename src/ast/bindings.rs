@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::node::McValueFFI;
-use crate::ast::token::McSemTokenFFI;
+use crate::ast::token::{McLexTokenFFI, McSemTokenFFI};
 
 // FFI binding for C struct mc_dlog_entry
 #[repr(C)]
@@ -35,6 +35,7 @@ extern "C" {
     pub fn mcc_visit_set_mode(mode: libc::c_int);
     pub fn mcc_visit_get_mode() -> libc::c_int;
     pub fn mcc_get_sem_tokens() -> *mut McSemTokenFFI;
+    pub fn mcc_get_tokens() -> *mut McLexTokenFFI;
     pub fn mc_sem_token_free();
     pub fn mcc_get_error_tokens() -> *mut McSemTokenFFI;
     pub fn mcc_clear_error_tokens();
