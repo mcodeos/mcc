@@ -102,8 +102,8 @@ fn bom_nc__one_class_splits_into_a_fitted_and_a_not_fitted_row() {
     let (_, items, count) = bom(SPLIT, 1);
 
     assert_eq!(count, 2, "one fitted row and one NC row: {items}");
-    assert_eq!(refdes(row(&items, "R", false)), ["R1"]);
-    assert_eq!(refdes(row(&items, "R", true)), ["R7", "R9"]);
+    assert_eq!(refdes(row(&items, "R", false)), ["main.R1"]);
+    assert_eq!(refdes(row(&items, "R", true)), ["main.R7", "main.R9"]);
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn bom_nc__not_fitted_part_is_a_row_even_without_a_connection() {
 
     // R7 is declared NC and wired to nothing. R8 is an ordinary part that is
     // equally unwired: it stays out, as before.
-    assert_eq!(refdes(row(&items, "R", true)), ["R7", "R9"]);
+    assert_eq!(refdes(row(&items, "R", true)), ["main.R7", "main.R9"]);
     assert!(
         !refdes(row(&items, "R", false)).contains(&"R8"),
         "an unwired fitted part must stay absent: {items}"
@@ -130,7 +130,7 @@ fn bom_nc__a_fully_fitted_board_marks_every_row_fitted() {
     let (_, items, count) = bom(FITTED, 1);
 
     assert_eq!(count, 1, "one class, one row: {items}");
-    assert_eq!(refdes(row(&items, "R", false)), ["R1"]);
+    assert_eq!(refdes(row(&items, "R", false)), ["main.R1"]);
     assert!(
         rows(&items).iter().all(|r| r["nc"] == false),
         "no row may be marked NC: {items}"
@@ -183,7 +183,7 @@ fn bom_nc__text_and_csv_carry_the_marker() {
         .find(|l| l.contains("NC"))
         .expect("a marked row");
     assert!(
-        marked.contains("R7, R9"),
+        marked.contains("main.R7, main.R9"),
         "the marked row lists both not-fitted parts: {marked}"
     );
 
@@ -192,9 +192,12 @@ fn bom_nc__text_and_csv_carry_the_marker() {
         csv.lines().next(),
         Some("class,nc,value,description,package,count,refdes")
     );
-    assert!(csv.contains("R,false,,,,1,R1\n"), "fitted csv row: {csv}");
     assert!(
-        csv.contains("R,true,,,,2,\"R7,R9\"\n"),
+        csv.contains("R,false,,,,1,main.R1\n"),
+        "fitted csv row: {csv}"
+    );
+    assert!(
+        csv.contains("R,true,,,,2,\"main.R7,main.R9\"\n"),
         "not-fitted csv row: {csv}"
     );
 }
