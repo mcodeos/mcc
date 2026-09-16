@@ -703,8 +703,9 @@ pub struct ExportArgs {
     #[arg(value_enum)]
     pub kind: ExportKind,
 
-    /// Source .mc file (must define a top module)
-    pub file: String,
+    /// Source .mc file or project directory; defaults to the current directory
+    /// when it holds a project manifest (must define a top module)
+    pub file: Option<String>,
 
     /// Shorthand for `--format json`
     #[arg(long, conflicts_with = "format")]
@@ -1027,8 +1028,9 @@ pub struct ReportArgs {
 
 #[derive(Parser, Debug)]
 pub struct ConvertArgs {
-    /// Source .mc file
-    pub file: String,
+    /// Source .mc file or project directory; defaults to the current directory
+    /// when it holds a project manifest
+    pub file: Option<String>,
 
     /// Target format: json, yaml
     #[arg(long, default_value = "json")]

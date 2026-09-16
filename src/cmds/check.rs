@@ -116,11 +116,14 @@ fn dedup_mcc_diags(diags: Vec<mcc::McDiagnostic>) -> Vec<mcc::McDiagnostic> {
 }
 
 pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
+    // An omitted target defaults to the current directory when it holds a
+    // project manifest.
+    let target = manifest::effective_target(args.target.as_deref());
     if let Some(client) = RpcClient::probe() {
         let result = client.call(
             "check",
             json!({
-                "entry": args.target.clone(),
+                "entry": target.clone(),
                 "libs":  mcc::cli::globals().lib.clone(),
                 "strict": mcc::cli::globals().strict,
                 "errors_only": args.errors_only,
@@ -142,7 +145,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     // Fresh ledger per invocation: a long-lived server must not accumulate
     // stale rows across requests, and repeated CLI runs must be reproducible.
     ledger::clear();
-    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
+    manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
 
     // Resolve the target.
     //   - Directory: a container of definition spaces (§19.5 rule 3 of
@@ -151,8 +154,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     //     be read as one project.
     //   - File: nearest project root (a directory with project.toml) is
     //     resolved by walking up, then the manifest (if any) drives the load.
-    let dir_root: Option<PathBuf> = args
-        .target
+    let dir_root: Option<PathBuf> = target
         .as_deref()
         .map(Path::new)
         .filter(|p| p.is_dir())
@@ -160,7 +162,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
 
     let _uri: McURI = if dir_root.is_some() {
         McURI::from("")
-    } else if let Some(t) = &args.target {
+    } else if let Some(t) = &target {
         let p = Path::new(t);
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let abs_t = if p.is_absolute() {

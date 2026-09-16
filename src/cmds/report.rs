@@ -7,9 +7,7 @@
 use crate::cmds::manifest;
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ReportArgs};
-use mcc::McURI;
 use serde_json::json;
-use std::path::Path;
 
 pub fn run(args: &ReportArgs) -> Result<()> {
     if let Some(c) = RpcClient::probe() {
@@ -25,17 +23,17 @@ pub fn run(args: &ReportArgs) -> Result<()> {
 }
 
 fn run_local(args: &ReportArgs) -> Result<()> {
-    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
+    // An omitted target defaults to the current directory when it holds a
+    // project manifest.
+    let target = manifest::effective_target(args.target.as_deref());
+    manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
 
-    if let Some(t) = &args.target {
-        let p = Path::new(t);
-        let uri = if p.is_absolute() {
-            McURI::from(p.to_string_lossy().as_ref())
-        } else {
-            let cwd = std::env::current_dir().unwrap_or_default();
-            McURI::from(cwd.join(p).to_string_lossy().as_ref())
-        };
-        mcc::mcc_load_project(&uri);
+    if let Some(t) = target.as_deref() {
+        crate::cmds::common::load_target(
+            Some(t),
+            mcc::cli::globals().top.as_deref(),
+            mcc::cli::globals().entry.as_deref(),
+        )?;
     }
 
     let comps = mcc::mcb_iter_components();

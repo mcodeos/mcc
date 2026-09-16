@@ -47,20 +47,32 @@ use std::path::Path;
 // Entry point
 
 pub fn run(args: &ParseArgs) -> Result<()> {
+    // An omitted target defaults to the current directory when it holds a
+    // project manifest; an inline snippet (`--code`) takes precedence over it.
+    let target = if args.code.is_some() {
+        args.target.clone()
+    } else {
+        manifest::effective_target(args.target.as_deref())
+    };
+
     // ── 0. RPC delegation (server mode) ──
     // --local (global flag) is honored centrally by RpcClient::probe();
     // --dlog only affects output rendering below and no longer implies
     // local execution. Use `mcc parse <file> --dlog --local` when both are wanted.
-    if let Some(client) = RpcClient::probe() {
-        let params = json!({
-            "entry": args.target.clone(),
-            "top":   mcc::cli::globals().top.clone(),
-            "code":  args.code.clone(),
-            "libs":  mcc::cli::globals().lib.clone(),
-        });
-        let result = client.call("parse", params)?;
-        println!("{}", serde_json::to_string_pretty(&result)?);
-        return Ok(());
+    // An implicit target is a directory and the server parses files only, so a
+    // run that names no target stays in-process.
+    if args.target.is_some() || args.code.is_some() {
+        if let Some(client) = RpcClient::probe() {
+            let params = json!({
+                "entry": args.target.clone(),
+                "top":   mcc::cli::globals().top.clone(),
+                "code":  args.code.clone(),
+                "libs":  mcc::cli::globals().lib.clone(),
+            });
+            let result = client.call("parse", params)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            return Ok(());
+        }
     }
 
     // ── 0.5. Local mode initialization (shared helper) ──
@@ -68,7 +80,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     // manifest + CLI --lib, plus the mcode default (unless disabled).
     // Without this, local-mode parse can't see mcode's interfaces and emits spurious
     // E1304 / E2702 warnings for every `X::Interface(...)` reference.
-    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
+    manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
 
     // ── 0.6. Pass 0 snapshot: lib load + C parser error attribution ──
     // Must snapshot after mcc_load_project and before tracker.new(),
@@ -80,7 +92,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         let vuri = McURI::from("/mcc/snippet.mc");
         mcc::mcc_load_from_string(&vuri, code);
         vuri
-    } else if let Some(t) = &args.target {
+    } else if let Some(t) = &target {
         match crate::cmds::common::load_target(
             Some(t),
             mcc::cli::globals().top.as_deref(),

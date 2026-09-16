@@ -73,11 +73,14 @@ fn render_conn_points(points: &[&str], dir: &str) -> String {
 }
 
 pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
-    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
+    // An omitted target defaults to the current directory when it holds a
+    // project manifest.
+    let target = manifest::effective_target(args.target.as_deref());
+    manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
 
     // Top-module resolution and Pass2 follow the same path as `show dianlu`.
     let (entry_uri, top) = common::load_target(
-        args.target.as_deref(),
+        target.as_deref(),
         mcc::cli::globals().top.as_deref(),
         mcc::cli::globals().entry.as_deref(),
     )?;

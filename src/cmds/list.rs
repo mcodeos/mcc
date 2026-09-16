@@ -15,6 +15,7 @@ use mcc::cli::{rpcclient::RpcClient, ListArgs, ListTarget, OutputFormat};
 use mcc::McURI;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::path::Path;
 use tracing::error;
 
 pub fn run(args: &ListArgs) -> Result<()> {
@@ -60,12 +61,22 @@ fn rpc_mapping(args: &ListArgs) -> Option<(&'static str, Value)> {
 
 fn run_local(args: &ListArgs) -> Result<()> {
     // One-shot environment setup: init engine, load `--lib` libraries, load
-    // the `-F` target file.
-    let file_opt = args.file.as_deref();
+    // the `-F` target file — or the current directory when it holds a project
+    // manifest and `-F` is absent.
+    let file_opt = crate::cmds::manifest::effective_target(args.file.as_deref());
+    let file_opt = file_opt.as_deref();
     crate::cmds::manifest::init_local(file_opt, &mcc::cli::globals().lib);
     if let Some(f) = file_opt {
-        let uri = McURI::from(resolve_file(f).as_str());
-        mcc::mcc_load_project(&uri);
+        if Path::new(f).is_dir() {
+            crate::cmds::common::load_target(
+                Some(f),
+                mcc::cli::globals().top.as_deref(),
+                mcc::cli::globals().entry.as_deref(),
+            )?;
+        } else {
+            let uri = McURI::from(resolve_file(f).as_str());
+            mcc::mcc_load_project(&uri);
+        }
     }
 
     match args.target {

@@ -28,11 +28,14 @@ pub fn run(args: &ErcArgs) -> Result<()> {
 }
 
 fn run_local(args: &ErcArgs) -> Result<()> {
-    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
+    // An omitted target defaults to the current directory when it holds a
+    // project manifest.
+    let target = manifest::effective_target(args.target.as_deref());
+    manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
 
     // Unified target loading: directory → project mode (manifest-driven,
     // browse fallback), file → loaded directly.
-    if let Some(t) = &args.target {
+    if let Some(t) = &target {
         crate::cmds::common::load_target(
             Some(t),
             mcc::cli::globals().top.as_deref(),
