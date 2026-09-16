@@ -8,9 +8,7 @@
 //! - Phase 3: Declared instance instantiation (components / sub-modules / labels)
 //! - Phase 4: Connection stmt processing entry
 
-use super::matching::{
-    is_ground_name, pair_members_to_lanes, parse_bracket_members, voltage_token,
-};
+use super::matching::{is_ground_name, pair_members_to_lanes, parse_bracket_members};
 use super::FailedRecord;
 use super::{InstantiationBuilder, McModuleInst};
 use crate::instant::mc_comp::McComponentInst;
@@ -20,6 +18,7 @@ use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_param_type::{McIoTy, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
+use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::{ConnDir, ConnOp, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_inst::McInstance;
@@ -259,6 +258,10 @@ impl InstantiationBuilder {
             let port = PortInst::with_members(port_name, iotype.clone(), bus_members.clone());
             let mut port = port;
             port.dc_pair = dc_pair;
+            port.volt = match inst {
+                McInstance::Interface(iface) => declared_volt_of_params(&iface.params),
+                _ => None,
+            };
             port.node_id = Some(port_id);
             // Phase C S3: lay the port's arena node down beside the Vec push
             // (the arena is the structural store; `ports` stays on the tree).
@@ -349,6 +352,10 @@ impl InstantiationBuilder {
             let port_id = self.identity_mut().intern(&port_path);
             let port = PortInst::with_members(&port_name, iotype.clone(), bus_members.clone());
             let mut port = port;
+            port.volt = match &pd.param_type.kind {
+                McParamTypeKind::Interface { params, .. } => declared_volt_of_texts(params),
+                _ => None,
+            };
             port.node_id = Some(port_id);
             // Phase C S3: interface-signature ports enter the arena too.
             self.append_port_arena(&port);
@@ -1203,6 +1210,24 @@ impl InstantiationBuilder {
 
     // P1: Args → Port binding / component constructor func
 
+    /// The voltage the actual argument itself was declared at, read from the
+    /// caller's symbol table.
+    ///
+    /// A connection-line `V3V3::DC(3.3V)` registers an `Interface` instance
+    /// under its own name even though the phrase layer drops the interface from
+    /// the endpoint, so the declaration is reachable here by exact name. The
+    /// lookup is exact and whole: a dotted path, a `_` placeholder, a component
+    /// instance or a name that simply is not declared all answer `None`, and the
+    /// caller falls back to position. Nothing is split off the name, no first
+    /// segment is taken, no spelling is pattern-matched — that is what made
+    /// `V3V3` "match" `VDD_3V3` before (AGENTS.md, "no guessing from names").
+    fn arg_declared_volt(&self, name: &str) -> Option<f64> {
+        match self.def.insts.get(name)? {
+            McInstance::Interface(iface) => declared_volt_of_params(&iface.params),
+            _ => None,
+        }
+    }
+
     /// Connect declared instance args to sub-module formal ports by **position**.
     ///
     /// Formal port order = order of interface ports in sub-module signature
@@ -1241,24 +1266,22 @@ impl InstantiationBuilder {
                 arg_lanes.extend(self.expand_node_element(e));
             }
 
-            // Choose formal port: ① voltage token match (order irrelevant); ② position fallback
-            // (next unused)
-            let arg_v = voltage_token(&arg_name);
-            let mut chosen: Option<usize> = None;
-            if let Some(ref v) = arg_v {
-                chosen = (0..formal.len()).find(|&fi| {
-                    !used[fi] && {
-                        let members = if !formal[fi].bus_members.is_empty() {
-                            formal[fi].bus_members.clone()
-                        } else {
-                            parse_bracket_members(&formal[fi].name)
-                        };
-                        members
-                            .iter()
-                            .any(|m| voltage_token(m).as_deref() == Some(v.as_str()))
-                    }
-                });
-            }
+            // Choose formal port: ① the port DECLARED at the argument's own
+            // declared voltage (order irrelevant); ② position fallback (next
+            // unused). A spelling never decides — the pairing used to compare
+            // digit-V-digit fragments of the two names, which made `V3V3` pick
+            // `[VDD_3V3,GND]` for no reason beyond both spelling 3.3 V as "3V3"
+            // (AGENTS.md, "no guessing from names"). When either side declares
+            // no voltage there is nothing to pair on and position decides.
+            let arg_v = self.arg_declared_volt(&arg_name);
+            let chosen = arg_v.and_then(|v| {
+                (0..formal.len()).find(|&fi| {
+                    !used[fi]
+                        && formal[fi]
+                            .volt
+                            .is_some_and(|pv| crate::eval::same_value(pv, v))
+                })
+            });
             let pi = match chosen.or_else(|| (0..formal.len()).find(|&fi| !used[fi])) {
                 Some(pi) => pi,
                 None => {
@@ -1449,19 +1472,19 @@ impl InstantiationBuilder {
                 arg_lanes.extend(self.expand_node_element(e));
             }
 
-            // Choose formal port: ① voltage token match (order irrelevant); ② positional fallback
-            // (next unused)
-            let arg_v = voltage_token(&arg_name);
-            let mut chosen: Option<usize> = None;
-            if let Some(ref v) = arg_v {
-                chosen = (0..formal.len()).find(|&fi| {
-                    !used[fi] && {
-                        port_members(formal[fi])
-                            .iter()
-                            .any(|m| voltage_token(m).as_deref() == Some(v.as_str()))
-                    }
-                });
-            }
+            // Choose formal port: ① the port DECLARED at the argument's own
+            // declared voltage (order irrelevant); ② position fallback (next
+            // unused). Same rule as the declared-args binder — see there for why
+            // a spelling must not decide.
+            let arg_v = self.arg_declared_volt(&arg_name);
+            let chosen = arg_v.and_then(|v| {
+                (0..formal.len()).find(|&fi| {
+                    !used[fi]
+                        && formal[fi]
+                            .volt
+                            .is_some_and(|pv| crate::eval::same_value(pv, v))
+                })
+            });
             let pi = match chosen.or_else(|| (0..formal.len()).find(|&fi| !used[fi])) {
                 Some(pi) => pi,
                 None => {
@@ -1960,6 +1983,54 @@ fn port_members(port: &PortInst) -> Vec<String> {
         }
     }
     Vec::new()
+}
+
+// ── Declared voltage of a port / of an argument (CIMP U12) ──
+//
+// The argument binders pair an actual argument with the formal port that was
+// DECLARED at the same voltage. Two declaration shapes carry that value, so
+// there are two readers; both answer `None` the moment the value would have to
+// be guessed at — no `Volt` argument at all, more than one, or a range /
+// `±` literal, which is not a value and therefore pairs with nothing.
+// See `PortInst::volt`.
+
+/// Voltage declared by an interface instance's constructor arguments
+/// (`[VDD_3V3,GND]::DC(3.3V)` → `Some(3.3)`). The `DC`/`AC`/... class is not
+/// consulted: a declared voltage is a declared voltage whatever the class.
+fn declared_volt_of_params(params: &[McParamValue]) -> Option<f64> {
+    let mut found: Option<f64> = None;
+    for p in params {
+        let McParamValue::UValue(uv) = p else {
+            continue;
+        };
+        if uv.unit() != &McUnit::Volt || uv.is_range_or_plusminus() {
+            continue;
+        }
+        if found.is_some() {
+            // Two voltages in one declaration: nothing to pair on.
+            return None;
+        }
+        found = Some(uv.value());
+    }
+    found
+}
+
+/// The same decode for a declaration that reached us as source text — the
+/// module-signature parameters, which carry `["3.3V"]` rather than a value
+/// object. Reads through the one value engine, so both shapes agree on what a
+/// written voltage is; a range literal comes back `None` there as here.
+fn declared_volt_of_texts(params: &[String]) -> Option<f64> {
+    let mut found: Option<f64> = None;
+    for s in params {
+        let Some(v) = crate::eval::quantity_in(s, &McUnit::Volt) else {
+            continue;
+        };
+        if found.is_some() {
+            return None;
+        }
+        found = Some(v);
+    }
+    found
 }
 
 // ── U48: `@ncpin(…)` matching against a module port ──

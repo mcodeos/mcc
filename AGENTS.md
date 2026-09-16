@@ -150,6 +150,43 @@ the registry in `01-lexical.md` §2.2, so the two cannot drift. The gate is a ne
 not a proof: a comparison written by hand
 (`a.to_lowercase() == b.to_lowercase()`) passes it.
 
+## Rule: no guessing from names
+
+No logic or policy may be built on a guess read off a name. The rule above
+governs how a comparison is written; this one governs whether a name is
+evidence at all — it is not. A name is a label the author chose, and its
+spelling carries no promise about what the thing is.
+
+**Forbidden shapes** — a decision resting on any of these is a defect:
+
+- a prefix / suffix / substring test on a name (`starts_with("V")`,
+  `contains("power")`), in any case;
+- a shape test on the spelling — digit-letter patterns, `contains('V')` plus a
+  digit count, length thresholds;
+- gating semantics on a fixed list of names (`"Cap"`, `"Pullup"`, `"GND"`,
+  `POWER_PIN_NAMES`, …), in whole or in part;
+- a name-based fallback that the code reaches only when the real evidence is
+  missing, and so silently decides in the gap.
+
+**What is evidence instead:**
+
+- a declared or registered name used AS identity, compared by exact string
+  equality (see the rule above): a pin the author named, an interface member, a
+  class or function or attribute key. Declaring a name is what makes it
+  identity; reading one is not a guess.
+- the AST and the syntax: whether a placeholder was written, whether a Set or a
+  list was used, where a token sits;
+- a decoded VALUE — a voltage, a length, a count read through the value engine,
+  never a fragment of the text that wrote it;
+- a type, a role, a contract, a structural shape or a position.
+
+**Where this bites.** A value is not a name: `V3V3` and `VDD_3V3` are two
+different labels for one 3.3 V rail, and pairing them by the "3V3" both spell is
+exactly the kind of inference this rule forbids — pair by the declared voltage.
+The binders in `src/instant/mc_mod/phases.rs`, and the ground / supply / rail
+decision points enumerated in `CIMP.md` §1 (mcd), are the known instances; read
+them as worked examples of the shapes above, not as a closed list.
+
 ## Rule: no auto-commit; manual testing and manual commit
 
 Never commit (nor stage, amend, push, or open a PR) automatically after

@@ -118,32 +118,6 @@ pub fn is_ground_name(s: &str) -> bool {
     )
 }
 
-/// Extract voltage token from a name (uppercase normalize):
-///   "V3V3"->"3V3", "VDD_3V3"->"3V3", "VCC_1V2"->"1V2", "V5V"->"5V", "VDD_CORE"->None
-/// Rule: match digit+ 'V' (+digit)? fragment.
-pub fn voltage_token(name: &str) -> Option<String> {
-    let b = name.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        if b[i].is_ascii_digit() {
-            let start = i;
-            while i < b.len() && b[i].is_ascii_digit() {
-                i += 1;
-            }
-            if i < b.len() && (b[i] == b'V' || b[i] == b'v') {
-                i += 1;
-                while i < b.len() && b[i].is_ascii_digit() {
-                    i += 1;
-                }
-                return Some(name[start..i].to_uppercase());
-            }
-        } else {
-            i += 1;
-        }
-    }
-    None
-}
-
 /// "[VDD_3V3, GND]" / "[VCC_1V2,GND]" -> ["VDD_3V3","GND"]; non-bracket -> []
 pub fn parse_bracket_members(name: &str) -> Vec<String> {
     let s = name.trim();
