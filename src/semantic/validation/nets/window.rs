@@ -25,13 +25,15 @@
 #![allow(dead_code)]
 
 use super::NetCheckResult;
+use crate::eval;
 use crate::instant::insttab::{InstKind, InstTable, NetEntry};
 use crate::semantic::basic::mc_expr::McExpression;
+use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
 use crate::semantic::component::mc_pins::PwrDir;
 use crate::semantic::component::McComponent;
-use crate::semantic::module::pi::{decode_pwr_pin, parse_volts, L1PwrPin};
+use crate::semantic::module::pi::{decode_pwr_pin, L1PwrPin};
 use std::collections::{HashMap, HashSet};
 
 /// Closed supply/spec window `[lo, hi]`, volts. Endpoint comparisons use the
@@ -156,16 +158,17 @@ pub(crate) fn decode_component_spec(def: &McComponent) -> DecodedSpec {
 
 /// Read one inner `spec` attribute's value as a `lo ~ hi` volts window.
 ///
-/// Only `AttrExpr(Range(lo, hi))` is a window; each endpoint is parsed through
-/// the same `parse_volts` used for `::DC(v)` nominals (rejects `~`/`±`/`*` and
-/// foreign units). The verbatim `a~b` text echoes the author's source.
+/// Only `AttrExpr(Range(lo, hi))` is a window; each endpoint goes through the
+/// engine's volts reader, the same one that decodes `::DC(v)` nominals (a
+/// window form such as `±` is not a single quantity and does not decode). The
+/// verbatim `a~b` text echoes the author's source.
 fn window_of_attr(attr: &McAttribute) -> Option<(PwrWindow, String)> {
     let first = attr.values.first()?;
     let McAttrVal::AttrExpr(McExpression::Range(lo, hi)) = first else {
         return None;
     };
-    let lo_v = parse_volts(&lo.to_string())?;
-    let hi_v = parse_volts(&hi.to_string())?;
+    let lo_v = eval::quantity_in(&lo.to_string(), &McUnit::Volt)?;
+    let hi_v = eval::quantity_in(&hi.to_string(), &McUnit::Volt)?;
     Some((PwrWindow { lo: lo_v, hi: hi_v }, first.to_string()))
 }
 

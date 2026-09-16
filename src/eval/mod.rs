@@ -600,6 +600,51 @@ pub fn satisfies(cmp: Compare, lhs: &Value, rhs: &Value) -> Result<bool, EvalErr
     })
 }
 
+/// Read a quantity written in `family`'s notation out of text (`3.3V`,
+/// `500mA`, `1.5A`).
+///
+/// A bare number reads as the family's canonical unit — the rail notation
+/// `::DC(5)` means 5 V — which is the one promotion this door allows (V5: the
+/// family comes from the question, never from the text). Text naming another
+/// family (`5A` where volts are asked), text carrying no number at all
+/// (`WIDE`), and window forms (`2.5V~5.5V`, `5V±5%`) do not decode.
+pub fn quantity_in(text: &str, family: &McUnit) -> Option<f64> {
+    match Value::from_text(text) {
+        Value::Quantity(q) if q.unit() == family => Some(q.value()),
+        Value::Int(i) => Some(i as f64),
+        Value::Float(f) => Some(f),
+        _ => None,
+    }
+}
+
+/// Read a ratio out of text: `95%` → 0.95, `0.95` → 0.95.
+///
+/// The percent family is projected to its fraction here (its suffix factor is
+/// 1, so `95%` normalizes to 95); a bare number *is* the ratio. Any other
+/// family, and any text with no number, does not decode.
+pub fn ratio_of(text: &str) -> Option<f64> {
+    match Value::from_text(text) {
+        Value::Quantity(q) if q.unit() == &McUnit::Percent => Some(q.value() / 100.0),
+        Value::Int(i) => Some(i as f64),
+        Value::Float(f) => Some(f),
+        _ => None,
+    }
+}
+
+/// Read a percent out of text: `5%` → 0.05 **and** `5` → 0.05.
+///
+/// The `%` is notation, not meaning, on a key whose value is a percentage — a
+/// bare number there reads as percent rather than as the ratio 5. Use
+/// [`ratio_of`] for a key whose bare number is a factor.
+pub fn percent_of(text: &str) -> Option<f64> {
+    match Value::from_text(text) {
+        Value::Quantity(q) if q.unit() == &McUnit::Percent => Some(q.value() / 100.0),
+        Value::Int(i) => Some(i as f64 / 100.0),
+        Value::Float(f) => Some(f / 100.0),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -712,6 +757,35 @@ mod tests {
         assert!(satisfies(Compare::Gt, &v("3dB"), &v("2dB")).is_err());
         assert!(apply(Op::Add, &v("3dB"), &v("3dB")).is_err());
         assert!(apply(Op::Add, &v("1nV/√Hz"), &v("1nV/√Hz")).is_err());
+    }
+
+    #[test]
+    fn eval__quantity_reader_takes_the_family_from_the_question() {
+        assert_eq!(quantity_in("3.3V", &McUnit::Volt), Some(3.3));
+        assert_eq!(quantity_in("-15V", &McUnit::Volt), Some(-15.0));
+        assert_eq!(quantity_in("500mV", &McUnit::Volt), Some(0.5));
+        // The bare-number rail notation: a `::DC(5)` nominal means 5 V.
+        assert_eq!(quantity_in("5", &McUnit::Volt), Some(5.0));
+        assert_eq!(quantity_in("500mA", &McUnit::Amp), Some(0.5));
+        // A foreign family, a window form and plain text do not decode.
+        assert_eq!(quantity_in("5A", &McUnit::Volt), None);
+        assert_eq!(quantity_in("5Hz", &McUnit::Volt), None);
+        assert_eq!(quantity_in("2.5V~5.5V", &McUnit::Volt), None);
+        assert_eq!(quantity_in("WIDE", &McUnit::Volt), None);
+    }
+
+    #[test]
+    fn eval__ratio_reader_and_percent_reader_differ_on_a_bare_number() {
+        assert_eq!(ratio_of("95%"), Some(0.95));
+        assert_eq!(ratio_of("0.95"), Some(0.95));
+        // A factor key's bare number is the factor itself.
+        assert_eq!(ratio_of("95"), Some(95.0));
+        assert_eq!(ratio_of("5V"), None);
+        // A percent key's bare number is percent — the `%` is optional notation.
+        assert_eq!(percent_of("5%"), Some(0.05));
+        assert_eq!(percent_of("5"), Some(0.05));
+        assert_eq!(percent_of("-5%").map(f64::abs), Some(0.05));
+        assert_eq!(percent_of("5V"), None);
     }
 
     #[test]
