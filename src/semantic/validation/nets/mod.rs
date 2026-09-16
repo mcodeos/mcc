@@ -72,6 +72,12 @@ pub(crate) use decouple::check_decoupling_return_face;
 // declaration wrote it for.
 mod railface;
 
+// §1.4's quiet/sensitive and noisy faces, read off the §1.1 domain projection.
+// faces.rs owns the one step four rules would otherwise each re-take — which
+// words make a face what it is — so PI-2, PI-4, SN-2 and SN-3 cannot drift
+// apart on it.
+mod faces;
+
 // PI-2 filter-leg load-side decoupling (power-quality-design.md §2.2). bridge.rs
 // is a sibling leaf: it reads the declared `@bridge` clause (the same
 // `declared_dc_edges` map 6022 uses), the §1.4 quiet/sensitive face off the
@@ -80,6 +86,68 @@ mod railface;
 // capacitor's return lands is 6038's verdict, so this one never repeats it.
 mod bridge;
 pub(crate) use bridge::check_bridge_load_decoupling;
+
+// PI-1 sink-pin decoupling completeness (power-quality-design.md §2.1). The
+// third leaf of the family, and the one that judges the *load* terminal: where
+// bridge.rs asks whether a declared filter leg's load side is decoupled and
+// decouple.rs whether a capacitor's return closes the rail's loop, this asks
+// whether the sink's own declared pair carries a capacitor at all. Ruling 11's
+// partition is what keeps the three apart — "is there one" here, "where does it
+// land" in decouple.rs.
+mod sink_decouple;
+pub(crate) use sink_decouple::check_sink_pin_decoupling;
+
+// SN-3 sensitive return landing on a noisy face (power-quality-design.md §3.3,
+// ruling 10 decided 2026-09-16). The fourth leaf of the family and the first of
+// the two §3 rules: where the PI leaves judge a filter and a load, this judges
+// a part's own declared supply pair across the §1.4 faces — the hot member on
+// the quiet/sensitive side, the return member landing on the noisy side. Its
+// seam with SN-2 (§3.2) is the design's own: this is the direct landing with no
+// bridge (the harder error, hence §7's order), and its seam with 6027 is
+// structural (a sensitive part's single return pin spans no class pair).
+mod sensitive;
+pub(crate) use sensitive::check_sensitive_return_on_noisy;
+
+// SN-1 analog signal crossing a split ground (power-quality-design.md §3.1).
+// The first of the two §3 rules: where SN-3 judges a part's pair *across* the
+// §1.4 faces, this judges the reference a scope's analog face is *declared*
+// with — the face's rail and its port rows' `@return(C)` must agree — against
+// the returns the parts that face supplies actually close over. The subject is
+// fixed by the two agreeing declarations — the face's rail and the port's
+// `@return` — so a scope declaring two quiet faces with different references
+// judges each face on its own reference, and one level is read throughout: the
+// declaration, the face and the part whose supply net that scope owns. §3.1's second
+// half (no `@return` declared, two sides returning on different conduits) stays
+// deferred by the design (§6 R3: the source→sink chain of a signal net has no
+// carrier), so this leaf only reads the declaration-vs-topology half.
+mod analog_return;
+pub(crate) use analog_return::check_analog_return_reference;
+
+// SN-2 a noisy face and a quiet one sharing one DC ground bridge
+// (power-quality-design.md §3.2, ruling 9). The second §3 rule, and the mirror
+// of PI-2's leg: a declared ground bridge whose ends are the returns of a noisy
+// face and of a quiet/sensitive one, carried by anything but a magnetic
+// element, is the two references meeting through plain copper — the filter that
+// would let them meet while the quiet face keeps its own reference is missing.
+// Its ends are read at the name level (the declaring scope's own rails say what
+// each written name is), which is what lets the design's plainest form, a direct
+// copper tie, be judged at all: a tie that merges the two coppers collapses to
+// one class, while the declaration still names two returns.
+mod shared_return;
+pub(crate) use shared_return::check_shared_return_bridge;
+
+// PI-4 filter-subface overreach (power-quality-design.md §2.4, ruling 4). The
+// axis's last rule and the one that reads the flat hardest: §2.2's supply leg
+// protects a load side, and that side is the quiet domain's own declared pair —
+// so the verdict is not about the leg's declaration (PI-2's object, 6037) but
+// about the **contract of what draws from it**, resolved member by member on the
+// sink's own instance through the flatten pass's member carry. That carry is why
+// this leaf can exist at all: the flat never holds the caller's bound pair, only
+// the declaring scope's member *spellings*, so the pair has to be located on the
+// instance the row belongs to — the same seam PI-2 reads the leg through, read
+// one level down.
+mod subface;
+pub(crate) use subface::check_filter_subface_overreach;
 
 // PWR-4b package dissipation (package-thermal-design.md §3). thermal.rs is a
 // sibling leaf like protect.rs: the 6035 owner reads the two quantities the
@@ -2516,6 +2584,15 @@ pub(super) struct DeclEdge {
     kind: crate::semantic::module::pi::L1EdgeKind,
     a: String,
     b: String,
+    /// The same two endpoints resolved in the owning module's def space
+    /// ([`endpoint_identity`]), sorted by identity. 6022 pairs a leg's pads
+    /// against these **or** against the written `a`/`b` — a bare `GND` a module
+    /// declares as a DC port member denotes `DC:GND`, the identity its pad net
+    /// carries, while a copper the module declares nothing under only ever meets
+    /// the written spelling. PI-2 / SN-2 resolve the written `a`/`b` against
+    /// their own scope tables and read those.
+    ident_a: String,
+    ident_b: String,
     lo: usize,
     hi: usize,
 }
@@ -2527,6 +2604,13 @@ pub(super) struct DeclEdge {
 /// non-module owner declares no net relation; a clause with fewer than two
 /// endpoints carries no pair to key on; the pair is sorted so the two spellings
 /// of one relation are one edge.
+///
+/// Each endpoint is also resolved in the owning module's own def space
+/// ([`endpoint_identity`]): a bare `GND` the module declares as a DC port member
+/// denotes that member, so the pair also carries the identity `DC:GND` its pad
+/// net carries. PI-2 / SN-2 keep the written spelling; 6022 pairs on the identity
+/// **or** the spelling ([`pair_matches`]), since neither key alone reaches every
+/// leg the corpus writes.
 pub(super) fn declared_dc_edges(
     table: &InstTable,
 ) -> std::collections::HashMap<u32, Vec<DeclEdge>> {
@@ -2555,15 +2639,19 @@ pub(super) fn declared_dc_edges(
                 if a == b {
                     return None;
                 }
+                let (ia, ib) = (endpoint_identity(pi, a), endpoint_identity(pi, b));
                 let (a, b) = if a < b {
                     (a.clone(), b.clone())
                 } else {
                     (b.clone(), a.clone())
                 };
+                let (ident_a, ident_b) = if ia < ib { (ia, ib) } else { (ib, ia) };
                 Some(DeclEdge {
                     kind: e.kind,
                     a,
                     b,
+                    ident_a,
+                    ident_b,
                     lo: e.span.start,
                     hi: e.span.end,
                 })
@@ -2574,6 +2662,121 @@ pub(super) fn declared_dc_edges(
         }
     }
     out
+}
+
+/// One written `@bridge`/`@couple` endpoint resolved in the owning module's own
+/// def space: a name that module declares denotes the conductor the declaration
+/// names it as, so the identity ([`pwrid::DeclaredMember::identity`]) is what the
+/// edge keys on. A name the module declares nothing under stays the written
+/// spelling — it is then an undeclared wire name, judged as such.
+fn endpoint_identity(pi: &McPowerDecls, name: &str) -> String {
+    pwrid::member_of_module(pi, name)
+        .map(|m| m.identity())
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// Every key a flat net answers to in 6022's pair match: the declared identities
+/// its points carry, plus the net's own name. Only module-level port and label
+/// entries contribute an identity — their `pwr_member` is written from the
+/// module's own declarations alone, while a component pin's belongs to that
+/// component's def — and the name is kept unconditionally rather than only as a
+/// fallback, because the two keys cover different legs: a copper the module
+/// declares nothing under still compares by spelling (`GND` on the golden
+/// boards), and a member the module renamed always compares by identity
+/// (`dc.VDD_3V3`).
+fn net_identities(table: &InstTable, module: u32, net: &NetEntry) -> Vec<String> {
+    let mut out: Vec<String> = net
+        .points
+        .iter()
+        .filter_map(|p| {
+            let e = table.get_entry(*p)?;
+            if e.parent_id != Some(module) || !matches!(e.kind, InstKind::Port | InstKind::Label) {
+                return None;
+            }
+            e.rail_identity()
+        })
+        .collect();
+    out.push(net.name.clone());
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Do two pad key sets name the clause's two endpoints? The clause carries the
+/// same pair twice — as written, and as the identities the declaring module
+/// resolves its own names to — and **either** naming answers: the identity is
+/// what reaches a pad the module declared under another spelling (`dc.VDD_3V3`
+/// for a clause naming `VDD_3V3`), the written spelling is what reaches a pad
+/// whose net no declaration of that module names at all (a bare conduit copper,
+/// where the clause's `GND` resolves to a member while the net only carries its
+/// own name). A pair is a set, so the two members are compared unordered.
+fn pair_matches(d: &DeclEdge, ia: &[String], ib: &[String]) -> bool {
+    let keys = [
+        (d.ident_a.as_str(), d.ident_b.as_str()),
+        (d.a.as_str(), d.b.as_str()),
+    ];
+    ia.iter().any(|a| {
+        ib.iter().any(|b| {
+            let (a, b) = (a.as_str(), b.as_str());
+            keys.iter()
+                .any(|(x, y)| (a == *x && b == *y) || (a == *y && b == *x))
+        })
+    })
+}
+
+/// Net names as **the scope that wrote them** reads them: a `@bridge`/`@couple`
+/// clause names the nets of its own module, so a name is only ever looked up
+/// there (the rule PI-3's rail side keeps too). Built once per rule that reads a
+/// declared edge.
+pub(crate) fn scope_nets(
+    table: &InstTable,
+) -> std::collections::HashMap<u32, std::collections::HashMap<String, Vec<u32>>> {
+    let mut out: std::collections::HashMap<u32, std::collections::HashMap<String, Vec<u32>>> =
+        std::collections::HashMap::new();
+    for net in table.get_nets() {
+        let Some(module) = net.module else {
+            continue;
+        };
+        out.entry(module)
+            .or_default()
+            .entry(net.name.clone())
+            .or_default()
+            .push(net.id);
+    }
+    out
+}
+
+/// One declared-edge endpoint as the declaring scope reads it: the net the name
+/// was written for, that net's effective class, and the scope owning it (`None`
+/// when the name matches no net there, the net reaches no class, or it belongs
+/// to no scope — an unresolvable endpoint takes no verdict, since its identity
+/// would come from an ancestor's world).
+///
+/// PI-2 (a filter leg's load side) and PI-4 (what that load side feeds) both
+/// locate their leg through this one read, so which end is which side cannot
+/// drift between the two rules.
+type EdgeEndpoint = (u32, EffClass, u32);
+
+fn edge_endpoint(
+    table: &InstTable,
+    idx: &crate::instant::island::NetIslandIndex,
+    scope_nets: &std::collections::HashMap<u32, std::collections::HashMap<String, Vec<u32>>>,
+    scope: u32,
+    name: &str,
+) -> Option<EdgeEndpoint> {
+    for &net in scope_nets.get(&scope)?.get(name)? {
+        let Some(attr) = idx.get(net) else {
+            continue;
+        };
+        let Some(layer) = attr.module else {
+            continue;
+        };
+        let Some(cls) = eff_class(table, idx, attr, &mut Vec::new()) else {
+            continue;
+        };
+        return Some((net, cls, layer));
+    }
+    None
 }
 
 /// Wiring-site positions of a leg's pads and carrier, for the per-leg span
@@ -2613,9 +2816,10 @@ fn leg_sites(comp: &InstEntry, pins: &[&InstEntry]) -> Vec<(u32, String)> {
 ///
 /// Exemption is PER-LEG (data-gap 2 closed): the leg's own statement clause
 /// span must contain one of its wiring sites (module def file) and the edge
-/// endpoints must equal the pad net names. Decoupling is naturally exempt — the
-/// two pads share a domain world (one rail's own hot↔return loop). A leg whose
-/// carrier position is unreachable (library/func body — a func cannot write
+/// endpoints must resolve, in the owning module's def space, to the declared
+/// identities of the pad nets. Decoupling is naturally exempt — the two pads
+/// share a domain world (one rail's own hot↔return loop). A leg whose carrier
+/// position is unreachable (library/func body — a func cannot write
 /// @bridge) falls back to net-pair-anywhere, conservative.
 pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let idx = crate::instant::island::NetIslandIndex::build(table);
@@ -2674,11 +2878,11 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
         if cla.worlds.iter().any(|w| clb.worlds.contains(w)) {
             continue;
         }
-        let (n0, n1) = (&an.name, &bn.name);
-        let (na, nb) = if n0 < n1 { (n0, n1) } else { (n1, n0) };
+        let ia = net_identities(table, ma, an);
+        let ib = net_identities(table, ma, bn);
         let pair_hits: Vec<&DeclEdge> = declared
             .get(&ma)
-            .map(|edges| edges.iter().filter(|d| d.a == *na && d.b == *nb).collect())
+            .map(|edges| edges.iter().filter(|d| pair_matches(d, &ia, &ib)).collect())
             .unwrap_or_default();
         let pair_declared = !pair_hits.is_empty();
         let sites = leg_sites(comp, &pins);
@@ -3335,6 +3539,40 @@ pub(crate) fn source_contract_for<'a>(
         matches!(c.dir, PwrDir::Src | PwrDir::Bi)
             && (names.iter().any(|n| *n == c.hot) || entry.class_name == c.hot)
     })
+}
+
+/// The net the instance terminal carrying the declared member `(face, member)`
+/// lands on. The pairing is the flatten pass's own ([`InstEntry::pwr_member`],
+/// written from the declaration that owns the terminal), so two terminals of one
+/// instance answer the same member only when one declaration named them both —
+/// which is what lets a rule read a *declared pair* off the instance it was bound
+/// on, rather than off the class it came from. Both terminal kinds are searched
+/// (a component's `Pin`, an instantiated module's `Port`), so the two shapes of a
+/// declared supply pair resolve through one read.
+fn member_net_of(table: &InstTable, parent: u32, face: Face, member: &str) -> Option<u32> {
+    for (id, entry) in table.iter() {
+        if entry.parent_id != Some(parent)
+            || !matches!(entry.kind, InstKind::Pin | InstKind::Port)
+        {
+            continue;
+        }
+        let Some(m) = &entry.pwr_member else {
+            continue;
+        };
+        if m.face == face && m.member == member {
+            return table.get_net_of(*id).map(|n| n.id);
+        }
+    }
+    None
+}
+
+/// A flat net's name, or the empty string when the id is unknown — how the
+/// messages in this family spell a net.
+fn net_name(table: &InstTable, net: u32) -> String {
+    table
+        .get_net(net)
+        .map(|n| n.name.clone())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -1918,6 +1918,54 @@ fn two_declared_parallel_legs_on_one_pair_stay_silent_6022() {
     );
 }
 
+/// The golden `FB_agnd` shape: the clause names the return member a **domain**
+/// declares, and the copper the leg lands on is the bare `@role(main)` conduit.
+/// The clause *is* this leg's declaration, so 6022 stays silent. Here the pad's
+/// net does carry the `DVDD:GND` identity, so this fixture locks the verdict,
+/// not the key choice: the golden board writes the same leg with its `GND` a
+/// **bus** entry whose member label hangs off the bus, the pad's identity set
+/// then holds only the net's own name, and it is the spelling key that keeps
+/// the leg silent there (identity-only reads 6022 twice on `pwrint`).
+#[test]
+fn a_declared_leg_on_a_bare_conduit_of_a_declared_member_stays_silent_6022() {
+    let src = format!(
+        "{FB}{CAP_DECOUP}module main {{\n    conduit GND @role(main) @star\n    \
+         conduit GNDA @role(quiet)\n    \
+         domain DVDD @class(digital) {{ rail [VDD_3V3, GND]::DC(3.3V) }}\n    \
+         domain AVDD @class(analog) {{ rail [VDDA, GNDA]::DC(3.3V) }}\n    \
+         GND <- p1::FB() <- GNDA @bridge(GND, GNDA)\n    \
+         CAP_DECOUP c\n    c.1 -> VDDA\n    c.2 -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
+        "the leg carries its own @bridge clause, so 6022 must stay silent however the pads are named; got codes: {codes:?}"
+    );
+}
+
+/// The `MIC_SIP` shape: a header port row's member renames the net
+/// (`dc.VDD_3V3`), so the clause's written `VDD_3V3` cannot match the pad by
+/// spelling — the declared identity is what carries it across. This is the
+/// identity key's lock: with the spelling as the only key the pair is lost and
+/// the declared leg is judged undeclared (measured, hbl `MIC.FB_vmic`).
+#[test]
+fn a_declared_leg_on_a_renamed_port_member_stays_silent_6022() {
+    let sub = "module SUB_BRIDGE(psnk dc{VDD_3V3, GND}::DC(3.3V)) {\n    \
+               domain AVDD @class(analog) { rail [VDDA, VMIC]::DC(3.3V) }\n    \
+               dc.VDD_3V3 - fb::FB() - VMIC @bridge(VDD_3V3, VMIC)\n}\n";
+    let src = format!(
+        "{DC_IFACE}{FB}{sub}module main {{\n    conduit GND @role(main) @star\n    \
+         conduit VMIC @role(quiet)\n    \
+         domain DVDD @class(digital) {{ rail [VDD_3V3, GND]::DC(3.3V) }}\n    \
+         SUB_BRIDGE m1\n    [VDD_3V3, GND] -> m1.dc\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::RETURN_LEG_UNDECLARED),
+        "the clause names the port member the leg lands on, so 6022 must stay silent; got codes: {codes:?}"
+    );
+}
+
 /// Decoupling carve-out: a two-terminal passive across the supply face
 /// (hot↔return, e.g. a rail decoupling cap) is not a return-relation leg —
 /// 6022 audits *return-side* coppers only, so bare hot↔return legs stay silent
@@ -3767,5 +3815,1475 @@ fn couple_edge_is_not_judged_6037() {
     assert!(
         !codes.contains(&mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING),
         "@couple declares an AC path, not a filtered supply leg; got codes: {codes:?}"
+    );
+}
+
+// ── PI-1 sink-pin decoupling completeness (power-quality-design.md §2.1, ruling 2) ──
+//
+// A pin that **draws** from a declared DC pair is the load half of that pair, and
+// the pair is what says the load is fed across two nets: a load drawing across a
+// pair nothing decouples is the completeness gap. The subject is the load
+// terminal — a `psnk` component pin row, and a module supply port (§6 R2) — never
+// the filter: PI-2 judges a ferrite leg's load side, PI-3 a capacitor's return.
+//
+// The pair is read from the sink's **own contract row**, not from the net's
+// declared rail face. That is what makes the golden board's ⑤ power chain
+// judgeable at all: `[VMAIN_5V, GND]` there is written on connection lines, a
+// pair owned by no domain's rail, so a rule reading declared rail faces would be
+// blind to exactly the loads §0.4 counted. §2.1's parenthetical role read would
+// read the same way only for loads that happen to sit on a rail face.
+//
+// Warning, per ruling 2 — a completeness gap, not a contradiction. Ruling 11's
+// partition (§4.2 item 9) holds here too: the verdict is whether a capacitor sits
+// on the sink's hot net, and where that capacitor's *return* leg lands is PI-3's
+// 6038 — one defect, one code, never two.
+//
+// Every silence below is a single-axis flip off the board that fires, and where
+// the flip could otherwise pass for a rule that never ran, the firing twin is
+// kept on the board so the count proves it.
+
+/// The judged load: a two-pin sink drawing 3.3V across the declared pair
+/// `[VDD, GND]`. Pin 2 is the return half of the same row and carries no
+/// direction, so it is never a site of its own.
+const SINK_DC: &str =
+    "component SINK_DC {\n    pins = [\n        psnk [1,2] = [VDD, GND]::DC(3.3V)\n    ]\n}\n";
+
+/// The same load with a single-member row: §2.1's shape that declares no pair at
+/// all, so there is no pair to be decoupled across.
+const SINK_SCALAR: &str =
+    "component SINK_SCALAR {\n    pins = [\n        psnk 1 = VDD::DC(3.3V)\n    ]\n}\n";
+
+/// A source in the sink's shape — the flip is the direction word alone.
+const SRC_DC: &str =
+    "component SRC_DC {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(3.3V)\n    ]\n}\n";
+
+/// A submodule whose supply face is a `psnk` **header** port — the spelling the
+/// corpus writes for every module supply face (`MIC_SIP(psnk dc{VDD_3V3,
+/// GND}::DC(3.3V))`, §6 R2's second half). The body is deliberately empty: the
+/// header row is the whole subject, and E2115 is the parser's remark on the
+/// fixture's shape, not a code this test reads.
+const SUB_PSNK: &str = "module SUB_PSNK(psnk dc{VDD_3V3, GND}::DC(3.3V)) {\n}\n";
+
+/// The `DC` interface, declared in-file. This harness loads no system library,
+/// and a header port row resolves its `::DC(…)` tail as a class reference — the
+/// one place the single-string harness differs from a project build (see
+/// `dc_binding_arrow_dir.rs`). Only the header row needs it: a component pin
+/// row's `::DC` is captured structurally and never resolved.
+const DC_IFACE: &str =
+    "interface DC(volt) {\n    pins = [\n        1 = VCC\n        2 = GND\n    ]\n}\n";
+
+/// The board every case below flips one axis of: two declared digital rails, one
+/// pair each, so a single board can carry a covered load beside a bare one.
+const PI1_BOARD: &str = "conduit GND @role(main)\n    \
+                         domain DVDD @class(digital) { rail [VDD_3V3, GND]::DC(3.3V) }\n    \
+                         domain DVDD5 @class(digital) { rail [VDD_5V, GND]::DC(5V) }\n    ";
+
+/// The judged shape: a sink drawing from a declared pair that nothing decouples.
+/// Exactly **one** verdict — the return-side pin of the same row is not a load,
+/// and the pair is stated on the message so the reader can see which two nets
+/// the fix has to bridge.
+#[test]
+fn sink_pin_whose_declared_pair_carries_no_capacitor_fires_6036() {
+    let src = format!(
+        "{SINK_DC}module main {{\n    {PI1_BOARD}\
+         SINK_DC s\n    s.VDD -> VDD_3V3\n    s.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::SINK_PIN_NO_DECOUPLING)
+        .count();
+    assert_eq!(
+        n, 1,
+        "a load drawing across an undecoupled declared pair must fire 6036 exactly once; got codes: {codes:?}"
+    );
+    let msgs = msgs_of(mcc::errcodes::SINK_PIN_NO_DECOUPLING, &src);
+    assert!(
+        msgs.iter().any(|m| m.contains("main.s.VDD")),
+        "6036 must name the load terminal, not the component or a positional pin id: {msgs:?}"
+    );
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("VDD_3V3") && m.contains("GND")),
+        "6036 must state the declared pair the fix has to bridge: {msgs:?}"
+    );
+}
+
+/// The covered load and a bare twin on one board: a capacitor across the pair
+/// answers, and the twin proves the silence is the capacitor talking — a rule
+/// that never ran would report neither.
+#[test]
+fn capacitor_across_the_declared_pair_covers_the_load_6036() {
+    let src = format!(
+        "{SINK_DC}{CAP_DECOUP}module main {{\n    {PI1_BOARD}\
+         SINK_DC s\n    s.VDD -> VDD_3V3\n    s.GND -> GND\n    \
+         CAP_DECOUP ok\n    ok.1 -> VDD_3V3\n    ok.2 -> GND\n    \
+         SINK_DC t\n    t.VDD -> VDD_5V\n    t.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SINK_PIN_NO_DECOUPLING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "only the bare twin may fire — the covered load must not; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.t.VDD") && !msgs[0].contains("main.s.VDD"),
+        "…and it is the bare twin that fires: {msgs:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "the covering capacitor returns on the declared member, so 6038 stays silent; got codes: {codes:?}"
+    );
+}
+
+/// Ruling 11's seam (§4.2 item 9, the shape ruling 8 gave the 6022 cut): a
+/// capacitor whose return lands **off** the declared member answers PI-1's
+/// existence question all the same. The placement is 6038's verdict and must not
+/// be reported twice — "no decoupling" would be false; there is one, misplaced.
+#[test]
+fn mis_landed_return_is_6038_alone_not_6036_as_well() {
+    let src = format!(
+        "{SINK_DC}{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}\
+         SINK_DC s\n    s.VDD -> VDD_3V3\n    s.GND -> GND\n    \
+         CAP_DECOUP bad\n    bad.1 -> VDD_3V3\n    bad.2 -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "a return leg off the declared member is PI-3's verdict; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::SINK_PIN_NO_DECOUPLING),
+        "…and a capacitor does sit on the sink's hot net, so PI-1 must stay silent — one fact, one code; got codes: {codes:?}"
+    );
+}
+
+/// §1.2's class law: the candidate is the element class, never a name or a pin
+/// shape. Same two terminals, same pair, no capacitive certificate — a resistor
+/// across the pair is not decoupling, so the load stays uncovered.
+#[test]
+fn resistive_part_on_the_pair_does_not_cover_the_load_6036() {
+    let src = format!(
+        "{SINK_DC}{RES_TIE}module main {{\n    {PI1_BOARD}\
+         SINK_DC s\n    s.VDD -> VDD_3V3\n    s.GND -> GND\n    \
+         RES_TIE r\n    r.P -> VDD_3V3\n    r.N -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::SINK_PIN_NO_DECOUPLING),
+        "a part with no capacitance in its spec table is not a decoupling capacitor; got codes: {codes:?}"
+    );
+}
+
+/// The other condition on the candidate: two terminals on two nets. The same
+/// capacitor def, on the same pair, covers when its legs are the pair and not
+/// when both legs land on the hot net — a shorted part decouples nothing, and
+/// the covering instance is what proves the class read is not what changed.
+#[test]
+fn capacitor_with_both_legs_on_one_net_does_not_cover_the_load_6036() {
+    let src = format!(
+        "{SINK_DC}{CAP_DECOUP}module main {{\n    {PI1_BOARD}\
+         SINK_DC s\n    s.VDD -> VDD_3V3\n    s.GND -> GND\n    \
+         CAP_DECOUP short\n    short.1 -> VDD_3V3\n    short.2 -> VDD_3V3\n    \
+         SINK_DC t\n    t.VDD -> VDD_5V\n    t.GND -> GND\n    \
+         CAP_DECOUP ok\n    ok.1 -> VDD_5V\n    ok.2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SINK_PIN_NO_DECOUPLING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the shorted capacitor must not cover the load; the covered twin must not fire; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.s.VDD"),
+        "…and it is the load behind the shorted capacitor that fires: {msgs:?}"
+    );
+}
+
+/// A designed-in but not placed part is not on the board: the `NC` construction
+/// argument leaves the pair undecoupled, so the load still fires. The flip is the
+/// one word on the capacitor's row.
+#[test]
+fn not_fitted_capacitor_does_not_cover_the_load_6036() {
+    let src = format!(
+        "{SINK_DC}{CAP_DECOUP}module main {{\n    {PI1_BOARD}\
+         SINK_DC s\n    s.VDD -> VDD_3V3\n    s.GND -> GND\n    \
+         CAP_DECOUP(NC) dnp\n    dnp.1 -> VDD_3V3\n    dnp.2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::SINK_PIN_NO_DECOUPLING),
+        "a not-fitted capacitor is not a decoupling placement; got codes: {codes:?}"
+    );
+}
+
+/// A terminal off the board draws from nothing: an unwired sink pad is a
+/// floating-input matter, not a decoupling gap. The wired twin is what proves
+/// the rule ran on this board.
+#[test]
+fn unwired_sink_pin_is_not_judged_6036() {
+    let src = format!(
+        "{SINK_DC}module main {{\n    {PI1_BOARD}\
+         SINK_DC z\n    SINK_DC t\n    t.VDD -> VDD_5V\n    t.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SINK_PIN_NO_DECOUPLING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "only the wired twin may fire; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.t.VDD"),
+        "…and the unwired pad carries no verdict: {msgs:?}"
+    );
+}
+
+/// §2.1's subject is the **load** terminal: the mirror-image source row on the
+/// same pair owes nothing. The flip is the direction word alone, and the bare
+/// sink beside it keeps the board's own verdict visible.
+#[test]
+fn source_row_of_the_same_shape_is_not_judged_6036() {
+    let src = format!(
+        "{SRC_DC}{SINK_DC}module main {{\n    {PI1_BOARD}\
+         SRC_DC src\n    src.OUT -> VDD_3V3\n    src.GND -> GND\n    \
+         SINK_DC t\n    t.VDD -> VDD_5V\n    t.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SINK_PIN_NO_DECOUPLING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a source row of the same shape is not a load — only the sink twin may fire; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.t.VDD"),
+        "…and the verdict lands on the sink, never on the source: {msgs:?}"
+    );
+}
+
+/// A row with no return half declares no pair, so there is nothing to decouple
+/// across (§2.1's single-phase shape). Whether the row is captured as a sink
+/// with an empty return or not captured as a pair at all, no pair means no
+/// verdict — and the boxed sink beside it is what proves the rule ran.
+#[test]
+fn sink_row_without_a_declared_return_is_not_judged_6036() {
+    let src = format!(
+        "{SINK_SCALAR}{SINK_DC}module main {{\n    {PI1_BOARD}\
+         SINK_SCALAR z\n    z.VDD -> VDD_3V3\n    \
+         SINK_DC t\n    t.VDD -> VDD_5V\n    t.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SINK_PIN_NO_DECOUPLING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a single-member row has no pair to be decoupled across; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.t.VDD"),
+        "…and the pair-carrying sink is the one that fires: {msgs:?}"
+    );
+}
+
+/// §6 R2's second half: a module supply port is judged like a component's sink
+/// pin. Both instances draw across the same declared pair through their own
+/// port member, and the one capacitor sits on the parent's copper — so the two
+/// verdicts also prove the boundary is transparent (a sub-module leg and the
+/// parent's net are one node, §1.3's effective-class read).
+#[test]
+fn module_supply_port_is_judged_like_a_sink_pin_6036() {
+    let src = format!(
+        "{DC_IFACE}{SUB_PSNK}{CAP_DECOUP}module main {{\n    {PI1_BOARD}\
+         SUB_PSNK u1\n    [VDD_3V3, GND] -> u1.dc\n    \
+         SUB_PSNK u2\n    [VDD_5V, GND] -> u2.dc\n    \
+         CAP_DECOUP ok\n    ok.1 -> VDD_5V\n    ok.2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SINK_PIN_NO_DECOUPLING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the port of u1 draws across an undecoupled pair, u2's is covered by the parent's capacitor; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("u1") && msgs[0].contains("VDD_3V3") && msgs[0].contains("GND"),
+        "6036 must name the port terminal and the pair it draws across: {msgs:?}"
+    );
+}
+
+// ── SN-3 sensitive return landing on a noisy face (power-quality-design.md §3.3, ruling 10) ──
+//
+// A part supplied from a quiet/sensitive face (§1.4: `@class(analog)`,
+// `@noise(quiet)`, `@noise(sensitive)`) whose declared DC pair returns into a
+// noisy one (`@noise(noisy)`): the plane a protected part returns to is part of
+// its protection, so landing that return on a noise source's own reference puts
+// the sensitive signal back onto the copper the quiet face was isolating it
+// from. Error, and the harder of the §3 pair — SN-2 judges the *bridged*
+// coupling, this the direct landing.
+//
+// The subject is a **declared pair of a part**: both members are read from one
+// `pins.pwr` row, so the return judged is the return of the pair that was
+// declared, and the two faces come from each net's own attribution against the
+// words the declaring scopes wrote — the §1.4 read PI-2/PI-4/SN-2 share. A part
+// whose definition declares no pair carries no witness here, which is where the
+// seams are: a two-terminal passive's return placement is PI-3's 6038, and a
+// *bridged* coupling between the two faces is SN-2's.
+//
+// Every silence below is a single-axis flip off the board that fires, and the
+// firing twin stays on the board wherever the silence could otherwise pass for
+// a rule that never ran.
+
+/// The judged part: two declared supply pairs, one on a quiet face and one on a
+/// digital face. The second row is what shows the rule reads the *pair* — its
+/// hot member is on no face at all, so the same return net that convicts the
+/// first row is innocent there.
+const ANALOG_PART: &str = "component ANALOG_PART {\n    pins = [\n        \
+                           psnk [1,2] = [AVDD, AGND]::DC(3.3V)\n        \
+                           psnk [3,4] = [VDD, GND]::DC(3.3V)\n    ]\n}\n";
+
+/// The same part with a single-member supply row: it closes over no return at
+/// all, so there is no pair whose return could land anywhere.
+const ANALOG_SCALAR: &str = "component ANALOG_SCALAR {\n    pins = [\n        \
+                             psnk 1 = AVDD::DC(3.3V)\n    ]\n}\n";
+
+/// The part's two pairs written twice each — two pin groups of one supply rail,
+/// the BGA spelling. A defect of the rail is one defect, however many groups
+/// carry it.
+const ANALOG_TWOGROUP: &str = "component ANALOG_TWOGROUP {\n    pins = [\n        \
+                               psnk [1,2] = [AVDD, AGND]::DC(3.3V)\n        \
+                               psnk [3,4] = [AVDD, AGND]::DC(3.3V)\n    ]\n}\n";
+
+/// §1.4's two faces as *words*: a quiet face declared `@noise(quiet)`, a noisy
+/// one `@noise(noisy)`. `@class(analog)` is the third word of the same read and
+/// the board below carries it; these two prove the read is the registered value
+/// set, not one spelling the rule happens to know.
+const SN3_WORDS_BOARD: &str = "conduit GND @role(main)\n    \
+                               conduit GNDA @role(quiet)\n    \
+                               domain AQ @noise(quiet) { rail [VDDA, GNDA]::DC(3.3V) }\n    \
+                               domain AN @noise(noisy) { rail [VDD_3V3, GND]::DC(3.3V) }\n    ";
+
+/// The board every case below flips one axis of: a quiet face with its own
+/// reference (`@class(analog)` + `@role(quiet)` copper) beside a noisy one, each
+/// carrying a declared rail so both nets resolve a world.
+const SN3_BOARD: &str = "conduit GND @role(main)\n    \
+                         conduit GNDA @role(quiet)\n    \
+                         domain AVDD @class(analog) { rail [VDDA, GNDA]::DC(3.3V) }\n    \
+                         domain DVDD @class(digital) @noise(noisy) { rail [VDD_3V3, GND]::DC(3.3V) }\n    ";
+
+/// The judged shape: a part supplied from the quiet face returning through the
+/// noisy one. Exactly **one** verdict — the second pair's hot member is on no
+/// face, so its return is not this rule's object — and the message names the
+/// part, the two faces and the pair, since that is the whole repair.
+#[test]
+fn sensitive_return_landing_on_the_noisy_face_fires_6041() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN3_BOARD}\
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n    \
+         ANALOG_PART v\n    v.AVDD -> VDDA\n    v.AGND -> GNDA\n    \
+         v.VDD -> VDD_3V3\n    v.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the part returning through the noisy face must fire 6041 exactly once, and the twin returning on the quiet reference must not; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u") && !msgs[0].contains("main.v"),
+        "6041 must name the part whose return lands wrong: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("AVDD") && msgs[0].contains("DVDD"),
+        "6041 must name both faces — the one being protected and the one violated: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("AGND") && msgs[0].contains("net 'GND'"),
+        "6041 must name the return member and the net it landed on: {msgs:?}"
+    );
+}
+
+/// §1.4's read is the registered value set, not one spelling: a quiet face
+/// declared `@noise(quiet)` and one declared `@noise(sensitive)` each fire, and
+/// the `@class(analog)` twin on the same board proves all three words are read
+/// by one rule.
+#[test]
+fn every_quiet_word_makes_a_part_judgeable_6041() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN3_WORDS_BOARD}\
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "@noise(quiet) is a quiet face like @class(analog); the return onto GND must fire once; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("AQ"),
+        "…and the message names the world the declaration gave it: {msgs:?}"
+    );
+}
+
+/// The quiet side is the witness: a part whose supply comes from a face no word
+/// marks — the digital pair — returns onto the very noisy net that convicts the
+/// quiet pair beside it, and is not judged.
+#[test]
+fn supply_from_a_faceless_domain_returning_to_noise_is_not_judged_6041() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN3_BOARD}\
+         ANALOG_PART z\n    z.AVDD -> VDD_3V3\n    z.AGND -> GND\n    \
+         z.VDD -> VDD_3V3\n    z.GND -> GND\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a digital supply returning onto the noisy net is not a protected part; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u"),
+        "…only the quiet-faced part is judged: {msgs:?}"
+    );
+}
+
+/// A return that reaches no declared face is not judged: the noisy side of the
+/// pair is a declaration too (§1.3 — silence, never a guess). The wire is the
+/// only flip, and the firing twin proves the rule ran on this board.
+#[test]
+fn return_landing_on_an_undeclared_net_is_not_judged_6041() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN3_BOARD}\
+         ANALOG_PART z\n    z.AVDD -> VDDA\n    z.AGND -> FLOATY\n    \
+         z.VDD -> VDD_3V3\n    z.GND -> GND\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a net no scope declares anchors no face, so the return onto it takes no verdict; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u"),
+        "…and the part returning onto the declared noisy net is the one judged: {msgs:?}"
+    );
+}
+
+/// A row with no return half declares no pair, so there is no return to land
+/// anywhere (the single-phase AC shape, axis ④'s object). The pair-carrying
+/// twin beside it keeps the board's verdict visible.
+#[test]
+fn pair_without_a_return_member_is_not_judged_6041() {
+    let src = format!(
+        "{ANALOG_SCALAR}{ANALOG_PART}module main {{\n    {SN3_BOARD}\
+         ANALOG_SCALAR z\n    z.AVDD -> VDDA\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a single-member supply row closes over no return; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u"),
+        "…and the pair-carrying part is the one judged: {msgs:?}"
+    );
+}
+
+/// A return member that reaches no net (an unwired pad) is located nowhere, so
+/// the pair has no second leg to judge — a floating-input matter, not this
+/// rule's. The wired twin proves the rule ran.
+#[test]
+fn unwired_return_member_is_not_judged_6041() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN3_BOARD}\
+         ANALOG_PART z\n    z.AVDD -> VDDA\n    \
+         z.VDD -> VDD_3V3\n    z.GND -> GND\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "an unwired return member lands on no net, so no pair is judged; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u"),
+        "…and the wired part is the one judged: {msgs:?}"
+    );
+}
+
+/// One rail, two pin groups: the defect is the rail's, so it is reported once,
+/// not once per group. Both returns land on the noisy net and the message names
+/// the pair, not the group.
+#[test]
+fn duplicated_pair_rows_report_once_6041() {
+    let src = format!(
+        "{ANALOG_TWOGROUP}module main {{\n    {SN3_BOARD}\
+         ANALOG_TWOGROUP u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "two pin groups of one declared rail are one declared pair, hence one verdict; got codes: {codes:?}"
+    );
+}
+
+/// The seam with PI-3: a two-terminal passive has no declared supply row, so it
+/// carries no witness here — and the very same mis-landed return is exactly what
+/// 6038 judges. The capacitor is the flip; the part beside it keeps 6041 armed,
+/// and the second capacitor is what puts `GNDA` on the board at all (a rail
+/// whose return member names no net is no pair to compare against).
+#[test]
+fn two_terminal_part_across_the_faces_is_pi3_not_sn3() {
+    let src = format!(
+        "{ANALOG_PART}{CAP_DECOUP}module main {{\n    {SN3_BOARD}\
+         CAP_DECOUP c\n    c.1 -> VDDA\n    c.2 -> GND\n    \
+         CAP_DECOUP k\n    k.1 -> VDDA\n    k.2 -> GNDA\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a two-terminal passive declares no supply pair, so it is never this rule's subject; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u"),
+        "…and only the part with a declared pair is judged: {msgs:?}"
+    );
+    assert!(
+        codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "…while the capacitor's own mis-landed return is 6038's verdict, not a second 6041; got codes: {codes:?}"
+    );
+}
+
+/// A board whose scopes declare neither face asks this rule nothing, whatever
+/// its wiring looks like: the faces are declarations, so with none of them there
+/// is no protected part to speak of, and the board says so by not being judged.
+#[test]
+fn board_with_no_declared_face_is_not_judged_6041() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    \
+         conduit GND @role(main)\n    \
+         domain AVDD @class(analog) {{ rail [VDDA, GNDA]::DC(3.3V) }}\n    \
+         conduit GNDA @role(quiet)\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SENSITIVE_RETURN_ON_NOISY, &src);
+    assert!(
+        msgs.is_empty(),
+        "with no noisy face declared there is no violated face, so the return onto GND is not a finding; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::SENSITIVE_RETURN_ON_NOISY),
+        "…and the rule stays silent rather than guessing a face; got codes: {codes:?}"
+    );
+}
+
+// ── SN-1 analog signal crossing a split ground (power-quality-design.md §3.1) ──
+//
+// A port row that claims the quiet/sensitive face (§1.4) and names its
+// reference with `@return(C)` states the plane the scope's analog signals are
+// measured against, so the parts that face supplies must return over that
+// reference. §3.1 drafts this as the sink-side part; the flat table carries no
+// source→sink chain for a signal net (model A), so the part is found by what
+// supplies it — the same face read PI-2/PI-4/SN-2/SN-3 use — and the subject is
+// then fixed by two agreeing declarations: the face's rail and the port's
+// `@return` must name the same reference. What is measured is the *topology*:
+// the effective class of the net the part's return member lands on.
+//
+// Every silence below is a single-axis flip off the board that fires, and the
+// firing twin stays on the board wherever the silence could otherwise pass for
+// a rule that never ran.
+
+/// The board every case flips one axis of: a quiet face with its own reference
+/// (`@class(analog)` + `@role(quiet)` copper) beside a digital one, each
+/// carrying a declared rail so both nets resolve a world.
+const SN1_BOARD: &str = "conduit GND @role(main)\n    \
+                         conduit GNDA @role(quiet)\n    \
+                         domain AVDD @class(analog) { rail [VDDA, GNDA]::DC(3.3V) }\n    \
+                         domain DVDD @class(digital) { rail [VDD_3V3, GND]::DC(3.3V) }\n    ";
+
+/// The declaration that binds the face: an analog port row naming the reference
+/// the face's own rail states.
+const SN1_PORT: &str = "io MIC{P, N} @class(analog) @return(GNDA)\n    ";
+
+/// The judged shape: a part drawing from the analog face and returning over
+/// another reference, beside a twin whose return closes on the declared one.
+/// Exactly **one** verdict — the part's *second* pair is supplied from the
+/// digital face, so its return onto the same net is not this rule's object —
+/// and the message names the part, the face, the landing, the declaring scope
+/// and the declared reference, since that is the whole repair.
+#[test]
+fn analog_face_return_landing_elsewhere_fires_6039() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN1_BOARD}{SN1_PORT}\
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n    \
+         ANALOG_PART v\n    v.AVDD -> VDDA\n    v.AGND -> GNDA\n    \
+         v.VDD -> VDD_3V3\n    v.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the part returning off the declared reference must fire 6039 exactly once, and neither the honoured twin nor its own digital-supplied pair may; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u") && !msgs[0].contains("main.v"),
+        "6039 must name the part whose return lands wrong: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("AVDD"),
+        "…and the face that part draws from: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("'GND'") && msgs[0].contains("GNDA"),
+        "…and both references — the one landed on and the one declared: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("scope 'main'"),
+        "…and the scope whose declaration it contradicts: {msgs:?}"
+    );
+}
+
+/// §1.4's read is the registered value set, not one spelling: a port row
+/// claiming the face with `@noise(quiet)` or `@noise(sensitive)` arms the rule
+/// exactly as `@class(analog)` does (proved in the case above).
+#[test]
+fn every_quiet_word_on_the_port_row_arms_the_rule_6039() {
+    for (word, row) in [
+        (
+            "@noise(quiet)",
+            "io MIC{P, N} @noise(quiet) @return(GNDA)\n    ",
+        ),
+        (
+            "@noise(sensitive)",
+            "io MIC{P, N} @noise(sensitive) @return(GNDA)\n    ",
+        ),
+    ] {
+        let src = format!(
+            "{ANALOG_PART}module main {{\n    {SN1_BOARD}{row}\
+             ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+             u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+        );
+        let codes = build_codes(&src);
+        let msgs = msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &src);
+        assert_eq!(
+            msgs.len(),
+            1,
+            "{word} claims the quiet face like @class(analog), so the return onto GND must fire once; got codes: {codes:?}"
+        );
+    }
+}
+
+/// A port row stating no reference declares nothing to contradict (the design's
+/// deferred half, §6 R3), and the same board with the `@return` written back is
+/// the flip that shows the rule read the row.
+#[test]
+fn port_row_without_a_return_is_not_judged_6039() {
+    let board = |port: &str| {
+        format!(
+            "{ANALOG_PART}module main {{\n    {SN1_BOARD}{port}\
+             ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+             u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+        )
+    };
+    let silent = board("io MIC{P, N} @class(analog)\n    ");
+    let codes = build_codes(&silent);
+    assert!(
+        msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &silent).is_empty(),
+        "with no @return the scope declares no reference, so no return can miss it; got codes: {codes:?}"
+    );
+    let fires = board(SN1_PORT);
+    assert_eq!(
+        msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &fires).len(),
+        1,
+        "…and the same board fires once the row names the reference; got codes: {:?}",
+        build_codes(&fires)
+    );
+}
+
+/// A port row claiming neither quiet word takes no part in the read: the words
+/// are the declaration, so a `@class(digital)` row's `@return` states no analog
+/// face, and the same board flips the row to `@class(analog)`.
+#[test]
+fn port_row_claiming_no_quiet_word_is_not_judged_6039() {
+    let board = |port: &str| {
+        format!(
+            "{ANALOG_PART}module main {{\n    {SN1_BOARD}{port}\
+             ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+             u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+        )
+    };
+    let silent = board("io MIC{P, N} @class(digital) @return(GNDA)\n    ");
+    let codes = build_codes(&silent);
+    assert!(
+        msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &silent).is_empty(),
+        "a row claiming the digital face states no analog reference; got codes: {codes:?}"
+    );
+    let fires = board(SN1_PORT);
+    assert_eq!(
+        msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &fires).len(),
+        1,
+        "…and the same row claiming the analog face fires; got codes: {:?}",
+        build_codes(&fires)
+    );
+}
+
+/// The verdict is **per face**: a scope declaring two quiet faces resolves each
+/// against its own reference, so a port naming the first face's reference never
+/// judges the second face's parts — and a part that returns over the *other*
+/// face's reference is convicted by its own face, not let through.
+#[test]
+fn two_quiet_faces_in_one_scope_are_judged_against_their_own_reference_6039() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    \
+         conduit GND  @role(main)\n    \
+         conduit GNDA @role(quiet)\n    \
+         conduit GNDB @role(quiet)\n    \
+         domain AVDD @class(analog) {{ rail [VDDA, GNDA]::DC(3.3V) }}\n    \
+         domain BVDD @class(analog) {{ rail [VDDB, GNDB]::DC(3.3V) }}\n    \
+         domain CVDD @class(analog) {{ rail [VDDC, GNDC]::DC(3.3V) }}\n    \
+         io MIC{{P, N}} @class(analog) @return(GNDA)\n    \
+         io AUX{{P, N}} @class(analog) @return(GNDB)\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n    \
+         ANALOG_PART w\n    w.AVDD -> VDDB\n    w.AGND -> GND\n    \
+         w.VDD -> VDD_3V3\n    w.GND -> GND\n    \
+         ANALOG_PART x\n    x.AVDD -> VDDC\n    x.AGND -> GND\n    \
+         x.VDD -> VDD_3V3\n    x.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &src);
+    assert_eq!(
+        msgs.len(),
+        2,
+        "the part on GNDA's face and the one on GNDB's face are each convicted by their own face's reference, while the face no port declares reference for is silent; got codes: {codes:?}"
+    );
+    let joined = msgs.join("\n");
+    assert!(
+        joined.contains("main.u") && joined.contains("main.w") && !joined.contains("main.x"),
+        "…and the part whose face reference no port declares is not judged: {msgs:?}"
+    );
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("AVDD") && m.contains("GNDA"))
+            && msgs
+                .iter()
+                .any(|m| m.contains("BVDD") && m.contains("GNDB")),
+        "…each report naming its own face and that face's reference: {msgs:?}"
+    );
+}
+
+/// The supply half is the witness: a part drawing from a face no word marks —
+/// the digital pair — returns onto the very net that convicts the analog pair
+/// beside it, and is not judged.
+#[test]
+fn supply_from_a_faceless_domain_is_not_judged_6039() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN1_BOARD}{SN1_PORT}\
+         ANALOG_PART z\n    z.AVDD -> VDD_3V3\n    z.AGND -> GND\n    \
+         z.VDD -> VDD_3V3\n    z.GND -> GND\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a part fed from the digital face belongs to no analog face; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u"),
+        "…only the part on the declared analog face is judged: {msgs:?}"
+    );
+}
+
+/// A return that reaches no declared class is not judged (§1.3 — silence, never
+/// a guess). The wire is the only flip, and the firing twin proves the rule ran
+/// on this board.
+#[test]
+fn return_landing_on_an_undeclared_net_is_not_judged_6039() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN1_BOARD}{SN1_PORT}\
+         ANALOG_PART z\n    z.AVDD -> VDDA\n    z.AGND -> FLOATY\n    \
+         z.VDD -> VDD_3V3\n    z.GND -> GND\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a net no scope declares resolves no class, so the return onto it takes no verdict; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u"),
+        "…and the part returning onto the declared reference's competitor is the one judged: {msgs:?}"
+    );
+}
+
+/// A row with no return half declares no pair, so there is no return to land
+/// anywhere (the single-phase AC shape, axis ④'s object). The pair-carrying
+/// twin beside it keeps the board's verdict visible.
+#[test]
+fn pair_without_a_return_member_is_not_judged_6039() {
+    let src = format!(
+        "{ANALOG_SCALAR}{ANALOG_PART}module main {{\n    {SN1_BOARD}{SN1_PORT}\
+         ANALOG_SCALAR z\n    z.AVDD -> VDDA\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a single-member supply row closes over no return; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u"),
+        "…and the pair-carrying part is the one judged: {msgs:?}"
+    );
+}
+
+/// Two pin groups of one supply rail are one pair, so a defect of the rail is
+/// one defect however many groups carry it.
+#[test]
+fn duplicated_pair_rows_report_once_6039() {
+    let src = format!(
+        "{ANALOG_TWOGROUP}module main {{\n    {SN1_BOARD}{SN1_PORT}\
+         ANALOG_TWOGROUP u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the same declared pair written twice is one defect; got codes: {codes:?}"
+    );
+}
+
+/// A board whose scopes declare no analog port row asks this rule nothing,
+/// whatever its wiring looks like: the reference is a declaration, so with none
+/// of them there is nothing for a return to miss.
+#[test]
+fn board_with_no_analog_port_is_not_judged_6039() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN1_BOARD}\
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &src);
+    assert!(
+        msgs.is_empty(),
+        "the face is declared but no port states its reference, so no return can miss it; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::ANALOG_RETURN_MISMATCH),
+        "…and the rule stays silent rather than guessing a reference; got codes: {codes:?}"
+    );
+}
+
+/// A quiet face whose `::DC` rail is missing declares no pair, so there is no
+/// reference of its own to check against — a face declared by word alone is
+/// silent, and the twin face carrying its rail keeps the board's verdict visible.
+#[test]
+fn quiet_face_without_a_rail_is_not_judged_6039() {
+    let src = format!(
+        "{ANALOG_PART}module main {{\n    {SN1_BOARD}\
+         domain RAILESS @class(analog) {{ rail [VDDR, GNDR]::AC(3.3V) }}\n    \
+         io MIC{{P, N}} @class(analog) @return(GNDA)\n    \
+         io AUX{{P, N}} @class(analog) @return(GNDR)\n    \
+         ANALOG_PART z\n    z.AVDD -> VDDR\n    z.AGND -> GND\n    \
+         z.VDD -> VDD_3V3\n    z.GND -> GND\n    \
+         ANALOG_PART u\n    u.AVDD -> VDDA\n    u.AGND -> GND\n    \
+         u.VDD -> VDD_3V3\n    u.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::ANALOG_RETURN_MISMATCH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "an AC rail states no DC pair, so the face it sits in declares no return member to miss; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u"),
+        "…and the DC-rail face beside it is the one judged: {msgs:?}"
+    );
+}
+
+// ── SN-2: noisy/quiet returns joined by one DC ground bridge (§3.2, ruling 9) ──
+//
+// A declared `@bridge` whose two ends are the **returns** of a noisy face (§1.4
+// `@noise(noisy)`) and of a quiet/sensitive one is the two references meeting
+// through plain copper: the filter — a magnetic element on the leg — is what lets
+// a quiet face keep its own reference while the two coppers meet, so without one
+// the plane the protected parts are measured against sits on the noise source's
+// return. "No filtering intent" is ruling 9's reading (a) negated (2026-09-16),
+// read from the leg's element class (the axle PI-2 also reads), never from a name.
+//
+// The ground side is PI-2's supply-leg test **negated**: a bridge with a rail's
+// hot member at either end is the supply filter leg 6037 judges, so the two rules
+// cut the corpus without both claiming a leg. Both ends are read at the name
+// level — the declaring scope's own rails say what each written name is — which
+// is what lets the design's plainest form, a direct copper tie, be judged at all.
+// Every silence below is a single-axis flip off the board that fires, and the
+// firing twin stays on the board wherever the silence could otherwise pass for a
+// rule that never ran.
+//
+// §3.2's vacuous-truth risk (its samples are synthetic: no domain in the corpus
+// `@noise(noisy)`, and the golden `FB_agnd` ground legs join two non-noisy
+// returns) is why the judged board below adds the noise word to the golden
+// pwrint shape — the acceptance of this rule is synthetic-only, recorded in the
+// batch ledger.
+
+/// The judged board: a noisy digital face returning on GND, a quiet analog face
+/// returning on GNDA. The two loads are part of the board, not decoration: a rail
+/// member becomes a net — and so a class the leg's carrier can be matched
+/// against — only once something wires it.
+const SN2_BOARD: &str = "conduit GND @role(main)\n    \
+                         conduit GNDA @role(quiet)\n    \
+                         domain DVDD @class(digital) @noise(noisy) { rail [VDD_3V3, GND]::DC(3.3V) }\n    \
+                         domain AVDD @class(analog) { rail [VDDA, GNDA]::DC(3.3V) }\n    \
+                         RES_TIE ld1\n    ld1.1 -> VDD_3V3\n    ld1.2 -> GND\n    \
+                         RES_TIE ld2\n    ld2.1 -> VDDA\n    ld2.2 -> GNDA\n    ";
+
+/// The declared filter element: a magnetic two-terminal part. Ruling 9's reading
+/// (a) takes the class off the definition's spec keys, so this is what "with
+/// filtering intent" means on the leg — not the part's name, which the rule never
+/// reads.
+const TIE_MAG: &str =
+    "component TIE_MAG {\n    pins = [ io [1:2] = [P, N] ]\n    spec = [ inductance = 1uH ]\n}\n";
+
+/// The judged shape: a resistor tying the noisy face's return to the quiet
+/// face's. The message names the clause as written, both faces it joins and the
+/// carrier standing in for the missing filter — the whole repair.
+#[test]
+fn noisy_and_quiet_returns_joined_by_a_resistor_fire_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         GNDA - t::RES_TIE() - GND @bridge(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a declared ground bridge between a noisy face's return and a quiet face's, carried by no magnetic element, must fire 6040 exactly once; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("GND <-> GNDA"),
+        "6040 must name the bridge clause as written: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("DVDD") && msgs[0].contains("AVDD"),
+        "…and both faces it joins: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("main.t"),
+        "…and the carrier standing in for the missing filter: {msgs:?}"
+    );
+}
+
+/// The single-axis flip that proves the element class is what the rule read: the
+/// same board with a magnetic part on the leg is the declared filter, and whether
+/// that filter is complete is PI-2's verdict (ruling 11's partition) — not this
+/// rule's.
+#[test]
+fn magnetic_carrier_is_the_declared_filter_6040() {
+    let src = format!(
+        "{TIE_MAG}module main {{\n    {SN2_BOARD}\
+         GNDA - t::TIE_MAG() - GND @bridge(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert!(
+        msgs.is_empty(),
+        "a magnetic element on the leg is filtering intent — the rule reports the tie, not the filter's adequacy; got codes: {codes:?}"
+    );
+}
+
+/// §3.2's subject is the DC ground bridge: a `@couple` is a DC-blocking coupling
+/// element, not a tie. The flip is the relation word alone.
+#[test]
+fn couple_edge_is_not_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         GNDA - t::RES_TIE() - GND @couple(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert!(
+        msgs.is_empty(),
+        "a @couple edge is not a DC ground tie; got codes: {codes:?}"
+    );
+}
+
+/// The same test the other way (PI-2's leg): a bridge with a rail's hot member at
+/// either end is the supply filter leg 6037 judges, so this rule stays off it —
+/// and 6037 firing on the same board is the twin proving the board ran.
+#[test]
+fn supply_leg_bridge_is_pi2_not_sn2() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         VDD_3V3 - t::RES_TIE() - VDDA @bridge(VDD_3V3, VDDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHARED_RETURN_BRIDGE),
+        "a bridge with a rail's hot member at an end is the supply filter leg, not a ground tie; got codes: {codes:?}"
+    );
+    assert!(
+        codes.contains(&mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING),
+        "…and PI-2 is the rule that owns it, on this very board; got codes: {codes:?}"
+    );
+}
+
+/// With no noisy face declared there is no reference for the quiet one to be
+/// shared with — the golden corpus's own reason for silence (§3.2's vacuous truth).
+/// The flip is one word on DVDD's domain row, and the firing case above is the
+/// board that carries it.
+#[test]
+fn bridge_with_no_noisy_side_is_not_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    conduit GND @role(main)\n    conduit GNDA @role(quiet)\n    \
+         domain DVDD @class(digital) {{ rail [VDD_3V3, GND]::DC(3.3V) }}\n    \
+         domain AVDD @class(analog) {{ rail [VDDA, GNDA]::DC(3.3V) }}\n    \
+         RES_TIE ld1\n    ld1.1 -> VDD_3V3\n    ld1.2 -> GND\n    \
+         RES_TIE ld2\n    ld2.1 -> VDDA\n    ld2.2 -> GNDA\n    \
+         GNDA - t::RES_TIE() - GND @bridge(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert!(
+        msgs.is_empty(),
+        "with no noisy face there is nothing for the quiet face's reference to be shared with; got codes: {codes:?}"
+    );
+}
+
+/// Two noisy returns are two faces of one kind: the flip is a second
+/// `@noise(noisy)` domain, and there is no protected side left undecided but
+/// unjudged — silence, not a guess.
+#[test]
+fn bridge_between_two_noisy_returns_is_not_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         conduit GNDB\n    \
+         domain DVDD2 @class(digital) @noise(noisy) {{ rail [VDD_5V, GNDB]::DC(5V) }}\n    \
+         RES_TIE ld3\n    ld3.1 -> VDD_5V\n    ld3.2 -> GNDB\n    \
+         GNDB - t::RES_TIE() - GND @bridge(GND, GNDB)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert!(
+        msgs.is_empty(),
+        "two noisy returns share one kind of face, so no quiet reference is at stake; got codes: {codes:?}"
+    );
+}
+
+/// …and two quiet returns are the same flip the other way: which side is the
+/// noisy one is undecidable, so the pair is not judged.
+#[test]
+fn bridge_between_two_quiet_returns_is_not_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         conduit GNDB @role(quiet)\n    \
+         domain AVDD2 @class(analog) {{ rail [VDDA2, GNDB]::DC(3.3V) }}\n    \
+         RES_TIE ld3\n    ld3.1 -> VDDA2\n    ld3.2 -> GNDB\n    \
+         GNDB - t::RES_TIE() - GNDA @bridge(GNDA, GNDB)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert!(
+        msgs.is_empty(),
+        "two quiet returns name no noise source this bridge would short past a filter; got codes: {codes:?}"
+    );
+}
+
+/// A name both faces return on answers neither question on its own: the flip is
+/// one more analog domain returning on the noisy GND, which is the design's own
+/// case (a quiet face whose return *is* the noisy copper) — the later half of
+/// §3.1, not this rule's subject.
+#[test]
+fn bridge_to_a_net_two_faces_return_on_is_not_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    conduit GND @role(main)\n    conduit GNDA @role(quiet)\n    \
+         domain DVDD @class(digital) @noise(noisy) {{ rail [VDD_3V3, GND]::DC(3.3V) }}\n    \
+         domain AVDD @class(analog) {{ rail [VDDA, GNDA]::DC(3.3V) }}\n    \
+         domain AVDDR @class(analog) {{ rail [VDDR, GND]::DC(3.3V) }}\n    \
+         RES_TIE ld1\n    ld1.1 -> VDD_3V3\n    ld1.2 -> GND\n    \
+         RES_TIE ld2\n    ld2.1 -> VDDA\n    ld2.2 -> GNDA\n    \
+         RES_TIE ld3\n    ld3.1 -> VDDR\n    ld3.2 -> GND\n    \
+         GNDA - t::RES_TIE() - GND @bridge(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert!(
+        msgs.is_empty(),
+        "a name two faces return on names no single side, so the pair is not judged; got codes: {codes:?}"
+    );
+}
+
+/// A clause endpoint no rail of its scope writes declares no return this rule can
+/// read — §1.3's silence, and the firing case above is the same board with the
+/// name written back.
+#[test]
+fn bridge_endpoint_naming_no_rail_member_is_not_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         GNDA - t::RES_TIE() - GND @bridge(GND, GNDX)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert!(
+        msgs.is_empty(),
+        "an endpoint no declared rail writes is not judged, never guessed; got codes: {codes:?}"
+    );
+}
+
+/// A third face whose reference is a net of its own still joins the rule: the
+/// declared return `GNDR` tied to the noisy GND is §3.2's defect, and it is the
+/// twin that proves the silence below is the copper talking.
+#[test]
+fn a_third_quiet_face_tied_to_noise_fires_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         domain RAILESS @class(analog) {{ rail [VDD_R, GNDR]::DC(3.3V) }}\n    \
+         GND - t::RES_TIE() - GNDR @bridge(GND, GNDR)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a quiet face returning on its own reference, tied to the noisy return by a resistor, is the same defect; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("RAILESS") && msgs[0].contains("DVDD"),
+        "…and the message names both faces: {msgs:?}"
+    );
+}
+
+/// …and a declared return whose copper is not there is one step of silence
+/// later: the name is a rail member but reaches no class, so the leg cannot be
+/// located at all. The flip against the case above is the copper the clause's
+/// second name never meets.
+#[test]
+fn bridge_endpoint_whose_class_does_not_resolve_is_not_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         domain RAILESS @class(analog) {{ rail [VDD_R, GNDR]::DC(3.3V) }}\n    \
+         GNDA - t::RES_TIE() - GND @bridge(GND, GNDR)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert!(
+        msgs.is_empty(),
+        "a declared return whose net reaches no class leaves the leg unlocatable; got codes: {codes:?}"
+    );
+}
+
+/// The plainest form of the defect: the clause declares the tie and no element
+/// carries it at all. (A *bare copper* tie — `GND - GNDA` — is not expressible
+/// on this surface: every copper join either goes through a component or is
+/// read as a class reference, so the two forms this branch is exercised by are
+/// this one and the chain below.)
+#[test]
+fn bridge_no_element_carries_is_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         GND - t::RES_TIE() - GNDB @bridge(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a declared ground bridge between two returns, carried by no element, must fire 6040; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("carried by no single two-terminal element"),
+        "…and the message must say no element carries the leg: {msgs:?}"
+    );
+}
+
+/// …and a leg carried by a chain of elements, none of which spans it: the design
+/// reads the bridge's *own* element (ruling 9's bridge carrier), so a chain carries no
+/// magnetic bridge element either — reported the same way, with the same wording.
+#[test]
+fn chained_leg_with_no_magnetic_element_is_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {SN2_BOARD}\
+         GND - r1::RES_TIE() - X - r2::RES_TIE() - GNDA @bridge(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a ground bridge carried by elements none of which is the bridge's own must fire 6040 once; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("carried by no single two-terminal element"),
+        "…and the message must say no single element carries the leg: {msgs:?}"
+    );
+}
+
+/// Two parallel legs between the same two returns, each with its own clause: the
+/// magnetic element is the *declared filter's* leg, and the resistor's leg owns
+/// no filter of its own. Reading the pair alone, one filtered leg would answer
+/// for its unfiltered twin and the message would name an arbitrary element of the
+/// two — so the clause's own span picks the carrier out (the per-leg match 6022
+/// makes). This is the golden board's own shape: pwrint's `FB_agnd`/`FB_agnd2`
+/// stand as two parallel ground legs.
+#[test]
+fn parallel_legs_each_read_their_own_carrier_6040() {
+    let src = format!(
+        "{RES_TIE}{TIE_MAG}module main {{\n    {SN2_BOARD}\
+         GNDA - bad::RES_TIE() - GND @bridge(GND, GNDA)\n    \
+         GNDA - good::TIE_MAG() - GND @bridge(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "only the leg with no magnetic element of its own is the reported tie; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.bad"),
+        "…and the message must name that leg's own carrier: {msgs:?}"
+    );
+    assert!(
+        !msgs[0].contains("main.good"),
+        "…not the parallel leg's magnetic element: {msgs:?}"
+    );
+}
+
+/// A board whose domains declare no DC rail declares no pair for the bridge to
+/// be a return of — the flip is the rail word alone (`::AC`), and the firing case
+/// above is the same board with `::DC` written back.
+#[test]
+fn bridge_on_a_board_with_no_dc_rail_is_not_judged_6040() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    conduit GND @role(main)\n    conduit GNDA @role(quiet)\n    \
+         domain DVDD @class(digital) @noise(noisy) {{ rail [VDD_3V3, GND]::AC(3.3V) }}\n    \
+         domain AVDD @class(analog) {{ rail [VDDA, GNDA]::AC(3.3V) }}\n    \
+         GNDA - t::RES_TIE() - GND @bridge(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::SHARED_RETURN_BRIDGE, &src);
+    assert!(
+        msgs.is_empty(),
+        "an AC rail states no DC pair, so neither end is a declared return; got codes: {codes:?}"
+    );
+}
+
+// PI-4 filter-subface overreach (power-quality-design.md §2.4, ruling 4)
+//
+// §2.2's supply leg protects a load side, and that side is a subface: the quiet
+// domain's own declared pair. A sink drawing across that pair is inside the
+// domain the filter was declared for; a sink that touches it with only one
+// member of its own pair is fed by a filter it never declared to belong to.
+//
+// The witness is the sink's **own declared pair as bound on its instance** — a
+// component's `psnk` row or an instantiated module's `psnk` port row — which is
+// why the same class instantiated twice can be judged apart, and why the message
+// can name the pair as this call site reads it. Both sides compare class ids,
+// never spellings.
+//
+// Every silence below is a single-axis flip off a board that fires, and the
+// firing twin is kept on the same board wherever the silence could otherwise
+// pass for a rule that never ran.
+
+/// §2.2's leg, complete: the in-file ferrite stand-in across the two rails, plus
+/// the load-side decoupling that closes the LC — so 6037 is silent and the only
+/// question left on this board is what draws from the subface it protects.
+const PI4_LEG: &str = "VDD_3V3 - fba::FB_BRIDGE() - VDDA @bridge(VDD_3V3, VDDA)\n    \
+                       CAP_DECOUP c\n    c.1 -> VDDA\n    c.2 -> GNDA\n    ";
+
+/// The judged shape: a declared sink pair whose return is the subface's own
+/// (GNDA) but whose supply comes from the other domain's hot copper — the filter
+/// feeding a part that never declared to belong to it. The message names the
+/// terminal, the pair as the call site binds it, the quiet domain, the leg as
+/// written and the pair that leg protects.
+#[test]
+fn sink_pair_piercing_the_filter_subface_fires_6042() {
+    let src = format!(
+        "{FB_BRIDGE}{CAP_DECOUP}{SINK_DC}module main {{\n    {PI3_DOMAINS}{PI4_LEG}\
+         SINK_DC s\n    s.VDD -> VDD_3V3\n    s.GND -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::FILTER_SUBFACE_OVERREACH)
+        .count();
+    assert_eq!(
+        n, 1,
+        "a sink pair touching the subface with only its return member must fire 6042 exactly once; got codes: {codes:?}"
+    );
+    let msgs = msgs_of(mcc::errcodes::FILTER_SUBFACE_OVERREACH, &src);
+    assert!(
+        msgs[0].contains("main.s.VDD"),
+        "6042 must name the sink terminal the pair is declared on: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("[VDD_3V3, GNDA]"),
+        "…and the pair as this call site binds it, not the row's member spellings: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("AVDD") && msgs[0].contains("[VDDA, GNDA]"),
+        "…and the quiet domain with the pair the leg protects: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("VDDA <-> VDD_3V3"),
+        "…and the leg clause as written (its two names in clause order), so the reader can find it: {msgs:?}"
+    );
+}
+
+/// The honoured shape, on the same board as the judged one: a sink declaring the
+/// subface's own pair is exactly the part the filter was declared for. The
+/// fired-twin count is what proves the rule ran on this board.
+#[test]
+fn sink_declaring_the_subface_pair_is_clean_6042() {
+    let src = format!(
+        "{FB_BRIDGE}{CAP_DECOUP}{SINK_DC}module main {{\n    {PI3_DOMAINS}{PI4_LEG}\
+         SINK_DC ok\n    ok.VDD -> VDDA\n    ok.GND -> GNDA\n    \
+         SINK_DC bad\n    bad.VDD -> VDD_3V3\n    bad.GND -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::FILTER_SUBFACE_OVERREACH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the sink declaring the subface's own pair is the domain's own load and must not be reported (the flipped twin must be); got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("bad") && !msgs[0].contains("ok"),
+        "…and the one verdict is the flipped twin's: {msgs:?}"
+    );
+}
+
+/// The other single-axis flip: the supply on the subface's hot member and the
+/// return off it. One member of the pair on the subface is enough for the verdict
+/// — the filter's load side is being drawn from by a part that returns elsewhere.
+#[test]
+fn sink_returning_off_the_subface_fires_6042() {
+    let src = format!(
+        "{FB_BRIDGE}{CAP_DECOUP}{SINK_DC}module main {{\n    {PI3_DOMAINS}{PI4_LEG}\
+         SINK_DC s\n    s.VDD -> VDDA\n    s.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::FILTER_SUBFACE_OVERREACH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a sink supplied from the subface but returning off it must fire 6042 exactly once; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("[VDDA, GND]"),
+        "6042 must state the pair as bound, off-subface member and all: {msgs:?}"
+    );
+}
+
+/// And the pair that touches no member of the subface at all: that is not this
+/// filter's business, and the rule says nothing about it. The fired twin is again
+/// kept on board — a rule that had stopped running would report neither.
+#[test]
+fn sink_pair_off_the_subface_is_not_judged_6042() {
+    let src = format!(
+        "{FB_BRIDGE}{CAP_DECOUP}{SINK_DC}module main {{\n    {PI3_DOMAINS}\
+         domain DVDD5 @class(digital) {{ rail [VDD_5V, GND]::DC(5V) }}\n    {PI4_LEG}\
+         SINK_DC other\n    other.VDD -> VDD_5V\n    other.GND -> GND\n    \
+         SINK_DC bad\n    bad.VDD -> VDD_3V3\n    bad.GND -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::FILTER_SUBFACE_OVERREACH, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a pair drawing from another domain's pair is not the subface's business; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("bad") && !msgs[0].contains("other"),
+        "…so the one verdict is the pair that did touch the subface: {msgs:?}"
+    );
+}
+
+/// The module shape, the same law one level up: an instantiated module's `psnk`
+/// **port row** declares its pair the way a component's pin row does, and this
+/// instance carries it. The message names the sub-module's terminal.
+#[test]
+fn sub_module_supply_port_piercing_the_subface_fires_6042() {
+    let sub_a = "module SUB_A(psnk dc{VDD_3V3, GNDA}::DC(3.3V)) {\n}\n";
+    let sub_b = "module SUB_B(psnk dc{VDDA, GNDA}::DC(3.3V)) {\n}\n";
+    let src = format!(
+        "{DC_IFACE}{sub_a}{sub_b}{FB_BRIDGE}{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}{PI4_LEG}\
+         SUB_A bad\n    [VDD_3V3, GNDA] -> bad.dc\n    \
+         SUB_B ok\n    [VDDA, GNDA] -> ok.dc\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::FILTER_SUBFACE_OVERREACH)
+        .count();
+    assert_eq!(
+        n, 1,
+        "a sub-module whose own supply port row pierces the subface must fire 6042 once (its honoured twin must not); got codes: {codes:?}"
+    );
+    let msgs = msgs_of(mcc::errcodes::FILTER_SUBFACE_OVERREACH, &src);
+    assert!(
+        msgs[0].contains("main.bad"),
+        "6042 must name the instance whose port row was pierced: {msgs:?}"
+    );
+}
+
+/// The prerequisite guard: 6042 is about what draws from a declared filter leg's
+/// load side, so a board whose only bridge is **ground-side** has no such leg —
+/// PI-2's own test is what makes a bridge a supply leg, and a sink pair here is
+/// judged by no one.
+#[test]
+fn board_with_no_supply_filter_leg_is_not_judged_6042() {
+    let src = format!(
+        "{RES_TIE}{CAP_DECOUP}{SINK_DC}module main {{\n    {PI3_DOMAINS}\
+         GNDA - t::RES_TIE() - GND @bridge(GND, GNDA)\n    \
+         SINK_DC s\n    s.VDD -> VDD_3V3\n    s.GND -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::FILTER_SUBFACE_OVERREACH, &src);
+    assert!(
+        msgs.is_empty(),
+        "no supply filter leg means no subface to have drawn from; got codes: {codes:?}"
     );
 }

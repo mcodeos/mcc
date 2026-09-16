@@ -35,13 +35,13 @@
 //! be a guess), an endpoint whose class does not resolve, and a `@couple` edge (a
 //! DC-blocking coupling element is not a filter leg).
 
+use super::faces::DomainFaces;
 use super::railface::{declared_rails, rails_of_leg, scope_classes};
 use super::NetCheckResult;
 use crate::instant::insttab::{InstEntry, InstTable};
 use crate::instant::island::NetIslandIndex;
 use crate::semantic::basic::attr_keys::ElementClass;
 use crate::semantic::module::pi::L1EdgeKind;
-use std::collections::{HashMap, HashSet};
 
 /// PI-2: a declared filter bridge's load side must carry a decoupling capacitor.
 pub(crate) fn check_bridge_load_decoupling(table: &InstTable, results: &mut Vec<NetCheckResult>) {
@@ -82,46 +82,20 @@ pub(crate) fn check_bridge_load_decoupling(table: &InstTable, results: &mut Vec<
     }
 
     // Net names are resolved **in the scope that wrote them** (a `@bridge` clause
-    // names the nets of its own module), like the rail side of PI-3.
-    let mut scope_nets: HashMap<u32, HashMap<String, Vec<u32>>> = HashMap::new();
-    for net in table.get_nets() {
-        let Some(module) = net.module else {
-            continue;
-        };
-        scope_nets
-            .entry(module)
-            .or_default()
-            .entry(net.name.clone())
-            .or_default()
-            .push(net.id);
-    }
+    // names the nets of its own module), like the rail side of PI-3 — the shared
+    // read PI-4 locates the same leg through.
+    let scope_nets = super::scope_nets(table);
 
-    // §1.4's quiet/sensitive face, per declaring scope: a domain that says
-    // `@class(analog)` or `@noise(quiet|sensitive)`. Which words make a face
-    // quiet is this rule's step, not the projection's (pi.rs carries them
-    // verbatim).
-    let mut quiet: HashMap<u32, HashSet<String>> = HashMap::new();
-    for (id, pi) in table.power_decls() {
-        let set: HashSet<String> = pi
-            .l1_domain_faces()
-            .into_iter()
-            .filter(|f| {
-                f.class.as_deref() == Some("analog")
-                    || matches!(f.noise.as_deref(), Some("quiet") | Some("sensitive"))
-            })
-            .map(|f| f.name)
-            .collect();
-        if !set.is_empty() {
-            quiet.insert(*id, set);
-        }
-    }
+    // §1.4's quiet/sensitive face — the shared read, since PI-4/SN-2/SN-3 ask
+    // the same question of the same projection.
+    let faces = DomainFaces::read(table);
 
     for (scope, edge) in bridges {
         // Both endpoints as the declaring scope reads them; a name that reaches
         // no class is not judged.
         let (Some(load_a), Some(load_b)) = (
-            endpoint(table, &idx, &scope_nets, scope, &edge.a),
-            endpoint(table, &idx, &scope_nets, scope, &edge.b),
+            super::edge_endpoint(table, &idx, &scope_nets, scope, &edge.a),
+            super::edge_endpoint(table, &idx, &scope_nets, scope, &edge.b),
         ) else {
             continue;
         };
@@ -136,8 +110,8 @@ pub(crate) fn check_bridge_load_decoupling(table: &InstTable, results: &mut Vec<
         // The load side is the quiet one. Both quiet is a coin flip, neither is
         // no declared load side — silence is the family's standing rule.
         let (load, world) = match (
-            quiet_world(table, &quiet, &load_a),
-            quiet_world(table, &quiet, &load_b),
+            faces.quiet_world(table, load_a.2, &load_a.1.worlds),
+            faces.quiet_world(table, load_b.2, &load_b.1.worlds),
         ) {
             (Some(w), None) => (&load_a, w),
             (None, Some(w)) => (&load_b, w),
@@ -173,53 +147,6 @@ pub(crate) fn check_bridge_load_decoupling(table: &InstTable, results: &mut Vec<
             uri,
         });
     }
-}
-
-/// One `@bridge` endpoint as the declaring scope reads it: the net the name was
-/// written for, its effective class, and its owning scope. `None` when the name
-/// matches no net there, or the net reaches no class — an unresolvable endpoint
-/// takes no verdict (its identity would come from an ancestor world).
-type Endpoint = (u32, super::EffClass, u32);
-
-fn endpoint(
-    table: &InstTable,
-    idx: &NetIslandIndex,
-    scope_nets: &HashMap<u32, HashMap<String, Vec<u32>>>,
-    scope: u32,
-    name: &str,
-) -> Option<Endpoint> {
-    for &net in scope_nets.get(&scope)?.get(name)? {
-        let Some(attr) = idx.get(net) else {
-            continue;
-        };
-        let Some(layer) = attr.module else {
-            continue;
-        };
-        let Some(cls) = super::eff_class(table, idx, attr, &mut Vec::new()) else {
-            continue;
-        };
-        return Some((net, cls, layer));
-    }
-    None
-}
-
-/// The quiet/sensitive world an endpoint anchors, read on its own owning-scope
-/// chain (a sub-module net is anchored by an ancestor's domain declaration).
-fn quiet_world(
-    table: &InstTable,
-    quiet: &HashMap<u32, HashSet<String>>,
-    endpoint: &Endpoint,
-) -> Option<String> {
-    let mut cur = Some(endpoint.2);
-    while let Some(id) = cur {
-        if let Some(set) = quiet.get(&id) {
-            if let Some(world) = endpoint.1.worlds.iter().find(|w| set.contains(*w)) {
-                return Some(world.clone());
-            }
-        }
-        cur = table.get_entry(id).and_then(|e| e.parent_id);
-    }
-    None
 }
 
 /// The effective classes a two-terminal part's legs land on, one per distinct
