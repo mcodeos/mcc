@@ -865,6 +865,9 @@ component REG_DOTTED {
         // ... and not two silent `None`s agreeing with each other.
         let (req, text) = dotted.input_req.expect("dotted `spec.input_req` decoded");
         approx(&req, 4.5, 5.5);
-        assert_eq!(text, table.input_req.expect("table `spec.input_req` decoded").1);
+        assert_eq!(
+            text,
+            table.input_req.expect("table `spec.input_req` decoded").1
+        );
     }
 }

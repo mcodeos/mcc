@@ -60,10 +60,7 @@ use std::collections::{HashMap, HashSet};
 
 /// PI-4: a sink drawing from a declared filter leg's load-side subface must
 /// declare the subface's own supply pair.
-pub(crate) fn check_filter_subface_overreach(
-    table: &InstTable,
-    results: &mut Vec<NetCheckResult>,
-) {
+pub(crate) fn check_filter_subface_overreach(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     // The declared filter legs first: a subface exists only where a leg declares
     // one, so a board with no bridge is not this rule's object at all.
     let edges = super::declared_dc_edges(table);
@@ -152,7 +149,9 @@ pub(crate) fn check_filter_subface_overreach(
             if !on_subface(&hot_cls) && !on_subface(&ret_cls) {
                 continue; // the pair draws elsewhere — not this subface's business
             }
-            if subface.hot.iter().any(|x| *x == hot_cls) && subface.ret.iter().any(|x| *x == ret_cls) {
+            if subface.hot.iter().any(|x| *x == hot_cls)
+                && subface.ret.iter().any(|x| *x == ret_cls)
+            {
                 continue; // the honoured shape: the domain's own pair
             }
             reported.insert(sink.subject);

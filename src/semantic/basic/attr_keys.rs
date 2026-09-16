@@ -720,7 +720,10 @@ mod tests {
         // Same read as every other column here: the dotted key is the key, so a
         // bare sub-key is not one (and case is not folded).
         assert_eq!(element_of_key("capacitance"), None);
-        assert_eq!(element_of_spec_key("capacitance"), Some(ElementClass::Capacitive));
+        assert_eq!(
+            element_of_spec_key("capacitance"),
+            Some(ElementClass::Capacitive)
+        );
         assert_eq!(element_of_spec_key("Capacitance"), None);
         assert_eq!(element_of_spec_key("spec.capacitance"), None);
         // A longer key is a different key: a crystal's `load_capacitance` is

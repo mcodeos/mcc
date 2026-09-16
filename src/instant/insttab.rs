@@ -319,9 +319,12 @@ pub(crate) fn element_class_of(
             attr.values
                 .iter()
                 .filter_map(|v| match v {
-                    crate::semantic::component::mc_attr::McAttrVal::Attributes(inner) => {
-                        Some(inner.iter().map(|row| row.id.to_string()).collect::<Vec<_>>())
-                    }
+                    crate::semantic::component::mc_attr::McAttrVal::Attributes(inner) => Some(
+                        inner
+                            .iter()
+                            .map(|row| row.id.to_string())
+                            .collect::<Vec<_>>(),
+                    ),
                     _ => None,
                 })
                 .flatten()
@@ -3205,21 +3208,37 @@ module main {
                 .element_class
         };
         // The declared class, once: the `spec` key that is the quantity.
-        assert_eq!(class_of("main.c1"), Some(ElementClass::Capacitive), "{all:?}");
-        assert_eq!(class_of("main.fb1"), Some(ElementClass::Magnetic), "{all:?}");
+        assert_eq!(
+            class_of("main.c1"),
+            Some(ElementClass::Capacitive),
+            "{all:?}"
+        );
+        assert_eq!(
+            class_of("main.fb1"),
+            Some(ElementClass::Magnetic),
+            "{all:?}"
+        );
         // No spec table ⇒ no certificate ⇒ no class (silence, not a guess) —
         // whether the body declares nothing else at all or declares other keys
         // (`partno`/`package` on a bought-in part are not a classification).
         assert_eq!(class_of("main.r1"), None, "{all:?}");
         assert_eq!(class_of("main.off1"), None, "{all:?}");
         // A quantity that merely accompanies the element does not decide it.
-        assert_eq!(class_of("main.c2"), Some(ElementClass::Capacitive), "{all:?}");
+        assert_eq!(
+            class_of("main.c2"),
+            Some(ElementClass::Capacitive),
+            "{all:?}"
+        );
         assert_eq!(class_of("main.e1"), None, "{all:?}");
         // Two keys of one class are one answer; two classes are no answer.
         assert_eq!(class_of("main.m1"), Some(ElementClass::Magnetic), "{all:?}");
         assert_eq!(class_of("main.x1"), None, "{all:?}");
         // Both spellings of a spec key are one fact (G2): `spec.capacitance`
         // is the same declaration as a `capacitance` row of the table.
-        assert_eq!(class_of("main.c3"), Some(ElementClass::Capacitive), "{all:?}");
+        assert_eq!(
+            class_of("main.c3"),
+            Some(ElementClass::Capacitive),
+            "{all:?}"
+        );
     }
 }
