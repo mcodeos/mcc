@@ -8,7 +8,7 @@ use crate::McModuleInst;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use super::netlist::collect_nets;
+use super::netlist::{collect_nets, PointNaming};
 
 pub fn build_kicad_netlist(
     tree: &McModuleInst,
@@ -57,7 +57,14 @@ pub fn build_kicad_netlist(
     // string net tables from the flat table's store.
     let store_ref = table.net_table();
     let store_ref = store_ref.borrow();
-    collect_nets(tree, arena, inst_store, &store_ref, &mut netmap);
+    collect_nets(
+        tree,
+        arena,
+        inst_store,
+        &store_ref,
+        PointNaming::Local,
+        &mut netmap,
+    );
     out.push_str("  (nets\n");
     let mut net_code: u32 = 1;
     for (net_name, points) in &netmap {
