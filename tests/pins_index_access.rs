@@ -75,10 +75,7 @@ module main
     assert!(
         e3179.is_empty(),
         "E3179 must not fire for `pins[N]` access: {:?}",
-        e3179
-            .iter()
-            .map(|d| (d.code, &d.msg))
-            .collect::<Vec<_>>()
+        e3179.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
     );
 
     let paths = net_paths(&inst);
@@ -129,10 +126,7 @@ module main
     assert!(
         e3179.is_empty(),
         "E3179 must not fire for `pins[N:M]` range: {:?}",
-        e3179
-            .iter()
-            .map(|d| (d.code, &d.msg))
-            .collect::<Vec<_>>()
+        e3179.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
     );
 
     let paths = net_paths(&inst);

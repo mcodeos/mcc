@@ -540,7 +540,10 @@ fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64
     let mut out: Vec<f64> = Vec::new();
     // 1) Attribute KVS voltage.
     for kvs in crate::semantic::component::mc_pins::pin_kvs_where(pin, |key| {
-        crate::semantic::basic::attr_keys::is_voltage_key(key)
+        crate::semantic::basic::attr_keys::is_voltage_key(
+            key,
+            crate::semantic::basic::attr_keys::AttrFace::PinRow,
+        )
     }) {
         collect_kvs_voltage(&kvs.value, &mut out);
     }

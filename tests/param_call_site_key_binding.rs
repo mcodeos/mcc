@@ -556,8 +556,7 @@ fn pa_keys__pins_rooted_argument_accepts_a_conditional_pin() {
 
 /// A class with dynamic pins closes no id set — its ids exist only once an
 /// instance is built — so its pin rows escape the judgement.
-const DYNAMIC_PINS: &str =
-    "component D (n::INT) {\n    pins = [\n        1:n = 1:n\n    ]\n}\n";
+const DYNAMIC_PINS: &str = "component D (n::INT) {\n    pins = [\n        1:n = 1:n\n    ]\n}\n";
 
 #[test]
 fn pa_keys__pins_rooted_argument_on_dynamic_pins_is_not_judged() {

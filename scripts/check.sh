@@ -15,6 +15,8 @@
 #   paths    — project rule: no user-specific absolute paths (scripts/check-paths.py)
 #   comments — project rule: lean code comments (scripts/check-comments.py)
 #   namecase — project rule: exact name comparisons (scripts/check-name-case.py)
+#   attrkeys — project rule: ledger doc mirrors ATTR_KEYS (scripts/check-attr-keys.py)
+#   errcodes — project rule: spec-cited codes are declared and emitted (scripts/check-errcodes.py)
 #
 # Opt-in steps are gated behind env vars because they change the working
 # tree (fix) or need a nightly toolchain and are very slow (miri):
@@ -75,5 +77,11 @@ python3 scripts/check-comments.py
 
 echo "===== 12. name-case scan (exact name comparisons rule) ====="
 python3 scripts/check-name-case.py
+
+echo "===== 13. attr-keys scan (ledger doc mirrors ATTR_KEYS) ====="
+python3 scripts/check-attr-keys.py
+
+echo "===== 14. errcode scan (spec-cited codes are declared and emitted) ====="
+python3 scripts/check-errcodes.py
 
 echo "all checks passed"

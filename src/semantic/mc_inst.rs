@@ -1733,12 +1733,14 @@ impl McInstances {
                                 &comp_def.attr_key_names(),
                                 &instance_params,
                             ) {
-                                Ok(bindings) => crate::semantic::basic::mc_fcall::check_ctor_pin_rows(
-                                    &inst_name,
-                                    comp_def,
-                                    bindings.call_pin_rows(),
-                                    inst_node,
-                                ),
+                                Ok(bindings) => {
+                                    crate::semantic::basic::mc_fcall::check_ctor_pin_rows(
+                                        &inst_name,
+                                        comp_def,
+                                        bindings.call_pin_rows(),
+                                        inst_node,
+                                    )
+                                }
                                 // Missing required parameters never block
                                 // instance creation: circuit topology only
                                 // needs pins, and the value comes from spec /

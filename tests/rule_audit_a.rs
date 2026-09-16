@@ -47,10 +47,7 @@ fn probe(source: &str) -> Probe {
                 paths.insert(p.clone());
             }
             pts.sort();
-            nets.push((
-                c.net_name.clone().unwrap_or_default(),
-                pts,
-            ));
+            nets.push((c.net_name.clone().unwrap_or_default(), pts));
         }
     }
     Probe { diags, paths, nets }
@@ -65,7 +62,11 @@ fn has(p: &Probe, code: u32) -> bool {
 }
 
 fn report(id: &str, p: &Probe) {
-    eprintln!("[AUDIT {id}] codes={:?} paths={:?}", codes(p), p.paths.iter().collect::<Vec<_>>());
+    eprintln!(
+        "[AUDIT {id}] codes={:?} paths={:?}",
+        codes(p),
+        p.paths.iter().collect::<Vec<_>>()
+    );
     for (c, m) in &p.diags {
         eprintln!("[AUDIT {id}]   E{c}: {m}");
     }
@@ -158,7 +159,11 @@ module main {
     );
     report("iron-r2-same", &p);
     // Claim: same-operator chain has no ambiguity -> no E2008.
-    assert!(!has(&p, 2008), "E2008 must NOT fire for a same-op chain, got {:?}", codes(&p));
+    assert!(
+        !has(&p, 2008),
+        "E2008 must NOT fire for a same-op chain, got {:?}",
+        codes(&p)
+    );
 }
 
 #[test]
@@ -272,7 +277,10 @@ module main {
     );
     report("iron-r9-nc-arg", &p);
     // Claim: NC is never a method argument -> diagnostic expected.
-    assert!(!p.diags.is_empty(), "NC method arg must produce a diagnostic");
+    assert!(
+        !p.diags.is_empty(),
+        "NC method arg must produce a diagnostic"
+    );
 }
 
 #[test]
@@ -320,7 +328,11 @@ module main {
     );
     report("iron-r9-short", &p);
     // Claim: missing argument -> E4176.
-    assert!(has(&p, 4176), "E4176 expected for 1-arg call of 2-param func, got {:?}", codes(&p));
+    assert!(
+        has(&p, 4176),
+        "E4176 expected for 1-arg call of 2-param func, got {:?}",
+        codes(&p)
+    );
 }
 
 // Batch B: Sec 5 pins / pin access
@@ -434,7 +446,11 @@ module main { C1 c1 }
     );
     report("s5-pins-plus", &p);
     // Claim: `pins +=` without a prior `pins =` -> E3003.
-    assert!(has(&p, 3003), "E3003 expected for pins+= without base, got {:?}", codes(&p));
+    assert!(
+        has(&p, 3003),
+        "E3003 expected for pins+= without base, got {:?}",
+        codes(&p)
+    );
 }
 
 #[test]
@@ -448,7 +464,11 @@ module main {
     );
     report("s5-module-pins", &p);
     // Claim: module body using pins -> E3052.
-    assert!(has(&p, 3052), "E3052 expected for pins inside a module, got {:?}", codes(&p));
+    assert!(
+        has(&p, 3052),
+        "E3052 expected for pins inside a module, got {:?}",
+        codes(&p)
+    );
 }
 
 #[test]
@@ -641,7 +661,11 @@ module main {
 "#,
     );
     report("s4-ctor-excess", &p);
-    assert!(has(&p, 4176), "E4176 expected for 3 args on 2 params, got {:?}", codes(&p));
+    assert!(
+        has(&p, 4176),
+        "E4176 expected for 3 args on 2 params, got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 4.3: NC is stripped before the arity check and does not occupy a slot.
@@ -717,7 +741,11 @@ module main {
 "#,
     );
     report("s4-ctor-func-conflict", &p);
-    assert!(has(&p, 4177), "E4177 expected (ctor func param shadows class param), got {:?}", codes(&p));
+    assert!(
+        has(&p, 4177),
+        "E4177 expected (ctor func param shadows class param), got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 10.3 rule 5 check: does a REGULAR (non-ctor) func param shadowing a class
@@ -743,7 +771,11 @@ module main {
 "#,
     );
     report("s4-func-param-shadow", &p);
-    assert!(!has(&p, 4177), "regular func param shadow must not fire E4177, got {:?}", codes(&p));
+    assert!(
+        !has(&p, 4177),
+        "regular func param shadow must not fire E4177, got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 4.1 form 7: a default value makes the parameter optional.
@@ -764,7 +796,11 @@ module main {
 "#,
     );
     report("s4-default-param", &p);
-    assert!(!has(&p, 4176), "omitting a defaulted param must be fine, got {:?}", codes(&p));
+    assert!(
+        !has(&p, 4176),
+        "omitting a defaulted param must be fine, got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 4.3: named binding uses BRACES `{cap = 1uF; volt = 50V}` (paren form is
@@ -785,7 +821,11 @@ module main {
 "#,
     );
     report("s4-named-binding-brace", &p);
-    assert!(!has(&p, 4176), "brace-form named binding must not fail, got {:?}", codes(&p));
+    assert!(
+        !has(&p, 4176),
+        "brace-form named binding must not fail, got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 4.3: named binding inside PARENS `(cap = 1uF)` is NOT valid syntax.
@@ -805,7 +845,11 @@ module main {
 "#,
     );
     report("s4-named-binding-paren", &p);
-    assert!(has(&p, 2082), "paren-form named binding must be a clause parse error, got {:?}", codes(&p));
+    assert!(
+        has(&p, 2082),
+        "paren-form named binding must be a clause parse error, got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 4.3: unknown named binding (brace form) => hard error.
@@ -845,7 +889,11 @@ module main {
 "#,
     );
     report("s9-series-mismatch", &p);
-    assert!(has(&p, 4007), "E4007 expected for 1x1 - 3x1 series, got {:?}", codes(&p));
+    assert!(
+        has(&p, 4007),
+        "E4007 expected for 1x1 - 3x1 series, got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 9.3: parallel with mismatched rows => E4005.
@@ -859,7 +907,11 @@ module main {
 "#,
     );
     report("s9-parallel-mismatch", &p);
-    assert!(has(&p, 4005), "E4005 expected for 2-row + 3-row parallel, got {:?}", codes(&p));
+    assert!(
+        has(&p, 4005),
+        "E4005 expected for 2-row + 3-row parallel, got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 9.3: matching-width series and parallel are legal.
@@ -921,7 +973,11 @@ module main {
 "#,
     );
     report("s9-transpose-limit", &p);
-    assert!(has(&p, 2902), "E2902 expected for [A,B,C]' transpose, got {:?}", codes(&p));
+    assert!(
+        has(&p, 2902),
+        "E2902 expected for [A,B,C]' transpose, got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 9.3: transposing a 3-pin component instance does NOT fire E2902 (its
@@ -970,7 +1026,11 @@ module main {
 "#,
     );
     report("s9-reverse-noop", &p);
-    assert!(has(&p, 2903), "E2903 expected for reverse on column vector, got {:?}", codes(&p));
+    assert!(
+        has(&p, 2903),
+        "E2903 expected for reverse on column vector, got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 9.1: reverse `^` on a 2-pin device swaps the endpoints (R101^ == {2,1}).
@@ -1375,7 +1435,11 @@ module main { C1 c1 }
 "#,
     );
     report("s7-spec-undeclared", &p);
-    assert!(has(&p, 5101), "E5101 expected (spec key refs undeclared param), got {:?}", codes(&p));
+    assert!(
+        has(&p, 5101),
+        "E5101 expected (spec key refs undeclared param), got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 7.2: duplicate spec key in one table => E5267.
@@ -1393,7 +1457,11 @@ module main { C1 c1 }
 "#,
     );
     report("s7-spec-duplicate", &p);
-    assert!(has(&p, 5267), "E5267 expected (duplicate spec key), got {:?}", codes(&p));
+    assert!(
+        has(&p, 5267),
+        "E5267 expected (duplicate spec key), got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 7.1/Sec 13.4: power pin without a voltage attribute.
@@ -1459,7 +1527,11 @@ module main {
 "#,
     );
     report("s8-duplicate-inst", &p);
-    assert!(has(&p, 5151), "E5151 expected (duplicate instance), got {:?}", codes(&p));
+    assert!(
+        has(&p, 5151),
+        "E5151 expected (duplicate instance), got {:?}",
+        codes(&p)
+    );
 }
 
 /// Sec 10.3: multiple `return` statements in one func => E3163.
@@ -1508,8 +1580,9 @@ module main {
 "#,
     );
     report("s9-scalar-plus-vector", &p);
-    eprintln!("[AUDIT s9-scalar-plus-vector] codes={:?} nets={:?}", codes(&p), p.nets);
+    eprintln!(
+        "[AUDIT s9-scalar-plus-vector] codes={:?} nets={:?}",
+        codes(&p),
+        p.nets
+    );
 }
-
-
-

@@ -11,6 +11,8 @@
 
 use crate::ast::macros::*;
 use crate::ast::node::AstNode;
+use crate::semantic::basic::attr_keys::{self, AttrValueKind};
+use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclare;
 use crate::semantic::basic::mc_uval::McUnit;
@@ -38,7 +40,7 @@ pub enum UsageKind {
     /// `pins = [ N = P ]`
     PinBinding,
     /// `spec.X = P` or `X = P` in attribute context
-    AttrValue(String), // the attribute name (e.g., "resistance", "voltage")
+    AttrValue(String), // the whole dotted key as written ("spec.capacitance", "name")
     /// `P` appears in an arithmetic expression: `P * 2`, `P + 1`, etc.
     ArithmeticExpr,
     /// `P` passed as argument to a function call: `fcall(P)`
@@ -94,19 +96,8 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                 }
                 // Attribute: key = value
                 MCAST_ATTRIBUTE => {
-                    if node_contains_name(&n, param_name) {
-                        let (attr_name, spec_key) = extract_attr_info(&n);
-                        if let Some(key) = spec_key {
-                            usages.push(UsageSite {
-                                kind: UsageKind::AttrValue(key),
-                                pos,
-                            });
-                        } else {
-                            usages.push(UsageSite {
-                                kind: UsageKind::AttrValue(attr_name),
-                                pos,
-                            });
-                        }
+                    if let Some(key) = attr_key(&n) {
+                        collect_attr_usages(&n, &key, param_name, pos, usages);
                     }
                 }
                 MCAST_ATTRIBUTE_PIN => {
@@ -188,66 +179,86 @@ fn node_contains_name(node: &AstNode, name: &str) -> bool {
     false
 }
 
-/// Walk MCAST_ATTRIBUTE children to extract the dotted attribute identifier.
-/// Returns `(full_name, spec_key)` where `spec_key` is `Some` if the first
-/// segment is `"spec"` (e.g., `("spec.resistance", Some("resistance"))`).
-fn extract_attr_info(node: &AstNode) -> (String, Option<String>) {
-    let mut parts: Vec<String> = Vec::new();
+/// The attribute key as written (`name`, `spec.capacitance`), read from the
+/// line's `MCAST_ATT_ID` child.
+fn attr_key(node: &AstNode) -> Option<String> {
+    let att_id = node.get_sub_node()?;
+    let ids = att_id.get_sub_node()?;
+    McIds::new(&ids).map(|m| m.to_string())
+}
+
+/// Record the keys of one line that carry `name`: the line's own key, then each
+/// nested line under its path — `spec = [ resistance = rs ]` writes the same key
+/// as `spec.resistance = rs` (07-attrs.md §3 rule 7).
+fn collect_attr_usages(
+    node: &AstNode,
+    path: &str,
+    name: &str,
+    pos: usize,
+    usages: &mut Vec<UsageSite>,
+) {
+    let mentions = node
+        .get_sub_node()
+        .is_some_and(|child| child.iter().any(|n| attr_value_mentions(&n, name)));
+    if mentions {
+        usages.push(UsageSite {
+            kind: UsageKind::AttrValue(path.to_string()),
+            pos,
+        });
+    }
+    for inner in nested_attributes(node) {
+        let Some(inner_key) = attr_key(&inner) else {
+            continue;
+        };
+        collect_attr_usages(
+            &inner,
+            &format!("{path}.{inner_key}"),
+            name,
+            inner.get_pos() as usize,
+            usages,
+        );
+    }
+}
+
+/// Does this line's own value carry `name`? A key and a nested line do not — the
+/// nested line is read on its own path — and neither does a container, whose
+/// text is its first descendant's.
+fn attr_value_mentions(node: &AstNode, name: &str) -> bool {
+    match node.get_type() {
+        MCAST_ATTRIBUTE | MCAST_ATT_ID => false,
+        MCAST_ID | MCAST_IDS | MCAST_IDA => node.to_string().as_deref() == Some(name),
+        _ => node
+            .get_sub_node()
+            .is_some_and(|child| child.iter().any(|n| attr_value_mentions(&n, name))),
+    }
+}
+
+/// The nested attribute lines one level down, under a bracket value.
+fn nested_attributes(node: &AstNode) -> Vec<AstNode> {
+    let mut found = Vec::new();
     if let Some(child) = node.get_sub_node() {
         for n in child.iter() {
-            let ty = n.get_type();
-            if ty == MCAST_ID || ty == MCAST_IDS || ty == MCAST_IDA {
-                parts.push(n.to_string().unwrap_or_default());
-            } else if ty == MCAST_OPD_DOT {
-                continue; // dot separator between ident segments
-            } else if !parts.is_empty() {
-                break; // hit non-ident token → end of attribute name
+            if n.get_type() == MCAST_ATTRIBUTE {
+                found.push(n);
+            } else {
+                found.extend(nested_attributes(&n));
             }
         }
     }
-    if parts.is_empty() {
-        return (String::new(), None);
-    }
-    let full = parts.join(".");
-    let spec_key = if parts.len() > 1 && parts[0] == "spec" {
-        Some(parts[1..].join("."))
-    } else {
-        None
-    };
-    (full, spec_key)
+    found
 }
 
 // Aggregation: usages → McParamType
 
-/// Attribute name → physical unit type mapping.
-/// Based on the attribute KEY in the definition body, NOT the parameter name.
-fn spec_key_to_unit(key: &str) -> Option<McParamTypeKind> {
-    match key.to_lowercase().as_str() {
-        "resistance" | "impedance" | "r" => Some(McParamTypeKind::UnitValue { unit: McUnit::Ohm }),
-        "voltage" | "volt" | "v" => Some(McParamTypeKind::UnitValue { unit: McUnit::Volt }),
-        "capacitance" | "cap" | "c" => Some(McParamTypeKind::UnitValue { unit: McUnit::Cap }),
-        "inductance" | "l" => Some(McParamTypeKind::UnitValue { unit: McUnit::Ind }),
-        "current" | "i" => Some(McParamTypeKind::UnitValue { unit: McUnit::Amp }),
-        "frequency" | "freq" | "f" => Some(McParamTypeKind::UnitValue { unit: McUnit::Hz }),
-        "temperature" | "temp" | "t" => Some(McParamTypeKind::UnitValue { unit: McUnit::Temp }),
-        "power" | "p" => Some(McParamTypeKind::UnitValue { unit: McUnit::Wat }),
-        "charge" | "capacity" => Some(McParamTypeKind::UnitValue {
-            unit: McUnit::Charge,
-        }),
-        "tolerance" | "accuracy" => Some(McParamTypeKind::UnitValue {
-            unit: McUnit::Percent,
-        }),
-        "time" | "delay" => Some(McParamTypeKind::UnitValue { unit: McUnit::Time }),
-        "length" | "width" | "height" | "len" => {
-            Some(McParamTypeKind::UnitValue { unit: McUnit::Len })
-        }
-        "partno" | "part" | "name" | "label" | "polarity" | "package" | "rating" | "esd_rating" => {
-            Some(McParamTypeKind::BasicString { default_val: None })
-        }
-        "quantity" | "count" | "pins" | "rows" | "cols" => {
-            Some(McParamTypeKind::BasicInt { default_val: None })
-        }
-        _ => None,
+/// Attribute key → parameter type. The key, not the shape of the value written
+/// under it, decides what the value means (D5); the key ledger holds that
+/// mapping (`semantic::basic::attr_keys`), so the answer is a table read and
+/// never a name table kept here.
+fn key_to_param_type(key: &str) -> Option<McParamTypeKind> {
+    match attr_keys::value_kind(key)? {
+        AttrValueKind::Quantity(unit) => Some(McParamTypeKind::UnitValue { unit }),
+        AttrValueKind::Text => Some(McParamTypeKind::BasicString { default_val: None }),
+        AttrValueKind::Count => Some(McParamTypeKind::BasicInt { default_val: None }),
     }
 }
 
@@ -276,15 +287,13 @@ pub fn aggregate_usages(usages: &[UsageSite]) -> InferenceResult {
             }
             UsageKind::AttrValue(key) => {
                 numeric_count += 1;
-                if let Some(kind) = spec_key_to_unit(key) {
-                    match kind {
-                        McParamTypeKind::UnitValue { unit } => {
-                            *unit_counts.entry(unit).or_insert(0) += 1;
-                        }
-                        McParamTypeKind::BasicString { .. } => string_count += 1,
-                        McParamTypeKind::BasicInt { .. } => int_count += 1,
-                        _ => {}
+                match key_to_param_type(key) {
+                    Some(McParamTypeKind::UnitValue { unit }) => {
+                        *unit_counts.entry(unit).or_insert(0) += 1;
                     }
+                    Some(McParamTypeKind::BasicString { .. }) => string_count += 1,
+                    Some(McParamTypeKind::BasicInt { .. }) => int_count += 1,
+                    _ => {}
                 }
             }
             UsageKind::ArithmeticExpr => {
@@ -479,5 +488,35 @@ mod tests {
     fn sem_paraminfer__unused_finder() {
         // Placeholder: needs actual AST
         // Test that unused detection works with empty body
+    }
+
+    #[test]
+    fn sem_paraminfer__registered_key_reads_its_unit_from_the_ledger() {
+        let usages = vec![UsageSite {
+            kind: UsageKind::AttrValue("spec.capacitance".into()),
+            pos: 0,
+        }];
+        let result = aggregate_usages(&usages);
+        assert!(matches!(
+            result.param_type.kind,
+            McParamTypeKind::UnitValue { unit: McUnit::Cap }
+        ));
+    }
+
+    #[test]
+    fn sem_paraminfer__unregistered_key_infers_no_unit() {
+        // `spec.Capacitance` is not the registered spelling, and a `spec` key
+        // answers to its path rather than to its last segment.
+        for key in ["spec.Capacitance", "capacitance", "spec.hbm"] {
+            let usages = vec![UsageSite {
+                kind: UsageKind::AttrValue(key.into()),
+                pos: 0,
+            }];
+            let result = aggregate_usages(&usages);
+            assert!(matches!(
+                result.param_type.kind,
+                McParamTypeKind::BareNumeric
+            ));
+        }
     }
 }

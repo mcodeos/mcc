@@ -722,13 +722,10 @@ impl McParamBinding {
             // `my_dc[V1, G1]` parsed as an Ids chain with a square member list ->
             // the idx-th square member, re-wrapped as a bare Ids value
             McParamValue::Ids(ids) => {
-                let square = ids
-                    .segments
-                    .iter()
-                    .find_map(|seg| match seg {
-                        IdsSegment::Square(inner) => Some(inner),
-                        _ => None,
-                    })?;
+                let square = ids.segments.iter().find_map(|seg| match seg {
+                    IdsSegment::Square(inner) => Some(inner),
+                    _ => None,
+                })?;
                 let member = square.get(idx)?.to_string();
                 Some(McParamValue::Ids(McIds::from(member.as_str())))
             }
@@ -853,7 +850,10 @@ impl McParamBindings {
     /// caller reports it (E4176) instead of dropping the row silently. A row
     /// with no values states nothing and is skipped.
     pub fn undeclared_pin_row_ids(
-        rows: &[(Vec<crate::semantic::basic::mc_ids::IdsSegment>, Vec<McAttrVal>)],
+        rows: &[(
+            Vec<crate::semantic::basic::mc_ids::IdsSegment>,
+            Vec<McAttrVal>,
+        )],
         declared: &std::collections::BTreeSet<String>,
     ) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
@@ -1951,10 +1951,7 @@ mod tests {
     fn sem_mcparam__get_member_value_projects_set_member() {
         let binding = McParamBinding::new(
             McParamDeclare {
-                kind: McParamDeclareKind::Multiple(vec![
-                    McIds::from("VCC24"),
-                    McIds::from("GND"),
-                ]),
+                kind: McParamDeclareKind::Multiple(vec![McIds::from("VCC24"), McIds::from("GND")]),
                 param_type: McParamType {
                     kind: McParamTypeKind::Unknown,
                     direction: None,
@@ -1987,10 +1984,7 @@ mod tests {
     fn sem_mcparam__get_member_value_projects_ids_square_member() {
         let binding = McParamBinding::new(
             McParamDeclare {
-                kind: McParamDeclareKind::Multiple(vec![
-                    McIds::from("VCC24"),
-                    McIds::from("GND"),
-                ]),
+                kind: McParamDeclareKind::Multiple(vec![McIds::from("VCC24"), McIds::from("GND")]),
                 param_type: McParamType {
                     kind: McParamTypeKind::Unknown,
                     direction: None,

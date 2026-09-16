@@ -1,0 +1,19 @@
+name: check-attr-keys
+
+on:
+  push:
+  pull_request:
+
+# The authoritative ledger table lives in `mcd/spec/07-attrs.md`, a sibling
+# repository this workflow does not check out, so the scan reports a skip and
+# passes here. The gate is enforced locally, where both checkouts exist
+# (pre-commit and scripts/check.sh).
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconcile the ledger doc with ATTR_KEYS
+        run: python3 scripts/check-attr-keys.py
