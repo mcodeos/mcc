@@ -469,11 +469,28 @@ impl McConds {
         Some(McCondition::In { left, values })
     }
 
-    pub fn evaluate(&self, params: &[(McIds, String)]) -> Option<AstNode> {
+    /// Evaluate the branches; the first satisfied one wins.
+    ///
+    /// A condition that cannot be evaluated is reported at `anchor` — the
+    /// consumer's own syntax, because a condition node belongs to the file that
+    /// declares the interface, not to the file being processed. The failing
+    /// branch is read as "not satisfied", so branch selection is unchanged; the
+    /// failure is reported once per call however long the `else if` chain is.
+    pub fn evaluate(
+        &self,
+        params: &[(McIds, String)],
+        anchor: Option<&AstNode>,
+    ) -> Option<AstNode> {
+        let mut failure: Option<eval::EvalError> = None;
         for cond in &self.if_blocks {
-            if Self::check_condition(&cond.condition, params) {
-                return Some(cond.block.clone());
+            match Self::check_condition_result(&cond.condition, params) {
+                Ok(true) => return Some(cond.block.clone()),
+                Ok(false) => {}
+                Err(err) => failure = failure.or(Some(err)),
             }
+        }
+        if let (Some(err), Some(node)) = (&failure, anchor) {
+            eval::report(err, node);
         }
 
         if let Some(block) = &self.else_block {
@@ -486,7 +503,8 @@ impl McConds {
     pub fn check_condition(cond: &McCondition, params: &[(McIds, String)]) -> bool {
         // A condition with no node cannot carry a diagnostic, so the error half
         // is dropped here; `check_condition_result` is the same evaluation with
-        // the failure preserved.
+        // the failure preserved, and `McConds::evaluate` is the positioned
+        // caller that reports it.
         Self::check_condition_result(cond, params).unwrap_or(false)
     }
 
@@ -667,7 +685,11 @@ impl McFuncConds {
         }
     }
 
-    /// Evaluate conditions against parameter bindings and return matching stmts
+    /// Evaluate conditions against parameter bindings and return matching stmts.
+    ///
+    /// No expansion caller holds the call site's node, so a condition that
+    /// cannot be evaluated is dropped here rather than reported; see
+    /// [`McConds::check_condition`].
     pub fn evaluate(&self, params: &[(McIds, String)]) -> &[McPhrase] {
         for cond_block in &self.if_blocks {
             if McConds::check_condition(&cond_block.condition, params) {

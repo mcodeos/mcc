@@ -1036,6 +1036,7 @@ impl McInstances {
                                                         ids_name,
                                                         iface_def.clone(),
                                                         ctor_params,
+                                                        Some(&opd_node),
                                                     ),
                                                 ));
                                                 self.insts.insert(
@@ -1818,6 +1819,7 @@ impl McInstances {
                                     ids_name,
                                     iface_def.clone(),
                                     instance_params.clone(),
+                                    Some(inst_node),
                                 ))),
                                 port_name,
                             )
@@ -1887,6 +1889,7 @@ impl McInstances {
                                 inst_ids.clone(),
                                 iface_def.clone(),
                                 instance_params.clone(),
+                                Some(inst_node),
                             );
                             if new_interface.pin_count() == 1 {
                                 // Single-pin interface, check if same-name Interface already exists

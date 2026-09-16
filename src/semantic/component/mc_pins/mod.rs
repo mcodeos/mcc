@@ -3407,8 +3407,12 @@ impl McPinNames {
                             };
                             if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                 // Pass params to Mc2Interface (e.g., role parameter "DCE")
-                                let mc2_iface =
-                                    Mc2Interface::with_ids_and_params(inst_name, iface_def, params);
+                                let mc2_iface = Mc2Interface::with_ids_and_params(
+                                    inst_name,
+                                    iface_def,
+                                    params,
+                                    Some(err_node),
+                                );
                                 myself.push_option_with_span(
                                     McPinPort::Interface(Arc::new(mc2_iface)),
                                     err_node,
