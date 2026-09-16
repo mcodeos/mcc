@@ -21,6 +21,8 @@ use super::mc_bus::McBusInst;
 use super::mc_mod::McModuleInst;
 use super::mc_net::NetPoint;
 use crate::instant::nettab::NetTableStore;
+use crate::semantic::basic::attr_keys::{self, ElementClass};
+use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::{IOType, McSpaceName};
 use crate::semantic::component::mc_pins::PwrDir;
 use crate::semantic::module::pi::McPowerDecls;
@@ -273,6 +275,119 @@ pub(crate) fn protection_of(
     }
 }
 
+/// What this component **is**, as its own `spec` table declares it — the flat
+/// carry [`InstEntry::element_class`] and the power-quality axis's answer to
+/// "a decoupling capacitor? a filter? a series pass?" (power-quality-design.md
+/// §1.2).
+///
+/// Read from the **definition's** spec table, unlike [`protection_of`], which
+/// reads the instance's resolved attributes: at an instance the table is one
+/// key whose value is the whole table rendered as text (parameter names not
+/// substituted), so the key *set* — the only thing asked here — survives at
+/// definition space alone. That is also the scope the answer belongs to: what
+/// an element is belongs to the class, and a call site binds values under those
+/// keys, it does not restate the class.
+///
+/// Both spellings of the table are one fact (G2) and give the same read — the
+/// table form `spec = [capacitance = cap]` and the dotted form
+/// `spec.capacitance = cap` — and the namespace that opens it is asked of the
+/// dictionary, so no key string is compared here.
+///
+/// The key→class column lives in that dictionary
+/// ([`crate::semantic::basic::attr_keys::ElementClass`]): the keys that merely
+/// accompany an element (`spec.esr`, `spec.dcr`) carry no class, so they can
+/// neither add one nor clash. Several marked keys agreeing on one class
+/// (`spec.inductance` and `spec.impedance` on a choke) read as that class; two
+/// keys naming different classes say the part is not one element; no marked key
+/// at all says the spec table does not classify it. The last two both leave the
+/// carry `None`, and the rules reading it then say nothing: the axis judges what
+/// a declaration states, and silence is not a defect.
+pub(crate) fn element_class_of(
+    comp: &crate::instant::mc_comp::McComponentInst,
+) -> Option<ElementClass> {
+    let mut found: Option<ElementClass> = None;
+    for attr in comp.def.attrs.iter() {
+        let segs = &attr.id.segments;
+        if segs.is_empty() || !attr_keys::is_table_namespace(&segs[0].to_string()) {
+            continue;
+        }
+        // A dotted key keeps its sub-key in the remaining segments; the table
+        // form keeps it in the id of each inner attribute.
+        let subs: Vec<String> = if let Some(sub) = attr.id.sub_path() {
+            vec![sub]
+        } else {
+            attr.values
+                .iter()
+                .filter_map(|v| match v {
+                    crate::semantic::component::mc_attr::McAttrVal::Attributes(inner) => {
+                        Some(inner.iter().map(|row| row.id.to_string()).collect::<Vec<_>>())
+                    }
+                    _ => None,
+                })
+                .flatten()
+                .collect()
+        };
+        for sub in subs {
+            let Some(class) = attr_keys::element_of_spec_key(&sub) else {
+                continue;
+            };
+            match found {
+                None => found = Some(class),
+                Some(prev) if prev == class => {}
+                Some(_) => return None,
+            }
+        }
+    }
+    found
+}
+
+/// Read one `spec` sub-key's **quantity** off the instance's *resolved*
+/// attribute list — the flat carry [`InstEntry::resistance_ohm`] /
+/// [`InstEntry::power_rated_w`] (package-thermal-design.md §6).
+///
+/// Unlike [`element_class_of`], which reads the definition's spec key *set*, a
+/// quantity only exists after parameter substitution: at a definition
+/// `spec.power_rated = prated` names a formal, and the bound literal lives on
+/// the instance's `resolved_attrs` (contract-design.md §2.4 — the same source
+/// [`protection_of`] reads). `spec_key` is the dotted key as registered
+/// (`spec.power_rated`); both spellings of the table are one fact (G2) and give
+/// the same read — the table form `spec = [power_rated = prated]` and the
+/// dotted form `spec.power_rated = prated`. A value that does not decode in
+/// `family` (`_`, a window, a foreign unit) leaves the carry `None`: a quantity
+/// the author did not write is never guessed.
+pub(crate) fn spec_quantity_of(
+    comp: &crate::instant::mc_comp::McComponentInst,
+    spec_key: &str,
+    family: &crate::semantic::basic::mc_uval::McUnit,
+) -> Option<f64> {
+    use crate::semantic::component::mc_attr::{attr_values_text, McAttrVal};
+    let (ns, sub) = spec_key.split_once('.')?;
+    for attr in comp.resolved_attrs.iter() {
+        let segs = &attr.id.segments;
+        let text = if segs.len() == 1 && segs[0].to_string() == ns {
+            attr.values
+                .iter()
+                .filter_map(|v| match v {
+                    McAttrVal::Attributes(inner) => inner.iter().find(|r| r.id.to_string() == sub),
+                    _ => None,
+                })
+                .next()
+                .and_then(|row| attr_values_text(row.values.iter()))
+        } else if segs.len() > 1
+            && segs[0].to_string() == ns
+            && attr.id.sub_path().as_deref() == Some(sub)
+        {
+            attr_values_text(attr.values.iter())
+        } else {
+            continue;
+        };
+        if let Some(v) = text.and_then(|t| crate::eval::quantity_in(&t, family)) {
+            return Some(v);
+        }
+    }
+    None
+}
+
 /// The declared power face of one pin of a component: the `::DC(hot, ret)`
 /// contract of the row that owns it when the row writes one, else the face its
 /// declared role names (a bare `psrc/psnk/psbi` row declares a face without
@@ -472,6 +587,30 @@ pub struct InstEntry {
     /// `None` = ordinary pass element (the unmarked default), which no PWR-5
     /// half adjudicates.
     pub protection: Option<ProtectionKind>,
+    /// ★ PI axis (power-quality-design.md §1.2): the element class this
+    /// component's own `spec` table declares it to be — decoupling capacitor,
+    /// filter magnetics, or a dissipating pass — so a rule can ask "is this a
+    /// capacitor?" of the declaration instead of a class name or a pin shape.
+    ///
+    /// Def-marker, exactly like [`Self::protection`]: decoded once at flatten
+    /// time by [`element_class_of`] from the definition's spec key set, and
+    /// `None` both for a part whose table marks no class and for one whose
+    /// marks disagree — neither is a defect, and a rule reading the carry stays
+    /// silent on both.
+    pub element_class: Option<ElementClass>,
+    /// ★ PWR-4b (package-thermal-design.md §6): the element's declared
+    /// resistance in ohms, decoded once at flatten time from the instance's
+    /// resolved `spec.resistance`. Instance-level, unlike
+    /// [`Self::element_class`] — a quantity exists only after parameter
+    /// substitution, so the flat carry records the *bound* value the wiring
+    /// actually uses. `None` when the class declares no resistance, or declares
+    /// one that does not decode as ohms (`_`, a window, a foreign unit).
+    pub resistance_ohm: Option<f64>,
+    /// ★ PWR-4b (package-thermal-design.md §6): the element's declared package
+    /// dissipation rating in watts, decoded the same way from the instance's
+    /// resolved `spec.power_rated`. `None` for a class that rates nothing (a
+    /// PTC/NTC writes the key as `_`) — an unrated device is never judged.
+    pub power_rated_w: Option<f64>,
     /// ★ M0-B-E: instance origin (declaration vs funcall)
     pub origin: InstOrigin,
     /// ★ virtual: true when this entry belongs to a synthetic wrapper module
@@ -907,6 +1046,9 @@ impl InstTable {
             nc_marked: false,
             unselected: false,
             protection: None,
+            element_class: None,
+            resistance_ohm: None,
+            power_rated_w: None,
             origin: InstOrigin::Declared,
             synthetic: false,
             alias_of: None,
@@ -1692,6 +1834,24 @@ impl InstTable {
                     entry.protection = Some(kind);
                 }
             }
+            // ★ PI: the element class the class's own `spec` table declares,
+            // carried the same way (a def-marker, not an instance property).
+            if let Some(class) = element_class_of(comp) {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.element_class = Some(class);
+                }
+            }
+            // ★ PWR-4b: the two quantities the dissipation verdict compares,
+            // read from the instance's resolved spec values (see
+            // `spec_quantity_of` — the definition holds formal names only).
+            let resistance = spec_quantity_of(comp, "spec.resistance", &McUnit::Ohm);
+            let power_rated = spec_quantity_of(comp, "spec.power_rated", &McUnit::Wat);
+            if resistance.is_some() || power_rated.is_some() {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.resistance_ohm = resistance;
+                    entry.power_rated_w = power_rated;
+                }
+            }
             // ★ M0-B-E: pass through origin
             if let Some(entry) = self.entries.get_mut(&comp_id) {
                 entry.origin = comp.origin.clone();
@@ -1894,6 +2054,22 @@ impl InstTable {
             if let Some(kind) = protection_of(comp) {
                 if let Some(entry) = self.entries.get_mut(&comp_id) {
                     entry.protection = Some(kind);
+                }
+            }
+            // ★ PI: the element class the class's own `spec` table declares,
+            // carried the same way (a def-marker, not an instance property).
+            if let Some(class) = element_class_of(comp) {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.element_class = Some(class);
+                }
+            }
+            // ★ PWR-4b: the two decoded quantities (same as pass-1)
+            let resistance = spec_quantity_of(comp, "spec.resistance", &McUnit::Ohm);
+            let power_rated = spec_quantity_of(comp, "spec.power_rated", &McUnit::Wat);
+            if resistance.is_some() || power_rated.is_some() {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.resistance_ohm = resistance;
+                    entry.power_rated_w = power_rated;
                 }
             }
             if let Some(entry) = self.entries.get_mut(&comp_id) {
@@ -2934,5 +3110,116 @@ mod tests {
             expand_bracket_list("foo.[A, , B]"),
             Some(vec!["foo.A".into(), "foo.B".into()])
         );
+    }
+
+    /// ★ PI carrier (`power-quality-design.md` §1.2): the element class a
+    /// component's own definition declares is decoded once at flatten time and
+    /// carried on the flat entry. The read is definition-space and key-driven —
+    /// a class name or a pin shape never answers it (world-axioms §1 A1).
+    #[test]
+    fn mat_insttab__element_class_comes_from_the_definition_spec_table() {
+        use crate::db::infra::init::MCC_TEST_PARSE_LOCK;
+        const SRC: &str = r#"component PLAIN_R {
+    pins = [ io [1:2] = [P, N] ]
+}
+component CAP_DECOUP {
+    pins = [ io [1:2] = [P, N] ]
+    spec = [
+        capacitance = 1uF
+    ]
+}
+component CAP_WITH_ESR {
+    pins = [ io [1:2] = [P, N] ]
+    spec = [
+        capacitance = 1uF
+        esr = 10mΩ
+    ]
+}
+component ESR_ONLY {
+    pins = [ io [1:2] = [P, N] ]
+    spec = [
+        esr = 10mΩ
+    ]
+}
+component FB_FILTER {
+    pins = [ io [1:2] = [P, N] ]
+    spec = [
+        impedance = 600Ω
+    ]
+}
+component MAG_TWO_KEYS {
+    pins = [ io [1:2] = [P, N] ]
+    spec = [
+        inductance = 1uH
+        impedance = 600Ω
+    ]
+}
+component CLASS_CLASH {
+    pins = [ io [1:2] = [P, N] ]
+    spec = [
+        capacitance = 1uF
+        resistance = 10k
+    ]
+}
+component CAP_DOTTED {
+    pins = [ io [1:2] = [P, N] ]
+    spec.capacitance = 1uF
+}
+component OFF_SHELF {
+    pins = [ io [1:2] = [P, N] ]
+    name = "Off shelf"
+}
+module main {
+    PLAIN_R r1
+    CAP_DECOUP c1
+    CAP_WITH_ESR c2
+    ESR_ONLY e1
+    FB_FILTER fb1
+    MAG_TWO_KEYS m1
+    CLASS_CLASH x1
+    CAP_DOTTED c3
+    OFF_SHELF off1
+}
+"#;
+        let _guard = MCC_TEST_PARSE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+        let uri: crate::McURI = "/mcc/element-class-lock.mc".to_string();
+        crate::mcc_load_from_string(&uri, SRC);
+        let (_tree, table) = crate::mcc_build_flat(&crate::McIds::from("main"), &uri, 1)
+            .expect("element-class lock: flat build");
+        let mut all: Vec<String> = table
+            .iter()
+            .map(|(_, e)| format!("{}={:?}", e.path, e.element_class))
+            .collect();
+        all.sort();
+        let class_of = |path: &str| {
+            table
+                .iter()
+                .find(|(_, e)| e.path == path)
+                .unwrap_or_else(|| panic!("no flat entry `{path}` — table: {all:?}"))
+                .1
+                .element_class
+        };
+        // The declared class, once: the `spec` key that is the quantity.
+        assert_eq!(class_of("main.c1"), Some(ElementClass::Capacitive), "{all:?}");
+        assert_eq!(class_of("main.fb1"), Some(ElementClass::Magnetic), "{all:?}");
+        // No spec table ⇒ no certificate ⇒ no class (silence, not a guess) —
+        // whether the body declares nothing else at all or declares other keys
+        // (`partno`/`package` on a bought-in part are not a classification).
+        assert_eq!(class_of("main.r1"), None, "{all:?}");
+        assert_eq!(class_of("main.off1"), None, "{all:?}");
+        // A quantity that merely accompanies the element does not decide it.
+        assert_eq!(class_of("main.c2"), Some(ElementClass::Capacitive), "{all:?}");
+        assert_eq!(class_of("main.e1"), None, "{all:?}");
+        // Two keys of one class are one answer; two classes are no answer.
+        assert_eq!(class_of("main.m1"), Some(ElementClass::Magnetic), "{all:?}");
+        assert_eq!(class_of("main.x1"), None, "{all:?}");
+        // Both spellings of a spec key are one fact (G2): `spec.capacitance`
+        // is the same declaration as a `capacitance` row of the table.
+        assert_eq!(class_of("main.c3"), Some(ElementClass::Capacitive), "{all:?}");
     }
 }

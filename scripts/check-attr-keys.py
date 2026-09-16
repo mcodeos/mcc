@@ -38,7 +38,7 @@ DOC = Path(
 DOC_MARKER = "attr-keys-ledger:"
 
 # The constructors that build a row, and the columns each one fills.
-ROW_KINDS = ("row", "value_row", "voltage_row", "contract_row")
+ROW_KINDS = ("row", "value_row", "voltage_row", "contract_row", "element_row")
 
 COLUMNS = ("key", "faces", "value", "contract", "admission", "arity", "supply")
 
@@ -138,6 +138,11 @@ def read_mirror():
         elif kind == "contract_row":
             row["value"] = value_token(args[2])
             row["contract"] = args[3].split("::")[-1]
+        elif kind == "element_row":
+            # A value row that also marks what the element is
+            # (`AttrKeyDef::element`). The ledger has no column for that
+            # classification, so only the columns it does carry are compared.
+            row["value"] = value_token(args[2])
         rows.append(row)
     return rows
 

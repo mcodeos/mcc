@@ -928,6 +928,31 @@ impl McIds {
             .any(|seg| matches!(seg, IdsSegment::DotIda(_) | IdsSegment::DotInt(_)))
     }
 
+    /// The path after the first segment, separators dropped: `spec.input_req`
+    /// reads `input_req`, `spec.a.b` reads `a.b`. `None` for a single-segment id.
+    ///
+    /// The dotted segments are their own kinds (`DotIda`/`DotInt`) and those
+    /// kinds spell the separator themselves, so the sub-path is assembled from
+    /// the segments' *names* (`Ida`/`Int`). Printed as a path the same segments
+    /// hand back `.input_req`, which is a different string than any registered
+    /// key — the reader never builds a key out of a separator.
+    pub fn sub_path(&self) -> Option<String> {
+        if self.segments.len() < 2 {
+            return None;
+        }
+        Some(
+            self.segments[1..]
+                .iter()
+                .map(|seg| match seg {
+                    IdsSegment::Ida(ida) | IdsSegment::DotIda(ida) => ida.to_string(),
+                    IdsSegment::Int(n) | IdsSegment::DotInt(n) => n.value.to_string(),
+                    other => other.to_string(),
+                })
+                .collect::<Vec<String>>()
+                .join("."),
+        )
+    }
+
     /// Count of square-bearing segments: an outer `Square` counts one, and an
     /// `Ida`/`DotIda` with an embedded square counts one. Used to detect
     /// matrix forms (`A[1:2][3:4]`, `R[1:2]C[1:3]`) where more than one
@@ -1657,6 +1682,22 @@ impl std::fmt::Display for IdsSegment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sem_mcids__sub_path_reads_the_member_names() {
+        // The dotted segment spells its own separator, so the sub-path is built
+        // from the member names: reading `spec.input_req`'s tail as a path gives
+        // `.input_req`, which is no registered key.
+        let ids = McIds::from_dot_pair("spec", "input_req");
+        assert_eq!(ids.to_string(), "spec.input_req");
+        assert_eq!(ids.sub_path().as_deref(), Some("input_req"));
+        // A single-segment id has no tail at all.
+        let bare = McIds {
+            segments: vec![IdsSegment::Ida(Box::new(McIda::from("spec")))],
+        };
+        assert_eq!(bare.to_string(), "spec");
+        assert_eq!(bare.sub_path(), None);
+    }
 
     #[test]
     fn sem_mcids__display_base_members_scalar() {
