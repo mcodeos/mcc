@@ -3278,7 +3278,12 @@ pub fn caps_json() -> serde_json::Value {
             "search": true,
             "query": true,
             "rules": crate::override_store::rules_summary_json(),
-            "export": ["netlist", "bom", "spice", "kicad"],
+            // Derived from the one kind table, so a new export product cannot
+            // be advertised here without existing (CIMP U18 item 4).
+            "export": crate::cli::ExportKind::ALL
+                .iter()
+                .map(|k| k.name())
+                .collect::<Vec<_>>(),
             "ai": {
                 "methods": ai_methods,
                 "overlay_dry_run": true,
