@@ -806,9 +806,13 @@ fn build_browse_dir(
                         .any(|n| n == t);
                 if declares {
                     search_done = true;
-                    if let Some(pair) =
-                        build_one(t, &e.entry, &mut failures, first_inst.is_none(), &mut first_nets)
-                    {
+                    if let Some(pair) = build_one(
+                        t,
+                        &e.entry,
+                        &mut failures,
+                        first_inst.is_none(),
+                        &mut first_nets,
+                    ) {
                         top_name = t.to_string();
                         first_inst = Some(pair);
                         if args.viz {
@@ -833,9 +837,13 @@ fn build_browse_dir(
                     let Some(tgt) = targets.into_iter().next() else {
                         continue;
                     };
-                    if let Some(pair) =
-                        build_one(&tgt, f, &mut failures, first_inst.is_none(), &mut first_nets)
-                    {
+                    if let Some(pair) = build_one(
+                        &tgt,
+                        f,
+                        &mut failures,
+                        first_inst.is_none(),
+                        &mut first_nets,
+                    ) {
                         if first_inst.is_none() {
                             top_name = tgt.clone();
                             first_inst = Some(pair);

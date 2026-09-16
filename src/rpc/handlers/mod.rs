@@ -337,7 +337,13 @@ pub(crate) fn run_full_build_envelope(
     // manifest, so what a folder means never depends on which one it is.
     if entry.is_dir() {
         return run_full_build_dir_envelope(
-            entry, top, libs, command, ws_kind, ws_name, ledger_mode,
+            entry,
+            top,
+            libs,
+            command,
+            ws_kind,
+            ws_name,
+            ledger_mode,
         );
     }
 
@@ -717,7 +723,11 @@ fn diag_key(d: &Value) -> DiagKey {
 }
 
 /// Append `diags`, dropping any this batch has already reported.
-fn add_diags(seen: &mut std::collections::HashSet<DiagKey>, out: &mut Vec<Value>, diags: Vec<Value>) {
+fn add_diags(
+    seen: &mut std::collections::HashSet<DiagKey>,
+    out: &mut Vec<Value>,
+    diags: Vec<Value>,
+) {
     for d in diags {
         if seen.insert(diag_key(&d)) {
             out.push(d);

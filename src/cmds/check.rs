@@ -184,21 +184,18 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             }
         };
 
-        let (entry_uri, _) = match manifest::build_from_manifest(
-            &project_root,
-            None,
-            Some(abs_t_str.as_str()),
-        ) {
-            Ok(r) => r,
-            Err(e) => {
-                if mcc::cli::globals().format.is_structured() {
-                    let env = Envelope::err(RpcError::invalid_params(format!("{:#}", e)));
-                    output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
-                    return Ok(CheckOutcome { exit_code: 2 });
+        let (entry_uri, _) =
+            match manifest::build_from_manifest(&project_root, None, Some(abs_t_str.as_str())) {
+                Ok(r) => r,
+                Err(e) => {
+                    if mcc::cli::globals().format.is_structured() {
+                        let env = Envelope::err(RpcError::invalid_params(format!("{:#}", e)));
+                        output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
+                        return Ok(CheckOutcome { exit_code: 2 });
+                    }
+                    anyhow::bail!("check: {}", e);
                 }
-                anyhow::bail!("check: {}", e);
-            }
-        };
+            };
 
         McURI::from(entry_uri.as_str())
     } else {

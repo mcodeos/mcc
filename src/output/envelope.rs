@@ -219,7 +219,9 @@ impl Pass1Report {
             }
         }
         let Pass1Report {
-            definitions, diagnostics, ..
+            definitions,
+            diagnostics,
+            ..
         } = other;
         self.definitions.merge(definitions);
         for d in diagnostics {
@@ -235,7 +237,8 @@ impl Pass1Report {
 pub fn same_diagnostic(a: &Diagnostic, b: &Diagnostic) -> bool {
     a.code == b.code
         && a.message == b.message
-        && a.location.as_ref().map(|l| (&l.file, l.pos)) == b.location.as_ref().map(|l| (&l.file, l.pos))
+        && a.location.as_ref().map(|l| (&l.file, l.pos))
+            == b.location.as_ref().map(|l| (&l.file, l.pos))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
