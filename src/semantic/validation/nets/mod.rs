@@ -539,13 +539,10 @@ fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64
 
     let mut out: Vec<f64> = Vec::new();
     // 1) Attribute KVS voltage.
-    for val in pin.values.iter() {
-        if let McAttrVal::KVS(kvs) = val {
-            let key = kvs.key.to_string().to_lowercase();
-            if crate::semantic::basic::attr_keys::is_voltage_key(&key) {
-                collect_kvs_voltage(&kvs.value, &mut out);
-            }
-        }
+    for kvs in crate::semantic::component::mc_pins::pin_kvs_where(pin, |key| {
+        crate::semantic::basic::attr_keys::is_voltage_key(key)
+    }) {
+        collect_kvs_voltage(&kvs.value, &mut out);
     }
     // 2) Interface binding volt parameter.
     for port in def.pins.names_to_id.values() {

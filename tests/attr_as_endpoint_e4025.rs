@@ -4,6 +4,9 @@
 
 //! E4025 `ATTR_VALUE_NOT_A_TERMINAL` — an attribute key standing where a
 //! connection endpoint is required (contract-design.md §3.5, G10).
+//! E4026 `PIN_VALUE_KEY_NOT_FOUND` — the same reading of a pin row's value key
+//! (`uH.A.volt`, U42) when that row declares no such key: the reference names
+//! nothing, so it is a typed miss rather than a silent ghost.
 //!
 //! The name is real and it resolves, but it resolves in the definition space to
 //! a *value*, and a value carries no position, so the connection has no
@@ -127,4 +130,71 @@ fn attr_ep__plain_endpoint_stays_silent() {
     let (diags, parts) = build_of(src, "/mcc/attr-ep-plain.mc");
     assert_eq!(count_of(&diags, CODE), 0, "got {diags:?}");
     assert!(wires(&parts, "uH.1"), "the pin must wire; got {parts:?}");
+}
+
+// E4026: the pin row's value keys (U42)
+
+const KEY_CODE: u32 = mcc::errcodes::PIN_VALUE_KEY_NOT_FOUND;
+
+/// The messages of every diagnostic carrying `code`.
+fn msgs_of(src: &str, uri: &str, code: u32) -> Vec<String> {
+    let _lock = common::lock();
+    common::reset();
+    mcc::mcc_load_from_string(&uri.to_string(), src);
+    let _ = mcc::mcc_build(&McIds::from("main"), &uri.to_string());
+    mcc::mcc_diagnose_all()
+        .iter()
+        .filter(|d| d.code == code)
+        .map(|d| d.msg.clone())
+        .collect()
+}
+
+/// A key the row does not declare is one error-level diagnostic, and the
+/// reference stays out of the netlist — it used to reach neither the key table
+/// nor the pin table and fell through to a phantom endpoint.
+#[test]
+fn attr_ep__pin_value_missing_key_errors() {
+    let src = "component W {\n    pins = [\n        1 = A, \"L1\"\n        2 = B, voltage:3V3\n    ]\n}\n\nmodule main {\n    W uH\n    uH.B.volt -> N1\n}\n";
+    let (diags, parts) = build_of(src, "/mcc/attr-ep-pin-key-miss.mc");
+    assert_eq!(
+        count_of(&diags, KEY_CODE),
+        1,
+        "one missing key is one error; got {diags:?}"
+    );
+    assert!(
+        diags.contains(&(KEY_CODE, DiagnosticLevel::Error)),
+        "the code must be raised at error level; got {diags:?}"
+    );
+    assert!(
+        !wires(&parts, "volt"),
+        "a value carries no position, so it must not become a net point; got {parts:?}"
+    );
+}
+
+/// The message names the keys the row *does* answer to — the bare values under
+/// `desc`, and each `KVS` key by its whole dotted spelling, so `spec.vout` never
+/// answers to `spec`.
+#[test]
+fn attr_ep__pin_value_miss_lists_declared_keys() {
+    let src = "component W {\n    pins = [\n        1 = A, \"L1\"\n        3 = C, spec.vout:2V\n    ]\n}\n\nmodule main {\n    W uH\n    uH.A.nope -> N1\n    uH.C.spec -> N2\n}\n";
+    let msgs = msgs_of(src, "/mcc/attr-ep-pin-key-list.mc", KEY_CODE);
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("nope") && m.contains("[desc]")),
+        "a bare-valued row answers to `desc`; got: {msgs:?}"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("spec.vout")),
+        "a dotted key is addressed whole; got: {msgs:?}"
+    );
+}
+
+/// A declared key is still a value, not a terminal: the verdict is E4025 and
+/// the new key check must stay silent — it reports `key` misses only.
+#[test]
+fn attr_ep__declared_pin_value_key_is_not_a_key_miss() {
+    let src = "component W {\n    pins = [\n        2 = B, voltage:3V3\n    ]\n}\n\nmodule main {\n    W uH\n    uH.B.voltage -> N1\n}\n";
+    let (diags, _parts) = build_of(src, "/mcc/attr-ep-pin-key-hit.mc");
+    assert_eq!(count_of(&diags, KEY_CODE), 0, "got {diags:?}");
+    assert_eq!(count_of(&diags, CODE), 1, "got {diags:?}");
 }

@@ -156,14 +156,11 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             // documented and is skipped individually.
             for (pin_id, name) in &power_pins {
                 let pin_has_voltage = comp.pins.pins.get(pin_id).is_some_and(|pin| {
-                    pin.values.iter().any(|v| {
-                        if let crate::semantic::component::mc_attr::McAttrVal::KVS(kvs) = v {
-                            let key = kvs.key.to_string().to_lowercase();
-                            crate::semantic::basic::attr_keys::is_voltage_key(&key)
-                        } else {
-                            false
-                        }
+                    crate::semantic::component::mc_pins::pin_kvs_where(pin, |key| {
+                        crate::semantic::basic::attr_keys::is_voltage_key(key)
                     })
+                    .next()
+                    .is_some()
                 });
                 if pin_has_voltage {
                     continue;

@@ -11,6 +11,7 @@ use crate::query::refs::mcb_register_declare_class;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ida::IdaSegment;
 use crate::semantic::basic::mc_ids::IdsSegment;
+use crate::semantic::basic::mc_kvs::McKVS;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute, McAttributes};
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_ifs::Mc2Interface;
@@ -66,6 +67,70 @@ pub struct McPin {
     /// them for generic rows so the words are never silently dropped. Empty on
     /// rows that declare no trailing attributes.
     pub attrs: McAttributes,
+}
+
+/// The synthetic key a pin row's bare values answer to (U42).
+///
+/// A `KVS` entry on a pin row carries its own key; every other value on the
+/// row is written without one. Those bare values are the row's description —
+/// the reading `show pins` has always printed — so they are addressable as a
+/// group under this key.
+pub const PIN_VALUE_DESC_KEY: &str = "desc";
+
+/// The values on `pin`'s row that `key` addresses, in declaration order (U42).
+///
+/// [`PIN_VALUE_DESC_KEY`] addresses every non-`KVS` value on the row; any
+/// other key addresses a `KVS` entry by its **whole dotted key** (`spec.vout`
+/// and `spec.vin` are two keys, and neither is `spec`). An empty result means
+/// the row declares nothing under `key`, not that the row is valueless.
+pub fn pin_values_of<'a>(pin: &'a McPin, key: &str) -> Vec<&'a McAttrVal> {
+    let desc = key == PIN_VALUE_DESC_KEY;
+    pin.values
+        .iter()
+        .filter(|val| match val {
+            McAttrVal::KVS(kvs) => !desc && kvs.key.to_string() == key,
+            _ => desc,
+        })
+        .collect()
+}
+
+/// The text of the value(s) a pin row stores under `key`, or `None` when it
+/// declares nothing there (U42).
+///
+/// A string literal reads as its own content, unquoted; anything else reads as
+/// its written form. Several values join with one space — a row's bare values
+/// are one description, and that is how the dump has always shown them.
+pub fn pin_value_text(pin: &McPin, key: &str) -> Option<String> {
+    crate::semantic::component::mc_attr::attr_values_text(pin_values_of(pin, key))
+}
+
+/// The keys `pin`'s row answers to, [`PIN_VALUE_DESC_KEY`] first when the row
+/// carries bare values (U42) — the list behind E4026.
+pub fn pin_value_keys(pin: &McPin) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::new();
+    let mut has_bare = false;
+    for val in pin.values.iter() {
+        match val {
+            McAttrVal::KVS(kvs) => keys.push(kvs.key.to_string()),
+            _ => has_bare = true,
+        }
+    }
+    if has_bare {
+        keys.insert(0, PIN_VALUE_DESC_KEY.to_string());
+    }
+    keys
+}
+
+/// The `KVS` entries on `pin`'s row whose whole dotted key, lower-cased,
+/// satisfies `pred` (HW1) — the reader behind the supply-voltage checks.
+pub fn pin_kvs_where<'a>(
+    pin: &'a McPin,
+    pred: impl Fn(&str) -> bool,
+) -> impl Iterator<Item = &'a McKVS> {
+    pin.values.iter().filter_map(move |val| match val {
+        McAttrVal::KVS(kvs) if pred(&kvs.key.to_string().to_lowercase()) => Some(kvs),
+        _ => None,
+    })
 }
 
 /// Energy direction of a power-intent terminal — power-intent-design §5.2
@@ -2484,6 +2549,20 @@ impl McPins {
             Some(id.to_string())
         } else {
             None
+        }
+    }
+
+    /// The pin a reference addresses, by pin id or by declared name (U42).
+    ///
+    /// `None` for a group name (bus / list / interface) and for a name several
+    /// pins share — those own no single row to read values from.
+    pub(crate) fn pin_of_ref(&self, name: &str) -> Option<&McPin> {
+        if let Some(pin) = self.pins.get(name) {
+            return Some(pin);
+        }
+        match self.names_to_id.get(name) {
+            Some(McPinPort::Single(id)) => self.pins.get(id),
+            _ => None,
         }
     }
 

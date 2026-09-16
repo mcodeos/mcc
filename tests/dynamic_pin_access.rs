@@ -67,6 +67,77 @@ module main
     assert_eq!(component.pin_name("2").as_deref(), Some("GPIO8"));
 }
 
+/// U42: a condition reads the definition's own face — a declared key
+/// (`mode`) and a pin row's value key (`A.desc`) — never an instance, and the
+/// branch it selects decides which pins the instance has. Each case is built
+/// twice so the *value* decides: the branch that must lose is wired, and the
+/// build must still not find it.
+#[test]
+fn svc_dynpin__condition_reads_definition_keys() {
+    let uri_true: McURI = "/mcc/cond-key-true.mc".to_string();
+    let uri_false: McURI = "/mcc/cond-key-false.mc".to_string();
+    let source = |left: &str| {
+        format!(
+            r#"
+component SWITCH
+{{
+    pins = [
+        1 = A, "L1"
+    ]
+    mode = "FAST"
+
+    if ({left})
+    {{
+        pins += [ 2 = Q_TRUE ]
+    }}
+    else
+    {{
+        pins += [ 3 = Q_FALSE ]
+    }}
+}}
+
+module main
+{{
+    io VDD
+    SWITCH u1
+    u1.2 -> VDD
+}}
+"#
+        )
+    };
+
+    // The condition holds: the pin from the `if` branch exists.
+    let _lock = common::lock();
+    common::reset();
+    mcc::mcc_load_from_string(&uri_true, &source("mode == \"FAST\""));
+    let (instance, _arena, _store, _nets) =
+        mcc::mcc_build_with_arena(&McIds::from("main"), &uri_true).expect("build switch fixture");
+    let paths: Vec<&str> = instance
+        .connections
+        .iter()
+        .flat_map(|connection| connection.points.iter().map(|point| point.path.as_str()))
+        .collect();
+    assert!(
+        paths.contains(&"u1.2"),
+        "`if (mode == \"FAST\")` holds, so pin 2 exists; resolved paths: {paths:?}"
+    );
+
+    // Same row read through its value key, and the comparison fails.
+    common::reset();
+    mcc::mcc_load_from_string(&uri_false, &source("A.desc == \"L2\""));
+    let (instance, _arena, _store, _nets) =
+        mcc::mcc_build_with_arena(&McIds::from("main"), &uri_false).expect("build switch fixture");
+    let paths: Vec<&str> = instance
+        .connections
+        .iter()
+        .flat_map(|connection| connection.points.iter().map(|point| point.path.as_str()))
+        .collect();
+    assert!(
+        !paths.contains(&"u1.2"),
+        "`A.desc` reads `L1`, so the `if` branch must lose; resolved paths: {paths:?}"
+    );
+}
+
 /// Regression: LSP goto-definition span for `label::Class(...)` pin declarations.
 ///
 /// `io [16,17,21] = ADC::ADC.DIFF(Receiver)` must record the span of the io

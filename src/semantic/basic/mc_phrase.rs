@@ -26,7 +26,7 @@ use crate::{
     refdef::types::SymbolKind,
     semantic::{
         basic::{mc_opd::McOpd, mc_param::McParamValue, opd_shape::OpdShape},
-        component::mc_pins::McPinPort,
+        component::mc_pins::{pin_value_keys, pin_values_of, McPinPort},
         context::resolve_cmie,
         instref::validate_inst_reference,
         mc_ifs::Mc2Interface,
@@ -448,17 +448,13 @@ impl McPhrase {
                             {
                                 if let Some(McInstance::Component(_)) = context.find_inst(&base) {
                                     let ep = if members.len() == 1 {
-                                        McEndpoint::Single(McInstanceRef::new(
-                                            McInstance::Bus(McBus::member_ref(
-                                                &base, members[0].clone(),
-                                            )),
-                                        ))
+                                        McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                            McBus::member_ref(&base, members[0].clone()),
+                                        )))
                                     } else {
-                                        McEndpoint::Single(McInstanceRef::new(
-                                            McInstance::Bus(McBus::new_with_members(
-                                                &base, members,
-                                            )),
-                                        ))
+                                        McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                                            McBus::new_with_members(&base, members),
+                                        )))
                                     };
                                     return Some(McPhrase::Endpoint(ep));
                                 }
@@ -997,6 +993,55 @@ impl McPhrase {
                                             context.find_inst(base)
                                         {
                                             if c.find_pin(&rest).is_none() {
+                                                // `inst.<pin>.<key>` reads the pin row's
+                                                // value under `key` (U42): the pin face
+                                                // answers first (G10), then the key face,
+                                                // which may itself be dotted (`spec.vout`).
+                                                // A key that lands holds a value, and a
+                                                // value is no endpoint — the same drop a
+                                                // component-level key takes.
+                                                if let Some((pin_ref, key)) = rest.split_once('.') {
+                                                    if let Some(pin) =
+                                                        c.base.pins.pin_of_ref(pin_ref)
+                                                    {
+                                                        if !pin_values_of(pin, key).is_empty() {
+                                                            return attr_value_as_terminal(
+                                                                &format!("{base}.{rest}"),
+                                                                &subnode,
+                                                            );
+                                                        }
+                                                        let declared =
+                                                            pin_value_keys(pin).join(", ");
+                                                        dlog_error(
+                                                            crate::errcodes::PIN_VALUE_KEY_NOT_FOUND,
+                                                            &subnode,
+                                                            &crate::errcodes::format_msg(
+                                                                crate::errcodes::PIN_VALUE_KEY_NOT_FOUND,
+                                                                &[
+                                                                    &format!("{base}.{rest}")
+                                                                        as &dyn std::fmt::Display,
+                                                                    &key as &dyn std::fmt::Display,
+                                                                    &declared
+                                                                        as &dyn std::fmt::Display,
+                                                                ],
+                                                            ),
+                                                        );
+                                                        ledger::record(
+                                                            LedgerEntry::new(
+                                                                LedgerKind::UnresolvedRef,
+                                                                format!("{base}.{rest}"),
+                                                                "mc_phrase.rs pin value key not found",
+                                                            )
+                                                            .with_action(LedgerAction::Error)
+                                                            .with_uri(context.uri().to_string())
+                                                            .with_span(
+                                                                subnode.get_pos(),
+                                                                subnode.get_len(),
+                                                            ),
+                                                        );
+                                                        return None;
+                                                    }
+                                                }
                                                 if c.base
                                                     .attrs
                                                     .find(&McIds::from(rest.as_str()))
