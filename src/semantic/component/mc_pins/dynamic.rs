@@ -74,7 +74,7 @@ impl DynamicPinExpr {
 
     pub fn evaluate_with_bindings(&self, bindings: &[(String, i64)]) -> Option<i64> {
         let evaluated = self.substitute_params(bindings);
-        evaluated.evaluate_to_int()
+        evaluated.eval_int().ok()
     }
 
     fn substitute_params(&self, bindings: &[(String, i64)]) -> McExpression {
@@ -172,26 +172,7 @@ impl DynamicPinExpr {
 
     fn substitute_and_eval(&self, expr: &McExpression, bindings: &[(String, i64)]) -> Option<i64> {
         let substituted = self.substitute_recursive(expr, bindings);
-        substituted.evaluate_to_int()
-    }
-}
-
-impl McExpression {
-    pub fn evaluate_to_int(&self) -> Option<i64> {
-        match self {
-            McExpression::Int(int_val) => Some(int_val.value),
-            McExpression::Plus(l, r) => Some(l.evaluate_to_int()? + r.evaluate_to_int()?),
-            McExpression::Minus(l, r) => Some(l.evaluate_to_int()? - r.evaluate_to_int()?),
-            McExpression::Multiply(l, r) => Some(l.evaluate_to_int()? * r.evaluate_to_int()?),
-            McExpression::Divide(l, r) => {
-                let divisor = r.evaluate_to_int()?;
-                if divisor == 0 {
-                    return None;
-                }
-                Some(l.evaluate_to_int()? / divisor)
-            }
-            _ => None,
-        }
+        substituted.eval_int().ok()
     }
 }
 

@@ -79,8 +79,8 @@ fn sem_bitcond__eval_uses_nonzero_result() {
     };
     let params_even = vec![(McIds::from("address"), "0x36".to_string())];
     let params_odd = vec![(McIds::from("address"), "0x37".to_string())];
-    assert!(!McConds::check_condition(&cond, &params_even));
-    assert!(McConds::check_condition(&cond, &params_odd));
+    assert!(!McConds::check_condition(&cond, &params_even, None));
+    assert!(McConds::check_condition(&cond, &params_odd, None));
 
     // Decimal operands work too
     let cond_dec = McCondition::BitAnd {
@@ -89,8 +89,8 @@ fn sem_bitcond__eval_uses_nonzero_result() {
     };
     let params_4 = vec![(McIds::from("address"), "4".to_string())];
     let params_5 = vec![(McIds::from("address"), "5".to_string())];
-    assert!(!McConds::check_condition(&cond_dec, &params_4));
-    assert!(McConds::check_condition(&cond_dec, &params_5));
+    assert!(!McConds::check_condition(&cond_dec, &params_4, None));
+    assert!(McConds::check_condition(&cond_dec, &params_5, None));
 
     // BitOr: true when the result is non-zero (`x | 0 = x`)
     let cond_or = McCondition::BitOr {
@@ -99,6 +99,6 @@ fn sem_bitcond__eval_uses_nonzero_result() {
     };
     let params_0 = vec![(McIds::from("address"), "0x00".to_string())];
     let params_1 = vec![(McIds::from("address"), "0x01".to_string())];
-    assert!(!McConds::check_condition(&cond_or, &params_0));
-    assert!(McConds::check_condition(&cond_or, &params_1));
+    assert!(!McConds::check_condition(&cond_or, &params_0, None));
+    assert!(McConds::check_condition(&cond_or, &params_1, None));
 }
