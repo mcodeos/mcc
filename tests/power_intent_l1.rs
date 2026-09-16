@@ -3594,3 +3594,178 @@ fn shunt_inside_a_submodule_off_every_rail_pair_is_silent_6035() {
         "a part across two hot faces has no return leg, so no rail pair spans it; got codes: {codes:?}"
     );
 }
+
+// ── PI-2 filter-leg load-side decoupling (power-quality-design.md §2.2, ruling 11) ──
+//
+// A `@bridge` whose two endpoints are both hot faces is a supply filter leg: the
+// ferrite is the series half of a filter, so the LC only exists once the load
+// side it protects carries a decoupling element. The load side is read from the
+// declaration — the endpoint whose domain world is a quiet/sensitive face (§1.4)
+// — never from the arrow order, which the corpus writes both ways.
+//
+// Ruling 11 (2026-09-17) cuts the verdict to existence: *a* declared capacitor on
+// that net answers, wherever its own return leg lands (that placement is PI-3's
+// 6038). Every silence below is a single-axis flip off the board that fires, so each
+// negative is the flipped axis talking, not a rule that never ran.
+
+/// A bridge part that is neither capacitive nor the load side's own element —
+/// an in-file ferrite stand-in (the fixture never needs its class: the bridge is
+/// read from the declared clause, not from the part).
+const FB_BRIDGE: &str =
+    "component FB_BRIDGE {\n    pins = [\n        io [1,2] = [X, Y]\n    ]\n}\n";
+
+/// A second analog domain, for the "both sides quiet" flip.
+const PI2_ANALOG2: &str = "domain AVDD2 @class(analog) { rail [VDDA2, GNDA]::DC(3.3V) }\n    ";
+
+/// The judged shape: a declared filter bridge from the digital rail onto the
+/// analog one, with no capacitor on the analog side — the ferrite alone is not
+/// the filter. The message names the load member, the domain that made it the
+/// load side, and the bridge clause it was declared on.
+#[test]
+fn filter_bridge_without_load_side_decoupling_fires_6037() {
+    let src = format!(
+        "{FB_BRIDGE}{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}\
+         VDD_3V3 - fba::FB_BRIDGE() - VDDA @bridge(VDD_3V3, VDDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING)
+        .count();
+    assert_eq!(
+        n, 1,
+        "a declared filter leg whose load side carries no capacitor must fire 6037 exactly once; got codes: {codes:?}"
+    );
+    let msgs = msgs_of(mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING, &src);
+    assert!(
+        msgs.iter().any(|m| m.contains("VDDA") && m.contains("AVDD")),
+        "6037 must name the load-side member and the quiet domain that made it the load side: {msgs:?}"
+    );
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("VDD_3V3") && m.contains("VDDA")),
+        "6037 must name the bridge clause it was declared on: {msgs:?}"
+    );
+}
+
+/// The same board with the load-side capacitor added — the LC exists. The
+/// capacitor's own return is the declared one, so 6038 is silent too: the green
+/// here is coverage, not the placement rule carrying the load.
+#[test]
+fn filter_bridge_with_load_side_decoupling_is_clean_6037() {
+    let src = format!(
+        "{FB_BRIDGE}{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}\
+         VDD_3V3 - fba::FB_BRIDGE() - VDDA @bridge(VDD_3V3, VDDA)\n    \
+         CAP_DECOUP ok\n    ok.1 -> VDDA\n    ok.2 -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING),
+        "a capacitor on the load-side hot member closes the LC; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "…and that capacitor's return lands on the declared member, so 6038 stays silent; got codes: {codes:?}"
+    );
+}
+
+/// The load side is the quiet one, and that is what the verdict reads: the same
+/// board with its only capacitor on the **supply** side still fires. A rule that
+/// merely asked "does this bridge have a capacitor somewhere" would pass here.
+#[test]
+fn capacitor_on_the_supply_side_does_not_cover_the_load_side_6037() {
+    let src = format!(
+        "{FB_BRIDGE}{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}\
+         VDD_3V3 - fba::FB_BRIDGE() - VDDA @bridge(VDD_3V3, VDDA)\n    \
+         CAP_DECOUP ok\n    ok.1 -> VDD_3V3\n    ok.2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING),
+        "the load side is read from the quiet face, not from the arrow order or from any leg of the bridge; got codes: {codes:?}"
+    );
+}
+
+/// Ruling 11's seam (§4.2's partition, the ruling-8 shape): a capacitor whose
+/// return lands **off** the declared member answers PI-2's existence question all
+/// the same — the placement is 6038's verdict, and it must not be reported twice.
+#[test]
+fn mis_landed_return_is_6038_alone_not_6037_as_well() {
+    let src = format!(
+        "{FB_BRIDGE}{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}\
+         VDD_3V3 - fba::FB_BRIDGE() - VDDA @bridge(VDD_3V3, VDDA)\n    \
+         CAP_DECOUP ok\n    ok.1 -> VDDA\n    ok.2 -> GNDA\n    \
+         CAP_DECOUP bad\n    bad.1 -> VDDA\n    bad.2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "a return leg off the declared member is PI-3's verdict; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING),
+        "…and the load side does carry a capacitor, so PI-2 must stay silent — one fact, one code; got codes: {codes:?}"
+    );
+}
+
+/// Ruling 3's silence (§2.2): with no quiet/sensitive side there is no declared
+/// load side to judge — the flip is one word on AVDD's domain row.
+#[test]
+fn bridge_with_no_quiet_side_is_not_judged_6037() {
+    let src = format!(
+        "{FB_BRIDGE}module main {{\n    conduit GND @role(main)\n    conduit GNDA @role(quiet)\n    \
+         domain DVDD @class(digital) {{ rail [VDD_3V3, GND]::DC(3.3V) }}\n    \
+         domain AVDD @class(digital) {{ rail [VDDA, GNDA]::DC(3.3V) }}\n    \
+         VDD_3V3 - fba::FB_BRIDGE() - VDDA @bridge(VDD_3V3, VDDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING),
+        "neither side reads quiet, so no side is the declared load side; got codes: {codes:?}"
+    );
+}
+
+/// Both sides quiet is a coin flip, not a load side: silent rather than guessed.
+/// The flip is one bridge row onto a second analog domain — both ends quiet.
+#[test]
+fn bridge_with_both_sides_quiet_is_not_judged_6037() {
+    let src = format!(
+        "{FB_BRIDGE}module main {{\n    {PI3_DOMAINS}{PI2_ANALOG2}\
+         VDDA - fba::FB_BRIDGE() - VDDA2 @bridge(VDDA, VDDA2)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING),
+        "two quiet sides leave the load side undecidable — silence, not a guess; got codes: {codes:?}"
+    );
+}
+
+/// §2.2's subject is the supply filter leg: a ground-side bridge (`FB_agnd`'s
+/// shape — both ends on return faces) is not one, so its load side owes nothing.
+#[test]
+fn ground_side_bridge_is_not_judged_6037() {
+    let src = format!(
+        "{FB_BRIDGE}module main {{\n    {PI3_DOMAINS}\
+         GNDA - fbg::FB_BRIDGE() - GND @bridge(GND, GNDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING),
+        "a bridge whose two ends are both return faces is not a supply filter leg; got codes: {codes:?}"
+    );
+}
+
+/// A `@couple` edge is a DC-blocking coupling element, not a filter leg — the
+/// flip is the relation word alone.
+#[test]
+fn couple_edge_is_not_judged_6037() {
+    let src = format!(
+        "{FB_BRIDGE}module main {{\n    {PI3_DOMAINS}\
+         VDD_3V3 - fba::FB_BRIDGE() - VDDA @couple(VDD_3V3, VDDA)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::BRIDGE_LOAD_DECOUPLING_MISSING),
+        "@couple declares an AC path, not a filtered supply leg; got codes: {codes:?}"
+    );
+}

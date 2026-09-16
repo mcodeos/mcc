@@ -255,7 +255,22 @@ impl McPowerDecls {
             .collect()
     }
 
-    /// Decode identity-bearing module port rows into typed L1 identity reads
+    /// Decode every domain's identity-axis words — §1.1's domain-face
+    /// projection, read from the same `self.domains` as [`Self::l1_domain_natures`]
+    /// and shaped like it. A domain writing no word still lists (`None`): the
+    /// §1.4 quiet/sensitive face is then simply not claimed by it.
+    pub fn l1_domain_faces(&self) -> Vec<L1DomainFace> {
+        self.domains
+            .iter()
+            .map(|d| L1DomainFace {
+                name: d.name.clone(),
+                class: first_text(&d.attrs, "class"),
+                noise: first_text(&d.attrs, "noise"),
+                nature: first_text(&d.attrs, "nature"),
+            })
+            .collect()
+    }
+
     /// (design §5.2/§8/§9): one entry per declared net-visible member of each
     /// row, carrying the row's identity-axis words (`@class`/`@nature`/`@noise`/
     /// `@return`/`@exposed`/`@bind_role`). No rule semantics here — the ERC
@@ -475,6 +490,20 @@ pub struct L1DomainNature {
     pub name: String,
     pub nature: Option<String>,
     pub rails: Vec<L1RailAxisRow>,
+}
+
+/// One domain's identity-axis words (§1.1) — the face a rule reads to decide
+/// whether a domain is a **quiet / sensitive** one (§1.4: `@class(analog)`, or
+/// `@noise(quiet)` / `@noise(sensitive)`). Words are carried exactly as written,
+/// beside [`L1DomainNature`] and [`L1Port`]; which of them makes a face quiet is
+/// the rule's step, and their value legality belongs to the §5.2 registry, not
+/// to this projection.
+#[derive(Debug, Clone)]
+pub struct L1DomainFace {
+    pub name: String,
+    pub class: Option<String>,
+    pub noise: Option<String>,
+    pub nature: Option<String>,
 }
 
 /// One rail row as the §3.1 consistency rule reads it: the `::` contract it
@@ -1630,6 +1659,37 @@ mod tests {
         assert_eq!(vbulk.nature, None, "a face writing no word states no axis");
         assert_eq!(vbulk.rails[0].iface, "DC");
     }
+
+    /// §1.1 the domain-face projection: the identity-axis words of each domain,
+    /// carried verbatim (which of them makes a face quiet is §1.4's rule, not
+    /// this projection's). A domain writing none still lists.
+    #[test]
+    fn l1_domain_faces_carry_the_identity_words() {
+        let pi = parse_pi(SRC_FACES);
+        let faces = pi.l1_domain_faces();
+        assert_eq!(faces.len(), 4, "faces: {faces:?}");
+        let avdd = faces.iter().find(|f| f.name == "AVDD").expect("AVDD");
+        assert_eq!(avdd.class.as_deref(), Some("analog"));
+        assert_eq!(avdd.noise, None);
+        let avaud = faces.iter().find(|f| f.name == "AVAUD").expect("AVAUD");
+        assert_eq!(avaud.class.as_deref(), Some("analog"));
+        assert_eq!(avaud.noise.as_deref(), Some("sensitive"));
+        let dvdd = faces.iter().find(|f| f.name == "DVDD").expect("DVDD");
+        assert_eq!(dvdd.class.as_deref(), Some("digital"));
+        let plain = faces.iter().find(|f| f.name == "PLAIN").expect("PLAIN");
+        assert_eq!(plain.class, None, "a face writing no word claims nothing");
+        assert_eq!(plain.noise, None);
+        assert_eq!(plain.nature, None);
+    }
+
+    const SRC_FACES: &str = r#"module main {
+    conduit GNDA @role(quiet)
+    domain AVDD  @class(analog)  { rail [VDDA, GNDA]::DC(3.3V) }
+    domain AVAUD @class(analog) @noise(sensitive) { rail [V3A, GNDA]::DC(3.3V) }
+    domain DVDD  @class(digital) { rail [VDD_3V3, GND]::DC(3.3V) }
+    domain PLAIN { rail [Vx, GND]::DC(1V) }
+}
+"#;
 
     const SRC_AC: &str = r#"module main {
     ref GND @role(main)
