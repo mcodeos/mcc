@@ -452,7 +452,8 @@ fn detect_decoupling_instances(
 
 // I6: Differential pair detection
 
-/// Detect differential pairs: two nets whose names form P/N or +/- pairs.
+/// Detect differential pairs: the two nets carrying the faces of one
+/// interface-declared `diff_pair`.
 ///
 /// Penalty: y-offset between the two boxes that carry the pair → `symmetry_penalty`.
 fn detect_diff_pair(
@@ -561,14 +562,20 @@ fn detect_diff_pair_instances(
             power_net_id: None,
             ground_net_id: None,
             confidence: 0.8,
-            source: InstanceSource::NetNameHeuristic,
+            source: InstanceSource::NetSemantic,
         });
     }
 
     instances
 }
 
-/// Find net pairs that look like differential pairs (P/N, +/-, etc.).
+/// The declared differential pairs of a laid-out graph, as
+/// `group → (positive net, negative net)`.
+///
+/// A pair is a property of the interface declaration, never of a net name: the
+/// faces arrive on the nets as `attr.diff` (U61), and two nets belong together
+/// exactly when one declaration named them, which their shared `group` says.
+/// Nets with no declared face form no pair.
 fn find_diff_pairs(
     graph: &McVecGraph,
 ) -> HashMap<String, (&crate::vector::graph::VizNet, &crate::vector::graph::VizNet)> {
@@ -577,46 +584,34 @@ fn find_diff_pairs(
     let mut seen = Vec::new();
 
     for net in &graph.nets {
-        if let Some((base, is_p)) = diff_pair_base(&net.name) {
-            let key = format!("{}:{}", base, if is_p { "P" } else { "N" });
-            if seen.contains(&key) {
-                continue;
-            }
-            seen.push(key.clone());
-
-            for other in &graph.nets {
-                if other.nid == net.nid {
-                    continue;
-                }
-                if let Some((other_base, other_is_p)) = diff_pair_base(&other.name) {
-                    if other_base == base && other_is_p != is_p {
-                        let (net_p, net_n) = if is_p { (net, other) } else { (other, net) };
-                        pairs.insert(base.to_string(), (net_p, net_n));
-                    }
-                }
-            }
+        let Some(face) = face_of(net) else {
+            continue;
+        };
+        if seen.contains(&face.group) {
+            continue;
         }
+        seen.push(face.group.clone());
+
+        let mate = graph.nets.iter().find(|other| {
+            face_of(other).is_some_and(|f| f.group == face.group && f.positive != face.positive)
+        });
+        let Some(mate) = mate else {
+            continue;
+        };
+        let (net_p, net_n) = if face.positive {
+            (net, mate)
+        } else {
+            (mate, net)
+        };
+        pairs.insert(face.group.clone(), (net_p, net_n));
     }
 
     pairs
 }
 
-/// Check if a net name looks like a differential pair member.
-/// Returns (base_name, is_p) if recognized.
-fn diff_pair_base(name: &str) -> Option<(&str, bool)> {
-    if let Some(base) = name.strip_suffix("_P") {
-        return Some((base, true));
-    }
-    if let Some(base) = name.strip_suffix("_N") {
-        return Some((base, false));
-    }
-    if let Some(base) = name.strip_suffix('+') {
-        return Some((base, true));
-    }
-    if let Some(base) = name.strip_suffix('-') {
-        return Some((base, false));
-    }
-    None
+/// The declared differential face of a net, if any.
+fn face_of(net: &crate::vector::graph::VizNet) -> Option<&crate::vector::model::DiffFace> {
+    net.attr.as_ref().and_then(|a| a.diff.as_ref())
 }
 
 // I7: Pullup resistor detection
@@ -779,6 +774,7 @@ mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
     use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetRole, Symbol, VizNet};
+    use crate::vector::model::{AttrRole, DiffFace, NetAttrMirror};
 
     fn make_box(id: i64, name: &str, symbol: Symbol, x: f64, y: f64, w: f64, h: f64) -> McVecBox {
         let mut b = McVecBox::new_v2(
@@ -931,6 +927,18 @@ mod tests {
         assert!(decaps[0].idiom_violation, "Far cap should be a violation");
     }
 
+    /// The mirror of a net carrying one face of the interface declaration at
+    /// `group` — what viz/project.rs fills in from `MemberInfo.diff`.
+    fn declared_face(group: &str, positive: bool) -> NetAttrMirror {
+        NetAttrMirror {
+            copper: None,
+            role: AttrRole::Signal,
+            ret: None,
+            diff: Some(DiffFace::new(group, positive)),
+            resolvable: true,
+        }
+    }
+
     #[test]
     fn detect_diff_pair_pn() {
         let mut graph = McVecGraph::new(1, "test".into());
@@ -938,20 +946,23 @@ mod tests {
         let b1 = make_box(1, "R1", Symbol::Resistor, 50.0, 50.0, 40.0, 30.0);
         let b2 = make_box(2, "R2", Symbol::Resistor, 50.0, 100.0, 40.0, 30.0);
 
-        let net_p = VizNet::new(
+        // The names spell no pair at all: only the declaration pairs them.
+        let mut net_p = VizNet::new(
             1,
-            "DIO_MIC_P".into(),
+            "SCLK".into(),
             NetKind::Signal,
             NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
-        let net_n = VizNet::new(
+        let mut net_n = VizNet::new(
             2,
-            "DIO_MIC_N".into(),
+            "SCLK2".into(),
             NetKind::Signal,
             NetRole::Signal,
             vec![EndpointRef::new(2, 2, "1")],
         );
+        net_p.attr = Some(declared_face("u1.diff", true));
+        net_n.attr = Some(declared_face("u1.diff", false));
 
         graph.boxes.push(b1);
         graph.boxes.push(b2);
@@ -979,20 +990,22 @@ mod tests {
         let b1 = make_box(1, "R1", Symbol::Resistor, 50.0, 100.0, 40.0, 30.0);
         let b2 = make_box(2, "R2", Symbol::Resistor, 150.0, 100.0, 40.0, 30.0);
 
-        let net_p = VizNet::new(
+        let mut net_p = VizNet::new(
             1,
-            "SIG_P".into(),
+            "A".into(),
             NetKind::Signal,
             NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
-        let net_n = VizNet::new(
+        let mut net_n = VizNet::new(
             2,
-            "SIG_N".into(),
+            "B".into(),
             NetKind::Signal,
             NetRole::Signal,
             vec![EndpointRef::new(2, 2, "1")],
         );
+        net_p.attr = Some(declared_face("u1.diff", true));
+        net_n.attr = Some(declared_face("u1.diff", false));
 
         graph.boxes.push(b1);
         graph.boxes.push(b2);
@@ -1009,6 +1022,39 @@ mod tests {
             diff_pairs[0].symmetry_penalty <= 1.0,
             "Symmetric placement should have near-zero penalty, got {}",
             diff_pairs[0].symmetry_penalty
+        );
+    }
+
+    #[test]
+    fn pair_spelled_p_n_without_a_declaration_is_not_a_pair() {
+        let mut graph = McVecGraph::new(1, "test".into());
+
+        graph
+            .boxes
+            .push(make_box(1, "R1", Symbol::Resistor, 50.0, 50.0, 40.0, 30.0));
+        graph
+            .boxes
+            .push(make_box(2, "R2", Symbol::Resistor, 50.0, 100.0, 40.0, 30.0));
+        graph.nets.push(VizNet::new(
+            1,
+            "DIO_MIC_P".into(),
+            NetKind::Signal,
+            NetRole::Signal,
+            vec![EndpointRef::new(1, 1, "1")],
+        ));
+        graph.nets.push(VizNet::new(
+            2,
+            "DIO_MIC_N".into(),
+            NetKind::Signal,
+            NetRole::Signal,
+            vec![EndpointRef::new(2, 2, "1")],
+        ));
+
+        let matches = analyze(&graph);
+        assert!(
+            matches.iter().all(|m| m.kind != IdiomKind::DiffPair),
+            "A name is not a declaration. Matches: {:?}",
+            matches
         );
     }
 

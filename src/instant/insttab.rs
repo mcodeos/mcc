@@ -24,6 +24,7 @@ use crate::instant::nettab::NetTableStore;
 use crate::semantic::common::{IOType, McSpaceName};
 use crate::semantic::component::mc_pins::PwrDir;
 use crate::semantic::module::pi::McPowerDecls;
+use crate::vector::model::DiffFace;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
@@ -124,6 +125,12 @@ pub struct MemberInfo {
     /// opt-in can anchor a return lane. `None` for any member the pair does not
     /// name (component DC pins, inferred roles).
     pub pair: Option<String>,
+    /// The differential-pair face this member is, when its port's interface
+    /// declares `diff_pair = [P, N]` and this member is one of the two names.
+    /// Set at flatten from `port.diff_pair`; viz/project.rs mirrors it onto the
+    /// nets born from the pair. `None` for every member the declaration does
+    /// not name — including every member of an interface that declares none.
+    pub diff: Option<DiffFace>,
 }
 
 impl MemberInfo {
@@ -132,6 +139,7 @@ impl MemberInfo {
             role,
             voltage,
             pair: None,
+            diff: None,
         }
     }
 }
@@ -1337,6 +1345,26 @@ impl InstTable {
             // golden references like "vin.VCC" and "USB_VBUS_1.VDD_3V".
             for (mi, member) in port.bus_members.iter().enumerate() {
                 let member_path = format!("{my_path}.{}", suffixes.members[mi]);
+                // U61: a member the interface's `diff_pair` names is a face of
+                // one declared pair. Both faces carry the port's own path as
+                // their group — that shared value is the whole pairing rule,
+                // so a pair is recognized whatever its nets are called. The
+                // declaration is positional: the first name is the positive
+                // face. Recorded whatever the inferred role is, since a
+                // differential pair is a signal by nature.
+                let diff = port.diff_pair.as_ref().and_then(|(pos, neg)| {
+                    let positive = if member == pos {
+                        true
+                    } else if member == neg {
+                        false
+                    } else {
+                        return None;
+                    };
+                    let group = member_path
+                        .rsplit_once('.')
+                        .map_or(member_path.as_str(), |(g, _)| g);
+                    Some(DiffFace::new(group, positive))
+                });
                 let member_id = self.register(
                     member_path,
                     InstKind::Port,
@@ -1383,7 +1411,7 @@ impl InstTable {
                         &is_declared_power,
                     )
                 };
-                if !matches!(role, MemberRole::Signal) {
+                if !matches!(role, MemberRole::Signal) || diff.is_some() {
                     // P3 (ret lineage): a member the pair names carries the other
                     // face — the ret on the hot member, the hot on the ret member.
                     let mut info = MemberInfo::new(role, None);
@@ -1394,6 +1422,7 @@ impl InstTable {
                             info.pair = Some(ret.clone());
                         }
                     }
+                    info.diff = diff;
                     self.set_member_info(member_id, info);
                 }
             }

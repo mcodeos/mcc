@@ -744,7 +744,7 @@ fn last_two_segments(path: &str) -> String {
 
 use crate::semantic::common::IOType;
 use crate::semantic::component::mc_pins::PwrDir;
-use crate::vector::model::{AttrRole, NetAttrMirror, RailClass, RailSpec};
+use crate::vector::model::{AttrRole, DiffFace, NetAttrMirror, RailClass, RailSpec};
 
 /// Resolve the power net spec from a group's pseudo endpoint roles + real endpoint
 /// declarations; returns `None` for ordinary signal groups.
@@ -1114,6 +1114,11 @@ fn is_child_module_psrc_port(pid: i64, table: &InstTable) -> bool {
 ///      (module-header pairs) and component DC pin rows: `Ground` → `Ret`,
 ///      `Power` → `Hot`.
 ///
+/// A third declaration rides along without giving the net a supply role: the
+/// interface-declared differential face (`diff_pair`, CIMP §1 U61), carried on
+/// `member_info.diff` — a pair member with no supply role stays `Signal`, but
+/// is still a declared net.
+///
 /// `None` (no candidate) = legacy net with no declaration → `Signal` (ruling ① —
 /// undeclared: never judged, never guessed). Ground-side roles
 /// (`Ret`/`Reference`) outrank `Hot` so a merged
@@ -1131,6 +1136,7 @@ fn detect_net_attr(
     let mut has_ref = false;
     let mut has_hot = false;
     let mut ret_name: Option<String> = None;
+    let mut diff: Option<DiffFace> = None;
     for &pid in all_ids {
         let Some(e) = table.get_entry(pid as u32) else {
             continue;
@@ -1159,6 +1165,13 @@ fn detect_net_attr(
         }
         // (ii) connection-point DC pair on the endpoint's own entry.
         if let Some(mi) = &e.member_info {
+            // U61: an interface-declared differential face is a declaration of
+            // its own — carried even where the member holds no supply role
+            // (a differential pair is a signal pair). First in nid order wins,
+            // the same tie-break `ret_name` uses.
+            if diff.is_none() {
+                diff = mi.diff.clone();
+            }
             match mi.role {
                 MemberRole::Ground => {
                     has_ret = true;
@@ -1177,15 +1190,19 @@ fn detect_net_attr(
             }
         }
     }
-    if !has_ret && !has_ref && !has_hot {
+    if !has_ret && !has_ref && !has_hot && diff.is_none() {
         return None; // no declaration — legacy signal net, never guessed
     }
     let role = if has_ret {
         AttrRole::Ret
     } else if has_ref {
         AttrRole::Reference
-    } else {
+    } else if has_hot {
         AttrRole::Hot
+    } else {
+        // A declared differential face with no supply role: the net is
+        // declared, and what it was declared to be is a pair member.
+        AttrRole::Signal
     };
     Some(NetAttrMirror {
         copper,
@@ -1196,6 +1213,7 @@ fn detect_net_attr(
         } else {
             None
         },
+        diff,
         resolvable: true,
     })
 }
