@@ -3,6 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::semantic::basic::mc_literal::strip_string_quotes;
 use crate::semantic::basic::mc_param_type::McParamType;
 use crate::semantic::basic::mc_uval::McUnitValueDeclare;
 use crate::McIds;
@@ -704,6 +705,17 @@ fn ids_to_dotted_string(node: &AstNode) -> Option<String> {
     }
 }
 
+/// The text of a literal default value. A string literal loses its quotes so
+/// that the recorded default is the value the condition side compares against
+/// — `if (sel == "X")` compares the unquoted text too.
+fn default_from_literal(node: &AstNode) -> Option<String> {
+    if node.get_type() == MCAST_STRING {
+        let raw = node.data_as_cstr()?.to_str().ok()?;
+        return Some(strip_string_quotes(raw).to_string());
+    }
+    node.to_string()
+}
+
 impl McParamDeclare {
     /// Create parameter declaration from AST node, with syntactic type classification.
     pub fn new(node: &AstNode, enclosing_comp_name: Option<&McIds>) -> Option<Self> {
@@ -823,6 +835,10 @@ impl McParamDeclare {
                             // declaration records it (CIMP U54); dropping it
                             // here is what let an author's default vanish.
                             written_default = Some(default_str);
+                        } else if let Some(text) = default_from_literal(&default_node) {
+                            // A literal default of an untyped formal (CIMP U66):
+                            // no type carries it, so the declaration does.
+                            written_default = Some(text);
                         }
                     }
                     McParamDeclareKind::Single(name_ids)
