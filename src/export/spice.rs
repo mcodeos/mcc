@@ -5,11 +5,17 @@
 use crate::export::NodeArena;
 use crate::instant::inststore::InstanceStore;
 use crate::instant::insttab::InstTable;
+use crate::instant::refdes;
 use crate::McModuleInst;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use super::netlist::collect_nets;
+use super::netlist::{collect_nets, PointNaming};
+
+/// Letter for a component class the refdes table does not register. `X` is a
+/// marker, not a guess: a class spelling is no evidence of what a device is
+/// (`refdes-design.md` §2).
+const UNKNOWN_PREFIX: &str = "X";
 
 pub fn build_spice(
     tree: &McModuleInst,
@@ -25,14 +31,10 @@ pub fn build_spice(
 
     let mut name_to_class: HashMap<String, String> = HashMap::new();
     for comp in table.get_components() {
-        let inst_name = comp
-            .path
-            .rsplit_once('.')
-            .map(|(i, _)| i)
-            .unwrap_or(&comp.path);
-        let class = comp.class_name.clone();
-        if !inst_name.is_empty() && !class.is_empty() {
-            name_to_class.insert(inst_name.to_string(), class);
+        // A component entry's path is already its own hierarchical path
+        // (`main.ldo.C4`), which is the grain the hierarchical net labels use.
+        if !comp.path.is_empty() && !comp.class_name.is_empty() {
+            name_to_class.insert(comp.path.clone(), comp.class_name.clone());
         }
     }
 
@@ -41,7 +43,16 @@ pub fn build_spice(
     // string net tables from the flat table's store.
     let store_ref = table.net_table();
     let store_ref = store_ref.borrow();
-    collect_nets(tree, arena, inst_store, &store_ref, &mut netmap);
+    // Hierarchical labels: the instance key must join to `name_to_class`, whose
+    // keys are flat-table paths.
+    collect_nets(
+        tree,
+        arena,
+        inst_store,
+        &store_ref,
+        PointNaming::Hierarchical,
+        &mut netmap,
+    );
 
     let mut inst_nodes: HashMap<String, BTreeSet<String>> = HashMap::new();
 
@@ -63,13 +74,18 @@ pub fn build_spice(
     let mut total: usize = 0;
     for (inst, nodes) in &inst_nodes {
         let node_list: Vec<&String> = nodes.iter().collect();
-        let class = name_to_class.get(inst).map(|c| c.as_str()).unwrap_or(inst);
-        let prefix = spice_prefix_for_class(class);
+        let prefix = name_to_class
+            .get(inst)
+            .and_then(|class| refdes::prefix_for_class(class))
+            .unwrap_or(UNKNOWN_PREFIX);
+        // `inst` is the hierarchical path; the netlist reader is told the name
+        // the module itself uses.
+        let name = inst.rsplit('.').next().unwrap_or(inst);
         if node_list.len() >= 2 {
             out.push_str(&format!(
                 "{}{} {} {}\n",
                 prefix,
-                strip_anon_line(inst),
+                strip_anon_line(name),
                 node_list[0],
                 node_list[1]
             ));
@@ -93,28 +109,4 @@ fn strip_anon_line(name: &str) -> &str {
         }
     }
     name
-}
-
-fn spice_prefix_for_class(class: &str) -> String {
-    let up = class.to_uppercase();
-    if up.starts_with("RES") || up == "R" {
-        "R".into()
-    } else if up.starts_with("CAP") || up == "C" {
-        "C".into()
-    } else if up.starts_with("IND") || up == "L" {
-        "L".into()
-    } else if up.starts_with("DIO")
-        || up.starts_with("MOSFET")
-        || up.starts_with("MOS")
-        || up.starts_with("FET")
-        || up == "D"
-    {
-        "D".into()
-    } else {
-        let first = class.chars().next().unwrap_or('X').to_ascii_uppercase();
-        match first {
-            'R' | 'C' | 'L' | 'D' => first.to_string(),
-            _ => "X".into(),
-        }
-    }
 }
