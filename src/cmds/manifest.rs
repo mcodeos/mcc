@@ -271,6 +271,17 @@ pub fn find_project_root(target: Option<&str>) -> Option<PathBuf> {
     }
 }
 
+/// Effective target of a command run without one: the current directory when
+/// it holds a project manifest (`project.toml`), else `None`. Only the current
+/// directory counts, never an ancestor.
+pub fn effective_target(target: Option<&str>) -> Option<String> {
+    if let Some(t) = target {
+        return Some(t.to_string());
+    }
+    let cwd = std::env::current_dir().ok()?;
+    Manifest::find_in(&cwd).map(|_| cwd.to_string_lossy().to_string())
+}
+
 /// Shared initialization for all single-process local commands.
 ///
 /// Initializes the engine without the config-gated system library, sets the

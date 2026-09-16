@@ -201,9 +201,12 @@ fn run_local(args: &ShowArgs) -> Result<()> {
 /// manifest exists.
 ///
 /// The target path comes from `-F`, or from the positional argument for
-/// targets that take no entity name ([`target_path`]).
+/// targets that take no entity name ([`target_path`]). When neither is given,
+/// the current directory is the target if it holds a project manifest — for
+/// entity queries (`show component MCU`) as much as for name-less ones.
 fn prepare(args: &ShowArgs) {
-    let file_opt = target_path(args);
+    let file_opt = crate::cmds::manifest::effective_target(target_path(args));
+    let file_opt = file_opt.as_deref();
     crate::cmds::manifest::init_local(file_opt, &mcc::cli::globals().lib);
 
     if let Some(f) = file_opt {

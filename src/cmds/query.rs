@@ -53,11 +53,14 @@ pub fn run(args: &QueryArgs) -> Result<()> {
 }
 
 fn run_local(args: &QueryArgs) -> Result<()> {
-    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
+    // An omitted target defaults to the current directory when it holds a
+    // project manifest.
+    let target = manifest::effective_target(args.target.as_deref());
+    manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
     // Unified target loading: directory → project mode (manifest-driven,
     // browse fallback), file → loaded directly. The returned entry uri + top
     // drive `--kind net`'s Pass2 build.
-    let (entry_uri, manifest_top) = match &args.target {
+    let (entry_uri, manifest_top) = match &target {
         Some(target) => common::load_target(
             Some(target.as_str()),
             mcc::cli::globals().top.as_deref(),

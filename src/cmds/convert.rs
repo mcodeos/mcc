@@ -4,17 +4,19 @@
 
 //! `mcc convert` — Format conversion: mc → json / yaml (M5b).
 
+use crate::cmds::common;
 use crate::cmds::manifest;
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ConvertArgs};
-use mcc::McURI;
 use serde_json::Value;
-use std::path::Path;
 
 pub fn run(args: &ConvertArgs) -> Result<()> {
+    // An omitted target defaults to the current directory when it holds a
+    // project manifest.
+    let target = manifest::effective_target(args.file.as_deref());
     if let Some(c) = RpcClient::probe() {
         let params = serde_json::json!({
-            "entry": args.file,
+            "entry": target,
             "format": args.to,
         });
         match c.call("convert", params) {
@@ -25,20 +27,23 @@ pub fn run(args: &ConvertArgs) -> Result<()> {
             Err(e) => tracing::debug!(target: "mcc::convert", "RPC failed, using local: {}", e),
         }
     }
-    run_local(args)
+    run_local(args, target.as_deref())
 }
 
-fn run_local(args: &ConvertArgs) -> Result<()> {
-    manifest::init_local(Some(args.file.as_str()), &mcc::cli::globals().lib);
-
-    let path = Path::new(&args.file);
-    let uri = if path.is_absolute() {
-        McURI::from(path.to_string_lossy().as_ref())
-    } else {
-        let cwd = std::env::current_dir().unwrap_or_default();
-        McURI::from(cwd.join(path).to_string_lossy().as_ref())
+fn run_local(args: &ConvertArgs, target: Option<&str>) -> Result<()> {
+    let Some(target) = target else {
+        anyhow::bail!("convert: <target> not specified");
     };
-    mcc::mcc_load_project(&uri);
+
+    manifest::init_local(Some(target), &mcc::cli::globals().lib);
+
+    // A directory target resolves to its manifest's entry file, which is then
+    // loaded like an explicit file target.
+    let (source, _) = common::load_target(
+        Some(target),
+        mcc::cli::globals().top.as_deref(),
+        mcc::cli::globals().entry.as_deref(),
+    )?;
 
     // Collect parsed definitions
     let components: Vec<Value> = mcc::mcb_iter_components()
@@ -59,7 +64,7 @@ fn run_local(args: &ConvertArgs) -> Result<()> {
         .collect();
 
     let result = serde_json::json!({
-        "source": args.file,
+        "source": source,
         "definitions": {
             "components": components,
             "modules": modules,

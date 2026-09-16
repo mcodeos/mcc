@@ -30,10 +30,21 @@ pub fn run(args: &DefArgs) -> Result<()> {
 }
 
 fn run_local(args: &DefArgs) -> Result<()> {
-    crate::cmds::manifest::init_local(args.file.as_deref(), &mcc::cli::globals().lib);
-    if let Some(f) = &args.file {
-        let uri = McURI::from(f.as_str());
-        mcc::mcc_load_project(&uri);
+    // An omitted target defaults to the current directory when it holds a
+    // project manifest.
+    let file = crate::cmds::manifest::effective_target(args.file.as_deref());
+    crate::cmds::manifest::init_local(file.as_deref(), &mcc::cli::globals().lib);
+    if let Some(f) = file.as_deref() {
+        if std::path::Path::new(f).is_dir() {
+            crate::cmds::common::load_target(
+                Some(f),
+                mcc::cli::globals().top.as_deref(),
+                mcc::cli::globals().entry.as_deref(),
+            )?;
+        } else {
+            let uri = McURI::from(f);
+            mcc::mcc_load_project(&uri);
+        }
     }
 
     let name = &args.name;

@@ -31,8 +31,11 @@ use std::path::Path;
 
 pub fn run(args: &ExtractArgs) -> Result<()> {
     // Shared local initialization: engine + libs (global config, --lib, mcode
-    // default). Local-only since the merge — no RPC delegation.
-    manifest::init_local(args.file.as_deref(), &mcc::cli::globals().lib);
+    // default). Local-only since the merge — no RPC delegation. An omitted
+    // target defaults to the current directory when it holds a project
+    // manifest.
+    let target = manifest::effective_target(args.file.as_deref());
+    manifest::init_local(target.as_deref(), &mcc::cli::globals().lib);
 
     // components / interfaces operate on already-loaded libraries; no file required
     match args.target {
@@ -42,7 +45,7 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
     }
 
     // instances / nets require an entry
-    let file = match &args.file {
+    let file = match &target {
         Some(f) => f,
         None => {
             return emit_err(RpcError::invalid_params(
@@ -50,13 +53,17 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
             ))
         }
     };
-    let uri = McURI::from(file.as_str());
-    mcc::mcc_load_project(&uri);
+    let (entry_uri, _) = common::load_target(
+        Some(file.as_str()),
+        mcc::cli::globals().top.as_deref(),
+        mcc::cli::globals().entry.as_deref(),
+    )?;
+    let uri = McURI::from(entry_uri.as_str());
 
     // Top-module resolution: global --top → module declared in the entry →
     // first loaded module (identical chain to the old inline code, centralized
     // in cmds/common.rs).
-    let top_name = common::resolve_top_module(file, None);
+    let top_name = common::resolve_top_module(&entry_uri, None);
     let top_name = match top_name {
         Some(n) => n,
         None => {
