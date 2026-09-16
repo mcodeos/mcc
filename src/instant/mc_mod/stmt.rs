@@ -56,6 +56,14 @@ fn brace_plain(s: &str) -> &str {
 impl InstantiationBuilder {
     /// Process connection stmt - accepts McPhrase
     pub(super) fn process_stmt(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
+        // ── P0.4: FuncCall ids are numbered once per written statement, *before*
+        // the `(,)` expansion below — it clones the segments written outside the
+        // group, and a clone carries its id, so those clones share one
+        // `auto_inst_map` entry: one written ctor, one instance (§10.6). A ctor
+        // written inside a branch is its own AST node and keeps its own id.
+        let mut phrase = phrase.clone();
+        Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
+
         // ── §10.6: a `(,)` group is a STATEMENT LIST, not a shape — expand it
         // into the standalone statements it stands for before anything else
         // (`R101 - (s1, s2) + R106` ≡ `R101 - s1 + R106` / `R101 - s2 + R106`,
@@ -85,7 +93,7 @@ impl InstantiationBuilder {
         // If any FuncCall in the phrase references a class whose instantiation
         // already failed, skip the entire stmt to avoid ghost pins.
         if !self.failed_classes.is_empty()
-            && Self::phrase_contains_failed_class(phrase, &self.failed_classes)
+            && Self::phrase_contains_failed_class(&phrase, &self.failed_classes)
         {
             self.record_warning(
                 crate::errcodes::INST_STMT_SKIP_FAILED_CLASS,
@@ -94,13 +102,8 @@ impl InstantiationBuilder {
             return Ok(());
         }
 
-        // ── P0.4 follow-up: assign stable IDs before phrase_to_members clones ──
-        // assign_phrase_ids was defined but never called, causing all FuncCall.id
-        // to remain 0. Since auto_inst_map is keyed by member_key(f.id), all
-        // FuncCalls shared key=0, overwriting each other's entries.
-
-        let mut phrase = phrase.clone();
-        Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
+        // ── P0.4 follow-up: the phrase_to_members clones below reuse the ids the
+        // entry above assigned.
         // ★ M-1'-A (edge-level): `members` + `gaps` come from one gapped flatten.
         // `gaps[i]` is the operator direction connecting `members[i]`~`members[i+1]`
         // (nested-Series directions preserved; non-Series phrases are Undirected).

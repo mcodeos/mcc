@@ -84,7 +84,15 @@ impl InstantiationBuilder {
             // the `+` inside — so `(VCC + R1) -> GND` shorted `VCC↔GND` instead
             // of pairing `R1.2`. A multi-statement group is expanded at
             // statement level before the fold runs, so it cannot reach here.
-            McPhrase::Group(g) if g.opds.len() == 1 => self.vexpr_fold_member(&g.opds[0]),
+            //
+            // The see-through inherits the operand's own form: a bare `Label` /
+            // `List` / `Interface` inside the parentheses has no face of its own
+            // through the accessors, so it is re-read by name (`(VDD) -> R1`).
+            McPhrase::Group(g) if g.opds.len() == 1 => {
+                let inner = &g.opds[0];
+                let folded = self.vexpr_fold_member(inner)?;
+                self.vexpr_fold_named_form(inner, folded)
+            }
             McPhrase::Reversed(inner) => self.vexpr_fold_reversed(member, inner),
             McPhrase::Transposed(inner) => self.vexpr_fold_transposed(member, inner),
             McPhrase::Lead => self.vexpr_fold_lead(member),
@@ -252,16 +260,6 @@ impl InstantiationBuilder {
     /// [`Self::vexpr_fold_member`] — so a nested `+` exposes its *merged* port
     /// rather than `opds[0]` (r0 design §3.2 D1) — with the same empty-face
     /// normalization the internal wiring applies.
-    ///
-    /// A bare `Label` / `List` / `Interface` endpoint carries no side through
-    /// the raw accessors (`get_left_points` returns an empty face for it), so
-    /// its reduction is `Unknown` with both faces empty. Feeding that to
-    /// [`fold_parallel`] takes the left-anchored branch and returns **empty
-    /// faces**, which silently swallows the next series leg: `VDD + R1 -> GND`
-    /// would drop `R1.2↔GND` with no diagnostic. Normalizing the form to its
-    /// member view resolves it by name (the clone is harmless — these forms
-    /// resolve by name, not by pointer), while `FuncCall` / `Parallel` /
-    /// `Group` / `Node` keep their original reference.
     fn vexpr_fold_parallel_face(&mut self, opd: &McPhrase) -> Result<ConcreteOpd, InstError> {
         if let Some((left, right)) = self.vexpr_body_face(opd) {
             return Ok(ConcreteOpd::from_sides(left, right));
@@ -289,6 +287,31 @@ impl InstantiationBuilder {
             }
             return Ok(folded);
         }
+        self.vexpr_fold_named_form(opd, folded)
+    }
+
+    /// Re-read an operand whose reduction came out with **no face at all**
+    /// because the accessors cannot see its written form.
+    ///
+    /// A bare `Label` / `List` / `Interface` endpoint carries no side of its
+    /// own, so `get_left_points` / `get_right_points` return empty for it and
+    /// the fold reads an `Unknown` with both faces empty. That empty face then
+    /// silently swallows the next series leg: `VDD + R1 -> GND` dropped
+    /// `R1.2↔GND`, `(VDD) -> R1` dropped `VDD`. The member view resolves the
+    /// name instead (the clone is harmless — these forms resolve by name, not
+    /// by pointer), while `FuncCall` / `Parallel` / `Group` / `Node` keep their
+    /// original reference.
+    ///
+    /// A face that is still empty afterwards is kept: a name that resolves to
+    /// nothing is not a licence to invent one.
+    fn vexpr_fold_named_form(
+        &mut self,
+        opd: &McPhrase,
+        folded: ConcreteOpd,
+    ) -> Result<ConcreteOpd, InstError> {
+        if !folded.left.is_empty() || !folded.right.is_empty() {
+            return Ok(folded);
+        }
         if !matches!(
             opd,
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
@@ -302,8 +325,6 @@ impl InstantiationBuilder {
         let Some(p) = normalized.first() else {
             return Ok(folded);
         };
-        // Keep the empty result when the normalized view resolves no face
-        // either — an unresolvable name is not a licence to invent one.
         let retried = self.vexpr_fold_member(p)?;
         if retried.left.is_empty() && retried.right.is_empty() {
             return Ok(folded);
