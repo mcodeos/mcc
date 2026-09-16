@@ -323,15 +323,10 @@ impl McCode {
         let binding = self.uri.clone();
         let fname = Path::new(&binding);
 
-        // First reset, enable trace based on config (must be done before mcc_load)
-        let project_root = {
-            let meta = workspace::WORKSPACE.active_meta();
-            if !meta.id.is_empty() {
-                Some(meta.root.clone())
-            } else {
-                None
-            }
-        };
+        // First reset, enable trace based on config (must be done before mcc_load).
+        // The active world's root, or `None` when no project is open — the
+        // anonymous world has no root to scope config lookups to.
+        let project_root = workspace::WORKSPACE.active_root();
         let trace_flag = crate::cli::config::get_trace_flag(project_root.as_deref());
         // Exclude visit bit (0x08) to avoid mcc_parse() internally re-outputting the AST tree
         // visit output is controlled uniformly by Rust side explicitly calling
