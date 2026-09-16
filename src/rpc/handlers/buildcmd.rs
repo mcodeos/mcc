@@ -32,6 +32,7 @@ pub fn handle_build_full(params: Option<Value>) -> RpcResult {
         return run_full_build_envelope(
             &abs_entry,
             p.top.as_deref(),
+            &p.libs,
             "mcc build",
             "file",
             &id,
@@ -49,6 +50,7 @@ pub fn handle_build_full(params: Option<Value>) -> RpcResult {
     run_full_build_envelope(
         &entry_path,
         top.as_deref(),
+        &p.libs,
         "mcc build",
         "project",
         &id,
@@ -409,6 +411,7 @@ component RES
         let resp = run_full_build_envelope(
             &root,
             None,
+            &[],
             "mcc build",
             "file",
             "test",
@@ -472,6 +475,7 @@ component RES
         let resp = run_full_build_envelope(
             &root,
             None,
+            &[],
             "mcc build",
             "file",
             "test",
@@ -529,6 +533,7 @@ component RES
         let resp = run_full_build_envelope(
             &path,
             None,
+            &[],
             "mcc build",
             "file",
             "test",
@@ -570,6 +575,7 @@ component RES
         let resp = run_full_build_envelope(
             &path,
             None,
+            &[],
             "mcc build",
             "file",
             "test",

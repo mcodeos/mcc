@@ -202,6 +202,42 @@ pub struct Pass1Report {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+impl Pass1Report {
+    /// Fold `other`'s Pass 1 into this one, keeping the first sighting of each
+    /// definition, file and diagnostic.
+    ///
+    /// A directory is a container of definition spaces, each parsed in its own
+    /// world, and a file reached by two entries' `use` closures is parsed once
+    /// per world — so a folder's entries overlap, and joining them as they come
+    /// would list a shared file, and mcode with it, once per entry that reaches
+    /// it. The report is about the folder: a definition or a problem in a file
+    /// is one entry however many entries include that file.
+    pub fn merge(&mut self, other: Pass1Report) {
+        for f in other.loaded_files {
+            if !self.loaded_files.iter().any(|e| e.uri == f.uri) {
+                self.loaded_files.push(f);
+            }
+        }
+        let Pass1Report {
+            definitions, diagnostics, ..
+        } = other;
+        self.definitions.merge(definitions);
+        for d in diagnostics {
+            if !self.diagnostics.iter().any(|e| same_diagnostic(e, &d)) {
+                self.diagnostics.push(d);
+            }
+        }
+    }
+}
+
+/// Two diagnostics are the same problem when they say the same thing about the
+/// same place.
+pub fn same_diagnostic(a: &Diagnostic, b: &Diagnostic) -> bool {
+    a.code == b.code
+        && a.message == b.message
+        && a.location.as_ref().map(|l| (&l.file, l.pos)) == b.location.as_ref().map(|l| (&l.file, l.pos))
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LoadedFile {
     pub uri: String,
@@ -225,6 +261,40 @@ pub struct DefinitionsIndex {
     /// Module port definitions (psrc/psnk/psbi/io/in/out)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<PortRef>,
+}
+
+impl DefinitionsIndex {
+    /// Fold `other` in, keyed by `(name, uri)` — see [`Pass1Report::merge`].
+    pub fn merge(&mut self, other: DefinitionsIndex) {
+        let DefinitionsIndex {
+            modules,
+            components,
+            interfaces,
+            enums,
+            ports,
+        } = other;
+        for (into, from) in [
+            (&mut self.modules, modules),
+            (&mut self.components, components),
+            (&mut self.interfaces, interfaces),
+            (&mut self.enums, enums),
+        ] {
+            for r in from {
+                if !into.iter().any(|e| e.name == r.name && e.uri == r.uri) {
+                    into.push(r);
+                }
+            }
+        }
+        for p in ports {
+            if !self
+                .ports
+                .iter()
+                .any(|e| e.name == p.name && e.uri == p.uri && e.module == p.module)
+            {
+                self.ports.push(p);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -507,5 +577,77 @@ mod tests {
         assert!(v.get("pass1").is_some());
         assert!(v.get("pass2").is_some());
         assert!(v["pass1"].get("pass2").is_none());
+    }
+
+    /// One file, one row — however many entries of a directory batch reach it.
+    ///
+    /// The batch parses each entry in its own world, so a file pulled in by two
+    /// `use` closures is parsed twice and diagnosed twice. The report is about
+    /// the *folder*, which is the caller's unit; folding per-world reports is
+    /// therefore a keyed union and not a concatenation, or every shared file and
+    /// every library file would appear once per entry.
+    #[test]
+    fn cli_envelope__merge_folds_a_shared_file_into_one_row() {
+        fn world(uri: &str) -> Pass1Report {
+            let diag = Diagnostic {
+                phase: Phase::Pass1,
+                severity: Severity::Warning,
+                code: mcc::errcodes::INST_CLASS_UNRESOLVED,
+                message: "no such class".into(),
+                location: Some(DiagLocation {
+                    file: uri.into(),
+                    line: 4,
+                    column: 5,
+                    end_line: None,
+                    end_column: None,
+                    pos: 42,
+                    len: 7,
+                }),
+                suggestions: vec![],
+                related: vec![],
+            };
+            Pass1Report {
+                loaded_files: vec![LoadedFile {
+                    uri: uri.into(),
+                    is_system: false,
+                    modules: vec!["SHARED".into()],
+                    components: vec![],
+                    interfaces: vec![],
+                    enums: vec![],
+                }],
+                definitions: DefinitionsIndex {
+                    modules: vec![DefinitionRef {
+                        name: "SHARED".into(),
+                        uri: uri.into(),
+                    }],
+                    ..Default::default()
+                },
+                diagnostics: vec![diag],
+            }
+        }
+
+        let mut merged = world("/p/shared.mc");
+        merged.merge(world("/p/shared.mc"));
+        assert_eq!(
+            merged.loaded_files.len(),
+            1,
+            "a file two entries reached is one file"
+        );
+        assert_eq!(
+            merged.definitions.modules.len(),
+            1,
+            "and its definitions are its own, listed once"
+        );
+        assert_eq!(
+            merged.diagnostics.len(),
+            1,
+            "and its problem is one problem, not one per entry that reached it"
+        );
+
+        // A genuinely different file is a different row.
+        merged.merge(world("/p/other.mc"));
+        assert_eq!(merged.loaded_files.len(), 2);
+        assert_eq!(merged.definitions.modules.len(), 2);
+        assert_eq!(merged.diagnostics.len(), 2);
     }
 }
