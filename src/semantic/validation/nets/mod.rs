@@ -57,6 +57,14 @@ mod reach;
 mod protect;
 pub(crate) use protect::{check_protect_series_path, check_protect_shunt_reference};
 
+// PWR-4b package dissipation (package-thermal-design.md §3). thermal.rs is a
+// sibling leaf like protect.rs: the 6035 owner reads the two quantities the
+// flat entry carries (`resistance_ohm` / `power_rated_w`, decoded from the
+// instance's resolved spec values), the net roles NetIslandIndex declares, and
+// the rail window WindowDeriv resolves — no solver, no new syntax.
+mod thermal;
+pub(crate) use thermal::check_shunt_dissipation;
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`

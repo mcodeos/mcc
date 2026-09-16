@@ -13,7 +13,7 @@ use crate::instant::insttab::InstOrigin;
 use crate::semantic::basic::mc_conds::{CondDefCtx, McConds};
 use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue, ParamBindError};
-use crate::semantic::basic::mc_paramd::McParamDeclareKind;
+use crate::semantic::basic::mc_paramd::{McParamDeclare, McParamDeclareKind};
 use crate::semantic::common::IOType;
 use crate::semantic::component::McComponent;
 use std::collections::{BTreeSet, HashMap};
@@ -93,6 +93,16 @@ pub struct McComponentInst {
     /// instance cannot position the diagnostic: it carries the failure out and
     /// the consumer that holds the declaration site reports it there.
     pub cond_eval_errors: Vec<eval::EvalError>,
+}
+
+/// Does the formal answer to `name` in a body reference? A unit-value formal
+/// (`rs::UV.OHM`) is named there too, which `match_name` alone does not cover.
+fn formal_answers_to(declare: &McParamDeclare, name: &str) -> bool {
+    declare.match_name(name)
+        || matches!(
+            &declare.kind,
+            McParamDeclareKind::UValue(uval) if uval.name.match_name(name)
+        )
 }
 
 impl McComponentInst {
@@ -521,7 +531,7 @@ impl McComponentInst {
     fn lookup_param_value(&self, name: &str) -> Option<String> {
         // 1. Check instance parameter bindings
         for binding in self.params.iter() {
-            if binding.declare.match_name(name) {
+            if formal_answers_to(&binding.declare, name) {
                 if let Some(value) = binding.get_value() {
                     return Some(format!("{value}"));
                 }

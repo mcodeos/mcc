@@ -1685,6 +1685,24 @@ pub const PROTECT_SHUNT_NO_REFERENCE: u32 = 6032;
 /// sits on) is deferred — §6 R4 owns it.
 pub const PROTECT_SERIES_NOT_IN_PATH: u32 = 6033;
 
+/// PWR-4b (package-thermal-design.md §3, ruled 2026-09-16): the package's own
+/// dissipation ceiling against the power the element actually dissipates in
+/// place. Only the **shunt** form is judged: an element whose declared class is
+/// resistive (`spec.resistance`, the ledger's dissipating certificate), two
+/// terminals on two different nets, exactly one leg on a declared rail hot face
+/// and the other on that rail's return / a reference — the rail window across
+/// it is then a *declared* value, so `P = V^2/R` needs no solver. The worst
+/// corner (`max(|lo|, |hi|)`) is used, and the declared rating is compared
+/// as-is: the design's `derating_factor` stays 1.0 (rail-contract-design.md
+/// §8.6, the same ruling that keeps a derate multiplier out of the budget
+/// axis). A series pass element is **not** judged — the engine reads a
+/// two-terminal device with no DC row as current-transparent copper, so both
+/// its legs carry one window and neither `V` across it nor a per-element
+/// current exists (design §3.2 R2). Advisory Warning: the verdict compares two
+/// declarations rather than a topology violation, and the far corner of the
+/// window is deliberately the conservative one.
+pub const SHUNT_DISSIPATION_OVER_RATING: u32 = 6035;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -2104,6 +2122,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(EXPOSED_NET_NO_CLAMP, "An @exposed port's net carries no declared clamp onto a protective/earth reference.", "port '{0}' declares @exposed({1}) but net '{2}' carries no clamp onto a protective/earth reference — an exposed net is at the board's transient boundary, so a device on it must have its dump leg on a @role(protective)/@role(earth) conduit that the same scope declares @clamp(<ref>) on: add the clamp (an ESD array channel onto the protective island), or drop the @exposed when the port is not at the transient boundary (exposed-protection-design.md §3, PWR-6)"),
     entry!(PROTECT_SHUNT_NO_REFERENCE, "A class declaring protect = shunt has no leg on a protective/earth reference.", "component '{0}' declares protect = shunt in its definition body but no leg of it lands on a reference its scope declares @role(protective)/@role(earth) (its legs carry {1}) — a shunt protection device must be able to dump the transient it exists for, so route one of its legs to the protective island, or drop the declaration when the device is not a shunt protection element (exposed-protection-design.md §4, PWR-5)"),
     entry!(PROTECT_SERIES_NOT_IN_PATH, "A class declaring protect = series is not a two-terminal element on a supply path.", "component '{0}' declares protect = series in its definition body but {1} — a series protection element (fuse/PTC) must carry the supply through itself, so it has to be a two-terminal device whose ends sit on two different nets, both on a supply tree. Put it in series on the path it protects instead of bypassing it or leaving an end off the supply tree (exposed-protection-design.md §4, PWR-5)"),
+    entry!(SHUNT_DISSIPATION_OVER_RATING, "A shunt element's dissipation at the rail window's worst corner exceeds its declared package rating.", "shunt '{0}' dissipates {1} W at the rail window's worst corner ({2} V across {3}), above its declared power_rated {4} W: raise the resistance, use a package rated for more, or narrow the rail window (series pass elements are not judged — package-thermal-design.md §3.2)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
