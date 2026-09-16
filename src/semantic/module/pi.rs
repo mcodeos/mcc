@@ -75,6 +75,15 @@ pub struct McPowerDecls {
     /// [`McPowerDecls::ports`] — `l1_ports()` is the stable JSON identity view
     /// and must not see power rows.
     pub pwr_ports: Vec<McPortPwr>,
+
+    /// Written `[hot, ret]` pair of every module-body port row carrying a
+    /// `::DC(…)` contract, whatever its direction word (`in [VDD_3V3, GND]::DC(3.3V)`
+    /// as well as `psnk …`). [`Self::pwr_ports`] holds the same rows only for the
+    /// `psrc/psnk/psbi` budget face; this one exists for the **identity**
+    /// question — "did this scope declare this name?" — which has to hold for
+    /// every spelling of a DC port row, since a bare reference to such a member
+    /// is a declared reference and not a dangling label.
+    pub dc_port_pairs: Vec<(String, Option<String>)>,
 }
 
 impl McPowerDecls {
@@ -118,6 +127,13 @@ impl McPowerDecls {
     /// (identity rows). The flatten layer keeps only the written pair on the
     /// `PortInst`; this keeps the full `::DC` contract (capacity / eff).
     pub fn parse_port_pwr(&mut self, node: &AstNode) {
+        // Identity face: every `::DC` port row, any direction word.
+        if let Some(head) = node.get_sub_node() {
+            if let Some(pair) = dc_port_members(&head) {
+                self.dc_port_pairs.push(pair);
+            }
+        }
+        // Budget face: the `psrc/psnk/psbi` rows, with their ctor params.
         if let Some(p) = McPortPwr::from_node(node) {
             self.pwr_ports.push(p);
         }
@@ -634,35 +650,12 @@ impl McPortPwr {
 
         // The `::DC(params)` contract (only the DC axis decodes here — AC/nature
         // port contracts belong to the later AC-axis step, as with component pins).
-        let declare = head.iter().find(|c| c.get_type() == MCAST_DECLARE)?;
-        let mut iface = String::new();
-        let mut params = Vec::new();
-        if let Some(class) = child_of_type(&declare, MCAST_CLASS) {
-            if let Some(ch) = class.get_sub_node() {
-                for c in ch.iter() {
-                    if c.is_type(MCAST_IDS) {
-                        iface = id_text(&c)?;
-                    } else if c.is_type(MCAST_PARAMS) {
-                        params = read_params(&c);
-                    }
-                }
-            }
-        }
+        let (iface, params) = dc_declare(&head)?;
         if iface != "DC" {
             return None;
         }
 
-        // Written hot/ret member labels from the name side (curly `NAME{h,r}` or
-        // bracket `[h, r]`), in source order.
-        let mut members = Vec::new();
-        for c in head.iter() {
-            collect_member_labels(&c, &mut members);
-            if members.len() >= 2 {
-                break;
-            }
-        }
-        let hot = members.first()?.clone();
-        let ret = members.get(1).cloned();
+        let (hot, ret) = dc_port_members(&head)?;
 
         Some(Self {
             dir,
@@ -672,6 +665,53 @@ impl McPortPwr {
             span: clause_span(node),
         })
     }
+}
+
+/// The `::DC` tail of a port row's declare, decoded as `(iface, ctor params)`.
+fn dc_declare(head: &AstNode) -> Option<(String, Vec<McRailParam>)> {
+    let declare = head.iter().find(|c| c.get_type() == MCAST_DECLARE)?;
+    let mut iface = String::new();
+    let mut params = Vec::new();
+    if let Some(class) = child_of_type(&declare, MCAST_CLASS) {
+        if let Some(ch) = class.get_sub_node() {
+            for c in ch.iter() {
+                if c.is_type(MCAST_IDS) {
+                    iface = id_text(&c)?;
+                } else if c.is_type(MCAST_PARAMS) {
+                    params = read_params(&c);
+                }
+            }
+        }
+    }
+    Some((iface, params))
+}
+
+/// The written `[hot, ret]` pair of a module port row that carries a `::DC(…)`
+/// contract — first member is the supply face, the second the return, in source
+/// order (the same positional rule the flat layer's `dc_pair` uses). `None` for
+/// a row with no declare, a non-`DC` iface, or no written member.
+///
+/// Independent of the row's direction word on purpose. `McPortPwr` above is the
+/// **budget face** (`psrc/psnk/psbi` only); this is the **identity face**: it
+/// answers "which names does this scope declare as DC members?" for the rows the
+/// corpus actually writes in a module body —
+/// `in [VDD_3V3, GND]::DC(3.3V)` declares both names just as
+/// `psnk [VDD_3V3, GND]::DC(3.3V)` does.
+fn dc_port_members(head: &AstNode) -> Option<(String, Option<String>)> {
+    let (iface, _) = dc_declare(head)?;
+    if iface != "DC" {
+        return None;
+    }
+    let mut members = Vec::new();
+    for c in head.iter() {
+        collect_member_labels(&c, &mut members);
+        if members.len() >= 2 {
+            break;
+        }
+    }
+    let hot = members.first()?.clone();
+    let ret = members.get(1).cloned();
+    Some((hot, ret))
 }
 
 /// Collect written member labels from the first curly-bus / square-vector group

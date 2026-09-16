@@ -16,5 +16,6 @@ pub(crate) mod mc_inst;
 pub(crate) mod module;
 pub(crate) mod nc_pin;
 pub(crate) mod opcheck;
+pub mod pwrid;
 pub(crate) mod scope;
 pub mod validation;

@@ -49,7 +49,7 @@ use crate::instant::inststore::{InstanceStore, NodeInstance, TreeView};
 use crate::instant::mc_bus::McBusInst;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{
-    is_ground_name, ConnectionInst, InstDiagnostic, InstError, NetPoint, NetTable, PortInst,
+    ConnectionInst, InstDiagnostic, InstError, NetPoint, NetTable, PortInst,
 };
 use crate::instant::nettab::NetTableStore;
 use crate::instant::overlays::ModuleOverlay;
@@ -57,6 +57,7 @@ use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_param::McParamBindings;
 use crate::semantic::common::{McCMIE, SourcePos};
 use crate::semantic::mc_func::McFunction;
+use crate::semantic::pwrid::DeclaredFaces;
 use crate::semantic::validation::ledger::{self, LedgerAction, LedgerEntry, LedgerKind};
 use crate::vector::model::trunk::TrunkKind;
 use crate::{current_uri, McIds};
@@ -1344,6 +1345,28 @@ impl InstantiationBuilder {
         for sub in self.submodules_view() {
             let prefix = format!("{}.", sub.name);
             let sub_path = self.child_path(&sub.name);
+            // What this sub-module **declares** to be a return: its own
+            // power-intent declarations, plus the pin declarations of every
+            // component it instantiates directly (`vin.GND` is the `GND`
+            // member of the component instance `vin`, whose `pins.pwr` writes
+            // `[VCC, GND]::DC(5V)`).
+            //
+            // The former criterion was the **spelling** of the leaf
+            // (`is_ground_name`: `GND`, `VSS`, `AGND`, `DGND`, `PGND`, and any
+            // `GND*`/`VSS*` prefix, case-folded). World-axioms §1 A1 rules that
+            // out — a name means something only because someone declared it —
+            // and it made the tie depend on what the author called the net.
+            let sub_faces = DeclaredFaces::of_module(&sub.def.pi);
+            let inst_faces: Vec<(String, DeclaredFaces)> = self
+                .identity
+                .node_id_of(&sub_path)
+                .map(|sid| {
+                    self.components_of(sid)
+                        .iter()
+                        .map(|c| (c.name.clone(), DeclaredFaces::of_pins(&c.def.pins)))
+                        .collect()
+                })
+                .unwrap_or_default();
             let store_ref = self.net_store.borrow();
             let Some(sub_table) = store_ref.get(&sub_path) else {
                 continue;
@@ -1351,11 +1374,11 @@ impl InstantiationBuilder {
             for (_, pts) in sub_table {
                 let mut grounds: Vec<&str> = Vec::new();
                 for p in pts {
-                    // Boundary ground point = the sub-module's own port
-                    // member / label (owner None), leaf classified as ground.
-                    if p.owner.is_none() {
-                        let leaf = p.path.rsplit('.').next().unwrap_or(&p.path);
-                        if is_ground_name(leaf) && !grounds.contains(&p.path.as_str()) {
+                    // Boundary return point = the sub-module's own port
+                    // member / label (owner None) that a declaration wrote on
+                    // the return face.
+                    if p.owner.is_none() && boundary_return(&p.path, &sub_faces, &sub.ports, &inst_faces) {
+                        if !grounds.contains(&p.path.as_str()) {
                             grounds.push(&p.path);
                         }
                     }
@@ -1514,4 +1537,38 @@ fn resume_tree(
         }
         resume_tree(registry, &sub_path, sub, view);
     }
+}
+
+/// Is the sub-module boundary point `path` a **declared return**?
+///
+/// Three shapes, each answered from a declaration and matched by exact string
+/// equality ([world-axioms §1 A1]: the spelling alone decides nothing):
+///   * `<port>.<member>` — a port of the sub-module whose `::DC` contract
+///     declares that member on its return face (`vout.GND`, where
+///     `out vout::DC(3.3V)` takes its pair from the `DC` interface's own
+///     declared pin order);
+///   * `<instance>.<member>` — a component the sub-module instantiates, whose
+///     `pins.pwr` row writes that member second (`vin.GND` for
+///     `[VCC, GND]::DC(5V)`);
+///   * a bare name — only the sub-module's own power-intent declarations
+///     (a rail's `ret`, a power-port row, a `conduit`) can make it one.
+fn boundary_return(
+    path: &str,
+    sub_faces: &DeclaredFaces,
+    sub_ports: &[PortInst],
+    inst_faces: &[(String, DeclaredFaces)],
+) -> bool {
+    let Some((owner, member)) = path.rsplit_once('.') else {
+        return sub_faces.declares_ret(path);
+    };
+    let declared_by_port = sub_ports.iter().any(|p| {
+        p.name == owner
+            && p.dc_pair
+                .as_ref()
+                .is_some_and(|(_, ret)| ret.as_str() == member)
+    });
+    declared_by_port
+        || inst_faces
+            .iter()
+            .any(|(name, faces)| name == owner && faces.declares_ret(member))
 }

@@ -5,13 +5,14 @@
 //! Hardware-specific validation checks.
 //!
 //! Checks:
-//!   HW1 — Power pin (VCC/VDD/GND/VSS) without voltage/power attributes
+//!   HW1 — Declared power pin without a voltage/power declaration
 //!   HW2 — Pin ID gaps in component pin definitions
 //!   HW3 — Pin count extremes (too many or too few)
 //!   HW5 — Interface role with dangling peer reference
 //!   HW6 — Component with only single-type IO pins (all inputs, all outputs)
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
+use crate::semantic::pwrid::{self, DeclaredFaces, Face};
 use std::collections::HashSet;
 
 pub struct HwCheck;
@@ -39,18 +40,6 @@ impl ValidationCheck for HwCheck {
 
 // HW1: Power pin without voltage/power attributes
 
-/// Components with VCC, VDD, VSS, GND, or similar power pin names should have
-/// voltage-related attributes (e.g., `voltage`, `vcc`, `vdd`, `power`) or a
-/// voltage-typed parameter to document the expected operating voltage.
-pub(crate) const POWER_PIN_NAMES: &[&str] = &[
-    "VCC", "VDD", "VSS", "GND", "VEE", "VPP", "VBAT", "VIN", "VOUT", "VREF", "VCORE", "VAA",
-    "VDDA", "VSSA", "VBUS", "VSYS",
-];
-
-/// Ground-only power pins. A component whose only power-related pins are
-/// ground pins has no supply rail to document, so HW1 does not flag it.
-const GROUND_PIN_NAMES: &[&str] = &["GND", "GNDA", "VSS", "VSSA"];
-
 fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
     let comps = crate::definition_space().workspace_components();
     for (sn, comp) in comps.iter() {
@@ -59,27 +48,27 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             continue;
         }
 
-        // Unified power-pin collection: a pin is a supply pin when it is
-        // power-*typed* (`psnk`/Power) or power-*named* (VCC/VREF/GND/…). Both
-        // axes describe the same supply-rail concept, so they are handled by a
-        // single rule (POWER_PIN_NO_VOLTAGE) instead of two overlapping checks.
-        // Display name prefers a power keyword, else the pin's first name.
+        // Unified power-pin collection: a pin is a power-face pin when its own
+        // **declaration** says so — a `psrc/psnk/psbi … ::DC(…)` row that names
+        // it, or its own direction word (`IOType::Power`). The former test also
+        // accepted a list of spellings (`VCC`, `VDD`, `GND`, `VSS`, `VREF`, …),
+        // so the hint fired on what the author happened to call the pin
+        // (world-axioms §1 A1). The display name is the spelling the declaration
+        // wrote, else the pin's first name.
+        let declared = DeclaredFaces::of_pins(&comp.pins);
         let power_pins: Vec<(String, String)> = comp
             .pins
             .pins
             .iter()
             .filter(|(_, pin)| {
-                let named = pin
-                    .names
-                    .iter()
-                    .any(|n| POWER_PIN_NAMES.iter().any(|pn| n == pn));
-                named || matches!(pin.iotype, crate::IOType::Power)
+                matches!(pin.iotype, crate::IOType::Power)
+                    || pin.names.iter().any(|n| declared.declares(n))
             })
             .map(|(pin_id, pin)| {
                 let name = pin
                     .names
                     .iter()
-                    .find(|n| POWER_PIN_NAMES.iter().any(|pn| n == pn))
+                    .find(|n| declared.declares(n))
                     .or_else(|| pin.names.first())
                     .cloned()
                     .unwrap_or_else(|| pin_id.clone());
@@ -91,12 +80,20 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             continue;
         }
 
-        // GND-only passives: a component whose only power-related pins are
-        // ground pins (GND/VSS) has no supply rail to document, so the
-        // voltage-attribute hint does not apply (e.g. passive mics/speakers).
-        let has_supply_pin = power_pins
-            .iter()
-            .any(|(_, name)| !GROUND_PIN_NAMES.iter().any(|g| name == g));
+        // GND-only passives: a component whose power faces are all **returns**
+        // has no supply rail to document, so the voltage-attribute hint does not
+        // apply (e.g. passive mics/speakers). The former test compared the pin's
+        // display name against a ground word list (`GROUND_PIN_NAMES`).
+        let has_supply_pin = comp.pins.pins.values().any(|pin| {
+            let names: Vec<&str> = pin.names.iter().map(|n| n.as_str()).collect();
+            match pwrid::member_of_names(&comp.pins, &names) {
+                Some(m) => m.face == Face::Hot,
+                // No `::DC` row names this pin: its own direction word is the
+                // only declaration there is, and a `psrc/psnk/psbi` row is a
+                // power terminal, not a return.
+                None => matches!(pin.iotype, crate::IOType::Power),
+            }
+        });
         if !has_supply_pin {
             continue;
         }
@@ -124,29 +121,22 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             )
         });
 
-        // Check if any interface binding provides voltage info (e.g. ::DC(3.3V)).
-        // The member ids (`iface.name`, e.g. `[VDD, GND]` or `vin{POWER_SYS, GND}`)
-        // may not carry the class name, so also test the interface class
-        // (`iface.base.name`, e.g. `DC` for `[VDD, GND]::DC()`).
+        // Check if any interface binding provides voltage info. The evidence is
+        // a **Volt-typed** argument in the binding (`[VDD, GND]::DC(3.3V)`),
+        // never the binding's name: the old test also matched
+        // `contains("dc")` / `contains("power")` / `contains("supply")` on the
+        // interface spelling (lower-cased), so a class merely *called* `DC`
+        // satisfied the hint with no voltage written anywhere (world-axioms §1
+        // A1). `has_pwr_contract` below already covers the `pins.pwr` spelling
+        // of the same fact.
         let has_voltage_iface = comp.pins.names_to_id.values().any(|port| {
             if let crate::semantic::component::mc_pins::McPinPort::Interface(ref iface) = port {
-                let iname = iface.name.to_string().to_lowercase();
-                let cname = iface.base.name.to_string().to_lowercase();
-                if iname.contains("dc")
-                    || iname.contains("power")
-                    || iname.contains("supply")
-                    || cname.contains("dc")
-                    || cname.contains("power")
-                    || cname.contains("supply")
-                {
-                    return true;
-                }
                 return iface.params.iter().any(|p| {
-                    if let crate::semantic::basic::mc_param::McParamValue::UValue(uv) = p {
-                        matches!(uv.unit(), crate::semantic::basic::mc_uval::McUnit::Volt)
-                    } else {
-                        false
-                    }
+                    matches!(
+                        p,
+                        crate::semantic::basic::mc_param::McParamValue::UValue(uv)
+                            if matches!(uv.unit(), crate::semantic::basic::mc_uval::McUnit::Volt)
+                    )
                 });
             }
             false

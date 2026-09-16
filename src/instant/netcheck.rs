@@ -58,7 +58,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 
-use super::insttab::{InstKind, InstTable};
+use super::insttab::{InstEntry, InstKind, InstTable};
+use crate::semantic::pwrid::Face;
 use crate::semantic::validation::finding::CheckFinding;
 use crate::semantic::validation::CheckSeverity;
 
@@ -496,75 +497,6 @@ fn owner_path(path: &str) -> Option<&str> {
     }
 }
 
-/// Whether the name looks like ground
-fn is_ground_name(s: &str) -> bool {
-    let u = leaf(s).to_uppercase();
-    matches!(
-        u.as_str(),
-        "GND" | "AGND" | "DGND" | "PGND" | "VSS" | "GROUND" | "EARTH"
-    )
-}
-
-/// Whether the name looks like a supply (ground excluded)
-fn is_supply_name(s: &str) -> bool {
-    let u = leaf(s).to_uppercase();
-    if is_ground_name(&u) {
-        return false;
-    }
-    const EXACT: &[&str] = &[
-        "VCC",
-        "VDD",
-        "VBUS",
-        "VPP",
-        "AVDD",
-        "DVDD",
-        "POWER_SYS",
-        "VBAT",
-        "VIN",
-        "VOUT",
-    ];
-    if EXACT.contains(&u.as_str()) {
-        return true;
-    }
-    if ["VCC", "VDD", "AVDD", "DVDD", "VBUS", "VBAT"]
-        .iter()
-        .any(|p| u.starts_with(p))
-    {
-        return true;
-    }
-    // Names like 3V3 / 5V0 / 1V2 / V3V3 / V5V
-    let bytes = u.as_bytes();
-    let digits = bytes.iter().filter(|b| b.is_ascii_digit()).count();
-    if u.contains('V') && digits >= 1 && u.len() <= 8 {
-        // Exclude plain pin names (VO1 / VO2 style amplifier outputs)
-        if !u.starts_with("VO") {
-            return true;
-        }
-    }
-    false
-}
-
-/// Normalized identity of a power net, used by R11 (a same-named power rail should not have two
-/// nets)
-///
-/// Strict DC rail identity
-/// The identity preserves the OWNER path of the member and only normalizes the
-/// leaf case: `main.va.GND` and `main.vb.GND` are DIFFERENT rails (different
-/// DC inputs may carry different grounds), while a bare single-segment `GND`
-/// stays the module-level label identity `"GND"`. This lets R11 flag a
-/// genuinely split rail (same owner path, multiple nets) without flagging two
-/// independent DC rails as one.
-fn rail_identity(s: &str) -> Option<String> {
-    let l = leaf(s);
-    if is_ground_name(l) || is_supply_name(l) {
-        // Preserve the owner prefix (strict rail identity), normalize only the leaf case
-        let owner = s.strip_suffix(l).unwrap_or("");
-        Some(format!("{owner}{}", l.to_uppercase()))
-    } else {
-        None
-    }
-}
-
 // R01 · unexpanded vector reference
 
 /// ★ R01-e: check whether a literal path is a pure boundary port declaration.
@@ -784,6 +716,14 @@ fn check_r02_short_passive(table: &InstTable, idx: &Index, rep: &mut Report) {
 }
 
 // R03 / R04 / R06 · semantic conflicts inside a net
+//
+// "Is this endpoint a supply / a return?" is answered only from the
+// **declaration the author wrote** — a `::DC(hot, ret)` contract on the owning
+// pin / port row, a declared rail, a `conduit`. The former
+// `is_ground_name` / `is_supply_name` word tables are retired (U55): per
+// world-axioms §1 A1 a name's spelling promises nothing about the copper, so a
+// rule may not read `GND` as a ground; it may only read a **declared** `GND` as
+// one. An endpoint nothing declares carries no face, and no rule exempts it.
 
 fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
     set_scanned(rep, "R03", table.net_count());
@@ -808,12 +748,20 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
             };
             let l = leaf(&e.path);
 
-            if is_ground_name(l) {
-                grounds.insert(l.to_uppercase());
-                has_rail = true;
-            } else if is_supply_name(l) {
-                supplies.insert(l.to_uppercase());
-                has_rail = true;
+            // The declared face, spelled as the declaration spelled it — no
+            // case folding, no leaf extraction (U49: name equality is exact
+            // string equality).
+            match e.power_face() {
+                Some(Face::Ret) => {
+                    grounds.insert(e.power_spelling().unwrap_or(l).to_string());
+                    has_rail = true;
+                }
+                Some(Face::Hot) => {
+                    supplies.insert(e.power_spelling().unwrap_or(l).to_string());
+                    has_rail = true;
+                }
+                Some(Face::Copper) => has_rail = true,
+                None => {}
             }
 
             // Bus member: for `X.MIC.P`, the prefix is `X.MIC` and the member is `P`.
@@ -1122,15 +1070,11 @@ fn check_r09_floating_power(table: &InstTable, idx: &Index, rep: &mut Report) {
     let mut scanned = 0usize;
     for comp in table.get_components() {
         for pin in table.get_pins_of(comp.id) {
-            let name = leaf(&pin.path);
-            // Pin-number forms ("1"/"2") carry no semantics, so fall back to the functional name in
-            // class_name
-            let fname = pin.class_name.trim();
-            let is_pwr = is_ground_name(name)
-                || is_supply_name(name)
-                || is_ground_name(fname)
-                || is_supply_name(fname);
-            if !is_pwr {
+            // A pin is a power pin when its own row declared a face for it (a
+            // `[VDD, GND]::DC(…)` contract, or a bare `psrc/psnk/psbi` direction
+            // word). Nothing else can make it one — in particular not the
+            // spelling of its name.
+            if pin.power_face().is_none() {
                 continue;
             }
             scanned += 1;
@@ -1215,6 +1159,19 @@ fn check_r10_conservation(
 
 // R11 · same-name power net split into multiple nets (bucketed by rail_identity)
 
+/// The identity R11 buckets by, for an entry that may carry it: only a declared
+/// **supply** face or declared identity copper (`conduit`, the copper an author
+/// explicitly registered as one net) takes part. A declared return is left out
+/// on purpose — the netlist decomposes a return into local ground nets by
+/// design (identity-design §3.1), so a same-return split is the documented
+/// shape, not a fault.
+fn split_rail_identity(e: &InstEntry) -> Option<String> {
+    match e.power_face() {
+        Some(Face::Hot) | Some(Face::Copper) => e.rail_identity(),
+        _ => None,
+    }
+}
+
 fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
     // rail_identity → the nets where this identity appears
     let mut buckets: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
@@ -1224,7 +1181,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
         let mut ids: BTreeSet<String> = BTreeSet::new();
         for p in &net.points {
             if let Some(e) = table.get_entry(*p) {
-                if let Some(rid) = rail_identity(&e.path) {
+                if let Some(rid) = split_rail_identity(e) {
                     ids.insert(rid);
                 }
             }
@@ -1280,7 +1237,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
     for m in table.get_modules() {
         // 1) explicit ports (Port)
         for port in table.get_ports_of(m.id) {
-            if let Some(rid) = rail_identity(&port.path) {
+            if let Some(rid) = split_rail_identity(port) {
                 module_port_rails
                     .entry(m.id)
                     .or_default()
@@ -1295,7 +1252,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
             match child.kind {
                 InstKind::Bus => {
                     for grandchild in table.children_of(child.id) {
-                        if let Some(rid) = rail_identity(&grandchild.path) {
+                        if let Some(rid) = split_rail_identity(grandchild) {
                             module_port_rails
                                 .entry(m.id)
                                 .or_default()
@@ -1307,7 +1264,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
                 }
                 InstKind::Label => {
                     // 3) direct Label children (e.g. main.GND, main.mcu.GND)
-                    if let Some(rid) = rail_identity(&child.path) {
+                    if let Some(rid) = split_rail_identity(child) {
                         module_port_rails
                             .entry(m.id)
                             .or_default()
@@ -1443,13 +1400,9 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
 
     for (mod_name, rid_buckets) in &module_buckets {
         for (rid, nets) in rid_buckets {
-            // ★ Ground exemption: the netlist deliberately decomposes the GND
-            // rail into local ground nets (per writing line + reference form),
-            // so a same-name GND split is expected — do not flag it. All other
-            // power rails (VCC/VDD/...) stay strictly checked.
-            if rid == "GND" {
-                continue;
-            }
+            // Returns never reach this bucket: [`split_rail_identity`] admits
+            // only declared supply faces and declared identity copper, so the
+            // bucket key is the declaration's own face, not a name.
             let mut groups: BTreeSet<u32> = BTreeSet::new();
             for nid in nets {
                 groups.insert(uf_find(&mut uf, *nid));
@@ -1633,6 +1586,7 @@ fn check_r05_unresolved_unit(rep: &mut Report) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::semantic::pwrid::DeclaredMember;
 
     #[test]
     fn dlu_netcheck__leaf_works() {
@@ -1649,35 +1603,110 @@ mod tests {
         assert_eq!(owner_path("GND"), None);
     }
 
-    #[test]
-    fn dlu_netcheck__rail_names() {
-        assert!(is_ground_name("GND"));
-        assert!(is_ground_name("main.x.VSS"));
-        assert!(!is_ground_name("VDD"));
-
-        assert!(is_supply_name("VDD_3V3"));
-        assert!(is_supply_name("V3V3"));
-        assert!(is_supply_name("VCC_1V2"));
-        assert!(is_supply_name("POWER_SYS"));
-        // Amplifier outputs do not count as supplies
-        assert!(!is_supply_name("VO1"));
-        assert!(!is_supply_name("VO2"));
-        // Signal names do not count
-        assert!(!is_supply_name("DAC_OUT"));
-        assert!(!is_supply_name("SCLK"));
+    /// A label entry carrying one declared face, registered through the real
+    /// table so the test exercises the path the rules see.
+    fn declared_entry(path: &str, member: Option<DeclaredMember>) -> InstEntry {
+        let mut table = InstTable::new(0);
+        let id = table.register(
+            path.to_string(),
+            InstKind::Label,
+            None,
+            String::new(),
+            crate::semantic::common::IOType::None,
+            None,
+            String::new(),
+        );
+        if let Some(member) = member {
+            table.set_pwr_member(id, member);
+        }
+        table.get_entry(id).expect("registered").clone()
     }
 
     #[test]
-    fn dlu_netcheck__rail_identity_keeps_owner_path() {
-        // Strict DC rail identity: the owner path is preserved so different
-        // rails (`va.GND` vs `vb.GND`) are distinct identities. Only the leaf
-        // case is normalized.
-        assert_eq!(rail_identity("main.x.GND").as_deref(), Some("main.x.GND"));
-        assert_eq!(rail_identity("main.x.VSS").as_deref(), Some("main.x.VSS"));
-        assert_eq!(rail_identity("va.GND").as_deref(), Some("va.GND"));
-        assert_eq!(rail_identity("vb.GND").as_deref(), Some("vb.GND"));
-        assert_eq!(rail_identity("V3V3").as_deref(), Some("V3V3"));
-        assert_eq!(rail_identity("DAC_OUT"), None);
+    fn dlu_netcheck__face_comes_from_the_declaration_not_the_spelling() {
+        use crate::semantic::pwrid::{member_from_face, Face};
+        // A declared return is a return; a declared supply is a supply. The
+        // spellings `GND` / `VDD` are what the declarations happened to say —
+        // the rule never reads them.
+        assert_eq!(
+            declared_entry("main.x.GND", Some(member_from_face("GND", Face::Ret))).power_face(),
+            Some(Face::Ret)
+        );
+        assert_eq!(
+            declared_entry("main.x.VDD", Some(member_from_face("VDD", Face::Hot))).power_face(),
+            Some(Face::Hot)
+        );
+        // A `conduit` declares copper without a side.
+        assert_eq!(
+            declared_entry("main.x.REF", Some(member_from_face("REF", Face::Copper))).power_face(),
+            Some(Face::Copper)
+        );
+        // Undeclared: names that look like rails are still undeclared, and the
+        // answer is `None` — not `Ground`, not `Hot`.
+        for spelling in ["GND", "VSS", "VDD_3V3", "V3V3", "VO1", "DAC_OUT"] {
+            let e = declared_entry(&format!("main.x.{spelling}"), None);
+            assert_eq!(
+                e.power_face(),
+                None,
+                "{spelling} must not be read as a face"
+            );
+            assert_eq!(e.rail_identity(), None);
+        }
+    }
+
+    #[test]
+    fn dlu_netcheck__rail_identity_is_the_contract_plus_the_written_spelling() {
+        use crate::semantic::pwrid::{member_from_face, Face, CONDUIT_CONTRACT, DC_CONTRACT};
+        let id_of = |m: DeclaredMember| declared_entry("main.x.any", Some(m)).rail_identity();
+        // The identity carries the declaration that owns the member, so two
+        // different rails spelled the same stay distinct...
+        assert_eq!(
+            id_of(DeclaredMember {
+                face: Face::Ret,
+                member: "GND".into(),
+                contract: "va".into(),
+            })
+            .as_deref(),
+            Some("va:GND")
+        );
+        assert_eq!(
+            id_of(DeclaredMember {
+                face: Face::Ret,
+                member: "GND".into(),
+                contract: "vb".into(),
+            })
+            .as_deref(),
+            Some("vb:GND")
+        );
+        // ...while one `::DC` contract spelled the same is one identity,
+        // whichever component instance wrote the row.
+        assert_eq!(
+            id_of(member_from_face("VDD_3V3", Face::Hot)).as_deref(),
+            Some(format!("{DC_CONTRACT}:VDD_3V3").as_str())
+        );
+        assert_eq!(
+            id_of(DeclaredMember {
+                face: Face::Copper,
+                member: "REF".into(),
+                contract: CONDUIT_CONTRACT.into(),
+            })
+            .as_deref(),
+            Some("conduit:REF")
+        );
+    }
+
+    #[test]
+    fn dlu_netcheck__split_rail_bucket_admits_supplies_and_declared_copper_only() {
+        use crate::semantic::pwrid::{member_from_face, Face};
+        let admits = |m: Face| {
+            split_rail_identity(&declared_entry("main.x.n", Some(member_from_face("n", m))))
+        };
+        assert!(admits(Face::Hot).is_some());
+        assert!(admits(Face::Copper).is_some());
+        // A return split is the documented shape of the netlist, not a fault —
+        // the old literal `GND` exemption, now read off the declaration.
+        assert!(admits(Face::Ret).is_none());
+        assert!(split_rail_identity(&declared_entry("main.x.GND", None)).is_none());
     }
 
     #[test]

@@ -103,21 +103,6 @@ pub fn pair_members_to_lanes(members: &[String], arg_lanes: &[NetPoint]) -> Vec<
 
 // Name helpers
 
-/// Exact ground-name matcher on the path leaf: `GND` / `AGND` / `DGND` /
-/// `PGND` / `VSS` / `GROUND` / `EARTH`. Not a `starts_with` test — `GND_OUT`
-/// or `VIN` must not be treated as ground (authoritative netcheck variant).
-///
-/// Not a matching rule: matching decisions are purely structural (lane count,
-/// member pairing, scope). This helper serves the netcheck / DC-rail-identity
-/// concerns only — port-ground-member detection (`check_unbound_param_ports`).
-pub fn is_ground_name(s: &str) -> bool {
-    let leaf = s.rsplit('.').next().unwrap_or(s);
-    matches!(
-        leaf.to_uppercase().as_str(),
-        "GND" | "AGND" | "DGND" | "PGND" | "VSS" | "GROUND" | "EARTH"
-    )
-}
-
 /// "[VDD_3V3, GND]" / "[VCC_1V2,GND]" -> ["VDD_3V3","GND"]; non-bracket -> []
 pub fn parse_bracket_members(name: &str) -> Vec<String> {
     let s = name.trim();

@@ -125,17 +125,20 @@ fn run_local(args: &ErcArgs) -> Result<()> {
     // the full driver set (Out/InOut/Power/Analog) for signal nets. Rails are
     // exempt from the floating check — a load-only rail's source is the
     // declared rail label / upstream stage, so 0 drivers is normal there.
-    let is_rail = |name: &str| {
-        name.rsplit('.')
-            .next()
-            .map_or(false, mcc::instant::mc_net::looks_like_power_rail)
-    };
+    //
+    // A net IS a rail when it carries a **declared** power face: a point whose
+    // own declaration made it a supply or a return. The former test asked
+    // `looks_like_power_rail(name)` — a `VCC`/`VDD`/`GND`/`VSS`/`3V3` word
+    // table, case-folded — so whether a net was treated as a rail depended on
+    // what the author called it (world-axioms §1 A1).
 
     for (name, points) in &root_nets {
         if mcc::instant::mc_net::is_anon_net_name(name) || name.as_str() == "NC" {
             continue;
         }
-        let rail = is_rail(name);
+        let rail = points
+            .iter()
+            .any(|p| matches!(p.iotype, mcc::IOType::Power | mcc::IOType::Return));
         let drivers: Vec<_> = points
             .iter()
             .filter(|p| {

@@ -30,6 +30,7 @@ use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::mc_func::{HasFindInst, McFunctions};
 use crate::semantic::mc_inst::McInstance;
+use crate::semantic::pwrid::DeclaredFaces;
 
 pub struct FloatingLabelCheck;
 
@@ -65,6 +66,7 @@ fn check_floating_labels(acc: &mut CheckAccumulator) {
             "Component",
             &comp.name.to_string(),
             &uri,
+            &DeclaredFaces::of_pins(&comp.pins),
             &comp.funcs,
             &[],
             &[],
@@ -82,6 +84,7 @@ fn check_floating_labels(acc: &mut CheckAccumulator) {
             "Module",
             &module.name.to_string(),
             &uri,
+            &DeclaredFaces::of_module(&module.pi),
             &module.funcs,
             &module.stmts,
             &module.floating_candidates,
@@ -98,6 +101,7 @@ fn check_owner_floating_labels<F>(
     owner_kind: &str,
     owner_name: &str,
     uri: &str,
+    declared: &DeclaredFaces,
     funcs: &McFunctions,
     top_stmts: &[McPhrase],
     top_candidates: &[(String, u32, u32)],
@@ -128,15 +132,15 @@ fn check_owner_floating_labels<F>(
     }
 
     for (name, (pos, len)) in candidates {
-        // Implicit power-rail labels (`VCC`, `GND`, `V3V3`, …) are
-        // conventional rails the net layer already recognizes via
-        // is_supply_name / is_ground_name (insttab.rs) without a local
-        // declaration. A reference to an implicit rail is not a dangling
-        // typo — skip it entirely (no E3136, no Wire ledger row).
-        let upper = name.to_uppercase();
-        if crate::instant::insttab::is_supply_name(&upper)
-            || crate::instant::insttab::is_ground_name(&upper)
-        {
+        // A name the **owner itself declares** is an identity — its own
+        // `pins.pwr` rows' `::DC` faces for a component, its rail / power-port /
+        // `conduit` declarations for a module — so a reference to it is not a
+        // dangling typo (no E3136, no Wire ledger row).
+        //
+        // World-axioms §1 A1: only a declaration confers identity — never a
+        // spelling. The comparison is exact (U49), so no case folding is
+        // applied to either side.
+        if declared.declares(&name) {
             continue;
         }
 

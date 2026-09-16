@@ -8,7 +8,7 @@
 //! - Phase 3: Declared instance instantiation (components / sub-modules / labels)
 //! - Phase 4: Connection stmt processing entry
 
-use super::matching::{is_ground_name, pair_members_to_lanes, parse_bracket_members};
+use super::matching::{pair_members_to_lanes, parse_bracket_members};
 use super::FailedRecord;
 use super::{InstantiationBuilder, McModuleInst};
 use crate::instant::mc_comp::McComponentInst;
@@ -684,6 +684,40 @@ impl InstantiationBuilder {
                             }
                         }
                     };
+                    // U39: a conditional block of the class may have failed to
+                    // evaluate against the arguments this declaration binds
+                    // (`CH ch1("WIDE")` where the condition compares the formal
+                    // with a voltage). The failing condition is the class file's
+                    // syntax, so the diagnostic is anchored here instead — at
+                    // the declaration that supplied the argument it could not
+                    // use.
+                    if !inst.cond_eval_errors.is_empty() {
+                        let anchor = self
+                            .def
+                            .insts
+                            .get_port_span(&c.name.to_string())
+                            .map(|r| r.start as u32);
+                        for err in &inst.cond_eval_errors {
+                            let (code, message) = (err.code(), err.message());
+                            match anchor {
+                                Some(pos) => {
+                                    if !crate::db::diagnostic::diagnostic::has_code_at(
+                                        code,
+                                        &self.def_uri,
+                                        pos,
+                                    ) {
+                                        self.record_error_at(
+                                            code,
+                                            message,
+                                            self.def_uri.clone(),
+                                            pos,
+                                        );
+                                    }
+                                }
+                                None => self.record_error(code, message),
+                            }
+                        }
+                    }
                     // ★ U48: the declaration's `@ncpin(…)` marker becomes this
                     // instance's marked pin-id set. Resolved after the instance
                     // is built (so conditional / dynamic pins are already in
@@ -1677,7 +1711,13 @@ impl InstantiationBuilder {
                 if members.len() < 2 {
                     continue;
                 }
-                if !members.iter().any(|m| is_ground_name(m)) {
+                // A power port is one whose own `::DC` declaration splits it
+                // into a supply/return pair. The former test asked whether any
+                // member was **named** like a ground (`is_ground_name`), so
+                // whether the warning fired depended on the author's spelling;
+                // the declaration says the same thing and is checkable
+                // (world-axioms §1 A1).
+                if p.dc_pair.is_none() {
                     continue;
                 }
                 let base = port_base_name(&p.name);

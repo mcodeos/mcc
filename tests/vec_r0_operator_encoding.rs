@@ -375,9 +375,11 @@ fn caret__on_transposed_operand_follows_the_transposed_shape() {
     // Point -> Point: orderless (`A` is a bare label; the E3136 it raises as an
     // undeclared func-body label is incidental to this cell).
     assert_eq!(only_with("A'^", &[2903, 3136]), "Reversed(Transposed(A))");
-    // Column -> Row: genuinely two-faced, so the reversal is real.
+    // Column -> Row: genuinely two-faced, so the reversal is real. `VCC` /
+    // `GND` are bare labels, so they raise E3136 — incidental to this cell, as
+    // the comment above already records for `A`.
     assert_eq!(
-        only("[VCC, GND]'^"),
+        only_with("[VCC, GND]'^", &[3136]),
         "Reversed(Transposed(Multiple[VCC, GND]))"
     );
 }

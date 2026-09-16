@@ -79,7 +79,13 @@ fn dlu_gate__module_level_true_miss_shorts_via_r03() {
     // as an R03 ERROR at the net layer — never as the old E3182 (the gate is
     // gone) and never as E3137 (the net is referenced twice, so it is not
     // single-use).
-    let src = "component B {\n    pins = [\n        1 = VDD\n        2 = VSS\n    ]\n    func G() {}\n}\nmodule main {\n    io vdd\n    io vss\n    B b\n    b.VDD -> vdd\n    uC.ADC.P -> vdd\n    uC.ADC.P -> vss\n}";
+    //
+    // `B` declares both faces (`psnk [1,2] = [VDD, VSS]::DC(3.3V)`) rather than
+    // naming its pins `VDD`/`VSS`, and both faces reach the ghost net: R03 pairs
+    // a **declared** supply with a **declared** return, and it used to read the
+    // spellings instead — a bare `io vss` counted as ground because of its name
+    // (world-axioms §1 A1).
+    let src = "component B {\n    pins = [\n        psnk [1, 2] = [VDD, VSS]::DC(3.3V)\n    ]\n    func G() {}\n}\nmodule main {\n    io vdd\n    io vss\n    B b\n    b.VDD -> vdd\n    b.VSS -> vss\n    uC.ADC.P -> vdd\n    uC.ADC.P -> vss\n}";
     let (codes, report) = build_flat_report(src);
     assert!(
         !codes.contains(&mcc::errcodes::INSTANCE_REF_UNDECLARED),

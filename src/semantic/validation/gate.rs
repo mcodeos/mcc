@@ -89,6 +89,7 @@ use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, Validation
 
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::mc_func::{GateCandidate, HasFindInst, McFunctions};
+use crate::semantic::pwrid::DeclaredFaces;
 
 pub struct GateCheck;
 
@@ -127,11 +128,13 @@ fn check_gate_candidates(acc: &mut CheckAccumulator) {
             continue;
         }
         let owner: &dyn HasFindInst = &**comp;
+        let declared = DeclaredFaces::of_pins(&comp.pins);
         recheck_owner(
             acc,
             &uri,
             &comp.name.to_string(),
             owner,
+            &declared,
             &[],
             candidates,
             &comp.funcs,
@@ -158,11 +161,13 @@ fn check_gate_candidates(acc: &mut CheckAccumulator) {
             continue;
         }
         let owner: &dyn HasFindInst = &**module;
+        let declared = DeclaredFaces::of_module(&module.pi);
         recheck_owner(
             acc,
             &uri,
             &module.name.to_string(),
             owner,
+            &declared,
             &module.seen_callers,
             candidates,
             &module.funcs,
@@ -181,6 +186,7 @@ fn recheck_owner(
     uri: &str,
     owner_label: &str,
     owner: &dyn HasFindInst,
+    declared: &DeclaredFaces,
     owner_seen: &[String],
     candidates: Vec<GateCandidate>,
     funcs: &McFunctions,
@@ -193,12 +199,13 @@ fn recheck_owner(
             ledger::mark_resolved_late();
             continue;
         }
-        // Implicit power-rail bases (`VCC`, `GND`, …) are conventional rails the
-        // net layer already recognizes via is_supply_name / is_ground_name
-        // without a declaration — not a dangling inline net (mirror E3136).
-        if crate::instant::insttab::is_supply_name(&cand.base)
-            || crate::instant::insttab::is_ground_name(&cand.base)
-        {
+        // A base the **owner itself declares** (its `pin` rows' `::DC` faces, a
+        // rail's `hot`/`ret`, a `conduit`) is an identity, not a dangling inline
+        // net (mirror E3136). The old criterion was the spelling of the name
+        // (`is_supply_name` / `is_ground_name` word tables); per world-axioms §1
+        // A1 only a declaration can make a name mean something, so a `VCC` this
+        // owner never declares is now treated like any other ghost.
+        if declared.declares(&cand.base) {
             continue;
         }
         // Count references to the ghost-bus (its `McBus.name` is the base, so
