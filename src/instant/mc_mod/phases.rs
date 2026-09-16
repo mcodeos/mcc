@@ -14,13 +14,16 @@ use super::{InstantiationBuilder, McModuleInst};
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{canonicalize_path, ConnectionInst, InstError, NetPoint, PortInst};
 use crate::instant::provenance::ExpansionKind;
+use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_param_type::{McIoTy, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
 use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::common::{ConnDir, ConnOp, IOType};
+use crate::semantic::component::mc_attr::McAttrVal;
 use crate::semantic::component::McComponent;
+use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::module::McModule;
 use crate::semantic::nc_pin::{NcPinKind, NcPinSpec};
@@ -252,6 +255,17 @@ impl InstantiationBuilder {
                 _ => None,
             };
 
+            // Interface-declared differential pair (CIMP §1 U61). The interface
+            // body names which two of its own pins are the faces of one pair
+            // (`diff_pair = [P, N]`), 1st = positive. Like the DC pair, the
+            // pair is a property of the DECLARATION: a port whose interface
+            // declares none carries `None`, and no spelling of a net name is
+            // ever consulted.
+            let diff_pair: Option<(String, String)> = match inst {
+                McInstance::Interface(iface) => read_iface_diff_pair(&iface.base),
+                _ => None,
+            };
+
             // Phase C1: intern the port's canonical path before it enters the
             // module's port list (its node id lives in the circuit registry).
             let port_path = self.child_path(port_name);
@@ -259,6 +273,7 @@ impl InstantiationBuilder {
             let port = PortInst::with_members(port_name, iotype.clone(), bus_members.clone());
             let mut port = port;
             port.dc_pair = dc_pair;
+            port.diff_pair = diff_pair;
             port.volt = match inst {
                 McInstance::Interface(iface) => declared_volt_of_params(&iface.params),
                 _ => None,
@@ -1951,6 +1966,33 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
 
         _ => Vec::new(),
     }
+}
+
+/// Read an interface body's `diff_pair = [A, B]` declaration as its two faces,
+/// in declaration order — the first is the positive one.
+///
+/// `None` unless the key is written with exactly two member names, so an
+/// incomplete or oversized declaration declares no pair rather than a guessed
+/// one. The names are the interface's own pin names; nothing here compares
+/// them with a net name.
+fn read_iface_diff_pair(base: &McInterface) -> Option<(String, String)> {
+    let attr = base.attrs.find(&crate::McIds::from("diff_pair"))?;
+    for val in &attr.values {
+        let McAttrVal::AttrExpr(McExpression::Set(faces)) = val else {
+            continue;
+        };
+        let mut names = Vec::new();
+        for face in faces {
+            let McExpression::Variable(opd) = face else {
+                return None;
+            };
+            names.push(opd.to_string());
+        }
+        if names.len() == 2 {
+            return Some((names[0].clone(), names[1].clone()));
+        }
+    }
+    None
 }
 
 /// Get port base name: strip `{...}` / `[...]` suffix.

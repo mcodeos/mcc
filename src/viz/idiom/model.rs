@@ -54,17 +54,16 @@ pub enum IdiomInstanceKind {
     Pullup,
     /// Pulldown resistor: resistor between Signal and Ground.
     Pulldown,
-    /// Differential pair: P/N signal pair.
+    /// Differential pair: the two faces of one interface declaration.
     DiffPair,
 }
 
 /// How an idiom instance was detected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstanceSource {
-    /// Net-semantic based (power/ground/signal net kind).
+    /// Net-semantic based (a net's declared supply role, or its declared
+    /// differential face).
     NetSemantic,
-    /// Net-name heuristic (e.g. _P/_N suffix).
-    NetNameHeuristic,
     /// Topology pattern match.
     TopologyPattern,
 }

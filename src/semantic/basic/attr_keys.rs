@@ -316,6 +316,9 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
         AttrValueKind::Quantity(McUnit::Volt),
         AttrContract::Supply,
     ),
+    // The differential pair an interface body declares (`mcode/ifs/adcdiff.mc`):
+    // two of its own pins, the first named being the positive face.
+    value_row("diff_pair", IFACE, AttrValueKind::Text),
 ];
 
 const fn row(key: &'static str, faces: &'static [AttrFace], general: bool) -> AttrKeyDef {
@@ -478,6 +481,8 @@ mod tests {
         assert_eq!(lookup("output").map(|d| d.faces), Some(IFACE));
         assert_eq!(lookup("spec.output").map(|d| d.faces), Some(SPEC));
         assert!(!lookup("spec.output").is_some_and(|d| d.faces.contains(&AttrFace::Interface)));
+        // `diff_pair` is written by an interface body and by nothing else.
+        assert_eq!(lookup("diff_pair").map(|d| d.faces), Some(IFACE));
     }
 
     #[test]

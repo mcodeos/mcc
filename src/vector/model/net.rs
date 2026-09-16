@@ -63,6 +63,32 @@ pub enum AttrRole {
     Reference,
 }
 
+/// One face of a declared differential pair (an interface body's
+/// `diff_pair = [P, N]`).
+///
+/// The pair is a property of the declaration, never of a net name: the
+/// interface names two of its own pins, and the first-declared face is the
+/// positive one. Both nets born at the two faces carry the same `group`, which
+/// is all it takes to pair them — so a pair named `SCLK` / `SCLK2` is
+/// recognized and a coincidence named `A_P` / `A_N` is not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffFace {
+    /// Flat path of the port whose declaration names this face. Both faces of
+    /// one declaration, and nothing else, carry this value.
+    pub group: String,
+    /// True for the first-declared face, false for the second.
+    pub positive: bool,
+}
+
+impl DiffFace {
+    pub fn new(group: impl Into<String>, positive: bool) -> Self {
+        Self {
+            group: group.into(),
+            positive,
+        }
+    }
+}
+
 /// The mirror of one projected net's declared supply identity (§4). Filled by
 /// viz/project.rs beside `detect_rail_spec` from the same per-endpoint
 /// declarations (the layer module's own conduit/rail sets + the endpoints'
@@ -83,6 +109,11 @@ pub struct NetAttrMirror {
     /// the drawing side so an opt-in can draw the same-bundle return lane
     /// without re-guessing a name.
     pub ret: Option<String>,
+    /// The differential-pair face this net was born at, when its endpoint is a
+    /// port member the interface's `diff_pair` names. `None` = not a declared
+    /// face. The two faces of one declaration share `group`, which is what
+    /// pairs them — never the spelling of the net name.
+    pub diff: Option<DiffFace>,
     /// True when identity is provable from declarations. Consumers skip when
     /// false (a `NetAttrMirror` is only ever produced with `resolvable: true`;
     /// the `false` case is the `None` net).

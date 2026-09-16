@@ -497,6 +497,14 @@ pub struct PortInst {
     /// for member roles.
     pub dc_pair: Option<(String, String)>,
 
+    /// Differential-pair faces of this port, `Some((positive, negative))` when
+    /// the port's interface body declares `diff_pair = [P, N]`. **Positional**:
+    /// the first-declared face is the positive one, and the two names are that
+    /// interface's own pin names — the pair is a property of the declaration,
+    /// not of any net name. `None` for an interface that declares none. Set at
+    /// `instantiate_interface`; flatten tags the members it names.
+    pub diff_pair: Option<(String, String)>,
+
     /// The voltage this port was DECLARED at — the sole scalar `Volt` argument
     /// in the port's own `::Iface(...)` declaration (`[VDD_3V3,GND]::DC(3.3V)`
     /// → `Some(3.3)`). Read by the argument binders to pair an actual argument
@@ -525,6 +533,7 @@ impl PortInst {
             bus_members: Vec::new(),
             node_id: None,
             dc_pair: None,
+            diff_pair: None,
             volt: None,
         }
     }
@@ -541,6 +550,7 @@ impl PortInst {
             bus_members: members,
             node_id: None,
             dc_pair: None,
+            diff_pair: None,
             volt: None,
         }
     }
