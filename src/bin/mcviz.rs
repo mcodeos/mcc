@@ -192,8 +192,8 @@ fn main() {
     );
 
     // ── ★ P7-1: Tier 1 real gate —— fidelity CORRECTNESS failure exits non-zero ──
-    // A gate that only logs is isomorphic to the four false-green items in
-    // v5 §0.2, so a fidelity CORRECTNESS failure exits non-zero here.
+    // A gate that only logs is isomorphic to the four false-green items, so a
+    // fidelity CORRECTNESS failure exits non-zero here.
     if mcc::viz::layout::select::RENDER_GATE_FAILED.load(std::sync::atomic::Ordering::Relaxed) {
         eprintln!("[render-gate] ✗✗✗ Tier 1 CORRECTNESS FAILED (RENDER_GATE_FAILED) — exit 2");
         process::exit(2);

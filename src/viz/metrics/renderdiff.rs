@@ -5,7 +5,7 @@
 //! ★ P7-1 · renderdiff —— the ruler of the render layer
 //!
 //! ## Positioning
-//! Separate from netdiff (netlist criteria) and equally strict (discipline 10):
+//! Separate from netdiff (netlist criteria) and equally strict:
 //! - netdiff governs "is it connected right" (pass2 golden)
 //! - renderdiff governs "is it drawn right" (render golden: `baseline/render_golden.toml`)
 //!
@@ -14,17 +14,16 @@
 //!   (provenance marker); all endpoints of every net in the same route connected
 //!   component (reuses `RenderedConnectivityReport`)
 //! - **G11 power contract**: GND edge count == 0; rail power edge count == R-2 driver
-//!   segment expectation; top-level passives == 0 (contract C5)
+//!   segment expectation; top-level passives == 0
 //! - **G12 geometric legality**: box_box / wire_box == 0; box w/h ≥ minimum size for
 //!   pin distribution (S6); no negative coordinates / off-canvas
 //!
 //! ## Principles
 //! - Criteria are **structural similarity**, not pixel similarity; every explainable
-//!   difference vs the reference figure is recorded in the diff table of
-//!   `MC_SCHEMATIC_ROADMAP_v6.md` §1.1
+//!   difference vs the reference figure is reported per criterion
 //! - **Never edit golden to turn criteria green**. Large-scale red mid-way is the
-//!   correct shape (v6 §4)
-//! - Discipline 9: every criterion prints its evaluated object count; 0 shows `· SKIP`,
+//!   correct shape
+//! - Every criterion prints its evaluated object count; 0 shows `· SKIP`,
 //!   never `✓`
 
 use std::collections::BTreeMap;
@@ -53,7 +52,7 @@ pub struct LayerGolden {
     /// Target count of Phase 1.5/1.6 synth boxes (always 0)
     #[serde(default)]
     pub synth_boxes: usize,
-    /// Target count of rail flag boxes (always 0, discipline 11)
+    /// Target count of rail flag boxes (always 0)
     #[serde(default)]
     pub rail_flags: usize,
     /// Target count of GND edges (cross-box ground nets)
@@ -62,7 +61,7 @@ pub struct LayerGolden {
     /// Target count of rail power edges (cross-box power nets, i.e. R-2 driver segments)
     #[serde(default)]
     pub power_edges: usize,
-    /// Target count of top-level passives (contract C5: block diagram draws no R/C; always 0, only
+    /// Target count of top-level passives (block diagram draws no R/C; always 0, only
     /// meaningful at top level)
     #[serde(default)]
     pub top_passives: usize,
@@ -138,7 +137,7 @@ pub struct LayerReading {
     // G10 connectivity (injected by the caller from RenderedConnectivityReport)
     pub pins_total: usize,
     pub pins_unreachable: usize,
-    /// Self-check: how many objects each criterion evaluated (discipline 9)
+    /// Self-check: how many objects each criterion evaluated
     pub evaluated: EvalCounts,
     /// ★ P7-5: device-contract readings (S3~S9)
     #[serde(default)]
@@ -152,7 +151,7 @@ pub struct EvalCounts {
     pub sizes: usize,
 }
 
-/// ★ P7-5 · G13 device-contract readings (§1.3 S3~S9, measured on the final
+/// ★ P7-5 · G13 device-contract readings (S3~S9, measured on the final
 /// graph — no pixel comparison). Each counter is `ok/total`; S7 is a plain
 /// overlap count. Total == 0 means "nothing to judge" (shown as SKIP).
 #[derive(Debug, Clone, Default, Serialize)]
@@ -826,7 +825,7 @@ fn seg_meets_rect(
 
 // Diff (reading vs golden)
 
-/// Conclusion of one criterion. `Skip` = zero evaluated objects (discipline 9), never counts as
+/// Conclusion of one criterion. `Skip` = zero evaluated objects, never counts as
 /// green.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Verdict {
@@ -1017,7 +1016,7 @@ impl RenderGolden {
             g.rail_flags,
             r.rail_flag_boxes,
             r.evaluated.boxes,
-            "Discipline 11 terminals are not boxes".into(),
+            "terminals are not boxes".into(),
         ));
 
         // (5) connectivity: all endpoints of every net in one route connected component
@@ -1068,7 +1067,7 @@ impl RenderGolden {
                 g.top_passives,
                 r.two_pin_passives,
                 r.evaluated.boxes,
-                "Contract C5 block diagram draws no passives".into(),
+                "block diagram draws no passives".into(),
             ));
         }
 
@@ -1145,9 +1144,9 @@ impl RenderGolden {
             "negative-coordinate boxes".into(),
         ));
 
-        // G13 device contracts (P7-5, §1.3 S3~S9)
+        // G13 device contracts (P7-5, S3~S9)
         // Contract checks are ok/total self-contained (no golden numbers):
-        // total == 0 → SKIP (visible, never green — discipline 9).
+        // total == 0 → SKIP (visible, never green).
         let ratio_check = |id: &str, ok: usize, total: usize, note: &str| {
             if total == 0 {
                 (id.to_string(), Verdict::Skip(format!("eval=0 ({note})")))
@@ -1211,11 +1210,17 @@ impl RenderGolden {
         // skips: the criterion only judges when the golden names its semantics.
         let roster_check = |id: &str, g: &[String], a: &[String]| {
             if g.is_empty() {
-                return (id.to_string(), Verdict::Skip(format!("golden roster empty, eval={}", a.len())));
+                return (
+                    id.to_string(),
+                    Verdict::Skip(format!("golden roster empty, eval={}", a.len())),
+                );
             }
             let (missing, extra) = multiset_diff(&sorted_lower(g), &sorted_lower(a));
             if missing.is_empty() && extra.is_empty() {
-                (id.to_string(), Verdict::Ok(format!("{} names all match", a.len())))
+                (
+                    id.to_string(),
+                    Verdict::Ok(format!("{} names all match", a.len())),
+                )
             } else {
                 (
                     id.to_string(),

@@ -9,7 +9,7 @@
 //! A* finds an orthogonal path on the grid that avoids obstacles, avoids wires, and minimizes
 //! turns.
 //!
-//! Design highlights (see ROADMAP section 3):
+//! Design highlights:
 //! - Cost = step + turn penalty + cross penalty (very high) + hug penalty; heuristic = Manhattan
 //! (admissible).
 //! - Pin entry/exit uses "escape point" (pin moves ESCAPE>inflate outward along exit direction,

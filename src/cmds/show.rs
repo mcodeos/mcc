@@ -34,7 +34,7 @@ use tracing::error;
 
 pub fn run(args: &ShowArgs) -> Result<()> {
     // Server path: only legacy container targets have RPC methods today
-    // (server/local parity for the rest is tracked by roadmap M3). Everything
+    // (server/local parity for the rest is still pending). Everything
     // else falls through to local execution.
     if let Some(c) = RpcClient::probe() {
         if let Some((method, params)) = rpc_mapping(args) {

@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! ★ P7-3 —— Rail triage (implementation of contract C1, MC_SCHEMATIC_ROADMAP_v6 §1.2)
+//! ★ P7-3 —— Rail triage
 //!
 //! For every net carrying a [`RailSpec`] (resolved from port declarations by the
 //! projection layer viz/project.rs):
@@ -35,18 +35,18 @@
 //! ordering without touching the net set. Sub-layers are unchanged — the device
 //! view still wants one routed supply segment per consumer (R-2/R-3).
 //!
-//! ## Terminals are not boxes (discipline 11)
+//! ## Terminals are not boxes
 //! All R-1/R-3 symbols go into `graph.rail_decorations` (pin render attributes):
 //! zero layout cost, zero routing cost, never in `graph.boxes`.
 //! Only R-2 driver segments build real `VizNet`s participating in routing, both ends being real
 //! boxes.
 //!
-//! ## C5 · top-level block diagram draws no passives
+//! ## Top-level block diagram draws no passives
 //! The top level (`is_top == true`) additionally removes two-pin passives (R/C/L) from
 //! the canvas and revokes their endpoints from signal nets; nets emptied (<2 endpoints)
 //! are deleted too —— decoupling/pull-up resistors belong to the device-level view.
 //!
-//! ## Removed (anti-pattern §2.3 "name as criterion")
+//! ## Removed ("name as criterion")
 //! `explode_power_rails_to_flags` / `is_rail_box` / `name_has_power_token` ——
 //! the old machine that indiscriminately exploded flags per (rail, consumer) with no
 //! driver concept is removed wholesale.
@@ -64,7 +64,7 @@ use crate::vector::model::RailClass;
 ///
 /// ★ P7-3: the old `is_rail_box` was `(symbol.is_power_rail() || kind==PowerLabel)
 /// && name_has_power_token(name)` —— the name token table was deleted along with the
-/// explosion machine (anti-pattern §2.3 "name as criterion"). Replaced with a pure kind
+/// explosion machine ("name as criterion"). Replaced with a pure kind
 /// check: rail flag boxes no longer exist after P7-3; the remaining PowerLabel boxes are
 /// net label boxes made by `apply_net_labels` (which also must be excluded from core layout).
 /// The 20+ downstream "exclusion guards" (pin_place / passive_inline / islands / sp /
@@ -195,7 +195,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
                     if *cbox == drv_box {
                         continue;
                     }
-                    // ★ P9-B: root layer drops R-2 filtering (v9 §2.4).
+                    // ★ P9-B: root layer drops R-2 filtering.
                     // All driver→consumer pairs are kept; sub-layers still
                     // filter to power-domain boxes and hub only.
                     let qualifies = if is_top {
@@ -417,7 +417,7 @@ fn drop_top_passives(graph: &mut McVecGraph) {
 /// ★ Stage 1 main entry: convert long signal nets to net label stubs. Returns `Some(new canvas)` if
 /// changed, else `None`.
 ///
-/// ★ R-L (discipline 28): net labels are text on wires, not boxes.
+/// ★ R-L: net labels are text on wires, not boxes.
 /// PowerLabel box creation is disabled globally. Long signal nets are
 /// handled by the wire_label_split pass instead.
 pub fn apply_net_labels(_graph: &mut McVecGraph) -> Option<(f64, f64)> {
@@ -481,7 +481,7 @@ mod tests {
         b
     }
 
-    /// ★ R-L (discipline 28): apply_net_labels is disabled. All nets are kept as-is;
+    /// ★ R-L: apply_net_labels is disabled. All nets are kept as-is;
     /// PowerLabel boxes are no longer created.
     #[test]
     fn net_label_disabled_keeps_all_nets() {
@@ -674,7 +674,7 @@ mod tests {
 
     /// ★ R-2s (model A): a driver-ful Power rail at the top level is kept as one
     /// shared equipotential net — never split into per-consumer driver segments.
-    /// The fixture is the seven-line checklist rail (driver modldo → 3 consumers);
+    /// The fixture recreates the rail-triage case (driver modldo → 3 consumers);
     /// after classification the net must survive intact, with no driver edges added,
     /// no symbols, and no new nets.
     #[test]

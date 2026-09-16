@@ -298,7 +298,7 @@ impl FlowLayouter {
     /// Phase 5 · Post — geometry-preserving box moves, safe after pin_place.
     ///
     /// ★ P7-3: the flag machine (split/place/eject) is deleted —— terminals are no
-    /// longer boxes (graph.rail_decorations, discipline 11); no flags to re-home or eject.
+    /// longer boxes (graph.rail_decorations); no flags to re-home or eject.
     fn phase_post(&self, graph: &mut McVecGraph, isolated_ids: &HashSet<i64>) {
         park_isolated_components(graph, isolated_ids);
         normalize_positions(graph);
@@ -1258,7 +1258,7 @@ fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>)
 }
 
 // (★ P7-3 removed: is_supply_module / group_supply_modules ——
-//  the name keyword table (POWER/LDO/DCDC/...) was a specimen of anti-pattern §2.3,
+//  the name keyword table (POWER/LDO/DCDC/...) was a specimen of the anti-pattern,
 //  the whole chain deleted. Driver segment edges already wire power modules into the
 //  main flow; ranking by flow direction suffices.)
 

@@ -4,7 +4,7 @@
 
 //! ★ P7-2 · netlist → viz projection layer
 //!
-//! ## Background (MC_SCHEMATIC_ROADMAP_v6 §0.2)
+//! ## Background
 //! The pass2 netlist is electrically equivalent to golden, but carries three kinds of
 //! noise that are **harmless in pass2 yet fatal in viz**:
 //!
@@ -19,7 +19,7 @@
 //!   layer module's own Port/Label**, treated as a net point —— it is the net's name,
 //!   not an electrical connection point.
 //!
-//! ## Criteria come entirely from port declarations, zero name matching (anti-pattern §2.3)
+//! ## Criteria come entirely from port declarations, zero name matching
 //! * Pseudo endpoint: `entry.parent_id == block.bid && kind ∈ {Port, Label}`
 //!   (parent is the current layer module's own Port/Label = boundary declaration of this layer).
 //! * (a) union glue: **the same pseudo endpoint appearing in multiple nets** → those nets
@@ -34,9 +34,9 @@
 //! only mandatory path for all block→graph conversions (mcviz / cmds / tests all go through
 //! it). This is the single reverse dependency of vector→viz: projection is a viz-side policy
 //! that must take effect uniformly for all callers at the boundary; no caller may bypass it
-//! (the negative lesson of v4 §6 "lower layer patches upper layer").
+//! (the negative lesson: "lower layer patches upper layer").
 //!
-//! ## Auditable (discipline 9)
+//! ## Auditable
 //! Every merge/dedup/removal is recorded as (layer, net, endpoint, rule a|b|c), aggregated
 //! into `baseline/render_projection.md`, plus one vlog summary line per layer.
 
@@ -153,7 +153,7 @@ fn pseudo_entry_with_ancestor(
     // Only walk through Port/Label entries; stop at Module/Component/etc.
     // This prevents member ports of submodules (e.g. main.mcu513.VCC_1V2 whose
     // parent is a Module entry) from being treated as pseudo endpoints of the
-    // parent layer (discipline 13: hierarchy checks must reach fixed point).
+    // parent layer (hierarchy checks must reach fixed point).
     let mut current = e;
     for _ in 0..MAX_HOPS {
         if current.parent_id == Some(bid as u32) {
