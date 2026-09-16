@@ -59,11 +59,10 @@
 use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
     check_analog_return_reference, check_backfeed, check_bridge_load_decoupling,
-    check_clamp_ref_role, check_combine_output_tol, check_shared_return_bridge,
-    check_converter_gate_window, check_converter_output_rail_window,
-    check_converter_spec_incomplete, check_decoupling_return_face, check_device_return_span,
-    check_driver_conflict, check_earth_dc_leak, check_exposed_clamp_coverage,
-    check_filter_subface_overreach,
+    check_clamp_ref_role, check_combine_output_tol, check_converter_gate_window,
+    check_converter_output_rail_window, check_converter_spec_incomplete,
+    check_decoupling_return_face, check_device_return_span, check_driver_conflict,
+    check_earth_dc_leak, check_exposed_clamp_coverage, check_filter_subface_overreach,
     check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
     check_net_budget, check_pin_contract_decode, check_pin_contract_return_member,
     check_pin_count_mismatch, check_port_bind_role, check_port_io_mismatch,
@@ -71,12 +70,11 @@ use crate::semantic::validation::nets::{
     check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
     check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
     check_rail_nature_consistency, check_reference_island_root, check_return_leg_undeclared,
-    check_role_ref_missing_bridge, check_sensitive_return_on_noisy, check_shunt_dissipation,
-    check_single_point_nets,
-    check_sink_nominal_mismatch, check_sink_pin_decoupling, check_sink_window_mismatch,
-    check_unconnected_outputs,
+    check_role_ref_missing_bridge, check_sensitive_return_on_noisy, check_shared_return_bridge,
+    check_shunt_dissipation, check_single_point_nets, check_sink_nominal_mismatch,
+    check_sink_pin_decoupling, check_sink_window_mismatch, check_unconnected_outputs,
     check_undriven_nets, check_undriven_sink_net, check_unselected_abstract,
-    check_unused_module_ports, check_unwired_instances, check_voltage_mismatch,
+    check_unused_module_ports, check_unwired_instances, check_unwired_pins, check_voltage_mismatch,
     NetCheckResult,
 };
 use crate::semantic::validation::pins::{
@@ -1240,6 +1238,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_filter_subface_overreach,
     },
+    // Pin-unwired flat check (ruling 2026-09-17: every pad, warning for all);
+    // table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::NET_PIN_UNWIRED,
+        name = "unwired-pin",
+        title = "a component pad sits on no net",
+        severity = Warning,
+        domain = Connectivity,
+        family = None,
+        doc = "A component pad that no net reaches. The directional float checks read `io_type`, so a pad declaring no direction — a two-pin passive's terminal, the ordinary case for a dropped connection — is outside their object; this rule asks the one question that needs no direction: is the pad on a net at all. Ruling 2026-09-17: every pad, warning for all (no direction split, no power-pin downgrade), so the same pad may also be reported by floating-input (E4108), unconnected-output (E4110) or floating-bidirectional (E4117) — that overlap is intended and is not a duplicate to be merged away. Component pads only (kind Pin): an unconnected module-boundary port belongs to unused-module-port (E4114), and the alias spellings of that port (kind Label) are folded onto it. An NC pad (direction word or instance-site mark) and a synthetic virtual-wrapper pad are skipped — neither is a wiring defect.",
+        lock = "tests/flatten_net_check_diagnostics.rs",
+        overridable = false,
+        owner = check_unwired_pins,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1793,30 +1805,27 @@ mod tests {
     use super::*;
     use crate::errcodes::{
         ABSTRACT_PART_UNSELECTED, ANALOG_RETURN_MISMATCH, BRIDGE_LOAD_DECOUPLING_MISSING,
-        CLAMP_REF_NOT_PROTECTIVE,
-        COMBINE_OUTPUT_TOL, DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED,
-        EARTH_DC_LEAK, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH, ISOLATED_DC_BRIDGE,
-        NET_BACKFEED_RISK,
-        NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
+        CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL, DECOUPLING_RETURN_MISMATCH,
+        DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK, EXPOSED_NET_NO_CLAMP,
+        FILTER_SUBFACE_OVERREACH, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED,
+        NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
         NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
         NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
-        NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS,
-        PIN_UNCONNECTED,
-        PORT_BIND_ROLE_MISMATCH, POWER_BRIDGE_LOOP, POWER_CONVERTER_GATE,
+        NET_PIN_UNWIRED, NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS,
+        PIN_UNCONNECTED, PORT_BIND_ROLE_MISMATCH, POWER_BRIDGE_LOOP, POWER_CONVERTER_GATE,
         POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE,
         POWER_PIN_RETURN_MISSING, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
         POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION,
         PROTECTIVE_MULTI_BRIDGE, PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE,
         PULLUP_DEGENERATE, RAIL_NATURE_MISMATCH, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
         ROLE_REF_MISSING_BRIDGE, SENSITIVE_RETURN_ON_NOISY, SHARED_RETURN_BRIDGE,
-        SHUNT_DISSIPATION_OVER_RATING,
-        SINK_NET_NO_SOURCE, SINK_PIN_NO_DECOUPLING,
+        SHUNT_DISSIPATION_OVER_RATING, SINK_NET_NO_SOURCE, SINK_PIN_NO_DECOUPLING,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 51] = [
+    const FLAT_ERC_ORDER: [u32; 52] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1863,11 +1872,12 @@ mod tests {
         SHUNT_DISSIPATION_OVER_RATING, // PWR-4b shunt heat vs package rating (tail append)
         DECOUPLING_RETURN_MISMATCH, // PI-3 decoupling return leg vs the rail's declared pair
         BRIDGE_LOAD_DECOUPLING_MISSING, // PI-2 filter bridge load side vs its decoupling
-        SINK_PIN_NO_DECOUPLING, // PI-1 sink pin's declared pair vs its decoupling
-        SENSITIVE_RETURN_ON_NOISY, // SN-3 sensitive return landing on a noisy face
-        ANALOG_RETURN_MISMATCH, // SN-1 analog face's declared reference vs its parts' returns
-        SHARED_RETURN_BRIDGE,   // SN-2 noisy/quiet returns joined by a non-filtering ground bridge
+        SINK_PIN_NO_DECOUPLING,     // PI-1 sink pin's declared pair vs its decoupling
+        SENSITIVE_RETURN_ON_NOISY,  // SN-3 sensitive return landing on a noisy face
+        ANALOG_RETURN_MISMATCH,     // SN-1 analog face's declared reference vs its parts' returns
+        SHARED_RETURN_BRIDGE, // SN-2 noisy/quiet returns joined by a non-filtering ground bridge
         FILTER_SUBFACE_OVERREACH, // PI-4 sink pair vs the filter leg's load-side subface
+        NET_PIN_UNWIRED,      // P10 every component pad on no net (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2403,7 +2413,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (158, 0, 3));
+        assert_eq!((strong, doc, note), (159, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

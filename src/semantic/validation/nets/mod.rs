@@ -1178,6 +1178,39 @@ pub(crate) fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetChe
     }
 }
 
+// ── P10: component pads on no net ──
+// The directional checks read `io_type`, so a pad that declares no direction —
+// a two-pin passive's terminal — sits outside their object and went unreported
+// when a dropped connection left it dangling. This check asks the direction-free
+// question instead. Ruling 2026-09-17: every pad, warning for all (no direction
+// split, no power-pin downgrade), so a pad may also be reported by a
+// directional check above — that overlap is intended, not a duplicate to merge.
+pub(crate) fn check_unwired_pins(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    let connected: HashSet<u32> = table
+        .get_nets()
+        .iter()
+        .flat_map(|n| n.points.iter().cloned())
+        .collect();
+    for (_, entry) in table.iter() {
+        if matches!(entry.kind, InstKind::Pin)
+            && !connected.contains(&entry.id)
+            && !is_nc_entry(entry)
+            && !entry.synthetic
+        {
+            let (pos, uri) = entry_pos(entry);
+            results.push(NetCheckResult {
+                check: "unwired-pin",
+                severity: "warning",
+                message: format!("Pin '{}' is not connected to any net.", entry.path),
+                net_name: entry.path.clone(),
+                code: crate::errcodes::NET_PIN_UNWIRED,
+                pos,
+                uri,
+            });
+        }
+    }
+}
+
 // ── Power-intent L1 (design §3 / §13 landing 1): declared relation edges ──
 //
 // A declared `@bridge`/`@couple`/`@clamp` edge *never* merges L0 copper —
@@ -3551,8 +3584,7 @@ pub(crate) fn source_contract_for<'a>(
 /// declared supply pair resolve through one read.
 fn member_net_of(table: &InstTable, parent: u32, face: Face, member: &str) -> Option<u32> {
     for (id, entry) in table.iter() {
-        if entry.parent_id != Some(parent)
-            || !matches!(entry.kind, InstKind::Pin | InstKind::Port)
+        if entry.parent_id != Some(parent) || !matches!(entry.kind, InstKind::Pin | InstKind::Port)
         {
             continue;
         }

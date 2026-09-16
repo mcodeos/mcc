@@ -97,14 +97,15 @@ fn mat_aname__normal_sequence_lock() {
         "net table around auto-named instances changed (P0.5 lock)"
     );
 
-    // 5641 (unused ctor param cap/res) x2, 4116 (one pin of _R1 unconnected).
-    // `main.GND` is a real unified net (port + both cap returns); floating
-    // (4117/4114) never fire on top-module ports, so only _R1's lone pin 1
-    // reports 4116. Set-equal check — diagnostic insertion order is not part
-    // of the naming contract.
+    // 5641 (unused ctor param cap/res) x2, 4116 (one pin of _R1 unconnected),
+    // 4119 (that same pad sits on no net — `_R1.1` is direction-free, so the
+    // directional float checks cannot see it). `main.GND` is a real unified net
+    // (port + both cap returns); floating (4117/4114) never fire on top-module
+    // ports, so only _R1's lone pin 1 reports 4116. Set-equal check —
+    // diagnostic insertion order is not part of the naming contract.
     assert_eq!(
         codes,
-        vec![4116, 5641, 5641],
+        vec![4116, 4119, 5641, 5641],
         "diagnostic codes around auto-named instances changed (P0.5 lock)"
     );
 }

@@ -911,6 +911,9 @@ pub const NET_BIDIR_UNCONNECTED: u32 = 4117;
 /// Design has many power nets; review for consolidation.
 pub const NET_POWER_NET_COUNT: u32 = 4118;
 
+/// A component pad is absent from every net.
+pub const NET_PIN_UNWIRED: u32 = 4119;
+
 // Pass2: instantiation checks (4150-4199)
 
 /// A chain link was skipped because the method is not defined on the instance.
@@ -2159,6 +2162,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NET_PARTIAL_CONNECTION, "Only some of the instance pins are connected.", "Only some of the instance pins are connected."),
     entry!(NET_BIDIR_UNCONNECTED, "A bidirectional port is not connected to any net.", "A bidirectional port is not connected to any net."),
     entry!(NET_POWER_NET_COUNT, "Design has many power nets; review for consolidation.", "Design has many power nets; review for consolidation."),
+    entry!(NET_PIN_UNWIRED, "A component pad is absent from every net.", "A component pad is absent from every net."),
     // section
     entry!(INST_CHAIN_LINK_SKIPPED, "A chain link was skipped because the method is not defined on the instance.", "Method '{0}' not defined in {1} '{2}'; chain link skipped, no body expanded."),
     entry!(INST_ARG_NO_FORMAL_PORT, "Instance argument has no formal port to bind.", "Instance '{0}' arg{1} '{2}' has no formal port to bind"),
