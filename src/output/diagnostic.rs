@@ -94,8 +94,14 @@ pub fn count_severity(diags: &[Diagnostic]) -> (usize, usize) {
 /// `--local` when an RPC server is running (the two flags are decoupled).
 /// `only_errors` suppresses warning lines (check's `--errors-only`).
 pub fn print_dlog_lines(only_errors: bool) {
-    let all = mcc::mcc_diagnose_all();
-    for d in &all {
+    print_dlog_of(&mcc::mcc_diagnose_all(), only_errors);
+}
+
+/// Same, for a caller that collected the diagnostics itself — a directory
+/// batch reads them one world at a time and prints them once, after the worlds
+/// they came from are gone.
+pub fn print_dlog_of(all: &[McDiagnostic], only_errors: bool) {
+    for d in all {
         let is_error = matches!(d.level, mcc::DiagnosticLevel::Error);
         let is_warning = matches!(d.level, mcc::DiagnosticLevel::Warning);
         if is_error || (is_warning && !only_errors) {
@@ -168,6 +174,19 @@ impl PhaseTracker {
     /// intermediate phase diagnostics.
     pub fn skip(&mut self) {
         self.cursor = mcc::mcc_diagnose_all().len();
+    }
+
+    /// Put the cursor back at the start of the diagnostic list, so the next
+    /// [`collect`](Self::collect) sees everything currently in it.
+    ///
+    /// For a caller that has just been handed a *new* world: a directory batch
+    /// mints one per entry, and a world owns its diagnostics — the list is
+    /// emptied and refilled, so a cursor carried over from the previous world
+    /// points past the end of this one. The guard in `collect` answers that by
+    /// returning nothing *and* rewinding, which loses this world's first
+    /// diagnostics rather than reporting them twice.
+    pub fn rewind(&mut self) {
+        self.cursor = 0;
     }
 }
 
