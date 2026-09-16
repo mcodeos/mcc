@@ -362,20 +362,137 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     }
 }
 
-// === pub fn mcb_add_directory_recursive(root: &Path, loaded: &mut HashSet<String>) ===
-/// Recursively load every `.mc` file under `root` (directory batch mode for a
-/// build target with no project manifest).
+// === pub struct BuildEntry / pub fn discover_entries ===
+
+/// One definition space in a directory batch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildEntry {
+    /// Identity of the definition space — the value
+    /// [`world_key`](crate::db::cmie::tables) keys a world by.
+    ///
+    /// For a project it is the directory the manifest names. For a loose `.mc`
+    /// file it is the file itself: two unrelated files in one folder must be
+    /// two worlds, and a world keyed by their shared parent would make the
+    /// second file's world "already active" and silently merge the two.
+    pub world: PathBuf,
+    /// The base this entry's relative paths resolve against, handed to
+    /// `mcc_set_project_root`. Always a **directory**.
+    ///
+    /// Never the entry file: a file there breaks `./`-relative `use` resolution
+    /// (`canonicalize_project_uri`, `McUsePrefix::PathProject`) and the
+    /// `symbols/manifest.toml` lookup, both of which join onto the project root
+    /// and would silently find nothing.
+    pub scope: PathBuf,
+    /// The `.mc` file this world is built from.
+    pub entry: PathBuf,
+}
+
+/// Resolve a directory into the definition spaces beneath it.
 ///
-/// Each file is loaded as its own entry with its own `use` closure (so a file
-/// in a subfolder that `use ./utils/mcu`-style references a sibling resolves
-/// against its own directory, matching browse mode). A shared `loaded` set
-/// deduplicates files reachable through multiple closures. Callers run
-/// `mcb_parse_all_modules` afterwards (see `mcc_load_directory_all`).
-pub fn mcb_add_directory_recursive(root: &Path, loaded: &mut HashSet<String>) {
-    for f in collect_mc_files(root) {
-        let uri = McURI::from(f.to_string_lossy().as_ref());
-        mcb_add_recursive(&uri, loaded, false);
+/// A directory is a **container**, not a definition space. What it holds is
+/// *entries*: a subdirectory with a manifest names one, and — anywhere no
+/// manifest names one — each `.mc` file is one. A directory's name or depth
+/// decides nothing, so a folder of unrelated examples and a folder of nested
+/// projects are both read correctly, and no two entries ever share tables.
+///
+/// The named root is resolved *upwards* first ([`Manifest::nearest_root`]), so
+/// `mcc check <project>/src` is the project it sits in rather than a folder of
+/// loose files, and `mcc check <project>` is unchanged.
+///
+/// `entry_override` (the CLI's `--entry`) names exactly one entry and replaces
+/// the walk — it is a deliberate restriction, not an extra entry.
+pub fn discover_entries(root: &Path, entry_override: Option<&str>) -> Vec<BuildEntry> {
+    let root = absolute(root);
+
+    if let Some(rel) = entry_override {
+        let entry = absolute(&root.join(rel));
+        let (world, scope) = match crate::cli::manifest::Manifest::nearest_root(&root) {
+            Some(project) => (project.clone(), project),
+            None => (entry.clone(), root),
+        };
+        return vec![BuildEntry {
+            world,
+            scope,
+            entry,
+        }];
     }
+
+    // Inside a project, the whole named subtree is that one project.
+    if let Some(project) = crate::cli::manifest::Manifest::nearest_root(&root) {
+        let manifest = crate::cli::manifest::Manifest::find_and_load(&project);
+        if let Some(entry) = manifest.map(|m| m.entry_path(&project)) {
+            return vec![BuildEntry {
+                world: project.clone(),
+                scope: project,
+                entry,
+            }];
+        }
+    }
+
+    let mut out = Vec::new();
+    walk_entries(&root, &root, &mut out);
+    // Deterministic order across the whole batch, not just within a directory:
+    // which entry's tree rides into the report, and which world is left active,
+    // both follow this order.
+    out.sort_by(|a, b| a.world.cmp(&b.world));
+    out
+}
+
+/// Collect the entries under `dir`. `scope` is the directory relative paths
+/// resolve against — the walk's own root, unless a nested manifest overrides it
+/// with itself.
+fn walk_entries(dir: &Path, scope: &Path, out: &mut Vec<BuildEntry>) {
+    // A manifest names this directory's entry — and names only one: the
+    // project's own `.mc` files belong to that entry's `use` closure, so the
+    // walk stops here rather than making each of them a world of its own.
+    if let Some(m) = crate::cli::manifest::Manifest::find_and_load(dir) {
+        out.push(BuildEntry {
+            world: dir.to_path_buf(),
+            scope: dir.to_path_buf(),
+            entry: m.entry_path(dir),
+        });
+        return;
+    }
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut children: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    children.sort();
+    for path in children {
+        if path.is_dir() {
+            if path
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+            {
+                continue;
+            }
+            walk_entries(&path, scope, out);
+        } else if path.extension().is_some_and(|ext| ext == "mc") {
+            out.push(BuildEntry {
+                world: path.clone(),
+                scope: scope.to_path_buf(),
+                entry: path,
+            });
+        }
+    }
+}
+
+/// `path` made absolute against the process cwd, then canonicalized where it
+/// exists.
+///
+/// The resolver's outputs are joined onto other paths by code that assumes they
+/// are absolute — a relative one resolves against the *project root* instead of
+/// the cwd, which is how `mcc check .` would look for `./x/y.mc` under
+/// `./x/y.mc/./x/y.mc`. Canonicalizing also gives one spelling per directory, so
+/// `/var/x` and `/private/var/x` are one world and not two.
+fn absolute(path: &Path) -> PathBuf {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(path)
+    };
+    abs.canonicalize().unwrap_or(abs)
 }
 
 /// Recursively collect every `.mc` file under `root`, skipping hidden

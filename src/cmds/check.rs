@@ -28,6 +28,93 @@ pub struct CheckOutcome {
     pub exit_code: i32,
 }
 
+/// What the whole run collected. A directory target checks several definition
+/// spaces, and the report is about the folder, so each world's findings are
+/// merged before anything is printed.
+#[derive(Default)]
+struct CheckBatch {
+    diags: Vec<mcc::McDiagnostic>,
+    net_errors: usize,
+    pin_errors: usize,
+}
+
+/// Ask one definition space everything `check` asks, and keep the answer.
+///
+/// Called once for a file target and once per entry for a directory target —
+/// while that entry's world is active, which is the only time it can be asked.
+fn check_one_world(uri: &McURI, args: &CheckArgs, batch: &mut CheckBatch) {
+    let mod_name = mcc::mcb_get_module_name_by_uri(uri)
+        .or_else(|| mcc::mcb_get_first_module_name())
+        .unwrap_or_else(|| "main".to_string());
+    let entry = mcc::McSpaceName {
+        ident: mcc::McIds::from(mod_name.as_str()),
+        uri: mcc::uri_intern(uri),
+    };
+
+    // ── Nets flag: run pass2 and collect electrical checks ──
+    if args.nets {
+        if let Ok((_tree, table)) = mcc::mcb_pass2_flat(&entry, 1) {
+            let net_results = mcc::check::nets::run_net_checks(&table);
+            batch.net_errors += net_results.iter().filter(|r| r.severity == "error").count();
+            if !net_results.is_empty() {
+                eprintln!(
+                    "=== Electrical Net Checks ({} issues) ===",
+                    net_results.len()
+                );
+                for r in &net_results {
+                    eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
+                }
+            }
+        }
+        return;
+    }
+
+    // ── Pins flag: run pin usage checks ──
+    if args.pins {
+        match mcc::mcb_pass2_flat(&entry, 1) {
+            Ok((_tree, table)) => {
+                let pin_results = mcc::check::pins::run_pin_checks(&table);
+                batch.pin_errors += pin_results.iter().filter(|r| r.severity == "error").count();
+                if !pin_results.is_empty() {
+                    eprintln!("=== Pin Usage Checks ({} issues) ===", pin_results.len());
+                    for r in &pin_results {
+                        eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Pin checks skipped: pass2 failed: {e}");
+            }
+        }
+        return;
+    }
+
+    // ── Run pass2 instantiation so pass2-stage diagnostics (e.g. the func
+    // method arity check E4176 — net-endpoint arguments must match the
+    // formal count exactly) surface in the check overview too. pass2 errors
+    // are recorded in the global store via diagnostic_log; a failed flat run
+    // is tolerated so the overview still reports whatever pass1 collected.
+    let _ = mcc::mcb_pass2_flat(&entry, 1);
+
+    batch.diags.extend(mcc::mcc_diagnose_all());
+}
+
+/// Drop diagnostics a later entry reported again — a file reached by two
+/// entries' `use` closures is parsed once per world, so its diagnostics arrive
+/// once per entry that reaches it, and the report is about the folder.
+fn dedup_mcc_diags(diags: Vec<mcc::McDiagnostic>) -> Vec<mcc::McDiagnostic> {
+    let mut out: Vec<mcc::McDiagnostic> = Vec::new();
+    for d in diags {
+        let seen = out.iter().any(|e| {
+            e.code == d.code && e.msg == d.msg && e.loc.uri == d.loc.uri && e.loc.pos == d.loc.pos
+        });
+        if !seen {
+            out.push(d);
+        }
+    }
+    out
+}
+
 pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     if let Some(client) = RpcClient::probe() {
         let result = client.call(
@@ -57,73 +144,63 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     ledger::clear();
     manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
 
-    // Resolve the target into an entry URI.
-    //   - Directory: manifest-driven project mode; falls back to browse mode
-    //     (§19.5 rule 3 of use-design.md) when the directory has no manifest,
-    //     using the unique `module main` file or --entry.
+    // Resolve the target.
+    //   - Directory: a container of definition spaces (§19.5 rule 3 of
+    //     use-design.md) — each entry is checked in its own world. Not a
+    //     single-entry browse mode: a folder of unrelated `.mc` files must not
+    //     be read as one project.
     //   - File: nearest project root (a directory with project.toml) is
     //     resolved by walking up, then the manifest (if any) drives the load.
-    let _uri: McURI = if let Some(t) = &args.target {
+    let dir_root: Option<PathBuf> = args
+        .target
+        .as_deref()
+        .map(Path::new)
+        .filter(|p| p.is_dir())
+        .map(Path::to_path_buf);
+
+    let _uri: McURI = if dir_root.is_some() {
+        McURI::from("")
+    } else if let Some(t) = &args.target {
         let p = Path::new(t);
-        if p.is_dir() {
-            let fail = |e: anyhow::Error| -> Result<CheckOutcome> {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let abs_t = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            cwd.join(p)
+        };
+        let abs_t_str = abs_t.to_string_lossy().to_string();
+        let project_root = match manifest::find_project_root(Some(abs_t_str.as_str())) {
+            Some(root) => root,
+            None => {
+                if mcc::cli::globals().format.is_structured() {
+                    let env = Envelope::err(RpcError::invalid_params(format!(
+                        "check: cannot resolve project root for {}",
+                        t
+                    )));
+                    output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
+                    return Ok(CheckOutcome { exit_code: 2 });
+                }
+                anyhow::bail!("check: cannot resolve project root for {}", t);
+            }
+        };
+
+        let (entry_uri, _) = match manifest::build_from_manifest(
+            &project_root,
+            None,
+            Some(abs_t_str.as_str()),
+        ) {
+            Ok(r) => r,
+            Err(e) => {
                 if mcc::cli::globals().format.is_structured() {
                     let env = Envelope::err(RpcError::invalid_params(format!("{:#}", e)));
                     output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
-                    Ok(CheckOutcome { exit_code: 2 })
-                } else {
-                    anyhow::bail!("check: {}", e);
+                    return Ok(CheckOutcome { exit_code: 2 });
                 }
-            };
-            match crate::cmds::common::load_target(
-                Some(t),
-                mcc::cli::globals().top.as_deref(),
-                mcc::cli::globals().entry.as_deref(),
-            ) {
-                Ok((entry_uri, _)) => McURI::from(entry_uri.as_str()),
-                Err(e) => return fail(e),
+                anyhow::bail!("check: {}", e);
             }
-        } else {
-            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let abs_t = if p.is_absolute() {
-                p.to_path_buf()
-            } else {
-                cwd.join(p)
-            };
-            let abs_t_str = abs_t.to_string_lossy().to_string();
-            let project_root = match manifest::find_project_root(Some(abs_t_str.as_str())) {
-                Some(root) => root,
-                None => {
-                    if mcc::cli::globals().format.is_structured() {
-                        let env = Envelope::err(RpcError::invalid_params(format!(
-                            "check: cannot resolve project root for {}",
-                            t
-                        )));
-                        output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
-                        return Ok(CheckOutcome { exit_code: 2 });
-                    }
-                    anyhow::bail!("check: cannot resolve project root for {}", t);
-                }
-            };
+        };
 
-            let (entry_uri, _) = match manifest::build_from_manifest(
-                &project_root,
-                None,
-                Some(abs_t_str.as_str()),
-            ) {
-                Ok(r) => r,
-                Err(e) => {
-                    if mcc::cli::globals().format.is_structured() {
-                        let env = Envelope::err(RpcError::invalid_params(format!("{:#}", e)));
-                        output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
-                        return Ok(CheckOutcome { exit_code: 2 });
-                    }
-                    anyhow::bail!("check: {}", e);
-                }
-            };
-
-            McURI::from(entry_uri.as_str())
-        }
+        McURI::from(entry_uri.as_str())
     } else {
         if mcc::cli::globals().format.is_structured() {
             let env = Envelope::err(RpcError::invalid_params("check: <target> not specified"));
@@ -133,89 +210,64 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         anyhow::bail!("check: <target> not specified");
     };
 
-    // ── Nets flag: run pass2 and collect electrical checks ──
+    // ── Check each definition space. A directory target runs once per entry,
+    //    and everything a world can be asked has to be asked inside it: the
+    //    next entry drops it, diagnostics and all. ──
+    let mut batch = CheckBatch::default();
+    match &dir_root {
+        Some(root) => {
+            if mcc::discover_entries(root, mcc::cli::globals().entry.as_deref()).is_empty() {
+                if mcc::cli::globals().format.is_structured() {
+                    let env = Envelope::err(RpcError::invalid_params(format!(
+                        "check: no `.mc` files found under {}",
+                        root.display()
+                    )));
+                    output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
+                    return Ok(CheckOutcome { exit_code: 2 });
+                }
+                anyhow::bail!("check: no `.mc` files found under {}", root.display());
+            }
+            let lib = mcc::cli::globals().lib.clone();
+            let entry_override = mcc::cli::globals().entry.clone();
+            mcc::mcc_for_each_entry(
+                root,
+                entry_override.as_deref(),
+                &|e| manifest::collect_libs(Some(&e.scope), &lib),
+                |e| {
+                    check_one_world(
+                        &McURI::from(e.entry.to_string_lossy().as_ref()),
+                        args,
+                        &mut batch,
+                    )
+                },
+            );
+        }
+        None => check_one_world(&_uri, args, &mut batch),
+    }
+
+    // ── Nets flag: pass2 already ran per entry; report the aggregate. ──
     if args.nets {
-        let mod_name = mcc::mcb_get_module_name_by_uri(&_uri)
-            .or_else(|| mcc::mcb_get_first_module_name())
-            .unwrap_or_else(|| "main".to_string());
-        let entry = mcc::McSpaceName {
-            ident: mcc::McIds::from(mod_name.as_str()),
-            uri: mcc::uri_intern(&_uri),
-        };
-        let mut errors = 0usize;
-        if let Ok((_tree, table)) = mcc::mcb_pass2_flat(&entry, 1) {
-            let net_results = mcc::check::nets::run_net_checks(&table);
-            errors = net_results.iter().filter(|r| r.severity == "error").count();
-            if !net_results.is_empty() {
-                eprintln!(
-                    "=== Electrical Net Checks ({} issues) ===",
-                    net_results.len()
-                );
-                for r in &net_results {
-                    eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
-                }
-            }
-        }
         return Ok(CheckOutcome {
-            exit_code: if errors > 0 { 1 } else { 0 },
+            exit_code: if batch.net_errors > 0 { 1 } else { 0 },
         });
     }
 
-    // ── Pins flag: run pin usage checks ──
+    // ── Pins flag: likewise. ──
     if args.pins {
-        let mod_name = mcc::mcb_get_module_name_by_uri(&_uri)
-            .or_else(|| mcc::mcb_get_first_module_name())
-            .unwrap_or_else(|| "main".to_string());
-        let entry = mcc::McSpaceName {
-            ident: mcc::McIds::from(mod_name.as_str()),
-            uri: mcc::uri_intern(&_uri),
-        };
-        let mut errors = 0usize;
-        match mcc::mcb_pass2_flat(&entry, 1) {
-            Ok((_tree, table)) => {
-                let pin_results = mcc::check::pins::run_pin_checks(&table);
-                errors = pin_results.iter().filter(|r| r.severity == "error").count();
-                if !pin_results.is_empty() {
-                    eprintln!("=== Pin Usage Checks ({} issues) ===", pin_results.len());
-                    for r in &pin_results {
-                        eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Pin checks skipped: pass2 failed: {e}");
-            }
-        }
         return Ok(CheckOutcome {
-            exit_code: if errors > 0 { 1 } else { 0 },
+            exit_code: if batch.pin_errors > 0 { 1 } else { 0 },
         });
-    }
-
-    // ── Run pass2 instantiation so pass2-stage diagnostics (e.g. the func
-    // method arity check E4176 — net-endpoint arguments must match the
-    // formal count exactly) surface in the check overview too. pass2 errors
-    // are recorded in the global store via diagnostic_log; a failed flat run
-    // is tolerated so the overview still reports whatever pass1 collected.
-    if let Some(mod_name) = mcc::mcb_get_module_name_by_uri(&_uri)
-        .or_else(|| mcc::mcb_get_first_module_name())
-        .or_else(|| Some("main".to_string()))
-    {
-        let entry = mcc::McSpaceName {
-            ident: mcc::McIds::from(mod_name.as_str()),
-            uri: mcc::uri_intern(&_uri),
-        };
-        let _ = mcc::mcb_pass2_flat(&entry, 1);
     }
 
     // ── Collect diagnostics (use the real from_mcc instead of guess_severity) ──
     // `check` is a diagnostic overview; pass2 diagnostics are attributed to
     // Pass0 in the report.
-    let raw = mcc::mcc_diagnose_all();
+    let raw = dedup_mcc_diags(batch.diags);
 
     // --dlog: raw one-line diagnostics only (no envelope / summary). Decoupled
     // from execution mode — pair with --local when an RPC server is running.
     if args.dlog {
-        diagnostic::print_dlog_lines(args.errors_only);
+        diagnostic::print_dlog_of(&raw, args.errors_only);
         let errs = raw
             .iter()
             .filter(|d| matches!(d.level, mcc::DiagnosticLevel::Error))

@@ -17,6 +17,12 @@
 //! current data, then restore target workspace's snapshot (or create empty tables). After
 //! PR-4 daemonization, each workspace holds independent tables, routed via RPC to the
 //! corresponding workspace.
+//!
+//! A workspace is identified by its **root path** (canonicalized — see [`world_key`]).
+//! It is deliberately not identified by anything derived from the directory *name*: two
+//! unrelated projects routinely share a basename (`~/a/hbl` and `~/b/hbl`, a real board
+//! and a frozen test copy of it), and a name-keyed identity silently merges their
+//! definition tables.
 
 use crate::db::diagnostic::diagnostic::DiagnosticManager;
 use crate::db::infra::mc_code::McCode;
@@ -48,21 +54,32 @@ impl Default for WorkspaceKind {
 
 // WorkspaceMeta -- per-workspace metadata
 
+/// Per-workspace metadata. A workspace **is** its root: `root` is the identity,
+/// not a label. `None` is the anonymous world — no project is open, so the
+/// tables hold only standalone files and loaded libraries.
 #[derive(Debug, Clone)]
 pub struct WorkspaceMeta {
-    pub id: String,
+    pub root: Option<PathBuf>,
     pub kind: WorkspaceKind,
-    pub root: PathBuf,
 }
 
 impl Default for WorkspaceMeta {
     fn default() -> Self {
         Self {
-            id: "default".into(),
+            root: None,
             kind: WorkspaceKind::Project,
-            root: PathBuf::from("."),
         }
     }
+}
+
+/// The identity of a world: its root path, canonicalized so that two spellings
+/// of one directory (`./x`, a symlink, a trailing slash) name one world. A path
+/// that does not resolve — a root planned but not yet created — falls back to
+/// its literal form. Equality is always over the whole path, so two different
+/// projects can never collide on a shared basename.
+fn world_key(root: &Option<PathBuf>) -> Option<PathBuf> {
+    root.as_ref()
+        .map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()))
 }
 
 // WorkspaceSnapshot -- for save/restore when switching workspaces
@@ -105,9 +122,12 @@ pub struct WorkspaceManager {
     pub(crate) capabilities: DashMap<McSpaceName, Arc<McCapability>>,
     pub(crate) diagnostics: Mutex<DiagnosticManager>,
 
+    /// The active world. Its `root` is the identity — see [`world_key`].
     meta: Mutex<WorkspaceMeta>,
 
-    saved: Mutex<HashMap<String, WorkspaceSnapshot>>,
+    /// Parked worlds, keyed by the same canonical root that identifies the
+    /// active one (`None` = the anonymous world).
+    saved: Mutex<HashMap<Option<PathBuf>, WorkspaceSnapshot>>,
 
     // LSP tables -- extracted to db/symbol/workspace.rs
     pub(crate) lsp: crate::db::symbol::workspace::LspTables,
@@ -183,18 +203,14 @@ impl WorkspaceManager {
 
     // Query
 
-    /// Currently-active workspace id / kind — used by tests.
-    #[allow(dead_code)]
-    pub fn active_id(&self) -> String {
-        self.meta.lock().unwrap().id.clone()
-    }
-
     #[allow(dead_code)]
     pub fn active_kind(&self) -> WorkspaceKind {
         self.meta.lock().unwrap().kind.clone()
     }
 
-    pub fn active_root(&self) -> PathBuf {
+    /// The active world's root — its identity, in canonical form. `None` is the
+    /// anonymous world: no project is open.
+    pub fn active_root(&self) -> Option<PathBuf> {
         self.meta.lock().unwrap().root.clone()
     }
 
@@ -231,11 +247,13 @@ impl WorkspaceManager {
         None
     }
 
-    pub fn list(&self) -> Vec<(String, WorkspaceKind)> {
+    /// Every world this manager holds — the active one first, then the parked
+    /// ones. Addressed by root, the same key `switch_to` / `remove` take.
+    pub fn list(&self) -> Vec<(Option<PathBuf>, WorkspaceKind)> {
         let mut result = Vec::new();
         {
             let m = self.meta.lock().unwrap();
-            result.push((m.id.clone(), m.kind.clone()));
+            result.push((m.root.clone(), m.kind.clone()));
         }
         for entry in self.saved.lock().unwrap().iter() {
             result.push((entry.0.clone(), entry.1.meta.kind.clone()));
@@ -273,63 +291,86 @@ impl WorkspaceManager {
         self.registry.checkpoint_if_changed();
     }
 
-    // Create workspace
+    // Switch world (create it if it is new)
 
-    pub fn create_and_switch(&self, id: String, kind: WorkspaceKind, root: PathBuf) -> bool {
-        if self.meta.lock().unwrap().id == id {
-            return false;
-        }
-        if self.saved.lock().unwrap().contains_key(&id) {
+    /// Make `root` the active world, creating it if it is new.
+    ///
+    /// Opening and creating are one operation because they are one question —
+    /// "is this the world I am already in?" — and this is the only place that
+    /// answers it. Callers that keep their own notion of "same workspace" will
+    /// drift from this one; they must not. [`reset_to`](Self::reset_to) is the
+    /// other transition and asks nothing: it is for worlds that are throwaway.
+    ///
+    /// The world being left is parked, so a caller can come back to it.
+    ///
+    /// Returns whether the active world actually changed: a repeat call for the
+    /// root that is already active is a no-op.
+    ///
+    /// The root is stored in its canonical form, so the active world's root is
+    /// always the same value that keys it in `saved` — one spelling per
+    /// directory, whichever one the caller happened to pass in.
+    pub fn switch_to(&self, root: Option<PathBuf>, kind: WorkspaceKind) -> bool {
+        let key = world_key(&root);
+        if self.active_root() == key {
             return false;
         }
 
         self.snapshot_active();
 
+        let parked = self.saved.lock().unwrap().remove(&key);
+        match parked {
+            Some(snapshot) => self.restore_snapshot(snapshot),
+            None => {
+                self.clear_active();
+                *self.meta.lock().unwrap() = WorkspaceMeta { root: key, kind };
+            }
+        }
+
+        info!(target: "mcc::workspace", root = ?self.active_root(), "switched to workspace");
+        true
+    }
+
+    // Reset world (drop the outgoing one instead of parking it)
+
+    /// Make `root` the active world **without** parking the outgoing one, and
+    /// evict whatever world is parked under `root`.
+    ///
+    /// [`switch_to`](Self::switch_to) keeps what it leaves so a caller can come
+    /// back; a directory batch never comes back. It visits one throwaway world
+    /// per entry — a folder of unrelated `.mc` files is a container of
+    /// definition spaces, not one — and has already taken everything it needs
+    /// from each world before moving on, so parking them would keep a whole
+    /// directory's projects alive for a reader that will never arrive.
+    ///
+    /// Evicting `root`'s parked world keeps the "one key = at most one world"
+    /// invariant that `switch_to` maintains: a snapshot taken before the batch
+    /// must not outlive the world this call builds under the same key.
+    ///
+    /// Always clears, even when `root` is already active — "am I already here?"
+    /// is exactly the question a batch does not ask.
+    pub fn reset_to(&self, root: Option<PathBuf>, kind: WorkspaceKind) {
+        let key = world_key(&root);
+        self.saved.lock().unwrap().remove(&key);
         self.clear_active();
-        *self.meta.lock().unwrap() = WorkspaceMeta {
-            id: id.clone(),
-            kind,
-            root,
-        };
-
-        info!(target: "mcc::workspace", id = %id, "created and switched to new workspace");
-        true
+        *self.meta.lock().unwrap() = WorkspaceMeta { root: key, kind };
+        info!(target: "mcc::workspace", root = ?self.active_root(), "reset to workspace");
     }
 
-    // Switch workspace
-    // Auto-set project path when switching projects
-    pub fn switch_to(&self, id: &str) -> bool {
-        if self.meta.lock().unwrap().id == id {
+    // Remove world
+
+    pub fn remove(&self, root: &Option<PathBuf>) -> bool {
+        let key = world_key(root);
+        if self.active_root() == key {
             return false;
         }
-
-        let snapshot = match self.saved.lock().unwrap().remove(id) {
-            Some(s) => s,
-            None => return false,
-        };
-
-        self.snapshot_active();
-
-        self.restore_snapshot(snapshot);
-
-        info!(target: "mcc::workspace", id = %id, "switched to workspace");
-        true
-    }
-
-    // Remove workspace
-
-    pub fn remove(&self, id: &str) -> bool {
-        if self.meta.lock().unwrap().id == id {
-            return false;
-        }
-        self.saved.lock().unwrap().remove(id).is_some()
+        self.saved.lock().unwrap().remove(&key).is_some()
     }
 
     // Internal: snapshot / restore
 
     fn snapshot_active(&self) {
         let meta = self.meta.lock().unwrap().clone();
-        let id = meta.id.clone();
+        let key = world_key(&meta.root);
 
         let mcodes = clone_and_clear(&self.mcodes);
         let modules = clone_and_clear(&self.modules);
@@ -368,8 +409,8 @@ impl WorkspaceManager {
             refgraph,
         };
 
-        debug!(target: "mcc::workspace", id = %id, "snapshot saved");
-        self.saved.lock().unwrap().insert(id, snap);
+        debug!(target: "mcc::workspace", root = ?key, "snapshot saved");
+        self.saved.lock().unwrap().insert(key, snap);
     }
 
     fn restore_snapshot(&self, snap: WorkspaceSnapshot) {
@@ -475,27 +516,31 @@ where
 mod tests {
     use super::*;
 
-    #[test]
-    fn def_cmie__default_workspace() {
-        let mgr = WorkspaceManager::new();
-        assert_eq!(mgr.active_id(), "default");
-        assert_eq!(mgr.active_kind(), WorkspaceKind::Project);
+    /// A root that does not exist on disk, so `world_key` keeps it verbatim and
+    /// the test does not depend on the machine's filesystem.
+    fn root(path: &str) -> Option<PathBuf> {
+        Some(PathBuf::from(path))
     }
 
     #[test]
-    fn def_cmie__create_and_switch_workspace() {
+    fn def_cmie__default_workspace() {
+        let mgr = WorkspaceManager::new();
+        assert_eq!(mgr.active_root(), None);
+        assert_eq!(mgr.active_kind(), WorkspaceKind::Project);
+        assert_eq!(mgr.list().len(), 1);
+    }
+
+    #[test]
+    fn def_cmie__switch_to_new_workspace() {
         let mgr = WorkspaceManager::new();
 
-        assert!(mgr.create_and_switch(
-            "hbl".into(),
-            WorkspaceKind::Project,
-            PathBuf::from("/projects/hbl"),
-        ));
-        assert_eq!(mgr.active_id(), "hbl");
+        assert!(mgr.switch_to(root("/projects/hbl"), WorkspaceKind::Project));
+        assert_eq!(mgr.active_root(), root("/projects/hbl"));
         assert_eq!(mgr.active_kind(), WorkspaceKind::Project);
 
         let list = mgr.list();
         assert_eq!(list.len(), 2);
+        assert!(list.contains(&(root("/projects/hbl"), WorkspaceKind::Project)));
     }
 
     #[test]
@@ -506,26 +551,96 @@ mod tests {
             .insert("test.mc".to_string(), McCode::new_empty());
         assert_eq!(mgr.mcodes.len(), 1);
 
-        mgr.create_and_switch("proj1".into(), WorkspaceKind::Project, PathBuf::from("."));
+        mgr.switch_to(root("/projects/proj1"), WorkspaceKind::Project);
         assert_eq!(mgr.mcodes.len(), 0);
 
-        assert!(mgr.switch_to("default"));
+        assert!(mgr.switch_to(None, WorkspaceKind::Project));
         assert_eq!(mgr.mcodes.len(), 1);
     }
 
+    /// A repeat call for the root already active is a no-op — including the
+    /// anonymous world, which is a root like any other (`None`).
     #[test]
-    fn def_cmie__cannot_create_duplicate() {
+    fn def_cmie__same_root_is_a_noop() {
         let mgr = WorkspaceManager::new();
-        mgr.create_and_switch("proj1".into(), WorkspaceKind::Project, PathBuf::from("."));
-        assert!(!mgr.create_and_switch("proj1".into(), WorkspaceKind::Project, PathBuf::from(".")));
+        assert!(!mgr.switch_to(None, WorkspaceKind::Project));
+
+        assert!(mgr.switch_to(root("/projects/proj1"), WorkspaceKind::Project));
+        assert!(!mgr.switch_to(root("/projects/proj1"), WorkspaceKind::Project));
+    }
+
+    /// The reported bug, reduced: two roots that share a basename must be two
+    /// worlds. Keying either the active world or its snapshot by the directory
+    /// *name* merged them, so `proj-b`'s definitions landed in `proj-a`'s tables.
+    #[test]
+    fn def_cmie__same_basename_different_root_is_a_different_world() {
+        let mgr = WorkspaceManager::new();
+
+        let a = root("/projects/a/hbl");
+        let b = root("/projects/b/hbl");
+
+        mgr.switch_to(a.clone(), WorkspaceKind::Project);
+        mgr.mcodes.insert("a.mc".to_string(), McCode::new_empty());
+
+        assert!(mgr.switch_to(b.clone(), WorkspaceKind::Project));
+        assert_eq!(mgr.mcodes.len(), 0, "b inherited a's definitions");
+
+        assert!(mgr.switch_to(a.clone(), WorkspaceKind::Project));
+        assert_eq!(mgr.mcodes.len(), 1, "a's snapshot was overwritten by b");
+
+        // Two worlds parked under two distinct keys, not one.
+        assert_eq!(mgr.list().len(), 3);
     }
 
     #[test]
     fn def_cmie__remove_saved_workspace() {
         let mgr = WorkspaceManager::new();
-        mgr.create_and_switch("proj1".into(), WorkspaceKind::Project, PathBuf::from("."));
-        assert!(mgr.remove("default"));
+        mgr.switch_to(root("/projects/proj1"), WorkspaceKind::Project);
+        assert!(mgr.remove(&None));
         assert_eq!(mgr.list().len(), 1);
-        assert!(!mgr.remove("proj1"));
+        // The active world cannot be removed out from under itself.
+        assert!(!mgr.remove(&root("/projects/proj1")));
+    }
+
+    /// A reset is the transition for throwaway worlds: what it leaves must be
+    /// dropped, not parked. Parking would be worse than a leak here — the
+    /// batch's outgoing world is empty (`clear_active` on entry), so parking it
+    /// would overwrite a legitimate snapshot sitting under the same key.
+    #[test]
+    fn def_cmie__reset_drops_the_world_it_leaves() {
+        let mgr = WorkspaceManager::new();
+        mgr.mcodes.insert("a.mc".to_string(), McCode::new_empty());
+
+        mgr.reset_to(root("/projects/proj1"), WorkspaceKind::Project);
+        assert_eq!(mgr.active_root(), root("/projects/proj1"));
+        assert_eq!(mgr.mcodes.len(), 0, "reset inherited the outgoing world");
+        // Only the active world is listed: nothing was parked.
+        assert_eq!(mgr.list().len(), 1);
+
+        // And moving back does not resurrect what the reset dropped.
+        assert!(mgr.switch_to(None, WorkspaceKind::Project));
+        assert_eq!(mgr.mcodes.len(), 0);
+    }
+
+    /// One key = at most one world. A snapshot parked before the batch must not
+    /// outlive the world a reset builds under the same key.
+    #[test]
+    fn def_cmie__reset_evicts_the_world_parked_under_its_own_root() {
+        let mgr = WorkspaceManager::new();
+        mgr.switch_to(root("/projects/proj1"), WorkspaceKind::Project);
+        mgr.mcodes.insert("old.mc".to_string(), McCode::new_empty());
+        mgr.switch_to(None, WorkspaceKind::Project);
+        assert_eq!(mgr.list().len(), 2, "proj1 is parked");
+
+        mgr.reset_to(root("/projects/proj1"), WorkspaceKind::Project);
+        assert_eq!(mgr.mcodes.len(), 0, "reset inherited the parked world");
+        // proj1's snapshot is evicted, and nothing replaced it: the anonymous
+        // world is active (restored above), not parked.
+        assert_eq!(mgr.list().len(), 1);
+
+        // The pre-reset snapshot is gone: coming back finds an empty world.
+        mgr.switch_to(None, WorkspaceKind::Project);
+        assert!(mgr.switch_to(root("/projects/proj1"), WorkspaceKind::Project));
+        assert_eq!(mgr.mcodes.len(), 0, "the pre-reset snapshot came back");
     }
 }

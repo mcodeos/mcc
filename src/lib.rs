@@ -94,6 +94,7 @@ pub use ast::sem::{
 };
 pub use ast::token::{McSemToken, McSemTokens};
 // ── Builder / Pass infrastructure ──
+pub use build::loader::{discover_entries, BuildEntry};
 pub use builder::diagnostic::{
     Diagnostic as McDiagnostic, DiagnosticLevel, Location as McLocation,
 };
@@ -295,19 +296,56 @@ pub fn mcc_collect_mc_files(root: &Path) -> Vec<PathBuf> {
     builder::collect_mc_files(root)
 }
 
-/// Load every `.mc` file under `root` into the active workspace and parse all
-/// modules. Each file is loaded as its own entry with its own `use` closure
-/// (shared `loaded` set dedupes); returns the collected file list so callers
-/// can iterate per-file targets for Pass 2. This is the loader half of
-/// directory batch mode — Pass 1 diagnostics then cover the whole folder.
-pub fn mcc_load_directory_all(root: &Path) -> Vec<PathBuf> {
-    use std::collections::HashSet;
-    let files = builder::collect_mc_files(root);
-    builder::mc_code::mcb_reset_ast_visit_flag();
-    let mut loaded = HashSet::new();
-    builder::mcb_add_directory_recursive(root, &mut loaded);
-    builder::mcb_parse_all_modules();
-    files
+/// Visit every definition space under `root`, one at a time.
+///
+/// A directory is a container of entries (see
+/// [`discover_entries`](crate::build::loader::discover_entries)): a subdirectory a
+/// `project.toml` names is one, and each `.mc` file elsewhere is one. They are
+/// *separate worlds*, so nothing a folder holds can collide with a sibling —
+/// which is the whole point, and why this is a loop rather than one load of the
+/// folder into a single definition space.
+///
+/// `visit` runs with the entry's world active and is its **only** chance to read
+/// it: the next iteration drops the world, and a world owns its tables *and its
+/// diagnostics* alike. Whatever the caller needs — definitions, diagnostics, a
+/// built tree — has to be copied out inside `visit`.
+///
+/// `libs_for` supplies each entry's libraries; they are loaded per world because
+/// a reset clears the library tables and tombstones the registry with them.
+///
+/// The bracket is owned here rather than exposed as an enter/leave pair so the
+/// restore cannot be forgotten: when this returns, the active world is the one
+/// the caller was in, by root and kind. Its *tables* are not restored — every
+/// caller has already dropped them (`mcc_clear_workspace`) before asking for a
+/// batch, so there is nothing left to restore, and re-establishing the identity
+/// is what keeps the daemon from being left parked in some example folder.
+pub fn mcc_for_each_entry<F>(
+    root: &Path,
+    entry_override: Option<&str>,
+    libs_for: &dyn Fn(&BuildEntry) -> Vec<String>,
+    mut visit: F,
+) -> Vec<BuildEntry>
+where
+    F: FnMut(&BuildEntry),
+{
+    let entries = crate::build::loader::discover_entries(root, entry_override);
+
+    let caller = builder::workspace::WORKSPACE.active_meta();
+    for e in &entries {
+        builder::workspace::WORKSPACE.reset_to(Some(e.world.clone()), WorkspaceKind::Project);
+        mcc_set_project_root(&e.scope);
+        for lib in libs_for(e) {
+            builder::mcb_load_lib_by_name(&lib);
+        }
+        mcc_load_project(&McURI::from(e.entry.to_string_lossy().as_ref()));
+        visit(e);
+    }
+    if !entries.is_empty() {
+        builder::workspace::WORKSPACE.reset_to(caller.root.clone(), caller.kind);
+        mcc_set_project_root(&caller.root.unwrap_or_default());
+    }
+
+    entries
 }
 
 /// Load .mc file from memory string (no disk file dependency)
@@ -1385,42 +1423,78 @@ fn print_member_info_indent(member: &StmtMemberInfo, indent: usize, idx: usize) 
 
 pub use builder::workspace::WorkspaceKind;
 
+/// The active workspace as `(name, kind, root)`.
+///
+/// A workspace is identified by its root; `name` is the root's last path
+/// component and exists for display only — nothing addresses a workspace by it.
+/// Both `name` and `root` are empty when no project is open (the anonymous
+/// world).
 pub fn workspace_info() -> (String, String, String) {
     let meta = builder::workspace::WORKSPACE.active_meta();
-    (
-        meta.id,
-        format!("{:?}", meta.kind),
-        meta.root.to_string_lossy().to_string(),
-    )
+    let name = meta
+        .root
+        .as_ref()
+        .and_then(|root| root.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let root = meta
+        .root
+        .as_ref()
+        .map(|root| root.to_string_lossy().to_string())
+        .unwrap_or_default();
+    (name, format!("{:?}", meta.kind), root)
 }
 
-pub fn workspace_create(id: &str, kind: WorkspaceKind, root: &std::path::Path) -> bool {
-    let created =
-        builder::workspace::WORKSPACE.create_and_switch(id.to_string(), kind, root.to_path_buf());
-    if created {
-        mcc_set_project_root(root);
-    }
-    created
+/// The active workspace's root in canonical form. `None` = no project open.
+pub fn workspace_root() -> Option<std::path::PathBuf> {
+    builder::workspace::WORKSPACE.active_root()
 }
 
-pub fn workspace_switch(id: &str) -> bool {
-    let switched = builder::workspace::WORKSPACE.switch_to(id);
-    if switched {
-        let root = builder::workspace::WORKSPACE.active_root();
+/// Make `root` the active workspace, creating it if it is new. `None` is the
+/// anonymous world — no project open.
+///
+/// This is the only way to change the active workspace. Opening and creating are
+/// one operation because they answer one question — "is this the workspace I am
+/// already in?" — which has exactly one answer, computed in one place. A caller
+/// that keeps its own notion of "the same workspace" will disagree with this one
+/// whenever two roots share a directory name, and the disagreement merges two
+/// projects' definition tables.
+///
+/// Returns whether the active workspace actually changed.
+pub fn workspace_switch_to(root: Option<std::path::PathBuf>, kind: WorkspaceKind) -> bool {
+    let changed = builder::workspace::WORKSPACE.switch_to(root, kind);
+    if changed {
+        // The project root is a separate process-global that the loaders and the
+        // SVG symbol registry read directly, so it has to follow the active
+        // workspace on *every* change — including switching back to a parked
+        // workspace, and including switching to the anonymous world, where the
+        // empty path clears it (`mcb_get_project_root` and
+        // `psymbol::load_project_symbols` both read empty as "not configured").
+        let root = builder::workspace::WORKSPACE
+            .active_root()
+            .unwrap_or_default();
         mcc_set_project_root(&root);
     }
-    switched
+    changed
 }
 
-pub fn workspace_remove(id: &str) -> bool {
-    builder::workspace::WORKSPACE.remove(id)
+pub fn workspace_remove(root: &Option<std::path::PathBuf>) -> bool {
+    builder::workspace::WORKSPACE.remove(root)
 }
 
+/// Every workspace this process holds as `(root, kind)`, active first. An empty
+/// root string is the anonymous world.
 pub fn workspace_list() -> Vec<(String, String)> {
     builder::workspace::WORKSPACE
         .list()
         .into_iter()
-        .map(|(id, kind)| (id, format!("{kind:?}")))
+        .map(|(root, kind)| {
+            (
+                root.map(|r| r.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+                format!("{kind:?}"),
+            )
+        })
         .collect()
 }
 

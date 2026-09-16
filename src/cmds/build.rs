@@ -582,22 +582,26 @@ fn build_failure_diag(uri: &str, code: u32, msg: String) -> Diagnostic {
 /// `mcc build <dir>` fallback when the directory has no project manifest
 /// (use-design.md §19.5 rule 3 — directory batch mode).
 ///
-/// Parses every `.mc` file under `root` recursively (hidden dirs skipped) and
-/// builds each file's default top (module directly, component / interface
-/// virtually instantiated). Pass1 covers the whole folder; Pass2 aggregates
-/// per-file diagnostics; the envelope carries the first successfully-built
-/// tree. A file whose build fails is recorded as a Pass2 error and skipped —
-/// one bad file never aborts the folder report. An explicit `--top` builds
-/// that target from the first file that declares it. `--viz` renders each
-/// built file's top and combines the views.
+/// The directory is a *container* of definition spaces: each entry — every
+/// `.mc` file it holds, and every subdirectory a `project.toml` names — is
+/// loaded into its own world and built as its own thing (module directly,
+/// component / interface virtually instantiated). Pass1 and Pass2 diagnostics
+/// are merged across entries; the envelope carries the first successfully-built
+/// tree. An entry whose build fails is recorded as a Pass2 error and skipped —
+/// one bad file never aborts the folder report. An explicit `--top` builds that
+/// target from the first entry that declares it. `--viz` renders each built
+/// target and combines the views.
+///
+/// Everything that reads the live world happens inside the batch's visit
+/// closure, because the world — tables *and* diagnostics — is gone by the next
+/// iteration.
 fn build_browse_dir(
     root: &Path,
     args: &BuildArgs,
     mut builder: ResultBuilder,
     mut tracker: PhaseTracker,
 ) -> Result<BuildOutcome> {
-    let files = mcc::mcc_load_directory_all(root);
-    if files.is_empty() {
+    if mcc::discover_entries(root, None).is_empty() {
         let err = RpcError::invalid_params(format!(
             "build: no `.mc` files found under {}",
             root.display()
@@ -606,15 +610,18 @@ fn build_browse_dir(
         return Ok(BuildOutcome { exit_code: 1 });
     }
 
-    // ── 2. Pass1: workspace-wide — every file + its use closure (all files). ──
-    let first_uri = files[0].to_string_lossy().into_owned();
-    builder.set_pass1(crate::cmds::parse::public_collect_pass1(
-        &first_uri,
-        &mut tracker,
-    ));
-
-    // ── 3. Pass2: per-file default top build, aggregated ──
-    let explicit_top = mcc::cli::globals().top.as_deref();
+    // ── 2. Pass1 + 3. Pass2, entry by entry ──
+    let explicit_top = mcc::cli::globals().top.clone();
+    let cli_libs = mcc::cli::globals().lib.clone();
+    // A folder's entries overlap — a file reached by two entries' `use`
+    // closures is parsed once per world — so both phases merge by sighting
+    // rather than by appending.
+    let mut pass1 = Pass1Report {
+        loaded_files: vec![],
+        definitions: DefinitionsIndex::default(),
+        diagnostics: vec![],
+    };
+    let mut pass2_diags: Vec<Diagnostic> = Vec::new();
     let mut top_name = String::new();
     // Phase C S3-D: the arena + store ride alongside the tree so the
     // net-check re-flatten can build a store-backed view (the tree's Vec
@@ -626,8 +633,10 @@ fn build_browse_dir(
         mcc::NetTableStore,
     )> = None;
     let mut first_nets: Vec<mcc::check::nets::NetCheckResult> = Vec::new();
-    let mut failures: Vec<Diagnostic> = Vec::new();
-    let mut built: Vec<(String, PathBuf)> = Vec::new(); // (target, file) for viz
+    let mut search_done = false;
+    let mut svgs: Vec<(Option<String>, String)> = Vec::new();
+    let mut total_boxes = 0usize;
+    let mut netcheck_errors = 0usize;
 
     // Build `target` from `file`; record failures (non-fatal) so one bad file
     // doesn't abort the folder report. The first surfaced circuit is built
@@ -700,53 +709,165 @@ fn build_browse_dir(
         }
     };
 
-    if let Some(t) = explicit_top {
-        for f in &files {
-            let uri = f.to_string_lossy().to_string();
-            let mc_uri = mcc::McURI::from(uri.as_str());
-            let declares = mcc::mcc_get_modules_in_file(&mc_uri)
-                .iter()
-                .chain(mcc::mcc_get_components_in_file(&mc_uri).iter())
-                .chain(mcc::mcc_get_interfaces_in_file(&mc_uri).iter())
-                .any(|n| n == t);
-            if !declares {
-                continue;
-            }
-            if let Some(pair) =
-                build_one(t, f, &mut failures, first_inst.is_none(), &mut first_nets)
-            {
-                top_name = t.to_string();
-                first_inst = Some(pair);
-                built.push((t.to_string(), f.clone()));
-            }
-            break;
-        }
-    } else {
-        for f in &files {
-            let uri = f.to_string_lossy().to_string();
-            let mc_uri = mcc::McURI::from(uri.as_str());
-            let targets = match mcc::mcc_virtual_resolve_targets(&mc_uri, None) {
-                Ok(t) => t,
-                Err(_) => continue, // pass1 already reports the file's problems
-            };
-            let Some(tgt) = targets.into_iter().next() else {
-                continue;
-            };
-            if let Some(pair) = build_one(
-                &tgt,
-                f,
-                &mut failures,
-                first_inst.is_none(),
-                &mut first_nets,
-            ) {
-                built.push((tgt.clone(), f.clone()));
-                if first_inst.is_none() {
-                    top_name = tgt;
-                    first_inst = Some(pair);
+    let viz_one = |target: &str,
+                   file: &Path,
+                   svgs: &mut Vec<(Option<String>, String)>,
+                   total_boxes: &mut usize,
+                   netcheck_errors: &mut usize,
+                   layouter: Option<&str>| {
+        let uri = file.to_string_lossy().to_string();
+        let mc_uri = mcc::McURI::from(uri.as_str());
+        match mcc::mcc_virtual_build_flat(target, &mc_uri, 1000) {
+            Ok((mod_inst, mod_table, mod_arena, mod_store)) => {
+                let nc_report = mcc::instant::netcheck::run(&mod_table);
+                nc_report.print();
+                if !nc_report.is_clean() {
+                    *netcheck_errors += 1;
+                    mcc_dbg!(
+                        "build",
+                        "[gate] NETCHECK Tier 0 not clean for '{target}' -> skip viz."
+                    );
+                    return;
+                }
+                mcc::vector::builder::reset_np_warn_count();
+                let (vec_block, report) =
+                    mcc::build_mc_vec_with_report(&mod_inst, &mod_table, &mod_arena, &mod_store);
+                let ss = &report.shape_stats;
+                eprintln!(
+                    "shape info: {}/{} nets have shape info ({:.0}%)",
+                    ss.from_source,
+                    ss.total_nets,
+                    ss.coverage() * 100.0
+                );
+                let is_virtual = !mcc::mcc_get_modules_in_file(&mc_uri)
+                    .iter()
+                    .any(|m| m == target);
+                let graph = if is_virtual {
+                    mcc::mcc_virtual_prepare_graph(
+                        mcc::build_mc_vec_graph(&vec_block, &mod_table),
+                        target,
+                    )
+                } else {
+                    mcc::build_mc_vec_graph(&vec_block, &mod_table)
+                };
+                *total_boxes += graph.boxes.len();
+                let opts = build_viz_opts(layouter);
+                let doc = mcc::viz::api::render_with(graph, opts);
+                if let Some(root_layer) = doc.root_layer() {
+                    let label = if is_virtual {
+                        None
+                    } else {
+                        Some(target.to_string())
+                    };
+                    svgs.push((label, root_layer.svg.clone()));
                 }
             }
+            Err(e) => {
+                mcc_dbg!(
+                    "build",
+                    "[viz] skip target '{target}': mcc_virtual_build_flat failed: {e}"
+                );
+            }
+        }
+    };
+
+    mcc::mcc_for_each_entry(
+        root,
+        None,
+        &|e| manifest::collect_libs(Some(&e.scope), &cli_libs),
+        |e| {
+            // This world's diagnostics are all this world's, so the cursor
+            // starts at the beginning of its list rather than wherever the last
+            // world left off.
+            tracker.rewind();
+            let uri = e.entry.to_string_lossy().into_owned();
+            let world_pass1 = crate::cmds::parse::public_collect_pass1(&uri, &mut tracker);
+            // The files this entry contributes: what it loaded that is not a
+            // library — its own `use` closure, not the folder.
+            let files: Vec<PathBuf> = world_pass1
+                .loaded_files
+                .iter()
+                .filter(|f| !f.is_system)
+                .map(|f| PathBuf::from(&f.uri))
+                .collect();
+            pass1.merge(world_pass1);
+
+            let mut failures: Vec<Diagnostic> = Vec::new();
+            let entry_uri = mcc::McURI::from(uri.as_str());
+            if let Some(t) = explicit_top.as_deref() {
+                // An explicit top can only be looked for in a live world, so the
+                // search is per entry; the first entry that declares it wins,
+                // and the scan stops there whether or not its build succeeded.
+                let declares = !search_done
+                    && mcc::mcc_get_modules_in_file(&entry_uri)
+                        .iter()
+                        .chain(mcc::mcc_get_components_in_file(&entry_uri).iter())
+                        .chain(mcc::mcc_get_interfaces_in_file(&entry_uri).iter())
+                        .any(|n| n == t);
+                if declares {
+                    search_done = true;
+                    if let Some(pair) =
+                        build_one(t, &e.entry, &mut failures, first_inst.is_none(), &mut first_nets)
+                    {
+                        top_name = t.to_string();
+                        first_inst = Some(pair);
+                        if args.viz {
+                            viz_one(
+                                t,
+                                &e.entry,
+                                &mut svgs,
+                                &mut total_boxes,
+                                &mut netcheck_errors,
+                                args.layouter.as_deref(),
+                            );
+                        }
+                    }
+                }
+            } else {
+                for f in &files {
+                    let mc_uri = mcc::McURI::from(f.to_string_lossy().as_ref());
+                    let targets = match mcc::mcc_virtual_resolve_targets(&mc_uri, None) {
+                        Ok(t) => t,
+                        Err(_) => continue, // pass1 already reports the file's problems
+                    };
+                    let Some(tgt) = targets.into_iter().next() else {
+                        continue;
+                    };
+                    if let Some(pair) =
+                        build_one(&tgt, f, &mut failures, first_inst.is_none(), &mut first_nets)
+                    {
+                        if first_inst.is_none() {
+                            top_name = tgt.clone();
+                            first_inst = Some(pair);
+                        }
+                        if args.viz {
+                            viz_one(
+                                &tgt,
+                                f,
+                                &mut svgs,
+                                &mut total_boxes,
+                                &mut netcheck_errors,
+                                args.layouter.as_deref(),
+                            );
+                        }
+                    }
+                }
+            }
+            pass2_diags.extend(tracker.collect(Phase::Pass2));
+            pass2_diags.extend(failures);
+        },
+    );
+
+    // Two entries reached the same file → the same diagnostic twice; the report
+    // is about the folder, so it appears once.
+    let mut unique: Vec<Diagnostic> = Vec::new();
+    for d in pass2_diags {
+        if !unique.iter().any(|e| same_diagnostic(e, &d)) {
+            unique.push(d);
         }
     }
+
+    builder.set_pass1(pass1);
 
     // ── Pass2 report: aggregated diagnostics, first tree in the envelope ──
     match &first_inst {
@@ -761,18 +882,17 @@ fn build_browse_dir(
                 net_store,
                 &mut tracker,
             );
-            report.diagnostics.extend(failures);
+            report.diagnostics = unique;
             builder.set_pass2(report);
         }
         None => {
-            let mut report = Pass2Report {
+            let report = Pass2Report {
                 top: top_name.clone(),
                 instances: None,
                 nets: vec![],
                 connections: vec![],
-                diagnostics: tracker.collect(Phase::Pass2),
+                diagnostics: unique,
             };
-            report.diagnostics.extend(failures);
             builder.set_pass2(report);
         }
     }
@@ -785,68 +905,8 @@ fn build_browse_dir(
         mcc::InstTable::write_known_missing(inst, "baseline/known_missing.md", &view);
     }
 
-    // ── 4. Viz: each built file's top, combined ──
+    // ── 4. Viz: write out what the entries rendered ──
     if args.viz {
-        let mut svgs: Vec<(Option<String>, String)> = Vec::new();
-        let mut total_boxes = 0usize;
-        let mut netcheck_errors = 0usize;
-        for (target, file) in &built {
-            let uri = file.to_string_lossy().to_string();
-            let mc_uri = mcc::McURI::from(uri.as_str());
-            match mcc::mcc_virtual_build_flat(target, &mc_uri, 1000) {
-                Ok((mod_inst, mod_table, mod_arena, mod_store)) => {
-                    let nc_report = mcc::instant::netcheck::run(&mod_table);
-                    nc_report.print();
-                    if !nc_report.is_clean() {
-                        netcheck_errors += 1;
-                        mcc_dbg!(
-                            "build",
-                            "[gate] NETCHECK Tier 0 not clean for '{target}' -> skip viz."
-                        );
-                        continue;
-                    }
-                    mcc::vector::builder::reset_np_warn_count();
-                    let (vec_block, report) = mcc::build_mc_vec_with_report(
-                        &mod_inst, &mod_table, &mod_arena, &mod_store,
-                    );
-                    let ss = &report.shape_stats;
-                    eprintln!(
-                        "shape info: {}/{} nets have shape info ({:.0}%)",
-                        ss.from_source,
-                        ss.total_nets,
-                        ss.coverage() * 100.0
-                    );
-                    let is_virtual = !mcc::mcc_get_modules_in_file(&mc_uri)
-                        .iter()
-                        .any(|m| m == target);
-                    let graph = if is_virtual {
-                        mcc::mcc_virtual_prepare_graph(
-                            mcc::build_mc_vec_graph(&vec_block, &mod_table),
-                            target,
-                        )
-                    } else {
-                        mcc::build_mc_vec_graph(&vec_block, &mod_table)
-                    };
-                    total_boxes += graph.boxes.len();
-                    let opts = build_viz_opts(args.layouter.as_deref());
-                    let doc = mcc::viz::api::render_with(graph, opts);
-                    if let Some(root_layer) = doc.root_layer() {
-                        let label = if is_virtual {
-                            None
-                        } else {
-                            Some(target.clone())
-                        };
-                        svgs.push((label, root_layer.svg.clone()));
-                    }
-                }
-                Err(e) => {
-                    mcc_dbg!(
-                        "build",
-                        "[viz] skip target '{target}': mcc_virtual_build_flat failed: {e}"
-                    );
-                }
-            }
-        }
         if svgs.is_empty() {
             if netcheck_errors > 0 {
                 return Ok(BuildOutcome { exit_code: 1 });
