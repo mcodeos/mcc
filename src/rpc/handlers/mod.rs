@@ -34,7 +34,6 @@
 //!   - 32112  component / module / entity / file not found
 
 use super::protocol::{JsonRpcError, RpcResult};
-use crate::db::cmie::tables as workspace;
 use crate::search_api::{walk_defs, SearchInputs, SearchKind};
 use crate::McURI;
 use serde::Deserialize;
@@ -314,9 +313,14 @@ pub(crate) fn run_full_build(
 /// [`crate::...PhaseTracker`]'s phase batching. Kept separate from
 /// [`run_full_build`] so the legacy shape used by other RPC methods (e.g.
 /// aicontract `check`) is untouched.
+///
+/// `_include_system` is accepted for the wire contract and deliberately not
+/// honored: the local path's `public_collect_pass1` has no system filter at
+/// all, so filtering here would break the identical-output contract above.
 pub(crate) fn run_full_build_envelope(
     entry: &Path,
     top: Option<&str>,
+    libs: &[String],
     command: &str,
     ws_kind: &str,
     ws_name: &str,
@@ -324,35 +328,17 @@ pub(crate) fn run_full_build_envelope(
     ledger_mode: crate::semantic::validation::ledger::LedgerMode,
 ) -> RpcResult {
     // Fresh failure ledger per request (the daemon may be long-lived); the
-    // dir-no-manifest path below is reached after this clear.
+    // directory path below is reached after this clear.
     crate::semantic::validation::ledger::clear();
 
-    // Directory target (no project manifest) → directory batch mode: parse
-    // every `.mc` file recursively and build each file's default top (§19.5
-    // rule 3, use-design.md). A directory that *does* have a manifest is a
-    // misbehaving caller — resolve its project entry and build that instead.
+    // A directory is a container of definition spaces — one per manifest, one
+    // per loose `.mc` file (§19.5 rule 3, use-design.md). Entries are resolved
+    // together in one place, whether or not the folder happens to hold a
+    // manifest, so what a folder means never depends on which one it is.
     if entry.is_dir() {
-        if let Some(manifest_path) = crate::cli::datadir::find_manifest_in(entry) {
-            let content = std::fs::read_to_string(&manifest_path).ok();
-            if let Some(rel) = content
-                .as_deref()
-                .and_then(|c| parse_manifest_field(c, "entry"))
-            {
-                let entry_file = manifest_path.parent().unwrap_or(entry).join(&rel);
-                if entry_file.is_file() {
-                    return run_full_build_envelope(
-                        &entry_file,
-                        top,
-                        command,
-                        ws_kind,
-                        ws_name,
-                        true,
-                        ledger_mode,
-                    );
-                }
-            }
-        }
-        return run_full_build_dir_envelope(entry, top, command, ws_kind, ws_name);
+        return run_full_build_dir_envelope(
+            entry, top, libs, command, ws_kind, ws_name, ledger_mode,
+        );
     }
 
     let t0 = std::time::Instant::now();
@@ -459,66 +445,60 @@ pub(crate) fn run_full_build_envelope(
     }))
 }
 
-/// Directory batch build for a build target that is a directory with no
-/// project manifest (use-design.md §19.5 rule 3 — `mcc build <dir>` / the
-/// extension's Build Project on a toml-less folder).
+/// Directory batch build: a directory is a *container* of definition spaces
+/// (use-design.md §19.5 rule 3 — `mcc build <dir>` / the extension's Build
+/// Project).
 ///
-/// Every `.mc` file under `entry` (recursively, hidden dirs skipped) is loaded
-/// and its Pass 1 diagnostics collected — the whole folder is parsed, not a
-/// single entry. Pass 2 then builds each file's default top (modules directly,
+/// Each entry — every `.mc` file the folder holds, and every subdirectory a
+/// `project.toml` names — is loaded into its own world and reported in its own
+/// terms, so two unrelated files in one folder cannot collide (`mcc_for_each_entry`;
+/// this is what makes `<dir>` mean the same thing with and without a project
+/// manifest, and with and without a daemon).
+///
+/// Pass 2 then builds each entry's default top (modules directly,
 /// components/interfaces virtually instantiated) and aggregates the
-/// diagnostics; a file whose build fails is recorded as a Pass 2 error and
+/// diagnostics; an entry whose build fails is recorded as a Pass 2 error and
 /// skipped, so one bad file never aborts the folder report. The envelope
 /// carries the first successfully-built tree (mirroring the single-file
-/// contract). An explicit `top` builds that target from the first file that
-/// declares it instead of per-file defaults.
+/// contract). An explicit `top` builds that target from the first entry that
+/// declares it instead of per-entry defaults.
 fn run_full_build_dir_envelope(
     entry: &Path,
     top: Option<&str>,
+    libs: &[String],
     command: &str,
     ws_kind: &str,
     ws_name: &str,
+    ledger_mode: crate::semantic::validation::ledger::LedgerMode,
 ) -> RpcResult {
     let t0 = std::time::Instant::now();
-    let root_str = entry.to_string_lossy().to_string();
+    // Resolved once: the driver reloads these names for every world, and a
+    // world needs mcode re-established after a reset.
+    let libs = resolve_libs_rpc(libs);
 
-    // ── Diagnostic cursor (same phase batching as the single-file path) ──
-    let mut cursor = 0usize;
-    let mut take_diags = |phase: &str| -> Vec<Value> {
-        let all = crate::mcc_diagnose_all();
-        let slice = if cursor <= all.len() {
-            &all[cursor..]
-        } else {
-            &[]
-        };
-        let out: Vec<Value> = slice.iter().map(|d| mcc_diag_to_json(d, phase)).collect();
-        cursor = all.len();
-        out
-    };
+    let mut merged = BatchEnvelope::default();
+    // Pass 0 is the libraries this request asked for, so it has to be read
+    // before the batch starts: the driver's first reset clears the world, and
+    // the diagnostics go with it.
+    let lib_diags: Vec<Value> = crate::mcc_diagnose_all()
+        .iter()
+        .map(|d| mcc_diag_to_json(d, "pass0"))
+        .collect();
+    add_diags(&mut merged.seen, &mut merged.pass0, lib_diags);
 
-    let pass0 = json!({ "loaded_files": [], "diagnostics": take_diags("pass0") });
-
-    // Parse the whole folder: every file + its `use` closure, shared dedup.
-    let files = crate::mcc_load_directory_all(entry);
-
-    let mut pass1 = collect_pass1(&root_str, true);
-    pass1["diagnostics"] = Value::Array(take_diags("pass1"));
-    // Same contract as the single-file path: ports never populated locally.
-    pass1["definitions"]["ports"] = Value::Array(vec![]);
-
-    // ── Pass 2 (world-core; design §12.2 / §13.6): per-file default top build,
+    // ── Pass 2 (world-core; design §12.2 / §13.6): per-entry default top build,
     //    aggregated ──
-    // Every built file's top is instantiated ONCE into a per-file CircuitWorld
-    // and flattened once, so the single one-way flatten runs that circuit's
-    // flat electrical net checks once. The dir envelope is an OWNING surface
-    // (an explicit Build over the whole folder), so its net diagnostics are
-    // logged into the workspace — the Problems store aggregates real ERC per
-    // source file, exactly like the single-file envelope. Components/interfaces
-    // are wrapped in a synthetic module and the projection marks it synthetic,
-    // so an unwired single-part view doesn't flag E4112/E4116. The first
-    // successful tree rides into the envelope (mirroring the single-file
-    // contract); the rest only need their diagnostics, so their owned parts are
-    // not cloned out of the circuit.
+    // Every built target is instantiated ONCE into a CircuitWorld and flattened
+    // once, so the single one-way flatten runs that circuit's flat electrical
+    // net checks once. The dir envelope is an OWNING surface (an explicit Build
+    // over the whole folder), so its net diagnostics are logged into the
+    // workspace — the Problems store aggregates real ERC per source file,
+    // exactly like the single-file envelope. Components/interfaces are wrapped
+    // in a synthetic module and the projection marks it synthetic, so an
+    // unwired single-part view doesn't flag E4112/E4116. The first successful
+    // tree rides into the envelope (mirroring the single-file contract); the
+    // rest only need their diagnostics, so their owned parts are not cloned out
+    // of the circuit.
     let mut top_name = String::new();
     let mut first_inst: Option<(
         crate::MccProjectTree,
@@ -526,115 +506,100 @@ fn run_full_build_dir_envelope(
         crate::InstanceStore,
         crate::NetTableStore,
     )> = None;
-    let mut failures: Vec<Value> = Vec::new();
-    let build_one = |target: &str,
-                     file: &Path,
-                     failures: &mut Vec<Value>,
-                     keep_tree: bool|
-     -> Option<(
-        crate::MccProjectTree,
-        crate::NodeArena,
-        crate::InstanceStore,
-        crate::NetTableStore,
-    )> {
-        let uri = file.to_string_lossy().to_string();
-        let mc_uri = McURI::from(uri.as_str());
-        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let (mut world, key, synthetic) =
-                crate::mcc_virtual_build_world(target, &mc_uri, 1000)?;
-            let diags = match synthetic {
-                Some(prefix) => world.flatten_with_prefix(&key, &prefix)?,
-                None => world.flatten(&key)?,
-            };
-            // Owning surface: the flat net-check diagnostics aggregate into the
-            // Problems store, keyed at each diagnostic's own source file.
-            crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
-            if keep_tree {
-                let dl = world
-                    .circuit(&key)
-                    .ok_or_else(|| format!("dir build produced no circuit for {target}"))?;
-                Ok::<_, Box<dyn std::error::Error>>(Some((
-                    dl.tree().clone(),
-                    dl.arena().clone(),
-                    dl.store().clone(),
-                    dl.net_store().borrow().clone(),
-                )))
-            } else {
-                Ok::<_, Box<dyn std::error::Error>>(None)
-            }
-        }));
-        match built {
-            Ok(Ok(pair)) => pair,
-            Ok(Err(e)) => {
-                failures.push(build_failure_diag(
-                    "pass2",
-                    &uri,
-                    &format!("build failed: {e}"),
-                ));
-                None
-            }
-            Err(_) => {
-                failures.push(build_failure_diag(
-                    "pass2",
-                    &uri,
-                    "Pass2 build panicked (engine bug); skipped",
-                ));
-                None
-            }
-        }
-    };
+    let mut search_done = false;
 
-    if let Some(t) = top {
-        // Explicit top: build it from the first file that declares it.
-        for f in &files {
-            let uri = f.to_string_lossy().to_string();
-            let mc_uri = McURI::from(uri.as_str());
-            let declares = crate::mcc_get_modules_in_file(&mc_uri)
-                .iter()
-                .chain(crate::mcc_get_components_in_file(&mc_uri).iter())
-                .chain(crate::mcc_get_interfaces_in_file(&mc_uri).iter())
-                .any(|name| name == t);
-            if !declares {
-                continue;
-            }
-            if let Some(pair) = build_one(t, f, &mut failures, first_inst.is_none()) {
-                top_name = t.to_string();
-                first_inst = Some(pair);
-            }
-            break;
-        }
-    } else {
-        for f in &files {
-            let uri = f.to_string_lossy().to_string();
-            let mc_uri = McURI::from(uri.as_str());
-            let targets = match crate::mcc_virtual_resolve_targets(&mc_uri, None) {
-                Ok(t) => t,
-                Err(_) => continue, // pass1 already reports the file's problems
+    crate::mcc_for_each_entry(entry, None, &|_| libs.clone(), |e| {
+        // One cursor per world. `reset_to` shrinks the diagnostic list to this
+        // world's, and the `cursor <= all.len()` guard below answers a shrink by
+        // returning empty *and* rewinding — so a cursor carried across worlds
+        // would silently skip the next world's first diagnostics.
+        let mut cursor = 0usize;
+        let mut take_diags = |phase: &str| -> Vec<Value> {
+            let all = crate::mcc_diagnose_all();
+            let slice = if cursor <= all.len() {
+                &all[cursor..]
+            } else {
+                &[]
             };
-            let Some(tgt) = targets.first().cloned() else {
-                continue;
-            };
-            // Keep the first successful tree; the remaining files still build +
-            // flatten so their ERC aggregates, but no owned parts are cloned.
-            let pair = build_one(&tgt, f, &mut failures, first_inst.is_none());
-            if first_inst.is_none() {
-                if let Some(pair) = pair {
-                    top_name = tgt;
+            let out: Vec<Value> = slice.iter().map(|d| mcc_diag_to_json(d, phase)).collect();
+            cursor = all.len();
+            out
+        };
+
+        // The driver has already loaded this entry, so the diagnostics now on
+        // the cursor are the entry file's and its `use` closure's.
+        let world_pass1 = collect_pass1(&e.entry.to_string_lossy(), true);
+        let pass1_diags = take_diags("pass1");
+        merged.absorb_pass1(&world_pass1);
+        add_diags(&mut merged.seen, &mut merged.pass1, pass1_diags);
+
+        // The files this world contributes: what it loaded that is not a
+        // library. In a container of entries that is *this* entry's `use`
+        // closure — a sibling `.mc` file belongs to its own world, and building
+        // it here would both double its ERC and defeat the separation.
+        let files: Vec<PathBuf> = world_pass1["loaded_files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|f| f["is_system"] == false)
+            .filter_map(|f| f["uri"].as_str().map(PathBuf::from))
+            .collect();
+
+        let mut failures: Vec<Value> = Vec::new();
+        if let Some(t) = top {
+            // An explicit top can only be looked for in a live world, so the
+            // search is per entry; the first entry that declares it wins, and
+            // the scan stops there whether or not its build succeeded.
+            let entry_uri = McURI::from(e.entry.to_string_lossy().as_ref());
+            let declares = !search_done
+                && crate::mcc_get_modules_in_file(&entry_uri)
+                    .iter()
+                    .chain(crate::mcc_get_components_in_file(&entry_uri).iter())
+                    .chain(crate::mcc_get_interfaces_in_file(&entry_uri).iter())
+                    .any(|name| name == t);
+            if declares {
+                search_done = true;
+                if let Some(pair) = build_dir_target(t, &e.entry, &mut failures, true) {
+                    top_name = t.to_string();
                     first_inst = Some(pair);
                 }
             }
+        } else {
+            for file in &files {
+                let mc_uri = McURI::from(file.to_string_lossy().as_ref());
+                let targets = match crate::mcc_virtual_resolve_targets(&mc_uri, None) {
+                    Ok(t) => t,
+                    Err(_) => continue, // pass1 already reports the file's problems
+                };
+                let Some(tgt) = targets.first().cloned() else {
+                    continue;
+                };
+                // Keep the first successful tree; the remaining files still
+                // build + flatten so their ERC aggregates, but no owned parts
+                // are cloned.
+                let pair = build_dir_target(&tgt, file, &mut failures, first_inst.is_none());
+                if first_inst.is_none() {
+                    if let Some(pair) = pair {
+                        top_name = tgt;
+                        first_inst = Some(pair);
+                    }
+                }
+            }
         }
-    }
 
-    let mut pass2_diags = take_diags("pass2");
-    pass2_diags.extend(failures);
+        add_diags(&mut merged.seen, &mut merged.pass2, take_diags("pass2"));
+        add_diags(&mut merged.seen, &mut merged.pass2, failures);
+    });
+
+    let pass0 = json!({ "loaded_files": [], "diagnostics": merged.pass0 });
+    let pass1 = merged.pass1_json();
     let pass2 = match &first_inst {
         Some((inst, arena, store, net_store)) => {
             // Phase C S3-D: the tree tally resolves children through the view
             // (the tree's Vec fields are gone).
             let view = crate::TreeView::new(arena, store);
             let mut p2 = collect_pass2(&top_name, inst, &view, net_store);
-            p2["diagnostics"] = Value::Array(pass2_diags);
+            p2["diagnostics"] = Value::Array(merged.pass2);
             p2
         }
         None => json!({
@@ -642,7 +607,7 @@ fn run_full_build_dir_envelope(
             "instances": Value::Null,
             "connections": [],
             "nets": [],
-            "diagnostics": pass2_diags,
+            "diagnostics": merged.pass2,
         }),
     };
 
@@ -668,8 +633,160 @@ fn run_full_build_dir_envelope(
         "pass1": pass1,
         "pass2": pass2,
         "summary": summary,
-        "ledger": crate::semantic::validation::ledger::build_report(crate::semantic::validation::ledger::LedgerMode::Summary),
+        "ledger": crate::semantic::validation::ledger::build_report(ledger_mode),
     }))
+}
+
+/// Build one target out of one file, flattening it so its flat net checks run.
+///
+/// Returns the tree and its companions only when `keep_tree` — the envelope
+/// carries the first successful entry's tree, and the rest need no more than
+/// their diagnostics, so cloning their owned parts out of the circuit would be
+/// waste. A failure or a panic becomes a Pass 2 diagnostic keyed at `file` and
+/// is swallowed: one bad file must not abort the folder's report.
+fn build_dir_target(
+    target: &str,
+    file: &Path,
+    failures: &mut Vec<Value>,
+    keep_tree: bool,
+) -> Option<(
+    crate::MccProjectTree,
+    crate::NodeArena,
+    crate::InstanceStore,
+    crate::NetTableStore,
+)> {
+    let uri = file.to_string_lossy().to_string();
+    let mc_uri = McURI::from(uri.as_str());
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let (mut world, key, synthetic) = crate::mcc_virtual_build_world(target, &mc_uri, 1000)?;
+        let diags = match synthetic {
+            Some(prefix) => world.flatten_with_prefix(&key, &prefix)?,
+            None => world.flatten(&key)?,
+        };
+        // Owning surface: the flat net-check diagnostics aggregate into the
+        // Problems store, keyed at each diagnostic's own source file.
+        crate::semantic::validation::nets::log_net_check_diagnostics(&diags);
+        if keep_tree {
+            let dl = world
+                .circuit(&key)
+                .ok_or_else(|| format!("dir build produced no circuit for {target}"))?;
+            Ok::<_, Box<dyn std::error::Error>>(Some((
+                dl.tree().clone(),
+                dl.arena().clone(),
+                dl.store().clone(),
+                dl.net_store().borrow().clone(),
+            )))
+        } else {
+            Ok::<_, Box<dyn std::error::Error>>(None)
+        }
+    }));
+    match built {
+        Ok(Ok(pair)) => pair,
+        Ok(Err(e)) => {
+            failures.push(build_failure_diag(
+                "pass2",
+                &uri,
+                &format!("build failed: {e}"),
+            ));
+            None
+        }
+        Err(_) => {
+            failures.push(build_failure_diag(
+                "pass2",
+                &uri,
+                "Pass2 build panicked (engine bug); skipped",
+            ));
+            None
+        }
+    }
+}
+
+/// A diagnostic's identity: same code, same place, same words.
+type DiagKey = (u64, String, u64, String);
+
+fn diag_key(d: &Value) -> DiagKey {
+    (
+        d["code"].as_u64().unwrap_or(0),
+        d["location"]["file"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+        d["location"]["pos"].as_u64().unwrap_or(0),
+        d["message"].as_str().unwrap_or_default().to_string(),
+    )
+}
+
+/// Append `diags`, dropping any this batch has already reported.
+fn add_diags(seen: &mut std::collections::HashSet<DiagKey>, out: &mut Vec<Value>, diags: Vec<Value>) {
+    for d in diags {
+        if seen.insert(diag_key(&d)) {
+            out.push(d);
+        }
+    }
+}
+
+/// One folder's report, assembled from one world per entry.
+///
+/// Everything here is keyed rather than appended. A file reached by two
+/// entries' `use` closures is parsed once per world, so the same definition —
+/// and, with mcode, the same 53 files — arrives once per world that reaches it.
+/// The caller asked about a folder, and a definition or a problem in a file is
+/// one definition or one problem however many entries include that file.
+#[derive(Default)]
+struct BatchEnvelope {
+    seen: std::collections::HashSet<DiagKey>,
+    pass0: Vec<Value>,
+    pass1: Vec<Value>,
+    pass2: Vec<Value>,
+    loaded: BTreeMap<String, Value>,
+    modules: BTreeMap<(String, String), Value>,
+    components: BTreeMap<(String, String), Value>,
+    interfaces: BTreeMap<(String, String), Value>,
+    enums: BTreeMap<(String, String), Value>,
+}
+
+impl BatchEnvelope {
+    /// Fold one world's `collect_pass1` output in, keyed by `(name, uri)` —
+    /// so a definition is listed once even though each world was parsed on its
+    /// own, and the order comes out sorted rather than in world order.
+    fn absorb_pass1(&mut self, one: &Value) {
+        for f in one["loaded_files"].as_array().into_iter().flatten() {
+            if let Some(uri) = f["uri"].as_str() {
+                self.loaded
+                    .entry(uri.to_string())
+                    .or_insert_with(|| f.clone());
+            }
+        }
+        let d = &one["definitions"];
+        for (list, into) in [
+            ("modules", &mut self.modules),
+            ("components", &mut self.components),
+            ("interfaces", &mut self.interfaces),
+            ("enums", &mut self.enums),
+        ] {
+            for item in d[list].as_array().into_iter().flatten() {
+                let name = item["name"].as_str().unwrap_or_default().to_string();
+                let uri = item["uri"].as_str().unwrap_or_default().to_string();
+                into.entry((name, uri)).or_insert_with(|| item.clone());
+            }
+        }
+    }
+
+    fn pass1_json(&self) -> Value {
+        json!({
+            "loaded_files": self.loaded.values().cloned().collect::<Vec<_>>(),
+            "definitions": {
+                "modules":    self.modules.values().cloned().collect::<Vec<_>>(),
+                "components": self.components.values().cloned().collect::<Vec<_>>(),
+                "interfaces": self.interfaces.values().cloned().collect::<Vec<_>>(),
+                "enums":      self.enums.values().cloned().collect::<Vec<_>>(),
+                // Same contract as the single-file path: ports never populated
+                // locally, so the payload carries the same empty list.
+                "ports": Value::Array(vec![]),
+            },
+            "diagnostics": self.pass1,
+        })
+    }
 }
 
 /// An error diagnostic JSON for a Pass 2 build failure, in the same shape as
@@ -1282,32 +1399,37 @@ pub(crate) fn refs_json(items: &[(String, String, [usize; 2])]) -> Vec<Value> {
         .collect()
 }
 
-pub(crate) fn load_libs_rpc(libs: &[String]) {
-    // Non-project mode: when the caller supplies no explicit library list,
-    // fall back to the global mcc.yaml [libs].load configuration so custom
-    // path libraries are still loaded (folder-parse-design.md §5.2).
-    let mut libs: Vec<String> = if libs.is_empty() {
+/// The library list a request implies — the caller's own list, or the global
+/// `mcc.yaml [libs].load` configuration when they supplied none.
+///
+/// Split out from [`load_libs_rpc`] because a directory batch must reload the
+/// libraries once per world and therefore needs the *names* as a value, not the
+/// side effect of loading them.
+///
+/// mcode auto-loads by default in every mode unless disabled (mirrors the CLI's
+/// `collect_libs`, manifest.rs). This matters after a `build.full` reset:
+/// Phase 5 makes system libs per-world, so `clear_active` tombstones the whole
+/// registry — a fresh world must re-establish mcode or its classes (e.g.
+/// `enum PKG` in package.mc) go unresolved. The config check uses the global
+/// config only, consistent with the `get_libs_load_list(None)` fallback (the
+/// process project root is not reliably synced to the active workspace in
+/// non-project mode).
+pub(crate) fn resolve_libs_rpc(libs: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = if libs.is_empty() {
         crate::cli::config::get_libs_load_list(None).to_vec()
     } else {
         libs.to_vec()
     };
-    // mcode auto-loads by default in every mode unless disabled (mirrors the
-    // CLI's `collect_libs`, manifest.rs). This matters after a `build.full`
-    // reset: Phase 5 makes system libs per-world, so `clear_active`
-    // tombstones the whole registry — a fresh world must re-establish mcode
-    // or its classes (e.g. `enum PKG` in package.mc) go unresolved. The
-    // config check uses the global config only, consistent with the
-    // `get_libs_load_list(None)` fallback above (the process project root is
-    // not reliably synced to the active workspace in non-project mode).
     if crate::cli::config::should_load_mcode(None)
-        && !libs.iter().any(|l| l.to_lowercase() == "mcode")
+        && !out.iter().any(|l| l.to_lowercase() == "mcode")
     {
-        libs.push("mcode".to_string());
+        out.push("mcode".to_string());
     }
-    if libs.is_empty() {
-        return;
-    }
-    for name in &libs {
+    out
+}
+
+pub(crate) fn load_libs_rpc(libs: &[String]) {
+    for name in &resolve_libs_rpc(libs) {
         // Reuse the shared library loader: it supports absolute paths and .mc
         // file forms, and skips libraries that are already loaded.
         crate::mcb_load_lib_by_name(name);
@@ -2531,16 +2653,13 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
     let project_root = find_project_root(file_path);
     info!(target: "crate::rpc", "auto_load: project_root={}", project_root.display());
 
-    // Reuse the active workspace when its root already matches; only create a
-    // new workspace when the root differs. This avoids snapshot/clear churn
-    // (workspace hopping) when files are opened one after another.
-    if workspace::WORKSPACE.active_root() != project_root {
-        let root_name = project_root
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "project".to_string());
-        info!(target: "crate::rpc", "auto_load: creating workspace id={} root={}", root_name, project_root.display());
-        crate::workspace_create(&root_name, crate::WorkspaceKind::Project, &project_root);
+    // Whether this file's root is the workspace we are already in is one
+    // question, answered in one place. Asking it here as well — comparing roots
+    // while the callee compared directory *names* — is how two projects sharing
+    // a basename ended up in one definition table. A repeat call for the active
+    // root is a no-op, so the common path still costs no snapshot.
+    if crate::workspace_switch_to(Some(project_root.clone()), crate::WorkspaceKind::Project) {
+        info!(target: "crate::rpc", "auto_load: switched to workspace root={}", project_root.display());
     } else {
         info!(target: "crate::rpc", "auto_load: reusing active workspace root={}", project_root.display());
     }
@@ -2571,12 +2690,19 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
 /// (project.toml) or .mc files at top level
 pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
     // Priority 1: the configured project root (the folder opened in the editor,
-    // set via mcext set_project_root). In non-project mode every .mc file under
-    // the opened folder is a peer, so the workspace root is always the folder
-    // itself. No upward search for a nested manifest: sub-projects are
-    // handled as plain files (see design doc folder-parse-design.md §2.6).
+    // set via mcext set_project_root) — for the files under it. In non-project
+    // mode every .mc file under the opened folder is a peer, so the workspace
+    // root is the folder itself. It is the editor's working root, not a claim on
+    // files elsewhere: claiming them put a sibling repository's definitions in
+    // the open project's world, and two projects sharing a directory name then
+    // reported E5001 against each other. A file from outside gets its own root
+    // from the walk-up below. No upward search for a nested manifest:
+    // sub-projects are handled as plain files (folder-parse-design.md §2.6).
     let configured = crate::db::infra::init::mcb_get_project_root();
-    if configured.is_absolute() && !configured.as_os_str().is_empty() {
+    if configured.is_absolute()
+        && !configured.as_os_str().is_empty()
+        && path_is_under(file_path, &configured)
+    {
         return configured;
     }
 
@@ -2628,6 +2754,26 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Whether `path` lies inside `root`.
+///
+/// Compared as written first (the editor hands both the folder and the file
+/// paths out of the same source, so they agree), then in canonical form, so a
+/// root reached through a symlink still contains a file reached directly —
+/// `/var/x` and `/private/var/x` name the same directory.
+fn path_is_under(path: &Path, root: &Path) -> bool {
+    if path.starts_with(root) {
+        return true;
+    }
+    let Ok(canonical) = path.canonicalize() else {
+        return false;
+    };
+    if canonical.starts_with(root) {
+        return true;
+    }
+    root.canonicalize()
+        .map_or(false, |root| canonical.starts_with(root))
 }
 
 /// Ensure library dependencies are loaded for a file.
@@ -3247,8 +3393,9 @@ mod tests {
         let file = sub.join("x.mc");
         fs::write(&file, "").unwrap();
 
-        // Configured root wins regardless of the file location: the opened
-        // folder is the single workspace root in non-project mode.
+        // For a file under it, the configured root wins wherever it sits in the
+        // tree: the opened folder is the single workspace root in non-project
+        // mode.
         crate::db::infra::init::mcb_set_project_root(&tmp);
         assert_eq!(find_project_root(&file), tmp);
 
@@ -3258,6 +3405,35 @@ mod tests {
         assert_eq!(find_project_root(&file), sub);
 
         fs::remove_dir_all(&tmp).unwrap();
+        crate::db::infra::init::mcb_set_project_root(&saved);
+    }
+
+    /// The configured root is the editor's working root, not a claim on every
+    /// file the editor opens. A file from a *sibling* folder keeps its own
+    /// root; otherwise its definitions join the open project's world, and two
+    /// projects that share a directory name report E5001 against each other
+    /// (a real board and a frozen copy of it under `tests/fixtures/`).
+    #[test]
+    fn cli_rpc__find_project_root_does_not_claim_files_outside_it() {
+        let saved = crate::db::infra::init::mcb_get_project_root();
+
+        let open = std::env::temp_dir().join(format!("mcc-root-open-{}", std::process::id()));
+        let open_src = open.join("src");
+        fs::create_dir_all(&open_src).unwrap();
+        fs::write(open_src.join("a.mc"), "").unwrap();
+
+        let sibling = std::env::temp_dir().join(format!("mcc-root-sibling-{}", std::process::id()));
+        let sibling_src = sibling.join("src");
+        fs::create_dir_all(&sibling_src).unwrap();
+        let outside = sibling_src.join("b.mc");
+        fs::write(&outside, "").unwrap();
+
+        crate::db::infra::init::mcb_set_project_root(&open);
+        assert_eq!(find_project_root(&open_src.join("a.mc")), open);
+        assert_eq!(find_project_root(&outside), sibling_src);
+
+        fs::remove_dir_all(&open).unwrap();
+        fs::remove_dir_all(&sibling).unwrap();
         crate::db::infra::init::mcb_set_project_root(&saved);
     }
 
@@ -3374,7 +3550,15 @@ mod tests {
 
         // One pre-existing error in the project file, one in the system lib.
         // Neither belongs to the candidate, so neither may fail the dry-run.
-        diagnostic_log_at(1, DiagnosticLevel::Error, proj.clone(), 0, 0, "user bug", &[]);
+        diagnostic_log_at(
+            1,
+            DiagnosticLevel::Error,
+            proj.clone(),
+            0,
+            0,
+            "user bug",
+            &[],
+        );
         diagnostic_log_at(2, DiagnosticLevel::Error, lib.clone(), 0, 0, "lib bug", &[]);
 
         let clean = super::handle_check(Some(json!({ "content": "module main {}\n" })))

@@ -25,81 +25,13 @@
 //! 3. `mcc_load_project(entry)` → `mcc_build(top)`
 //! 4. Output envelope
 
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-// Manifest struct
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Manifest {
-    pub project: ProjectSection,
-    #[serde(default)]
-    pub dependencies: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectSection {
-    pub name: String,
-    #[serde(default = "default_version")]
-    pub version: String,
-    /// Entry .mc file (relative to project root)
-    pub entry: String,
-    /// Default top-level module name
-    #[serde(default)]
-    pub top_module: Option<String>,
-}
-
-fn default_version() -> String {
-    "0.1.0".into()
-}
-
-impl Manifest {
-    /// Parse from toml file.
-    pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read manifest: {}", path.display()))?;
-        let manifest: Manifest = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse manifest: {}", path.display()))?;
-        Ok(manifest)
-    }
-
-    /// Find the project manifest (`project.toml`) from the project root.
-    /// Delegates to the shared lib-layer helper so CLI, RPC and MCP agree on
-    /// the manifest name.
-    pub fn find_in(root: &Path) -> Option<PathBuf> {
-        mcc::cli::datadir::find_manifest_in(root)
-    }
-
-    /// Generate default manifest content.
-    pub fn generate_default(name: &str, entry: &str) -> String {
-        format!(
-            r#"[project]
-name = "{}"
-version = "0.1.0"
-entry = "{}"
-# top_module = "main"
-
-[dependencies]
-mcode = "*"
-"#,
-            name, entry
-        )
-    }
-
-    /// Resolve entry absolute path (relative to project root).
-    pub fn entry_path(&self, project_root: &Path) -> PathBuf {
-        project_root.join(&self.project.entry)
-    }
-
-    /// Get top_module name (prefers manifest, overridable by CLI --top).
-    pub fn top_module_or(&self, cli_override: Option<&str>) -> Option<String> {
-        cli_override
-            .map(|s| s.to_string())
-            .or_else(|| self.project.top_module.clone())
-    }
-}
+// The manifest itself lives in the lib (`mcc::cli::manifest`) because the batch
+// entry resolver reads it from the RPC side too; re-exported here so the
+// `cmds::manifest::Manifest` spelling the CLI uses stays put.
+pub use mcc::cli::manifest::Manifest;
 
 // Build flow
 
