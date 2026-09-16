@@ -45,6 +45,8 @@
 use crate::ast::macros::*;
 use crate::ast::node::AstNode;
 use crate::ast::sem::Span;
+use crate::eval;
+use crate::semantic::basic::mc_uval::McUnit;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute, McAttributes};
 use crate::semantic::component::mc_pins::{McPwrPin, PwrDir, PwrParam};
 use std::ops::Range;
@@ -263,7 +265,7 @@ fn decode_rail(domain: &str, r: &McRailDecl) -> L1Rail {
         match p.key.as_deref() {
             None => {
                 out.v_text = p.text.clone();
-                match parse_volts(&p.text) {
+                match eval::quantity_in(&p.text, &McUnit::Volt) {
                     Some(x) => out.v = Some(x),
                     None => flag_bad(
                         &mut out.bad,
@@ -271,21 +273,21 @@ fn decode_rail(domain: &str, r: &McRailDecl) -> L1Rail {
                     ),
                 }
             }
-            Some("tol") => match parse_tol(&p.text) {
+            Some("tol") => match eval::percent_of(&p.text).map(f64::abs) {
                 Some(x) => out.tol = Some(x),
                 None => flag_bad(
                     &mut out.bad,
                     format!("tol '{}' is not a ±percent window", p.text),
                 ),
             },
-            Some("capacity") => match parse_amps(&p.text) {
+            Some("capacity") => match eval::quantity_in(&p.text, &McUnit::Amp) {
                 Some(x) => out.capacity_amps = Some(x),
                 None => flag_bad(
                     &mut out.bad,
                     format!("capacity '{}' is not a DC current", p.text),
                 ),
             },
-            Some("eff") => match parse_frac(&p.text) {
+            Some("eff") => match eval::ratio_of(&p.text) {
                 Some(x) => out.eff = Some(x),
                 None => flag_bad(
                     &mut out.bad,
@@ -369,7 +371,7 @@ pub(crate) fn decode_pwr_pin(pin: &McPwrPin) -> L1PwrPin {
         match p.key.as_deref() {
             None => {
                 out.v_text = p.text.clone();
-                match parse_volts(&p.text) {
+                match eval::quantity_in(&p.text, &McUnit::Volt) {
                     Some(x) => out.v = Some(x),
                     None => flag_bad(
                         &mut out.bad,
@@ -393,28 +395,28 @@ pub(crate) fn decode_pwr_pin(pin: &McPwrPin) -> L1PwrPin {
                     "'amp' is a sink-exclusive demand key (§8.1); a source declares capacity, its input draw is derived, not a net load",
                 ),
             ),
-            Some("amp") => match parse_amps(&p.text) {
+            Some("amp") => match eval::quantity_in(&p.text, &McUnit::Amp) {
                 Some(x) => out.amp = Some(x),
                 None => flag_bad(
                     &mut out.bad,
                     format!("amp '{}' is not a DC current", p.text),
                 ),
             },
-            Some("tol") => match parse_tol(&p.text) {
+            Some("tol") => match eval::percent_of(&p.text).map(f64::abs) {
                 Some(x) => out.tol = Some(x),
                 None => flag_bad(
                     &mut out.bad,
                     format!("tol '{}' is not a ±percent window", p.text),
                 ),
             },
-            Some("capacity") => match parse_amps(&p.text) {
+            Some("capacity") => match eval::quantity_in(&p.text, &McUnit::Amp) {
                 Some(x) => out.capacity_amps = Some(x),
                 None => flag_bad(
                     &mut out.bad,
                     format!("capacity '{}' is not a DC current", p.text),
                 ),
             },
-            Some("eff") => match parse_frac(&p.text) {
+            Some("eff") => match eval::ratio_of(&p.text) {
                 Some(x) => out.eff = Some(x),
                 None => flag_bad(
                     &mut out.bad,
@@ -447,63 +449,6 @@ pub(crate) fn decode_pwr_pin(pin: &McPwrPin) -> L1PwrPin {
 pub(crate) fn flag_bad(slot: &mut Option<String>, msg: String) {
     if slot.is_none() {
         *slot = Some(msg);
-    }
-}
-
-/// Parse a signed DC volts value from rail nominal text: `3.3V`, `-15V`,
-/// `5` (bare number = volts on a DC rail). A foreign unit (`5A`, `5Hz`) and
-/// any window/structural form (`~`, `±`, `*`) do not decode.
-pub(crate) fn parse_volts(text: &str) -> Option<f64> {
-    let t = text.trim();
-    if t.is_empty() || t.contains(['~', '±', '*']) {
-        return None;
-    }
-    let (sign, rest) = match t.strip_prefix('-') {
-        Some(r) => (-1.0, r),
-        None => (1.0, t.strip_prefix('+').unwrap_or(t)),
-    };
-    let num = rest
-        .strip_suffix('V')
-        .or_else(|| rest.strip_suffix('v'))
-        .unwrap_or(rest);
-    if num.trim().is_empty() || num != num.trim() {
-        return None;
-    }
-    num.trim().parse::<f64>().ok().map(|x| sign * x)
-}
-
-/// Parse a ±percent tolerance window from `±5%` / `5%` text → fraction (0.05).
-pub(crate) fn parse_tol(text: &str) -> Option<f64> {
-    let t = text.trim();
-    let t = t.strip_prefix('±').unwrap_or(t);
-    let t = t.strip_suffix('%').unwrap_or(t);
-    t.trim().parse::<f64>().ok().map(|x| x.abs() / 100.0)
-}
-
-/// Parse a DC current from capacity text (`500mA`, `1.5A`, `20mA`, `300mA`).
-pub(crate) fn parse_amps(text: &str) -> Option<f64> {
-    let t = text.trim().to_ascii_lowercase();
-    let (mult, body) = if let Some(r) = t.strip_suffix("ma") {
-        (0.001, r)
-    } else if let Some(r) = t.strip_suffix("µa") {
-        (1e-6, r)
-    } else if let Some(r) = t.strip_suffix("ua") {
-        (1e-6, r)
-    } else if let Some(r) = t.strip_suffix('a') {
-        (1.0, r)
-    } else {
-        (1.0, t.as_str())
-    };
-    body.trim().parse::<f64>().ok().map(|x| x * mult)
-}
-
-/// Parse a plain factor (`0.95`) or percentage (`95%`) → fraction.
-pub(crate) fn parse_frac(text: &str) -> Option<f64> {
-    let t = text.trim();
-    if let Some(r) = t.strip_suffix('%') {
-        r.trim().parse::<f64>().ok().map(|x| x / 100.0)
-    } else {
-        t.parse::<f64>().ok()
     }
 }
 
