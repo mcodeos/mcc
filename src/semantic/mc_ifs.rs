@@ -301,8 +301,17 @@ impl Mc2Interface {
         }
     }
 
-    pub fn with_params(name: &str, base: Arc<McInterface>, params: Vec<McParamValue>) -> Self {
+    /// `anchor` is the consumer's own syntax, used to position a condition that
+    /// cannot be evaluated; see [`McConds::evaluate`]. It is used only when the
+    /// arguments are literal-complete (see [`Self::args_are_literals`]).
+    pub fn with_params(
+        name: &str,
+        base: Arc<McInterface>,
+        params: Vec<McParamValue>,
+        anchor: Option<&AstNode>,
+    ) -> Self {
         let param_names = base.params.names();
+        let anchor = anchor.filter(|_| Self::args_are_literals(&params, param_names.len()));
         let param_tuples: Vec<(McIds, String)> = params
             .iter()
             .zip(param_names.iter())
@@ -328,7 +337,7 @@ impl Mc2Interface {
 
         if let Some(ref cond_block) = inst.base.body.get_sub_node() {
             if let Some(conds) = McConds::new(cond_block) {
-                if let Some(selected_block) = conds.evaluate(&param_tuples) {
+                if let Some(selected_block) = conds.evaluate(&param_tuples, anchor) {
                     inst.parsed_pins = Self::parse_pins_from_block(&selected_block);
                 }
             }
@@ -338,12 +347,18 @@ impl Mc2Interface {
     }
 
     /// Create Mc2Interface with McIds name and params (for component pin parsing)
+    ///
+    /// `anchor` is the consumer's own syntax, used to position a condition that
+    /// cannot be evaluated; see [`McConds::evaluate`]. It is used only when the
+    /// arguments are literal-complete (see [`Self::args_are_literals`]).
     pub fn with_ids_and_params(
         name: McIds,
         base: Arc<McInterface>,
         params: Vec<McParamValue>,
+        anchor: Option<&AstNode>,
     ) -> Self {
         let param_names = base.params.names();
+        let anchor = anchor.filter(|_| Self::args_are_literals(&params, param_names.len()));
 
         let param_tuples: Vec<(McIds, String)> = params
             .iter()
@@ -375,7 +390,7 @@ impl Mc2Interface {
 
                 if child_type == MCAST_COND_IF {
                     if let Some(conds) = McConds::new(&child) {
-                        if let Some(selected_block) = conds.evaluate(&param_tuples) {
+                        if let Some(selected_block) = conds.evaluate(&param_tuples, anchor) {
                             inst.parsed_pins = Self::parse_pins_from_block(&selected_block);
                             break; // Found matching condition, stop searching
                         }
@@ -385,6 +400,28 @@ impl Mc2Interface {
         }
 
         inst
+    }
+
+    /// Whether the construction arguments are literal-complete: exactly one
+    /// value literal per declared parameter, no fewer.
+    ///
+    /// A symbolic argument (`::DC(volt)`) or an absent one (`::DC()`) leaves the
+    /// received parameter unreduced, so a condition over it is undecided — the
+    /// value may still arrive from the instance or the spec — and must not be
+    /// reported as an operator error.
+    fn args_are_literals(params: &[McParamValue], arity: usize) -> bool {
+        params.len() == arity
+            && params.iter().all(|p| {
+                matches!(
+                    p,
+                    McParamValue::Const(_)
+                        | McParamValue::Int(_)
+                        | McParamValue::Hex(_)
+                        | McParamValue::Float(_)
+                        | McParamValue::String(_)
+                        | McParamValue::UValue(_)
+                )
+            })
     }
 
     fn parse_pins_from_block(block: &AstNode) -> Option<McPins> {

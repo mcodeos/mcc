@@ -382,7 +382,9 @@ impl McComponent {
                     if let Some(conds_obj) = McConds::new(&child) {
                         // Try to evaluate with default params first
                         if !default_params.is_empty() {
-                            if let Some(selected_block) = conds_obj.evaluate(&default_params) {
+                            if let Some(selected_block) =
+                                conds_obj.evaluate(&default_params, Some(&child))
+                            {
                                 let block_type = selected_block.get_type();
                                 if block_type == MCAST_ATTRIBUTE_PIN
                                     || block_type == MCAST_ATTRIBUTE_PINADD

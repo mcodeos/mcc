@@ -249,6 +249,124 @@ fn eval__func_branch_follows_the_bound_value() {
     assert!(branch("5V").contains("NET50"), "{}", branch("5V"));
 }
 
+/// The interface lives in `supply.mc`; every consumer below declares its own
+/// pins through it, so the failing condition belongs to a file the consumer
+/// never edited. (`rail` would be a keyword, and a keyword in a `use` path is a
+/// parse error, so the file is not called that.)
+const RAIL_IFACE: &str = r#"
+interface RAIL(volt)
+{
+    if (volt == 3.3V)
+        pins = [
+            1 = VCC3V3, "positive", voltage:3.3V
+            2 = GND, "ground", voltage:0.0V
+        ]
+    else
+        pins = [
+            1 = VCC, "positive", voltage:volt
+            2 = GND, "ground", voltage:0.0V
+        ]
+}
+"#;
+
+/// `{arg}` is the interface argument under test.
+const RAIL_CONSUMER: &str = r#"
+use ./supply.mc
+
+component LDO_LIT
+{
+    pins = [
+        in [1,2] = VIN{Vin, GND}::RAIL({arg})
+    ]
+}
+
+module main
+{
+    io VMAIN
+    io VDD
+    LDO_LIT ldo
+    VMAIN -> ldo.VIN.Vin
+    ldo.VIN.GND -> GND
+    ldo.VIN.Vin -> VDD
+}
+"#;
+
+/// Load `rail.mc` + a consumer built with `arg` and return its diagnostics as
+/// `(code, uri, row, message)`.
+fn rail_diagnostics(tag: &str, arg: &str) -> Vec<(u32, String, u32, String)> {
+    let _lock = common::lock();
+    let dir = std::env::temp_dir().join(format!("mcc-eval-rail-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    std::fs::write(dir.join("supply.mc"), RAIL_IFACE).expect("write supply.mc");
+    std::fs::write(dir.join("main.mc"), RAIL_CONSUMER.replace("{arg}", arg))
+        .expect("write main.mc");
+    let uri: McURI = dir
+        .join("main.mc")
+        .canonicalize()
+        .expect("canonicalize")
+        .to_string_lossy()
+        .to_string();
+
+    mcc::mcc_init();
+    mcc::mcc_set_project_root(&dir);
+    mcc::mcc_load_project(&uri);
+    let _ = mcc::mcc_build_flat(&McIds::from("main"), &uri, 1000);
+
+    let diags = mcc::mcc_diagnose_all()
+        .iter()
+        .map(|d| (d.code, d.loc.uri.clone(), d.loc.row, d.msg.clone()))
+        .collect();
+    let _ = std::fs::remove_dir_all(&dir);
+    diags
+}
+
+/// An interface condition is written in the interface file, but a failing one is
+/// the *consumer's* problem — the argument is the consumer's syntax. A range
+/// literal handed to a single-value parameter is exactly that, and it must be
+/// reported once, in the consuming file, naming the argument as written.
+#[test]
+fn eval__literal_arg_condition_reports_in_the_consumer() {
+    let diags = rail_diagnostics("literal", "2.5V~5.5V");
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|(code, ..)| *code == mcc::errcodes::EVAL_OPERAND_NOT_NUMERIC)
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "one construction reports one condition failure; got {diags:?}"
+    );
+    let (_, uri, _, msg) = hits[0];
+    assert!(
+        uri.ends_with("/main.mc"),
+        "the failure belongs to the consuming file, not to supply.mc; got {uri}"
+    );
+    assert!(
+        msg.contains("2.5V~5.5V"),
+        "the message must name the argument the consumer wrote; got {msg}"
+    );
+}
+
+/// A symbolic argument (`::RAIL(volt)`) and an absent one (`::RAIL()`) leave the
+/// parameter unreduced: the value may still arrive from the instance or the
+/// spec, so the condition is undecided rather than wrong, and saying nothing is
+/// the only honest answer.
+#[test]
+fn eval__unreduced_arg_condition_is_not_reported() {
+    for arg in ["volt", ""] {
+        let diags = rail_diagnostics("unreduced", arg);
+        let hits: Vec<_> = diags
+            .iter()
+            .filter(|(code, ..)| (5413..=5415).contains(code))
+            .collect();
+        assert!(
+            hits.is_empty(),
+            "::RAIL({arg}) must not be reported as an operator error; got {hits:?}"
+        );
+    }
+}
+
 /// A definition with no parameters still has an environment: a condition over
 /// literals alone decides with no argument at all, so the branch that wins must
 /// land its own pins on the instance.
