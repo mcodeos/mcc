@@ -200,6 +200,23 @@ impl McParamValue {
         }
     }
 
+    /// Whether this argument carries its own value: a written literal, rather
+    /// than a name (`V3V3`, a class) or a form with no value of its own
+    /// (`_`, `NC`). A consumer that must decide with one argument in hand can
+    /// only do so for a literal; a name may still be decided elsewhere — by
+    /// the instance, or by the spec.
+    pub fn is_literal(&self) -> bool {
+        matches!(
+            self,
+            McParamValue::Const(_)
+                | McParamValue::Int(_)
+                | McParamValue::Hex(_)
+                | McParamValue::Float(_)
+                | McParamValue::String(_)
+                | McParamValue::UValue(_)
+        )
+    }
+
     /// Parse an attribute block argument `{ cap = 1uF; volt = 50V }` into an
     /// [`McParamValue::InlineAttrs`] value, one attribute per named-argument
     /// entry.

@@ -4,11 +4,11 @@
 
 use crate::ast::macros::*;
 use crate::ast::node::AstNode;
+use crate::eval;
 use crate::message::MISSING_SUBNODE;
 use crate::semantic::basic::mc_literal::{McConst, McFloat, McInt, McString};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_uval::McUnitValue;
-use crate::McIds;
 
 #[derive(Debug, Clone)]
 pub struct McUnitValueAt {
@@ -65,12 +65,6 @@ pub enum McExpression {
 
     // Set
     Set(Vec<McExpression>),
-
-    // Key-value pair
-    KVS(Box<McIds>, Box<McExpression>),
-
-    // Curly brace expansion, e.g. DC2{VDD, GND} => "DC2.VDD", "DC2.GND"
-    CurlyExpand { base: String, names: Vec<String> },
 }
 
 impl McExpression {
@@ -228,88 +222,25 @@ impl McExpression {
         }
     }
 
-    /// Evaluate the expression (placeholder for future implementation)
-    pub fn evaluate(&self) -> Option<String> {
-        // This is a placeholder - actual evaluation logic will be implemented later
-        // based on the expression type and context
-        match self {
-            McExpression::Variable(opdc) => Some(opdc.expand().join(" ")),
-            McExpression::Int(int_val) => Some(int_val.value.to_string()),
-            McExpression::Float(float_val) => Some(float_val.value.to_string()),
-            McExpression::String(str_val) => Some(str_val.value.clone()),
-            McExpression::UnitValue(unit_val) => {
-                Some(format!("{}{:?}", unit_val.value(), unit_val.unit()))
-            }
-            McExpression::UnitValueAt(unit_val_at) => Some(format!(
-                "{}@{} {}@{}",
-                unit_val_at.left.value(),
-                unit_val_at.left.unit(),
-                unit_val_at.right.value(),
-                unit_val_at.right.unit()
-            )),
-            McExpression::Const(const_val) => Some(format!("{const_val:?}")),
-            McExpression::Plus(left, right) => {
-                if let (Some(l), Some(r)) = (left.evaluate(), right.evaluate()) {
-                    Some(format!("{l} + {r}"))
-                } else {
-                    None
-                }
-            }
-            McExpression::Minus(left, right) => {
-                if let (Some(l), Some(r)) = (left.evaluate(), right.evaluate()) {
-                    Some(format!("{l} - {r}"))
-                } else {
-                    None
-                }
-            }
-            McExpression::Multiply(left, right) => {
-                if let (Some(l), Some(r)) = (left.evaluate(), right.evaluate()) {
-                    Some(format!("{l} * {r}"))
-                } else {
-                    None
-                }
-            }
-            McExpression::Divide(left, right) => {
-                if let (Some(l), Some(r)) = (left.evaluate(), right.evaluate()) {
-                    Some(format!("{l} / {r}"))
-                } else {
-                    None
-                }
-            }
-            McExpression::Slice(left, right) => {
-                if let (Some(l), Some(r)) = (left.evaluate(), right.evaluate()) {
-                    Some(format!("{l}:{r}"))
-                } else {
-                    None
-                }
-            }
-            McExpression::Range(left, right) => {
-                if let (Some(l), Some(r)) = (left.evaluate(), right.evaluate()) {
-                    Some(format!("{l}~{r}"))
-                } else {
-                    None
-                }
-            }
-            McExpression::Set(expressions) => {
-                let expr_strs: Vec<String> = expressions
-                    .iter()
-                    .map(|expr| expr.evaluate().unwrap_or_else(|| "?".to_string()))
-                    .collect();
-                Some(format!("[{}]", expr_strs.join(", ")))
-            }
-            McExpression::KVS(mc_ids, mc_expression) => {
-                if let (ids, Some(expr)) = (mc_ids.to_string(), mc_expression.evaluate()) {
-                    Some(format!("{ids}: {expr}"))
-                } else {
-                    None
-                }
-            }
-            McExpression::CurlyExpand { base, names } => {
-                // Returns something like "DC2.VDD, DC2.GND"
-                let expanded: Vec<String> =
-                    names.iter().map(|name| format!("{base}.{name}")).collect();
-                Some(expanded.join(", "))
-            }
+    /// The expression read as a whole number — `1 + 2` is 3, never the text
+    /// `"1 + 2"`. Arithmetic runs on the value engine, so a division by zero
+    /// and an overflow come back as errors (5413 / 5415) instead of a wrong
+    /// value; a form that has no integer reading is the same kind of failure.
+    pub fn eval_int(&self) -> Result<i64, eval::EvalError> {
+        let (op, left, right) = match self {
+            McExpression::Int(int_val) => return Ok(int_val.value),
+            McExpression::Plus(l, r) => (eval::Op::Add, l, r),
+            McExpression::Minus(l, r) => (eval::Op::Sub, l, r),
+            McExpression::Multiply(l, r) => (eval::Op::Mul, l, r),
+            McExpression::Divide(l, r) => (eval::Op::Div, l, r),
+            other => return Err(not_a_whole_number(other)),
+        };
+        let lhs = eval::Value::Int(left.eval_int()?);
+        let rhs = eval::Value::Int(right.eval_int()?);
+        match eval::apply(op, &lhs, &rhs) {
+            Ok(eval::Value::Int(value)) => Ok(value),
+            Ok(_) | Err(eval::EvalError::OperandNotNumeric { .. }) => Err(not_a_whole_number(self)),
+            Err(err) => Err(err),
         }
     }
 
@@ -317,9 +248,6 @@ impl McExpression {
     pub fn expand(&self) -> Vec<String> {
         match self {
             McExpression::Variable(opdc) => opdc.expand(),
-            McExpression::CurlyExpand { base, names } => {
-                names.iter().map(|name| format!("{base}.{name}")).collect()
-            }
             McExpression::Int(int_val) => vec![int_val.value.to_string()],
             McExpression::Set(items) => {
                 let mut result = Vec::new();
@@ -329,22 +257,28 @@ impl McExpression {
                 result
             }
             McExpression::Slice(left, right) => {
-                if let (Some(l), Some(r)) = (left.evaluate(), right.evaluate()) {
-                    if let (Ok(start), Ok(end)) = (l.parse::<i64>(), r.parse::<i64>()) {
-                        if start <= end {
-                            (start..=end).map(|x| x.to_string()).collect()
-                        } else {
-                            (end..=start).rev().map(|x| x.to_string()).collect()
-                        }
+                if let (Ok(start), Ok(end)) = (left.eval_int(), right.eval_int()) {
+                    if start <= end {
+                        (start..=end).map(|x| x.to_string()).collect()
                     } else {
-                        vec![]
+                        (end..=start).rev().map(|x| x.to_string()).collect()
                     }
                 } else {
                     vec![]
                 }
             }
-            _ => self.evaluate().map(|s| vec![s]).unwrap_or_default(),
+            _ => vec![self.to_string()],
         }
+    }
+}
+
+/// The failure for a form that is not a number: it has no integer reading, so
+/// whatever asked for one cannot proceed.
+fn not_a_whole_number(expr: &McExpression) -> eval::EvalError {
+    eval::EvalError::OperandNotNumeric {
+        op: "int".to_string(),
+        lhs: expr.to_string(),
+        rhs: String::new(),
     }
 }
 
@@ -371,11 +305,6 @@ impl std::fmt::Display for McExpression {
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(f, "[{items_str}]")
-            }
-            McExpression::KVS(key, val) => write!(f, "{key}: {val}"),
-            McExpression::CurlyExpand { base, names } => {
-                let names_str = names.join(", ");
-                write!(f, "{base}{{{names_str}}}")
             }
         }
     }

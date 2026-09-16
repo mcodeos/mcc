@@ -31,6 +31,29 @@ pub(crate) fn set(uri: &McURI) {
     CURRENT_URI.with(|cell| *cell.borrow_mut() = Some(uri.clone()));
 }
 
+/// Makes `uri` the current file until dropped, then puts the caller's back.
+/// A sub-parse handed another file's syntax must name that file while it runs,
+/// since `dlog_error` reads the anchor from here (CIMP U39). A guard rather
+/// than a restore at the end of the call: a panic inside the sub-parse is
+/// caught at the RPC / CLI boundary, and a thread left pointing at the wrong
+/// file mis-anchors every diagnostic it emits afterwards.
+pub(crate) struct UriGuard {
+    previous: Option<McURI>,
+}
+
+impl UriGuard {
+    pub(crate) fn new(uri: &McURI) -> Self {
+        let previous = CURRENT_URI.with(|cell| cell.borrow_mut().replace(uri.clone()));
+        Self { previous }
+    }
+}
+
+impl Drop for UriGuard {
+    fn drop(&mut self) {
+        CURRENT_URI.with(|cell| *cell.borrow_mut() = self.previous.take());
+    }
+}
+
 pub(crate) fn reset() {
     CURRENT_URI.with(|cell| *cell.borrow_mut() = None);
 }
