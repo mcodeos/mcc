@@ -121,13 +121,7 @@ pub(crate) fn check_sensitive_return_on_noisy(
                 severity: "error",
                 message: crate::errcodes::format_msg(
                     crate::errcodes::SENSITIVE_RETURN_ON_NOISY,
-                    &[
-                        &comp.path,
-                        &quiet,
-                        ret_member,
-                        &ret_net_name,
-                        &noisy,
-                    ],
+                    &[&comp.path, &quiet, ret_member, &ret_net_name, &noisy],
                 ),
                 net_name: ret_net_name,
                 code: crate::errcodes::SENSITIVE_RETURN_ON_NOISY,
