@@ -1344,12 +1344,21 @@ impl InstantiationBuilder {
             let pi = match chosen.or_else(|| (0..formal.len()).find(|&fi| !used[fi])) {
                 Some(pi) => pi,
                 None => {
-                    self.record_warning(
+                    // An excess actual has no formal left to bind. It must reach
+                    // the build report: `record_warning` only feeds the
+                    // `InstDiagnostic` surface that mcviz metrics and module dumps
+                    // read, so on its own the argument would vanish with nothing
+                    // on screen. `log_global_diag` is the user-visible channel
+                    // (deduped on (code, uri, offset) — see its doc).
+                    let message = crate::errcodes::format_msg(
                         crate::errcodes::INST_ARG_NO_FORMAL_PORT,
-                        crate::errcodes::format_msg(
-                            crate::errcodes::INST_ARG_NO_FORMAL_PORT,
-                            &[&inst_name, &ai as &dyn std::fmt::Display, &arg_name],
-                        ),
+                        &[&inst_name, &ai as &dyn std::fmt::Display, &arg_name],
+                    );
+                    self.record_warning(crate::errcodes::INST_ARG_NO_FORMAL_PORT, message.clone());
+                    self.log_global_diag(
+                        crate::errcodes::INST_ARG_NO_FORMAL_PORT,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                        message,
                     );
                     continue;
                 }
@@ -1491,9 +1500,11 @@ impl InstantiationBuilder {
     /// * **Scalar interface ports** (`vin::DC(5V)`, no bus_members and no `{}`/`[]`) not in
     ///   this filter scope — they need to supplement `{VCC,GND}` members from interface type `DC`
     ///   before binding, a separate sub-item not handled here (ldo grounding still pending).
-    /// * Excess args beyond bindable ports emit warning 940 (mirroring
-    ///   `bind_actual_args_to_ports`); port-side missed binding is covered
-    ///   by `check_unbound_param_ports`.
+    /// * Excess args beyond bindable ports are reported to the user as
+    ///   `INST_ARG_UNBOUND_DETAILED` (W) through `log_global_diag`, mirrored
+    ///   from `bind_actual_args_to_ports`; the 940 trace carries the same fact
+    ///   into the diagnostic log. Port-side missed binding is covered by
+    ///   `check_unbound_param_ports`.
     pub(super) fn bind_call_args_to_ports(
         &mut self,
         inst_name: &str,
@@ -1562,7 +1573,7 @@ impl InstantiationBuilder {
                 Some(pi) => pi,
                 None => {
                     // Actual args exceed ports -> skip (see function header "Scope").
-                    // Mirror bind_actual_args_to_ports' 940 warning so excess named
+                    // Mirror bind_actual_args_to_ports' warning so excess named
                     // args are no longer silently dropped; log detail for tracing.
                     let bound = used.iter().filter(|u| **u).count();
                     crate::db::diagnostic::diagnostic::dlog_trace(
@@ -1573,18 +1584,29 @@ impl InstantiationBuilder {
                             formal.len(),
                         ),
                     );
+                    // `record_warning` alone is not surfaced in the build report
+                    // (see its doc), and the 940 trace above lives only in the
+                    // diagnostic log — so the fact has to be emitted on the
+                    // user-visible channel too, or the argument disappears with
+                    // nothing on screen.
+                    let message = crate::errcodes::format_msg(
+                        crate::errcodes::INST_ARG_UNBOUND_DETAILED,
+                        &[
+                            &inst_name,
+                            &arg_name,
+                            &self.name,
+                            &bound as &dyn std::fmt::Display,
+                            &formal.len() as &dyn std::fmt::Display,
+                        ],
+                    );
                     self.record_warning(
                         crate::errcodes::INST_ARG_UNBOUND_DETAILED,
-                        crate::errcodes::format_msg(
-                            crate::errcodes::INST_ARG_UNBOUND_DETAILED,
-                            &[
-                                &inst_name,
-                                &arg_name,
-                                &self.name,
-                                &bound as &dyn std::fmt::Display,
-                                &formal.len() as &dyn std::fmt::Display,
-                            ],
-                        ),
+                        message.clone(),
+                    );
+                    self.log_global_diag(
+                        crate::errcodes::INST_ARG_UNBOUND_DETAILED,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                        message,
                     );
                     continue;
                 }

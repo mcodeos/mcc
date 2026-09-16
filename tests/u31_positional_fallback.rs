@@ -89,6 +89,20 @@ fn nets(tag: &str, source: &str) -> Vec<BTreeSet<String>> {
     out
 }
 
+/// `INST_ARG_NO_FORMAL_PORT`: an actual with no formal port left to bind.
+const E4151: u32 = 4151;
+
+/// Diagnostic codes produced by building `main` in `source`.
+fn codes(tag: &str, source: &str) -> Vec<u32> {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri: McURI = format!("/mcc/u31-{tag}.mc");
+    mcc::mcc_load_from_string(&uri, source);
+    let _ = mcc::mcc_build(&McIds::from("main"), &uri);
+    mcc::mcc_diagnose_all().iter().map(|d| d.code).collect()
+}
+
 /// Is `path` the point named `name` -- the name itself, or a dotted path whose
 /// last segment it is? Comparing whole segments keeps `s.V3V3` from matching on
 /// the `V3V3` inside `s.V3V3_A`.
@@ -196,5 +210,32 @@ fn u31__an_unnamed_bracket_supply_is_bindable() {
         pairs_with(&n, "V3V3", "s.VDDIO"),
         "an unnamed supply port is a candidate and publishes its members: {}",
         dump(&n)
+    );
+}
+
+/// An argument with no formal port left on the DECLARATION form (`SINK s(...)`)
+/// is reported at user level, the same way the call-site path reports it. The
+/// two paths share the ordering criterion but draw their candidate sets
+/// separately, so a lock on one path says nothing about the other.
+#[test]
+fn u31__an_extra_argument_reaches_the_build_report() {
+    let ports = "psnk ZRAIL{VDDIO,GND}, io AAA{P,N}";
+    let c = codes("extra-arg-diag", &board(ports, "V3V3, V1V2"));
+
+    assert!(
+        c.contains(&E4151),
+        "the second argument has no port to reach and must be reported, not dropped: codes={c:?}"
+    );
+}
+
+/// The control: a complete binding reports nothing.
+#[test]
+fn u31__a_fully_bound_declaration_reports_no_extra_argument() {
+    let ports = "psnk ZRAIL{ZVDD,GND}, psnk ARAIL{AVDD,GND}";
+    let c = codes("bound-diag", &board(ports, "V3V3, V1V2"));
+
+    assert!(
+        !c.contains(&E4151),
+        "both arguments have a formal port; the code must not fire on a complete binding: codes={c:?}"
     );
 }
