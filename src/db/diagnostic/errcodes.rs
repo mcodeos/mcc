@@ -1775,6 +1775,149 @@ pub const SHUNT_DISSIPATION_OVER_RATING: u32 = 6035;
 /// guessed — that silence is the family's standing rule (§1.3), not a pass.
 pub const DECOUPLING_RETURN_MISMATCH: u32 = 6038;
 
+/// PI-1 (power-quality-design.md §2.1, ruled 2026-09-16 §5 ruling 2): a pin that
+/// **draws** from a declared DC pair carries no decoupling capacitor on its hot
+/// net. The subject is the load terminal, not the filter: a `psnk` power pin (a
+/// component pin row and a module supply port are judged alike — §6 R2, first
+/// landing includes ports) whose net is the hot member of a declared pair.
+///
+/// The pair is read from the pin's own **declared member** ([`InstEntry::pwr_member`]
+/// — the flat carry of the `::DC` row that owns it), never from a name: a pin whose
+/// row writes no pair, or whose net resolves no declared face, is not judged
+/// (§2.1's "a rail with no return member" face — a single-phase AC shape belongs to
+/// axis ④). The candidate is the flat element class (`Capacitive`, two terminals on
+/// two distinct nets), never a name.
+///
+/// **Existence only (ruling 11's partition, applied here by the same reason)**:
+/// whether a capacitor sits on the sink's hot net; where that capacitor's *return*
+/// leg lands is PI-3's object (`6038`) and nowhere else. Without that cut a
+/// mis-landed return would be reported twice — once as this code's "no decoupling"
+/// and once as `6038`'s mis-placement — for one cause, the shape rulings 8 and 11
+/// each cut for their own seam.
+///
+/// Warning (ruling 2, 2026-09-16): nothing in the declaration says "this rail must
+/// be decoupled", so this reports design quality, not a contract breach — the same
+/// level as PWR-2's return-completeness audit. The error alternative required
+/// bulk capacitors on the golden board's `VMAIN_5V` / `V5V_ISO` gaps; the ruling
+/// took the advisory instead.
+pub const SINK_PIN_NO_DECOUPLING: u32 = 6036;
+
+/// SN-3 (power-quality-design.md §3.3, ruling 10 decided 2026-09-16): a part
+/// supplied from a **quiet/sensitive** face (§1.4: `@class(analog)`,
+/// `@noise(quiet)`, `@noise(sensitive)`) whose declared DC pair returns into a
+/// **noisy** face (`@noise(noisy)`). The plane a protected part returns to is
+/// part of its protection — it is the reference the sensitive signal is
+/// measured against — so landing that return on a noise source's own reference
+/// puts the signal back onto the copper the quiet face was isolating it from.
+///
+/// The subject is a **declared pair of a part**: both members are read from one
+/// `pins.pwr` row, so the return judged is the return *of the pair that was
+/// declared*, and the two faces come from the net's own attribution against the
+/// words the declaring scopes wrote ([`crate::semantic::validation::nets`]'
+/// §1.4 read, shared with PI-2/PI-4/SN-2). A part whose definition declares no
+/// pair carries no witness — a two-terminal passive's return placement is
+/// `6038`'s object, and a *bridged* coupling between the two faces is `6040`'s.
+///
+/// Error (design §3.3): the landing is direct — no bridge, no filter — and a
+/// protected face's reference is a declaration the topology contradicts, unlike
+/// `6022`/`6027`'s advisory forgotten declaration. Ruling 10 measured the seam
+/// with `6027`: that rule needs a ≥3-pin device's returns **spanning ≥2
+/// classes**, so this rule's target shape (one sensitive return pin landing on
+/// one wrong class) is no span at all — 6027 stays silent there, and the two
+/// only coincide with different witnesses.
+pub const SENSITIVE_RETURN_ON_NOISY: u32 = 6041;
+
+/// SN-1 (power-quality-design.md §3.1, drafted 2026-09-16): a part supplied
+/// from a quiet/sensitive face returns over a reference that face and the
+/// scope's analog port row do not agree on. The subject is the **declaration
+/// against the topology**, and the declaration is two agreeing statements: the
+/// face's own rail (`rail [hot, R]::DC(…)`) and the port row's `@return(C)`,
+/// which must name `R`. Only where they agree is the wiring judged — the
+/// effective class of the net the part's return member lands on
+/// ([`crate::semantic::validation::nets`]'s axis read), so the verdict needs no
+/// name match and a sub-module leg bound to the parent's return still counts.
+/// That guard is what keeps the verdict
+/// per-face: a scope declaring two quiet faces with different references has one
+/// declaration per face, so a port naming the first never judges the second's
+/// parts. The parts a face protects are the ones it supplies, which is how
+/// §3.1's "sink-side part" is reached without the source→sink chain the flat
+/// table does not carry (§6 R3: that chain is the deferred half of this rule).
+///
+/// Error, as design §3.1 lists it: the same level as PWR-5/6 — a declaration
+/// the topology contradicts. The PI leaves (6036-6038) judge a filter and a
+/// load, SN-3 judges a pair *across* the two §1.4 faces; this judges the
+/// reference a face is declared with, so the three verdicts stand on different
+/// witnesses and cut the same board without overlapping.
+pub const ANALOG_RETURN_MISMATCH: u32 = 6039;
+
+/// SN-2 (power-quality-design.md §3.2, ruling 9 decided 2026-09-16): a declared
+/// DC `@bridge` whose two ends are the **returns** of a noisy face (§1.4
+/// `@noise(noisy)`) and of a quiet/sensitive one, carried by anything other
+/// than a magnetic element — the two references meeting through plain copper,
+/// with no filter to let the quiet face keep its own reference while they meet.
+///
+/// The two ends are returns by **negating PI-2's supply-leg test**: a bridge end
+/// that is a declared rail's hot member makes the leg a supply filter (6037's
+/// object), so a leg with neither end hot is the ground-side one this rule
+/// judges. Both ends are read at the **name** level — the clause names nets of
+/// the scope that wrote it, and that scope's own DC rails say what each name is
+/// (a hot member, or a domain's return). Reading the written name rather than the
+/// net's effective class is what lets the plainest form of the defect, a direct
+/// copper tie (ruling 9's plain direct tie), be judged: a tie that merges the two
+/// coppers collapses to one class answering both faces, while the declaration
+/// still names two returns.
+///
+/// No filtering intent is ruling 9's reading (a) negated: the leg's carrier is
+/// the two-terminal part whose legs land on exactly the two classes the bridge
+/// joins (the design's bridge-carrier element), and a magnetic element there is a declared
+/// filter — read from [`crate::semantic::basic::attr_keys::ElementClass`], never
+/// a name. A filter that is declared but incomplete is PI-2's verdict (ruling
+/// 11's partition), so one cause reports one code. A leg no single element
+/// carries is reported with the message saying so; a leg carried by a *chain* of
+/// elements is read the same way — no single bridge element is magnetic — and is
+/// named as carried by no single element.
+///
+/// Error (§3.2): P7 lists the shared return as reportable, the same level as the
+/// axis's other declaration-vs-topology cuts. The rule reads the **domain** face
+/// only — ruling 1's part-level noise source has no flat consumer yet (see
+/// [`crate::semantic::validation::nets`]' §1.4 read) — so a board whose only
+/// noise source is a part definition body stays silent.
+pub const SHARED_RETURN_BRIDGE: u32 = 6040;
+
+/// PI-4 (power-quality-design.md §2.4, ruling 4 decided 2026-09-16): a sink
+/// drawing from a declared filter leg's **load-side subface** declares a supply
+/// pair that is not the quiet domain's own pair.
+///
+/// §2.2's supply leg protects a load side, and that side is a subface: the
+/// quiet/sensitive domain's own declared pair, its hot member's copper plus its
+/// return member's copper. The verdict is **member by member** on the sink's own
+/// declared pair — its hot terminal's copper must be the rail's hot member and
+/// its return member the rail's return — so a part that touches the subface with
+/// only one member of its pair (supply from another domain's hot copper, or
+/// return off the subface) is judged, and a part inside the domain is not. Both
+/// sides of the comparison are **class ids**
+/// ([`crate::semantic::validation::nets`]'s axis read), never spellings.
+///
+/// The pair is read **where it was bound**: the flat carries only the declaring
+/// scope's member *spellings* (the flatten pass's member carry), so the pair is
+/// located on the instance that owns the terminals — two instances of one class
+/// at different call sites are judged apart, which a definition-space read could
+/// never do. The prerequisite is §2.2's leg: a bridge whose ends are both hot
+/// faces of declared rails and whose load side is the one quiet end. Undeclared
+/// ⇒ no supply leg exists and this rule does not apply; declared ⇒ `6022` is
+/// silenced by its own per-leg span match. No configuration makes both fire on
+/// one witness, which is ruling 4's reason for an independent code.
+///
+/// Error (§2.4): the declaration and the topology contradict each other — the
+/// same level as the axis's other cuts. Not judged, never guessed: a bridge that
+/// is not a supply leg, a leg with no quiet side or two quiet ones (PI-2's own
+/// silence), a rail whose return member resolves no class (no subface), a pair
+/// whose members the instance does not carry, a terminal landing on no class,
+/// and a pair touching no member of the subface at all. A part drawing from the
+/// quiet face's analog input rather than from a supply terminal declares no
+/// supply pair and is not this rule's object.
+pub const FILTER_SUBFACE_OVERREACH: u32 = 6042;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -2198,6 +2341,11 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SHUNT_DISSIPATION_OVER_RATING, "A shunt element's dissipation at the rail window's worst corner exceeds its declared package rating.", "shunt '{0}' dissipates {1} W at the rail window's worst corner ({2} V across {3}), above its declared power_rated {4} W: raise the resistance, use a package rated for more, or narrow the rail window (series pass elements are not judged — package-thermal-design.md §3.2)"),
     entry!(DECOUPLING_RETURN_MISMATCH, "A decoupling capacitor's return leg does not land on the return member the rail it sits across declares.", "capacitor '{0}' sits across the declared rail {1} whose return member is {2}, but its other leg lands on {3} — a decoupling capacitor's two legs are one declared DC pair, so its return must close the loop the rail declares: move the return leg onto {2}, or declare the pair this capacitor actually bridges (power-quality-design.md §2.3, PI-3)"),
     entry!(BRIDGE_LOAD_DECOUPLING_MISSING, "A declared filter bridge's load side carries no decoupling capacitor.", "declared filter bridge {0} puts its load side on rail hot member '{1}' (domain {2}) but no capacitor sits on that net — the ferrite is the series half of a filter, so the LC only exists once the load side it protects carries a decoupling element: add the load-side capacitor (power-quality-design.md §2.2, PI-2)"),
+    entry!(SINK_PIN_NO_DECOUPLING, "A sink power pin's declared DC pair carries no decoupling capacitor.", "sink pin '{0}' draws from the declared pair {1} / {2} but no capacitor sits on its hot net '{1}' — the pair is declared, so the load it feeds is expected to be decoupled across it: add a decoupling capacitor from '{1}' to '{2}' (where that capacitor's return leg lands is a separate finding, PI-3; power-quality-design.md §2.1, PI-1)"),
+    entry!(SENSITIVE_RETURN_ON_NOISY, "A part supplied from a quiet/sensitive face returns into a noisy one.", "part '{0}' is supplied from the quiet/sensitive face {1}, but the return member '{2}' of that same declared pair lands on net '{3}' in the noisy face {4} — the plane a protected part returns to is part of its protection, so its return must close over the {1} reference instead: move that return member onto the quiet face's reference, or bridge the two faces through a filter declared for the crossing (power-quality-design.md §3.3, SN-3)"),
+    entry!(ANALOG_RETURN_MISMATCH, "A part supplied from a declared analog face returns over a reference the face and the scope's analog port agree on.", "part '{0}' draws from the analog face {1} but its return member lands on '{2}', while the face's rail and the analog port of scope '{3}' both name the reference as {4} — a face's declared reference is the plane its protected parts are measured against, so the returns they actually close over must be that reference: land this return on {4}, or correct the rail's return member if the face really closes over '{2}' (power-quality-design.md §3.1, SN-1). Only the declared half is judged: a port stating no @return, and one whose reference names no face of its own scope, are not adjudicated (the source→sink chain has no carrier — §6 R3)"),
+    entry!(SHARED_RETURN_BRIDGE, "A DC ground bridge joins a noisy face's return to a quiet/sensitive face's return with no filtering element on the leg.", "the ground bridge {0} puts the noisy face {1} and the quiet/sensitive face {2} on one copper, {3} — a filter is what lets a quiet face keep its own reference while the two coppers meet, so without one the plane the protected parts are measured against sits straight on the noise source's return: carry this leg with a ferrite/inductor (a declared filter, whose completeness PI-2 then judges — 6037), or keep the two returns apart and tie them only where the design declares the crossing (power-quality-design.md §3.2, SN-2)"),
+    entry!(FILTER_SUBFACE_OVERREACH, "A sink drawing from a declared filter leg's load-side subface declares a supply pair other than the quiet domain's own.", "sink '{0}' declares the supply pair {1}, and that pair draws from the load side of the declared filter leg {3} — but the subface that leg protects is {4}, the {2} domain's own pair, so only a part declaring {4} is inside the domain the filter was declared for: declare this terminal's pair as {4}, or feed it from the rail its own domain declares and leave this filter's load side to the domain it protects (power-quality-design.md §2.4, PI-4)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),

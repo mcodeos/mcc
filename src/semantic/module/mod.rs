@@ -309,6 +309,14 @@ impl McModule {
                     MCAST_IOTYPE => {
                         self.insts.parse(&param_node, &self.uri);
                         self.params.parse(&param_node); // also register for unused detection
+                        // A header power row is the same declaration the body
+                        // form writes, only written in the parameter list — the
+                        // spelling the corpus uses for every module supply face
+                        // (`module MIC_SIP(psnk dc{VDD_3V3, GND}::DC(3.3V))`).
+                        // Capture its contract here too, or `pwr_ports` stays
+                        // empty for it and every consumer goes blind (the
+                        // direction judge, the §8.5 budget face, the Power axis).
+                        self.pi.parse_port_pwr(&param_node);
                     }
                     _ => {
                         // Unknown type, try to parse as data parameter

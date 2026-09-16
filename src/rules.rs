@@ -58,10 +58,12 @@
 
 use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
-    check_backfeed, check_bridge_load_decoupling, check_clamp_ref_role, check_combine_output_tol,
+    check_analog_return_reference, check_backfeed, check_bridge_load_decoupling,
+    check_clamp_ref_role, check_combine_output_tol, check_shared_return_bridge,
     check_converter_gate_window, check_converter_output_rail_window,
     check_converter_spec_incomplete, check_decoupling_return_face, check_device_return_span,
     check_driver_conflict, check_earth_dc_leak, check_exposed_clamp_coverage,
+    check_filter_subface_overreach,
     check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
     check_net_budget, check_pin_contract_decode, check_pin_contract_return_member,
     check_pin_count_mismatch, check_port_bind_role, check_port_io_mismatch,
@@ -69,10 +71,13 @@ use crate::semantic::validation::nets::{
     check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
     check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
     check_rail_nature_consistency, check_reference_island_root, check_return_leg_undeclared,
-    check_role_ref_missing_bridge, check_shunt_dissipation, check_single_point_nets,
-    check_sink_nominal_mismatch, check_sink_window_mismatch, check_unconnected_outputs,
+    check_role_ref_missing_bridge, check_sensitive_return_on_noisy, check_shunt_dissipation,
+    check_single_point_nets,
+    check_sink_nominal_mismatch, check_sink_pin_decoupling, check_sink_window_mismatch,
+    check_unconnected_outputs,
     check_undriven_nets, check_undriven_sink_net, check_unselected_abstract,
-    check_unused_module_ports, check_unwired_instances, check_voltage_mismatch, NetCheckResult,
+    check_unused_module_ports, check_unwired_instances, check_voltage_mismatch,
+    NetCheckResult,
 };
 use crate::semantic::validation::pins::{
     check_conflicting_pins, check_unused_pins, PinCheckResult,
@@ -1161,6 +1166,80 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_bridge_load_decoupling,
     },
+    // PI-1 sink-pin decoupling completeness (power-quality-design.md §2.1,
+    // ruling 2 decided 2026-09-16); table tail, tracking the FLAT_ERC_ORDER
+    // append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::SINK_PIN_NO_DECOUPLING,
+        name = "sink-pin-decoupling",
+        title = "a sink power pin's declared DC pair carries no decoupling capacitor",
+        severity = Warning,
+        domain = Power,
+        family = None,
+        doc = "PI-1 (power-quality-design.md §2.1, ruling 2): a pin that draws from a declared DC pair carries no decoupling capacitor on its hot net. The subject is the load terminal, not the filter — a `psnk` component pin row and a module supply port are judged alike (design §6 R2, the first landing includes ports). The pair is read from the pin's own declared member carry (`InstEntry::pwr_member`, the flat form of the `::DC` row that owns it), never from a name: a pin whose row writes no pair, or whose net resolves no declared face, is not judged (a single-phase AC shape with no return member belongs to axis ④). The candidate is the flat element class (capacitive, two terminals on two distinct nets). Existence only — ruling 11's partition applies here for the same reason it was drawn for PI-2: whether a capacitor sits on the sink's hot net, while where that capacitor's return leg lands is PI-3's object (decoupling-return-face, 6038). Without that cut one cause would be reported twice. Warning, not Error: no declaration says this rail must be decoupled, so this reports design quality, the same level as PWR-2's return-completeness audit.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_sink_pin_decoupling,
+    },
+    // SN-3 sensitive return landing on a noisy face (power-quality-design.md
+    // §3.3, ruling 10 decided 2026-09-16); table tail, tracking the
+    // FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::SENSITIVE_RETURN_ON_NOISY,
+        name = "sensitive-return-noisy",
+        title = "a part supplied from a quiet/sensitive face returns into a noisy one",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "SN-3 (power-quality-design.md §3.3): a part supplied from a quiet/sensitive face returns through the reference of a noisy one. The subject is a declared pair of a part — both members are read from one `pins.pwr` row, so the return judged is the return of the pair that was declared — and the two faces are read from each net's own attribution against the words the declaring scopes wrote (the §1.4 read shared with PI-2/PI-4/SN-2, so a quiet face is quiet the same way in all four). The protected side is the supply half: a part belongs to the quiet face because what feeds it is declared there, and the plane a protected part returns to is part of its protection — the reference its sensitive signal is measured against — so returning it onto a noise source's own reference puts the signal back onto the copper the quiet face was isolating it from. A part whose definition declares no pair carries no witness here: a two-terminal passive's return placement is PI-3's object (decoupling-return-face, 6038), and a return that bridges the two faces rather than landing on one is SN-2's. Error, because the landing is direct — no bridge, no filter — and a protected reference is a declaration the topology contradicts, unlike 6022/6027's advisory forgotten declaration. Ruling 10 measured the seam with device-return-span (6027): that rule needs a >=3-pin device's returns spanning >=2 classes, so this rule's target shape (one sensitive return pin landing on one wrong class) is no span at all and 6027 stays silent there. Not judged, never guessed: a row whose pair names no return member (a single-phase AC shape declares no pair), a pair whose two members cannot both be located on the flat table, a hot member whose net anchors no quiet/sensitive world, a return member whose net anchors no noisy world, and a net whose owning scope declares nothing.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_sensitive_return_on_noisy,
+    },
+    // SN-1 analog signal crossing a split ground (power-quality-design.md §3.1,
+    // drafted 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append
+    // (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::ANALOG_RETURN_MISMATCH,
+        name = "analog-return-reference",
+        title = "a part supplied from a declared analog face returns over a reference the face and the scope's analog port agree on",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "SN-1 (power-quality-design.md §3.1): a port row that claims the quiet/sensitive face and names its reference with `@return(C)` states which plane the scope's analog signals are measured against, so the parts that face supplies must return over that reference — a part drawing from the analog face while returning elsewhere is an analog signal whose reference is not the declared one. §3.1 drafts this as the sink-side part, and reading the part by what supplies it is what makes it reachable: the flat table carries no source->sink chain for a signal net (model A — a signal net has no return of its own), so the chain the design admits is missing (§6 R3) is not needed for this half. The subject is fixed by two agreeing declarations: the face's own rail (`rail [hot, R]::DC(...)`, read as written in the scope declaring the face) and the port row's `@return(C)`, which must name `R`; only where they agree is the wiring judged, and that guard is what keeps the verdict per-face and hole-free — a scope declaring two quiet faces with different references has one declaration per face, so a port naming the first never judges the second face's parts. What the rule measures is the effective class of the net the part's return member lands on (the axis's one read), so the comparison is class-to-class (a sub-module leg bound to the parent's return counts — the same read PI-3 makes). The face words come from the port row through the §1.4 mapping shared with PI-2/PI-4/SN-2/SN-3, and one level is read throughout: the declaring scope is the scope that owns the part's supply-side net, and the face is pinned to it, so an ancestor's analog face never answers for a descendant's port row. Error, as design §3.1 lists it: the same level as PWR-5/6, a declaration the topology contradicts. Not judged, never guessed: a port row declaring no reference or claiming no §1.4 face, a scope whose ports declare no analog reference, a part with no declared DC pair, a pair whose members cannot both be located on the flat table, a hot member whose net anchors no world this scope declares quiet, a quiet face carrying no `::DC` rail or a rail whose return member is not the reference the port declares, a part whose supply net belongs to another scope than the one declaring the face, a return leg whose class does not resolve, and a return landing on the declared reference (the honoured case). The undeclared half of §3.1 stays deferred by the design itself (§6 R3), so silence there is not a green.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_analog_return_reference,
+    },
+    // SN-2 noisy and quiet faces sharing one DC ground bridge
+    // (power-quality-design.md §3.2, ruling 9 decided 2026-09-16); table tail,
+    // tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::SHARED_RETURN_BRIDGE,
+        name = "shared-return-bridge",
+        title = "a DC ground bridge joins a noisy face's return to a quiet/sensitive face's return with no filtering element on the leg",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "SN-2 (power-quality-design.md §3.2): a declared ground bridge whose two ends are the returns of a noisy face (@noise(noisy)) and of a quiet/sensitive one (@class(analog), @noise(quiet), @noise(sensitive)), carried by anything other than a magnetic element — the two references meeting through plain copper, with no filter to let the quiet face keep its own reference while they meet. The ends are returns by negating PI-2's supply-leg test: a bridge end that is a declared rail's hot member makes the leg a supply filter (bridge-load-decoupling, 6037), so a leg with neither end hot is the ground-side one this rule judges; reading one predicate's two outcomes is what keeps the pair from both claiming a leg, and it is what makes the sharing real — a face's return member is the copper its parts close over. The ends are located the way PI-2 locates them (the name as the declaring scope reads it, then the net's effective class) and the faces come from the §1.4 read shared with PI-2/PI-4/SN-1/SN-3. No filtering intent is ruling 9's reading (a) negated (2026-09-16): the leg's carrier is the two-terminal part whose legs land on exactly the two classes the bridge joins, and a magnetic element among them is a declared filter, so the bridge is not judged here — whether that filter is complete is PI-2's verdict (ruling 11's partition), so one cause reports one code. Reading (b) (no load-side decoupling) would report §3.2 and §2.2 for one cause and was rejected; reading (c) (an explicit filtering declaration on the quiet side) has no carrier at all. Error (§3.2): P7 lists the shared return as reportable. The rule reads the domain face only — ruling 1's part-level noise source has no flat consumer yet — so a board whose only noise source is a part definition body stays silent. Not judged, never guessed: a @couple edge (a DC-blocking coupling element is not a ground tie), a bridge that is a supply leg (either end a rail's hot member), one whose ends anchor both faces or neither, one whose ends are both noisy or both quiet, an endpoint whose name matches no net in its scope or whose class does not resolve, and a leg carried by a magnetic element.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_shared_return_bridge,
+    },
+    // PI-4 filter-subface overreach (power-quality-design.md §2.4, ruling 4
+    // decided 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::FILTER_SUBFACE_OVERREACH,
+        name = "filter-subface-overreach",
+        title = "a sink drawing from a declared filter leg's load-side subface declares a supply pair other than the quiet domain's own",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "PI-4 (power-quality-design.md §2.4): a declared filter leg's load side is a subface — the quiet/sensitive domain's own declared pair, its hot member's copper plus its return member's copper — and a sink drawing across that pair is inside the domain the filter was declared for. The verdict is member by member on the sink's own declared pair: a part that touches the subface with only one member (its supply from another domain's hot copper, or its return off the subface) is fed by a filter it never declared to belong to. The witness is the sink's declared pair resolved on its own instance through the flatten pass's member carry (`psnk` pin rows and `psnk` port rows of instantiated modules alike), because the flat holds only the declaring scope's member spellings and never the caller's bound pair — reading it on the instance is what lets two instances of one class at different call sites be judged apart, and it is why the message can name the pair as the sink actually draws it. Both sides of the comparison are class ids (the axis's one read), never spellings. The prerequisite is §2.2's supply leg (a bridge whose ends are both hot faces of declared rails, whose load side is the one quiet end); undeclared means no supply leg exists and this rule does not apply, declared means 6022 is silenced by its own per-leg span match — no configuration makes both report one witness, which is ruling 4's reason for an independent code rather than a contextualised wording. Error (§2.4): a declaration the topology contradicts, the axis's standing level. Not judged, never guessed: a bridge that is not a supply leg, a leg with no quiet side or two quiet ones (PI-2's own silence), a rail whose return member resolves no class (no subface holds the two coppers together), a sink row naming no return member, a pair whose members the instance does not carry, a terminal landing on no class, and a pair touching no member of the subface at all; a part drawing from the quiet face's analog input rather than from a supply terminal has no supply pair and is not this rule's object. The existence half of a sink's decoupling (whether the pair carries a capacitor at all) is PI-1's verdict (6036) and where that capacitor's return lands is PI-3's (6038), so the three cut one sink without overlapping.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_filter_subface_overreach,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1713,26 +1792,31 @@ pub fn assembly_gate_blocking_tags() -> Vec<&'static str> {
 mod tests {
     use super::*;
     use crate::errcodes::{
-        ABSTRACT_PART_UNSELECTED, BRIDGE_LOAD_DECOUPLING_MISSING, CLAMP_REF_NOT_PROTECTIVE,
+        ABSTRACT_PART_UNSELECTED, ANALOG_RETURN_MISMATCH, BRIDGE_LOAD_DECOUPLING_MISSING,
+        CLAMP_REF_NOT_PROTECTIVE,
         COMBINE_OUTPUT_TOL, DECOUPLING_RETURN_MISMATCH, DEVICE_RETURN_SPAN_UNDECLARED,
-        EARTH_DC_LEAK, EXPOSED_NET_NO_CLAMP, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK,
+        EARTH_DC_LEAK, EXPOSED_NET_NO_CLAMP, FILTER_SUBFACE_OVERREACH, ISOLATED_DC_BRIDGE,
+        NET_BACKFEED_RISK,
         NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
         NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
         NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
-        NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED,
+        NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS,
+        PIN_UNCONNECTED,
         PORT_BIND_ROLE_MISMATCH, POWER_BRIDGE_LOOP, POWER_CONVERTER_GATE,
         POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE,
         POWER_PIN_RETURN_MISSING, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
         POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION,
         PROTECTIVE_MULTI_BRIDGE, PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE,
         PULLUP_DEGENERATE, RAIL_NATURE_MISMATCH, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
-        ROLE_REF_MISSING_BRIDGE, SHUNT_DISSIPATION_OVER_RATING, SINK_NET_NO_SOURCE,
+        ROLE_REF_MISSING_BRIDGE, SENSITIVE_RETURN_ON_NOISY, SHARED_RETURN_BRIDGE,
+        SHUNT_DISSIPATION_OVER_RATING,
+        SINK_NET_NO_SOURCE, SINK_PIN_NO_DECOUPLING,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 46] = [
+    const FLAT_ERC_ORDER: [u32; 51] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1779,6 +1863,11 @@ mod tests {
         SHUNT_DISSIPATION_OVER_RATING, // PWR-4b shunt heat vs package rating (tail append)
         DECOUPLING_RETURN_MISMATCH, // PI-3 decoupling return leg vs the rail's declared pair
         BRIDGE_LOAD_DECOUPLING_MISSING, // PI-2 filter bridge load side vs its decoupling
+        SINK_PIN_NO_DECOUPLING, // PI-1 sink pin's declared pair vs its decoupling
+        SENSITIVE_RETURN_ON_NOISY, // SN-3 sensitive return landing on a noisy face
+        ANALOG_RETURN_MISMATCH, // SN-1 analog face's declared reference vs its parts' returns
+        SHARED_RETURN_BRIDGE,   // SN-2 noisy/quiet returns joined by a non-filtering ground bridge
+        FILTER_SUBFACE_OVERREACH, // PI-4 sink pair vs the filter leg's load-side subface
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2314,7 +2403,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (153, 0, 3));
+        assert_eq!((strong, doc, note), (158, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
