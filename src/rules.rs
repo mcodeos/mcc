@@ -61,14 +61,14 @@ use crate::semantic::validation::nets::{
     check_backfeed, check_clamp_ref_role, check_combine_output_tol, check_converter_gate_window,
     check_converter_output_rail_window, check_converter_spec_incomplete, check_device_return_span,
     check_driver_conflict, check_earth_dc_leak, check_exposed_clamp_coverage,
-    check_floating_inputs, check_floating_outputs,
-    check_isolated_dc_bridge, check_nc_connected, check_net_budget, check_pin_contract_decode,
-    check_pin_contract_return_member, check_pin_count_mismatch, check_port_bind_role,
-    check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
+    check_floating_inputs, check_floating_outputs, check_isolated_dc_bridge, check_nc_connected,
+    check_net_budget, check_pin_contract_decode, check_pin_contract_return_member,
+    check_pin_count_mismatch, check_port_bind_role, check_port_io_mismatch,
+    check_power_bridge_loop, check_power_nets, check_power_rail_contract,
     check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
     check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
-    check_reference_island_root, check_return_leg_undeclared,
-    check_role_ref_missing_bridge, check_single_point_nets, check_sink_nominal_mismatch,
+    check_reference_island_root, check_return_leg_undeclared, check_role_ref_missing_bridge,
+    check_shunt_dissipation, check_single_point_nets, check_sink_nominal_mismatch,
     check_sink_window_mismatch, check_unconnected_outputs, check_undriven_nets,
     check_undriven_sink_net, check_unselected_abstract, check_unused_module_ports,
     check_unwired_instances, check_voltage_mismatch, NetCheckResult,
@@ -1103,6 +1103,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_protect_series_path,
     },
+    // PWR-4b package dissipation (package-thermal-design.md §3, ruled
+    // 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::SHUNT_DISSIPATION_OVER_RATING,
+        name = "shunt-dissipation-over-rating",
+        title = "a shunt element dissipates more than its declared package rating at the rail window's worst corner",
+        severity = Warning,
+        domain = Power,
+        family = None,
+        doc = "PWR-4b (package-thermal-design.md §3): the second half of PWR-4. A shunt element — a class whose spec declares `resistance` (the ledger's resistive certificate), two terminals on two different nets, exactly one leg on a declared rail hot face and the other on that rail's return or a named reference — dissipates `P = V^2/R`, with `V` the far corner `max(|lo|, |hi|)` of the rail window riding its hot leg. That window is a *declared* value (the rail's own promise), so the verdict needs no solver: white-box comparison of two declarations, which is why it is an advisory Warning rather than a topology blocking error, and why the conservative far corner is used. The declared rating is compared as it stands — the design's derating factor stays 1.0 (rail-contract-design.md §8.6 keeps a multiplier out of the budget axis, and a derate needs temperature/package context this layer does not hold). A series pass element is not judged: the engine reads a two-terminal device with no DC row as current-transparent copper, so both its legs carry one window and neither the volts across it nor a per-element current is a fact here (design §3.2 R2). A class writing its rating as `_`, and a device whose hot leg carries no Resolved window, are silently outside the check.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_shunt_dissipation,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1657,24 +1671,23 @@ mod tests {
     use crate::errcodes::{
         ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL,
         DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK, EXPOSED_NET_NO_CLAMP, ISOLATED_DC_BRIDGE,
-        NET_BACKFEED_RISK,
-        NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
-        NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
-        NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
-        NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH, PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED,
-        PORT_BIND_ROLE_MISMATCH, POWER_BRIDGE_LOOP, POWER_CONVERTER_GATE,
-        POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE, POWER_PIN_DECODE,
-        POWER_PIN_RETURN_MISSING, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
+        NET_BACKFEED_RISK, NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT,
+        NET_INPUT_UNCONNECTED, NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED,
+        NET_MULTI_DRIVE, NET_NC_CONNECTED, NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT,
+        NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION, NET_POWER_NET_COUNT, NET_VOLTAGE_MISMATCH,
+        PIN_CONFLICTING_OPTIONS, PIN_UNCONNECTED, PORT_BIND_ROLE_MISMATCH, POWER_BRIDGE_LOOP,
+        POWER_CONVERTER_GATE, POWER_CONVERTER_OUTPUT_RAIL_WINDOW, POWER_CONVERTER_SPEC_INCOMPLETE,
+        POWER_PIN_DECODE, POWER_PIN_RETURN_MISSING, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
         POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION,
-        PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE, PROTECTIVE_MULTI_BRIDGE,
-        PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
-        ROLE_REF_MISSING_BRIDGE, SINK_NET_NO_SOURCE,
+        PROTECTIVE_MULTI_BRIDGE, PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE,
+        PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED, ROLE_REF_MISSING_BRIDGE,
+        SHUNT_DISSIPATION_OVER_RATING, SINK_NET_NO_SOURCE,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 42] = [
+    const FLAT_ERC_ORDER: [u32; 43] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1714,9 +1727,10 @@ mod tests {
         DEVICE_RETURN_SPAN_UNDECLARED, // §8.6 device reference-pin cross-plane (tail append)
         PORT_BIND_ROLE_MISMATCH, // §8.7 port role contract (tail append)
         POWER_PIN_RETURN_MISSING, // §8.8 [hot, ret] pairing (tail append)
-        EXPOSED_NET_NO_CLAMP,     // PWR-6 exposed-net clamp coverage (tail append)
+        EXPOSED_NET_NO_CLAMP, // PWR-6 exposed-net clamp coverage (tail append)
         PROTECT_SHUNT_NO_REFERENCE, // PWR-5 shunt leg must reach a protective/earth ref (tail append)
         PROTECT_SERIES_NOT_IN_PATH, // PWR-5 series element must sit in series on a supply path
+        SHUNT_DISSIPATION_OVER_RATING, // PWR-4b shunt heat vs package rating (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2252,7 +2266,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (149, 0, 3));
+        assert_eq!((strong, doc, note), (150, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

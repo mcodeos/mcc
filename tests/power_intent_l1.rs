@@ -2801,7 +2801,10 @@ fn exposed_nets_without_clamp_each_fire_6031() {
         .iter()
         .filter(|c| **c == mcc::errcodes::EXPOSED_NET_NO_CLAMP)
         .count();
-    assert_eq!(n, 2, "one 6031 per uncovered exposed port; got codes: {codes:?}");
+    assert_eq!(
+        n, 2,
+        "one 6031 per uncovered exposed port; got codes: {codes:?}"
+    );
 }
 
 /// The ruled distinction: the device *is* on the exposed net and *is* tied to
@@ -2903,7 +2906,8 @@ const PROT_TYPO: &str =
 
 /// A 5V source with no declared capacity — its net is a source boundary, not a
 /// budget root (§8.5), which is exactly the oracle the series half must not use.
-const PROT_SRC_NOCAP: &str = "component SRC.PLAIN {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(5V)\n    ]\n}\n";
+const PROT_SRC_NOCAP: &str =
+    "component SRC.PLAIN {\n    pins = [\n        psrc [1,2] = [OUT, GND]::DC(5V)\n    ]\n}\n";
 
 /// A shunt device dumping onto the protective island is the ruled shape → 6032
 /// is silent.
@@ -2961,9 +2965,7 @@ fn shunt_leg_forwarded_through_a_layer_child_is_silent_6032() {
 /// the declaration is adjudicated only where the wiring exists.
 #[test]
 fn shunt_class_with_no_wired_leg_is_not_adjudicated_6032() {
-    let src = format!(
-        "{PROT_TVS}\nmodule main {{\n    TVS.PROT tv\n}}\n"
-    );
+    let src = format!("{PROT_TVS}\nmodule main {{\n    TVS.PROT tv\n}}\n");
     let codes = build_codes(&src);
     assert!(
         !codes.contains(&mcc::errcodes::PROTECT_SHUNT_NO_REFERENCE),
@@ -3118,5 +3120,152 @@ fn misspelled_protect_value_is_silently_unmarked_6032_6033() {
         !codes.contains(&mcc::errcodes::PROTECT_SHUNT_NO_REFERENCE)
             && !codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
         "a value that is neither ruled word leaves the class unmarked; got codes: {codes:?}"
+    );
+}
+
+// ── PWR-4b package dissipation (package-thermal-design.md §3, ruled 2026-09-16) ──
+//
+// The second half of PWR-4: PWR-4's first layer (6021) budgets a whole net's
+// declared sink demand against a declared source capacity; this one asks the
+// same question of a single element — the power it dissipates in place against
+// the ceiling its own package declares (`spec.power_rated`). Only the **shunt**
+// placement is judged: the class declares itself dissipating (`spec.resistance`
+// — the ledger's resistive certificate), it is a two-terminal element, and one
+// leg sits on a declared rail hot face while the other sits on that rail's
+// return or a named reference. The rail's own window is then the volts *across*
+// the element — a declared value, so `P = V²/R` needs no solver — taken at its
+// far corner, and compared against the declared rating as it stands (the
+// design's derating factor stays 1.0, the same ruling that keeps a multiplier
+// out of the budget axis). A series pass element is not judged: the engine
+// reads a two-terminal device with no DC row as current-transparent copper, so
+// both its legs carry one window and neither the volts across it nor a
+// per-element current exists (design §3.2 R2).
+
+/// A two-terminal class that declares itself dissipating and rates its package
+/// — the rated shunt shape `res.mc` writes (`resistance` + `power_rated`).
+const SHUNT_R: &str = "component RSHUNT.PWR(rs::UV.OHM, prated::UV.WATT) {\n    pins = [\n        \
+                       io 1 = A\n        io 2 = B\n    ]\n    spec = [\n        resistance = rs\n        \
+                       power_rated = prated\n    ]\n}\n";
+
+/// The same shape with the rating left unset (`_`, the PTC/NTC spelling): there
+/// is no ceiling to compare, so the element is never judged.
+const SHUNT_NORATE: &str = "component RSHUNT.NORATE(rs::UV.OHM) {\n    pins = [\n        \
+                            io 1 = A\n        io 2 = B\n    ]\n    spec = [\n        resistance = rs\n        \
+                            power_rated = _\n    ]\n}\n";
+
+/// A rated two-terminal class that declares no resistance: no dissipating
+/// certificate, so it is not an element this rule judges at all.
+const SHUNT_NOCLASS: &str = "component RSHUNT.NOCC(prated::UV.WATT) {\n    pins = [\n        \
+                             io 1 = A\n        io 2 = B\n    ]\n    spec = [\n        \
+                             power_rated = prated\n    ]\n}\n";
+
+/// A 100 Ω / 0.25 W shunt across a 5 V ±5% rail: the far corner is 5.25 V, so
+/// `P = 5.25²/100 = 0.28 W` exceeds the rated 0.25 W → Warning 6035.
+#[test]
+fn shunt_over_its_package_rating_fires_6035() {
+    let src = format!(
+        "{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    \
+         io V5R\n    RSHUNT.PWR r1(100Ω, 0.25W)\n    r1.A -> V5R\n    r1.B -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a 100Ω/0.25W shunt across a 5V±5% rail must fire 6035 once; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("main.r1"),
+        "6035 must name the element; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("0.28 W") && msgs[0].contains("5.25 V"),
+        "6035 must print the far-corner power and volts; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("power_rated 0.25 W"),
+        "6035 must print the declared rating; got: {msgs:?}"
+    );
+}
+
+/// The same rail with a 1 kΩ part: `P = 0.028 W`, well inside the rating → the
+/// verdict is silent. The rail window is the same; only the resistance changed.
+#[test]
+fn shunt_inside_its_package_rating_is_silent_6035() {
+    let src = format!(
+        "{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    \
+         io V5R\n    RSHUNT.PWR r1(1kΩ, 0.25W)\n    r1.A -> V5R\n    r1.B -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "a part dissipating inside its rating is the healthy shape; got codes: {codes:?}"
+    );
+}
+
+/// An unrated part (`power_rated = _`) has no ceiling to overrun: the carry is
+/// `None` and the element is outside the check rather than guessed.
+#[test]
+fn shunt_without_a_declared_rating_is_silent_6035() {
+    let src = format!(
+        "{SHUNT_NORATE}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    \
+         io V5R\n    RSHUNT.NORATE r1(100Ω)\n    r1.A -> V5R\n    r1.B -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "an undeclared rating is not a failing rating — never guessed; got codes: {codes:?}"
+    );
+}
+
+/// A rated two-terminal part that declares no `resistance` carries no
+/// dissipating certificate, so the rule never classifies it as a shunt.
+#[test]
+fn rated_part_without_a_resistance_certificate_is_silent_6035() {
+    let src = format!(
+        "{SHUNT_NOCLASS}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    \
+         io V5R\n    RSHUNT.NOCC r1(0.25W)\n    r1.A -> V5R\n    r1.B -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "no resistive certificate means the element is not classified; got codes: {codes:?}"
+    );
+}
+
+/// A divider's middle leg is `Signal` — no declared identity, so its potential
+/// is not a fact this layer holds. Neither half is judged (design §3.1 rule 5,
+/// the deliberate conservatism that also keeps two-rail elements out).
+#[test]
+fn divider_middle_leg_is_not_judged_6035() {
+    let src = format!(
+        "{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    \
+         io V5R\n    io VMID\n    RSHUNT.PWR r1(100Ω, 0.25W)\n    RSHUNT.PWR r2(100Ω, 0.25W)\n    \
+         r1.A -> V5R\n    r1.B -> VMID\n    r2.A -> VMID\n    r2.B -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "a divider's middle leg carries no declared potential — never guessed; got codes: {codes:?}"
+    );
+}
+
+/// Both terminals on one net is the short-circuit face (R02), not a shunt in
+/// place: the element reaches one net, so there is no window across it.
+#[test]
+fn shunt_bypassing_itself_is_not_judged_6035() {
+    let src = format!(
+        "{SHUNT_R}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    \
+         io V5R\n    RSHUNT.PWR r1(100Ω, 0.25W)\n    r1.A -> V5R\n    r1.B -> V5R\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "a self-bypass is R02's face; 6035 judges a shunt in place only; got codes: {codes:?}"
     );
 }
