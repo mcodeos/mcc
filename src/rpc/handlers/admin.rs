@@ -36,12 +36,17 @@ pub fn handle_project_info(params: Option<Value>) -> RpcResult {
     if !pdir.exists() {
         return Err(JsonRpcError::custom(32102, "project not found"));
     }
-    let (active_id, _, _) = crate::workspace_info();
+    // "Active" means this directory *is* the active workspace. `name` is only
+    // this store's key (`~/…/mcc-projects/<name>`) — the workspace itself is
+    // identified by its root, so comparing names would call `<anywhere>/hbl`
+    // active the moment `hbl` is.
+    let pdir_canonical = pdir.canonicalize().unwrap_or_else(|_| pdir.clone());
+    let active = crate::workspace_root().map_or(false, |root| root == pdir_canonical);
     Ok(json!({
         "name": name,
         "path": pdir.to_string_lossy(),
         "has_manifest": project_manifest(&name).exists(),
-        "active": name == active_id,
+        "active": active,
     }))
 }
 
@@ -151,14 +156,14 @@ pub fn handle_library_show(params: Option<Value>) -> RpcResult {
 // === handle_server_info (lines 228-241 in original) ===
 
 pub fn handle_server_info(_params: Option<Value>) -> RpcResult {
-    let (active_id, kind, root) = crate::workspace_info();
+    let (name, kind, root) = crate::workspace_info();
     Ok(json!({
         "version": crate::buildinfo::VERSION,
         "build": crate::buildinfo::number(),
         "status": "running",
         "data_dir": mcc_system_root().to_string_lossy(),
         "active_workspace": {
-            "id": active_id,
+            "name": name,
             "kind": kind,
             "root": root,
         },
