@@ -207,6 +207,10 @@ pub struct DynamicPinLine {
     /// ride the line itself — mirroring how a static row's words ride each
     /// registered McPin's `attrs` (see `attach_row_attrs`). Never dropped.
     pub attrs: McAttributes,
+    /// The `pins.<group>` block this line sits in, if any. Rides the line for the
+    /// same reason the words above do: the bank's pins exist only per
+    /// instantiation, so at parse time there is no pin to attach the block to.
+    pub group: Option<String>,
 }
 
 impl DynamicPinLine {
@@ -217,7 +221,13 @@ impl DynamicPinLine {
             pin_name_expr: None,
             values: Arc::new(Vec::new()),
             attrs: McAttributes::new(),
+            group: None,
         }
+    }
+
+    pub fn with_group(mut self, group: Option<String>) -> Self {
+        self.group = group;
+        self
     }
 
     pub fn with_attrs(mut self, attrs: McAttributes) -> Self {

@@ -190,6 +190,23 @@ pub struct McPwrPin {
     pub attrs: McAttributes,
 }
 
+/// A declared `pins.<group> = [...]` block: the component-level grouping the
+/// block states, with the pin ids it registered in declaration order.
+///
+/// Display only — the group name enters no identity, no addressing, no netlist
+/// and no ERC; a pin's identity stays (component, pin id). Viz draws one box
+/// per group.
+#[derive(Debug, Clone)]
+pub struct McPinGroup {
+    pub name: String,
+    pub pins: Vec<String>,
+    /// The declaration block's extent, taken from the same `pin_span` the row
+    /// loop records. It is not the name's span: `mc_value_link` extends a
+    /// node's `len` over the whole chain it links, so the name node reports the
+    /// block. The empty-list arm links nothing and so covers the name alone.
+    pub span: std::ops::Range<usize>,
+}
+
 /// McPins definition
 #[derive(Debug, Clone)]
 pub struct McPins {
@@ -281,6 +298,21 @@ pub struct McPins {
     /// render the original `PDM[CLK, DATA]` group.
     pub list_groups: Vec<(String, Vec<String>, Vec<String>)>, // (list_name, members, pins)
 
+    /// Declared `pins.<group> = [...]` blocks, in first-occurrence order; blocks
+    /// sharing a name merge into one entry. Like `list_groups` this is display
+    /// only and deliberately NOT registered in `names_to_id`.
+    pub groups: Vec<McPinGroup>,
+
+    /// The group block being parsed right now, as its index in `groups`. Set for
+    /// the duration of one `parse()` body and cleared at both ends of every call:
+    /// a cursor left behind would attribute the next block's pins to the previous
+    /// group.
+    ///
+    /// Diffing `decl_order` instead cannot work — it only grows at first
+    /// registration, so a group whose pins an earlier group already declared
+    /// would come out empty.
+    pin_group_cursor: Option<usize>,
+
     /// §4.1 power-intent pin contracts: every `psrc/psnk/psbi` pin line that
     /// carries a trailing `::DC(...)`, in declaration order. Structural only —
     /// numeric decode happens in pi.rs (same value language as domain rails).
@@ -311,6 +343,8 @@ impl McPins {
             values_pool: Vec::new(),
             dynamic_pins: Vec::new(),
             list_groups: Vec::new(),
+            groups: Vec::new(),
+            pin_group_cursor: None,
             pwr: Vec::new(),
         }
     }
@@ -758,7 +792,14 @@ impl McPins {
             // Row-level identity words trail the whole bank declaration
             // (`out [1:N] = D[1:N] @class(digital)`); the line is the def-level
             // home until the bank materializes per instantiation (§5.1).
-            .with_attrs(attrs.clone());
+            .with_attrs(attrs.clone())
+            // A bank inside `pins.<group> = [...]` registers no pin at parse
+            // time, so the group rides the line instead of being lost.
+            .with_group(
+                self.pin_group_cursor
+                    .and_then(|i| self.groups.get(i))
+                    .map(|g| g.name.clone()),
+            );
 
         if let Some(name_expr) = pin_name_expr {
             line = line.with_pin_name(name_expr);
@@ -867,6 +908,10 @@ impl McPins {
     }
 
     pub fn parse(&mut self, node: &AstNode) {
+        // Cleared before the childless-pins early return below, which is the
+        // first of several exits: the cursor is not a block-local and must not
+        // survive into the next `parse()`.
+        self.pin_group_cursor = None;
         let node_type = node.get_type();
         // N6: pins+= without prior pins=
         if node_type == MCAST_ATTRIBUTE_PINADD && !self.has_base_pins {
@@ -896,15 +941,17 @@ impl McPins {
         // generic pin registration.
         self.capture_pwr_lines(&plinenodes);
 
-        // ── P1-3/B5: `pins.subcls = [...]` — mca.y produces
-        // MCAST_ATTRIBUTE_PIN [mc_id(subcls), pin_lines...], but the sub-class
-        // name is silently dropped here. Report instead of ignoring it.
-        if let Some(subcls) = plinenodes.iter().find(|n| n.get_type() != MCAST_PIN_LINE) {
-            dlog_warning(
-                crate::db::diagnostic::errcodes::NOT_SUPPORTED_YET,
-                &subcls,
-                &crate::errcodes::format_msg(crate::errcodes::NOT_SUPPORTED_YET, &[]),
-            );
+        // ── `pins.<group> = [...]` — mca.y produces
+        // MCAST_ATTRIBUTE_PIN [mc_id(group), pin_lines...]. The name is a
+        // component-level grouping of the pins this block declares and enters
+        // nothing else: the rows below walk the same loop a flat `pins = [...]`
+        // body does, registering by pin id alone.
+        if let Some(name) = plinenodes
+            .iter()
+            .find(|n| n.get_type() != MCAST_PIN_LINE)
+            .and_then(|n| Self::leaf_text(&n))
+        {
+            self.pin_group_cursor = Some(self.group_entry(&name, pin_span.clone()));
         }
 
         for pnode in plinenodes.iter().filter(|n| n.get_type() == MCAST_PIN_LINE) {
@@ -1903,6 +1950,7 @@ impl McPins {
                 Self::attach_row_attrs(&mut self.pins, &pinids, &line_attrs);
             }
         }
+        self.pin_group_cursor = None;
     }
 
     fn parse_pinid(node: &AstNode) -> Option<McPinPort> {
@@ -2389,6 +2437,36 @@ impl McPins {
         }
     }
 
+    /// Index of the entry `groups` holds for `name`, appending one on its first
+    /// occurrence so the entry keeps the first declaring block's position.
+    fn group_entry(&mut self, name: &str, span: std::ops::Range<usize>) -> usize {
+        if let Some(i) = self.groups.iter().position(|g| g.name == name) {
+            return i;
+        }
+        self.groups.push(McPinGroup {
+            name: name.to_string(),
+            pins: Vec::new(),
+            span,
+        });
+        self.groups.len() - 1
+    }
+
+    /// Record `pinid` under the group block being parsed, if any. Every row form
+    /// that registers a pin lands in `register_pin`, power rows included, so this
+    /// needs no per-form enumeration — and the id forms it would have to cover
+    /// (`List`/`Bus`/`Interface`) are not in `pinids` at all. Groups overlap:
+    /// a pin may belong to several, so only intra-group duplicates are dropped.
+    fn note_group_member(&mut self, pinid: &str) {
+        let Some(i) = self.pin_group_cursor else {
+            return;
+        };
+        if let Some(g) = self.groups.get_mut(i) {
+            if !g.pins.iter().any(|p| p == pinid) {
+                g.pins.push(pinid.to_string());
+            }
+        }
+    }
+
     fn register_pin(
         &mut self,
         iotype: IOType,
@@ -2440,6 +2518,8 @@ impl McPins {
                 },
             );
         }
+
+        self.note_group_member(pinid);
 
         // Allow lookup by pin "name" to a pin-id.
         for name in names {
