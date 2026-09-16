@@ -703,6 +703,7 @@ mod inst_scope_tests {
             expansion_id: None,
             node_id: None,
             anchor: None,
+            cond_eval_errors: Vec::new(),
         }
     }
 

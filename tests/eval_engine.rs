@@ -81,11 +81,11 @@ module main { io VDD }
     let other = vec![(McIds::from("volt"), "1300mV".to_string())];
 
     assert!(
-        McConds::check_condition(&cond, &same),
+        McConds::check_condition(&cond, &same, None),
         "1200mV must equal 1.2V"
     );
     assert!(
-        !McConds::check_condition(&cond, &other),
+        !McConds::check_condition(&cond, &other, None),
         "1300mV must not equal 1.2V"
     );
 
@@ -93,7 +93,7 @@ module main { io VDD }
     let cond_mv = eq(ident("volt"), lit("1200mV"));
     let volts = vec![(McIds::from("volt"), "1.2V".to_string())];
     assert!(
-        McConds::check_condition(&cond_mv, &volts),
+        McConds::check_condition(&cond_mv, &volts, None),
         "1.2V must equal 1200mV"
     );
 }
@@ -112,18 +112,18 @@ fn eval__unitless_number_adopts_the_dimensioned_family() {
     let negative = vec![(McIds::from("volt"), "-2.5V".to_string())];
     let positive = vec![(McIds::from("volt"), "2.5V".to_string())];
     assert!(
-        McConds::check_condition(&cond, &negative),
+        McConds::check_condition(&cond, &negative, None),
         "-2.5V must be below the bare 0"
     );
     assert!(
-        !McConds::check_condition(&cond, &positive),
+        !McConds::check_condition(&cond, &positive, None),
         "2.5V must not be below the bare 0"
     );
 
     // The bare side may equally be the left operand.
     let cond_zero_first = eq(lit("0V"), ident("volt"));
     let zero = vec![(McIds::from("volt"), "0".to_string())];
-    assert!(McConds::check_condition(&cond_zero_first, &zero));
+    assert!(McConds::check_condition(&cond_zero_first, &zero, None));
 }
 
 /// Hex and decimal spellings of one integer are one value.
@@ -135,15 +135,15 @@ fn eval__hex_and_decimal_are_the_same_number() {
     let cond = eq(ident("address"), lit("0x36"));
     let decimal = vec![(McIds::from("address"), "54".to_string())];
     let hex = vec![(McIds::from("address"), "0x36".to_string())];
-    assert!(McConds::check_condition(&cond, &decimal));
-    assert!(McConds::check_condition(&cond, &hex));
+    assert!(McConds::check_condition(&cond, &decimal, None));
+    assert!(McConds::check_condition(&cond, &hex, None));
 
     let cond_bit = McCondition::BitAnd {
         left: ident("address"),
         right: lit("0x01"),
     };
     let odd = vec![(McIds::from("address"), "0x37".to_string())];
-    assert!(McConds::check_condition(&cond_bit, &odd));
+    assert!(McConds::check_condition(&cond_bit, &odd, None));
 }
 
 /// `in` reads its listed values through the same engine as `==`.
@@ -158,8 +158,8 @@ fn eval__in_list_uses_the_same_values() {
     };
     let scaled = vec![(McIds::from("volt"), "1.2V".to_string())];
     let unlisted = vec![(McIds::from("volt"), "1.5V".to_string())];
-    assert!(McConds::check_condition(&rails, &scaled));
-    assert!(!McConds::check_condition(&rails, &unlisted));
+    assert!(McConds::check_condition(&rails, &scaled, None));
+    assert!(!McConds::check_condition(&rails, &unlisted, None));
 
     // A list of bare numbers against a dimensioned operand of the same family.
     let numbers = McCondition::In {
@@ -167,7 +167,7 @@ fn eval__in_list_uses_the_same_values() {
         values: vec!["0".to_string(), "5".to_string()],
     };
     let zero = vec![(McIds::from("volt"), "0V".to_string())];
-    assert!(McConds::check_condition(&numbers, &zero));
+    assert!(McConds::check_condition(&numbers, &zero, None));
 }
 
 /// A comparison between text and a quantity has no reading: it fails as a
@@ -179,7 +179,7 @@ fn eval__ill_typed_comparison_is_reported() {
 
     let cond = eq(lit("auto"), lit("1.2V"));
     let params: Vec<(McIds, String)> = Vec::new();
-    let err = McConds::check_condition_result(&cond, &params)
+    let err = McConds::check_condition_result(&cond, &params, None)
         .expect_err("text against a quantity must not evaluate");
     assert_eq!(
         err.code(),
@@ -189,12 +189,12 @@ fn eval__ill_typed_comparison_is_reported() {
 
     // The boolean face keeps its old signature: the caller that has no node to
     // report at sees the condition as unsatisfied.
-    assert!(!McConds::check_condition(&cond, &params));
+    assert!(!McConds::check_condition(&cond, &params, None));
 
     // Two pieces of text still compare as text (partno == "PA9555").
     let text_cond = eq(ident("package_style"), lit("DFN"));
     let text_params = vec![(McIds::from("package_style"), "DFN".to_string())];
-    assert!(McConds::check_condition(&text_cond, &text_params));
+    assert!(McConds::check_condition(&text_cond, &text_params, None));
 
     // Text has no order: `"A" < "B"` is not a comparison the domain defines.
     let ordered_text = McCondition::Lt {
@@ -202,7 +202,7 @@ fn eval__ill_typed_comparison_is_reported() {
         right: lit("DFN"),
     };
     assert!(
-        McConds::check_condition_result(&ordered_text, &text_params).is_err(),
+        McConds::check_condition_result(&ordered_text, &text_params, None).is_err(),
         "ordering two pieces of text must not evaluate"
     );
 }
@@ -294,11 +294,16 @@ module main
 /// Load `rail.mc` + a consumer built with `arg` and return its diagnostics as
 /// `(code, uri, row, message)`.
 fn rail_diagnostics(tag: &str, arg: &str) -> Vec<(u32, String, u32, String)> {
+    rail_diagnostics_with(tag, RAIL_IFACE, arg)
+}
+
+/// Same, with the definition file's text supplied by the caller.
+fn rail_diagnostics_with(tag: &str, iface: &str, arg: &str) -> Vec<(u32, String, u32, String)> {
     let _lock = common::lock();
     let dir = std::env::temp_dir().join(format!("mcc-eval-rail-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create temp dir");
-    std::fs::write(dir.join("supply.mc"), RAIL_IFACE).expect("write supply.mc");
+    std::fs::write(dir.join("supply.mc"), iface).expect("write supply.mc");
     std::fs::write(dir.join("main.mc"), RAIL_CONSUMER.replace("{arg}", arg))
         .expect("write main.mc");
     let uri: McURI = dir
@@ -365,6 +370,44 @@ fn eval__unreduced_arg_condition_is_not_reported() {
             "::RAIL({arg}) must not be reported as an operator error; got {hits:?}"
         );
     }
+}
+
+/// A `pins` row that cannot be read names no pin, and the row is the
+/// definition file's own syntax: the failure belongs to `supply.mc`, at the
+/// row's own line there. Reporting it at the consumer would name a position in
+/// a file this syntax never occupied.
+#[test]
+fn eval__defective_iface_block_reports_in_the_definition() {
+    let iface = RAIL_IFACE.replace(
+        r#"            1 = VCC3V3, "positive", voltage:3.3V"#,
+        r#"            1 / 0 = VCC3V3, "positive", voltage:3.3V"#,
+    );
+    assert_ne!(iface, RAIL_IFACE, "the defect must be injected");
+    let row_of_defect = iface
+        .lines()
+        .position(|line| line.contains("1 / 0"))
+        .expect("the injected row") as u32
+        + 1;
+
+    let diags = rail_diagnostics_with("defective-block", &iface, "3.3V");
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|(code, ..)| *code == mcc::errcodes::EVAL_DIVIDE_BY_ZERO)
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "the selected block reports its own failure once; got {diags:?}"
+    );
+    let (_, uri, row, _) = hits[0];
+    assert!(
+        uri.ends_with("/supply.mc"),
+        "the failing row is written in supply.mc, not in the consuming file; got {uri}"
+    );
+    assert_eq!(
+        *row, row_of_defect,
+        "the failure must name the row's own line in supply.mc; got {row}"
+    );
 }
 
 /// A definition with no parameters still has an environment: a condition over
@@ -438,4 +481,92 @@ module main
         paths.iter().any(|p| p.contains("u2.2")),
         "u2's else-branch connection is gone: {paths:?}"
     );
+}
+
+/// `{arg}` is the construction argument handed to `CH`, whose condition reads
+/// the formal in a numeric comparison.
+const COND_INSTANCE: &str = r#"
+component CH(kind)
+{
+    if (kind == 3.3V)
+        pins = [
+            1 = VIN
+            2 = GND
+            3 = EN
+        ]
+    else
+        pins = [
+            1 = VIN
+            2 = GND
+            3 = NEN
+        ]
+}
+
+module main
+{
+    io VMAIN
+    CH ch1({arg})
+    VMAIN -> ch1.VIN
+}
+"#;
+
+/// The class's conditional block is decided per instance, in Pass2 — the same
+/// failure the interface path reports at the construction, one layer later. The
+/// condition is written in the class file, but the argument it could not use is
+/// the declaration's own syntax, so that is where it is reported: the
+/// declaration line, not the class.
+#[test]
+fn eval__instance_condition_reports_at_the_declaration() {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri: McURI = "/mcc/eval-instance-cond.mc".to_string();
+    mcc::mcc_load_from_string(&uri, &COND_INSTANCE.replace("{arg}", "\"WIDE\""));
+    let _ = mcc::mcc_build(&McIds::from("main"), &uri);
+
+    let hits: Vec<_> = mcc::mcc_diagnose_all()
+        .iter()
+        .filter(|d| (5413..=5415).contains(&d.code))
+        .map(|d| (d.loc.uri.clone(), d.loc.row, d.msg.clone()))
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "one declaration reports its class's condition failure once; got {hits:?}"
+    );
+    let (uri, row, msg) = &hits[0];
+    assert!(
+        msg.contains("WIDE"),
+        "the message must name the argument the declaration wrote; got {msg}"
+    );
+    assert!(
+        *row == 21,
+        "the failure belongs to the declaration line, not to the class; got row {row}"
+    );
+    assert!(uri.ends_with("eval-instance-cond.mc"), "got {uri}");
+}
+
+/// A class condition reading a formal the declaration never gave a value to is
+/// undecided, not wrong: `kind` may still arrive from the instance or the spec.
+/// Neither a name argument nor an absent one is the engine's error to report.
+#[test]
+fn eval__unreduced_instance_arg_condition_is_not_reported() {
+    for arg in ["VMAIN", ""] {
+        let _lock = common::lock();
+        common::reset();
+
+        let uri: McURI = "/mcc/eval-instance-unreduced.mc".to_string();
+        mcc::mcc_load_from_string(&uri, &COND_INSTANCE.replace("{arg}", arg));
+        let _ = mcc::mcc_build(&McIds::from("main"), &uri);
+
+        let hits: Vec<_> = mcc::mcc_diagnose_all()
+            .iter()
+            .filter(|d| (5413..=5415).contains(&d.code))
+            .map(|d| (d.loc.row, d.msg.clone()))
+            .collect();
+        assert!(
+            hits.is_empty(),
+            "CH ch1({arg}) must not be reported as an operator error; got {hits:?}"
+        );
+    }
 }
