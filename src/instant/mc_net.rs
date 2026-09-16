@@ -563,15 +563,24 @@ impl PortInst {
         // ── Phase-D support: a bracketed alias exists only for list-shaped bus
         // ports (`[A,B]`, `GPIO[1:2]`), not for curly ones (`rs485{A,B}`),
         // because curly members are already reachable through the dot syntax.
-        let bracket = (self.is_bus_port() && self.name.contains('['))
-            .then(|| format!("[{}]", self.bus_members.join(", ")));
+        //
+        // A member's suffix is flat when the port gives it no prefix to hang
+        // from. A bracket name IS the member list, so it has none; and a
+        // grouping header the parser had no name for (keyed by its `@N`
+        // placeholder) is the same declaration shape — treating it as a named
+        // port would file its members under `@N.A`, a path nothing can reach.
+        let prefixless = self.name.contains('[')
+            || self.name.is_empty()
+            || self.name.starts_with('@');
+        let bracket =
+            (self.is_bus_port() && prefixless).then(|| format!("[{}]", self.bus_members.join(", ")));
 
         let members = self
             .bus_members
             .iter()
             .map(|member| {
-                if self.name.contains('[') {
-                    // Bracket port: flat member path ([VDD_3V3, GND] -> VDD_3V3)
+                if prefixless {
+                    // Flat member path ([VDD_3V3, GND] -> VDD_3V3)
                     member.clone()
                 } else if self.name.contains('{') {
                     // Curly port: the base name prefixes the member
