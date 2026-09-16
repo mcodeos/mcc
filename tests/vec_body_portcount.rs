@@ -51,10 +51,14 @@ const RES2: &str = "component RES2 {\n    pins = [\n        1 = 1\n        2 = 2
 /// Plain one-pin test point -- a **real component body** with a single port.
 const TESTPOINT: &str = "component TESTPOINT {\n    pins = [\n        1 = 1\n    ]\n}\n";
 
-/// Codes that are build-info, not a verdict (same set the vector-oracle
-/// family tolerates).
+/// Codes that are not this family's verdict (same set the vector-oracle
+/// family tolerates). `3136` (floating net label) joins them because the
+/// fixtures below use **bare** `VCC` / `GND` as the operands under test: a
+/// name no scope declares is a floating label since world-axioms §1 A1
+/// replaced the rail-*spelling* exemption — the family already carries E3136
+/// alongside its verdict this way (`vec_r0_operator_encoding`, `A'^`).
 fn benign(c: u32) -> bool {
-    matches!(c, 5641 | 5642 | 5643 | 5054)
+    matches!(c, 5641 | 5642 | 5643 | 5054 | 3136)
 }
 
 /// Build `main` and return (non-benign codes sorted, net partition).

@@ -1466,15 +1466,20 @@ module main { C1 c1 }
 
 /// Sec 7.1/Sec 13.4: power pin without a voltage attribute.
 /// DOC CLAIM: E3301. AUDIT RESULT: E3301 does not exist in the codebase;
-/// the actual code is E5454 POWER_PIN_NO_VOLTAGE (Info), fired on power-typed
-/// OR power-named pins (VCC/VREF/GND/...).
+/// the actual code is E5454 POWER_PIN_NO_VOLTAGE (Info), fired on pins whose
+/// own declaration makes them a power face.
+///
+/// The fixture declares the face (`psnk`) rather than naming the pin `VCC`:
+/// the rule used to also accept a list of spellings, so `in 1 = VCC` fired the
+/// hint even though nothing declared that pin a supply — a criterion resting on
+/// the name (world-axioms §1 A1, U58).
 #[test]
 fn audit_s7_power_pin_no_voltage() {
     let p = probe(
         r#"
 component BAD {
     pins = [
-        in 1 = VCC
+        psnk 1 = VCC
     ]
 }
 module main {

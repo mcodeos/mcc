@@ -7,10 +7,7 @@
 //! Runs after `mcb_pass2()` when the full flattened netlist (`InstTable`) is available.
 
 use crate::db::diagnostic::diagnostic::Diagnostic;
-use crate::instant::insttab::{
-    is_ground_name, is_supply_name, InstEntry, InstKind, InstOrigin, InstTable, MemberRole,
-    NetEntry,
-};
+use crate::instant::insttab::{InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry};
 use crate::semantic::basic::mc_kvs::KVSValue;
 use crate::semantic::basic::mc_literal::McLiteral;
 use crate::semantic::basic::mc_param::McParamValue;
@@ -20,6 +17,7 @@ use crate::semantic::component::mc_attr::McAttrVal;
 use crate::semantic::component::mc_pins::{McPinPort, McPwrPin, PwrDir};
 use crate::semantic::component::McComponent;
 use crate::semantic::module::pi::{decode_pwr_pin, L1PwrPin, McPowerDecls};
+use crate::semantic::pwrid::{self, Face};
 use crate::semantic::validation::finding::CheckFinding;
 use std::collections::HashSet;
 
@@ -280,14 +278,14 @@ pub(crate) fn check_undriven_nets(table: &InstTable, results: &mut Vec<NetCheckR
         let has_input = points
             .iter()
             .any(|e| matches!(e.io_type, IOType::In | IOType::InOut));
-        // A net named after an implicit power rail (`VCC`, `GND`, `V3V3`, …)
-        // is a source by convention — a bare `VCC -> x.signal` at module
-        // scope supplies the net; it does not hang undriven. Mirrors the
-        // floating-label carve-out (floating.rs) and infer_member_role's rail
-        // classification.
-        if is_supply_name(&net.name) || is_ground_name(&net.name) {
-            continue;
-        }
+        // The former exemption — "a net named after an implicit power rail
+        // (`VCC`, `GND`, `V3V3`, …) is a source by convention" — is retired
+        // (U56). It is redundant now: a **declared** supply member is
+        // `IOType::Power` on the flat table, which `has_driver` above already
+        // counts, so a declared rail passes structurally. A net that only
+        // *looks* like a rail carries no declaration and therefore no promise
+        // of a source (world-axioms §1 A1) — it is undriven until something
+        // declares it driven.
         // A net containing a module-boundary port (`x.signal -> D_STATUS.1`)
         // receives its drive from the enclosing scope through that port; the
         // flat table keeps the parent-side connection as a separate net sharing
@@ -491,12 +489,11 @@ pub(crate) fn check_voltage_mismatch(table: &InstTable, results: &mut Vec<NetChe
 ///    binding's volt parameter. Found by locating the `McPinPort::Interface`
 ///    whose `registered_pins` / member names include this pin.
 ///
-/// Only SUPPLY pins (power-typed or power-named, ground excluded) are
-/// voltage sources: a signal pin's `voltage` attribute describes signal
-/// levels, not the rail. Ground pins (GND/VSS) are the reference and never
-/// participate. Range values (`2.5V~5.5V`) are skipped — they declare
-/// tolerance, not a fixed rail. Returns `None` when the pin is not a supply
-/// pin or declares no concrete voltage.
+/// Only **declared supply** pins are voltage sources: a signal pin's `voltage`
+/// attribute describes signal levels, not the rail, and a declared return is
+/// the reference path, which never participates. Range values (`2.5V~5.5V`) are
+/// skipped — they declare tolerance, not a fixed rail. Returns `None` when the
+/// pin is not a supply pin or declares no concrete voltage.
 fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64>> {
     let comp_entry = entry.parent_id.and_then(|pid| table.get_entry(pid))?;
     if comp_entry.class_name.is_empty() {
@@ -515,24 +512,31 @@ fn pin_declared_voltages(table: &InstTable, entry: &InstEntry) -> Option<Vec<f64
             .values()
             .find(|p| p.names.iter().any(|n| n == &entry.class_name))
     })?;
+    let names: Vec<&str> = pin.names.iter().map(|n| n.as_str()).collect();
 
-    // Supply pin only. Ground / reference pins (GND, VSS, VSSA, EPAD — the
-    // exposed pad) are the return path and never declare a rail, even though
-    // they are typically `Power`-typed; a shared ground pin legitimately
-    // belongs to several rails (e.g. the EPAD of a multi-rail MCU), so it
-    // must not seed a voltage comparison. A pin is a supply candidate when
-    // it is power-named (leaf of `VIN.Vin` → `Vin`) or `Power`-typed and it
-    // is not a ground reference.
-    let leaf = entry.class_name.rsplit('.').next().unwrap_or("");
-    let is_ground = is_ground_name(leaf)
-        || is_ground_name(pin_id)
-        || pin.names.iter().any(|n| is_ground_name(n))
-        || leaf == "EPAD"
-        || pin_id == "EPAD";
-    if is_ground {
-        return None;
+    // Supply pin only, decided by what the pin's owner **declared** it to be.
+    // A declared return (`Face::Ret` — the second member of a
+    // `psrc/psnk/psbi … ::DC(hot, ret)` pair, or a rail's `ret`) is the
+    // reference path and never declares a rail, even though it is typically
+    // `Power`-typed; a shared return pin legitimately belongs to several rails
+    // (the exposed pad of a multi-rail MCU is one), so it must not seed a
+    // voltage comparison. A `conduit` names copper without picking a side and
+    // is not a supply either.
+    //
+    // The former test spelled this out as a word table (`is_ground_name`,
+    // `is_supply_name`, plus the literals `GND`/`VSS`/`VSSA`/`EPAD`): whether a
+    // pin counted as a supply depended on what the author called it, which
+    // world-axioms §1 A1 rules out. The declaration says the same thing and is
+    // checkable — `[VCC, EPAD]::DC(3.3V)` declares EPAD a return by position.
+    // A pin with no declaration is still a supply candidate when its own
+    // direction is `Power` (the carried role).
+    let declared = pwrid::member_of_names(&def.pins, &names);
+    if let Some(m) = &declared {
+        if m.face != Face::Hot {
+            return None;
+        }
     }
-    let is_supply = is_supply_name(leaf) || matches!(pin.iotype, IOType::Power);
+    let is_supply = declared.is_some() || matches!(pin.iotype, IOType::Power);
     if !is_supply {
         return None;
     }

@@ -88,10 +88,14 @@ use mcc::{McIds, McURI};
 /// Plain two-pin resistor, pins `1 = 1` / `2 = 2`.
 const RES2: &str = "component RES2 {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n";
 
-/// Codes that are build-info, not a verdict (same set the vector-oracle
-/// family tolerates).
+/// Codes that are not this family's verdict (same set the vector-oracle
+/// family tolerates). `3136` (floating net label) joins them because the cells
+/// below write **bare** `VDD` / `GND` as the degenerate-side operand under
+/// test: a name no scope declares is a floating label since world-axioms §1 A1
+/// replaced the rail-*spelling* exemption, and this file already carries E3136
+/// alongside its verdict that way (see the `E3136` note further down).
 fn benign(c: u32) -> bool {
-    matches!(c, 5641 | 5642 | 5643 | 5054)
+    matches!(c, 5641 | 5642 | 5643 | 5054 | 3136)
 }
 
 /// Build `main` and return (non-benign codes sorted, net partition).

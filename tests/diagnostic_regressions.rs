@@ -26,6 +26,8 @@ component SOURCE
 
 module main
 {
+    io V5V
+    io GND
     SOURCE PWR
     PWR.1 -> V5V
     PWR.2 -> GND
@@ -36,6 +38,11 @@ module main
     path
 }
 
+/// The two rail labels (`V5V`, `GND`) are **declared** as `main`'s own ports.
+/// E3136 used to accept any rail-*looking* spelling (`VCC`/`GND`/`V3V3` and
+/// friends) as an implicit rail without a declaration, so this fixture could
+/// leave them bare (world-axioms §1 A1, U55-family). A name no scope declares
+/// is a floating label again — the fixture declares instead.
 #[test]
 fn cli_diagreg__valid_power_net_has_no_false_instance_diagnostics() {
     let path = fixture_path();

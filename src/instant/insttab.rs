@@ -24,6 +24,7 @@ use crate::instant::nettab::NetTableStore;
 use crate::semantic::common::{IOType, McSpaceName};
 use crate::semantic::component::mc_pins::PwrDir;
 use crate::semantic::module::pi::McPowerDecls;
+use crate::semantic::pwrid::{self, DeclaredMember, Face};
 use crate::vector::model::DiffFace;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -247,50 +248,40 @@ pub(crate) fn pwr_row_for_pin<'a>(
         .find(|c| names.iter().any(|n| *n == c.hot))
 }
 
-/// Check if a name looks like Ground.
-pub(crate) fn is_ground_name(s: &str) -> bool {
-    let u = s.to_uppercase();
-    matches!(
-        u.as_str(),
-        "GND" | "AGND" | "DGND" | "PGND" | "VSS" | "GROUND" | "EARTH"
-    )
+/// The declared power face of one pin of a component: the `::DC(hot, ret)`
+/// contract of the row that owns it when the row writes one, else the face its
+/// declared role names (a bare `psrc/psnk/psbi` row declares a face without
+/// naming a pair), else `None` for a pin nothing declares a power face for.
+///
+/// `role` is the caller's [`infer_member_role`] answer, itself grounded on the
+/// component's own `pins.pwr` rows and the owning module's declarations.
+pub(crate) fn declared_member_of_pin(
+    comp: &crate::instant::mc_comp::McComponentInst,
+    pin: &crate::semantic::component::mc_pins::McPin,
+    info: Option<&MemberInfo>,
+) -> Option<DeclaredMember> {
+    let names: Vec<&str> = pin.names.iter().map(|n| n.as_str()).collect();
+    if let Some(member) = pwrid::member_of_names(&comp.def.pins, &names) {
+        return Some(member);
+    }
+    let spelling = names.first().copied().unwrap_or_default();
+    declared_member_of_role(spelling, info.map(|i| i.role.clone()))
 }
 
-/// Check if a name looks like Power (not Ground).
-pub(crate) fn is_supply_name(s: &str) -> bool {
-    let u = s.to_uppercase();
-    if is_ground_name(&u) {
-        return false;
+/// [`declared_member_of_pin`] for a caller that holds only the declared spelling
+/// and the resolved role (a module port member, a module-scope net label).
+pub(crate) fn declared_member_of_role(
+    spelling: &str,
+    role: Option<MemberRole>,
+) -> Option<DeclaredMember> {
+    if spelling.is_empty() {
+        return None;
     }
-    const EXACT: &[&str] = &[
-        "VCC",
-        "VDD",
-        "VBUS",
-        "VPP",
-        "AVDD",
-        "DVDD",
-        "POWER_SYS",
-        "VBAT",
-        "VIN",
-        "VOUT",
-    ];
-    if EXACT.contains(&u.as_str()) {
-        return true;
+    match role {
+        Some(MemberRole::Ground) => Some(pwrid::member_from_face(spelling, Face::Ret)),
+        Some(MemberRole::Power) => Some(pwrid::member_from_face(spelling, Face::Hot)),
+        _ => None,
     }
-    if ["VCC", "VDD", "AVDD", "DVDD", "VBUS", "VBAT"]
-        .iter()
-        .any(|p| u.starts_with(p))
-    {
-        return true;
-    }
-    let bytes = u.as_bytes();
-    let digits = bytes.iter().filter(|b| b.is_ascii_digit()).count();
-    if u.contains('V') && digits >= 1 && u.len() <= 8 {
-        if !u.starts_with("VO") {
-            return true;
-        }
-    }
-    false
 }
 
 // InstOrigin
@@ -389,6 +380,23 @@ pub struct InstEntry {
     /// module, Label, Bus, Module, Component, …) and for a power pin whose
     /// function name matches no `hot` row.
     pub pwr_dir: Option<PwrDir>,
+    /// ★ Declared power-face identity of this endpoint: which side of a written
+    /// `[hot, ret]` contract it is, spelled as the declaration spelled it, under
+    /// the declaration that owns it (see [`crate::semantic::pwrid`]).
+    ///
+    /// Carried here so the rules never have to *guess* a face from the shape of
+    /// a name — the flat table is the one place that still holds the
+    /// declaration at hand, so the answer is computed once, at flatten time, and
+    /// read thereafter. Sources, strongest first: the `::DC(hot, ret)` contract
+    /// of the owning `psrc/psnk/psbi` row / declared connection-point pair, the
+    /// owning module's own rail / power-port / `conduit` declarations for a
+    /// module-scope label, and finally the endpoint's declared direction word
+    /// (a `psrc/psnk/psbi` row with no `::` tail still declares a face).
+    ///
+    /// `None` means the author declared no power face for this endpoint — which
+    /// is a real answer, not a missing one: an undeclared label carries no
+    /// promise that it is a rail, however it is spelled.
+    pub pwr_member: Option<crate::semantic::pwrid::DeclaredMember>,
     /// ★ §11.1: vector member projection — the declared vector group this
     /// flattened component entry belongs to (None for scalar / non-vector).
     /// Populated during `flatten_module` from the modeling-layer `vectors`
@@ -444,6 +452,29 @@ pub struct InstEntry {
     /// keeps its own declaring uri here. `None` for entries that name no def
     /// (pins, ports, labels, nets).
     pub class_def: Option<McSpaceName>,
+}
+
+impl InstEntry {
+    /// The declared power face this endpoint carries, or `None` when the author
+    /// declared none. Never derived from the shape of the path.
+    pub fn power_face(&self) -> Option<crate::semantic::pwrid::Face> {
+        self.pwr_member.as_ref().map(|m| m.face)
+    }
+
+    /// The **declared** spelling of this endpoint's face, verbatim — what a
+    /// diagnostic should print, and what the rail identity is built from.
+    /// `None` for an endpoint nothing declares.
+    pub fn power_spelling(&self) -> Option<&str> {
+        self.pwr_member.as_ref().map(|m| m.member.as_str())
+    }
+
+    /// Declaration-side rail identity (see
+    /// [`crate::semantic::pwrid::DeclaredMember::identity`]): two endpoints
+    /// share it exactly when one declaration names them the same way. `None`
+    /// for an endpoint nothing declares.
+    pub fn rail_identity(&self) -> Option<String> {
+        self.pwr_member.as_ref().map(|m| m.identity())
+    }
 }
 
 // NetEntry - Network record
@@ -546,7 +577,15 @@ pub struct InstTable {
     /// spelling, which carries no io / role / direction of its own; this map
     /// lets [`Self::flatten_nets`] hand it the declared contract instead of
     /// manufacturing a semantics-less pin.
-    member_pin_sem: HashMap<String, (IOType, Option<MemberInfo>, Option<PwrDir>)>,
+    member_pin_sem: HashMap<
+        String,
+        (
+            IOType,
+            Option<MemberInfo>,
+            Option<PwrDir>,
+            Option<DeclaredMember>,
+        ),
+    >,
 
     /// ★ Member-spelling → physical pin id. A wiring that names a component
     /// power pin by its *declared member name* — the `{L|R}` through face
@@ -811,6 +850,7 @@ impl InstTable {
             def_uri,
             member_info: None,
             pwr_dir: None,
+            pwr_member: None,
             vector_info: None,
             not_fitted: false,
             nc_marked: false,
@@ -862,6 +902,14 @@ impl InstTable {
         }
     }
 
+    /// Set the declared power face of an entry by ID
+    /// ([`InstEntry::pwr_member`]). Only the declaration side calls this.
+    pub fn set_pwr_member(&mut self, id: u32, member: crate::semantic::pwrid::DeclaredMember) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.pwr_member = Some(member);
+        }
+    }
+
     /// Record the declared semantics of one flat component pin under every
     /// member spelling a net point may use for it (see
     /// [`Self::member_pin_sem`]). `comp_path` is the component's flat path;
@@ -879,11 +927,17 @@ impl InstTable {
         let Some(pin) = comp.def.pins.pins.get(pin_name) else {
             return;
         };
+        let member = declared_member_of_pin(comp, pin, info.as_ref());
         let target = self.get_id_by_path(&format!("{comp_path}.{pin_name}"));
+        if let (Some(target), Some(member)) = (target, member.clone()) {
+            self.set_pwr_member(target, member);
+        }
         for name in &pin.names {
             let spelling = format!("{comp_path}.{name}");
-            self.member_pin_sem
-                .insert(spelling.clone(), (io.clone(), info.clone(), dir));
+            self.member_pin_sem.insert(
+                spelling.clone(),
+                (io.clone(), info.clone(), dir, member.clone()),
+            );
             if let Some(target) = target {
                 self.member_pin_alias.insert(spelling, target);
             }
@@ -1414,7 +1468,7 @@ impl InstTable {
                 if !matches!(role, MemberRole::Signal) || diff.is_some() {
                     // P3 (ret lineage): a member the pair names carries the other
                     // face — the ret on the hot member, the hot on the ret member.
-                    let mut info = MemberInfo::new(role, None);
+                    let mut info = MemberInfo::new(role.clone(), None);
                     if let Some((hot, ret)) = &port.dc_pair {
                         if member == ret {
                             info.pair = Some(hot.clone());
@@ -1424,6 +1478,26 @@ impl InstTable {
                     }
                     info.diff = diff;
                     self.set_member_info(member_id, info);
+                }
+                // Declared power face: the connection-point DC pair names both
+                // faces verbatim (`[VDD_3V3, GND]`), so it outranks the role —
+                // the pair IS the declaration. Without a pair the member's own
+                // declared role still names a face.
+                let member_decl = port
+                    .dc_pair
+                    .as_ref()
+                    .and_then(|(hot, ret)| {
+                        if member == ret {
+                            Some(pwrid::member_from_face(ret, Face::Ret))
+                        } else if member == hot {
+                            Some(pwrid::member_from_face(hot, Face::Hot))
+                        } else {
+                            None
+                        }
+                    })
+                    .or_else(|| declared_member_of_role(member.as_str(), Some(role.clone())));
+                if let Some(member_decl) = member_decl {
+                    self.set_pwr_member(member_id, member_decl);
                 }
             }
 
@@ -1979,6 +2053,17 @@ impl InstTable {
                         .flatten(),
                 );
 
+                // Declared power face of a module-scope net: only this module's
+                // own declarations count, so a bare `GND` is a return here
+                // exactly when *this* scope declared it one. An undeclared
+                // label keeps `None` — it carries no promise, whatever it is
+                // spelled.
+                if let Some(pi) = self.power_decls.get(&my_id) {
+                    if let Some(member) = pwrid::member_of_module(pi, label_name) {
+                        self.set_pwr_member(label_id, member);
+                    }
+                }
+
                 // ★ A′: a bare member label that carries an electrical direction
                 // *and* whose owning port member was registered as a dotted member
                 // Port is a non-physical alias of that Port (lane.rs — bare member
@@ -2077,12 +2162,15 @@ impl InstTable {
                                 np.src_pos.clone(),
                                 String::new(),
                             );
-                            if let Some((_, info, dir)) = carried {
+                            if let Some((_, info, dir, member)) = carried {
                                 if let Some(info) = info {
                                     self.set_member_info(pin_id, info);
                                 }
                                 if let Some(dir) = dir {
                                     self.set_pwr_dir(pin_id, dir);
+                                }
+                                if let Some(member) = member {
+                                    self.set_pwr_member(pin_id, member);
                                 }
                             }
                             ids.push(pin_id);

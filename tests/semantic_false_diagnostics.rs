@@ -53,6 +53,13 @@ fn has_code(value: &Value, code: u64) -> bool {
         .any(|diagnostic| diagnostic["code"].as_u64() == Some(code))
 }
 
+/// `VCC` / `GND` are declared as `main`'s own ports. E3136 (floating net
+/// label) and E4103 (undriven net) used to exempt any rail-*looking* spelling
+/// as an implicit rail, so the two names could stay bare here — the exemption
+/// this fixture was originally written to demonstrate
+/// (`doc/declare/resolve-gate-design.md` item 41). World-axioms §1 A1 replaces
+/// it with declaration identity: the same document already states the
+/// sanctioned form, "a declared `io V3V3` is silent".
 #[test]
 fn sem_falsediag__valid_labels_members_and_module_ports_are_quiet() {
     let source = r#"component SIMPLE_LED
@@ -73,6 +80,8 @@ module LED_INDICATOR(in signal, psnk ground)
 
 module main
 {
+    io VCC
+    io GND
     LED_INDICATOR STATUS_GREEN
     VCC -> STATUS_GREEN.signal
     STATUS_GREEN.ground -> GND

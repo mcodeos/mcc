@@ -579,11 +579,10 @@ impl PortInst {
         // grouping header the parser had no name for (keyed by its `@N`
         // placeholder) is the same declaration shape — treating it as a named
         // port would file its members under `@N.A`, a path nothing can reach.
-        let prefixless = self.name.contains('[')
-            || self.name.is_empty()
-            || self.name.starts_with('@');
-        let bracket =
-            (self.is_bus_port() && prefixless).then(|| format!("[{}]", self.bus_members.join(", ")));
+        let prefixless =
+            self.name.contains('[') || self.name.is_empty() || self.name.starts_with('@');
+        let bracket = (self.is_bus_port() && prefixless)
+            .then(|| format!("[{}]", self.bus_members.join(", ")));
 
         let members = self
             .bus_members
@@ -910,76 +909,6 @@ pub fn canonicalize_path(path: &str) -> String {
     }
 
     path.to_string()
-}
-
-/// ── ★ ITER-5: Lightweight power/ground name recognition (for `into_nets` tier-3 naming) ──
-///
-/// Here we **deliberately** do not call `crate::vector::graph::naming::is_power_rail`
-/// —— `mc_net.rs` is in the `crate::instant` layer, while `naming.rs` is in the
-/// `crate::vector` layer; cross-layer imports would break the current
-/// "vector depends on instant" one-way dependency graph. We maintain a local
-/// **converged subset**: only used when naming a net (everything that reaches
-/// here has already been skipped by tier1/tier2; any non-standard misrecognition
-/// at most gives the net a **meaningful but slightly literary** name without
-/// affecting electrical connections — risk is very low).
-///
-/// Recognition rules are consistent with `naming::is_power_rail` (simplified version):
-///   - exact power: VCC / VDD / VBUS / V3P3 / V5P0 / V1P8 / VPP / AVDD
-///   - prefix power: VCC* / VDD* / V3V* / V5V* / V1V*
-///   - exact ground: GND / VSS / AGND / DGND / PGND
-///   - prefix ground: GND* / VSS*
-///   - voltage patterns (`3V3` / `5V0`) are treated as power
-///
-/// Ground leaf-name recognition (exact + prefix), shared by
-/// [`looks_like_power_rail`] and the raw-layer sub-module internal ground tie
-/// propagation in `build_net_table`. Mirrors `naming::is_ground`'s leaf
-/// classification (EXACT_GROUND + PREFIX_GROUND), kept local to the `instant`
-/// layer — no `crate::vector` import (one-way dependency graph).
-pub fn is_ground_name(name: &str) -> bool {
-    let u = name.to_uppercase();
-    const EXACT_GROUND: &[&str] = &["GND", "VSS", "AGND", "DGND", "PGND"];
-    if EXACT_GROUND.contains(&u.as_str()) {
-        return true;
-    }
-    const PREFIX_GROUND: &[&str] = &["GND", "VSS"];
-    PREFIX_GROUND.iter().any(|p| u.starts_with(p))
-}
-
-/// Example: `looks_like_power_rail("VDD_3V3") == true`, `..("vout") == false`,
-///     `..("gnd") == true` (case-insensitive), `..("DAC_OUT") == false`.
-pub fn looks_like_power_rail(name: &str) -> bool {
-    let u = name.to_uppercase();
-    // exact power
-    const EXACT_POWER: &[&str] = &["VCC", "VDD", "VBUS", "V3P3", "V5P0", "V1P8", "VPP", "AVDD"];
-    if EXACT_POWER.contains(&u.as_str()) {
-        return true;
-    }
-    // exact + prefix ground
-    if is_ground_name(name) {
-        return true;
-    }
-    // prefix power
-    const PREFIX_POWER: &[&str] = &["VCC", "VDD", "V3V", "V5V", "V1V"];
-    if PREFIX_POWER.iter().any(|p| u.starts_with(p)) {
-        return true;
-    }
-    // Voltage patterns `3V3` / `5V0` / `1V8` — simplified: digits + 'V' + digits
-    let bytes = u.as_bytes();
-    let mut found_v = false;
-    let mut has_digit_before = false;
-    let mut has_digit_after = false;
-    for (i, &c) in bytes.iter().enumerate() {
-        if c == b'V' && i > 0 && i < bytes.len() - 1 {
-            if bytes[i - 1].is_ascii_digit() {
-                has_digit_before = true;
-            }
-            if bytes[i + 1].is_ascii_digit() {
-                has_digit_after = true;
-            }
-            found_v = true;
-        }
-    }
-    found_v && has_digit_before && has_digit_after
 }
 
 // NetTable - Network table (union-find merge)
@@ -1384,7 +1313,7 @@ impl NetTable {
                         .map(|p| p.path.clone())
                 })
                 .or_else(|| {
-                    // scan full paths for power/ground names
+                    // scan full paths for a **declared** power face
                     //
                     // Strict DC rail identity
                     // The net name keeps the FULL path of the matched point
@@ -1395,17 +1324,19 @@ impl NetTable {
                     // downstream duplicate-name hyperedge merge would wrongly
                     // short them together. Full-path names keep every rail
                     // traceable and never merge by name.
+                    //
+                    // The point qualifies by the role it already carries — the
+                    // `Power`/`Return` face its declaration gave it — never by
+                    // the shape of its last segment. The former test asked
+                    // `looks_like_power_rail(last)`, which answered from a word
+                    // table (`VCC`/`VDD`/`GND`/`VSS`… plus digit-`V`-digit
+                    // patterns, case-folded): the same board named its nets
+                    // differently depending on what the author called them
+                    // (world-axioms §1 A1).
                     group_points
                         .iter()
-                        .filter_map(|p| {
-                            let last = p.path.rsplit('.').next()?;
-                            if looks_like_power_rail(last) {
-                                Some(p.path.clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .next()
+                        .find(|p| matches!(p.iotype, IOType::Power | IOType::Return))
+                        .map(|p| p.path.clone())
                 })
                 .unwrap_or_else(|| {
                     let name = format!("_net{anon_count}");

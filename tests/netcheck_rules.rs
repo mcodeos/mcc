@@ -200,9 +200,13 @@ fn dlu_netcheck__r07_ghost_device_under_submodule_fires() {
 /// R09 floating power pin
 /// The device is in a net (its `SIG` pin is wired) but its `VDD` power pin is
 /// not connected anywhere.
+///
+/// The fixture declares the face (`psnk`) rather than naming the pin `VDD`:
+/// R09 used to accept a power-*looking* name, so a pin that nothing declared a
+/// supply was flagged on its spelling alone (world-axioms §1 A1).
 #[test]
 fn dlu_netcheck__r09_unconnected_power_pin_fires() {
-    let src = "component R {\n    pins = [\n        1 = VDD\n        2 = SIG\n    ]\n}\nmodule main {\n    io SIG\n    R r1\n    r1.2 -> SIG\n}\n";
+    let src = "component R {\n    pins = [\n        psnk 1 = VDD\n        2 = SIG\n    ]\n}\nmodule main {\n    io SIG\n    R r1\n    r1.2 -> SIG\n}\n";
     let report = build_report(&src);
     let hits = rule_findings(&report, "R09", Level::Warn);
     assert_eq!(

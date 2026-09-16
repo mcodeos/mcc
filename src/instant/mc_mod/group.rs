@@ -680,13 +680,24 @@ impl InstantiationBuilder {
 
         // Form 1: scalar = `sub.port` (2 segments) — original P2/A2 path
         if let Some((sub, port)) = scalar.path.split_once('.') {
-            if !port.contains('.') && !is_power_rail_name(port) && !is_ground_name(port) {
+            if !port.contains('.') {
                 if let Some(submod) = self.find_submodule(sub) {
-                    if submod
+                    // A port that **declares** a power face (`::DC` — a
+                    // supply/return pair) is a single conductor, not a bundle of
+                    // signal lanes to expand by a peer's member names. The guard
+                    // used to read the name (`is_power_rail_name` /
+                    // `is_ground_name` word tables), so whether the expansion ran
+                    // depended on the author's spelling (world-axioms §1 A1).
+                    let declares_power = submod
                         .ports
                         .iter()
-                        .any(|p| p.name == port && p.bus_members.is_empty())
-                    {
+                        .any(|p| p.name == port && p.dc_pair.is_some());
+                    let bare = submod
+                        .ports
+                        .iter()
+                        .any(|p| p.name == port && p.bus_members.is_empty());
+                    if bare && !declares_power {
+
                         // ── P2-2: try physical pin ID lookup from submodule's components ──
                         // When the submodule's port has empty bus_members, look for a
                         // component inside the submodule that has a same-named bus port,
@@ -773,18 +784,20 @@ impl InstantiationBuilder {
         // use its bus_members to expand into `[spi.<member_i>]` and zip with the peer.
         if !scalar.path.contains('.') {
             let formal = scalar.path.as_str();
-            // A power/ground-named bare label is a single conductor, not a declared
-            // member column: never member-expand it. A scalar power/ground net
-            // against an N-lane bus falls to the unified vector rule below
-            // (same-net fan legal, distinct-net bus E4007) — no role alignment.
-            if is_power_rail_name(formal) || is_ground_name(formal) {
-                return None;
-            }
-            let bus_members: Vec<String> = self
+            let declared = self
                 .ports
                 .iter()
-                .find(|p| p.name == formal && !p.bus_members.is_empty())
-                .map(|p| p.bus_members.clone())?;
+                .find(|p| p.name == formal && !p.bus_members.is_empty())?;
+            // A port that **declares** a power face (`::DC` — a supply/return
+            // pair) is a single conductor, not a declared member column: never
+            // member-expand it. A scalar power net against an N-lane bus falls to
+            // the unified vector rule below (same-net fan legal, distinct-net
+            // bus E4007) — no role alignment. The guard used to read the name
+            // (`is_power_rail_name` / `is_ground_name` word tables).
+            if declared.dc_pair.is_some() {
+                return None;
+            }
+            let bus_members: Vec<String> = declared.bus_members.clone();
             if bus_members.len() != members.len() {
                 // Lane count mismatch → degrade, do not force zip (avoid misalignment)
                 return None;
@@ -799,13 +812,6 @@ impl InstantiationBuilder {
         }
         None
     }
-}
-
-fn is_ground_name(s: &str) -> bool {
-    let u = s.to_uppercase();
-    matches!(u.as_str(), "GND" | "VSS" | "AGND" | "DGND" | "PGND")
-        || u.starts_with("GND")
-        || u.starts_with("VSS")
 }
 
 /// Extract the common port group from a set of NetPoint paths.
@@ -881,25 +887,3 @@ pub(super) fn refine_lane_trunk(ctx: Option<TrunkCtx>, points: &[NetPoint]) -> O
     Some(pg)
 }
 
-fn is_power_rail_name(s: &str) -> bool {
-    let u = s.to_uppercase();
-    const EXACT: &[&str] = &["VCC", "VDD", "VBUS", "VPP", "AVDD", "POWER_SYS"];
-    if EXACT.contains(&u.as_str()) {
-        return true;
-    }
-    if ["VCC", "VDD", "V3V", "V5V", "V1V", "VIN", "VOUT"]
-        .iter()
-        .any(|p| u.starts_with(p))
-    {
-        return true;
-    }
-    // Voltage patterns like 3V3 / 5V0 / 1V2
-    let b = u.as_bytes();
-    b.iter().enumerate().any(|(i, &c)| {
-        c == b'V'
-            && i > 0
-            && i + 1 < b.len()
-            && b[i - 1].is_ascii_digit()
-            && b[i + 1].is_ascii_digit()
-    })
-}
