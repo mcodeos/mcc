@@ -1377,7 +1377,9 @@ impl InstantiationBuilder {
                     // Boundary return point = the sub-module's own port
                     // member / label (owner None) that a declaration wrote on
                     // the return face.
-                    if p.owner.is_none() && boundary_return(&p.path, &sub_faces, &sub.ports, &inst_faces) {
+                    if p.owner.is_none()
+                        && boundary_return(&p.path, &sub_faces, &sub.ports, &inst_faces)
+                    {
                         if !grounds.contains(&p.path.as_str()) {
                             grounds.push(&p.path);
                         }

@@ -2117,6 +2117,7 @@ mod tests {
             def_uri: String::new(),
             member_info: None,
             pwr_dir: None,
+            pwr_member: None,
             vector_info: None,
             not_fitted: false,
             nc_marked: false,
