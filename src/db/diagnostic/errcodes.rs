@@ -1743,7 +1743,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NAME_RANGE_SIDE_FAILED, "Failed to process a side of a range.", "Failed to process {0} side of a range."),
     entry!(NAME_DEF_NOT_FOUND_LABEL_FALLBACK, "Definition not found; falling back to a label.", "CURLY_MN: '{0}' definition not found, using label fallback"),
     entry!(NAME_ID_EXTRACT_FAILED, "Failed to extract ID/IDA data from a node.", "Failed to extract ID/IDA data"),
-    entry!(NOT_SUPPORTED_YET, "This syntax is parsed but not yet supported by the semantic layer; the declaration is ignored.", "pins.subcls = [...] is parsed but not supported yet; the sub-class name is ignored"),
+    entry!(NOT_SUPPORTED_YET, "This syntax is parsed but not yet supported by the semantic layer; the declaration is ignored.", "This syntax is parsed but not yet supported by the semantic layer; the declaration is ignored."),
     entry!(SYMBOL_NOT_FOUND, "Symbol could not be resolved to any definition after the full P1–P5 lookup chain.", "Cannot find '{0}'"),
     // section
     entry!(PIN_ID_NAME_MISMATCH, "Pin ID and pin name do not match.", "Pin ID and name not match"),
