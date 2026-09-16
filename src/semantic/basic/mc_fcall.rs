@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use super::mc_bus::McBus;
+use super::mc_bus::{IoSide, McBus};
 use super::mc_endpoint::{McEndpoint, McInstanceRef};
 use super::mc_ids::McIds;
 use super::mc_opd::McOpd;
@@ -1404,11 +1404,21 @@ impl McFuncCall {
                                                 if let Some(mc_opd) = McOpd::new(&ids_node) {
                                                     if let McOpd::Id(name) = mc_opd {
                                                         let left = caller.as_ref().map_or_else(
-                                                            || vec![McBus::new("undefined.in")],
+                                                            || {
+                                                                vec![McBus::synthetic_io(
+                                                                    "undefined",
+                                                                    IoSide::In,
+                                                                )]
+                                                            },
                                                             |phrase| phrase.get_left(),
                                                         );
                                                         let right = caller.as_ref().map_or_else(
-                                                            || vec![McBus::new("undefined.out")],
+                                                            || {
+                                                                vec![McBus::synthetic_io(
+                                                                    "undefined",
+                                                                    IoSide::Out,
+                                                                )]
+                                                            },
                                                             |phrase| phrase.get_right(),
                                                         );
                                                         // chain validity: previous link must return
@@ -1649,11 +1659,13 @@ impl McFuncCall {
             func_name
         };
 
-        // Determine input interface (left side)
+        // Determine input interface (left side). With no caller the call has no
+        // interface of its own, so the side is a synthetic sentinel that every
+        // consumer drops by provenance (never by reading the trailing segment).
         let left = if let Some(ref caller_opd) = caller {
             caller_opd.as_ref().get_left()
         } else {
-            vec![McBus::new(&format!("{func_name}.in"))]
+            vec![McBus::synthetic_io(&func_name.to_string(), IoSide::In)]
         };
 
         // Determine output interface (right side)
@@ -1664,7 +1676,7 @@ impl McFuncCall {
         let right = if let Some(ref caller_opd) = caller {
             caller_opd.as_ref().get_right()
         } else {
-            vec![McBus::new(&format!("{func_name}.out"))]
+            vec![McBus::synthetic_io(&func_name.to_string(), IoSide::Out)]
         };
 
         // Check if func_name is a Component or Module definition (function call form instantiation)

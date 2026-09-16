@@ -4,7 +4,7 @@
 
 use super::super::{
     basic::form::RefVerdict,
-    basic::mc_bus::McBus,
+    basic::mc_bus::{IoSide, McBus},
     basic::mc_closure::McClosure,
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
     basic::mc_fcall::{check_ctor_bind, McFuncCall, ReturnShape},
@@ -1820,8 +1820,8 @@ impl McPhrase {
                                 {
                                     check_ctor_bind(&fname, &comp_def, &params, &cls);
                                 }
-                                let left = vec![McBus::new(&format!("{fname}.in"))];
-                                let right = vec![McBus::new(&format!("{fname}.out"))];
+                                let left = vec![McBus::synthetic_io(&fname, IoSide::In)];
+                                let right = vec![McBus::synthetic_io(&fname, IoSide::Out)];
                                 let total = if names.is_empty() { 1 } else { names.len() };
                                 let mut fcs: Vec<McPhrase> = Vec::with_capacity(total);
                                 for name in if names.is_empty() {
@@ -3622,6 +3622,7 @@ impl McPhrase {
                         name: data.name.clone(),
                         member: Vec::new(),
                         full_members: data.full_members.clone(),
+                        synthetic: data.synthetic,
                     }]
                 } else {
                     Vec::from(data.clone())
@@ -3765,6 +3766,7 @@ impl McPhrase {
                         name: data.name.clone(),
                         member: Vec::new(),
                         full_members: data.full_members.clone(),
+                        synthetic: data.synthetic,
                     }]
                 } else {
                     Vec::from(data.clone())
@@ -4060,6 +4062,7 @@ impl McPhrase {
                                 name: format!("{}.{}", data.name, m),
                                 member: Vec::new(),
                                 full_members: data.full_members.clone(),
+                                synthetic: data.synthetic,
                             });
                         }
                     }
@@ -4085,6 +4088,7 @@ impl McPhrase {
                                         name: format!("{}.{}", data.name, m),
                                         member: Vec::new(),
                                         full_members: data.full_members.clone(),
+                                        synthetic: data.synthetic,
                                     });
                                 }
                             }

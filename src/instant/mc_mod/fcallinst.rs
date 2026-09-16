@@ -297,56 +297,17 @@ impl InstantiationBuilder {
         // the counter name, so inserting a sibling never renumbers it.
         inst.anchor = anchor;
 
-        // Iter-3.E3 + P4
-        // Filter out synthetic interface placeholders that mc_fcall.rs injects when
-        // caller=None (`<X>.in` / `<X>.out`). These placeholders are intended to
-        // carry interface signatures for "outer chain calls", but when they land on
-        // a constructed component, they go through left→get_left_pin /
-        // right→get_right_pin below and actually connect to pin1/pin2: shorting
-        // all same-type parts via the same pair of ghost nodes (original Iter-3.E3),
-        // or cross-shorting with real connections (P4).
+        // Drop the funcall's synthetic interface sentinels. With no caller the
+        // call has no interface of its own, so left/right are `<X>.in` /
+        // `<X>.out` sentinels; wiring them to pin1/pin2 would short every
+        // same-class call through one ghost node, or cross-short with real
+        // connections (Iter-3.E3 / P4). The sentinel is recognized by
+        // provenance, never by the trailing segment (`McBus::is_synthetic`,
+        // world-axioms §1 A1).
         //
-        // Key fact: the left/right entering instantiate_**component**_construction
-        // are **the component's own interface endpoints** — for legitimate items
-        // (chain neighbor / net / real pin, e.g. V3V3 / flash.VCC /
-        // dcdc.Vin / GND / flash._CS) **the trailing segment is never bare
-        // in / out**; only the synthetic placeholders from mc_fcall.rs:882/891
-        // have trailing segments in / out (their base, after constructor/method
-        // body prefixing, may be type_name(RES), host name
-        // (flash/dcdc/uC/X6), or even flash.CAP multi-segment form — the
-        // original Iter-3.E3 only compared the exact string `{type_name}.in`,
-        // missing all of them). Sub-module construction goes through
-        // instantiate_**module**_construction, and `.in/.out` port expansion is
-        // handled in resolve_funccall_*_points, not here. So dropping all
-        // trailing "in/out" here is safe and complete: it clears the
-        // `<host>.in ~ part.pin1` / `part.pin2 ~ <host>.out` phantom short
-        // circuits for flash/dcdc/uC/X6.
-        let is_placeholder =
-            |e: &McBus| matches!(e.name.rsplit_once('.'), Some((_, "in")) | Some((_, "out")));
-        let left_filtered: Vec<McBus> = left
-            .iter()
-            .filter(|e| !is_placeholder(e))
-            .cloned()
-            .collect();
-        let right_filtered: Vec<McBus> = right
-            .iter()
-            .filter(|e| !is_placeholder(e))
-            .cloned()
-            .collect();
-        if left.len() != left_filtered.len() || right.len() != right_filtered.len() {
-            let _dropped: Vec<&str> = left
-                .iter()
-                .chain(right.iter())
-                .filter(|e| is_placeholder(e))
-                .map(|e| e.name.as_str())
-                .collect();
-        }
-        let left = left_filtered.as_slice();
-        let right = right_filtered.as_slice();
-
-        // Only when type_name contains '.' (Family.Type form), drop endpoints in
-        // left/right that equal the family name (first segment) as placeholders too —
-        // this is exactly the leaking interface caller "DIO".
+        // A `Family.Type` construction additionally drops an endpoint that is
+        // exactly the family name — that is the interface caller leaking in as
+        // the class.
         let family_seg: Option<String> = if type_name.contains('.') {
             type_name
                 .split('.')
@@ -356,10 +317,8 @@ impl InstantiationBuilder {
         } else {
             None
         };
-        let is_placeholder = |e: &McBus| {
-            matches!(e.name.rsplit_once('.'), Some((_, "in")) | Some((_, "out")))
-                || family_seg.as_deref() == Some(e.name.as_str())
-        };
+        let is_placeholder =
+            |e: &McBus| e.is_synthetic() || family_seg.as_deref() == Some(e.name.as_str());
         let left_filtered: Vec<McBus> = left
             .iter()
             .filter(|e| !is_placeholder(e))
@@ -370,14 +329,6 @@ impl InstantiationBuilder {
             .filter(|e| !is_placeholder(e))
             .cloned()
             .collect();
-        if left.len() != left_filtered.len() || right.len() != right_filtered.len() {
-            let _dropped: Vec<&str> = left
-                .iter()
-                .chain(right.iter())
-                .filter(|e| is_placeholder(e))
-                .map(|e| e.name.as_str())
-                .collect();
-        }
         let left = left_filtered.as_slice();
         let right = right_filtered.as_slice();
 
@@ -2238,15 +2189,13 @@ impl InstantiationBuilder {
     /// ── P4 backstop: Strip synthetic host interface endpoints leaked during
     ///    component method / constructor body processing ──
     ///
-    /// `<inst>.in` / `<inst>.out` are synthetic interface placeholders that
-    /// mc_fcall.rs injects for constructor / method calls when caller=None
-    /// (mc_fcall.rs:882/891). Components themselves **never** have real pins
-    /// named in/out (the spec is numeric / VCC / VDD / _CS / Vin / EN / XTAL …),
-    /// so after a component method / constructor func body is processed, if any
-    /// new connection has an endpoint that is exactly `<inst>.in` / `<inst>.out`,
-    /// it must be a leaked phantom node (observed: `flash.in ~ CAP_1.1`,
-    /// `dcdc.in ~ RES_1.1`, `uC.in ~ CAP_3.1`, `X6.in ~ CAP_4.1`). These
-    /// phantom nodes cross-short with real connections.
+    /// `<inst>.in` / `<inst>.out` are the funcall sentinels injected when a
+    /// constructor / method call has no caller. `in` and `out` are lexer
+    /// keywords, so no author can declare a pin, port or member with that
+    /// spelling: an endpoint spelled exactly `<inst>.in` / `<inst>.out` can only
+    /// be the compiler's own sentinel, never a real terminal (observed leaks:
+    /// `flash.in ~ CAP_1.1`, `uC.in ~ CAP_3.1`, `X6.in ~ CAP_4.1`). Left in,
+    /// they cross-short with real connections.
     ///
     /// points.rs's `[FIX-C]` is supposed to quarantine such `<host>.in` into
     /// `@_phantom_*` at `node_to_netpoint`, but this phantom is a directly
@@ -2346,6 +2295,7 @@ impl InstantiationBuilder {
                                 name: s.to_string(),
                                 member: bus.members.clone(),
                                 full_members: Vec::new(),
+                                synthetic: None,
                             };
                             return McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                                 McInstance::Bus(new_bus),
@@ -2577,6 +2527,7 @@ impl InstantiationBuilder {
                     name: prefixed_name,
                     member: b.member.clone(),
                     full_members: b.full_members.clone(),
+                    synthetic: b.synthetic,
                 };
                 McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
                     new_bus,
@@ -2784,6 +2735,7 @@ impl InstantiationBuilder {
                 name: elem.name.clone(),
                 member: new_members,
                 full_members: elem.full_members.clone(),
+                synthetic: elem.synthetic,
             };
         }
 
@@ -2816,6 +2768,7 @@ impl InstantiationBuilder {
             name: format!("{}.{}", inst_name, elem.name),
             member: new_members,
             full_members: new_full_members,
+            synthetic: elem.synthetic,
         }
     }
 

@@ -4,6 +4,31 @@
 
 use std::{convert::From, iter::Iterator};
 
+/// Which mouth of a call a synthetic funcall sentinel stands for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum IoSide {
+    In,
+    Out,
+}
+
+impl IoSide {
+    /// The word the sentinel's own spelling carries (`<base>.in` / `<base>.out`).
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            IoSide::In => "in",
+            IoSide::Out => "out",
+        }
+    }
+
+    /// The default face pin this side stands for on a two-pin part.
+    pub(crate) fn pin(self) -> &'static str {
+        match self {
+            IoSide::In => "1",
+            IoSide::Out => "2",
+        }
+    }
+}
+
 /// A bus or parameterised identifier with optional member access.
 ///
 /// # `.` (dot) and `{}` (curly braces) equivalence
@@ -20,12 +45,28 @@ use std::{convert::From, iter::Iterator};
 /// Both forms resolve to the same internal representation (`McBus`). Which form is
 /// used in source code is a stylistic choice; the parser normalises both to the same
 /// AST and the Display/Debug output uses `{}` notation.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct McBus {
     pub(crate) name: String,
     pub(crate) member: Vec<String>,
     pub(crate) full_members: Vec<String>,
+    /// The side a synthetic funcall sentinel stands for; `None` on every real
+    /// bus. The producer declares it ([`McBus::synthetic_io`]) and consumers
+    /// read it — nobody decodes the trailing segment (world-axioms §1 A1).
+    /// Excluded from equality: it records where the bus came from, not what the
+    /// bus is.
+    pub(crate) synthetic: Option<IoSide>,
 }
+
+impl PartialEq for McBus {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.member == other.member
+            && self.full_members == other.full_members
+    }
+}
+
+impl Eq for McBus {}
 
 impl std::fmt::Debug for McBus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -43,7 +84,29 @@ impl McBus {
             name: name.to_string(),
             member: Vec::new(),
             full_members: Vec::new(),
+            synthetic: None,
         }
+    }
+
+    /// The `<base>.{in,out}` endpoint a funcall synthesizes when it has no
+    /// caller: the call's own interface is unknown, so the bus is a sentinel
+    /// with no identity, carrying only the side it stands for. Producers are the
+    /// funcall parse sites; every consumer must drop it.
+    pub(crate) fn synthetic_io(base: &str, side: IoSide) -> Self {
+        Self {
+            name: format!("{base}.{}", side.word()),
+            member: Vec::new(),
+            full_members: Vec::new(),
+            synthetic: Some(side),
+        }
+    }
+
+    pub(crate) fn is_synthetic(&self) -> bool {
+        self.synthetic.is_some()
+    }
+
+    pub(crate) fn synthetic_side(&self) -> Option<IoSide> {
+        self.synthetic
     }
 
     pub(crate) fn new_with_members(name: &str, members: Vec<String>) -> Self {
@@ -51,6 +114,7 @@ impl McBus {
             name: name.to_string(),
             member: members.clone(),
             full_members: members,
+            synthetic: None,
         }
     }
 
@@ -77,6 +141,7 @@ impl McBus {
             name: base.to_string(),
             member: vec![member.clone()],
             full_members: vec![member],
+            synthetic: None,
         }
     }
 
@@ -96,6 +161,7 @@ impl From<&McBus> for Vec<McBus> {
             name: bus.name.clone(),
             member: bus.member.clone(),
             full_members: bus.full_members.clone(),
+            synthetic: bus.synthetic,
         }]
     }
 }
@@ -106,6 +172,7 @@ impl From<McBus> for Vec<McBus> {
             name: bus.name,
             member: bus.member,
             full_members: bus.full_members,
+            synthetic: bus.synthetic,
         }]
     }
 }
@@ -245,6 +312,57 @@ impl std::fmt::Display for McBus {
         } else {
             let members = self.member.to_vec().join(",");
             write!(f, "{}{{{}}}", self.name, members)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sentinel records which mouth of the call it stands for, and the base
+    /// it was named after. Consumers read both off the bus; the spelling is the
+    /// producer's, never decoded back (world-axioms §1 A1).
+    #[test]
+    fn synthetic_io_declares_its_side() {
+        let left = McBus::synthetic_io("uC", IoSide::In);
+        assert!(left.is_synthetic());
+        assert_eq!(left.synthetic_side(), Some(IoSide::In));
+        assert_eq!(left.name(), "uC.in");
+
+        let right = McBus::synthetic_io("uC", IoSide::Out);
+        assert_eq!(right.synthetic_side(), Some(IoSide::Out));
+        assert_eq!(right.name(), "uC.out");
+    }
+
+    /// Provenance records where a bus came from, not which net it is: a sentinel
+    /// and a plain bus of the same shape are the same node. Deriving `PartialEq`
+    /// over the field instead would split them.
+    #[test]
+    fn provenance_is_not_identity() {
+        let sentinel = McBus::synthetic_io("uC", IoSide::In);
+        let plain = McBus::new("uC.in");
+        assert_eq!(sentinel, plain);
+        assert!(!plain.is_synthetic());
+    }
+
+    /// Every conversion the funccall dispatch uses to hand left/right on must
+    /// carry the provenance with it, otherwise downstream consumers see an
+    /// ordinary bus.
+    #[test]
+    fn provenance_survives_the_hand_offs() {
+        let sentinel = McBus::synthetic_io("uC", IoSide::Out);
+        for carrier in [
+            Vec::from(&sentinel),
+            Vec::from(sentinel.clone()),
+            vec![sentinel.clone()],
+        ] {
+            assert!(
+                carrier
+                    .iter()
+                    .all(|b| b.synthetic_side() == Some(IoSide::Out)),
+                "provenance lost in hand-off: {carrier:?}"
+            );
         }
     }
 }

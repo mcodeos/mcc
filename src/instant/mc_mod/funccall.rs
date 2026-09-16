@@ -29,6 +29,7 @@ use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{IOType, McCMIE};
 use crate::semantic::mc_func::McFunction;
 use crate::semantic::mc_inst::McInstance;
+use crate::semantic::module::McModule;
 use crate::{current_uri, McIds};
 
 // FuncCallInst - FuncCall instantiation result
@@ -118,7 +119,7 @@ impl InstantiationBuilder {
         if let Some(sub) = self.find_submodule(&func_name_str) {
             let inst_name = sub.name.clone();
             let ports = sub.ports.clone();
-            return self.rebind_submodule_params(&inst_name, &ports, params, left, right);
+            return self.rebind_submodule_params(&inst_name, &sub.def, &ports, params, left, right);
         }
 
         // P0-3 fix
@@ -172,7 +173,8 @@ impl InstantiationBuilder {
             if let Some(sub) = self.find_submodule(&func_name_str) {
                 let inst_name = sub.name.clone();
                 let ports = sub.ports.clone();
-                return self.rebind_submodule_params(&inst_name, &ports, params, left, right);
+                return self
+                    .rebind_submodule_params(&inst_name, &sub.def, &ports, params, left, right);
             }
         }
 
@@ -873,91 +875,73 @@ impl InstantiationBuilder {
         buses: &[McBus],
         side: FaceSide,
     ) -> Result<Vec<NetPoint>, InstError> {
-        let suffix = if side.is_left() { "in" } else { "out" };
         let mut points: Vec<NetPoint> = Vec::new();
         for e in buses {
-            // `<sub>.in` / `<sub>.out` placeholder → replace with the sub-module's
-            // In/Out ports (right expands N×1 bus ports into lanes).
-            if let Some((inst_part, s)) = e.name.split_once('.') {
-                if s == suffix {
-                    if let Some(sub) = self.find_submodule(inst_part) {
-                        let sub_name = sub.name.clone();
-                        for p in sub.ports.iter().filter(|p| {
-                            if side.is_left() {
-                                matches!(p.iotype, IOType::In)
+            // A synthetic funcall sentinel has no identity of its own
+            // (`McBus::is_synthetic`): named after a sub-module it resolves to
+            // that sub-module's own face, otherwise there is nothing to resolve
+            // it to and it must not become a point. The base comes off the
+            // sentinel — the compiler's own spelling — never off the trailing
+            // segment of an author's name (world-axioms §1 A1).
+            let base = e
+                .is_synthetic()
+                .then(|| e.name.rsplit_once('.').map(|(b, _)| b))
+                .flatten();
+            if let Some(base) = base {
+                if let Some(sub) = self.find_submodule(base) {
+                    let sub_name = sub.name.clone();
+                    for p in sub.ports.iter().filter(|p| {
+                        if side.is_left() {
+                            matches!(p.iotype, IOType::In)
+                        } else {
+                            matches!(p.iotype, IOType::Out | IOType::InOut)
+                        }
+                    }) {
+                        if !side.is_left() {
+                            let members: Vec<String> = if p.is_bus_port() {
+                                p.bus_members.clone()
+                            } else if let Some(brace_start) = p.name.find('{') {
+                                let brace_end = p.name.find('}').unwrap_or(p.name.len());
+                                let members_str = &p.name[brace_start + 1..brace_end];
+                                members_str
+                                    .split(',')
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .collect()
                             } else {
-                                matches!(p.iotype, IOType::Out | IOType::InOut)
-                            }
-                        }) {
-                            if !side.is_left() {
-                                let members: Vec<String> = if p.is_bus_port() {
-                                    p.bus_members.clone()
-                                } else if let Some(brace_start) = p.name.find('{') {
-                                    let brace_end = p.name.find('}').unwrap_or(p.name.len());
-                                    let members_str = &p.name[brace_start + 1..brace_end];
-                                    members_str
-                                        .split(',')
-                                        .map(|s| s.trim().to_string())
-                                        .filter(|s| !s.is_empty())
-                                        .collect()
-                                } else {
-                                    vec![]
-                                };
-                                let clean_name = if let Some(brace_pos) = p.name.find('{') {
-                                    &p.name[..brace_pos]
-                                } else {
-                                    &p.name
-                                };
-                                if members.len() >= 2 {
-                                    for m in &members {
-                                        points.push(NetPoint::with_owner(
-                                            &format!("{sub_name}.{clean_name}.{m}"),
-                                            &sub_name,
-                                            p.iotype.clone(),
-                                        ));
-                                    }
-                                } else {
+                                vec![]
+                            };
+                            let clean_name = if let Some(brace_pos) = p.name.find('{') {
+                                &p.name[..brace_pos]
+                            } else {
+                                &p.name
+                            };
+                            if members.len() >= 2 {
+                                for m in &members {
                                     points.push(NetPoint::with_owner(
-                                        &format!("{sub_name}.{clean_name}"),
+                                        &format!("{sub_name}.{clean_name}.{m}"),
                                         &sub_name,
                                         p.iotype.clone(),
                                     ));
                                 }
                             } else {
-                                // left: In ports stay single points
                                 points.push(NetPoint::with_owner(
-                                    &format!("{}.{}", sub_name, p.name),
+                                    &format!("{sub_name}.{clean_name}"),
                                     &sub_name,
                                     p.iotype.clone(),
                                 ));
                             }
+                        } else {
+                            // left: In ports stay single points
+                            points.push(NetPoint::with_owner(
+                                &format!("{}.{}", sub_name, p.name),
+                                &sub_name,
+                                p.iotype.clone(),
+                            ));
                         }
-                        continue;
                     }
                 }
-            }
-            // ── P4 (flash / dcdc): instance-name form .out/.in placeholder leak ──
-            if let Some((inst_part, s)) = e.name.split_once('.') {
-                if (s == "in" || s == "out")
-                    && self
-                        .find_component(inst_part)
-                        .is_some_and(|c| c.get_pin(s).is_none())
-                {
-                    continue;
-                }
-            }
-            // P0-4.B: filter class-name placeholder leak
-            if let Some((inst_part, s)) = e.name.rsplit_once('.') {
-                if (s == "in" || s == "out")
-                    && !inst_part.is_empty()
-                    && Self::is_registered_class_name(inst_part)
-                    && self.find_component(inst_part).is_none()
-                    && self.find_submodule(inst_part).is_none()
-                    && !self.is_port(inst_part)
-                    && !self.is_bus(inst_part)
-                {
-                    continue;
-                }
+                continue;
             }
             points.extend(self.expand_node_element(e));
         }
@@ -969,6 +953,7 @@ impl InstantiationBuilder {
     fn rebind_submodule_params(
         &mut self,
         inst_name: &str,
+        sub_def: &McModule,
         ports: &[PortInst],
         params: &[McParamValue],
         _left: &[McBus],
@@ -984,12 +969,14 @@ impl InstantiationBuilder {
         //       connect -> mic floats.
         //
         // Now uniformly delegate to phases.rs::bind_call_args_to_ports: it
-        // takes members by bus_members/`{…}`/`[…]`, does the DC single-rail
+        // picks the candidate formals by the callee's own declaration (falling
+        // back to shape only for a callee that declares no power contract at
+        // all), takes members by bus_members/`{…}`/`[…]`, does the DC single-rail
         // connection for "scalar arg -> [rail,gnd]" (rail ← arg, gnd ← GND),
         // named ports simultaneously connect bare `inst.MEMBER` and dotted
         // `inst.base.MEMBER` two label forms, consistent with the inject
         // convention from inject_port_member_labels in sub-modules.
-        let new_connections = self.bind_call_args_to_ports(inst_name, ports, params);
+        let new_connections = self.bind_call_args_to_ports(inst_name, sub_def, ports, params);
 
         Ok(FuncCallInst::Components {
             new_components: Vec::new(),

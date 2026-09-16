@@ -1528,15 +1528,6 @@ impl InstantiationBuilder {
     pub(super) fn node_to_netpoint(&mut self, element: &McBus) -> NetPoint {
         use crate::instant::mc_net::canonicalize_path;
 
-        // [DIAG-io] P4 phantom tracing
-        // Record whether any endpoint with last segment in/out passes through this function, and
-        // first segment
-        // find_component/find_submodule hit status (used to determine why [FIX-C] doesn't isolate
-        // `<host>.in`).
-        if let Some((_fp, rest)) = element.name.split_once('.') {
-            if rest == "in" || rest == "out" || rest.ends_with(".in") || rest.ends_with(".out") {}
-        }
-
         // 1. check if it's a port
         if self.is_port(&element.name) {
             let path = canonicalize_path(&element.name);
@@ -1563,60 +1554,40 @@ impl InstantiationBuilder {
             }
             // 2.1 component pin access
             //
-            // ★ FIX-C: real component + phantom pin suffix merging
+            // ★ FIX-C: a funcall sentinel never resolves to a pin
             //
-            // old P2-filter already handled `<CLASS>.in/out` form (CLASS not any known
-            // instance → phantom placeholder). But **one case slipped through**: `<inst>.in/out`
-            // where
-            // `inst` is real component (e.g., mcu.uC instance's uC component),
-            // **but** the component itself **doesn't have** a pin named `in`/`out`. In this case,
-            // `.in`/`.out`
-            // is still mc_fcall.rs placeholder injected during outer chain continuation
-            // (funccall_inst.rs Iter-3.E3 comment "phantom placeholder" concept), but because
-            // first_part hit find_component, old P2-filter's "secondary confirm real instance" let
-            // it pass,
-            // then here `<inst>.in` directly registered as real pin access NetPoint — subsequent
-            // union-find
-            // merges all same inst `.in` together, cross-chain into strange "uC.in ~ CAP_1.1" and
-            // "CAP_1.2 ~ uC.out" non-physical connections (actually seen in an example project mcu
-            // dump).
+            // `<inst>.in` / `<inst>.out` where `inst` is a real component is the
+            // sentinel the funcall parse injects when the call has no caller. Left
+            // alone it would register as a real pin access and union-find would
+            // merge every `<inst>.in` into one node, producing non-physical
+            // "uC.in ~ CAP_1.1" / "CAP_1.2 ~ uC.out" links (seen in an example
+            // project dump).
             //
-            // Fix strategy: after determining first_part is component, do another verification "is
-            // suffix really
-            // declared pin". Verification relies on `c.def.pins.names_to_id` — authoritative pin
-            // name set
-            // at component type level (includes dotted sub-ports, e.g., SPI.SCLK).
+            // The test is the sentinel's own provenance (`McBus::is_synthetic`),
+            // not the suffix spelling — the suffix is a shape, and a shape is
+            // not evidence (world-axioms §1 A1). There is no negative case to
+            // protect here: `in` and `out` are lexer keywords, so no author can
+            // declare a pin, port or member spelled that way (`1 = in` is E2083
+            // "Invalid pin declaration", `io in` is E2082 "Invalid clause in a
+            // body"), and `<inst>.in` can therefore only be the compiler's own
+            // sentinel.
             //
-            // Safety:
-            //   - only intervene when suffix ∈ {"in", "out"}. These two literals are mc_fcall.rs
-            //     fixed suffixes for placeholder generation (`<type_name>.in`/`.out`), real
-            // components almost never use "in"/"out" as pin names (standard is "1"/"2"/or physical
-            // net
-            //     names). If some day a component really defines in/out pin, `contains_key`
-            //     will hit, this fix won't misidentify.
-            // - if pin doesn't exist, isolate into `@_phantom_<inst>_<n>` unique name, same
-            // isolation
-            //     mechanism as old P2-filter, prevent downstream union merge.
+            // Isolation stays (it is what stops the union merge) and lands on a
+            // unique `@_phantom_<inst>_<n>` name, but it is no longer silent: the
+            // warning surfaces an upstream chain-expansion bug instead of
+            // absorbing it.
             if let Some(comp) = self.find_component(owner_part) {
-                if (rest_part == "in" || rest_part == "out")
-                    && !comp.def.pins.names_to_id.contains_key(rest_part)
-                {
-                    // The `.in`/`.out` suffix is an mc_fcall.rs placeholder, not a
-                    // real pin of `owner_part`. Isolation must stay (it is what
-                    // prevents the cross-chain union-find merge), but the leak is
-                    // no longer silent: surface a warning at the access site so an
-                    // upstream chain-expansion bug is visible instead of absorbed.
+                if let Some(side) = element.synthetic_side() {
                     let diag = crate::errcodes::format_msg(
                         crate::errcodes::PHANTOM_IO_ACCESS,
                         &[
                             &element.name.to_string(),
                             &owner_part.to_string(),
-                            &rest_part.to_string(),
+                            &side.word().to_string(),
                         ],
                     );
                     let (isolated, _, _) = self.auto_name(super::AutoNameKind::Phantom, owner_part);
-                    let pin = if rest_part == "in" { "1" } else { "2" };
-                    let path = format!("{isolated}.{pin}");
+                    let path = format!("{isolated}.{}", side.pin());
                     self.log_global_diag(
                         crate::errcodes::PHANTOM_IO_ACCESS,
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
@@ -1668,56 +1639,39 @@ impl InstantiationBuilder {
             return NetPoint::new(&path, IOType::None);
         }
 
-        // P2: filter CLASS.in / CLASS.out phantom placeholders
-        // mc_fcall.rs generates `{CLASS}.in`/`{CLASS}.out` placeholders when caller=None.
-        // if reaching here means CLASS is not existing instance/port/bus/component — it's class
-        // name leak.
-        // all same-type anonymous components share same `CAP.in` label → union-find short.
-        // solution: generate unique isolated endpoint (not registered as label), prevent cross-call
-        // merging.
-        // ★ P0.5-2 fix: use rsplit_once to handle multi-segment class names
-        //   (e.g. "DIO.ESD.in" → class_part="DIO.ESD", suffix="in").
-        // ★ P2-7-XTAL: strict full-name case-sensitive class check (not
-        //   first-letter-uppercase) — `Cap.in` from a method named Cap is not
-        //   a class ghost and must not be isolated.
-        if let Some((class_part, suffix)) = element.name.rsplit_once('.') {
-            if (suffix == "in" || suffix == "out")
-                && !class_part.is_empty()
-                && Self::is_registered_class_name(class_part)
-            {
-                // secondary confirmation: definitely not existing instance
-                if self.find_component(class_part).is_none()
+        // A sentinel whose base is only a class name (no instance / port / bus
+        // carries it) has leaked the class itself: every same-class call would
+        // share one `CAP.in` label and union-find-short, so isolate it under a
+        // unique name. Provenance decides, not the suffix spelling
+        // (`McBus::is_synthetic`; world-axioms §1 A1) — `Cap.in` from a method
+        // named `Cap` is not a class ghost.
+        if let Some(side) = element.synthetic_side() {
+            if let Some((class_part, _)) = element.name.rsplit_once('.') {
+                if !class_part.is_empty()
+                    && Self::is_registered_class_name(class_part)
+                    && self.find_component(class_part).is_none()
                     && self.find_submodule(class_part).is_none()
                     && !self.is_port(class_part)
                     && !self.is_bus(class_part)
                 {
-                    // Class-name leak (mc_fcall.rs caller=None placeholder): the
-                    // isolation is required to stop same-class cross-call union
-                    // merges, but the leak itself must surface as a warning —
-                    // it indicates an upstream chain expansion dropped a real
+                    // The isolation is required to stop same-class cross-call
+                    // union merges, but the leak itself must surface as a warning
+                    // — it indicates an upstream chain expansion dropped a real
                     // instance. Same fact/dedup rules as the FIX-C site above.
                     let diag = crate::errcodes::format_msg(
                         crate::errcodes::PHANTOM_IO_ACCESS,
                         &[
                             &element.name.to_string(),
                             &class_part.to_string(),
-                            &suffix.to_string(),
+                            &side.word().to_string(),
                         ],
                     );
                     let (isolated, _, _) = self.auto_name(super::AutoNameKind::Phantom, class_part);
-                    let pin = if suffix == "in" { "1" } else { "2" };
-                    let path = format!("{isolated}.{pin}");
+                    let path = format!("{isolated}.{}", side.pin());
                     self.log_global_diag(
                         crate::errcodes::PHANTOM_IO_ACCESS,
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                         diag,
-                    );
-                    // ── [P4-PHANTOM] temp probe: who's leaking CLASS.in/out ──
-                    mcc_dbg!(
-                        "inst::points",
-                        "[P4-PHANTOM] leaking element.name={:?} -> {}",
-                        element.name,
-                        path
                     );
                     return NetPoint::with_owner(&path, &isolated, IOType::None);
                 }
