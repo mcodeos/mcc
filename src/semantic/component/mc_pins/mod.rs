@@ -121,14 +121,17 @@ pub fn pin_value_keys(pin: &McPin) -> Vec<String> {
     keys
 }
 
-/// The `KVS` entries on `pin`'s row whose whole dotted key, lower-cased,
-/// satisfies `pred` (HW1) — the reader behind the supply-voltage checks.
+/// The `KVS` entries on `pin`'s row whose whole dotted key satisfies `pred`
+/// (HW1) — the reader behind the supply-voltage checks.
+///
+/// The key is offered exactly as written: a key is a name, so folding case
+/// here would answer for a spelling the caller never registered.
 pub fn pin_kvs_where<'a>(
     pin: &'a McPin,
     pred: impl Fn(&str) -> bool,
 ) -> impl Iterator<Item = &'a McKVS> {
     pin.values.iter().filter_map(move |val| match val {
-        McAttrVal::KVS(kvs) if pred(&kvs.key.to_string().to_lowercase()) => Some(kvs),
+        McAttrVal::KVS(kvs) if pred(&kvs.key.to_string()) => Some(kvs),
         _ => None,
     })
 }

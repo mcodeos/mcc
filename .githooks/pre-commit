@@ -13,6 +13,10 @@
 #      change-diary wording, comment lines over 100 columns).
 #   4. Staged `.rs` files under `src/` — exact name comparisons only (the
 #      registered exemptions are listed in scripts/check-name-case.py).
+#   5. Ledger reconciliation, when the staged set touches the mirror — the
+#      authoritative table lives in the sibling `mcd` checkout.
+#   6. Diagnostic-code reconciliation, when the staged set touches `src/` — a
+#      code the spec cites must be declared in errcodes.rs and emitted.
 #   (Commit-message checks live in `commit-msg`, which receives the
 #    message file path; pre-commit takes no arguments.)
 set -euo pipefail
@@ -50,6 +54,26 @@ fi
 if ! git diff --cached --name-only --diff-filter=ACM -z \
     | xargs -0 -r python3 "$ROOT/scripts/check-name-case.py"; then
     echo "pre-commit: staged code adds a case-insensitive name comparison (AGENTS.md)." >&2
+    exit 1
+fi
+
+# ── 5. Ledger reconciliation: doc table ↔ ATTR_KEYS ─────────────────────────
+# The mirror is the only side in this repository; the scanner reports a skip
+# when the sibling `mcd` checkout is absent.
+if ! git diff --cached --name-only --diff-filter=ACM -z \
+    | xargs -0 -r python3 "$ROOT/scripts/check-attr-keys.py"; then
+    echo "pre-commit: the ledger doc and ATTR_KEYS disagree (mcd/spec/07-attrs.md)." >&2
+    exit 1
+fi
+
+# ── 6. Diagnostic-code reconciliation: spec citations ↔ errcodes.rs ─────────
+# The scan runs only when the staged set touches `src/`, since that is where a
+# code is declared and raised; the catalog lives in this repository, but the
+# spec does not, so the scanner reports a skip when the sibling `mcd` checkout
+# is absent.
+if ! git diff --cached --name-only --diff-filter=ACM -z \
+    | xargs -0 -r python3 "$ROOT/scripts/check-errcodes.py"; then
+    echo "pre-commit: a cited diagnostic code is stale (mcd/spec/)." >&2
     exit 1
 fi
 

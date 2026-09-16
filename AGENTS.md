@@ -150,6 +150,58 @@ the registry in `01-lexical.md` §2.2, so the two cannot drift. The gate is a ne
 not a proof: a comparison written by hand
 (`a.to_lowercase() == b.to_lowercase()`) passes it.
 
+## Rule: the attribute key ledger has one authority
+
+Every attribute key decision reads the ledger, and the ledger has one
+authoritative text: the table in `mcd/spec/07-attrs.md` §3.1. The `ATTR_KEYS`
+table in `src/semantic/basic/attr_keys.rs` is its mirror — the same rows and
+columns, one row per key. A row exists because a consumer has a question to
+ask, never to enumerate a device's parameters: the vocabulary is open (any key
+is legal) and the semantics are closed (a key with no row carries no registered
+meaning, and no consumer guesses one).
+
+This is enforced mechanically:
+
+- Pre-commit hook (`.githooks/pre-commit`) reconciles the two when the staged
+  set touches the mirror.
+- CI workflow (`.github/workflows/check-attr-keys.yml`) runs the scan on every
+  push / pull request.
+- Local scanner: `python3 scripts/check-attr-keys.py` — exit 0 clean, 1 otherwise.
+- Run `scripts/check.sh` for the full local gate (step 13).
+
+The authoritative table lives in a sibling repository, so a CI checkout cannot
+read it and the scanner reports a skip there; the gate is enforced locally,
+where both checkouts exist. `MCC_ATTR_KEYS_DOC` overrides the doc path. The
+compared columns are the key, its faces, its value kind, its contract half, its
+admission, its arity, and whether it names a supply voltage.
+
+## Rule: a cited diagnostic code is declared and emitted
+
+The spec may cite a diagnostic code only when the catalog declares it AND some
+emission site raises it. `src/db/diagnostic/errcodes.rs` is the single authority
+for which codes exist; `src/rules.rs` (the rule registry that describes rules but
+never raises one) and `src/ast/c/astdef.h` (the parser alias table that names
+codes but never raises one) are therefore not emission sites. A citation in the
+spec that no longer matches the implementation is a stale pointer: fix the
+citation, or delete it when the check it described has been retired.
+
+This is enforced mechanically:
+
+- Pre-commit hook (`.githooks/pre-commit`) reconciles the two when the staged
+  set touches `src/`.
+- CI workflow (`.github/workflows/check-errcodes.yml`) runs the scan on every
+  push / pull request.
+- Local scanner: `python3 scripts/check-errcodes.py` — exit 0 clean, 1 otherwise.
+- Run `scripts/check.sh` for the full local gate (step 14).
+
+The doc set that cites codes lives in a sibling repository, so a CI checkout
+cannot read it and the scanner reports a skip there; the gate is enforced
+locally, where both checkouts exist. `MCC_ERRCODES_DOC` overrides the doc path.
+The scanner reads both citation shapes the spec uses — the bare `E####` form and
+a name / number pair (a prose mention of a name followed by its number, a
+catalog row carrying exactly one number and one name) — and expands a range such
+as `E3042`-`E3049` into every code it spans.
+
 ## Rule: no guessing from names
 
 No logic or policy may be built on a guess read off a name. The rule above

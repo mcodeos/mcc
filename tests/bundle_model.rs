@@ -25,7 +25,9 @@ use std::path::{Path, PathBuf};
 use mcc::vector::builder::build_mc_vec_with_arena;
 use mcc::vector::graph::{build_mc_vec_graph, McVecGraph};
 use mcc::viz::layout::edge_decide::{decide_edges, EdgeKind};
-use mcc::viz::layout::supply_bundle::{build_plan_for, plan_groups, SupplyBundlePlan, SupplyGroups};
+use mcc::viz::layout::supply_bundle::{
+    build_plan_for, plan_groups, SupplyBundlePlan, SupplyGroups,
+};
 use mcc::{
     mcc_build_flat_with_arena, mcc_init, mcc_load_project, mcc_set_project_root,
     mcc_set_system_root, McIds,
@@ -70,7 +72,8 @@ fn entry_uri(project_root: &Path, module_name: &str) -> String {
 /// same order the render path does (edge decision first, then the grouping and
 /// the plan — the renderer never re-derives any of it).
 fn hbl1_plan() -> (McVecGraph, SupplyGroups, SupplyBundlePlan) {
-    let root = PathBuf::from(std::env::var("MCC_GOLDEN_PROJECT").unwrap_or_else(|_| "mcs/hbl1".into()));
+    let root =
+        PathBuf::from(std::env::var("MCC_GOLDEN_PROJECT").unwrap_or_else(|_| "mcs/hbl1".into()));
     let project = root.as_path();
     mcc_set_system_root(project);
     mcc_set_project_root(project);
@@ -146,7 +149,11 @@ fn hbl1_bundle_structure_and_driver() {
         .filter(|draw| draw.kind == EdgeKind::Power)
         .map(|draw| draw.label.as_str())
         .collect();
-    assert_eq!(indiv_power, vec!["usbsocket", "V1V2"], "the two point-to-point supplies");
+    assert_eq!(
+        indiv_power,
+        vec!["usbsocket", "V1V2"],
+        "the two point-to-point supplies"
+    );
     let v5v = graph
         .block_edges
         .iter()
@@ -169,9 +176,16 @@ fn hbl1_bundle_structure_and_driver() {
     );
 
     // ── Ret lineage rides the same plan (P3 integration) ──
-    assert!(trunk.ret_stub.is_some(), "V3V3 fan-out carries the driver return stub");
+    assert!(
+        trunk.ret_stub.is_some(),
+        "V3V3 fan-out carries the driver return stub"
+    );
     for draw in plan.individual.iter().filter(|d| d.kind == EdgeKind::Power) {
-        assert!(draw.ret_lane.is_some(), "'{}' point-to-point power edge carries a ret lane", draw.label);
+        assert!(
+            draw.ret_lane.is_some(),
+            "'{}' point-to-point power edge carries a ret lane",
+            draw.label
+        );
     }
 }
 
@@ -189,12 +203,18 @@ fn hbl1_bundle_plan_is_deterministic() {
             .map(|t| {
                 (
                     t.label.clone(),
-                    t.members.iter().map(|&i| g.block_edges[i].from_box).collect(),
+                    t.members
+                        .iter()
+                        .map(|&i| g.block_edges[i].from_box)
+                        .collect(),
                 )
             })
             .collect()
     };
     assert_eq!(key(&g1, &gr1), key(&g2, &gr2), "trunk order and members");
-    assert_eq!(gr1.trunks[0].members, gr2.trunks[0].members, "member indices");
+    assert_eq!(
+        gr1.trunks[0].members, gr2.trunks[0].members,
+        "member indices"
+    );
     assert_eq!(p1.trunks[0].driver, p2.trunks[0].driver, "driver anchor");
 }

@@ -312,10 +312,9 @@ fn def_defspace__p06_dual_world_lib_isolation() {
     let root_b =
         std::env::temp_dir().join(format!("mcc-defspace-golden-p06b-{}", std::process::id()));
     std::fs::create_dir_all(&root_b).unwrap();
-    assert!(mcc::workspace_create(
-        "worldB",
+    assert!(mcc::workspace_switch_to(
+        Some(root_b),
         mcc::WorkspaceKind::Project,
-        &root_b,
     ));
     let ds = mcc::definition_space();
     assert!(
@@ -338,7 +337,7 @@ fn def_defspace__p06_dual_world_lib_isolation() {
     );
 
     // Switch back to world A: A's lib is restored, B's lib is gone.
-    assert!(mcc::workspace_switch("default"));
+    assert!(mcc::workspace_switch_to(None, mcc::WorkspaceKind::Project));
     let ds = mcc::definition_space();
     assert!(
         ds.system_components()

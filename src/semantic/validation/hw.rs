@@ -103,14 +103,25 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
 
         // Check if component has voltage-related attributes
         let has_voltage_attr = comp.attrs.iter().any(|a| {
-            let key = a.id.to_string().to_lowercase();
-            crate::semantic::basic::attr_keys::is_voltage_key(&key)
+            crate::semantic::basic::attr_keys::is_voltage_key(
+                &a.id.to_string(),
+                crate::semantic::basic::attr_keys::AttrFace::Body,
+            )
         });
 
-        // Check if component has voltage-related params (e.g., volt::UV.VOLT)
+        // Check if the component declares a voltage-typed parameter
+        // (`volt::UV.VOLT`). A parameter name is not an attribute key, so the
+        // registry has nothing to say here: the declared type is the evidence.
         let has_voltage_param = comp.params.iter().any(|d| {
-            let pname = d.get_primary_name().unwrap_or_default().to_lowercase();
-            crate::semantic::basic::attr_keys::is_voltage_key(&pname)
+            matches!(
+                d.param_type.kind,
+                crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValue {
+                    unit: crate::semantic::basic::mc_uval::McUnit::Volt
+                } | crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValueDefault {
+                    unit: crate::semantic::basic::mc_uval::McUnit::Volt,
+                    ..
+                }
+            )
         });
 
         // Check if any interface binding provides voltage info (e.g. ::DC(3.3V)).
@@ -157,7 +168,10 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             for (pin_id, name) in &power_pins {
                 let pin_has_voltage = comp.pins.pins.get(pin_id).is_some_and(|pin| {
                     crate::semantic::component::mc_pins::pin_kvs_where(pin, |key| {
-                        crate::semantic::basic::attr_keys::is_voltage_key(key)
+                        crate::semantic::basic::attr_keys::is_voltage_key(
+                            key,
+                            crate::semantic::basic::attr_keys::AttrFace::PinRow,
+                        )
                     })
                     .next()
                     .is_some()

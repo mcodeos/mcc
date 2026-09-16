@@ -1,0 +1,19 @@
+name: check-errcodes
+
+on:
+  push:
+  pull_request:
+
+# The spec documents that cite diagnostic codes live in `mcd/spec/`, a sibling
+# repository this workflow does not check out, so the scan reports a skip and
+# passes here. The gate is enforced locally, where both checkouts exist
+# (pre-commit and scripts/check.sh).
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconcile the spec code citations with errcodes.rs
+        run: python3 scripts/check-errcodes.py

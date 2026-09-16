@@ -220,7 +220,9 @@ fn entry__a_project_manifest_names_one_entry_and_is_not_descended() {
         .expect("the loose file is its own entry");
     assert_eq!(
         loose.entry,
-        root.canonicalize().expect("canonicalize root").join("loose.mc"),
+        root.canonicalize()
+            .expect("canonicalize root")
+            .join("loose.mc"),
         "the loose entry is the file itself"
     );
     assert!(
@@ -262,7 +264,11 @@ fn entry__the_named_root_is_the_resolution_base() {
 
     // `--entry` names one entry and replaces the walk.
     let picked = mcc::discover_entries(&root, Some("deep/nested/leaf.mc"));
-    assert_eq!(picked.len(), 1, "`--entry` is a restriction, not an addition");
+    assert_eq!(
+        picked.len(),
+        1,
+        "`--entry` is a restriction, not an addition"
+    );
     assert_eq!(picked[0].entry, e.entry);
 
     let _ = std::fs::remove_dir_all(&root);
@@ -283,8 +289,11 @@ fn entry__a_shared_file_is_diagnosed_alike_in_every_world_that_reaches_it() {
     // `shared.mc` is reached by `user.mc`'s `use` closure and is also — being a
     // `.mc` file in a manifest-free folder — an entry of its own.
     std::fs::write(root.join("shared.mc"), WARNS).expect("write shared.mc");
-    std::fs::write(root.join("user.mc"), "use ./shared.mc\n\nmodule main\n{\n}\n")
-        .expect("write user.mc");
+    std::fs::write(
+        root.join("user.mc"),
+        "use ./shared.mc\n\nmodule main\n{\n}\n",
+    )
+    .expect("write user.mc");
 
     let entries = mcc::discover_entries(&root, None);
     assert_eq!(entries.len(), 2, "{entries:#?}");
