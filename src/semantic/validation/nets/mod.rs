@@ -72,6 +72,15 @@ pub(crate) use decouple::check_decoupling_return_face;
 // declaration wrote it for.
 mod railface;
 
+// PI-2 filter-leg load-side decoupling (power-quality-design.md §2.2). bridge.rs
+// is a sibling leaf: it reads the declared `@bridge` clause (the same
+// `declared_dc_edges` map 6022 uses), the §1.4 quiet/sensitive face off the
+// domain projection, and — for the existence question ruling 11 cut it to — the
+// declared capacitor candidate. Its seam with decouple.rs is the point: where a
+// capacitor's return lands is 6038's verdict, so this one never repeats it.
+mod bridge;
+pub(crate) use bridge::check_bridge_load_decoupling;
+
 // PWR-4b package dissipation (package-thermal-design.md §3). thermal.rs is a
 // sibling leaf like protect.rs: the 6035 owner reads the two quantities the
 // flat entry carries (`resistance_ohm` / `power_rated_w`, decoded from the
@@ -2501,11 +2510,70 @@ fn eff_class(
 /// clause byte span in the module's def file, used for the per-leg carrier match.
 /// (A Clamp is a net→ref transient dump — no DC tie.)
 #[derive(Debug, Clone)]
-struct DeclEdge {
+pub(super) struct DeclEdge {
+    /// Which relation the clause declares — the consumers' own filter (6022
+    /// judges both DC tie kinds, PI-2's filter leg is the bridge alone).
+    kind: crate::semantic::module::pi::L1EdgeKind,
     a: String,
     b: String,
     lo: usize,
     hi: usize,
+}
+
+/// Every declared `@bridge`/`@couple` edge per owning module — the one read
+/// shared by the two rules that judge a declared relation between two named
+/// nets: 6022 (a physical two-terminal leg must carry its relation on its own
+/// statement) and PI-2 (a filter leg's load side owes a decoupling element). A
+/// non-module owner declares no net relation; a clause with fewer than two
+/// endpoints carries no pair to key on; the pair is sorted so the two spellings
+/// of one relation are one edge.
+pub(super) fn declared_dc_edges(
+    table: &InstTable,
+) -> std::collections::HashMap<u32, Vec<DeclEdge>> {
+    let mut out: std::collections::HashMap<u32, Vec<DeclEdge>> = std::collections::HashMap::new();
+    for (id, pi) in table.power_decls() {
+        let is_module = table
+            .get_entry(*id)
+            .is_some_and(|e| matches!(e.kind, InstKind::Module));
+        if !is_module {
+            continue;
+        }
+        let edges: Vec<DeclEdge> = pi
+            .l1_edges()
+            .into_iter()
+            .filter(|e| {
+                matches!(
+                    e.kind,
+                    crate::semantic::module::pi::L1EdgeKind::Bridge
+                        | crate::semantic::module::pi::L1EdgeKind::Couple
+                )
+            })
+            .filter_map(|e| {
+                let (Some(a), Some(b)) = (e.endpoints.first(), e.endpoints.get(1)) else {
+                    return None;
+                };
+                if a == b {
+                    return None;
+                }
+                let (a, b) = if a < b {
+                    (a.clone(), b.clone())
+                } else {
+                    (b.clone(), a.clone())
+                };
+                Some(DeclEdge {
+                    kind: e.kind,
+                    a,
+                    b,
+                    lo: e.span.start,
+                    hi: e.span.end,
+                })
+            })
+            .collect();
+        if !edges.is_empty() {
+            out.insert(*id, edges);
+        }
+    }
+    out
 }
 
 /// Wiring-site positions of a leg's pads and carrier, for the per-leg span
@@ -2552,50 +2620,9 @@ fn leg_sites(comp: &InstEntry, pins: &[&InstEntry]) -> Vec<(u32, String)> {
 pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     let idx = crate::instant::island::NetIslandIndex::build(table);
 
-    // Declared DC edges per owning module.
-    let mut declared: std::collections::HashMap<u32, Vec<DeclEdge>> =
-        std::collections::HashMap::new();
-    for (id, pi) in table.power_decls() {
-        let is_module = table
-            .get_entry(*id)
-            .is_some_and(|e| matches!(e.kind, InstKind::Module));
-        if !is_module {
-            continue;
-        }
-        let edges: Vec<DeclEdge> = pi
-            .l1_edges()
-            .into_iter()
-            .filter(|e| {
-                matches!(
-                    e.kind,
-                    crate::semantic::module::pi::L1EdgeKind::Bridge
-                        | crate::semantic::module::pi::L1EdgeKind::Couple
-                )
-            })
-            .filter_map(|e| {
-                let (Some(a), Some(b)) = (e.endpoints.first(), e.endpoints.get(1)) else {
-                    return None;
-                };
-                if a == b {
-                    return None;
-                }
-                let (a, b) = if a < b {
-                    (a.clone(), b.clone())
-                } else {
-                    (b.clone(), a.clone())
-                };
-                Some(DeclEdge {
-                    a,
-                    b,
-                    lo: e.span.start,
-                    hi: e.span.end,
-                })
-            })
-            .collect();
-        if !edges.is_empty() {
-            declared.insert(*id, edges);
-        }
-    }
+    // Declared DC edges per owning module — the shared read (PI-2 reads the
+    // bridge subset of the same map).
+    let declared = declared_dc_edges(table);
 
     for comp in table.get_components() {
         // A through leg is a real two-terminal part wired on both pads.

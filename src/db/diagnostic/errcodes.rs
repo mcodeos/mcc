@@ -1697,6 +1697,41 @@ pub const PROTECT_SERIES_NOT_IN_PATH: u32 = 6033;
 /// (that misspelling is the value-word vocabulary's verdict, not this rule's).
 pub const RAIL_NATURE_MISMATCH: u32 = 6034;
 
+/// PI-2 (power-quality-design.md §2.2, ruling 11 decided 2026-09-17): the
+/// load-side decoupling a declared filter bridge owes. A `@bridge` whose two
+/// endpoints are both hot faces of declared rails is a supply filter leg — the
+/// ferrite alone is not the filter, it is the series half of one, and the LC
+/// only exists once the load side carries a decoupling element. The **load
+/// side** is the endpoint whose domain worlds read as a quiet/sensitive face
+/// (§1.4: `@class(analog)`, `@noise(quiet)`, `@noise(sensitive)`) — the
+/// declaration says which side is being protected, so no arrow order and no
+/// upstream/downstream inference is needed (ruling 3).
+///
+/// Ruling 11 (2026-09-17) cuts this rule's face to **existence only**: the net is
+/// a declared rail's hot member and *a* capacitor sits on it, or nothing does.
+/// Where that capacitor's return leg lands is PI-3's object (`6038`,
+/// `nets/decouple.rs`) — the same one-fact-one-code partition ruling 8 gave the
+/// 6022 seam, so a mis-landed return reports 6038 alone instead of the same
+/// defect twice.
+///
+/// Both endpoints are read through the net's **effective class** (the axis's one
+/// read), so a bridge written in a parent scope whose load-side net is owned one
+/// level down still resolves, and the candidate capacitor is read from the flat
+/// carries (`element_class == Capacitive`), never from a name.
+///
+/// Error: `@bridge` is the declaration, and it names a filter leg — declaring the
+/// series half while the load side carries no decoupling is the declaration
+/// contradicting the topology, the same shape PWR-5/PWR-6 judge.
+///
+/// Not judged, never guessed (design §1.3): a bridge whose endpoints are not both
+/// hot faces (a ground-side bridge — both ends on return faces — is not a supply
+/// filter leg), one on which neither endpoint reads a quiet/sensitive face (§2.2
+/// ruling 3: the declaration is the only witness, and with no quiet side there is
+/// no load side), one whose two endpoints *both* read quiet (the load side would
+/// be a guess), an endpoint whose class does not resolve, and a `@couple` edge
+/// (a DC-blocking coupling element is not a filter leg).
+pub const BRIDGE_LOAD_DECOUPLING_MISSING: u32 = 6037;
+
 /// PWR-4b (package-thermal-design.md §3, ruled 2026-09-16): the package's own
 /// dissipation ceiling against the power the element actually dissipates in
 /// place. Only the **shunt** form is judged: an element whose declared class is
@@ -2162,6 +2197,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(RAIL_NATURE_MISMATCH, "A domain's @nature word contradicts the axis of a rail contract declared inside it.", "domain '{0}' declares @nature({1}) but its rail row writes {2} — @nature and the rail contract name the same axis, so writing both makes them agree: fix the @nature word, or the rail's `::` contract if the domain's word is the true one (ac-axis-interface-design.md §3.1)"),
     entry!(SHUNT_DISSIPATION_OVER_RATING, "A shunt element's dissipation at the rail window's worst corner exceeds its declared package rating.", "shunt '{0}' dissipates {1} W at the rail window's worst corner ({2} V across {3}), above its declared power_rated {4} W: raise the resistance, use a package rated for more, or narrow the rail window (series pass elements are not judged — package-thermal-design.md §3.2)"),
     entry!(DECOUPLING_RETURN_MISMATCH, "A decoupling capacitor's return leg does not land on the return member the rail it sits across declares.", "capacitor '{0}' sits across the declared rail {1} whose return member is {2}, but its other leg lands on {3} — a decoupling capacitor's two legs are one declared DC pair, so its return must close the loop the rail declares: move the return leg onto {2}, or declare the pair this capacitor actually bridges (power-quality-design.md §2.3, PI-3)"),
+    entry!(BRIDGE_LOAD_DECOUPLING_MISSING, "A declared filter bridge's load side carries no decoupling capacitor.", "declared filter bridge {0} puts its load side on rail hot member '{1}' (domain {2}) but no capacitor sits on that net — the ferrite is the series half of a filter, so the LC only exists once the load side it protects carries a decoupling element: add the load-side capacitor (power-quality-design.md §2.2, PI-2)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
