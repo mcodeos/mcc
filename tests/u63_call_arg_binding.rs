@@ -87,6 +87,17 @@ fn nets(tag: &str, source: &str) -> Vec<BTreeSet<String>> {
     out
 }
 
+/// Diagnostic codes produced by building `main` in `source`.
+fn codes(tag: &str, source: &str) -> Vec<u32> {
+    let _lock = common::lock();
+    common::reset();
+
+    let uri: McURI = format!("/mcc/u63-{tag}.mc");
+    mcc::mcc_load_from_string(&uri, source);
+    let _ = mcc::mcc_build(&McIds::from("main"), &uri);
+    mcc::mcc_diagnose_all().iter().map(|d| d.code).collect()
+}
+
 /// Is `path` the point named `name` -- the name itself, or a dotted path whose
 /// last segment it is? Comparing whole segments keeps `s.ZRAIL` from matching
 /// on the `ZRAIL` inside `s.ZRAIL_A`.
@@ -231,5 +242,89 @@ fn u68__an_extra_actual_never_lands_on_the_signal_bus() {
         !took_supply(&n, "V1V2", &["s.AAA.P", "s.AAA.N"]),
         "the second actual has no port to reach and must not take the signal bus: {}",
         dump(&n)
+    );
+}
+
+// ── The excess actual must also reach the USER, not only the internal surface ──
+//
+// `INST_ARG_UNBOUND_DETAILED` is the code for an actual with no formal port
+// left. It was produced, but only through `record_warning`, whose own doc says
+// the channel is *not* surfaced in the build report -- the sole on-screen trace
+// was the internal 940 info in the diagnostic log. So in the canonical form
+// above, `V1V2` vanished with the file reported clean. The lock is therefore on
+// the user-visible surface (`mcc_diagnose_all`), not on the internal one.
+
+const E4175: u32 = 4175;
+
+/// A member named on a declaration that does not declare it.
+const E3181: u32 = 3181;
+
+/// An actual with no formal port left is reported at user level.
+#[test]
+fn u68__an_extra_actual_reaches_the_build_report() {
+    let ports = "psnk ZRAIL{VDDIO,GND}, io AAA{P,N}";
+    let c = codes("two-arg-extra-diag", &board(ports, "s(V3V3, V1V2)"));
+
+    assert!(
+        c.contains(&E4175),
+        "the second actual has no port to reach and must be reported, not dropped: codes={c:?}"
+    );
+}
+
+/// The control: a complete binding reports nothing. Reaching the user-visible
+/// channel must not degrade into reporting every re-call.
+#[test]
+fn u68__a_fully_bound_re_call_reports_no_unbound_arg() {
+    let ports = "psnk ZRAIL{ZVDD,GND}, psnk ARAIL{AVDD,GND}";
+    let c = codes("two-arg-bound-diag", &board(ports, "s(V3V3, V1V2)"));
+
+    assert!(
+        !c.contains(&E4175),
+        "both actuals have a formal port; the code must not fire on a complete binding: codes={c:?}"
+    );
+}
+
+// ── The two neighbouring shapes: an empty netlist that IS reported ──
+//
+// b3410 registered a lane literal (`s(V3V3.VPOS, V1V2.VPOS)`) and a
+// single-member scalar (`s(V1V2.P)`) as an unfixed residual, both `count: 0`
+// before and after that batch. The count is right and the reading of it was
+// wrong: an actual holding one member against a port holding two is a vector
+// width mismatch (E4180), and that code's own message says to pass the whole
+// interface -- `s(V3V3)`, the very form that binds. So the empty netlist is the
+// DESIGNED verdict on a reported error, not a hole with nothing on screen.
+// These cases pin the report, since there is nothing to fix on the binding side.
+
+const E4180: u32 = 4180;
+
+/// A lane literal actual against a membered port is a width mismatch, reported.
+#[test]
+fn u68__a_lane_literal_actual_is_a_reported_width_mismatch() {
+    let ports = "psnk ZRAIL{VDDIO,GND}, io AAA{P,N}";
+    let c = codes(
+        "lane-literal-diag",
+        &board(ports, "s(V3V3.VPOS, V1V2.VPOS)"),
+    );
+
+    assert!(
+        c.contains(&E4180),
+        "a single-member actual against a two-member port must be reported, not dropped: codes={c:?}"
+    );
+}
+
+/// The same for a single-member scalar actual, which additionally names a member
+/// the interface does not declare.
+#[test]
+fn u68__a_single_member_scalar_actual_is_a_reported_width_mismatch() {
+    let ports = "psnk ZRAIL{VDDIO,GND}, io AAA{P,N}";
+    let c = codes("single-member-diag", &board(ports, "s(V1V2.P)"));
+
+    assert!(
+        c.contains(&E4180),
+        "a single-member actual against a two-member port must be reported, not dropped: codes={c:?}"
+    );
+    assert!(
+        c.contains(&E3181),
+        "`.P` is not a member PWRLINE declares; that must be reported too: codes={c:?}"
     );
 }
