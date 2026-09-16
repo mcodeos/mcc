@@ -85,6 +85,7 @@ pub use db::diagnostic::override_store;
 pub use db::defspace::{definition_space, DefinitionSpace, LibBoundary, SourceDomain};
 pub mod eval;
 pub mod export;
+pub mod fmt;
 pub mod refdef;
 pub use ast::error::*;
 pub use ast::macros::*;

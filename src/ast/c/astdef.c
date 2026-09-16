@@ -120,6 +120,14 @@ mc_sem_token* mcc_get_sem_tokens()
     return g_sem_token_list;
 }
 
+// The lexer's own token list. Unlike the semantic list it is never trimmed for
+// comments, so its spans are exactly the lexer's matches: contiguous, and
+// covering every byte of the buffer.
+mc_lex_token* mcc_get_tokens()
+{
+    return g_token_head;
+}
+
 void mc_sem_token_add(short type, void* ptoken)
 {
     if (ptoken == NULL) return;

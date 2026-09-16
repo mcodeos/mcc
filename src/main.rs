@@ -82,6 +82,7 @@ fn main() -> ExitCode {
         top: cli.top.clone(),
         entry: cli.entry.clone(),
         strict: cli.strict,
+        quiet: cli.quiet,
     });
 
     // 2. Change working directory to (--cwd)
@@ -113,6 +114,7 @@ fn main() -> ExitCode {
         Some(Command::Refs(_)) => false,
         Some(Command::Convert(_)) => false,
         Some(Command::Report(_)) => false,
+        Some(Command::Fmt(_)) => false,
         _ => true,
     };
     if need_logging {
@@ -181,6 +183,7 @@ fn main() -> ExitCode {
         Some(Command::Verify(_)) => false,
         Some(Command::Build(_)) | Some(Command::Def(_)) | Some(Command::Erc(_)) => false,
         Some(Command::Refs(_)) | Some(Command::Convert(_)) | Some(Command::Report(_)) => false,
+        Some(Command::Fmt(_)) => false,
         None => false,
         // Lib / Explain / Caps and any future command keep the conservative
         // full initialization.
@@ -327,6 +330,7 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             cmds::report::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
+        Some(Command::Fmt(args)) => cmds::fmt::run(&args),
         Some(Command::Caps) => {
             // Capabilities is self-describing; call the handler directly.
             let result =

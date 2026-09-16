@@ -111,9 +111,9 @@ pub fn local_mode() -> bool {
 }
 
 /// Cross-command option values promoted from per-subcommand fields
-/// (`--lib`, `-f/--format`, `-o/--output`, `--top`, `--entry`, `--strict`).
-/// `main` stores the parsed values once via [`set_globals`]; every subcommand
-/// reads them here (mirrors the `LOCAL_MODE` pattern).
+/// (`--lib`, `-f/--format`, `-o/--output`, `--top`, `--entry`, `--strict`,
+/// `-q/--quiet`). `main` stores the parsed values once via [`set_globals`];
+/// every subcommand reads them here (mirrors the `LOCAL_MODE` pattern).
 #[derive(Debug, Clone)]
 pub struct GlobalOptions {
     /// `--lib NAME` — libraries to load (repeatable)
@@ -128,6 +128,8 @@ pub struct GlobalOptions {
     pub entry: Option<String>,
     /// `--strict` — report strict-only diagnostics as warnings
     pub strict: bool,
+    /// `-q/--quiet` — reduce output
+    pub quiet: bool,
 }
 
 /// Storage for the global option values, filled once by `main` right after CLI parsing.
@@ -228,6 +230,9 @@ pub enum Command {
 
     /// Generate structured design report (M5b)
     Report(ReportArgs),
+
+    /// Format `.mc` sources in place (whitespace only; token text is never touched)
+    Fmt(FmtArgs),
 }
 
 // parse
@@ -1035,6 +1040,19 @@ pub struct ConvertArgs {
     /// Target format: json, yaml
     #[arg(long, default_value = "json")]
     pub to: String,
+}
+
+// fmt
+
+#[derive(Parser, Debug)]
+pub struct FmtArgs {
+    /// `.mc` file or directory to format; defaults to the current directory
+    pub target: Option<String>,
+
+    /// Report the files that need formatting instead of rewriting them;
+    /// exits 1 when any file differs
+    #[arg(long)]
+    pub check: bool,
 }
 
 // erc (M6)

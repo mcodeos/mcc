@@ -280,6 +280,7 @@ typedef struct mc_sem_token {
 } mc_sem_token;
 
 mc_sem_token* mcc_get_sem_tokens();
+mc_lex_token* mcc_get_tokens();
 void mc_sem_token_add(short type, void* token);
 void mc_sem_token_add_mcvalue(short type, mc_value* pval);
 void mc_sem_token_print();
