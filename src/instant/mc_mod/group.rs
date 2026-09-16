@@ -697,7 +697,6 @@ impl InstantiationBuilder {
                         .iter()
                         .any(|p| p.name == port && p.bus_members.is_empty());
                     if bare && !declares_power {
-
                         // ── P2-2: try physical pin ID lookup from submodule's components ──
                         // When the submodule's port has empty bus_members, look for a
                         // component inside the submodule that has a same-named bus port,
@@ -886,4 +885,3 @@ pub(super) fn refine_lane_trunk(ctx: Option<TrunkCtx>, points: &[NetPoint]) -> O
     }
     Some(pg)
 }
-
