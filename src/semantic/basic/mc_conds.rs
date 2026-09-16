@@ -4,11 +4,22 @@
 
 use crate::eval::{self, Compare, Value};
 use crate::semantic::basic::mc_literal::strip_string_quotes;
+use crate::semantic::component::mc_attr::{attr_values_text, McAttributes};
+use crate::semantic::component::mc_pins::{pin_value_text, McPins};
 use crate::{
     ast::{macros::*, node::AstNode},
     semantic::basic::mc_phrase::McPhrase,
     McIds,
 };
+
+/// The definition-face read surface a condition operand resolves against: the
+/// enclosing definition's own pins and keys (U42). A component body declares no
+/// instances, so `inst.<pin>.<key>` has no instance space here.
+#[derive(Clone, Copy)]
+pub struct CondDefCtx<'a> {
+    pub pins: &'a McPins,
+    pub attrs: &'a McAttributes,
+}
 
 #[derive(Debug, Clone)]
 pub struct McCond {
@@ -359,14 +370,12 @@ impl McConds {
                         }
                     }
                     MCAST_OPD => {
+                        // Read the whole `MCAST_IDS` node, not its first child:
+                        // a dotted operand (`A.desc`) carries its dot segments
+                        // as siblings under `MCAST_IDS`, so taking the first
+                        // child silently truncates it to `A`.
                         if let Some(opd_subnode) = child.get_sub_node() {
-                            if opd_subnode.get_type() == MCAST_IDS {
-                                if let Some(ids_subnode) = opd_subnode.get_sub_node() {
-                                    if let Some(ids) = McIds::new(&ids_subnode) {
-                                        operands.push(McCondOperand::Ident(ids));
-                                    }
-                                }
-                            } else if let Some(ids) = McIds::new(&opd_subnode) {
+                            if let Some(ids) = McIds::new(&opd_subnode) {
                                 operands.push(McCondOperand::Ident(ids));
                             }
                         }
@@ -479,11 +488,12 @@ impl McConds {
     pub fn evaluate(
         &self,
         params: &[(McIds, String)],
+        def: Option<CondDefCtx<'_>>,
         anchor: Option<&AstNode>,
     ) -> Option<AstNode> {
         let mut failure: Option<eval::EvalError> = None;
         for cond in &self.if_blocks {
-            match Self::check_condition_result(&cond.condition, params) {
+            match Self::check_condition_result(&cond.condition, params, def) {
                 Ok(true) => return Some(cond.block.clone()),
                 Ok(false) => {}
                 Err(err) => failure = failure.or(Some(err)),
@@ -500,12 +510,16 @@ impl McConds {
         None
     }
 
-    pub fn check_condition(cond: &McCondition, params: &[(McIds, String)]) -> bool {
+    pub fn check_condition(
+        cond: &McCondition,
+        params: &[(McIds, String)],
+        def: Option<CondDefCtx<'_>>,
+    ) -> bool {
         // A condition with no node cannot carry a diagnostic, so the error half
         // is dropped here; `check_condition_result` is the same evaluation with
         // the failure preserved, and `McConds::evaluate` is the positioned
         // caller that reports it.
-        Self::check_condition_result(cond, params).unwrap_or(false)
+        Self::check_condition_result(cond, params, def).unwrap_or(false)
     }
 
     /// Evaluate one condition through the value engine (doc/eval V7). The
@@ -515,10 +529,11 @@ impl McConds {
     pub fn check_condition_result(
         cond: &McCondition,
         params: &[(McIds, String)],
+        def: Option<CondDefCtx<'_>>,
     ) -> Result<bool, eval::EvalError> {
         // Handle "in" condition separately (different structure)
         if let McCondition::In { left, values } = cond {
-            let left_val = Value::from_text(&Self::resolve_operand(left, params));
+            let left_val = Value::from_text(&Self::resolve_operand(left, params, def));
             for value in values {
                 if eval::satisfies(Compare::Eq, &left_val, &Value::from_text(value))? {
                     return Ok(true);
@@ -532,8 +547,8 @@ impl McConds {
         // as true. A non-integer operand keeps its historical reading — the
         // condition is simply not satisfied.
         if let McCondition::BitAnd { left, right } | McCondition::BitOr { left, right } = cond {
-            let left_val = Value::from_text(&Self::resolve_operand(left, params));
-            let right_val = Value::from_text(&Self::resolve_operand(right, params));
+            let left_val = Value::from_text(&Self::resolve_operand(left, params, def));
+            let right_val = Value::from_text(&Self::resolve_operand(right, params, def));
             let (Value::Int(l), Value::Int(r)) = (left_val, right_val) else {
                 return Ok(false);
             };
@@ -557,12 +572,19 @@ impl McConds {
             }
         };
 
-        let left_val = Value::from_text(&Self::resolve_operand(left_op, params));
-        let right_val = Value::from_text(&Self::resolve_operand(right_op, params));
+        let left_val = Value::from_text(&Self::resolve_operand(left_op, params, def));
+        let right_val = Value::from_text(&Self::resolve_operand(right_op, params, def));
         eval::satisfies(cmp, &left_val, &right_val)
     }
 
-    fn resolve_operand(op: &McCondOperand, params: &[(McIds, String)]) -> String {
+    /// The text an operand stands for: the bound argument when the name is a
+    /// formal param, else the value the enclosing definition declares under
+    /// that name (`<key>` or `<pin>.<key>`, U42), else the name itself.
+    fn resolve_operand(
+        op: &McCondOperand,
+        params: &[(McIds, String)],
+        def: Option<CondDefCtx<'_>>,
+    ) -> String {
         match op {
             McCondOperand::Ident(ids) => {
                 let name = ids.to_string();
@@ -571,10 +593,28 @@ impl McConds {
                         return param_value.clone();
                     }
                 }
+                if let Some(text) = def.and_then(|def| Self::read_def_value(def, &name)) {
+                    return text;
+                }
                 name
             }
             McCondOperand::Literal(val) => val.clone(),
         }
+    }
+
+    /// The text `def` declares under `name` — a pin row's value key
+    /// (`<pin>.<key>`) first, then an attribute key, mirroring the body name
+    /// face (attributes before pin names, G9). `None` for a name the definition
+    /// does not hold; the caller then falls back to the name itself.
+    fn read_def_value(def: CondDefCtx<'_>, name: &str) -> Option<String> {
+        if let Some((pin_ref, key)) = name.split_once('.') {
+            if let Some(pin) = def.pins.pin_of_ref(pin_ref) {
+                return pin_value_text(pin, key);
+            }
+        }
+        def.attrs
+            .find(&McIds::from(name))
+            .and_then(|attr| attr_values_text(attr.values.iter()))
     }
 }
 
@@ -692,7 +732,7 @@ impl McFuncConds {
     /// [`McConds::check_condition`].
     pub fn evaluate(&self, params: &[(McIds, String)]) -> &[McPhrase] {
         for cond_block in &self.if_blocks {
-            if McConds::check_condition(&cond_block.condition, params) {
+            if McConds::check_condition(&cond_block.condition, params, None) {
                 return &cond_block.stmts;
             }
         }

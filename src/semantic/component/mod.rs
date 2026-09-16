@@ -11,7 +11,7 @@ use self::mc_layout::McLayout;
 use self::mc_pins::McPinPort;
 use self::mc_pins::McPins;
 use super::{
-    basic::mc_conds::{McCondition, McConds},
+    basic::mc_conds::{CondDefCtx, McCondition, McConds},
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
     basic::mc_param::McParamDeclares,
     basic::mc_phrase::McPhrase,
@@ -382,9 +382,13 @@ impl McComponent {
                     if let Some(conds_obj) = McConds::new(&child) {
                         // Try to evaluate with default params first
                         if !default_params.is_empty() {
-                            if let Some(selected_block) =
-                                conds_obj.evaluate(&default_params, Some(&child))
-                            {
+                            // The definition's own pins and keys are parsed by
+                            // now; a condition reads those, never an instance.
+                            if let Some(selected_block) = conds_obj.evaluate(
+                                &default_params,
+                                Some(CondDefCtx { pins, attrs }),
+                                Some(&child),
+                            ) {
                                 let block_type = selected_block.get_type();
                                 if block_type == MCAST_ATTRIBUTE_PIN
                                     || block_type == MCAST_ATTRIBUTE_PINADD
@@ -818,7 +822,16 @@ impl Mc2Component {
             let active = conditional
                 .if_blocks
                 .iter()
-                .find(|(condition, _)| McConds::check_condition(condition, &eval_params))
+                .find(|(condition, _)| {
+                    McConds::check_condition(
+                        condition,
+                        &eval_params,
+                        Some(CondDefCtx {
+                            pins: &self.base.pins,
+                            attrs: &self.base.attrs,
+                        }),
+                    )
+                })
                 .map(|(_, pins)| pins)
                 .or(conditional.else_pins.as_ref());
 

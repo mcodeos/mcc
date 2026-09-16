@@ -738,6 +738,10 @@ pub const PHRASE_RESERVED_WORD_SUBSCRIBED: u32 = 4024;
 /// position, so the connection has no endpoint to attach to.
 pub const ATTR_VALUE_NOT_A_TERMINAL: u32 = 4025;
 
+/// A pin's recorded values carry no entry under the requested key
+/// (`uH.1.volt`, where pin `1` declares only `desc`).
+pub const PIN_VALUE_KEY_NOT_FOUND: u32 = 4026;
+
 // Pass2: netlist heuristics (D-series / layout) (4050-4099)
 
 /// A box has a placeholder pin not mapped to any real component pin.
@@ -1827,6 +1831,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PORT_ROW_WITH_CONNECTION, "An iotype-prefixed port row carries a connection.", "port row carries a connection ('{0}'); a port row only declares ports — write the connection on a line of its own"),
     entry!(PHRASE_RESERVED_WORD_SUBSCRIBED, "A subscript is glued onto a reserved word, which addresses nothing.", "name carries a subscript in the reserved word '{0}', where a subscript selects nothing: write '{0}{...}' or '{0}.N'"),
     entry!(ATTR_VALUE_NOT_A_TERMINAL, "An attribute used as a connection endpoint.", "'{0}' is an attribute key: it holds a value, not a terminal, so it cannot be a connection endpoint; connect a pin, a port, or a net instead"),
+    entry!(PIN_VALUE_KEY_NOT_FOUND, "A pin value key was not found.", "'{0}' has no value key '{1}'; declared keys: [{2}]"),
     // section
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),

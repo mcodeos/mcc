@@ -133,6 +133,20 @@ pub enum McAttrVal {
     KVS(McKVS),
 }
 
+/// The text of a value list (U42): a string literal reads as its own content,
+/// unquoted; anything else reads as written. Several values join with one
+/// space, and an empty list reads as `None`.
+pub fn attr_values_text<'a>(values: impl IntoIterator<Item = &'a McAttrVal>) -> Option<String> {
+    let parts: Vec<String> = values
+        .into_iter()
+        .map(|val| match val {
+            McAttrVal::AttrLiteral(crate::McLiteral::String(s)) => s.value.clone(),
+            other => other.to_string(),
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
 impl std::fmt::Display for McAttrVal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -405,64 +419,9 @@ impl McAttribute {
         Some(kvs_list)
     }
 
-    fn extract_kvs_from_iter(iter: impl Iterator<Item = AstNode>) -> Vec<McAttrVal> {
-        iter.filter_map(|child| {
-            if child.get_type() == MCAST_OPD {
-                if let Some(child_sub) = child.get_sub_node() {
-                    if child_sub.get_type() == MCAST_OPD_COLON {
-                        if let Some(kvs) = McKVS::new(&child) {
-                            return Some(McAttrVal::KVS(kvs));
-                        }
-                    }
-                }
-            }
-            None
-        })
-        .collect()
-    }
-
-    fn try_parse_kvs_expression(expr_node: &AstNode) -> Option<Option<Vec<McKVS>>> {
-        // Structure: volt:[low:0V ~ 0.7V, high:0.7V ~ 5V]
-        // MCAST_EXPRESSION -> MCAST_OPD_COLON -> (left: MCAST_OPD, right: MCAST_OPD_SQUARE_VEC)
-        // MCAST_OPD_SQUARE_VEC -> list of MCAST_OPD_COLON pairs like low:0V ~ 0.7V
-        // Returns Some(Vec) if parsed successfully, Some(None) if not a KVS expression
-
-        let sub = expr_node.get_sub_node()?;
-
-        // Check if this is a colon expression
-        if sub.get_type() != MCAST_OPD_COLON {
-            return Some(None);
-        }
-
-        // Get left and right operands of the colon
-        let left = sub.get_sub_node()?;
-        let right = left.get_next()?;
-
-        // Right operand should be MCAST_OPD_SQUARE_VEC
-        if right.get_type() != MCAST_OPD_SQUARE_VEC {
-            return Some(None);
-        }
-
-        // Parse the square vector to extract KVS entries
-        let square_sub = right.get_sub_node()?;
-        let kvs_values = Self::extract_kvs_from_iter(square_sub.iter());
-
-        if kvs_values.is_empty() {
-            return Some(None);
-        }
-
-        let kvs_list: Vec<McKVS> = kvs_values
-            .into_iter()
-            .filter_map(|val| {
-                if let McAttrVal::KVS(kvs) = val {
-                    Some(kvs)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Some(Some(kvs_list))
+    pub(crate) fn extract_kvs_from_iter(iter: impl Iterator<Item = AstNode>) -> Vec<McAttrVal> {
+        iter.filter_map(|child| McKVS::new(&child).map(McAttrVal::KVS))
+            .collect()
     }
 
     pub fn new_attr_values(node: &AstNode) -> Option<Vec<McAttrVal>> {
@@ -524,14 +483,10 @@ impl McAttribute {
                 }
 
                 MCAST_EXPRESSION => {
-                    // Check if this is a KVS expression like volt:[low:0V ~ 0.7V, high:0.7V ~ 5V]
-                    if let Some(kvs_result) = Self::try_parse_kvs_expression(&each) {
-                        if let Some(kvs_list) = kvs_result {
-                            for kvs in kvs_list {
-                                values.push(McAttrVal::KVS(kvs));
-                            }
-                            continue;
-                        }
+                    // `voltage:3V3` / `volt:[low:0V ~ 0.7V]` is a keyed value.
+                    if let Some(kvs) = McKVS::new(&each) {
+                        values.push(McAttrVal::KVS(kvs));
+                        continue;
                     }
 
                     let child = each.get_sub_node().expect(MISSING_SUBNODE);

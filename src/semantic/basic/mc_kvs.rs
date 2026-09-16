@@ -3,8 +3,8 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use super::mc_expr::McExpression;
-use super::mc_literal::McConst;
-use crate::db::diagnostic::diagnostic::dlog_error;
+use super::mc_literal::{McConst, McLiteral};
+use super::mc_opd::McOpd;
 use crate::{
     ast::{macros::*, node::AstNode},
     semantic::component::mc_attr::{McAttrVal, McAttribute},
@@ -47,90 +47,73 @@ impl std::fmt::Display for McKVS {
 }
 
 impl McKVS {
+    /// Parse one `key: value` entry of an attribute value list.
+    ///
+    /// `node` is the entry itself: a `key:value` colon, a `key:lo ~ hi` tilde
+    /// (which wraps its lower bound's colon), or an expression wrapping either.
+    /// The key is an operand, so a numeric slice such as `1:10` is not an entry.
     pub fn new(node: &AstNode) -> Option<Self> {
-        // MCAST_KVS
-        // |- MCAST_KVS_KEY - MCAST_KVS_VALUE
-        //    |- opdc         |- const, MCAST_SET, MCAST_SET_ATTRIBUTES
+        let unwrapped = node
+            .is_type(MCAST_EXPRESSION)
+            .then(|| node.get_sub_node())
+            .flatten();
+        let entry = unwrapped.as_ref().unwrap_or(node);
 
-        // MCAST_ATT_VALUES
-        // └── MCAST_EXPRESSION (35)
-        //     └── MCAST_OPD_COLON (76)
-        //         ├── left operand: MCAST_OPD (52) → MCAST_IDS "volt"
-        //         └── right operand: MCAST_OPD_SQUARE_VEC (62)
-        //             ├── MCAST_OPD_COLON (76) → low:0V ~ 0.7V
-        //             │   ├── MCAST_OPD (52) → MCAST_IDS "low"
-        //             │   └── MCAST_UVALUE "0V ~ 0.7V"
-        //             └── MCAST_OPD_COLON (76) → high:0.7V ~ 5V
-        //                 ├── MCAST_OPD (52) → MCAST_IDS "high"
-        //                 └── MCAST_UVALUE "0.7V ~ 5V"
-
-        let key_node = node.get_sub_node()?;
-        let value_node = key_node.get_next()?;
-        let key = key_node.get_sub_node()?;
-        let value_data = value_node.get_sub_node()?;
-
-        // First parse the key
-        let key_ids = McIds::new(&key)?;
-
-        match value_data.get_type() {
-            MCAST_CONST => {
-                let const_val = McConst::new(&value_data)?;
-                Some(Self {
-                    key: key_ids,
-                    value: KVSValue::Const(const_val),
-                })
+        match entry.get_type() {
+            MCAST_OPD_COLON => {
+                let key_node = entry.get_sub_node()?;
+                let value_node = key_node.get_next()?;
+                let value = Self::value_of(&value_node)?;
+                Self::pair(&key_node, value)
             }
 
-            MCAST_SET => {
-                let square_vals = McAttribute::new_attr_values(&value_data)?;
-                Some(Self {
-                    key: key_ids,
-                    value: KVSValue::Square(square_vals),
-                })
+            MCAST_OPD_TILDE => {
+                let colon = entry.get_sub_node()?;
+                let dotted_key = colon.get_sub_node()?;
+                let lower = dotted_key.get_next()?;
+                let upper = colon.get_next()?;
+                let range = McExpression::Range(
+                    Box::new(McExpression::new(&lower)?),
+                    Box::new(McExpression::new(&upper)?),
+                );
+                let value = KVSValue::Square(vec![McAttrVal::AttrExpr(range)]);
+                Self::pair(&dotted_key, value)
             }
 
-            // Handle direct unit value types
-            t if (MCAST_UVAL_VOLT..=MCAST_UVAL_CHARGE).contains(&t) => McConst::new(&value_data)
-                .map(|const_val| Self {
-                    key: key_ids,
-                    value: KVSValue::Const(const_val),
-                }),
+            _ => None,
+        }
+    }
 
-            // Handle ranges
-            MCAST_OPD_COLON | MCAST_RANGE_PLUSMINUS => {
-                if let Some(expr) = McExpression::new(&value_data) {
-                    let attr_val = McAttrVal::AttrExpr(expr);
-                    Some(Self {
-                        key: key_ids,
-                        value: KVSValue::Square(vec![attr_val]),
-                    })
-                } else {
-                    None
-                }
+    fn pair(key_node: &AstNode, value: KVSValue) -> Option<Self> {
+        if !key_node.is_type(MCAST_OPD) {
+            return None;
+        }
+        let key = McIds::new(&key_node.get_sub_node()?)?;
+        Some(Self { key, value })
+    }
+
+    fn value_of(node: &AstNode) -> Option<KVSValue> {
+        match node.get_type() {
+            // `key:[...]` holds a list; each member is an entry of its own.
+            MCAST_OPD_SQUARE_VEC => {
+                let sub = node.get_sub_node()?;
+                let members = McAttribute::extract_kvs_from_iter(sub.iter());
+                (!members.is_empty()).then_some(KVSValue::Square(members))
             }
 
-            // Handle other types that can be converted to McConst
-            MCAST_INT | MCAST_FLOAT | MCAST_HEX | MCAST_STRING => {
-                McConst::new(&value_data).map(|const_val| Self {
-                    key: key_ids,
-                    value: KVSValue::Const(const_val),
-                })
-            }
+            MCAST_OPD_COLON | MCAST_RANGE_PLUSMINUS => McExpression::new(node)
+                .map(|expr| KVSValue::Square(vec![McAttrVal::AttrExpr(expr)])),
 
-            // Handle MCAST_UVALUE
-            MCAST_UVALUE => McConst::new(&value_data).map(|const_val| Self {
-                key: key_ids,
-                value: KVSValue::Const(const_val),
+            // A bare name on the right (`voltage:VCC`) is a reference, not a literal.
+            MCAST_OPD => McOpd::new(node).map(|opd| {
+                let span = (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+                KVSValue::Square(vec![McAttrVal::AttrVariable(opd, Some(span))])
             }),
 
-            _ => {
-                dlog_error(
-                    crate::errcodes::KVS_VALUE_TYPE_INVALID,
-                    &value_data,
-                    &crate::errcodes::format_msg(crate::errcodes::KVS_VALUE_TYPE_INVALID, &[]),
-                );
-                None
-            }
+            _ => McLiteral::new(node).map(|literal| match literal {
+                McLiteral::Const(const_val) => KVSValue::Const(const_val),
+                other => KVSValue::Square(vec![McAttrVal::AttrLiteral(other)]),
+            }),
         }
     }
 }

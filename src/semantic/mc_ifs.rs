@@ -337,7 +337,7 @@ impl Mc2Interface {
 
         if let Some(ref cond_block) = inst.base.body.get_sub_node() {
             if let Some(conds) = McConds::new(cond_block) {
-                if let Some(selected_block) = conds.evaluate(&param_tuples, anchor) {
+                if let Some(selected_block) = conds.evaluate(&param_tuples, None, anchor) {
                     inst.parsed_pins = Self::parse_pins_from_block(&selected_block);
                 }
             }
@@ -390,7 +390,7 @@ impl Mc2Interface {
 
                 if child_type == MCAST_COND_IF {
                     if let Some(conds) = McConds::new(&child) {
-                        if let Some(selected_block) = conds.evaluate(&param_tuples, anchor) {
+                        if let Some(selected_block) = conds.evaluate(&param_tuples, None, anchor) {
                             inst.parsed_pins = Self::parse_pins_from_block(&selected_block);
                             break; // Found matching condition, stop searching
                         }

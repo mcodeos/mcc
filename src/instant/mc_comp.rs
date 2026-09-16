@@ -10,7 +10,7 @@ use super::mc_net::{InstError, NetPoint};
 use crate::eval::{self, Op, Value};
 use crate::instant::identity::NodeId;
 use crate::instant::insttab::InstOrigin;
-use crate::semantic::basic::mc_conds::McConds;
+use crate::semantic::basic::mc_conds::{CondDefCtx, McConds};
 use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue, ParamBindError};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
@@ -281,7 +281,14 @@ impl McComponentInst {
         for cond_pins in &self.def.cond_pins {
             let mut matched = false;
             for (condition, pins) in &cond_pins.if_blocks {
-                if McConds::check_condition(condition, &eval_params) {
+                if McConds::check_condition(
+                    condition,
+                    &eval_params,
+                    Some(CondDefCtx {
+                        pins: &self.def.pins,
+                        attrs: &self.def.attrs,
+                    }),
+                ) {
                     for pin_id in pins.get_all_pins() {
                         // Copy pin names from conditional block to instance
                         if let Some(names) = pins.pin_id_to_names.get(&pin_id) {
@@ -329,7 +336,14 @@ impl McComponentInst {
         for cond_attrs in &self.def.cond_attrs {
             let mut matched = false;
             for (condition, attrs) in &cond_attrs.if_blocks {
-                if McConds::check_condition(condition, &eval_params) {
+                if McConds::check_condition(
+                    condition,
+                    &eval_params,
+                    Some(CondDefCtx {
+                        pins: &self.def.pins,
+                        attrs: &self.def.attrs,
+                    }),
+                ) {
                     for attr in attrs.iter() {
                         self.cond_attrs.push(attr.clone());
                     }
