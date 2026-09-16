@@ -3326,3 +3326,271 @@ fn shunt_bypassing_itself_is_not_judged_6035() {
         "a self-bypass is R02's face; 6035 judges a shunt in place only; got codes: {codes:?}"
     );
 }
+
+// ── PI-3 decoupling-return face (power-quality-design.md §2.3, ruled 2026-09-16) ──
+//
+// A decoupling capacitor's two legs are one declared DC pair: the rail the part
+// sits across states it (`rail [hot, ret]::DC(…)`), and closing that loop is the
+// element's whole job, so its return leg must land on that rail's return member.
+// The certificate is the element class read off the definition's spec table
+// (capacitive), never a name; both legs are read through the net's effective
+// class, so a part instantiated in a sub-module is judged by the class its leg
+// resolves to across the boundary — never by the raw island attribution, which
+// calls every sub-module net unjudged (R4's measured trap). Error, and
+// deliberately unfiltered by @class(analog).
+//
+// The rail side is read in the scope that *declares* it: its two members are
+// looked up by the name written there, so a rail whose member names no net at
+// all states no pair this rule can compare against (an incomplete rail
+// declaration is another family's verdict — 6038 does not stack on it).
+
+/// A decoupling capacitor in-file, so the fixtures don't depend on the library.
+const CAP_DECOUP: &str = "component CAP_DECOUP {\n    pins = [ io [1:2] = [P, N] ]\n    \
+                           spec = [ capacitance = 1uF ]\n}\n";
+
+/// The resistive sibling: same two terminals, no capacitive certificate.
+const RES_TIE: &str = "component RES_TIE {\n    pins = [ io [1:2] = [P, N] ]\n    \
+                       spec = [ resistance = 10k ]\n}\n";
+
+/// The two domains both fixtures share: DVDD's rail returns on GND, AVDD's on
+/// GNDA (the golden main.mc shape). The two classes are world-disjoint, which is
+/// what makes the wrong-return leg a 6022 candidate as well.
+const PI3_DOMAINS: &str = "conduit GND @role(main)\n    conduit GNDA @role(quiet)\n    \
+                           domain DVDD @class(digital) { rail [VDD_3V3, GND]::DC(3.3V) }\n    \
+                           domain AVDD @class(analog) { rail [VDDA, GNDA]::DC(3.3V) }\n    ";
+
+/// The judged shape, both ways in one board: a capacitor whose return lands on
+/// the return member its rail declares is silent, the same part with its return
+/// on the other rail's return fires — naming the declared member and the class
+/// the leg actually reaches. (The green twin also gives the parent's `GNDA` a
+/// net, which is what makes AVDD's declared pair readable at all.)
+#[test]
+fn decoupling_return_on_the_declared_member_is_clean_and_off_it_fires() {
+    let src = format!(
+        "{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}\
+         CAP_DECOUP ok\n    ok.1 -> VDDA\n    ok.2 -> GNDA\n    \
+         CAP_DECOUP bad\n    bad.1 -> VDDA\n    bad.2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|&&c| c == mcc::errcodes::DECOUPLING_RETURN_MISMATCH)
+        .count();
+    assert_eq!(
+        n, 1,
+        "a return leg off the rail's declared member must fire 6038 exactly once (the green twin must not); got codes: {codes:?}"
+    );
+    let msgs = msgs_of(mcc::errcodes::DECOUPLING_RETURN_MISMATCH, &src);
+    assert!(
+        msgs.iter().any(|m| m.contains("main.bad")),
+        "6038 must name the part: {msgs:?}"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("GNDA") && m.contains("GND")),
+        "6038 must name the declared return member and the class the leg reaches: {msgs:?}"
+    );
+}
+
+/// Ruling 8 (2026-09-16), the PI-3 front condition: a capacitor is not a DC
+/// element, so 6022 no longer fires on the exact shape PI-3 owns. The fixture's
+/// two classes are world-disjoint (`GND` is DVDD's return alone — dumped), so a
+/// dissipating element on the same leg *is* 6022's (the test below proves it);
+/// the silence here is the ruling's, not co-residence's.
+#[test]
+fn capacitor_leg_is_not_6022_after_ruling_8() {
+    let src = format!(
+        "{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}\
+         CAP_DECOUP ok\n    ok.1 -> VDDA\n    ok.2 -> GNDA\n    \
+         CAP_DECOUP bad\n    bad.1 -> VDDA\n    bad.2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|&&c| c == mcc::errcodes::RETURN_LEG_UNDECLARED)
+            .count(),
+        0,
+        "a capacitive leg carries no DC path — 6022 must stay silent (ruling 8); got codes: {codes:?}"
+    );
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|&&c| c == mcc::errcodes::DECOUPLING_RETURN_MISMATCH)
+            .count(),
+        1,
+        "the same shape is PI-3's object and must still fire 6038; got codes: {codes:?}"
+    );
+}
+
+/// The complement, locked in the same shape: the identical leg on a dissipating
+/// element IS a DC relation, so 6022 keeps it and 6038 says nothing — the
+/// element-class certificate is the only thing separating the two rules.
+#[test]
+fn resistive_leg_stays_6022_and_is_not_6038() {
+    let src = format!(
+        "{RES_TIE}module main {{\n    {PI3_DOMAINS}\
+         RES_TIE tie\n    tie.1 -> VDDA\n    tie.2 -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|&&c| c == mcc::errcodes::RETURN_LEG_UNDECLARED)
+            .count(),
+        1,
+        "a resistive leg across world-disjoint classes is still 6022's; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "6038 judges capacitors only — no capacitive certificate, no verdict; got codes: {codes:?}"
+    );
+}
+
+/// Not judged, never guessed: a capacitor that sits across no declared rail has
+/// no pair to be wrong about. Both spellings — two bare nets, and two hot faces
+/// of two different rails (a bridging part, not a decoupling placement).
+#[test]
+fn capacitor_off_every_declared_rail_is_not_judged_6038() {
+    let bare = format!(
+        "{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}\
+         CAP_DECOUP ok\n    ok.1 -> VDDA\n    ok.2 -> GNDA\n    \
+         CAP_DECOUP c1\n    c1.1 -> RAWX\n    c1.2 -> RAWY\n}}\n"
+    );
+    let codes = build_codes(&bare);
+    assert!(
+        !codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "no declared rail on either leg means no pair to violate; got codes: {codes:?}"
+    );
+    let two_hots = format!(
+        "{CAP_DECOUP}module main {{\n    {PI3_DOMAINS}\
+         CAP_DECOUP ok\n    ok.1 -> VDDA\n    ok.2 -> GNDA\n    \
+         CAP_DECOUP c1\n    c1.1 -> VDD_3V3\n    c1.2 -> VDDA\n}}\n"
+    );
+    let codes = build_codes(&two_hots);
+    assert!(
+        !codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "a capacitor across two hot faces is not a decoupling placement (§2.3's shape is one hot leg); got codes: {codes:?}"
+    );
+}
+
+/// The four boundary cells (§2.3, R4) — a capacitor instantiated inside a child
+/// module whose legs the parent layer binds, so both legs only resolve through
+/// the A′ boundary walk: ① the return lands on the parent rail's declared member
+/// → silent; ② a sibling cap in the same child with its return bound to the
+/// other rail's return → that one fires, judged by the class it resolves to and
+/// not by the child's net name; ③ a cap whose hot leg's parent-side co-segment
+/// carries no declaration at all → never guessed (while the rail stays readable,
+/// so the silence is the leg's); ④ the rail declared by the child itself → the
+/// part's own layer supplies the pair, and the owning-scope chain (not only
+/// ancestors) is what finds it.
+#[test]
+fn decoupling_return_across_the_module_boundary() {
+    let child = "module CHILD() {\n    out HP\n    out RP\n    out HP2\n    out RP2\n    \
+                 CAP_DECOUP c1\n    c1.1 -> HP\n    c1.2 -> RP\n    \
+                 CAP_DECOUP c2\n    c2.1 -> HP2\n    c2.2 -> RP2\n}\n";
+    // ① + ② in one child: c2 is bound to the declared return (silent), c1 to the
+    // other rail's return (fires).
+    let src = format!(
+        "{CAP_DECOUP}{child}module main {{\n    {PI3_DOMAINS}\
+         CHILD u\n    u.HP -> VDDA\n    u.RP -> GND\n    u.HP2 -> VDDA\n    u.RP2 -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let fired = msgs_of(mcc::errcodes::DECOUPLING_RETURN_MISMATCH, &src);
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|&&c| c == mcc::errcodes::DECOUPLING_RETURN_MISMATCH)
+            .count(),
+        1,
+        "the child cap whose leg the parent binds to the other rail's return must fire once; got codes: {codes:?}"
+    );
+    assert!(
+        fired.iter().any(|m| m.contains("main.u.c1")),
+        "the verdict must name the child part whose leg resolves off the declared return: {fired:?}"
+    );
+
+    // ③ the hot leg reaches no declared class: silence, not a guess.
+    let unreadable = format!(
+        "{CAP_DECOUP}{child}module main {{\n    {PI3_DOMAINS}\
+         CHILD u\n    u.HP -> RAWX\n    u.RP -> GND\n    u.HP2 -> VDDA\n    u.RP2 -> GNDA\n}}\n"
+    );
+    let codes = build_codes(&unreadable);
+    assert!(
+        !codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "a hot leg whose class does not resolve is never guessed past a declaration anchor; got codes: {codes:?}"
+    );
+
+    // ④ the child declares the rail itself.
+    let own = format!(
+        "{CAP_DECOUP}module CHILD() {{\n    domain CD {{ rail [CL, CR]::DC(3.3V) }}\n    \
+         CAP_DECOUP c1\n    c1.1 -> CL\n    c1.2 -> CR\n}}\nmodule main {{\n    CHILD u\n}}\n"
+    );
+    let codes = build_codes(&own);
+    assert!(
+        !codes.contains(&mcc::errcodes::DECOUPLING_RETURN_MISMATCH),
+        "a rail declared by the part's own scope is the same witness as a parent's; got codes: {codes:?}"
+    );
+}
+
+/// The boundary face of 6035 (R4's measured hole): the 100 Ω/0.25 W shunt that
+/// fires in `main` is judged **identically** when it is instantiated one module
+/// down and its legs are bound to the parent's rail. Neither leg carries a role
+/// in its own scope (both read `Signal` there), so the pair comes from the rail
+/// the parent declares, reached by the effective-class walk — and with it the
+/// rail's own declared window, which is why the numbers below are the in-`main`
+/// numbers to the digit (5.25 V far corner, 0.28 W).
+#[test]
+fn shunt_inside_a_submodule_is_judged_through_the_boundary_6035() {
+    let src = format!(
+        "{SHUNT_R}\nmodule CHILD() {{\n    out HA\n    out HB\n    RSHUNT.PWR r1(100Ω, 0.25W)\n    \
+         r1.A -> HA\n    r1.B -> HB\n}}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    io V5R\n    \
+         CHILD u\n    u.HA -> V5R\n    u.HB -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a shunt inside a sub-module, its legs bound to the parent rail, is the same shunt; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("main.u.r1"),
+        "6035 must name the part by its flat path; got: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("0.28 W") && msgs[0].contains("5.25 V"),
+        "the parent rail's declared window is the one across the element, at either layer; got: {msgs:?}"
+    );
+}
+
+/// The boundary walk widens *which layer* supplies the declared pair, never
+/// whether one exists: a child part whose legs land on two bare nets, or across
+/// two different rails' hot faces (a divider's shape), is still not a shunt in
+/// place — no window, no volts across the element, no verdict.
+#[test]
+fn shunt_inside_a_submodule_off_every_rail_pair_is_silent_6035() {
+    let bare = format!(
+        "{SHUNT_R}\nmodule CHILD() {{\n    out HA\n    out HB\n    RSHUNT.PWR r1(100Ω, 0.25W)\n    \
+         r1.A -> HA\n    r1.B -> HB\n}}\nmodule main {{\n    conduit GND @role(main)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    io V5R\n    \
+         CHILD u\n    u.HA -> RAWX\n    u.HB -> RAWY\n}}\n"
+    );
+    let codes = build_codes(&bare);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "legs on two bare nets carry no declared pair at any layer; got codes: {codes:?}"
+    );
+    let two_hots = format!(
+        "{SHUNT_R}\nmodule CHILD() {{\n    out HA\n    out HB\n    RSHUNT.PWR r1(100Ω, 0.25W)\n    \
+         r1.A -> HA\n    r1.B -> HB\n}}\nmodule main {{\n    conduit GND @role(main)\n    \
+         conduit GNDA @role(quiet)\n    \
+         domain DVDD @class(digital) {{ rail [V5R, GND]::DC(5V, tol:±5%) }}\n    \
+         domain AVDD @class(analog) {{ rail [V3R, GNDA]::DC(3.3V) }}\n    io V5R\n    \
+         CHILD u\n    u.HA -> V5R\n    u.HB -> V3R\n}}\n"
+    );
+    let codes = build_codes(&two_hots);
+    assert!(
+        !codes.contains(&mcc::errcodes::SHUNT_DISSIPATION_OVER_RATING),
+        "a part across two hot faces has no return leg, so no rail pair spans it; got codes: {codes:?}"
+    );
+}

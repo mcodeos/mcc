@@ -57,11 +57,26 @@ mod reach;
 mod protect;
 pub(crate) use protect::{check_protect_series_path, check_protect_shunt_reference};
 
+// PI-3 decoupling-return face (power-quality-design.md §2.3). decouple.rs is a
+// sibling leaf like protect.rs: it reads the declared `[hot, ret]` pair through
+// the same `eff_class` read this file owns (hence the `super::` accesses), and
+// pairs with the ruling-8 clause in `check_return_leg_undeclared` — a capacitor
+// is a DC element's complement, judged here instead of there.
+mod decouple;
+pub(crate) use decouple::check_decoupling_return_face;
+
+// The declared-rail read both rules above and below judge an element by: the
+// class each leg resolves to (via `eff_class`, hence `super::` there), the
+// declared DC rails projected onto those classes, and the rails of a part's
+// owning-scope chain. Two rules, one law — a name only ever finds the net a
+// declaration wrote it for.
+mod railface;
+
 // PWR-4b package dissipation (package-thermal-design.md §3). thermal.rs is a
 // sibling leaf like protect.rs: the 6035 owner reads the two quantities the
 // flat entry carries (`resistance_ohm` / `power_rated_w`, decoded from the
-// instance's resolved spec values), the net roles NetIslandIndex declares, and
-// the rail window WindowDeriv resolves — no solver, no new syntax.
+// instance's resolved spec values), the rail pair the element sits across, and
+// that rail's declared window — no solver, no new syntax.
 mod thermal;
 pub(crate) use thermal::check_shunt_dissipation;
 
@@ -2585,6 +2600,14 @@ pub(crate) fn check_return_leg_undeclared(table: &InstTable, results: &mut Vec<N
     for comp in table.get_components() {
         // A through leg is a real two-terminal part wired on both pads.
         if comp.synthetic || comp.unselected || comp.not_fitted || comp.pin_count != 2 {
+            continue;
+        }
+        // A DC element only (ruling 8, 2026-09-16): a capacitor has no DC path,
+        // so a capacitive leg is not a DC relation at all — its return placement
+        // is PI-3's object (6038), which reads the declared [hot, ret] pair
+        // instead. Without this, the two rules would both fire on the exact
+        // shape PI-3 exists for (Cap([hot, wrong-ret])), reporting one fact twice.
+        if comp.element_class == Some(crate::semantic::basic::attr_keys::ElementClass::Capacitive) {
             continue;
         }
         let pins = table.get_pins_of(comp.id);

@@ -30,6 +30,7 @@
 //! shunt whose legs are both supply faces (a divider's middle leg is `Signal` —
 //! no identity anchor, so its potential is not a declared fact either).
 
+use super::railface;
 use super::window::{WindowDeriv, WindowState};
 use super::NetCheckResult;
 use crate::instant::insttab::{InstEntry, InstTable};
@@ -60,6 +61,8 @@ pub(crate) fn check_shunt_dissipation(table: &InstTable, results: &mut Vec<NetCh
 
     let idx = NetIslandIndex::build(table);
     let mut deriv = WindowDeriv::new(table);
+    let classes = railface::scope_classes(table, &idx);
+    let rails = railface::declared_rails(table, &classes);
 
     for comp in candidates {
         let (Some(r), Some(rated)) = (comp.resistance_ohm, comp.power_rated_w) else {
@@ -79,17 +82,37 @@ pub(crate) fn check_shunt_dissipation(table: &InstTable, results: &mut Vec<NetCh
         if nets.len() != 2 {
             continue;
         }
+        // The rail this element sits across, as the window across the element.
+        // Read locally off the island roles first — one leg `Hot`, the other
+        // that rail's `Ret`/`Reference` — which is what makes `V` a declared
+        // value rather than a derivation: a Resolved window is the rail's own
+        // promise, and anything else (NoSupply/Unresolved) is not judged.
         let role_of = |n: u32| idx.get(n).map(|a| a.role);
-        let hot = match (role_of(nets[0]), role_of(nets[1])) {
-            (Some(NetRole::Hot), Some(NetRole::Ret | NetRole::Reference)) => nets[0],
-            (Some(NetRole::Ret | NetRole::Reference), Some(NetRole::Hot)) => nets[1],
-            _ => continue, // not a shunt across one declared rail
-        };
-        // The window of the hot leg is the rail's own declared promise: a
-        // Resolved state is what makes `V` a declared value rather than a
-        // derivation. Anything else (NoSupply/Unresolved) is not judged.
-        let WindowState::Resolved(win) = deriv.window_of_net(hot) else {
-            continue;
+        let (hot, win) = match (role_of(nets[0]), role_of(nets[1])) {
+            (Some(NetRole::Hot), Some(NetRole::Ret | NetRole::Reference)) => {
+                let WindowState::Resolved(w) = deriv.window_of_net(nets[0]) else {
+                    continue;
+                };
+                (nets[0], w)
+            }
+            (Some(NetRole::Ret | NetRole::Reference), Some(NetRole::Hot)) => {
+                let WindowState::Resolved(w) = deriv.window_of_net(nets[1]) else {
+                    continue;
+                };
+                (nets[1], w)
+            }
+            // Neither leg carries a role of its own — which is exactly what every
+            // part inside a sub-module looks like in its own scope. Read the pair
+            // at class level instead: one leg on a declared rail's hot member and
+            // the other on that rail's return, reached across the module boundary
+            // by the effective-class walk, which also supplies the rail's own
+            // declared window (R4's measured hole — this same shunt is judged in
+            // `main` and was silently green one module down, so §3.2's shunt face
+            // only ever held at the top layer).
+            _ => match railface::across_a_declared_rail(table, &idx, &rails, &nets) {
+                Some((hot, w)) => (hot, w),
+                None => continue, // not a shunt across one declared rail
+            },
         };
         let v = win.lo.abs().max(win.hi.abs());
         let p = v * v / r;
