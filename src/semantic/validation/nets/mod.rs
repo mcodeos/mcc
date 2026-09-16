@@ -48,6 +48,15 @@ mod budget_derive;
 // this file and construct reach::ReachScan directly.
 mod reach;
 
+// PWR-5 protection-device placement (exposed-protection-design.md §4). protect.rs
+// is a sibling leaf like budget.rs: the two owners (6032 shunt leg must reach a
+// protective/earth reference, 6033 series element must sit in series on a supply
+// path) read the def-level `protect = shunt|series` declaration carried on the
+// flat entry, and read the "is this net on a supply tree" face from
+// reach::ReachScan.
+mod protect;
+pub(crate) use protect::{check_protect_series_path, check_protect_shunt_reference};
+
 /// Run all electrical net checks and return diagnostics.
 ///
 /// FlatErc rules are declared — and ordered — in `crate::rules`
