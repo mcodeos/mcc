@@ -152,9 +152,16 @@ impl McComponentInst {
             // Component-Spec Separation: a missing required core parameter
             // does not block instantiation — pass1 reports it only in strict
             // mode (E4178, warning) and the instance is created with the
-            // supplied arguments. Excess / unknown / type-mismatched
-            // arguments remain hard errors.
-            Err(ParamBindError::MissingRequired { .. }) => McParamBindings::new(),
+            // supplied arguments. `bind_tolerant` keeps exactly those: the
+            // arguments that did bind, plus a default for every formal whose
+            // declaration records one (CIMP U54) — a default that reached
+            // neither the arguments nor the instance would be lost twice over.
+            // Excess / unknown / type-mismatched arguments remain hard errors.
+            Err(ParamBindError::MissingRequired { .. }) => McParamBindings::bind_tolerant(
+                def.bind_params(),
+                &def.attr_key_names(),
+                param_values,
+            ),
             Err(e) => return Err(InstError::Other(e.to_string())),
         };
 

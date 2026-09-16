@@ -622,6 +622,19 @@ pub struct McParamDeclare {
     /// Semantic type classification — set during parse (explicitly annotated)
     /// or via usage-based inference (unannotated). Controls port filtering.
     pub param_type: McParamType,
+    /// The written default value, as text — `10kΩ`, `X7R`, `FAST`.
+    ///
+    /// This is the one authority for "does this formal carry a default"
+    /// (CIMP U54). A typed form's default is carried by the type kind or by
+    /// the declaration's own kind, and [`Self::recorded`] copies it here as
+    /// the declaration is assembled; an untyped form's default (`sel = FAST`
+    /// with no `::STRING` annotation) is carried by nothing else, so it is
+    /// recorded here and nowhere else. `None` means the formal is required.
+    ///
+    /// Usage-based inference ([`Self::set_param_type`]) may later replace
+    /// `param_type` without touching this field: whether the source wrote a
+    /// default is a fact about the syntax, not about the inferred type.
+    pub default_val: Option<String>,
 }
 
 /// Enum-class parameter declaration — `diel::CAP` or `diel::CAP = X7R`.
@@ -710,6 +723,9 @@ impl McParamDeclare {
         // Syntactic type classification (handles explicitly annotated forms immediately)
         let mut param_type = McParamType::from_ast(node);
 
+        // The written default of a form whose type cannot carry one (CIMP U54).
+        let mut written_default: Option<String> = None;
+
         // Component-instance parameter: `id::Class(k = v)` parses but has no
         // engine consumer — the attributes would be discarded and the
         // declaration downgraded to a plain interface param with no
@@ -763,16 +779,15 @@ impl McParamDeclare {
                                             class_name: class_name.clone(),
                                             default_val: Some(value_name.clone()),
                                         };
-                                        return Some(Self {
+                                        return Some(Self::recorded(
+                                            McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                                                name: name_ids,
+                                                class_name,
+                                                default_val: Some(value_name),
+                                            }),
                                             param_type,
-                                            kind: McParamDeclareKind::EnumClass(
-                                                McEnumClassDeclare {
-                                                    name: name_ids,
-                                                    class_name,
-                                                    default_val: Some(value_name),
-                                                },
-                                            ),
-                                        });
+                                            None,
+                                        ));
                                     }
                                 } else {
                                     // Bare default (no dot): resolve against all known enums.
@@ -791,20 +806,23 @@ impl McParamDeclare {
                                         class_name: class_name.clone(),
                                         default_val: Some(default_str.clone()),
                                     };
-                                        return Some(Self {
+                                        return Some(Self::recorded(
+                                            McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                                                name: name_ids,
+                                                class_name,
+                                                default_val: Some(default_str),
+                                            }),
                                             param_type,
-                                            kind: McParamDeclareKind::EnumClass(
-                                                McEnumClassDeclare {
-                                                    name: name_ids,
-                                                    class_name,
-                                                    default_val: Some(default_str),
-                                                },
-                                            ),
-                                        });
+                                            None,
+                                        ));
                                     }
                                 }
                             }
-                            // Non-enum default: falls through to Single below
+                            // Non-enum default: falls through to Single below.
+                            // The type cannot hold the value, so the
+                            // declaration records it (CIMP U54); dropping it
+                            // here is what let an author's default vanish.
+                            written_default = Some(default_str);
                         }
                     }
                     McParamDeclareKind::Single(name_ids)
@@ -924,14 +942,15 @@ impl McParamDeclare {
                             }
                         }
                         if let Some(name) = inst_name {
-                            return Some(Self {
-                                param_type,
-                                kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                            return Some(Self::recorded(
+                                McParamDeclareKind::EnumClass(McEnumClassDeclare {
                                     name,
                                     class_name,
                                     default_val,
                                 }),
-                            });
+                                param_type,
+                                None,
+                            ));
                         }
                     }
                 }
@@ -1007,7 +1026,7 @@ impl McParamDeclare {
             }
         };
 
-        Some(Self { kind, param_type })
+        Some(Self::recorded(kind, param_type, written_default))
     }
 
     // ── Name matching ──
@@ -1173,7 +1192,54 @@ impl McParamDeclare {
 
     /// Whether this parameter has a default value (making it optional at call sites).
     pub fn has_default_value(&self) -> bool {
-        self.param_type.has_default()
+        self.default_val.is_some()
+    }
+
+    /// Assemble a declaration, recording the written default value.
+    ///
+    /// `written` carries the default of a form whose type cannot hold one:
+    /// the bare-identifier form `sel = FAST`, where the type stays `Unknown`
+    /// and the value would otherwise be dropped on the floor (CIMP U54). Every
+    /// other form goes through [`Self::name_and_default`], the same reading the
+    /// declaration's own kind and type always supported.
+    fn recorded(
+        kind: McParamDeclareKind,
+        param_type: McParamType,
+        written: Option<String>,
+    ) -> Self {
+        let mut decl = Self {
+            kind,
+            param_type,
+            default_val: None,
+        };
+        decl.default_val = decl.name_and_default().map(|(_, dv)| dv).or(written);
+        decl
+    }
+
+    /// The name and default the KIND or the TYPE carries, before they are
+    /// copied onto [`Self::default_val`]. Used only while assembling the
+    /// declaration; every later reader goes through `default_val`.
+    fn name_and_default(&self) -> Option<(McIds, String)> {
+        match &self.kind {
+            McParamDeclareKind::Single(ids) => {
+                let name = ids.get_primary_name()?;
+                self.param_type
+                    .default_value()
+                    .map(|dv| (McIds::from(name.as_str()), dv.to_string()))
+            }
+            McParamDeclareKind::UValue(uval) => uval
+                .default
+                .as_ref()
+                .map(|default| (uval.name.clone(), default.clone())),
+            McParamDeclareKind::EnumClass(ec) => ec
+                .default_val
+                .as_ref()
+                .map(|default| (ec.name.clone(), default.clone())),
+            McParamDeclareKind::Role { name, default_role } => default_role
+                .as_ref()
+                .map(|dr| (name.clone(), dr.to_string())),
+            _ => None,
+        }
     }
 
     // ── Expansion ──
@@ -1207,26 +1273,19 @@ impl McParamDeclare {
     }
 
     pub fn get_name_with_default(&self) -> Option<(McIds, String)> {
-        match &self.kind {
-            McParamDeclareKind::Single(ids) => {
-                let name = ids.get_primary_name()?;
-                self.param_type
-                    .default_value()
-                    .map(|dv| (McIds::from(name.as_str()), dv.to_string()))
-            }
-            McParamDeclareKind::UValue(uval) => uval
-                .default
-                .as_ref()
-                .map(|default| (uval.name.clone(), default.clone())),
-            McParamDeclareKind::EnumClass(ec) => ec
-                .default_val
-                .as_ref()
-                .map(|default| (ec.name.clone(), default.clone())),
-            McParamDeclareKind::Role { name, default_role } => default_role
-                .as_ref()
-                .map(|dr| (name.clone(), dr.to_string())),
-            _ => None,
-        }
+        let default = self.default_val.clone()?;
+
+        let name = match &self.kind {
+            McParamDeclareKind::Single(ids) => McIds::from(ids.get_primary_name()?.as_str()),
+            McParamDeclareKind::UValue(uval) => uval.name.clone(),
+            McParamDeclareKind::EnumClass(ec) => ec.name.clone(),
+            McParamDeclareKind::Role { name, .. } => name.clone(),
+            // A vector formal's members are its expansion, not one value
+            // (matching-rules-design.md §6).
+            McParamDeclareKind::Multiple(_) => return None,
+        };
+
+        Some((name, default))
     }
 
     // ── P2-4: extract port name and members for interface-type params ──
@@ -1297,6 +1356,7 @@ mod tests {
                 kind: crate::semantic::basic::mc_param_type::McParamTypeKind::BareNumeric,
                 direction: None,
             },
+            default_val: None,
         });
         params.declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("dc24v")),
@@ -1304,6 +1364,7 @@ mod tests {
                 kind: crate::semantic::basic::mc_param_type::McParamTypeKind::Label,
                 direction: None,
             },
+            default_val: None,
         });
 
         params.filter_port_spans();
@@ -1335,6 +1396,7 @@ mod tests {
                 kind: crate::semantic::basic::mc_param_type::McParamTypeKind::BareNumeric,
                 direction: None,
             },
+            default_val: None,
         });
         params.filter_port_spans();
 

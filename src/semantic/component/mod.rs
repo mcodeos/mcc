@@ -380,8 +380,21 @@ impl McComponent {
                     let chain_span =
                         (child.get_pos() as usize)..((child.get_pos() + child.get_len()) as usize);
                     if let Some(conds_obj) = McConds::new(&child) {
-                        // Try to evaluate with default params first
-                        if !default_params.is_empty() {
+                        // The fold below freezes the selected block into the
+                        // DEFINITION, so it is sound only when every instance
+                        // selects the same block. A condition that reads a
+                        // formal parameter is answered by the call site, so it
+                        // has to stay a runtime conditional — folding it would
+                        // apply one call site's answer to all of them.
+                        //
+                        // The guard is load-bearing from CIMP U54 on: recording
+                        // a written default (`sel = FAST`) on the declaration
+                        // brings such conditions into the fold's environment
+                        // for the first time, because they can now be
+                        // evaluated at definition time at all.
+                        let foldable = !default_params.is_empty()
+                            && !conds_obj.references_param(&params.names());
+                        if foldable {
                             // The definition's own pins and keys are parsed by
                             // now; a condition reads those, never an instance.
                             if let Some(selected_block) = conds_obj.evaluate(
@@ -811,7 +824,15 @@ impl Mc2Component {
             return Some(id.to_string());
         }
 
-        let bindings = McParamBindings::bind_quiet(&self.base.params, &self.params).ok()?;
+        // A binding failure must not end the search (CIMP U54): a formal with
+        // no argument is one unbound parameter, not evidence that the pin is
+        // absent. The instance path takes the same view — a missing required
+        // parameter does not block instantiation (`mc_comp.rs`) — so an
+        // empty-handed binding set stays a legitimate environment for the
+        // conditional blocks below. Ending the search here is what made "the
+        // parameter is unbound" and "there is no such pin" indistinguishable.
+        let bindings = McParamBindings::bind_quiet(&self.base.params, &self.params)
+            .unwrap_or_else(|_| McParamBindings::new());
         let integer_bindings = Self::integer_param_bindings(&bindings);
         if Self::pins_contain(&self.base.pins, id, &integer_bindings) {
             return Some(id.to_string());

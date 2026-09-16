@@ -585,7 +585,16 @@ impl InstantiationBuilder {
                         if c.nc {
                             McComponentInst::with_nc(&c.name.to_string(), c.base.clone(), &c.params)
                         } else {
-                            McComponentInst::new(&c.name.to_string(), c.base.clone())
+                            // An empty argument list is still a resolved
+                            // parameter list: a formal whose declaration
+                            // records a default contributes it, which is what
+                            // the instance's conditional blocks read (CIMP
+                            // U54). A genuinely required formal left unbound
+                            // binds nothing rather than failing the list.
+                            McComponentInst::with_params(&c.name.to_string(), c.base.clone(), &[])
+                                .unwrap_or_else(|_| {
+                                    McComponentInst::new(&c.name.to_string(), c.base.clone())
+                                })
                         }
                     } else {
                         // NC rule
