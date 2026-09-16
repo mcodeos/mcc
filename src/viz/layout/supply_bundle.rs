@@ -152,27 +152,23 @@ pub fn plan_groups(edges: &[BlockEdge]) -> SupplyGroups {
 ///
 /// Its geometry is deliberately byte-identical to the pre-P1-b anchor, so a
 /// change in the drawing is exactly a change in *which ends have leads* — that is
-/// what makes the batch's predictive gate meaningful.
-fn rail_anchor(b: &McVecBox, target_x: f64, target_y: f64) -> (f64, f64) {
+/// what makes the batch's predictive gate meaningful. Which face was picked, and
+/// therefore the axis the leg meeting it must take, is decided here with the
+/// point: one comparison, one authority (L5).
+fn rail_anchor(b: &McVecBox, target_x: f64, target_y: f64) -> LeadEnd {
     let bx = b.x + b.w / 2.0;
     let by = b.y + b.h / 2.0;
     let dx = target_x - bx;
     let dy = target_y - by;
 
     if dx.abs() >= dy.abs() {
-        // Horizontal: left or right edge
-        if dx > 0.0 {
-            (b.x + b.w, b.y + b.h / 2.0)
-        } else {
-            (b.x, b.y + b.h / 2.0)
-        }
+        // Left or right edge: the outward normal is horizontal.
+        let x = if dx > 0.0 { b.x + b.w } else { b.x };
+        LeadEnd::free((x, b.y + b.h / 2.0), FreeAxis::Horizontal)
     } else {
-        // Vertical: top or bottom edge
-        if dy > 0.0 {
-            (b.x + b.w / 2.0, b.y + b.h)
-        } else {
-            (b.x + b.w / 2.0, b.y)
-        }
+        // Top or bottom edge: the outward normal is vertical.
+        let y = if dy > 0.0 { b.y + b.h } else { b.y };
+        LeadEnd::free((b.x + b.w / 2.0, y), FreeAxis::Vertical)
     }
 }
 
@@ -188,7 +184,7 @@ fn side_point(b: &McVecBox, ep: &crate::vector::graph::EntryPoint) -> (f64, f64)
 
 /// One end's landing on a box: the lead's root and its tip.
 ///
-/// The root is where the lead meets the border (also what M13 measures a pin's
+/// The root is where the lead meets the border (also what M13 measures a
 /// reachability from, so a wire must still end there); the tip is the outer end of
 /// the drawn lead. **L5**: a wire approaches a lead along the lead's own axis, so
 /// a lead on a horizontal face is entered from its tip's row -- running at the
@@ -200,12 +196,33 @@ fn side_point(b: &McVecBox, ep: &crate::vector::graph::EntryPoint) -> (f64, f64)
 pub struct LeadEnd {
     pub root: (f64, f64),
     pub tip: (f64, f64),
+    /// The axis the leg meeting this end must take, when the end draws no lead to
+    /// turn the run for it. `None` for a lead: its own stub already puts the run
+    /// on the lead's axis.
+    pub free_axis: Option<FreeAxis>,
+}
+
+/// The axis of the leg that meets a landing which draws no lead (**L5**, U64).
+///
+/// A lead turns the run onto its axis by being drawn; a landing that is only a
+/// point on a border has nothing to turn it, so the leg attached there must
+/// itself lie along the border's outward normal — otherwise it runs along the
+/// border, which is the frame line it just landed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FreeAxis {
+    Horizontal,
+    Vertical,
 }
 
 impl LeadEnd {
-    /// A landing that is not a lead (the facing-edge fallback): one point, no axis.
-    fn point(p: (f64, f64)) -> Self {
-        Self { root: p, tip: p }
+    /// A landing that is not a lead (the facing-edge fallback): one point, plus
+    /// the axis the leg meeting it must take.
+    fn free(p: (f64, f64), axis: FreeAxis) -> Self {
+        Self {
+            root: p,
+            tip: p,
+            free_axis: Some(axis),
+        }
     }
 
     /// The row the wire must run along before it comes in over the lead.
@@ -236,6 +253,7 @@ fn lead_anchor(b: &McVecBox, pins: &[i64]) -> Option<LeadEnd> {
             LeadEnd {
                 root,
                 tip: (root.0 + outward.0, root.1 + outward.1),
+                free_axis: None,
             }
         })
     })
@@ -260,7 +278,7 @@ fn end_anchor(b: &McVecBox, pins: &[i64], target: (f64, f64), label: &str, end: 
         b.name,
         pins.len()
     );
-    LeadEnd::point(rail_anchor(b, target.0, target.1))
+    rail_anchor(b, target.0, target.1)
 }
 
 /// The centreline of a wire drawn on its own, between two landings (**L3+L5**).
@@ -271,7 +289,7 @@ fn end_anchor(b: &McVecBox, pins: &[i64], target: (f64, f64), label: &str, end: 
 /// tip's row, so the free run never lies along a box border. On a side face the
 /// tip shares the root's row, so those legs collapse and the wire keeps the one
 /// segment it always had. The free run is axis-aligned, one segment when the tips
-/// share a row or a column and an L (horizontal first) otherwise.
+/// share a row or a column and an L otherwise.
 fn lead_run_points(from: LeadEnd, to: LeadEnd) -> Vec<(f64, f64)> {
     let mut pts: Vec<(f64, f64)> = Vec::new();
     let mut push = |p: (f64, f64)| {
@@ -282,7 +300,7 @@ fn lead_run_points(from: LeadEnd, to: LeadEnd) -> Vec<(f64, f64)> {
     push(from.root);
     push(from.tip);
     if (from.tip.0 - to.tip.0).abs() >= 1.0 && (from.tip.1 - to.tip.1).abs() >= 1.0 {
-        push((to.tip.0, from.tip.1));
+        push(elbow(from, to));
     }
     push(to.tip);
     push(to.root);
@@ -302,6 +320,30 @@ fn lead_run_points(from: LeadEnd, to: LeadEnd) -> Vec<(f64, f64)> {
         }
     }
     out
+}
+
+/// The bend of an L-shaped free run (**U64**).
+///
+/// In a horizontal-first run the leg out of `from` is horizontal and the leg into
+/// `to` is vertical, so the two ends do not always want the same order. What each
+/// end wants is its border's normal: a free `to` on a vertical border (normal
+/// horizontal) wants vertical-first, so its arriving leg runs along that normal;
+/// a free `from` on a horizontal border (normal vertical) also wants
+/// vertical-first, for its departing leg. With both ends free on alike borders the
+/// two wants are opposite and one leg lies along a border either way; the `to` end
+/// is asked first, because the run that comes in square on its landing is the one
+/// L5 is about.
+fn elbow(from: LeadEnd, to: LeadEnd) -> (f64, f64) {
+    let vertical_first = match (to.free_axis, from.free_axis) {
+        (Some(axis), _) => axis == FreeAxis::Horizontal,
+        (None, Some(axis)) => axis == FreeAxis::Vertical,
+        (None, None) => false,
+    };
+    if vertical_first {
+        (from.tip.0, to.tip.1)
+    } else {
+        (to.tip.0, from.tip.1)
+    }
 }
 
 /// One power label drawn as a shared trunk: a vertical rail plus a tap per member.
@@ -882,6 +924,63 @@ mod tests {
         assert_eq!(
             plan.individual[0].points,
             vec![(100.0, 50.0), (300.0, 50.0)]
+        );
+    }
+
+    /// **U64**: an end that draws no lead has no stub to turn the run for it, so
+    /// the leg that meets it must be the border's normal -- the L's order is the
+    /// end's, not a fixed horizontal-first. Pinned through both faces, since the
+    /// two ends ask for opposite orders.
+    #[test]
+    fn individual_edge_meets_a_leadless_end_square_on_its_border() {
+        // The arrival: a free `to` whose border is the vertical x=300 wants the
+        // run to come in horizontally. A horizontal-first run would instead put
+        // the arriving leg on that border.
+        let mut g = crate::vector::graph::McVecGraph::new(0, "test".into());
+        g.boxes
+            .push(box_with_lead(1, "a", 0.0, 0.0, 11, EntrySide::Right, 0.25));
+        g.boxes.push(box_at(2, "b", 300.0, 200.0));
+        let e = {
+            let mut e = edge(1, 2, "V1V2", EdgeKind::Power);
+            e.from_pins = vec![11];
+            e
+        };
+        let plan = build_plan_for(&g, &[e]);
+        assert_eq!(
+            plan.individual[0].points,
+            vec![(100.0, 25.0), (108.0, 25.0), (108.0, 250.0), (300.0, 250.0)],
+            "the free end at (300, 250) is entered along the border's normal"
+        );
+
+        // The departure: a free `from` on a horizontal face wants the run to
+        // leave vertically, and the other end is a lead whose run sits on its
+        // tip's row either way.
+        let mut g2 = crate::vector::graph::McVecGraph::new(0, "test".into());
+        g2.boxes.push(box_at(1, "a", 200.0, 400.0));
+        g2.boxes.push(box_with_lead(
+            2,
+            "b",
+            350.0,
+            0.0,
+            21,
+            EntrySide::Bottom,
+            0.5,
+        ));
+        let e = {
+            let mut e = edge(1, 2, "V1V2", EdgeKind::Power);
+            e.to_pins = vec![21];
+            e
+        };
+        let plan = build_plan_for(&g2, &[e]);
+        assert_eq!(
+            plan.individual[0].points,
+            vec![
+                (250.0, 400.0),
+                (250.0, 108.0),
+                (400.0, 108.0),
+                (400.0, 100.0)
+            ],
+            "the free end at (250, 400) is left along the border's normal"
         );
     }
 
