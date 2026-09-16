@@ -67,8 +67,9 @@ use crate::semantic::validation::nets::{
     check_power_bridge_loop, check_power_nets, check_power_rail_contract,
     check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
     check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
-    check_reference_island_root, check_return_leg_undeclared, check_role_ref_missing_bridge,
-    check_shunt_dissipation, check_single_point_nets, check_sink_nominal_mismatch,
+    check_rail_nature_consistency, check_reference_island_root, check_return_leg_undeclared,
+    check_role_ref_missing_bridge, check_shunt_dissipation, check_single_point_nets,
+    check_sink_nominal_mismatch,
     check_sink_window_mismatch, check_unconnected_outputs, check_undriven_nets,
     check_undriven_sink_net, check_unselected_abstract, check_unused_module_ports,
     check_unwired_instances, check_voltage_mismatch, NetCheckResult,
@@ -1103,6 +1104,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_protect_series_path,
     },
+    // §3.1 @nature word vs rail axis (ac-axis-interface-design.md §6 R4, ruled
+    // 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::RAIL_NATURE_MISMATCH,
+        name = "rail-nature-mismatch",
+        title = "a domain's @nature word contradicts the axis of a rail contract declared inside it",
+        severity = Info,
+        domain = Power,
+        family = None,
+        doc = "§3.1 domain `@nature(ac|dc)` vs rail `::AC*`/`::DC`: the two statements name the same axis, so writing both makes them agree (intent-design.md §5.2 registers the `nature` word as the face's default AC/DC axis, same-source as the rail contract). Advisory Info because a missing word is the legitimate default — the rail contract then states the axis alone — so only the both-written contradiction is judged, and it is judged decl-locally on the contradicting rail row. Each side is mapped onto an axis rather than compared by spelling (a lowercase value word against a `::` iface name), and a word outside the registered `{ac, dc}` set names no axis here (the value-word vocabulary owns that misspelling).",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_rail_nature_consistency,
+    },
     // PWR-4b package dissipation (package-thermal-design.md §3, ruled
     // 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
     declare_flat_erc_rule! {
@@ -1680,14 +1695,14 @@ mod tests {
         POWER_PIN_DECODE, POWER_PIN_RETURN_MISSING, POWER_RAIL_DECODE, POWER_RAIL_TWO_ROOTS,
         POWER_SINK_NOMINAL_MISMATCH, POWER_SINK_WINDOW_MISMATCH, POWER_SOURCE_CONTENTION,
         PROTECTIVE_MULTI_BRIDGE, PROTECT_SERIES_NOT_IN_PATH, PROTECT_SHUNT_NO_REFERENCE,
-        PULLUP_DEGENERATE, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED, ROLE_REF_MISSING_BRIDGE,
-        SHUNT_DISSIPATION_OVER_RATING, SINK_NET_NO_SOURCE,
+        PULLUP_DEGENERATE, RAIL_NATURE_MISMATCH, REFERENCE_ISLAND_ROOT, RETURN_LEG_UNDECLARED,
+        ROLE_REF_MISSING_BRIDGE, SHUNT_DISSIPATION_OVER_RATING, SINK_NET_NO_SOURCE,
     };
 
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 43] = [
+    const FLAT_ERC_ORDER: [u32; 44] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1730,6 +1745,7 @@ mod tests {
         EXPOSED_NET_NO_CLAMP, // PWR-6 exposed-net clamp coverage (tail append)
         PROTECT_SHUNT_NO_REFERENCE, // PWR-5 shunt leg must reach a protective/earth ref (tail append)
         PROTECT_SERIES_NOT_IN_PATH, // PWR-5 series element must sit in series on a supply path
+        RAIL_NATURE_MISMATCH,       // §3.1 @nature word vs rail axis (ac-axis)
         SHUNT_DISSIPATION_OVER_RATING, // PWR-4b shunt heat vs package rating (tail append)
     ];
 
@@ -2266,7 +2282,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (150, 0, 3));
+        assert_eq!((strong, doc, note), (151, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 

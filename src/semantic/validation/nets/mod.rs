@@ -16,7 +16,7 @@ use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::McAttrVal;
 use crate::semantic::component::mc_pins::{McPinPort, McPwrPin, PwrDir};
 use crate::semantic::component::McComponent;
-use crate::semantic::module::pi::{decode_pwr_pin, L1PwrPin, McPowerDecls};
+use crate::semantic::module::pi::{decode_pwr_pin, L1PwrPin, McPowerDecls, RailAxis};
 use crate::semantic::pwrid::{self, Face};
 use crate::semantic::validation::finding::CheckFinding;
 use std::collections::HashSet;
@@ -1290,6 +1290,48 @@ pub(crate) fn check_power_rail_two_roots(table: &InstTable, results: &mut Vec<Ne
                 });
             } else {
                 first.insert(r.hot.as_str(), i);
+            }
+        }
+    }
+}
+
+/// §3.1 domain `@nature(ac|dc)` vs the axis its rail rows name (ac-axis R4):
+/// the word and the `::` contract declare the same axis, so writing both makes
+/// them agree — a disagreement is a face whose default contradicts a rail
+/// inside it. Advisory Info, decl-local on the contradicting rail row (the row
+/// an author edits), never a gate: a domain writing no word is the registered
+/// default (intent-design.md §5.2), its rail contracts stating the axis alone.
+/// Each side is mapped onto an axis (`RailAxis`) instead of comparing
+/// spellings, so a word outside `{ac, dc}` and a row whose iface names no axis
+/// both pass unjudged rather than mismatching by default.
+pub(crate) fn check_rail_nature_consistency(table: &InstTable, results: &mut Vec<NetCheckResult>) {
+    for (pi, uri) in power_intent_defs(table) {
+        for d in pi.l1_domain_natures() {
+            let Some(word) = d.nature.as_deref() else {
+                continue;
+            };
+            let Some(axis) = RailAxis::of_nature_word(word) else {
+                continue;
+            };
+            for r in &d.rails {
+                let Some(row_axis) = RailAxis::of_iface(&r.iface) else {
+                    continue;
+                };
+                if row_axis == axis {
+                    continue;
+                }
+                results.push(NetCheckResult {
+                    check: "rail-nature-mismatch",
+                    severity: "info",
+                    message: crate::errcodes::format_msg(
+                        crate::errcodes::RAIL_NATURE_MISMATCH,
+                        &[&d.name, &word, &r.iface],
+                    ),
+                    net_name: r.hot.clone(),
+                    code: crate::errcodes::RAIL_NATURE_MISMATCH,
+                    pos: r.span.start as u32,
+                    uri: uri.clone(),
+                });
             }
         }
     }

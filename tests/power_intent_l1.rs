@@ -81,6 +81,13 @@
 //!   row drives; a guarantee a genuine (non-degenerate) rail window does not
 //!   cover can deliver outside the rail → Error. A Src landing on a plain
 //!   driven node, or a bare-nominal rail with no ±tol, is not cross-checked.
+//! * **§3.1 rail axis vs @nature** (`RAIL_NATURE_MISMATCH` = 6034,
+//!   ac-axis-interface-design.md §6 R4) — a domain's `@nature(ac|dc)` word and
+//!   the `::AC*`/`::DC` contract of a rail inside it declare the same axis, so
+//!   writing both makes them agree (advisory Info). Only the both-written
+//!   contradiction is judged, decl-locally on the rail row: a missing word is
+//!   the registered default (the rail contract states the axis alone), and each
+//!   side is mapped onto an axis rather than compared by spelling.
 //!
 //! Golden board (`mcs/pwrint/src/main.mc`) shape: GND carries `@star`, so its
 //! two parallel `@bridge(GND, GNDA)` legs are discharged (that island holds the
@@ -288,6 +295,56 @@ fn rail_same_hot_in_two_domains_fires_two_roots() {
     assert!(
         codes.contains(&mcc::errcodes::POWER_RAIL_TWO_ROOTS),
         "two rails on one hot is a P3 two-roots conflict and must fire 6010; got codes: {codes:?}"
+    );
+}
+
+// §3.1 @nature word vs rail axis (ac-axis-interface-design.md §6 R4, ruled
+// 2026-09-16).
+//
+// The domain's `@nature(ac|dc)` word and the `::AC*`/`::DC` contract of a rail
+// declared inside it name the same axis, so writing both makes them agree. The
+// two sides are written in different vocabularies (a lowercase value word
+// against a `::` iface name), so the verdict maps each onto an axis instead of
+// comparing spellings.
+
+/// A face whose `@nature` word contradicts a rail inside it is reported, in
+/// both directions, at the contradicting rail row.
+#[test]
+fn rail_nature_contradicting_rail_axis_is_reported() {
+    let src = "module main {\n    conduit GND @role(main)\n    \
+        domain MAINS @nature(ac) { rail [VBUS, GND]::DC(310V) }\n    \
+        domain VBULK @nature(dc) { rail [L, N]::AC(230V, 50Hz) }\n}\n";
+    let codes = build_codes(src);
+    assert!(
+        codes.contains(&mcc::errcodes::RAIL_NATURE_MISMATCH),
+        "an @nature(ac) face with a ::DC rail (and the mirror) must fire 6034; got codes: {codes:?}"
+    );
+    let msgs = msgs_of(mcc::errcodes::RAIL_NATURE_MISMATCH, src);
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("declares @nature(ac)") && m.contains("writes DC")),
+        "6034 must name the word and the contradicting contract: {msgs:?}"
+    );
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("declares @nature(dc)") && m.contains("writes AC")),
+        "the mirror direction must be named too: {msgs:?}"
+    );
+}
+
+/// Silence where there is nothing to contradict: agreeing words, a face writing
+/// no word (the registered default — its rail contract states the axis alone),
+/// and a rail whose iface names no axis at all.
+#[test]
+fn rail_nature_agreement_and_absence_are_clean() {
+    let src = "module main {\n    conduit GND @role(main)\n    \
+        domain MAINS @nature(ac) { rail [L, N]::AC(230V, 50Hz) }\n    \
+        domain VBULK @nature(dc) { rail [VB, GND]::DC(310V) }\n    \
+        domain PLAIN { rail [VDD, GND]::DC(3.3V) }\n}\n";
+    let codes = build_codes(src);
+    assert!(
+        !codes.contains(&mcc::errcodes::RAIL_NATURE_MISMATCH),
+        "agreeing words and absent words must stay silent; got codes: {codes:?}"
     );
 }
 
