@@ -224,8 +224,8 @@ pub fn pick_router(intent: &RouteIntent) -> RouterChoice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::EndpointRef;
     use crate::vector::graph::netdef::NetRole;
+    use crate::vector::graph::EndpointRef;
 
     // intent builder helper (independent of graph, hand-crafted directly)
 

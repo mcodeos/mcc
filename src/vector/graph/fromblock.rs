@@ -369,8 +369,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 .clone()
                 .or_else(|| entry.fallback_pos.clone())
                 .or_else(|| {
-                    pins
-                        .first()
+                    pins.first()
                         .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
                 });
             Some(b)
@@ -615,8 +614,7 @@ fn build_mc_vec_graph_inner(
                     .clone()
                     .or_else(|| entry.fallback_pos.clone())
                     .or_else(|| {
-                        pins
-                            .first()
+                        pins.first()
                             .and_then(|p| p.src_pos.clone().or_else(|| p.fallback_pos.clone()))
                     });
                 graph.boxes.push(b);
@@ -650,6 +648,7 @@ fn build_mc_vec_graph_inner(
                 b.set_pins(box_pins);
                 b.boundary_ports = boundary_ports_of(&ports);
                 apply_reserved_overrides(&mut b); // ★ Reserved: module port layout
+
                 // G16: module ports carry declaration spans (backfill_port_decl_pos);
                 // prefer the first port when the module entry itself has none.
                 b.source_span = entry
@@ -691,7 +690,8 @@ fn build_mc_vec_graph_inner(
                             inst_path,
                             scope_chain,
                         );
-                        b.source_span = entry.src_pos.clone().or_else(|| entry.fallback_pos.clone());
+                        b.source_span =
+                            entry.src_pos.clone().or_else(|| entry.fallback_pos.clone());
                         graph.boxes.push(b);
                         box_ids_set.insert(id);
                     }
