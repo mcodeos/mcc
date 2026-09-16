@@ -23,7 +23,14 @@
 //! separate question from fencing the behavior.
 //!
 //! Verified identical pre- and post-S1 by running this file against the stashed
-//! (pre-S1) sources: 4 cells quiet, 4 cells as asserted below, in both trees.
+//! (pre-S1) sources: the same verdicts in both trees.
+//!
+//! Every cell below reads quiet, and the parallel shape mismatch (E4005) has no
+//! trigger in this frame: the code reports it for a `+` whose paired faces
+//! really disagree in width, and no form written here presents such a pair. The
+//! form closest to one — `R101 - A + R102` — pairs instead, because a `-`
+//! chain's written end is a face of the operand (`R101 - A` ends on the net
+//! `A`): Pass1 reads that face off the phrase accessors, and Pass2 agrees.
 //!
 //! The real-board no-regression evidence lives in the `pwrint` / `hbl` netdiff
 //! goldens (design doc §6 item 5); this file covers the grammar forms those
@@ -114,13 +121,12 @@ fn fence__column_plus_wider_column_quiet() {
     assert!(!has_e4005(&codes), "got {codes:?}");
 }
 
-// E4005 cells
-
-/// `R101 - A + R102` — the only source-reachable form here that fires E4005 in
-/// both trees. Whatever the accumulated `-` operand presents on the paired
-/// face, it does not match the two-pin row's, so the parallel is rejected.
+/// `R101 - A + R102` — quiet: the two branches pair on both faces. A `-`
+/// chain's written end is its right face (`R101 - A` ends on the net `A`), so
+/// the two operands are 1-row branches and `+` ties `R101.1` to `R102.1` and
+/// `A` to `R102.2`.
 #[test]
-fn fence__minus_chain_plus_row_fires_e4005() {
+fn fence__minus_chain_plus_row_quiet() {
     let codes = codes_of("    R101 - A + R102", "/mcc/par-rr.mc");
-    assert!(has_e4005(&codes), "expected E4005; got {codes:?}");
+    assert!(!has_e4005(&codes), "got {codes:?}");
 }

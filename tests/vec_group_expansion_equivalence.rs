@@ -19,12 +19,15 @@
 //! partition. That is what it means for the expansion to be "the statements
 //! written out" — no more and no less.
 //!
-//! Two further cells pin the ruling's *boundary*, which is what decides
+//! Further cells pin the ruling's *boundary*, which is what decides
 //! whether a `Group` can ever be a **lane item** in the lane-by-lane wiring
 //! (`collect_one_lane_item`):
 //!
 //! - A **one-element** group is not a statement list at all — it is the
 //!   operand it writes, so it is see-through even inside a lane chain.
+//! - That see-through reads the operand **as written**: an instance end
+//!   exposes a face through the accessors, a bare net name does not, and the
+//!   name must be re-read rather than dropped (`(A - B) - C`, `(A) - R101`).
 //! - A **multi-statement** group still expands to statements when it sits in a
 //!   lane-triggering chain, so no multi-opd group ever reaches lane wiring.
 //!   The per-lane distribution M11.4 sketched for it is therefore dead: there
@@ -43,23 +46,10 @@ use mcc::{McIds, McURI};
 const RES2: &str =
     "component RES2(res::INT) {\n    pins = [\n        1 = 1\n        2 = 2\n    ]\n}\n";
 
-/// Build `main` and return (diagnostic codes sorted, net partition).
-///
-/// The net partition is normalized to a sorted list of sorted member lists:
-/// net *names* are not part of the claim (they are synthesized), the
-/// **grouping of points** is.
-fn build(statements: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
-    let _lock = common::lock();
-    common::reset();
-    let src = format!(
-        "{RES2}module main {{\n    RES2 R101(1), R102(1), R103(1), R104(1), R105(1), R106(1)\n{statements}\n}}\n"
-    );
-    let u = McURI::from(uri);
-    mcc::mcc_load_from_string(&u, &src);
-    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
-    let mut codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
-    codes.sort_unstable();
-
+/// The net partition of `main`: a sorted list of sorted member lists. Net
+/// *names* are not part of the claim (they are synthesized), the **grouping of
+/// points** is.
+fn partition_of(net_store: &mcc::NetTableStore) -> Vec<Vec<String>> {
     let mut partition: Vec<Vec<String>> = net_store
         .get("main")
         .map(|t| {
@@ -74,7 +64,38 @@ fn build(statements: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
         })
         .unwrap_or_default();
     partition.sort();
-    (codes, partition)
+    partition
+}
+
+/// Build `main` and return (diagnostic codes sorted, net partition).
+fn build(statements: &str, uri: &str) -> (Vec<u32>, Vec<Vec<String>>) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!(
+        "{RES2}module main {{\n    RES2 R101(1), R102(1), R103(1), R104(1), R105(1), R106(1)\n{statements}\n}}\n"
+    );
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (_, _, _, net_store) = mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let mut codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    codes.sort_unstable();
+    (codes, partition_of(&net_store))
+}
+
+/// Build a `main` holding only `statements` (ports `X` in / `A`, `B` out) and
+/// return (net partition, component-instance count). The count is read through
+/// [`mcc::TreeView`] rather than inferred from the partition, so a duplicate
+/// instance cannot hide behind shared pins.
+fn build_counted(statements: &str, uri: &str) -> (Vec<Vec<String>>, usize) {
+    let _lock = common::lock();
+    common::reset();
+    let src = format!("{RES2}module main {{\n    in X\n    out A, B\n{statements}\n}}\n");
+    let u = McURI::from(uri);
+    mcc::mcc_load_from_string(&u, &src);
+    let (inst, arena, store, net_store) =
+        mcc::mcc_build_with_nets(&McIds::from("main"), &u).expect("build");
+    let count = mcc::TreeView::new(&arena, &store).components(&inst).count();
+    (partition_of(&net_store), count)
 }
 
 /// `opd1 - (s1, s2) + opd2` must equal the two statements written out: the
@@ -234,6 +255,58 @@ fn group_expansion__unary_group_is_see_through_on_the_adjacent_leg() {
     }
 }
 
+/// See-through is **look through the parentheses at the operand inside**, and
+/// the operand keeps its own written form: an instance end exposes a face
+/// through the accessors, a bare net name does not. The cells above all end on
+/// an instance, so they missed the name case, where the group reduced to empty
+/// faces and the following leg was dropped with no diagnostic at all —
+/// `(A - B) - C` lost `C`, and `(A) - R101` lost `A`.
+#[test]
+fn group_expansion__unary_group_of_a_named_operand_is_see_through() {
+    for (grouped_src, plain_src, uri) in [
+        // Group member is a *statement*; its exposed end is a bare net.
+        (
+            "    io A\n    io B\n    io C\n    (A - B) - C",
+            "    io A\n    io B\n    io C\n    A - B - C",
+            "/mcc/group-named-stmt-right.mc",
+        ),
+        (
+            "    io A\n    io B\n    io C\n    A - (B - C)",
+            "    io A\n    io B\n    io C\n    A - B - C",
+            "/mcc/group-named-stmt-left.mc",
+        ),
+        (
+            "    io A\n    io B\n    (A - B) - R101",
+            "    io A\n    io B\n    A - B - R101",
+            "/mcc/group-named-stmt-inst.mc",
+        ),
+        // Group member is the bare net itself.
+        (
+            "    io A\n    (A) - R101",
+            "    io A\n    A - R101",
+            "/mcc/group-named-net-left.mc",
+        ),
+        (
+            "    io A\n    R101 - (A)",
+            "    io A\n    R101 - A",
+            "/mcc/group-named-net-right.mc",
+        ),
+    ] {
+        let (grouped, grouped_nets) = build(grouped_src, uri);
+        let (plain, plain_nets) = build(plain_src, &format!("{uri}.flat"));
+
+        assert_eq!(grouped, plain, "same diagnostics for {grouped_src}");
+        assert_eq!(
+            grouped_nets, plain_nets,
+            "same net partition for {grouped_src}"
+        );
+        assert!(
+            grouped_nets.iter().flatten().count() >= 2,
+            "expected a real net partition for {grouped_src}, got {grouped_nets:?}"
+        );
+    }
+}
+
 /// The same boundary on the other side: a **multi-statement** group is a
 /// statement list everywhere, including when its branches carry `_` leads that
 /// force the lane-by-lane path, so it expands to statements before member
@@ -258,5 +331,40 @@ fn group_expansion__multi_statement_group_expands_in_a_lane_chain() {
     assert!(
         grouped_nets.iter().flatten().count() >= 2,
         "expected a real net partition, got {grouped_nets:?}"
+    );
+}
+
+/// Law 2 of `mcrule.md` §10.6: the operand written **once outside** the group
+/// keeps **one identity** across the expanded branches. `X -> RES2(15) -> (A,
+/// B)` writes one constructor, so it must instantiate one device, and both
+/// branches leave from the net at its far pin (A and B end on ONE net).
+///
+/// This is the instance-identity half of the expansion, invisible to the
+/// partition-equivalence cells above: those reference **declared** instances,
+/// where sharing one named instance between two statements is inherent. An
+/// inline constructor is where a copy would become a ghost device — and it
+/// would also put A and B on separate nets, turning the fan-out into two
+/// independent chains.
+#[test]
+fn group_expansion__written_once_outer_operand_keeps_one_identity() {
+    let (nets, count) = build_counted("    X -> RES2(15) -> (A, B)", "/mcc/group-shared-once.mc");
+
+    assert_eq!(
+        count, 1,
+        "one written constructor must yield one instance; nets {nets:?}"
+    );
+    assert_eq!(
+        nets.len(),
+        2,
+        "the far pin is one point, so the branches share a net; got {nets:?}"
+    );
+
+    let branch_net = nets
+        .iter()
+        .find(|ps| ps.iter().any(|p| p == "A"))
+        .unwrap_or_else(|| panic!("no net carrying A; got {nets:?}"));
+    assert!(
+        branch_net.iter().any(|p| p == "B"),
+        "both branches leave from the same far pin, so A and B share one net; got {nets:?}"
     );
 }

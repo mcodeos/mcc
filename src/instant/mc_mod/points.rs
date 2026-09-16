@@ -388,13 +388,20 @@ impl InstantiationBuilder {
             }
 
             McPhrase::Series(phrases, _) => {
-                // P1-E2 companion: Parallel inner may nest Series (rare).
-                // `get_left_points` originally returned empty for Series, changed to return
-                // **first**
-                // sub phrase's left points (chain start), consistent with `_from_phrase`
-                // semantics for Series.
+                // Chain start: the first member's left points, matching
+                // `get_left_points_from_phrase` for a Series. That member can
+                // carry no face through the accessors (a bare `Label` / `List` /
+                // `Interface` endpoint), and skipping it swallowed the whole leg
+                // of a see-through one-element group — `(A -> B) -> C` dropped
+                // `C`. Read it by name then, the same empty-face fallback the
+                // Group and Parallel arms apply.
                 if let Some(first) = phrases.first() {
-                    self.get_left_points(first)
+                    let pts = self.get_left_points(first)?;
+                    if pts.is_empty() {
+                        self.get_left_points_from_phrase(first)
+                    } else {
+                        Ok(pts)
+                    }
                 } else {
                     Ok(Vec::new())
                 }
@@ -1039,10 +1046,16 @@ impl InstantiationBuilder {
             }
 
             McPhrase::Series(phrases, _) => {
-                // P1-E2 companion: Series in get_right_points returns **last**
-                // sub phrase's right points (chain endpoint).
+                // Chain end: the last member's right points (mirror of the
+                // get_left_points Series arm, including its empty-face fallback
+                // to the member's named form).
                 if let Some(last) = phrases.last() {
-                    self.get_right_points(last)
+                    let pts = self.get_right_points(last)?;
+                    if pts.is_empty() {
+                        self.get_right_points_from_phrase(last)
+                    } else {
+                        Ok(pts)
+                    }
                 } else {
                     Ok(Vec::new())
                 }
