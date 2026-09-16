@@ -159,9 +159,6 @@
 //5. support data
 #define MCAST_SET                       111
 #define MCAST_SET_ATTRIBUTES            112
-#define MCAST_KVS                       113
-#define MCAST_KVS_KEY                   114
-#define MCAST_KVS_VALUE                 115
 #define MCAST_RANGE_PLUSMINUS           117
 #define MCAST_UVALUE_AT                 118
 #define MCAST_SQUARE_VEC                119

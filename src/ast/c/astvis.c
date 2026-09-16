@@ -40,7 +40,7 @@ static const char* type_names[] = {
 
     [11] = "component", [12] = "module",   [13] = "interface",
     [14] = "function",  [15] = "enum",     [16] = "define",
-    [17] = "use",       [18] = "use_pub",
+    [17] = "use",       [18] = "use_pub",  [19] = "capability",
 
     [21] = "name",      [22] = "params_pre", [23] = "params",
     [24] = "param",     [25] = "body",     [26] = "declare",
@@ -77,11 +77,12 @@ static const char* type_names[] = {
     [87] = "judge_greaterthan",[88] = "judge_lesseqthan",
     [89] = "judge_greatereqthan",[90] = "judge_bitand",
     [91] = "judge_bitor",[92] = "judge_in",
+    [94] = "abstract",   [95] = "variant",  [96] = "adopts",
 
     [101] = "uri_prefix",[102] = "uri_version",[103] = "uri_module",
     [104] = "uri_file",  [105] = "uri_asid",   [106] = "uri_import_ids",
 
-    [111] = "set",       [112] = "set_attributes",[113] = "kvs",
+    [111] = "set",       [112] = "set_attributes",
 };
 
 // Get type name
