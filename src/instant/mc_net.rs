@@ -496,6 +496,22 @@ pub struct PortInst {
     /// faces carries `None`. Set at `instantiate_interface`; flatten reads it
     /// for member roles.
     pub dc_pair: Option<(String, String)>,
+
+    /// The voltage this port was DECLARED at — the sole scalar `Volt` argument
+    /// in the port's own `::Iface(...)` declaration (`[VDD_3V3,GND]::DC(3.3V)`
+    /// → `Some(3.3)`). Read by the argument binders to pair an actual argument
+    /// with the formal port that declares the same value.
+    ///
+    /// A declared value, never a spelled one: the pairing used to compare
+    /// digit-V-digit fragments of the two names, which made `V3V3` match
+    /// `VDD_3V3` because both spell 3.3 volts as the same text. Value identity
+    /// is the only thing that decides (AGENTS.md "no guessing from names").
+    ///
+    /// `None` when the declaration carries no `Volt` argument, when it carries
+    /// more than one (do not pick), or when the value is a range / `±` literal
+    /// (`::DC(2.5V~5.5V)` — a range is not a value, so it pairs with nothing).
+    /// Set at `instantiate_interface`.
+    pub volt: Option<f64>,
 }
 
 impl PortInst {
@@ -509,6 +525,7 @@ impl PortInst {
             bus_members: Vec::new(),
             node_id: None,
             dc_pair: None,
+            volt: None,
         }
     }
 
@@ -524,6 +541,7 @@ impl PortInst {
             bus_members: members,
             node_id: None,
             dc_pair: None,
+            volt: None,
         }
     }
 

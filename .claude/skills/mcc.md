@@ -24,6 +24,17 @@
   from the language rather than extending the list. (Example: P2-5 lane
   expansion decided by `fc_params_reference_bus_in_set`, not by "is this
   method called Pullup".)
+- **Never infer anything from the shape of a name.** The bullet above covers
+  name *lists*; this one covers name *glyphs* generally — a prefix / suffix /
+  substring / case test, a digit-letter pattern (`contains('V')` plus a digit
+  count), a length threshold, or a name-shaped fallback reached only when the
+  real evidence is absent. A name is a label its author chose and promises
+  nothing about what the thing is. Decide on a decoded value (a voltage read
+  through the value engine, never a fragment of the text that wrote it), on the
+  AST, on a type / role / contract, or on a declared name compared by exact
+  string equality — declaring a name is what makes it identity, reading one is
+  not evidence. Full statement and the worked examples:
+  `AGENTS.md`, "Rule: no guessing from names".
 - **Never run the full test suite by default.** Run only the test targets the
   change can actually affect (`cargo test --test <target> --test <target> …` in
   `mcc` / `mcs`). A whole-workspace `cargo test` (or `cargo nextest run` with no

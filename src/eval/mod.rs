@@ -532,6 +532,18 @@ fn check_finite(value: f64, op: Op, lhs_value: &Value, rhs_value: &Value) -> Res
 /// where the other is written must not get a dead branch.
 const VALUE_EPSILON: f64 = 1e-9;
 
+/// Do two numbers name the same value? Answered at [`VALUE_EPSILON`], the one
+/// slop this engine compares with, so that "equal" means the same thing to every
+/// face that asks — the condition comparator below, and the callers outside this
+/// module that pair declarations up by a decoded value (e.g. the argument
+/// binders, which pair a formal port with the actual argument declaring the same
+/// voltage).
+///
+/// Both sides must already be in the same family; the caller owns that check.
+pub fn same_value(a: f64, b: f64) -> bool {
+    (a - b).abs() <= VALUE_EPSILON
+}
+
 /// The ordering of two values, or the reason there is none.
 pub fn ordering(lhs: &Value, rhs: &Value) -> Result<Ordering, EvalError> {
     if is_text(lhs) || is_text(rhs) {
@@ -553,7 +565,7 @@ pub fn ordering(lhs: &Value, rhs: &Value) -> Result<Ordering, EvalError> {
     };
     // Within the comparator's slop the two are the same value, so the slop
     // reads as equality here and `<=`/`>=` come out true on it.
-    let ordering = if (a - b).abs() <= VALUE_EPSILON {
+    let ordering = if same_value(a, b) {
         Ordering::Equal
     } else {
         a.partial_cmp(&b)
