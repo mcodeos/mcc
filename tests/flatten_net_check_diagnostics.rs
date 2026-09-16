@@ -44,11 +44,13 @@ const BUF: &str = "component BUF {\n    pins = [\n        in 1 = A\n        out 
 /// Lock: driver conflict + floating inputs + partial wiring
 /// `b1.Y -> b2.Y` merges two `Out` pins onto one net. Expected sequence:
 /// 4101 driver conflict, two 4108 floating inputs (the pads' own directional
-/// float), two 4116 partial-wiring checks. C4/E4114 no longer re-reports the
-/// unconnected `In` pads as "module ports" — component pads belong to the
-/// directional checks (A′-scope), so the former 4114 rows on `main.b1.1` /
-/// `main.b2.1` are gone. Order is the `run_net_checks` pass order, positions
-/// are byte offsets into the fixture text.
+/// float), two 4116 partial-wiring checks, and the tail 4119 rows on the same
+/// two unwired `In` pads (the direction-free question overlaps the directional
+/// ones on purpose). C4/E4114 no longer re-reports the unconnected `In` pads as
+/// "module ports" — component pads belong to the directional checks
+/// (A′-scope), so the former 4114 rows on `main.b1.1` / `main.b2.1` are gone.
+/// Order is the `run_net_checks` pass order, positions are byte offsets into
+/// the fixture text.
 #[test]
 fn dlu_flatchk__driver_conflict_sequence_locked() {
     let src = format!("{BUF}module main {{\n    BUF b1\n    BUF b2\n    b1.Y -> b2.Y\n}}");
@@ -84,6 +86,18 @@ fn dlu_flatchk__driver_conflict_sequence_locked() {
             "/mcc/flat-diag.mc",
             "'main.b2' has 1 of 2 pins connected.",
         ),
+        (
+            4119,
+            40,
+            "/mcc/flat-diag.mc",
+            "Pin 'main.b1.1' is not connected to any net.",
+        ),
+        (
+            4119,
+            40,
+            "/mcc/flat-diag.mc",
+            "Pin 'main.b2.1' is not connected to any net.",
+        ),
     ];
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
 }
@@ -110,9 +124,10 @@ fn dlu_flatchk__unused_io_port_sequence_locked() {
 /// Lock: fully unwired instance
 /// `b1.A -> b1.A` loops the input onto itself but leaves every pin unwired:
 /// 4108 floating input, 4110 output drives nothing, 4112 no pins connected,
-/// 4116 0-of-2 partial wiring. The former 4114 "module port" rows on the
-/// `In`/`Out` pads are gone — component pads are owned by the directional
-/// checks (A′-scope), so C4 no longer double-reports them.
+/// 4116 0-of-2 partial wiring, plus the tail 4119 rows on both pads. The
+/// former 4114 "module port" rows on the `In`/`Out` pads are gone — component
+/// pads are owned by the directional checks (A′-scope), so C4 no longer
+/// double-reports them.
 #[test]
 fn dlu_flatchk__unwired_instance_sequence_locked() {
     let src = format!("{BUF}module main {{\n    BUF b1\n    b1.A -> b1.A\n}}");
@@ -141,6 +156,18 @@ fn dlu_flatchk__unwired_instance_sequence_locked() {
             94,
             "/mcc/flat-diag.mc",
             "'main.b1' has 0 of 2 pins connected.",
+        ),
+        (
+            4119,
+            40,
+            "/mcc/flat-diag.mc",
+            "Pin 'main.b1.1' is not connected to any net.",
+        ),
+        (
+            4119,
+            58,
+            "/mcc/flat-diag.mc",
+            "Pin 'main.b1.2' is not connected to any net.",
         ),
     ];
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
@@ -361,8 +388,9 @@ const TWIN: &str = "component TW {\n    pins = [\n        in 1 = A\n        in 2
 
 /// 4103 NET_NO_DRIVER: `c1.A -> c2.A` merges two `In` pins onto one net with
 /// no output or power supply driving it. The `B` inputs of both instances
-/// float, adding the 4108/4116 per-instance pair (the former C4/E4114 rows on
-/// the pads are gone — pads are owned by the directional checks).
+/// float, adding the 4108/4116 per-instance pair and the tail 4119 rows on
+/// the same pads (the former C4/E4114 rows on the pads are gone — pads are
+/// owned by the directional checks).
 #[test]
 fn dlu_flatchk__no_driver_net_locked() {
     let src = format!("{TWIN}module main {{\n    TW c1\n    TW c2\n    c1.A -> c2.A\n}}");
@@ -397,6 +425,18 @@ fn dlu_flatchk__no_driver_net_locked() {
             101,
             "/mcc/flat-diag.mc",
             "'main.c2' has 1 of 2 pins connected.",
+        ),
+        (
+            4119,
+            56,
+            "/mcc/flat-diag.mc",
+            "Pin 'main.c1.2' is not connected to any net.",
+        ),
+        (
+            4119,
+            56,
+            "/mcc/flat-diag.mc",
+            "Pin 'main.c2.2' is not connected to any net.",
         ),
     ];
     assert_lock(diags, &expected, "flatten diagnostic sequence changed");
@@ -453,16 +493,26 @@ fn dlu_flatchk__multi_alias_part_fully_wired_no_partial_warning() {
 
 /// E4116 still fires when a pad genuinely floats, and the denominator now
 /// reports the physical pad count (2) rather than the name-entry count (5).
+/// The floating pad is direction-free (`2 = D | E`), so only the tail 4119
+/// rule sees it — the directional checks have no `io_type` to read.
 #[test]
 fn dlu_flatchk__multi_alias_part_partial_wiring_reports_pad_count() {
     let src = format!("{MULTI_ALIAS}module main {{\n    io VDD\n    F f1\n    f1.1 -> VDD\n}}");
     let diags = build_flat_diags(&src);
-    let expected = [(
-        4116,
-        106,
-        "/mcc/flat-diag.mc",
-        "'main.f1' has 1 of 2 pins connected.",
-    )];
+    let expected = [
+        (
+            4116,
+            106,
+            "/mcc/flat-diag.mc",
+            "'main.f1' has 1 of 2 pins connected.",
+        ),
+        (
+            4119,
+            57,
+            "/mcc/flat-diag.mc",
+            "Pin 'main.f1.2' is not connected to any net.",
+        ),
+    ];
     assert_lock(
         diags,
         &expected,
