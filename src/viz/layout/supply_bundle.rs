@@ -263,6 +263,47 @@ fn end_anchor(b: &McVecBox, pins: &[i64], target: (f64, f64), label: &str, end: 
     LeadEnd::point(rail_anchor(b, target.0, target.1))
 }
 
+/// The centreline of a wire drawn on its own, between two landings (**L3+L5**).
+///
+/// Both ends attach to their lead's **root** (that is where M13 measures
+/// reachability from), but the run between them is anchored on the two **tips**:
+/// a lead on a horizontal face is entered on its tip's row and left on its own
+/// tip's row, so the free run never lies along a box border. On a side face the
+/// tip shares the root's row, so those legs collapse and the wire keeps the one
+/// segment it always had. The free run is axis-aligned, one segment when the tips
+/// share a row or a column and an L (horizontal first) otherwise.
+fn lead_run_points(from: LeadEnd, to: LeadEnd) -> Vec<(f64, f64)> {
+    let mut pts: Vec<(f64, f64)> = Vec::new();
+    let mut push = |p: (f64, f64)| {
+        if pts.last() != Some(&p) {
+            pts.push(p);
+        }
+    };
+    push(from.root);
+    push(from.tip);
+    if (from.tip.0 - to.tip.0).abs() >= 1.0 && (from.tip.1 - to.tip.1).abs() >= 1.0 {
+        push((to.tip.0, from.tip.1));
+    }
+    push(to.tip);
+    push(to.root);
+
+    // A point whose neighbours already describe the straight line through it adds
+    // nothing: a side-face lead's root, tip and run are one segment, and the
+    // renderer should draw a line there rather than a collinear polyline.
+    let mut out: Vec<(f64, f64)> = Vec::with_capacity(pts.len());
+    for (i, p) in pts.iter().enumerate() {
+        let redundant = i > 0 && i + 1 < pts.len() && {
+            let (a, b) = (pts[i - 1], pts[i + 1]);
+            ((a.0 - b.0).abs() < 1.0 && (p.0 - a.0).abs() < 1.0)
+                || ((a.1 - b.1).abs() < 1.0 && (p.1 - a.1).abs() < 1.0)
+        };
+        if !redundant {
+            out.push(*p);
+        }
+    }
+    out
+}
+
 /// One power label drawn as a shared trunk: a vertical rail plus a tap per member.
 #[derive(Debug, Clone)]
 pub struct TrunkDraw {
@@ -290,12 +331,8 @@ pub struct TrunkDraw {
 /// The paired return lane of a point-to-point power edge (opt-in drawing).
 #[derive(Debug, Clone)]
 pub struct RetLane {
-    /// The lane start — the hot lane's `from` translated by the offset.
-    pub from: (f64, f64),
-    /// The lane end — the hot lane's `to` translated by the same offset.
-    pub to: (f64, f64),
-    /// Whether the hot lane draws an L (the return lane mirrors the shape).
-    pub ortho: bool,
+    /// The hot lane's centreline translated by the perpendicular offset.
+    pub points: Vec<(f64, f64)>,
 }
 
 /// One edge drawn on its own, both endpoints already resolved.
@@ -304,11 +341,9 @@ pub struct IndividualDraw {
     pub kind: EdgeKind,
     pub label: String,
     pub lane_count: usize,
-    pub from: (f64, f64),
-    pub to: (f64, f64),
-    /// The ends differ on both axes, so a power edge draws an L instead of a
-    /// straight segment.
-    pub ortho: bool,
+    /// The centreline, from the `from` end's root to the `to` end's root, taking
+    /// in both leads' tips on the way (**L5**).
+    pub points: Vec<(f64, f64)>,
     /// P2: stroke width, decided here with the edge (bus / power / signal).
     pub stroke_width: f64,
     /// ★ P3 (ret lineage, opt-in): for a point-to-point power edge whose net
@@ -519,33 +554,14 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
             &edge.label,
             "from",
         );
-        let (x1, y1) = from_end.root;
-        let (x2, y2) = if edge.kind == EdgeKind::Power {
-            // Keep the same coordinate as the source on the axis where the boxes
-            // are aligned.
-            let to_end = end_anchor(
-                to,
-                &edge.to_pins,
-                (from.x + from.w / 2.0, from.y + from.h / 2.0),
-                &edge.label,
-                "to",
-            );
-            let (tx, ty) = to_end.root;
-            if (x1 - tx).abs() < 1.0 {
-                (x1, ty)
-            } else {
-                (tx, y1)
-            }
-        } else {
-            end_anchor(
-                to,
-                &edge.to_pins,
-                (from.x + from.w / 2.0, from.y + from.h / 2.0),
-                &edge.label,
-                "to",
-            )
-            .root
-        };
+        let to_end = end_anchor(
+            to,
+            &edge.to_pins,
+            (from.x + from.w / 2.0, from.y + from.h / 2.0),
+            &edge.label,
+            "to",
+        );
+        let points = lead_run_points(from_end, to_end);
 
         // P2: the stroke width is decided here, by kind and lane count, so the
         // renderer only draws what the plan names.
@@ -563,17 +579,15 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
         // return draws a parallel second lane along the same spine. The lane is
         // the hot lane translated by a fixed perpendicular offset, so both the
         // straight and the L shape stay parallel (every segment is axis-aligned).
-        let ortho = (x1 - x2).abs() > 1.0 && (y1 - y2).abs() > 1.0 && edge.kind == EdgeKind::Power;
         let ret_lane = if edge.kind == EdgeKind::Power && edge.ret.is_some() {
-            let (ox, oy) = if (x2 - x1).abs() >= (y2 - y1).abs() {
+            let (dx, dy) = (to_end.tip.0 - from_end.tip.0, to_end.tip.1 - from_end.tip.1);
+            let (ox, oy) = if dx.abs() >= dy.abs() {
                 (0.0, 7.0) // dominant horizontal → shift down
             } else {
                 (7.0, 0.0) // dominant vertical → shift right
             };
             Some(RetLane {
-                from: (x1 + ox, y1 + oy),
-                to: (x2 + ox, y2 + oy),
-                ortho,
+                points: points.iter().map(|p| (p.0 + ox, p.1 + oy)).collect(),
             })
         } else {
             None
@@ -583,9 +597,7 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
             kind: edge.kind,
             label: edge.label.clone(),
             lane_count: edge.lane_count,
-            from: (x1, y1),
-            to: (x2, y2),
-            ortho,
+            points,
             stroke_width,
             ret_lane,
         });
@@ -817,12 +829,60 @@ mod tests {
         let d = &plan.individual[0];
         let lane = d.ret_lane.as_ref().expect("declared ret draws a lane");
         // Dominant horizontal: shift down by 7.
-        assert_eq!(lane.from, (d.from.0, d.from.1 + 7.0));
-        assert_eq!(lane.to, (d.to.0, d.to.1 + 7.0));
-        assert!(!lane.ortho);
+        let shifted: Vec<(f64, f64)> = d.points.iter().map(|p| (p.0, p.1 + 7.0)).collect();
+        assert_eq!(lane.points, shifted);
 
         let plain = build_plan_for(&g, &[edge(1, 2, "V5V", EdgeKind::Power)]);
         assert!(plain.individual[0].ret_lane.is_none());
+    }
+
+    /// The wire drawn on its own between two leads (**U62**, L5's remaining
+    /// consumers): both ends reach their lead's root, but the free run is anchored
+    /// on the **tips**, so a lead on a horizontal face is left and entered on its
+    /// own tip's row and the wire never lies along a box border. A side-face lead
+    /// keeps the one segment it always had.
+    #[test]
+    fn individual_edge_leaves_each_lead_along_its_axis() {
+        let mut g = crate::vector::graph::McVecGraph::new(0, "test".into());
+        g.boxes
+            .push(box_with_lead(1, "a", 0.0, 0.0, 11, EntrySide::Top, 0.5));
+        g.boxes
+            .push(box_with_lead(2, "b", 300.0, 0.0, 21, EntrySide::Top, 0.5));
+        let mk = || {
+            let mut e = edge(1, 2, "SCLK", EdgeKind::Signal);
+            e.from_pins = vec![11];
+            e.to_pins = vec![21];
+            e
+        };
+        let plan = build_plan_for(&g, &[mk()]);
+        let d = &plan.individual[0];
+        assert_eq!(
+            d.points,
+            vec![
+                (50.0, 0.0),
+                (50.0, -LEAD_STUB_LEN),
+                (350.0, -LEAD_STUB_LEN),
+                (350.0, 0.0)
+            ],
+            "out of one lead, across on the tips' row, in over the other"
+        );
+        assert_ne!(
+            d.points[1].1, d.points[0].1,
+            "the free run leaves the border row"
+        );
+
+        // The same edge between two side-face leads: root, tip and run are one
+        // line, so the drawn shape is still a single segment.
+        let mut g2 = crate::vector::graph::McVecGraph::new(0, "test".into());
+        g2.boxes
+            .push(box_with_lead(1, "a", 0.0, 0.0, 11, EntrySide::Right, 0.5));
+        g2.boxes
+            .push(box_with_lead(2, "b", 300.0, 0.0, 21, EntrySide::Left, 0.5));
+        let plan = build_plan_for(&g2, &[mk()]);
+        assert_eq!(
+            plan.individual[0].points,
+            vec![(100.0, 50.0), (300.0, 50.0)]
+        );
     }
 
     /// P3: a fan-out trunk whose members carry a declared DC-pair return draws

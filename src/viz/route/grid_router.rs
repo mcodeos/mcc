@@ -490,9 +490,9 @@ pub fn reroute_two_point(
 
     let mut segs: Vec<Segment> = Vec::new();
     // Pin → start/end cell center (orthogonal L-shape connection)
-    segs.extend(ortho_link(pa, cs));
+    segs.extend(ortho_link(pa, cs, sa, true));
     segs.extend(cells_to_segments(grid, &path));
-    segs.extend(ortho_link(cg, pb));
+    segs.extend(ortho_link(cg, pb, sb, false));
 
     let mut route = Route::new();
     route.segments = segs;
@@ -517,6 +517,7 @@ pub fn reroute_multi_point(
     // Each endpoint: exit point + escape cell
     let mut esc_cell: Vec<usize> = Vec::with_capacity(n);
     let mut pin_pt: Vec<(f64, f64)> = Vec::with_capacity(n);
+    let mut pin_side: Vec<ExitSide> = Vec::with_capacity(n);
     for ep in &net.endpoints {
         let b = graph.boxes.iter().find(|x| x.id == ep.box_id)?;
         // Exit direction reference: any other endpoint box
@@ -529,6 +530,7 @@ pub fn reroute_multi_point(
         let cell = grid.escape_cell(p, s, ESCAPE)?;
         esc_cell.push(cell);
         pin_pt.push(p);
+        pin_side.push(s);
     }
 
     let mut tree: HashMap<usize, ()> = HashMap::new(); // Tree cell set (using HashMap as Set)
@@ -540,8 +542,18 @@ pub fn reroute_multi_point(
         tree.insert(c, ());
     }
     segs.extend(cells_to_segments(grid, &path01));
-    segs.extend(ortho_link(pin_pt[0], grid.cell_center_idx(esc_cell[0])));
-    segs.extend(ortho_link(pin_pt[1], grid.cell_center_idx(esc_cell[1])));
+    segs.extend(ortho_link(
+        pin_pt[0],
+        grid.cell_center_idx(esc_cell[0]),
+        pin_side[0],
+        true,
+    ));
+    segs.extend(ortho_link(
+        pin_pt[1],
+        grid.cell_center_idx(esc_cell[1]),
+        pin_side[1],
+        true,
+    ));
 
     // Connect remaining endpoints to the tree one by one
     for k in 2..n {
@@ -550,7 +562,12 @@ pub fn reroute_multi_point(
             tree.insert(c, ());
         }
         segs.extend(cells_to_segments(grid, &path));
-        segs.extend(ortho_link(pin_pt[k], grid.cell_center_idx(esc_cell[k])));
+        segs.extend(ortho_link(
+            pin_pt[k],
+            grid.cell_center_idx(esc_cell[k]),
+            pin_side[k],
+            true,
+        ));
     }
 
     let mut route = Route::new();
@@ -639,16 +656,24 @@ fn escape_point(p: (f64, f64), side: ExitSide, d: f64) -> (f64, f64) {
     }
 }
 
-/// Orthogonal connection between two points: straight line if aligned, otherwise one L-shape
-/// (horizontal first, then vertical)
-fn ortho_link(from: (f64, f64), to: (f64, f64)) -> Vec<Segment> {
+/// Orthogonal connection between two points: straight line if aligned, otherwise one L-shape.
+///
+/// The leg next to the pin runs along the pin's own axis (**L5**), so a pin on a
+/// horizontal face is left and entered vertically -- the horizontal-first L used
+/// everywhere else would lay the first leg along the box border. `pin_at_from`
+/// says which end `side` belongs to; the leg at the other end follows.
+fn ortho_link(from: (f64, f64), to: (f64, f64), side: ExitSide, pin_at_from: bool) -> Vec<Segment> {
     if (from.0 - to.0).abs() < 0.5 || (from.1 - to.1).abs() < 0.5 {
         vec![Segment {
             from: Point::new(from.0, from.1),
             to: Point::new(to.0, to.1),
         }]
     } else {
-        let corner = (to.0, from.1);
+        let corner = if side.is_horizontal() == pin_at_from {
+            (to.0, from.1)
+        } else {
+            (from.0, to.1)
+        };
         vec![
             Segment {
                 from: Point::new(from.0, from.1),
@@ -678,6 +703,30 @@ mod tests {
             reserved: vec![-1; cols * rows],
             history: vec![0; cols * rows],
         }
+    }
+
+    /// **L5** for the router's pin link (U62): the leg next to the pin runs along
+    /// the pin's own axis, so a pin on a horizontal face is left and entered
+    /// vertically. The horizontal-first L used elsewhere would lay that leg along
+    /// the box border.
+    #[test]
+    fn pin_link_approaches_each_pin_along_its_axis() {
+        let pin = (100.0, 200.0);
+        let cell = (160.0, 260.0);
+
+        // Pin on a Top face: leave vertically.
+        let segs = ortho_link(pin, cell, ExitSide::Top, true);
+        assert_eq!(segs[0].from, Point::new(100.0, 200.0));
+        assert_eq!(segs[0].to, Point::new(100.0, 260.0));
+
+        // Pin on a Right face: leave horizontally, as it always did.
+        let segs = ortho_link(pin, cell, ExitSide::Right, true);
+        assert_eq!(segs[0].to, Point::new(160.0, 200.0));
+
+        // Pin at the goal end: the leg next to it is the last one.
+        let segs = ortho_link(cell, pin, ExitSide::Top, false);
+        assert_eq!(segs[1].from, Point::new(100.0, 260.0));
+        assert_eq!(segs[1].to, Point::new(100.0, 200.0));
     }
 
     #[test]

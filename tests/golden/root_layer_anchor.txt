@@ -1,5 +1,6 @@
 # Root-layer drawing anchor — see tests/root_layer_anchor.rs for why.
-# geometry: normalised <rect>/<line> coordinate tuples (sorted set)
+# geometry: normalised <rect>/<line> coordinate tuples, <polyline> split into
+# segments (sorted set)
 # text: <text> (x, y, content) triples (sorted set)
 [geometry]
 line 220.0 380.0 228.0 380.0
@@ -21,6 +22,7 @@ line 580.0 540.0 500.0 540.0
 line 580.0 750.0 640.0 750.0
 line 593.3 250.8 593.3 262.8
 line 640.0 256.8 632.0 256.8
+line 640.0 500.0 640.0 410.0
 line 740.0 140.0 740.0 148.0
 line 740.0 140.0 740.0 200.0
 line 740.0 200.0 740.0 192.0
@@ -59,7 +61,7 @@ text 540.0 230.0 V3V3
 text 540.0 370.0 V3V3
 text 540.0 530.0 V3V3
 text 570.0 246.8 SPI [4]
-text 570.0 490.0 V1V2
+text 570.0 445.0 V1V2
 text 575.0 425.0 V3V3
 text 610.0 400.0 V3V3
 text 610.0 740.0 V3V3
