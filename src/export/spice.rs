@@ -1,5 +1,6 @@
 // Copyright (c) 2026 MCode
-//! SPICE netlist export
+//! SPICE-style text netlist export -- a human-readable netlist, not a
+//! simulation deck (deck responsibility belongs to the sim domain).
 
 use crate::export::NodeArena;
 use crate::instant::inststore::InstanceStore;

@@ -717,7 +717,7 @@ pub enum ExportKind {
     Netlist,
     // Bill of materials (CSV / text / JSON)
     Bom,
-    // SPICE deck (hierarchical .SUBCKT + X lines)
+    // SPICE-style text netlist, human-readable -- not a simulation deck
     Spice,
     // KiCad s-expression netlist (M8)
     #[value(name = "kicad")]
@@ -728,6 +728,17 @@ pub enum ExportKind {
 }
 
 impl ExportKind {
+    /// Every kind, in `id()` order -- the one list the outward faces agree
+    /// with: `id()` tags `build_payload`, `name()` is the `KIND` token, and
+    /// the RPC `features.export` array is derived from here.
+    pub const ALL: [ExportKind; 5] = [
+        ExportKind::Netlist,
+        ExportKind::Bom,
+        ExportKind::Spice,
+        ExportKind::KiCad,
+        ExportKind::InstList,
+    ];
+
     /// The `u8` tag `export::build_payload` dispatches on.
     pub fn id(self) -> u8 {
         match self {
