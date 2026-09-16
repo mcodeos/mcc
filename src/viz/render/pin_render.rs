@@ -38,6 +38,16 @@ pub enum PinStyle {
     Stub,
 }
 
+/// Drawn length of a lead stub, in px, measured **outward** from the box border.
+///
+/// One authority for how long a lead is. The stub below draws it; the root-layer
+/// plan reads it to know where the lead's *tip* is, because a wire approaches a
+/// lead along the lead's own axis (edge-anchor `L5`) and therefore has to run at
+/// the tip's row, not on the border. A lead drawing and a wire landing that
+/// disagreed by even a pixel would leave the wire buried in the box or hanging
+/// short of the lead.
+pub const LEAD_STUB_LEN: f64 = 8.0;
+
 /// Pin render options
 #[derive(Debug, Clone, Copy)]
 pub struct PinRenderOpts {
@@ -132,7 +142,7 @@ pub fn render_pin_named(
     let marker = match opts.style {
         PinStyle::Dot => format!(r##"<circle cx="{cx:.1}" cy="{cy:.1}" r="2.5" fill="#222"/>"##),
         PinStyle::Stub => {
-            let (ex, ey) = stub_outward(b, ep, 8.0);
+            let (ex, ey) = stub_outward(b, ep, LEAD_STUB_LEN);
             let line = format!(
                 r##"<line x1="{cx:.1}" y1="{cy:.1}" x2="{ex:.1}" y2="{ey:.1}"
                         stroke="#222" stroke-width="1.2"/>"##

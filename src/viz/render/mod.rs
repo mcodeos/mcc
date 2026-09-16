@@ -256,16 +256,25 @@ fn render_block_edges(graph: &McVecGraph) -> String {
         svg.push('\n');
 
         // Driver-to-trunk line
-        if let Some((dx, dy)) = trunk.driver {
-            let line_svg =
-                render_ortho_path(dx, dy, trunk.x, dy, label, stroke, trunk.stroke_width, false);
+        if let Some(driver) = trunk.driver {
+            let line_svg = render_lead_run(
+                trunk.x,
+                driver.root,
+                driver.approach_y(),
+                label,
+                stroke,
+                trunk.stroke_width,
+                false,
+                false,
+            );
             svg.push_str(&line_svg);
         }
 
         // P3 (ret lineage, opt-in): a fan-out draws one return lead at the
         // driver end — a short tick below the driver anchor.
         if ret_lanes {
-            if let (Some((dx, dy)), Some((rx, ry))) = (trunk.driver, trunk.ret_stub) {
+            if let (Some(driver), Some((rx, ry))) = (trunk.driver, trunk.ret_stub) {
+                let (dx, dy) = driver.root;
                 svg.push_str(&format!(
                     r##"  <line x1="{dx:.1}" y1="{dy:.1}" x2="{rx:.1}" y2="{ry:.1}"
        stroke="{stroke}" stroke-width="1.5"/>"##,
@@ -280,9 +289,17 @@ fn render_block_edges(graph: &McVecGraph) -> String {
         }
 
         // Trunk-to-consumer lines
-        for (cx, cy) in &trunk.taps {
-            let line_svg =
-                render_ortho_path(trunk.x, *cy, *cx, *cy, label, stroke, trunk.stroke_width, false);
+        for tap in &trunk.taps {
+            let line_svg = render_lead_run(
+                trunk.x,
+                tap.root,
+                tap.approach_y(),
+                label,
+                stroke,
+                trunk.stroke_width,
+                false,
+                true,
+            );
             svg.push_str(&line_svg);
         }
 
@@ -443,6 +460,38 @@ fn escape_xml(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// Draw the run connecting the trunk rail at `rail_x` to one lead (**L5**).
+///
+/// A wire approaches a lead along the lead's own axis: the run stays on the row of
+/// the lead's **tip** until it is level with the lead, then comes in over it from
+/// outside. A left/right lead is already entered that way, so there the two legs
+/// collapse into the one straight segment such a run has always been.
+///
+/// `drawn_from_rail` says which end that single segment starts at. The two call
+/// sites have always differed -- a driver's run leaves its lead, a tap's arrives
+/// from the rail. The difference is invisible on screen but not in the anchor, which
+/// compares raw coordinates; preserving it keeps this batch's gate predictive, so
+/// that an anchor moving means a lead moved, not that a segment was written from
+/// the other end. The two-legged shape is rail-first without that choice, because
+/// its first leg is the one at the tip's row.
+fn render_lead_run(
+    rail_x: f64,
+    root: (f64, f64),
+    approach_y: f64,
+    label: &str,
+    stroke: &str,
+    stroke_w: f64,
+    with_arrow: bool,
+    drawn_from_rail: bool,
+) -> String {
+    let (x1, y1, x2, y2) = if drawn_from_rail || (approach_y - root.1).abs() >= 1.0 {
+        (rail_x, approach_y, root.0, root.1)
+    } else {
+        (root.0, root.1, rail_x, approach_y)
+    };
+    render_ortho_path(x1, y1, x2, y2, label, stroke, stroke_w, with_arrow)
 }
 
 /// Render an orthogonal path from (x1,y1) to (x2,y2).
