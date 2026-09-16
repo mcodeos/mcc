@@ -597,7 +597,7 @@ pub const FCALL_PARSE_FAILED: u32 = 3135;
 
 /// A bare identifier in a function body's net statement does not resolve to a
 /// declared pin, interface, parameter member, or func-local instance of the
-/// component — it becomes a one-shot dangling net label.
+/// component — it becomes a dangling net label.
 pub const FUNC_FLOATING_LABEL: u32 = 3136;
 
 /// An inline ghost-net created from a structured reference whose base resolves
@@ -643,6 +643,10 @@ pub const FUNC_RETURN_EXPR_INVALID: u32 = 3162;
 
 /// A function may have at most one return statement.
 pub const FUNC_MULTIPLE_RETURNS: u32 = 3163;
+
+/// A `return` statement in a module body — dead syntax: only a function body
+/// has a receiver to return to.
+pub const MODULE_RETURN_NOT_ALLOWED: u32 = 3164;
 
 /// Interface member not found in the component.
 pub const IFACE_MEMBER_NOT_FOUND: u32 = 3171;
@@ -1807,6 +1811,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(FUNC_RETURN_MALFORMED, "Malformed return statement.", "Malformed return statement."),
     entry!(FUNC_RETURN_EXPR_INVALID, "Invalid return expression — expected this or a label/bus.", "Invalid `return` expression: expected `this` or a label/bus."),
     entry!(FUNC_MULTIPLE_RETURNS, "A function may have at most one return statement.", "Multiple `return` statements are not allowed; a function may have at most one return."),
+    entry!(MODULE_RETURN_NOT_ALLOWED, "A module body cannot contain a return statement.", "`return` is only valid inside a function body; a module body cannot return."),
     entry!(IFACE_MEMBER_NOT_FOUND, "Interface member not found in the component.", "Interface '{0}.{1}' not found in component '{2}'"),
     entry!(IFACE_CURLY_MEMBER_INVALID, "Cannot access interface members using curly-bracket syntax.", "Component '{0}' not found for interface '{1}.{2}'"),
     entry!(IFACE_COMPONENT_NOT_FOUND, "Component not found for the interface reference.", "Cannot access members on interface '{0}' using curly bracket syntax"),

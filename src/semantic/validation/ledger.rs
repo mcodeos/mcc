@@ -139,8 +139,9 @@ pub struct LedgerEntry {
     pub uri: Option<String>,
     pub pos: u32,
     pub len: u32,
-    /// Wire-only: how many net endpoints reference the name (denoise — a name
-    /// referenced twice or more is a shared floating net, not a single typo).
+    /// Wire-only: how many net endpoints reference the name. Recorded for
+    /// attribution — the count does not decide the verdict (a floating label is
+    /// reported however often it is written).
     pub refs: Option<u32>,
     /// Syntactic form class from the resolve-gate classifier (§1.2①). Internal
     /// observation hook only — NOT serialized into [`LedgerDetailRow`]; the
@@ -248,8 +249,8 @@ impl Ledger {
     /// always produced; the per-row list is gated by `mode` (resolve-gate
     /// §7.1-4). `survived` (§7.1-3) counts the entries that are genuine
     /// problems at end of compile: Phantom/Fallback/UnresolvedRef always, and
-    /// a Wire only when its `refs == 1` (exactly-once bare reference — the
-    /// E3136 twin); Deferred/ResolvedMany never survive (successful resolution).
+    /// a Wire whenever it was reported (the E3136 twin, `action == Warning`);
+    /// Deferred/ResolvedMany never survive (successful resolution).
     pub fn build_report(&self, mode: LedgerMode) -> LedgerReport {
         let mut by_kind_form: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
         for kind in LedgerKind::ALL {
@@ -289,13 +290,12 @@ impl Ledger {
     }
 
     /// Whether a recorded miss is still a genuine problem at end of compile
-    /// (§7.1-3): a floating candidate, quarantined phantom, or silent fallback —
-    /// never a successfully-resolved Deferred/ResolvedMany or a shared rail
-    /// (Wire with `refs >= 2`).
+    /// (§7.1-3): a reported floating label, quarantined phantom, or silent
+    /// fallback — never a successfully-resolved Deferred/ResolvedMany.
     fn survives(e: &LedgerEntry) -> bool {
         match e.kind {
             LedgerKind::Deferred | LedgerKind::ResolvedMany => false,
-            LedgerKind::Wire => e.refs == Some(1),
+            LedgerKind::Wire => e.action == LedgerAction::Warning,
             // UnresolvedRef (Phase-1-gated), Phantom (quarantined), Fallback
             // (silent placeholder) all represent real breakage.
             _ => true,
@@ -524,10 +524,14 @@ mod tests {
         ledger.record(LedgerEntry::new(LedgerKind::ResolvedMany, "U1.y", "T"));
         ledger.record(LedgerEntry::new(LedgerKind::Fallback, "X.A", "T"));
         ledger.record(
-            LedgerEntry::new(LedgerKind::Wire, "PWR", "T").with_refs(2), // shared rail — does not survive
+            // Recorded but not reported (receiver-only reference) — does not survive.
+            LedgerEntry::new(LedgerKind::Wire, "PWR", "T").with_refs(1),
         );
         ledger.record(
-            LedgerEntry::new(LedgerKind::Wire, "FLO", "T").with_refs(1), // exactly-once — survives (E3136 twin)
+            // Reported floating label — survives whatever its ref count.
+            LedgerEntry::new(LedgerKind::Wire, "FLO", "T")
+                .with_refs(2)
+                .with_action(LedgerAction::Warning),
         );
 
         // Summary: counts every kind, no detail rows.
@@ -552,8 +556,8 @@ mod tests {
         assert!(a.detail.iter().any(|r| r.kind == "deferred"));
         assert!(a.detail.iter().any(|r| r.kind == "resolved_many"));
 
-        // Survived (§7.1-3): fallback + exactly-once wire only. Deferred /
-        // ResolvedMany and the shared-rail wire (refs=2) never survive.
+        // Survived (§7.1-3): fallback + reported wire only. Deferred /
+        // ResolvedMany and the unreported wire never survive.
         for r in [&s, &d, &a] {
             assert_eq!(r.survived, 2, "survived must be mode-independent");
         }

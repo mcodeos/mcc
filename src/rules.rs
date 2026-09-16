@@ -3117,7 +3117,7 @@ pub static POSTPARSE_RULES: &[PostParseRule] = &[
         lock = "tests/lock_pp_extra.rs",
     },
     // floating — FloatingLabelCheck: function-body net endpoints that resolve
-    // to nothing declared become one-shot dangling labels.
+    // to nothing declared become dangling labels.
     declare_post_parse_rule! {
         code = crate::errcodes::FUNC_FLOATING_LABEL,
         name = "func-floating-label",

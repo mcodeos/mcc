@@ -992,11 +992,10 @@ impl McFunction {
             //     `CAP ccp(220nF, 25V)` → ccp) — lands in `self.insts` during
             //     the loop.
             // Anything still unresolved is recorded as a candidate for the
-            // post-parse FloatingLabelCheck (E3136), which counts how many
-            // times the name is referenced across all funcs of the component
-            // and warns for single-use dangling labels (declarations in a
-            // sibling func or a conditional block are resolved there via the
-            // component's final instance table).
+            // post-parse FloatingLabelCheck (E3136), which reports it once it
+            // turns out to be a net endpoint of the finished owner — a
+            // declaration in a sibling func or a conditional block resolves it
+            // there via the component's final instance table.
             drop(wrapper);
             // Phase 1: drain the body's caller names and gate candidates into
             // the func for the component-finish recheck.

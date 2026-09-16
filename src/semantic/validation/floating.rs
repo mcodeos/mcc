@@ -6,15 +6,15 @@
 //!
 //! E3136 (FUNC_FLOATING_LABEL): a bare identifier in a func body net
 //! statement that resolves to nothing declared (pin, interface, parameter
-//! member, or func-local instance) becomes a one-shot dangling net label
-//! (mc_phrase.rs single-segment fallback). If the name is referenced exactly
-//! once across all funcs of the component it has no peer to join a net with —
-//! almost always a typo or a forgotten declaration (e.g. `pwr -> DC` where the
-//! component has no `DC` pin or interface).
+//! member, or func-local instance) becomes a dangling net label
+//! (mc_phrase.rs single-segment fallback). The criterion is positional, not
+//! quantitative — a reference that leaves the container must land on a
+//! container terminal, and the miss is reported however often the name is
+//! written: two funcs joining the same undeclared spelling have invented a
+//! net, not declared one (`pwr -> DC` with no `DC` pin; `VSW` in both LDO
+//! funcs with no `VSW` pin or label).
 //!
-//! Names referenced twice or more are a shared net — two funcs joining the
-//! same rail by label (e.g. `VSW` feeding both LDO2 and LDO3) — and are left
-//! alone. A name referenced only as a method-call receiver or argument (an
+//! A name referenced only as a method-call receiver or argument (an
 //! inline-constructed instance like `DC.LDO(...) ld` then `ld.ldrop(...)`) is
 //! an instance, not a wire, and does not trigger. A name that resolves to a
 //! real instance by the time the component finished parsing (declared in a
@@ -49,8 +49,8 @@ impl ValidationCheck for FloatingLabelCheck {
     }
 }
 
-/// Emit E3136 for every candidate name referenced exactly once across all
-/// funcs of its owner — a component or a module (§1.6 ①: the consumption side
+/// Emit E3136 for every candidate name of its owner that lands on no declared
+/// terminal — a component or a module (§1.6 ①: the consumption side
 /// extends to modules; module funcs register candidates through the shared
 /// func-body context, module top-level body through `McModule.floating_candidates`).
 fn check_floating_labels(acc: &mut CheckAccumulator) {
@@ -153,11 +153,12 @@ fn check_owner_floating_labels<F>(
         }
 
         // Count references across all funcs (top-level stmts + conditional
-        // blocks) and, for modules, the top-level body. A floating label is
-        // one referenced exactly once and only as a net endpoint — it has no
-        // peer to join a net with. A name used as a call receiver or argument
-        // (`ld.ldrop(VSW, ...)`) is an instance reference, not a wire, so it
-        // neither triggers nor adds to the wire count.
+        // blocks) and, for modules, the top-level body. A name used as a call
+        // receiver or argument (`ld.ldrop(VSW, ...)`) is an instance
+        // reference, not a wire, so it neither triggers nor adds to the wire
+        // count. Every other reference is a net endpoint — and the name
+        // reached this point because it lands on no container terminal, which
+        // is the whole criterion: how often it is written decides nothing.
         let mut counts = RefCounts::default();
         for func in funcs.iter() {
             for stmt in &func.stmts {
@@ -177,13 +178,11 @@ fn check_owner_floating_labels<F>(
         for stmt in top_stmts {
             count_refs(stmt, &name, &mut counts, true);
         }
-        // Failure ledger (observation-only)
-        // Every name that survived the owner-finish recheck is a floating
-        // label: referenced once it is a dangling net (E3136 below);
-        // referenced 2+ it is a shared rail that also resolves to nothing
-        // declared. Both are recorded so the miss is attributable.
+        // Failure ledger (observation-only): the action carries the verdict
+        // this name gets below, so the count stays pure attribution.
         let refs = counts.endpoint;
-        let action = if refs == 1 && counts.other == 0 {
+        let reported = refs >= 1 && counts.other == 0;
+        let action = if reported {
             LedgerAction::Warning
         } else {
             LedgerAction::Silent
@@ -196,7 +195,7 @@ fn check_owner_floating_labels<F>(
                 .with_refs(refs),
         );
 
-        if counts.endpoint != 1 || counts.other != 0 {
+        if !reported {
             continue;
         }
 
@@ -218,8 +217,8 @@ fn check_owner_floating_labels<F>(
             span: Some((pos as usize)..((pos + len) as usize)),
             message: format!(
                 "{owner_kind} '{owner_name}': '{name}' in {where_clause} resolves to {scope_kinds} \
-                 — floating net label. It is referenced only once and connects to nothing else; \
-                 declare it or fix the name."
+                 — floating net label. Declare it (a local instance, a pin, or a port) or fix \
+                 the name."
             ),
             code: crate::errcodes::FUNC_FLOATING_LABEL,
         });
