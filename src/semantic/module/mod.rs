@@ -367,6 +367,20 @@ impl McModule {
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
+                            // `return` is dead syntax in a module body — only a
+                            // function body has a receiver. Without this the
+                            // statement dies as a generic connection-parse failure.
+                            if subnode.get_type() == MCAST_IOTYPE_RETURN {
+                                dlog_error(
+                                    crate::errcodes::MODULE_RETURN_NOT_ALLOWED,
+                                    &clause,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::MODULE_RETURN_NOT_ALLOWED,
+                                        &[],
+                                    ),
+                                );
+                                continue;
+                            }
                             // Power-intent relation-edge attributes (`@bridge(a,b)`
                             // …) trail this connection net; the net reader consumes
                             // only the phrase head, so capture the edges here

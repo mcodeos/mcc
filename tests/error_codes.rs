@@ -601,3 +601,26 @@ fn def_ercode__parser_warnings_reachable() {
         );
     }
 }
+
+/// A `return` in a module body is dead syntax — only a function body has a
+/// receiver — so the dedicated code must replace the generic parse failure.
+#[test]
+fn def_ercode__module_return_rejected_with_dedicated_code() {
+    let _lock = common::lock();
+
+    common::reset();
+    let uri = String::from("/mcc/module-return.mc");
+    mcc::mcc_load_from_string(&uri, "module main { io VDD\nreturn VDD }");
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+
+    assert!(
+        codes.contains(&mcc::errcodes::MODULE_RETURN_NOT_ALLOWED),
+        "module-body return must emit {}; got codes: {codes:?}",
+        mcc::errcodes::MODULE_RETURN_NOT_ALLOWED
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_STMT_PARSE_FAILED),
+        "module-body return must not fall through to the generic parse failure; got codes: {codes:?}"
+    );
+}
