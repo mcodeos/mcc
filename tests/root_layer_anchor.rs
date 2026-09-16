@@ -24,7 +24,8 @@
 //! (R0 stabilised row order, not tie-breaking on the whole emission), so an
 //! HTML `cmp`/`md5` would be a false red:
 //!
-//! 1. geometry: normalised `<rect>` / `<line>` coordinate tuples;
+//! 1. geometry: normalised `<rect>` / `<line>` coordinate tuples, plus every
+//!    segment of a `<polyline>`;
 //! 2. text: `<text>` `(x, y, content)` triples.
 //!
 //! Both are needed. Comparing only rect/line misses a swap of two equal-sized
@@ -97,7 +98,12 @@ fn attr(tag_attrs: &str, name: &str) -> Option<String> {
 /// Parse the root SVG into the two comparison sets.
 ///
 /// Deliberately hand-rolled: the shapes here are a tiny fixed vocabulary
-/// (`<rect>` / `<line>` / `<text>`) and a regex would not make it clearer.
+/// (`<rect>` / `<line>` / `<polyline>` / `<text>`) and a regex would not make it
+/// clearer.
+///
+/// A polyline enters as its **segments**, not as one tuple: a routed or L-shaped
+/// wire is the shape under test, and a bend that moved is exactly what a tuple of
+/// the endpoints would hide.
 fn measure(svg: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     let mut geometry: BTreeSet<String> = BTreeSet::new();
     let mut text: BTreeSet<String> = BTreeSet::new();
@@ -157,6 +163,22 @@ fn measure(svg: &str) -> (BTreeSet<String>, BTreeSet<String>) {
                 // search for `</text>` here: splitting on `<` consumed it.
                 text.insert(format!("text {} {} {}", num(&x), num(&y), after));
             }
+            "polyline" => {
+                let Some(raw) = attr(inner, "points") else {
+                    continue;
+                };
+                let pts: Vec<(String, String)> = raw
+                    .split_whitespace()
+                    .filter_map(|p| p.split_once(','))
+                    .map(|(x, y)| (num(x), num(y)))
+                    .collect();
+                for pair in pts.windows(2) {
+                    geometry.insert(format!(
+                        "line {} {} {} {}",
+                        pair[0].0, pair[0].1, pair[1].0, pair[1].1
+                    ));
+                }
+            }
             _ => {}
         }
     }
@@ -168,7 +190,8 @@ fn measure(svg: &str) -> (BTreeSet<String>, BTreeSet<String>) {
 fn serialise(geometry: &BTreeSet<String>, text: &BTreeSet<String>) -> String {
     let mut out = String::from(
         "# Root-layer drawing anchor — see tests/root_layer_anchor.rs for why.\n\
-         # geometry: normalised <rect>/<line> coordinate tuples (sorted set)\n\
+         # geometry: normalised <rect>/<line> coordinate tuples, <polyline> split into\n\
+         # segments (sorted set)\n\
          # text: <text> (x, y, content) triples (sorted set)\n\
          [geometry]\n",
     );
