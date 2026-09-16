@@ -25,6 +25,7 @@ use std::collections::HashMap;
 
 use crate::vector::graph::{EntrySide, McVecBox, McVecGraph};
 use crate::viz::layout::edge_decide::{BlockEdge, EdgeKind};
+use crate::viz::render::pin_render::LEAD_STUB_LEN;
 
 /// A power bundle is drawn as a shared vertical trunk with taps only once it has
 /// this many members; below it, the edges are drawn individually so that short
@@ -175,7 +176,7 @@ fn rail_anchor(b: &McVecBox, target_x: f64, target_y: f64) -> (f64, f64) {
     }
 }
 
-/// Where the lead at `ep` meets the box border.
+/// Where the lead at `ep` meets the box border — the lead's **root**.
 fn side_point(b: &McVecBox, ep: &crate::vector::graph::EntryPoint) -> (f64, f64) {
     match ep.side {
         EntrySide::Left => (b.x, b.y + ep.offset * b.h),
@@ -185,37 +186,70 @@ fn side_point(b: &McVecBox, ep: &crate::vector::graph::EntryPoint) -> (f64, f64)
     }
 }
 
-/// The landing point of the box's lead for an edge end, if it has one (**L1+L4**).
+/// One end's landing on a box: the lead's root and its tip.
+///
+/// The root is where the lead meets the border (also what M13 measures a pin's
+/// reachability from, so a wire must still end there); the tip is the outer end of
+/// the drawn lead. **L5**: a wire approaches a lead along the lead's own axis, so
+/// a lead on a horizontal face is entered from its tip's row -- running at the
+/// border's row would lay the wire along the box border itself, indistinguishable
+/// from the frame. A left/right lead is entered on the tip's row either way, so
+/// the two points share it and the run stays the one segment it always was. An end
+/// with no lead at all has root == tip.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LeadEnd {
+    pub root: (f64, f64),
+    pub tip: (f64, f64),
+}
+
+impl LeadEnd {
+    /// A landing that is not a lead (the facing-edge fallback): one point, no axis.
+    fn point(p: (f64, f64)) -> Self {
+        Self { root: p, tip: p }
+    }
+
+    /// The row the wire must run along before it comes in over the lead.
+    pub fn approach_y(&self) -> f64 {
+        self.tip.1
+    }
+}
+
+/// The landing of the box's lead for an edge end, if it has one (**L1+L4**).
 ///
 /// `pins` are the endpoint identities of that end (ascending pin id, §5), so the
 /// choice is structural: the first pin that the box actually draws a lead for.
 /// This is the one authority for "where does this end attach" -- the lead's own
 /// `(side, offset)`, never a re-derived facing edge.
-fn lead_anchor(b: &McVecBox, pins: &[i64]) -> Option<(f64, f64)> {
+fn lead_anchor(b: &McVecBox, pins: &[i64]) -> Option<LeadEnd> {
     pins.iter().filter(|p| **p > 0).find_map(|p| {
-        b.entry_points
-            .iter()
-            .find(|ep| ep.pin_id == *p)
-            .map(|ep| side_point(b, ep))
+        b.entry_points.iter().find(|ep| ep.pin_id == *p).map(|ep| {
+            let root = side_point(b, ep);
+            // The tip is the root walked one lead-length along the lead's own
+            // outward normal -- the same length the lead is drawn with (L4:
+            // one computation, one authority).
+            let outward = match ep.side {
+                EntrySide::Left => (-LEAD_STUB_LEN, 0.0),
+                EntrySide::Right => (LEAD_STUB_LEN, 0.0),
+                EntrySide::Top => (0.0, -LEAD_STUB_LEN),
+                EntrySide::Bottom => (0.0, LEAD_STUB_LEN),
+            };
+            LeadEnd {
+                root,
+                tip: (root.0 + outward.0, root.1 + outward.1),
+            }
+        })
     })
 }
 
-/// One end's landing point: the lead if there is one, else the old facing-edge
-/// midpoint.
+/// One end's landing: the lead if there is one, else the old facing-edge midpoint.
 ///
 /// The fallback is not silent (§3.1): "this end has no lead" means the port is not
 /// drawn at all, which is a fact worth seeing. Geometry under the fallback is
 /// byte-identical to the pre-P1-b drawing, so a change in the drawing is exactly a
 /// change in which ends have leads -- that is what makes the batch's gate predictive.
-fn end_anchor(
-    b: &McVecBox,
-    pins: &[i64],
-    target: (f64, f64),
-    label: &str,
-    end: &str,
-) -> (f64, f64) {
-    if let Some(p) = lead_anchor(b, pins) {
-        return p;
+fn end_anchor(b: &McVecBox, pins: &[i64], target: (f64, f64), label: &str, end: &str) -> LeadEnd {
+    if let Some(lead) = lead_anchor(b, pins) {
+        return lead;
     }
     crate::vlog!(
         "[supply_bundle] no lead for '{}' {} end on box {} '{}' ({} pin id(s)): \
@@ -226,7 +260,7 @@ fn end_anchor(
         b.name,
         pins.len()
     );
-    rail_anchor(b, target.0, target.1)
+    LeadEnd::point(rail_anchor(b, target.0, target.1))
 }
 
 /// One power label drawn as a shared trunk: a vertical rail plus a tap per member.
@@ -239,9 +273,10 @@ pub struct TrunkDraw {
     pub y_min: f64,
     pub y_max: f64,
     /// Where the driver's stub leaves the driver box, if a driver was resolved.
-    pub driver: Option<(f64, f64)>,
-    /// One landing point per consumer, already slid clear of other anchors.
-    pub taps: Vec<(f64, f64)>,
+    pub driver: Option<LeadEnd>,
+    /// One landing per consumer: the rail-to-consumer run ends on the lead's root,
+    /// approached along the lead's axis from `tip` (L5).
+    pub taps: Vec<LeadEnd>,
     /// P2: stroke width of the rail and its taps (bundle presence decides it).
     pub stroke_width: f64,
     /// ★ P3 (ret lineage, opt-in): the end of the single return lead drawn at
@@ -395,13 +430,13 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
         // on which member edge contributed first.
         driver_pins.sort_unstable();
         driver_pins.dedup();
-        let driver_anchor: Option<(f64, f64)> = driver_box.map(|b| {
+        let driver_anchor: Option<LeadEnd> = driver_box.map(|b| {
             let cy = b.y + b.h / 2.0;
             end_anchor(b, &driver_pins, (trunk_x, cy), label, "driver")
         });
 
         // Consumer taps, each landing on its own lead against the resolved rail x.
-        let mut taps: Vec<(f64, f64)> = Vec::new();
+        let mut taps: Vec<LeadEnd> = Vec::new();
         for &idx in indices {
             let edge = &edges[idx];
             let to_box = graph.boxes.iter().find(|b| b.id == edge.to_box);
@@ -432,9 +467,11 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
             }
         }
 
-        let mut all_ys: Vec<f64> = taps.iter().map(|(_, y)| *y).collect();
-        if let Some((_, dy)) = driver_anchor {
-            all_ys.push(dy);
+        // The rail must reach every row a run leaves it on -- for a horizontal-face
+        // lead that is the tip's row, which is where the run itself sits (L5).
+        let mut all_ys: Vec<f64> = taps.iter().map(|t| t.approach_y()).collect();
+        if let Some(driver) = driver_anchor {
+            all_ys.push(driver.approach_y());
         }
         all_ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let trunk_y_min = all_ys.first().copied().unwrap_or(100.0);
@@ -443,13 +480,12 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
         // P3 (ret lineage): a fan-out draws one return lead at the driver end —
         // a short tick below the driver anchor, from the first member that
         // carries a declared DC-pair return.
-        let ret_stub: Option<(f64, f64)> = if driver_anchor.is_some()
-            && indices.iter().any(|&idx| edges[idx].ret.is_some())
-        {
-            driver_anchor.map(|(dx, dy)| (dx, dy + 10.0))
-        } else {
-            None
-        };
+        let ret_stub: Option<(f64, f64)> =
+            if driver_anchor.is_some() && indices.iter().any(|&idx| edges[idx].ret.is_some()) {
+                driver_anchor.map(|d| (d.root.0, d.root.1 + 10.0))
+            } else {
+                None
+            };
 
         trunks.push(TrunkDraw {
             label: label.clone(),
@@ -476,23 +512,25 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
         // and signal alike. The identity is the endpoint pin ids on the edge, so
         // this no longer matches a net label against a pin *name* (two disjoint
         // namespaces, and a miss used to land on the box centre invisibly).
-        let (x1, y1) = end_anchor(
+        let from_end = end_anchor(
             from,
             &edge.from_pins,
             (to.x + to.w / 2.0, to.y + to.h / 2.0),
             &edge.label,
             "from",
         );
+        let (x1, y1) = from_end.root;
         let (x2, y2) = if edge.kind == EdgeKind::Power {
             // Keep the same coordinate as the source on the axis where the boxes
             // are aligned.
-            let (tx, ty) = end_anchor(
+            let to_end = end_anchor(
                 to,
                 &edge.to_pins,
                 (from.x + from.w / 2.0, from.y + from.h / 2.0),
                 &edge.label,
                 "to",
             );
+            let (tx, ty) = to_end.root;
             if (x1 - tx).abs() < 1.0 {
                 (x1, ty)
             } else {
@@ -506,6 +544,7 @@ pub fn build_plan_for(graph: &McVecGraph, edges: &[BlockEdge]) -> SupplyBundlePl
                 &edge.label,
                 "to",
             )
+            .root
         };
 
         // P2: the stroke width is decided here, by kind and lane count, so the
@@ -675,6 +714,93 @@ mod tests {
         b
     }
 
+    /// A box with one drawn lead on `side`: an end lands on a lead, and which face
+    /// the lead sits on is what decides whether a wire can reach it without running
+    /// along the box border (L5).
+    fn box_with_lead(
+        id: i64,
+        name: &str,
+        x: f64,
+        y: f64,
+        pin_id: i64,
+        side: EntrySide,
+        offset: f64,
+    ) -> crate::vector::graph::McVecBox {
+        let mut b = box_at(id, name, x, y);
+        b.entry_points.push(crate::vector::graph::EntryPoint {
+            pin_id,
+            pin_name: format!("P{pin_id}"),
+            side,
+            offset,
+        });
+        b
+    }
+
+    /// **L5**: a wire approaches a lead along the lead's own axis. On a horizontal
+    /// face that means the run leaves the rail at the **tip's** row -- the lead's
+    /// root sits on the border, and a run at the border's row would lie along the
+    /// box frame. On a vertical face the axis is the run's own row, so the landing
+    /// does not move. Both faces are in this trunk: the fixture board draws only
+    /// vertical-face leads, so a test with one branch would go green without ever
+    /// drawing the other.
+    #[test]
+    fn trunk_taps_approach_each_lead_along_its_axis() {
+        let mut g = crate::vector::graph::McVecGraph::new(0, "test".into());
+        g.boxes.push(box_at(1, "src", 0.0, 0.0)); // driver, no lead drawn
+        g.boxes
+            .push(box_with_lead(2, "top", 300.0, 0.0, 21, EntrySide::Top, 0.5));
+        g.boxes.push(box_with_lead(
+            3,
+            "bottom",
+            300.0,
+            200.0,
+            31,
+            EntrySide::Bottom,
+            0.5,
+        ));
+        g.boxes.push(box_with_lead(
+            4,
+            "right",
+            300.0,
+            400.0,
+            41,
+            EntrySide::Right,
+            0.5,
+        ));
+        let mk = |to: i64, pin: i64| {
+            let mut e = edge(1, to, "V5V", EdgeKind::Power);
+            e.driver_box = Some(1);
+            e.to_pins = vec![pin];
+            e
+        };
+        let plan = build_plan_for(&g, &[mk(2, 21), mk(3, 31), mk(4, 41)]);
+        let taps = &plan.trunks[0].taps;
+        assert_eq!(taps.len(), 3);
+
+        // Box 2's lead points up out of its top face: the tip is one lead-length
+        // above the border, and the run has to sit on the tip's row.
+        assert_eq!(taps[0].root, (350.0, 0.0), "root stays on the border");
+        assert_eq!(taps[0].tip, (350.0, -LEAD_STUB_LEN));
+        assert_eq!(taps[0].approach_y(), -LEAD_STUB_LEN);
+
+        // Box 3's lead points down: the tip is below the border.
+        assert_eq!(taps[1].root, (350.0, 300.0));
+        assert_eq!(taps[1].approach_y(), 300.0 + LEAD_STUB_LEN);
+
+        // Box 4's lead points right, along the run: root and tip share the row.
+        assert_eq!(taps[2].root, (400.0, 450.0));
+        assert_eq!(
+            taps[2].approach_y(),
+            taps[2].root.1,
+            "a side lead's run needs no extra leg"
+        );
+
+        // The rail spans the rows the runs leave it on -- the tip rows, not the
+        // border rows.
+        assert_eq!(plan.trunks[0].y_min, -LEAD_STUB_LEN);
+        assert_eq!(plan.trunks[0].y_max, 450.0);
+    }
+
     /// P3: a point-to-point power edge with a declared DC-pair return carries a
     /// parallel second lane (translated by the perpendicular offset, the hot
     /// lane itself untouched); an edge without a declared return carries none.
@@ -722,7 +848,7 @@ mod tests {
         assert_eq!(t.taps.len(), 3);
         let stub = t.ret_stub.expect("fan-out draws one return stub");
         let driver = t.driver.expect("driver anchor");
-        assert_eq!(stub, (driver.0, driver.1 + 10.0));
+        assert_eq!(stub, (driver.root.0, driver.root.1 + 10.0));
 
         let plain: Vec<_> = [2, 3, 4]
             .iter()
