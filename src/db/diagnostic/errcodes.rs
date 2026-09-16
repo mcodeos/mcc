@@ -1649,6 +1649,18 @@ pub const PORT_BIND_ROLE_MISMATCH: u32 = 6029;
 /// check, so no direction word is demanded of it.
 pub const POWER_PIN_RETURN_MISSING: u32 = 6030;
 
+/// PWR-6 (exposed-protection-design.md §3, ruled 2026-09-16): a port row
+/// declaring `@exposed(<threat>)` puts its net at the board's transient
+/// boundary, and a boundary net must carry a declared clamp onto a
+/// `@role(protective)`/`@role(earth)` reference. Coverage is the declaration,
+/// not the topology alone: an ordinary decoupling capacitor or series resistor
+/// onto the protective island is not a clamp (the PI axis owns those), so the
+/// covering device must sit on both the exposed net and the clamped reference
+/// net while the same scope declares `@clamp(<that ref>)`. The reference's role
+/// failing is PWR-7's (6008) verdict, not repeated here — this fires on the
+/// missing clamp only.
+pub const EXPOSED_NET_NO_CLAMP: u32 = 6031;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -2065,6 +2077,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DC_BINDING_DIR_MISMATCH, "A direction-word power terminal sits at the wrong end of its own connection chain.", "'{0}' is declared {1} but occupies {2} — the wrong end of its own connection chain: a source (psrc) face must lead the chain (first member / right of a {L|R} through), a sink (psnk) must trail it (last member / left of a {L|R} through). The direction word stays authoritative (6011/6019/6021/pwrflow): flip the arrow or move the terminal so the chain direction agrees with the declared direction contract (intent-design.md §5.3.2, PWR-10)"),
     entry!(PORT_BIND_ROLE_MISMATCH, "An out port declaring @bind_role(<role>) is bound in its parent scope to a reference whose declared role differs, or to a net with no role identity.", "port '{0}' declares @bind_role({1}) but its parent binding '{2}' resolves to role {3} — the child names a role, never an ancestor conduit, so the parent binding must witness it: bind the port to a conduit of that role (or forward it to a sibling port re-declaring the same role). Bind to the {1} conduit, or fix the @bind_role if the contract itself is mis-declared (conduit-equivalence-design.md §8.7)"),
     entry!(POWER_PIN_RETURN_MISSING, "A ::DC power row declares no return member, so the DC crossing is incomplete.", "{0} '{1}' carries a ::DC contract but no second (return) member — a DC crossing is the pair [hot, ret] and every consumer of the crossing reads that member: write it as a pair on one row, e.g. `psnk [1,2] = VIN{Vin, GND}::DC(...)`, naming the return the hot terminal closes over (conduit-equivalence-design.md §8.8, model A)"),
+    entry!(EXPOSED_NET_NO_CLAMP, "An @exposed port's net carries no declared clamp onto a protective/earth reference.", "port '{0}' declares @exposed({1}) but net '{2}' carries no clamp onto a protective/earth reference — an exposed net is at the board's transient boundary, so a device on it must have its dump leg on a @role(protective)/@role(earth) conduit that the same scope declares @clamp(<ref>) on: add the clamp (an ESD array channel onto the protective island), or drop the @exposed when the port is not at the transient boundary (exposed-protection-design.md §3, PWR-6)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),

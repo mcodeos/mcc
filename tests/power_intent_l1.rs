@@ -2760,3 +2760,97 @@ fn dc_pair_and_non_dc_rows_stay_silent_6030() {
         "a completed pair and a non-DC row are both outside the check; got codes: {codes:?}"
     );
 }
+
+// ── PWR-6 exposed-net clamp coverage (exposed-protection-design.md §3, v0.2) ──
+//
+// `@exposed(<threat>)` puts a port's net at the board's transient boundary, and
+// a boundary net must carry a declared clamp: a device on that net whose dump
+// leg lands on a reference the same scope declares `@clamp` on. Coverage is the
+// declaration, not the topology alone — a device tying the exposed net to the
+// protective island without a `@clamp` is not a clamp. The reference's role is
+// not part of coverage: PWR-6 is the existence half, upstream of 6008 (PWR-7),
+// so a clamp onto a main/quiet reference fires 6008 alone.
+
+/// The gold shape (POWER_USB): a TVS-like device on the exposed net dumps onto
+/// the module's own `@role(protective)` ref through a declared `@clamp` → PWR-6
+/// is silent.
+#[test]
+fn exposed_net_with_declared_clamp_is_silent_6031() {
+    let src = format!(
+        "{TV}\nmodule main {{\n    conduit ESDGND @role(protective)\n    io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> ESDGND @clamp(ESDGND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_NO_CLAMP),
+        "a declared clamp onto the protective island covers the exposed net; got codes: {codes:?}"
+    );
+}
+
+/// Nothing dumps the exposed nets: both ports of the row fire (the row's two
+/// operands are two exposed ports, each judged on its own net).
+#[test]
+fn exposed_nets_without_clamp_each_fire_6031() {
+    let src = format!(
+        "{TV}\nmodule main {{\n    conduit ESDGND @role(protective)\n    io DP, DM @exposed(esd_contact)\n    \
+         TV tva\n    TV tvb\n    tva.IO -> DP\n    tvb.IO -> DM\n    \
+         tva.G -> ESDGND\n    tvb.G -> ESDGND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let n = codes
+        .iter()
+        .filter(|c| **c == mcc::errcodes::EXPOSED_NET_NO_CLAMP)
+        .count();
+    assert_eq!(n, 2, "one 6031 per uncovered exposed port; got codes: {codes:?}");
+}
+
+/// The ruled distinction: the device *is* on the exposed net and *is* tied to
+/// the protective island, but no `@clamp` is declared for that reference — the
+/// ordinary PI-axis connection is not a clamp, so the exposure stays uncovered.
+#[test]
+fn device_onto_the_ref_without_a_clamp_declaration_fires_6031() {
+    let src = format!(
+        "{TV}\nmodule main {{\n    conduit ESDGND @role(protective)\n    io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> ESDGND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::EXPOSED_NET_NO_CLAMP),
+        "coverage is the @clamp declaration, not the topology alone; got codes: {codes:?}"
+    );
+}
+
+/// No double report: a clamp declared onto a `main`-role reference is *present*
+/// (PWR-6 silent) and *wrong* (6008 fires). The defect is the reference, so it
+/// belongs to PWR-7 alone.
+#[test]
+fn clamp_onto_a_main_ref_is_pwr7_only_6031() {
+    let src = format!(
+        "{TV}\nmodule main {{\n    conduit GND @role(main)\n    io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> DP\n    tv.G -> GND @clamp(GND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        codes.contains(&mcc::errcodes::CLAMP_REF_NOT_PROTECTIVE),
+        "a clamp onto a @role(main) ref is PWR-7's verdict; got codes: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_NO_CLAMP),
+        "the clamp is present — PWR-6 must not stack on PWR-7; got codes: {codes:?}"
+    );
+}
+
+/// An `@exposed` port with no net of its own (nothing in the module body touches
+/// it) has no segment to judge: not adjudicated rather than guessed.
+#[test]
+fn exposed_port_with_no_net_is_not_adjudicated_6031() {
+    let src = format!(
+        "{TV}\nmodule main {{\n    conduit ESDGND @role(protective)\n    io DP @exposed(esd_contact)\n    \
+         TV tv\n    tv.IO -> tv.G\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_NO_CLAMP),
+        "a dangling exposed port has no segment; got codes: {codes:?}"
+    );
+}

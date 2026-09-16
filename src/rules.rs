@@ -60,7 +60,8 @@ use crate::instant::insttab::InstTable;
 use crate::semantic::validation::nets::{
     check_backfeed, check_clamp_ref_role, check_combine_output_tol, check_converter_gate_window,
     check_converter_output_rail_window, check_converter_spec_incomplete, check_device_return_span,
-    check_driver_conflict, check_earth_dc_leak, check_floating_inputs, check_floating_outputs,
+    check_driver_conflict, check_earth_dc_leak, check_exposed_clamp_coverage,
+    check_floating_inputs, check_floating_outputs,
     check_isolated_dc_bridge, check_nc_connected, check_net_budget, check_pin_contract_decode,
     check_pin_contract_return_member, check_pin_count_mismatch, check_port_bind_role,
     check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
@@ -1061,6 +1062,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_pin_contract_return_member,
     },
+    // PWR-6 transient-exposed coverage (exposed-protection-design.md §3, v0.2
+    // 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    declare_flat_erc_rule! {
+        code = crate::errcodes::EXPOSED_NET_NO_CLAMP,
+        name = "exposed-net-no-clamp",
+        title = "an @exposed port's net carries no declared clamp onto a protective/earth reference",
+        severity = Error,
+        domain = Power,
+        family = None,
+        doc = "PWR-6 (exposed-protection-design.md §3): `@exposed(<threat>)` on a port row declares the port sits at the board's transient boundary (the value selects the sim threat template; ERC reads presence only). Such a net must carry a declared clamp onto a @role(protective)/@role(earth) reference — a device on the exposed net whose dump leg lands on that reference while the same scope declares `@clamp(<ref>)`. Coverage is the declaration, not the topology alone: a plain decoupling cap or series resistor onto the protective island is the PI axis' object, not a clamp. Judged per exposed port, over its own net segments, in the declaration scope that owns the leg (an unresolvable segment or reference is not adjudicated — its role comes from an ancestor world / port contract, iron rule 1). A reference of the wrong role is 6008's verdict, not repeated here.",
+        lock = "tests/power_intent_l1.rs",
+        overridable = false,
+        owner = check_exposed_clamp_coverage,
+    },
 ];
 
 // Declaration scope (pins / declaration semantics)
@@ -1614,7 +1629,8 @@ mod tests {
     use super::*;
     use crate::errcodes::{
         ABSTRACT_PART_UNSELECTED, CLAMP_REF_NOT_PROTECTIVE, COMBINE_OUTPUT_TOL,
-        DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK, ISOLATED_DC_BRIDGE, NET_BACKFEED_RISK,
+        DEVICE_RETURN_SPAN_UNDECLARED, EARTH_DC_LEAK, EXPOSED_NET_NO_CLAMP, ISOLATED_DC_BRIDGE,
+        NET_BACKFEED_RISK,
         NET_BIDIR_UNCONNECTED, NET_BUDGET_EXCEEDED, NET_DANGLING_ENDPOINT, NET_INPUT_UNCONNECTED,
         NET_INSTANCE_UNCONNECTED, NET_MODULE_PORT_UNCONNECTED, NET_MULTI_DRIVE, NET_NC_CONNECTED,
         NET_NO_DRIVER, NET_OUTPUTS_NO_INPUT, NET_OUTPUT_UNDRIVEN, NET_PARTIAL_CONNECTION,
@@ -1630,7 +1646,7 @@ mod tests {
     /// The execution order of the migrated `nets::run_net_checks` call table.
     /// This is the lock that keeps catalog declaration order byte-identical to
     /// the pre-registry runner sequence.
-    const FLAT_ERC_ORDER: [u32; 39] = [
+    const FLAT_ERC_ORDER: [u32; 40] = [
         NET_MULTI_DRIVE,                    // P1
         NET_NO_DRIVER,                      // P2
         NET_INPUT_UNCONNECTED,              // P5
@@ -1670,6 +1686,7 @@ mod tests {
         DEVICE_RETURN_SPAN_UNDECLARED, // §8.6 device reference-pin cross-plane (tail append)
         PORT_BIND_ROLE_MISMATCH, // §8.7 port role contract (tail append)
         POWER_PIN_RETURN_MISSING, // §8.8 [hot, ret] pairing (tail append)
+        EXPOSED_NET_NO_CLAMP,     // PWR-6 exposed-net clamp coverage (tail append)
     ];
 
     /// The report-row tags of the netcheck R-series. This is the lock that
@@ -2205,7 +2222,7 @@ mod tests {
         // The 63 PostParse codes that once shared the validation-module doc
         // placeholder now carry concrete tests/lock_pp_*.rs anchors, so the
         // doc partition is empty and every one of them counts as strong.
-        assert_eq!((strong, doc, note), (146, 0, 3));
+        assert_eq!((strong, doc, note), (147, 0, 3));
         assert_eq!(strong + doc + note, rule_count());
     }
 
