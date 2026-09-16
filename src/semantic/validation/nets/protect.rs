@@ -41,7 +41,9 @@ use crate::instant::island::{NetIslandIndex, NetRole};
 /// instance id → class id (conduit bare name) → role. Built from the same
 /// `McPowerDecls` layer PWR-7's role lookup uses, so the two rules read one
 /// declaration plane.
-fn declared_ref_roles(table: &InstTable) -> std::collections::HashMap<u32, std::collections::HashMap<String, String>> {
+fn declared_ref_roles(
+    table: &InstTable,
+) -> std::collections::HashMap<u32, std::collections::HashMap<String, String>> {
     let mut out: std::collections::HashMap<u32, std::collections::HashMap<String, String>> =
         std::collections::HashMap::new();
     for (id, pi) in table.power_decls() {
@@ -249,10 +251,7 @@ pub(crate) fn check_protect_series_path(table: &InstTable, results: &mut Vec<Net
                 .filter_map(|n| table.get_net(*n).map(|e| e.name.clone()))
                 .collect();
             if !unfed.is_empty() {
-                reason = Some(format!(
-                    "end '{}' is on no supply tree",
-                    unfed.join("', '")
-                ));
+                reason = Some(format!("end '{}' is on no supply tree", unfed.join("', '")));
             }
         }
 
