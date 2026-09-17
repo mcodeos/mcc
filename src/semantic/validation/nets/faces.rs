@@ -37,6 +37,7 @@
 //! entry stays a zero-consumer carry, exactly as §1.2's element class began.
 
 use crate::instant::insttab::InstTable;
+use crate::semantic::basic::attr_keys;
 use std::collections::{HashMap, HashSet};
 
 /// Which declared face a world is.
@@ -63,9 +64,17 @@ pub(super) struct DomainFaces {
 /// face). One mapping, because "which words make a face quiet" is the canon's
 /// step and a second copy of it would let a port row and a domain disagree.
 pub(super) fn face_of_words(class: Option<&str>, noise: Option<&str>) -> Option<Face> {
-    if class == Some("analog") || matches!(noise, Some("quiet") | Some("sensitive")) {
+    // The words are the registry's (`@class`/`@noise` rows), so the mapping
+    // cannot name a word the key does not admit — a word outside the set is
+    // reported where it is written (5360).
+    if class == Some(attr_keys::WORD_ANALOG)
+        || matches!(
+            noise,
+            Some(attr_keys::WORD_QUIET) | Some(attr_keys::WORD_SENSITIVE)
+        )
+    {
         Some(Face::Quiet)
-    } else if noise == Some("noisy") {
+    } else if noise == Some(attr_keys::WORD_NOISY) {
         Some(Face::Noisy)
     } else {
         None

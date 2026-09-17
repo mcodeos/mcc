@@ -39,6 +39,7 @@ impl McAttributes {
     pub fn parse(&mut self, node: &AstNode) {
         if let Some(attribute) = McAttribute::new(node) {
             report_duplicate_key(self, &attribute, node);
+            report_value_outside_vocabulary(&attribute, node);
             self.push(attribute);
         }
     }
@@ -318,6 +319,75 @@ fn report_duplicate_key(attrs: &McAttributes, attribute: &McAttribute, node: &As
             attribute.id
         ),
     );
+}
+
+/// A key whose values come from a closed set is declared with one of that set's
+/// words, and a flag key is declared by being written at all: report a
+/// declaration that says something else (5360).
+///
+/// The four readers of these keys (`pi.rs`'s identity decoders, `insttab.rs`'s
+/// `protection_of`, `nets/faces.rs`'s face and `nets/mod.rs`'s axis) see a
+/// *word* or nothing, so a misspelling is indistinguishable from an absent
+/// declaration — `protect = serise` leaves a part unmarked, `noise = noize`
+/// leaves a face unclaimed, and either way every rule that reads the axis goes
+/// quiet. This is that missing report, made where the declaration is built
+/// (`contract-design.md` §1.8).
+///
+/// Structural, not a word list: the set comes from the registry row. A key the
+/// registry does not register is not judged — the ledger's vocabulary is open
+/// for keys and closed for the values of the keys it does register.
+///
+/// One site covers both write faces of every key: a body sentence
+/// (`noise = quiet`, `protect = shunt`) and a row's trailing `@attr…`
+/// (`@role(main)`, a pin row's `@class(analog)`) are both built here. A nested
+/// table row is the one shape that does not pass through this list; none of
+/// these keys is written inside a table.
+fn report_value_outside_vocabulary(attribute: &McAttribute, node: &AstNode) {
+    use crate::semantic::basic::attr_keys::{self, AttrVocab};
+    let key = attribute.id.to_string();
+    let Some(vocab) = attr_keys::vocab_of(&key) else {
+        return;
+    };
+    let written = attr_values_text(attribute.values.iter());
+    match vocab {
+        AttrVocab::Words(words) => {
+            let Some(written) = written.as_deref() else {
+                dlog_error(
+                    crate::errcodes::ATTR_VALUE_NOT_IN_VOCABULARY,
+                    node,
+                    &format!(
+                        "Attribute '{key}' declares no value. Its value is one of the words the \
+                         registry holds for it: {}. A declaration with no value claims nothing.",
+                        words.join(", ")
+                    ),
+                );
+                return;
+            };
+            if !words.contains(&written) {
+                dlog_error(
+                    crate::errcodes::ATTR_VALUE_NOT_IN_VOCABULARY,
+                    node,
+                    &format!(
+                        "Attribute '{key}' is written with the value '{written}', which is outside \
+                         the key's word set ({}). Words are compared exactly, without case folding.",
+                        words.join(", ")
+                    ),
+                );
+            }
+        }
+        AttrVocab::Flag => {
+            if written.is_some() {
+                dlog_error(
+                    crate::errcodes::ATTR_VALUE_NOT_IN_VOCABULARY,
+                    node,
+                    &format!(
+                        "Attribute '{key}' is a flag: it is declared by being written, and takes no \
+                         value."
+                    ),
+                );
+            }
+        }
+    }
 }
 
 impl McAttribute {

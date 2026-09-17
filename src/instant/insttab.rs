@@ -257,20 +257,21 @@ pub(crate) fn pwr_row_for_pin<'a>(
 /// lands there is what the flat entry records: the definition-body value, or —
 /// on a func call site — the key assignment that rewrites it (contract-design
 /// §2.4). The value is matched whole and case-sensitively against the two words
-/// the design rules; an absent key — or a value that is neither — leaves the
-/// entry unmarked, and PWR-5 then says nothing about the device. Nothing here
-/// reads a class name or a pin shape: the declaration is the only witness
-/// (world-axioms §1 A1).
+/// the registry holds for the key; an absent key — or a value that is neither —
+/// leaves the entry unmarked, and PWR-5 then says nothing about the device.
+/// Nothing here reads a class name or a pin shape: the declaration is the only
+/// witness (world-axioms §1 A1).
 pub(crate) fn protection_of(
     comp: &crate::instant::mc_comp::McComponentInst,
 ) -> Option<ProtectionKind> {
+    use crate::semantic::basic::attr_keys;
     let attr = comp
         .resolved_attrs
         .iter()
-        .find(|a| a.id.to_string() == "protect")?;
+        .find(|a| a.id.to_string() == attr_keys::KEY_PROTECT)?;
     match crate::semantic::component::mc_attr::attr_values_text(attr.values.iter()).as_deref() {
-        Some("shunt") => Some(ProtectionKind::Shunt),
-        Some("series") => Some(ProtectionKind::Series),
+        Some(attr_keys::WORD_SHUNT) => Some(ProtectionKind::Shunt),
+        Some(attr_keys::WORD_SERIES) => Some(ProtectionKind::Series),
         _ => None,
     }
 }

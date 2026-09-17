@@ -8,6 +8,7 @@
 
 use crate::db::diagnostic::diagnostic::Diagnostic;
 use crate::instant::insttab::{InstEntry, InstKind, InstOrigin, InstTable, MemberRole, NetEntry};
+use crate::semantic::basic::attr_keys;
 use crate::semantic::basic::mc_kvs::KVSValue;
 use crate::semantic::basic::mc_literal::McLiteral;
 use crate::semantic::basic::mc_param::McParamValue;
@@ -1339,7 +1340,7 @@ pub(crate) fn check_clamp_ref_role(table: &InstTable, results: &mut Vec<NetCheck
             let Some(role) = role_of.get(target.as_str()).copied() else {
                 continue;
             };
-            if role == "protective" || role == "earth" {
+            if role == attr_keys::WORD_PROTECTIVE || role == attr_keys::WORD_EARTH {
                 continue;
             }
             results.push(NetCheckResult {
@@ -2056,7 +2057,7 @@ pub(crate) fn check_isolated_dc_bridge(table: &InstTable, results: &mut Vec<NetC
         let isolated_refs: HashSet<String> = pi
             .l1_refs()
             .iter()
-            .filter(|r| r.role.as_deref() == Some("isolated"))
+            .filter(|r| r.role.as_deref() == Some(attr_keys::WORD_ISOLATED))
             .map(|r| r.name.clone())
             .collect();
         if isolated_refs.is_empty() {
@@ -2110,7 +2111,7 @@ pub(crate) fn check_protective_multi_bridge(table: &InstTable, results: &mut Vec
         let protective: HashSet<String> = pi
             .l1_refs()
             .iter()
-            .filter(|r| r.role.as_deref() == Some("protective"))
+            .filter(|r| r.role.as_deref() == Some(attr_keys::WORD_PROTECTIVE))
             .map(|r| r.name.clone())
             .collect();
         if protective.is_empty() {
@@ -2165,7 +2166,7 @@ pub(crate) fn check_earth_dc_leak(table: &InstTable, results: &mut Vec<NetCheckR
         let earth: HashSet<String> = pi
             .l1_refs()
             .iter()
-            .filter(|r| r.role.as_deref() == Some("earth"))
+            .filter(|r| r.role.as_deref() == Some(attr_keys::WORD_EARTH))
             .map(|r| r.name.clone())
             .collect();
         if earth.is_empty() {
@@ -2328,7 +2329,8 @@ pub(crate) fn check_role_ref_missing_bridge(table: &InstTable, results: &mut Vec
             .l1_refs()
             .iter()
             .filter(|r| {
-                r.role.as_deref() == Some("quiet") || r.role.as_deref() == Some("protective")
+                r.role.as_deref() == Some(attr_keys::WORD_QUIET)
+                    || r.role.as_deref() == Some(attr_keys::WORD_PROTECTIVE)
             })
             .map(|r| r.name.clone())
             .collect();
@@ -3127,7 +3129,7 @@ pub(crate) fn check_device_return_span(table: &InstTable, results: &mut Vec<NetC
             let isolated = roles
                 .get(&ma)
                 .and_then(|m| m.get(&cls.id))
-                .is_some_and(|r| r == "isolated");
+                .is_some_and(|r| r == attr_keys::WORD_ISOLATED);
             let slot = classes
                 .entry(cls.id.clone())
                 .or_insert_with(|| DeviceReturnClass {

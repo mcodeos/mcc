@@ -8,12 +8,13 @@
 //! (`voltage`), or a key of the `spec` value table (`spec.capacitance`). Below
 //! those, values are self-describing and carry no schema of their own.
 //!
-//! One row answers the four questions its consumers ask: which namespaces the
+//! One row answers the five questions its consumers ask: which namespaces the
 //! key may be written in ([`AttrKeyDef::faces`]), which kind of value it holds,
-//! unit included ([`AttrKeyDef::value`]), which half of a demand/supply contract
-//! it states ([`AttrKeyDef::contract`]), and whether it may be a general
-//! attribute key at all, and how often ([`AttrKeyDef::general`],
-//! [`AttrKeyDef::arity`]).
+//! unit included ([`AttrKeyDef::value`]), which words that value may be written
+//! with, where the vocabulary is closed ([`AttrKeyDef::vocab`]), which half of a
+//! demand/supply contract it states ([`AttrKeyDef::contract`]), and whether it
+//! may be a general attribute key at all, and how often
+//! ([`AttrKeyDef::general`], [`AttrKeyDef::arity`]).
 //!
 //! The vocabulary is open and the semantics are closed. A key with no row is
 //! legal everywhere and carries no registered meaning: no unit inference, no
@@ -141,6 +142,26 @@ pub(crate) enum AttrKeyArity {
     Set,
 }
 
+/// The value face of a key whose values are a **closed set** — the words a
+/// declaration may be written with ([`AttrKeyDef::vocab`]).
+///
+/// A key's *shape* is [`AttrValueKind`]; this column is orthogonal to it: the
+/// value of `protect` is text and the value of `noise` is a word, yet only one
+/// of the two keys admits an arbitrary word. Which words exist is registered in
+/// the ledger's word column (`mcd/spec/07-attrs.md` §3.1, reconciled row by row
+/// with `mcc/scripts/check-attr-keys.py`) and mirrored here; the canons
+/// (`power/intent-design.md` §5.2, `power/exposed-protection-design.md` §4) keep
+/// what the words mean and point back at the ledger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AttrVocab {
+    /// One of these words, written exactly. A declaration that writes another
+    /// word is reported, never silently read as "no declaration".
+    Words(&'static [&'static str]),
+    /// No value at all: a flag key is live by being there, and a value written
+    /// on it is itself the error (`@star`).
+    Flag,
+}
+
 /// One row of the dictionary: a key path and its columns.
 pub(crate) struct AttrKeyDef {
     pub(crate) key: &'static str,
@@ -152,6 +173,12 @@ pub(crate) struct AttrKeyDef {
     /// Kind of value the key holds (D5), unit included; `None` where no kind is
     /// registered for the key. [`value_kind`] is its reader.
     pub(crate) value: Option<AttrValueKind>,
+    /// The words the key's value is written with, where the key's vocabulary is
+    /// closed ([`AttrVocab`]); `None` for every key whose values are open —
+    /// including every key with no row at all, which is not judged (the ledger's
+    /// "the semantics are closed and the vocabulary is open", `spec/07-attrs.md`
+    /// §3.1). [`vocab_of`] is its reader.
+    pub(crate) vocab: Option<AttrVocab>,
     /// Which half of a demand/supply contract the key states. Registered for
     /// the matcher that pairs a requirement with a guarantee; read by no
     /// consumer until that matcher exists.
@@ -189,6 +216,63 @@ const SPEC: &[AttrFace] = &[AttrFace::Spec];
 /// body (`mcode/ifs/uart.mc`).
 const BODY_PIN_IFACE: &[AttrFace] = &[AttrFace::Body, AttrFace::PinRow, AttrFace::Interface];
 
+/// The identity-axis keys and the protection gate, by the name the rows below
+/// register them under (`mcd/doc/attribute/contract-design.md` §1.8).
+///
+/// A reader asks for one of these instead of spelling the name, so the word a
+/// key is written with lives in its row alone: "no consumer may compare key
+/// strings itself" (§1.7 G6) is then true of these keys too.
+pub(crate) const KEY_ROLE: &str = "role";
+pub(crate) const KEY_CLASS: &str = "class";
+pub(crate) const KEY_NATURE: &str = "nature";
+pub(crate) const KEY_NOISE: &str = "noise";
+pub(crate) const KEY_EXPOSED: &str = "exposed";
+pub(crate) const KEY_BIND_ROLE: &str = "bind_role";
+pub(crate) const KEY_RETURN: &str = "return";
+pub(crate) const KEY_STAR: &str = "star";
+pub(crate) const KEY_PROTECT: &str = "protect";
+
+/// The words of the closed sets the rows below register. `role` and `bind_role`
+/// share one set, which is what the canon says of them: `bind_role` takes the
+/// `role` words.
+pub(crate) const WORD_MAIN: &str = "main";
+pub(crate) const WORD_QUIET: &str = "quiet";
+pub(crate) const WORD_PROTECTIVE: &str = "protective";
+pub(crate) const WORD_EARTH: &str = "earth";
+pub(crate) const WORD_ISOLATED: &str = "isolated";
+pub(crate) const WORD_DIGITAL: &str = "digital";
+pub(crate) const WORD_ANALOG: &str = "analog";
+pub(crate) const WORD_NOISY: &str = "noisy";
+pub(crate) const WORD_SENSITIVE: &str = "sensitive";
+pub(crate) const WORD_AC: &str = "ac";
+pub(crate) const WORD_DC: &str = "dc";
+pub(crate) const WORD_SHUNT: &str = "shunt";
+pub(crate) const WORD_SERIES: &str = "series";
+pub(crate) const WORD_ESD_CONTACT: &str = "esd_contact";
+pub(crate) const WORD_ESD_AIR: &str = "esd_air";
+pub(crate) const WORD_EFT: &str = "eft";
+pub(crate) const WORD_SURGE: &str = "surge";
+pub(crate) const WORD_LIGHTNING: &str = "lightning";
+
+const ROLE_WORDS: &[&str] = &[
+    WORD_MAIN,
+    WORD_QUIET,
+    WORD_PROTECTIVE,
+    WORD_EARTH,
+    WORD_ISOLATED,
+];
+const CLASS_WORDS: &[&str] = &[WORD_DIGITAL, WORD_ANALOG];
+const NATURE_WORDS: &[&str] = &[WORD_AC, WORD_DC];
+const NOISE_WORDS: &[&str] = &[WORD_NOISY, WORD_QUIET, WORD_SENSITIVE];
+const EXPOSED_WORDS: &[&str] = &[
+    WORD_ESD_CONTACT,
+    WORD_ESD_AIR,
+    WORD_EFT,
+    WORD_SURGE,
+    WORD_LIGHTNING,
+];
+const PROTECT_WORDS: &[&str] = &[WORD_SHUNT, WORD_SERIES];
+
 /// The dictionary. Rows are added when a consumer needs them; a key with no
 /// registered row is not yet known to the compiler, not rejected.
 ///
@@ -200,9 +284,12 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     // value, so they can never be general attribute keys.
     row("this", BODY, false),
     row("pins", BODY, false),
-    row("role", BODY, false),
+    // `@role`'s values are the ledger's five identity words (R9).
+    vocab_row(KEY_ROLE, BODY, false, AttrVocab::Words(ROLE_WORDS)),
     row("func", BODY, false),
-    row("return", BODY, false),
+    // `@return` names a return conduit, so its value is a reference rather than
+    // a word: no vocabulary is registered for it.
+    row(KEY_RETURN, BODY, false),
     row("in", BODY, false),
     row("out", BODY, false),
     row("io", BODY, false),
@@ -223,6 +310,23 @@ pub(crate) const ATTR_KEYS: &[AttrKeyDef] = &[
     value_row("partno", BODY, AttrValueKind::Text),
     value_row("package", BODY, AttrValueKind::Text),
     value_row("manufacturer", BODY, AttrValueKind::Text),
+    // The identity axis and the protection gate (contract-design.md §1.8). Each
+    // of these keys states a classification word, and the words are the closed
+    // sets registered in the ledger's word column (`spec/07-attrs.md` §3.1) —
+    // the six identity keys of `power/intent-design.md` §5.2 and `protect`'s two
+    // of `power/exposed-protection-design.md` §4. Registering them is what makes
+    // a misspelled word reportable instead of reading as "the declaration is
+    // absent": a reader of `protect` sees `None` either way.
+    // `star` is the one flag: it carries no value, and a value on it is the
+    // error — which is the vocabulary check's verdict, so the key is a general
+    // one (the reserved column would report the word instead of the value).
+    vocab_row(KEY_CLASS, BODY, true, AttrVocab::Words(CLASS_WORDS)),
+    vocab_row(KEY_NATURE, BODY, true, AttrVocab::Words(NATURE_WORDS)),
+    vocab_row(KEY_NOISE, BODY, true, AttrVocab::Words(NOISE_WORDS)),
+    vocab_row(KEY_EXPOSED, BODY, true, AttrVocab::Words(EXPOSED_WORDS)),
+    vocab_row(KEY_BIND_ROLE, BODY, true, AttrVocab::Words(ROLE_WORDS)),
+    vocab_row(KEY_STAR, BODY, true, AttrVocab::Flag),
+    vocab_row(KEY_PROTECT, BODY, true, AttrVocab::Words(PROTECT_WORDS)),
     // Voltage words a component body may state its supply voltage with.
     voltage_row(
         "voltage",
@@ -386,6 +490,30 @@ const fn row(key: &'static str, faces: &'static [AttrFace], general: bool) -> At
         faces,
         general,
         value: None,
+        vocab: None,
+        contract: AttrContract::Plain,
+        supply_voltage: false,
+        arity: AttrKeyArity::Single,
+        element: None,
+    }
+}
+
+/// A row for a key whose values come from a closed set ([`AttrVocab`]). Written
+/// through its own constructor so the closedness of a key is visible where the
+/// key is registered, and so a reader of the table can tell it from a key whose
+/// values are open (`row`).
+const fn vocab_row(
+    key: &'static str,
+    faces: &'static [AttrFace],
+    general: bool,
+    vocab: AttrVocab,
+) -> AttrKeyDef {
+    AttrKeyDef {
+        key,
+        faces,
+        general,
+        value: None,
+        vocab: Some(vocab),
         contract: AttrContract::Plain,
         supply_voltage: false,
         arity: AttrKeyArity::Single,
@@ -403,6 +531,7 @@ const fn value_row(
         faces,
         general: true,
         value: Some(value),
+        vocab: None,
         contract: AttrContract::Plain,
         supply_voltage: false,
         arity: AttrKeyArity::Single,
@@ -424,6 +553,7 @@ const fn element_row(
         faces,
         general: true,
         value: Some(value),
+        vocab: None,
         contract: AttrContract::Plain,
         supply_voltage: false,
         arity: AttrKeyArity::Single,
@@ -441,6 +571,7 @@ const fn voltage_row(
         faces,
         general: true,
         value,
+        vocab: None,
         contract: AttrContract::Plain,
         supply_voltage: true,
         arity: AttrKeyArity::Single,
@@ -459,6 +590,7 @@ const fn contract_row(
         faces,
         general: true,
         value: Some(value),
+        vocab: None,
         contract,
         supply_voltage: false,
         arity: AttrKeyArity::Single,
@@ -508,6 +640,17 @@ pub(crate) fn element_of_key(key: &str) -> Option<ElementClass> {
 /// re-spells it.
 pub(crate) fn element_of_spec_key(sub: &str) -> Option<ElementClass> {
     element_of_key(&format!("spec.{sub}"))
+}
+
+/// The closed word set `key`'s values must come from ([`AttrVocab`]), where the
+/// dictionary registers one.
+///
+/// `None` for a key whose values are open — which includes every key with no row
+/// at all: a key the ledger does not know carries no registered meaning, so no
+/// word is outside anything. `key` is the whole dotted key as written, like
+/// every other reader here.
+pub(crate) fn vocab_of(key: &str) -> Option<AttrVocab> {
+    lookup(key).and_then(|d| d.vocab)
 }
 
 /// Does `key` open a value-table namespace — a name the dictionary registers
@@ -729,6 +872,41 @@ mod tests {
         // A longer key is a different key: a crystal's `load_capacitance` is
         // not the bare capacitance the class is asked about.
         assert_eq!(element_of_spec_key("load_capacitance"), None);
+    }
+
+    #[test]
+    fn attrkeys__vocab_column_registers_the_closed_word_sets() {
+        assert_eq!(
+            vocab_of(KEY_ROLE),
+            Some(AttrVocab::Words(ROLE_WORDS)),
+            "role takes the canon's five identity words"
+        );
+        assert_eq!(vocab_of(KEY_CLASS), Some(AttrVocab::Words(CLASS_WORDS)));
+        assert_eq!(vocab_of(KEY_NATURE), Some(AttrVocab::Words(NATURE_WORDS)));
+        assert_eq!(vocab_of(KEY_NOISE), Some(AttrVocab::Words(NOISE_WORDS)));
+        assert_eq!(vocab_of(KEY_EXPOSED), Some(AttrVocab::Words(EXPOSED_WORDS)));
+        assert_eq!(vocab_of(KEY_PROTECT), Some(AttrVocab::Words(PROTECT_WORDS)));
+        // `bind_role` takes the `role` words: one set, not a copy of it.
+        assert_eq!(vocab_of(KEY_BIND_ROLE), Some(AttrVocab::Words(ROLE_WORDS)));
+        // `star` is the flag: presence is the declaration, so it registers no
+        // word at all.
+        assert_eq!(vocab_of(KEY_STAR), Some(AttrVocab::Flag));
+    }
+
+    #[test]
+    fn attrkeys__vocab_is_absent_where_values_are_open() {
+        // `@return` names a conduit — a reference, not a word from a set.
+        assert_eq!(vocab_of(KEY_RETURN), None);
+        // A key with a value kind but no closed set states its value freely.
+        assert_eq!(vocab_of("voltage"), None);
+        assert_eq!(vocab_of("spec.dielectric"), None);
+        // A key the ledger does not know is not judged: no row, no word set.
+        assert_eq!(vocab_of("coil_voltage"), None);
+        // `role` is still the reserved word it was (N1): the column is added,
+        // not the admission.
+        assert!(is_reserved(KEY_ROLE));
+        assert!(!is_reserved(KEY_CLASS));
+        assert!(vocab_of(KEY_CLASS).is_some());
     }
 
     #[test]

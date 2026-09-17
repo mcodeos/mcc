@@ -37,10 +37,20 @@ DOC = Path(
 # doc's own words as a literal.
 DOC_MARKER = "attr-keys-ledger:"
 
-# The constructors that build a row, and the columns each one fills.
-ROW_KINDS = ("row", "value_row", "voltage_row", "contract_row", "element_row")
+# The constructors that build a row, and the columns each one fills. A
+# `vocab_row` may be written with a key constant instead of a literal (`KEY_ROLE`
+# instead of `"role"`), so the key a reader asks for and the key the row
+# registers are one spelling: `str_constants` resolves it the way
+# `face_constants` resolves the face argument.
+ROW_KINDS = ("row", "value_row", "voltage_row", "contract_row", "element_row", "vocab_row")
 
-COLUMNS = ("key", "faces", "value", "contract", "admission", "arity", "supply")
+COLUMNS = ("key", "faces", "value", "contract", "admission", "arity", "supply", "vocab")
+
+# The three states the word column carries. The words themselves are named by
+# constants on the mirror side (`WORD_SHUNT`), so the column is only comparable
+# once the names are resolved to the words they hold.
+VOCAB_UNREGISTERED = "-"
+VOCAB_FLAG = "flag"
 
 
 def split_args(text):
@@ -71,6 +81,38 @@ def face_constants(source):
     return table
 
 
+def str_constants(source):
+    """Map each `const NAME: &str = "word"` to the word it holds.
+
+    Covers both the key constants (`KEY_ROLE`) and the value-word constants
+    (`WORD_SHUNT`): each is one spelling that a row refers to by name.
+    """
+    return {
+        m.group(1): m.group(2)
+        for m in re.finditer(r'const\s+(\w+)\s*:\s*&str\s*=\s*"([^"]*)"', source)
+    }
+
+
+def word_sets(source):
+    """Map each `const NAME: &[&str]` to the word constants it lists."""
+    return {
+        m.group(1): re.findall(r"\w+", m.group(2))
+        for m in re.finditer(
+            r"const\s+(\w+)\s*:\s*&\[&str\]\s*=\s*&\[([^\]]*)\]", source
+        )
+    }
+
+
+def vocab_token(arg, sets, words):
+    """Render a row's vocabulary argument the way the doc spells it."""
+    if arg == "AttrVocab::Flag":
+        return VOCAB_FLAG
+    listed = re.match(r"AttrVocab::Words\((\w+)\)", arg)
+    if listed:
+        return ", ".join("`%s`" % words[w] for w in sets[listed.group(1)])
+    return VOCAB_UNREGISTERED
+
+
 def value_token(arg):
     """Render a row's value argument the way the doc spells it."""
     if arg == "None":
@@ -95,6 +137,7 @@ def empty_row(key):
         "admission": "general",
         "arity": "Single",
         "supply": "no",
+        "vocab": VOCAB_UNREGISTERED,
     }
 
 
@@ -102,6 +145,8 @@ def read_mirror():
     """Parse `ATTR_KEYS` into rows of the doc's columns."""
     source = MIRROR.read_text(encoding="utf-8")
     consts = face_constants(source)
+    keys = str_constants(source)
+    sets = word_sets(source)
     start = source.index("ATTR_KEYS: &[AttrKeyDef] = &[")
     end = source.index("\n];", start)
     body = source[start:end]
@@ -124,12 +169,18 @@ def read_mirror():
             i += 1
         args = split_args(body[m.end() : i - 1])
         kind = m.group(1)
-        row = empty_row(args[0].strip('"'))
+        first = args[0].strip('"')
+        row = empty_row(keys.get(first, first))
         row["faces"] = ", ".join(consts[args[1]])
 
-        if kind == "row":
+        if kind in ("row", "vocab_row"):
+            # A `vocab_row` fills the same columns as a `row` plus the word
+            # column; its admission is compared like any other reserved/general
+            # flag.
             if args[2] == "false":
                 row["admission"] = "reserved"
+            if kind == "vocab_row":
+                row["vocab"] = vocab_token(args[3], sets, keys)
         elif kind == "value_row":
             row["value"] = value_token(args[2])
         elif kind == "voltage_row":
