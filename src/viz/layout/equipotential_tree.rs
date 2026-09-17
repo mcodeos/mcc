@@ -2588,6 +2588,31 @@ pub fn assign_pin_order(graph: &McVecGraph, topos: &[NetTopology], layer_anchor:
         return PinPlan { sides, unassigned };
     };
 
+    // ★ Layout policy: a declared box draws its pins where the author put them,
+    // so the ROW order is the author's edge order. `ccw_offset` gives a listed
+    // pin its rank's fraction of the edge, and sorting a side's declared pins by
+    // that offset recovers the top-to-bottom draw order. The physical pin order
+    // below would instead pair two nets the author drew LEVEL onto different
+    // bands, and then neither net can be on its own row.
+    if anchor_box.has_pin_layout() {
+        let mut by_side: [Vec<(f64, i64)>; 4] = Default::default();
+        for s in &anchor_box.slots {
+            by_side[side_slot(s.side)].push((s.offset, s.pin_id));
+        }
+        for (slot, pins) in by_side.iter_mut().enumerate() {
+            pins.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            for (i, &(_, pid)) in pins.iter().enumerate() {
+                sides.insert(pid, (side_from_slot(slot), i));
+            }
+        }
+        for p in &anchor_box.pins {
+            if !sides.contains_key(&p.id) {
+                unassigned.push(p.id);
+            }
+        }
+        return PinPlan { sides, unassigned };
+    }
+
     // M3.5 (R3): a multi-pin net's pins on one side must occupy ADJACENT
     // in-side slots, so the RowAllocator puts them on adjacent rows and the
     // stray pin's tooth stays short. Each net's position is its first pin's
@@ -3053,9 +3078,37 @@ pub(crate) fn assign_rows(
     // corridor demand above is what keeps a Bridge/Drop body clear of the next
     // row (the naive `MEMBER_GAP → ROW_CLEAR` swap alone regressed A10/A7).
     const BASE_Y: f64 = 100.0;
+    // ★ Layout policy: a declared anchor's pins are DRAWN at the author's y, so
+    // a band owning one has to start there instead of at `BASE_Y` — the band
+    // step below only ever moves further down, so the larger of the two wins.
+    // Without this every declared pin hung off its own row by the distance
+    // between the author's grid and the flow's, and `realize` drew a tooth out
+    // of it (the wire that "bends for no reason" at the pin).
+    let declared_band_y: Vec<Option<f64>> = match graph
+        .boxes
+        .iter()
+        .find(|b| b.id == layer_anchor)
+        .filter(|b| b.has_pin_layout())
+    {
+        None => vec![None; band_nets.len()],
+        Some(b) => {
+            let mut low = vec![f64::MAX; band_nets.len()];
+            for (&pid, &k) in &pin_band {
+                if let Some(s) = slot_of(b, pid) {
+                    low[k] = low[k].min(slot_point(b, s).1);
+                }
+            }
+            low.into_iter()
+                .map(|y| (y < f64::MAX).then_some(y))
+                .collect()
+        }
+    };
     let mut band_y = vec![0.0; band_nets.len()];
     let mut y = BASE_Y;
     for k in 0..band_nets.len() {
+        if let Some(d) = declared_band_y[k] {
+            y = y.max(d);
+        }
         band_y[k] = y;
         if k + 1 < band_nets.len() {
             y += PIN_PITCH
@@ -3575,7 +3628,6 @@ pub fn envelop_lanes(graph: &McVecGraph, topos: &mut [NetTopology]) {
         // Anchor pins: each tooth lands on the trunk at the pin's position.
         if let Some(group) = topo.groups.first() {
             if let Some(b) = graph.boxes.iter().find(|b| b.id == group.box_id) {
-                let ox = topo.lane.region.outward().0;
                 for &pid in &group.pin_ids {
                     if let Some(s) = slot_of(b, pid) {
                         let (px, py) = slot_point(b, s);
@@ -3588,7 +3640,7 @@ pub fn envelop_lanes(graph: &McVecGraph, topos: &mut [NetTopology]) {
                         let cx = if (py - topo.lane.axis).abs() < 0.5 {
                             px
                         } else {
-                            px + ox * TOOTH_GAP
+                            px + tooth_offset_x(s.side)
                         };
                         vals.push(cx);
                     }
@@ -3621,6 +3673,18 @@ pub(crate) fn slot_point(b: &crate::vector::graph::McVecBox, s: &PinSlot) -> (f6
         EntrySide::Bottom => (b.x + b.w * s.offset, b.y + b.h),
         EntrySide::Left => (b.x, b.y + b.h * s.offset),
         EntrySide::Right => (b.x + b.w, b.y + b.h * s.offset),
+    }
+}
+
+/// How far a tooth steps sideways before it drops to the trunk. An off-row pin
+/// connects by a VERTICAL leg, which would run along the face itself (A18) on a
+/// Left/Right face and must step outward off it; a Top/Bottom face meets the
+/// leg perpendicular and takes no step.
+fn tooth_offset_x(side: EntrySide) -> f64 {
+    match side {
+        EntrySide::Left => -TOOTH_GAP,
+        EntrySide::Right => TOOTH_GAP,
+        EntrySide::Top | EntrySide::Bottom => 0.0,
     }
 }
 
@@ -5460,14 +5524,20 @@ pub(crate) fn realize(
     let axis = lane.axis;
     let (span_lo, span_hi) = lane.span;
 
-    // Anchor pin points (from slots — single source of truth).
-    let anchor_pins: Vec<(f64, f64)> = anchor_box
+    // Anchor pin points and the face each sits on (from slots — single source of
+    // truth).
+    let anchor_pins: Vec<(f64, f64, EntrySide)> = anchor_box
         .map(|b| {
             anchor_group
                 .unwrap()
                 .pin_ids
                 .iter()
-                .filter_map(|&pid| slot_of(b, pid).map(|s| slot_point(b, s)))
+                .filter_map(|&pid| {
+                    slot_of(b, pid).map(|s| {
+                        let (px, py) = slot_point(b, s);
+                        (px, py, s.side)
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -5488,7 +5558,7 @@ pub(crate) fn realize(
     if topo.terminal_only {
         let mut symbols: Vec<TreeSymbol> = Vec::new();
         let mut junction_dots: Vec<(f64, f64)> = Vec::new();
-        if let Some(&(px, py)) = anchor_pins.first() {
+        if let Some(&(px, py, _)) = anchor_pins.first() {
             // ★ M9: a terminal-only net may carry SEVERAL pins on the same box
             // (a satellite's two away-side ground pins, `spk.3`/`spk.4`); up to
             // M9 only `anchor_pins.first()` was wired, so the second pin drew a
@@ -5496,7 +5566,10 @@ pub(crate) fn realize(
             // edge with a runner just OUTSIDE the box, then hang the glyph off
             // THAT runner (hanging it off a pin would throw its stub back along
             // the box border — A18).
-            let mut ordered: Vec<(f64, f64)> = anchor_pins.to_vec();
+            let mut ordered: Vec<(f64, f64)> = anchor_pins
+                .iter()
+                .map(|&(px, py, _)| (px, py))
+                .collect();
             ordered.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
             let (abx, aby, abw, abh) = anchor_box_rect(graph, topo.anchor);
             // `runner` = the point on the connecting wire the glyph hangs from.
@@ -5900,12 +5973,13 @@ pub(crate) fn realize(
         axis
     };
 
-    // Teeth: from each anchor pin to the trunk (vertical). M3.5 (R3): the tooth
-    // x is offset OUTWARD from the box edge (TOOTH_GAP) with a short horizontal
-    // lead from the pin, so a West/East pin's tooth no longer runs along the
-    // box border. N/S pins have outward_x == 0 and keep the plain vertical.
-    let outward_x = topo.lane.region.outward().0;
-    for &(px, py) in &anchor_pins {
+    // Teeth: from each anchor pin to the trunk (vertical). M3.5 (R3): a pin on a
+    // Left/Right face steps off that face (TOOTH_GAP) with a short horizontal
+    // lead, so its tooth no longer runs along the box border (A18); a Top/Bottom
+    // pin meets the trunk perpendicular and needs no step. The step follows the
+    // PIN's own face, not the lane's outward direction — a lane-region offset
+    // would bend an on-row Top/Bottom pin into an L (the arm LDO/DCDC case).
+    for &(px, py, side) in &anchor_pins {
         // M3.5: a pin that already sits on the row needs no tooth — the trunk
         // end reaches it. Drawing one would duplicate the trunk (a horizontal
         // lead collinear with it) and add a zero-length vertical that pollutes
@@ -5913,7 +5987,7 @@ pub(crate) fn realize(
         if (py - axis).abs() < 0.5 {
             continue;
         }
-        let tx = px + outward_x * TOOTH_GAP;
+        let tx = px + tooth_offset_x(side);
         if (tx - px).abs() > 0.5 {
             add_segment(
                 &Segment {
