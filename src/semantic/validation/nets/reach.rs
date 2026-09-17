@@ -155,6 +155,17 @@ impl<'a> ReachScan<'a> {
         self.fed_walk(net_id, skip, &mut seen)
     }
 
+    /// The intact-graph twin of [`Self::fed_without`] — the same walk with
+    /// nothing cut out ([`super::NO_SKIP`]). The pair is what makes PWR-4b's
+    /// series question ("which end *lost* its feed when this element is
+    /// removed") a comparison of one predicate against itself; assembling the
+    /// "before" reading from a different reach predicate would compare two
+    /// readings that are not the same question.
+    pub(crate) fn fed_intact(&self, net_id: u32) -> bool {
+        let mut seen: HashSet<u32> = HashSet::new();
+        self.fed_walk(net_id, super::NO_SKIP, &mut seen)
+    }
+
     /// One removal-aware fed walk. `seen` is per-query (no memo, no stack
     /// guard): the query is asked once per end of one element, so a plain
     /// visited set bounds it, and an unfed verdict here is never cached.

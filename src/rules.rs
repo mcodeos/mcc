@@ -62,16 +62,16 @@ use crate::semantic::validation::nets::{
     check_clamp_ref_role, check_combine_output_tol, check_converter_gate_window,
     check_converter_output_rail_window, check_converter_spec_incomplete,
     check_decoupling_return_face, check_device_return_span, check_driver_conflict,
-    check_earth_dc_leak, check_exposed_clamp_coverage, check_exposed_clamp_downstream,
-    check_filter_subface_overreach, check_floating_inputs, check_floating_outputs,
-    check_isolated_dc_bridge, check_nc_connected, check_net_budget, check_pin_contract_decode,
-    check_pin_contract_return_member, check_pin_count_mismatch, check_port_bind_role,
-    check_port_io_mismatch, check_power_bridge_loop, check_power_nets, check_power_rail_contract,
-    check_power_rail_two_roots, check_power_source_contention, check_protect_series_path,
-    check_protect_shunt_reference, check_protective_multi_bridge, check_pullup_degenerate,
-    check_rail_nature_consistency, check_reference_island_root, check_return_leg_undeclared,
-    check_role_ref_missing_bridge, check_sensitive_return_on_noisy, check_shared_return_bridge,
-    check_shunt_dissipation, check_single_point_nets, check_sink_nominal_mismatch,
+    check_earth_dc_leak, check_element_dissipation, check_exposed_clamp_coverage,
+    check_exposed_clamp_downstream, check_filter_subface_overreach, check_floating_inputs,
+    check_floating_outputs, check_isolated_dc_bridge, check_nc_connected, check_net_budget,
+    check_pin_contract_decode, check_pin_contract_return_member, check_pin_count_mismatch,
+    check_port_bind_role, check_port_io_mismatch, check_power_bridge_loop, check_power_nets,
+    check_power_rail_contract, check_power_rail_two_roots, check_power_source_contention,
+    check_protect_series_path, check_protect_shunt_reference, check_protective_multi_bridge,
+    check_pullup_degenerate, check_rail_nature_consistency, check_reference_island_root,
+    check_return_leg_undeclared, check_role_ref_missing_bridge, check_sensitive_return_on_noisy,
+    check_shared_return_bridge, check_single_point_nets, check_sink_nominal_mismatch,
     check_sink_pin_decoupling, check_sink_window_mismatch, check_unconnected_outputs,
     check_undriven_nets, check_undriven_sink_net, check_unselected_abstract,
     check_unused_module_ports, check_unwired_instances, check_unwired_pins, check_voltage_mismatch,
@@ -1121,19 +1121,20 @@ pub static FLAT_ERC_RULES: &[FlatErcRule] = &[
         overridable = false,
         owner = check_rail_nature_consistency,
     },
-    // PWR-4b package dissipation (package-thermal-design.md §3, ruled
-    // 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
+    // PWR-4b package dissipation (package-thermal-design.md §3 shunt / §7
+    // series, ruled 2026-09-16 and 2026-09-17); table tail, tracking the
+    // FLAT_ERC_ORDER append (§5-5).
     declare_flat_erc_rule! {
         code = crate::errcodes::SHUNT_DISSIPATION_OVER_RATING,
-        name = "shunt-dissipation-over-rating",
-        title = "a shunt element dissipates more than its declared package rating at the rail window's worst corner",
+        name = "element-dissipation-over-rating",
+        title = "an element dissipates more in place than its declared package rating",
         severity = Warning,
         domain = Power,
         family = None,
-        doc = "PWR-4b (package-thermal-design.md §3): the second half of PWR-4. A shunt element — a class whose spec declares `resistance` (the ledger's resistive certificate), two terminals on two different nets, exactly one leg on a declared rail hot face and the other on that rail's return or a named reference — dissipates `P = V^2/R`, with `V` the far corner `max(|lo|, |hi|)` of the rail window riding its hot leg. That window is a *declared* value (the rail's own promise), so the verdict needs no solver: white-box comparison of two declarations, which is why it is an advisory Warning rather than a topology blocking error, and why the conservative far corner is used. The declared rating is compared as it stands — the design's derating factor stays 1.0 (rail-contract-design.md §8.6 keeps a multiplier out of the budget axis, and a derate needs temperature/package context this layer does not hold). A series pass element is not judged: the engine reads a two-terminal device with no DC row as current-transparent copper, so both its legs carry one window and neither the volts across it nor a per-element current is a fact here (design §3.2 R2). A class writing its rating as `_`, and a device whose hot leg carries no Resolved window, are silently outside the check.",
+        doc = "PWR-4b (package-thermal-design.md §3, §7): the second half of PWR-4. The candidate is a class whose spec declares `resistance` (the ledger's resistive certificate), two terminals on two different nets, a positive resistance and a decodable `power_rated`. Two faces are judged, each with its own reading of the current through the part. **Shunt** (§3.1): exactly one leg on a declared rail hot face and the other on that rail's return or a named reference, so the rail window is the voltage across the element — `P = V^2/R` with `V` the far corner `max(|lo|, |hi|)`, a *declared* value (the rail's own promise), which is why the verdict needs no solver and why the conservative far corner is used. **Series** (§7): the removal method — cut the element out and ask each end whether it still carries a feed (`ReachScan::fed_without`); exactly one end losing its feed makes the element the cut between a source and that side, and the current through it the whole demand of the region that went dark, read from the budget engine under the same removal so 6035 and 6021 report one copper's demand alike (`P = I^2R`). No direction word is needed: removal gives the order, the same device PWR-5's series half uses. Faces are mutually exclusive — a shunt's hot leg is a rail face and its return leg is `Ret`/`Reference` copper (never fed at all), so no end loses a feed — and one element is never judged twice. The declared rating is compared as it stands — the design's derating factor stays 1.0 (rail-contract-design.md §8.6 keeps a multiplier out of the budget axis, and a derate needs temperature/package context this layer does not hold). A class writing its rating as `_`, a device whose hot leg carries no Resolved window, a series element the supply reaches with the part removed (bypassed — PWR-5's 6033 owns that shape), and a series element whose downstream region declares no `amp` (an unknown current, not a zero one) are silently outside the check.",
         lock = "tests/power_intent_l1.rs",
         overridable = false,
-        owner = check_shunt_dissipation,
+        owner = check_element_dissipation,
     },
     // PI-3 decoupling-return face (power-quality-design.md §2.3, ruled
     // 2026-09-16); table tail, tracking the FLAT_ERC_ORDER append (§5-5).
