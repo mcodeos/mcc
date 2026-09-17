@@ -193,6 +193,20 @@ pub struct McVecNet {
     pub trunk_ref: Option<TrunkRef>,
 }
 
+/// Which way a boundary port's own declaration says energy crosses it.
+///
+/// Distinct from [`BoundaryInfo::io`], which says what the port *is*: `psrc` and
+/// `psnk` both flatten to the same `IOType::Power`, so the flat io axis cannot
+/// tell a supply face from a demand face. For a signal port the two axes agree
+/// (`in` → `In`, `out` → `Out`); for a power port only this one carries a side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortFlow {
+    /// Energy enters the module (`in`, `psnk`).
+    In,
+    /// Energy leaves the module (`out`, `psrc`).
+    Out,
+}
+
 /// ★ P7-8: boundary terminal info for port-level (not member-level) terminals.
 ///
 /// Project.rs collects pseudo endpoints that are the module's own port declarations,
@@ -206,6 +220,10 @@ pub struct BoundaryInfo {
     pub port_name: String,
     /// IO direction of the port.
     pub io: crate::vector::graph::netdef::IoDirection,
+    /// The side the port's declaration names, or `None` when it names none
+    /// (`io`, `psbi`, a bare label). Consumers that place the port read this and
+    /// fall back to geometry on `None` — they never guess a side from a name.
+    pub flow: Option<PortFlow>,
     /// The group this port crosses is a **declared supply** rather than a signal.
     ///
     /// Supply ports and signal ports reach this marker by different routes: a

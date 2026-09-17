@@ -19,7 +19,8 @@ pub mod vec;
 pub use crate::semantic::common::ConnDir;
 pub use block::McVecBlock;
 pub use net::{
-    AttrRole, BoundaryInfo, ConnectionType, DiffFace, McVecNet, NetAttrMirror, RailClass, RailSpec,
+    AttrRole, BoundaryInfo, ConnectionType, DiffFace, McVecNet, NetAttrMirror, PortFlow, RailClass,
+    RailSpec,
 };
 pub use netshape::{GroupRole, LaneRef, NetShape, ShapeStats};
 pub use trunk::{MemberLane, PathSegment, Trunk, TrunkEnd, TrunkKind, TrunkRef};
