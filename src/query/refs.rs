@@ -23,7 +23,7 @@ pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) ->
                 return Some(id);
             }
             // Fallback: iterate and match by name only (cross-scope within same file)
-            for ((_fid, _cid, _fnid, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
+            for ((_fid, _scope, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
                 if n == name {
                     return Some(*id);
                 }
@@ -68,7 +68,7 @@ pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
         if let Ok(sem) = entry.value().symbols.lock() {
             // Find decl_ids matching name
             let mut decl_ids: Vec<DeclareId> = Vec::new();
-            for ((_fid, _cid, _fnid, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
+            for ((_fid, _scope, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
                 if n == name {
                     decl_ids.push(*id);
                 }
@@ -87,13 +87,13 @@ pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
 }
 
 /// Register a system library class in the global table, returning its DeclareId.
-/// If already registered, returns the existing id; otherwise computes a stable
-/// (hash-based) DeclareId and stores it in an available file's global table.
+/// If already registered, returns the existing id; otherwise interns a DeclareId
+/// from the canonical key `(uri, name)` and stores it in an available file's
+/// global table.
 ///
-/// ★ Must use `assign_declare_id_stable`, which derives the id from
-/// (uri, name). `gt.add_class()` assigns a sequential id from whichever
-/// file's per-file counter was first in DashMap iteration order —
-/// non-deterministic and meaningless to the referencing file.
+/// ★ Must intern from the canonical key. `gt.add_class()` assigns a sequential
+/// id from whichever file's per-file counter was first in DashMap iteration
+/// order — non-deterministic and meaningless to the referencing file.
 fn register_lib_class_in_global_table(
     def_uri: &str,
     class_name: &str,
@@ -114,10 +114,14 @@ fn register_lib_class_in_global_table(
             }
         }
     }
-    // Not found — compute a stable (deterministic) DeclareId and register
-    // in the first available file's global table. Using a hash-based id
-    // avoids the non-determinism of per-file sequential counters (Defect 73).
-    let cid = crate::ast::sem::LocalSymbolTable::assign_declare_id_stable(&mc_uri, "", class_name);
+    // Not found — intern the id from the canonical key so the same
+    // `(uri, name)` yields the same id no matter which file's entry is visited
+    // first, and store it in the first available file's global table.
+    let cid = crate::ast::sem::intern_declare_id(
+        crate::refdef::types::intern_uri(def_uri),
+        "",
+        class_name,
+    );
     for entry in binding.iter() {
         if let Ok(sem) = entry.value().symbols.lock() {
             if let Ok(mut gt) = sem.global_table.lock() {

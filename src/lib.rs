@@ -932,31 +932,37 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
     if sym.local_table.name_to_declare_id.is_empty() {
         out.push_str("  (none)\n");
     }
-    let mut declares: Vec<_> = sym.local_table.name_to_declare_id.iter().collect();
-    declares.sort_by(
-        |((fid, cid, fnid, name), (_, loc)), ((fid2, cid2, fnid2, name2), (_, loc2))| {
-            // Total order: many declares share one byte range (square-vec members,
-            // dot-scoped chain members all anchored at the same pin), and the
-            // backing map is a HashMap, so equal-range rows need deterministic
-            // scope/name tie-breakers or the dump shuffles across runs.
-            (fid, loc.byte_start, loc.byte_end, cid, fnid, name.as_str()).cmp(&(
-                fid2,
-                loc2.byte_start,
-                loc2.byte_end,
-                cid2,
-                fnid2,
-                name2.as_str(),
-            ))
-        },
-    );
-    for ((fid, cid, fnid, name), (decl_id, loc)) in &declares {
-        let scope =
-            crate::ast::sem::scope_from_ids(&sym.container_table, &sym.func_table, *cid, *fnid);
-        let file_name = sym
-            .file_table
-            .get(*fid as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?");
+    // Rows carry a cross-file owner, so the leading key must be the owner's
+    // uri: a numeric file id is an interning order artifact (CIMP U81 ①) and
+    // would order this fixed dump by how much was parsed before it.
+    let mut declares: Vec<_> = sym
+        .local_table
+        .name_to_declare_id
+        .iter()
+        .map(|((fid, scope, name), (decl_id, loc))| {
+            (
+                crate::semantic::common::uri_of_file_id(*fid),
+                scope.as_str(),
+                name.as_str(),
+                loc,
+                decl_id,
+            )
+        })
+        .collect();
+    declares.sort_by(|(file, scope, name, loc, _), (file2, scope2, name2, loc2, _)| {
+        // Total order: many declares share one byte range (square-vec members,
+        // dot-scoped chain members all anchored at the same pin), and the
+        // backing map is a HashMap, so equal-range rows need deterministic
+        // scope/name tie-breakers or the dump shuffles across runs.
+        (file, loc.byte_start, loc.byte_end, *scope, *name).cmp(&(
+            file2,
+            loc2.byte_start,
+            loc2.byte_end,
+            *scope2,
+            *name2,
+        ))
+    });
+    for (file_name, scope, name, loc, decl_id) in &declares {
         out.push_str(&format!(
             "F12_DIAG DECLARE: id={id:5} span=[{start:5},{end:5}] scope='{scope}' name='{name}' file={file}\n",
             id = decl_id.raw(),
@@ -1014,11 +1020,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
     let mut defs: Vec<_> = sym.def_map.iter().collect();
     defs.sort_by_key(|((k, id), _)| (*k as u8, *id));
     for ((def_kind, decl_id), loc) in &defs {
-        let file_name = sym
-            .file_table
-            .get(loc.file_id as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?");
+        let file_name = crate::semantic::common::uri_of_file_id(loc.file_id);
         out.push_str(&format!(
             "F12_DIAG DEF_MAP: kind={kind:14}({ku:2}) decl_id={did:5} span=[{start:5},{end:5}] container_id={cid} file={file}\n",
             kind = def_kind.kind_name(),

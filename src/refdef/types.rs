@@ -37,6 +37,10 @@ pub enum ChainSegment {
 
 /// ★ SourceLocation carries file_id/container_id/func_id/byte_start/byte_end
 /// Replaces bare Span for precise location tracking.
+///
+/// `file_id` is the process-global `UriId` of the owning file (see
+/// [`intern_uri`]); 0 means "no file". `container_id` / `func_id` are indices
+/// into the owning file's `container_table` / `func_table`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceLocation {
     pub file_id: u32,
@@ -90,6 +94,14 @@ pub fn intern(table: &mut Vec<String>, s: &str) -> u32 {
         table.push(s.to_string());
         id
     }
+}
+
+/// File identity — intern `uri` into the process-global UriTable and return
+/// its raw `UriId`. A file's identity is global (the same table `McSpaceName`
+/// keys on), so there is no per-file file table (CIMP U81 ①). Append-only:
+/// ids are never recycled, so a recorded `file_id` never dangles.
+pub fn intern_uri(uri: &str) -> u32 {
+    crate::semantic::common::uri_intern(uri).0
 }
 
 // ── SymbolType ──

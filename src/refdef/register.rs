@@ -7,7 +7,7 @@
 //! Extracted from `db/infra/mc_code.rs` (see design doc §16).
 
 use crate::ast::sem::{DeclareId, LocalSymbolTable, McSemSymbols};
-use crate::refdef::types::{intern, SourceLocation, SymbolKind};
+use crate::refdef::types::{intern, intern_uri, SourceLocation, SymbolKind};
 use crate::McURI;
 
 // ── Scope path helper ──
@@ -42,7 +42,7 @@ pub fn register_instance_decl_parse_time(
     name: &str,
     span: std::ops::Range<usize>,
 ) -> DeclareId {
-    let file_id = intern(&mut sem.file_table, uri.as_str());
+    let file_id = intern_uri(uri.as_str());
     let (container_id, func_id) = match scope.unwrap_or("").rfind('.') {
         Some(dot) => (
             intern(&mut sem.container_table, &scope.as_ref().unwrap()[..dot]),
@@ -58,7 +58,7 @@ pub fn register_instance_decl_parse_time(
         byte_end: span.end as u32,
     };
     sem.local_table
-        .add_declare_with_name(uri, loc, Some(name.to_string()), scope)
+        .add_declare_with_name(loc, name, scope.unwrap_or(""))
 }
 
 pub fn register_def(
@@ -70,7 +70,7 @@ pub fn register_def(
     span: std::ops::Range<usize>,
     def_kind: SymbolKind,
 ) -> (DeclareId, SourceLocation) {
-    let file_id = intern(&mut sem.file_table, uri.as_str());
+    let file_id = intern_uri(uri.as_str());
     let container_id = if container.is_empty() {
         0
     } else {
@@ -91,9 +91,7 @@ pub fn register_def(
         byte_start: span.start as u32,
         byte_end: span.end as u32,
     };
-    let decl_id =
-        sem.local_table
-            .add_declare_with_name(uri, loc, Some(name.to_string()), Some(&scope));
+    let decl_id = sem.local_table.add_declare_with_name(loc, name, &scope);
     sem.def_map.insert((def_kind, decl_id.raw()), loc);
     // ★ Capture the def name from the AST node so RefDefMap RPC payloads can
     // carry it (hover shows `RES` instead of slicing the def line).
