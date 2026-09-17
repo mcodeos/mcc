@@ -274,12 +274,12 @@ impl<'a> McVecBuilder<'a> {
                         })
                         .map(|c| c.id as i64);
                     if let Some(id) = comp_id {
-                        eprintln!(
+                        crate::velog!(
                             "[visit]   ✓ auto-named '{comp_path}' → id={id} (by parent search)"
                         );
                         block.insts.push(id);
                     } else {
-                        eprintln!(
+                        crate::velog!(
                             "[visit]   ✗ MISSING '{comp_path}' (component declared in pass2 but \
                              InstTable.get_id_by_path returned None — pass1/pass2 \
                              registration bug?)"
@@ -339,14 +339,14 @@ impl<'a> McVecBuilder<'a> {
         if bid >= 0 {
             let existing: std::collections::HashSet<i64> = block.insts.iter().copied().collect();
             let children = self.inst_table.children_of(bid as u32);
-            eprintln!(
+            crate::velog!(
                 "[visit] convert_module '{}' (bid={}): InstTable.children_of returned {} entries",
                 inst.name,
                 bid,
                 children.len()
             );
             for child in &children {
-                eprintln!(
+                crate::velog!(
                     "[visit]   child: id={}, path={}, kind={:?}",
                     child.id, child.path, child.kind
                 );
@@ -354,7 +354,7 @@ impl<'a> McVecBuilder<'a> {
                 if matches!(child.kind, InstKind::Component | InstKind::Module)
                     && !existing.contains(&(child.id as i64))
                 {
-                    eprintln!(
+                    crate::velog!(
                         "[visit]   + backfilled '{}' (id={}, kind={}) from InstTable",
                         child.path, child.id, child.kind
                     );
@@ -366,14 +366,14 @@ impl<'a> McVecBuilder<'a> {
                 if !matches!(child.kind, InstKind::Module) {
                     let grandchildren = self.inst_table.children_of(child.id);
                     for gc in &grandchildren {
-                        eprintln!(
+                        crate::velog!(
                             "[visit]     grandchild of {}: id={}, path={}, kind={:?}",
                             child.id, gc.id, gc.path, gc.kind
                         );
                         if matches!(gc.kind, InstKind::Component | InstKind::Module)
                             && !existing.contains(&(gc.id as i64))
                         {
-                            eprintln!(
+                            crate::velog!(
                                 "[visit]   + backfilled grandchild '{}' (id={}, kind={}) from InstTable",
                                 gc.path,
                                 gc.id,
@@ -384,14 +384,14 @@ impl<'a> McVecBuilder<'a> {
                         // M4-1B: go one more level deep (great-grandchildren)
                         let great_grandchildren = self.inst_table.children_of(gc.id);
                         for ggc in &great_grandchildren {
-                            eprintln!(
+                            crate::velog!(
                                 "[visit]       great-grandchild of {}: id={}, path={}, kind={:?}",
                                 gc.id, ggc.id, ggc.path, ggc.kind
                             );
                             if matches!(ggc.kind, InstKind::Component | InstKind::Module)
                                 && !existing.contains(&(ggc.id as i64))
                             {
-                                eprintln!(
+                                crate::velog!(
                                     "[visit]   + backfilled great-grandchild '{}' (id={}, kind={})",
                                     ggc.path, ggc.id, ggc.kind
                                 );
