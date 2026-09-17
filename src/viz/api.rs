@@ -157,11 +157,15 @@ pub fn render_with_metrics_and_sink(
         doc.total_svg_bytes()
     );
 
-    // ── ★ P7-1: renderdiff report (readings vs baseline/render_golden.toml) ──
+    // ── ★ P7-1: renderdiff (baseline generation, or readings vs baseline) ──
     // Large-scale red mid-way is the expected shape; reported here without
     // blocking —— the Tier 1 electrical gate (RENDER_GATE_FAILED) is the hard failure.
-    // The report is vlog-only, so skip the full diff when MC_VIZ_DUMP is off.
-    if super::debug::dump_enabled() {
+    // The report is vlog-only, so skip the full diff when MC_VIZ_DUMP is off —— but
+    // not the write: generating a baseline is `MC_RENDER_GOLDEN_SAVE` alone, because
+    // a switch that only exists behind another switch is one nobody finds.
+    if super::debug::dump_enabled()
+        || crate::viz::metrics::renderdiff::RenderGolden::save_requested()
+    {
         let _ = renderdiff_report(&metrics);
     }
 
@@ -173,6 +177,11 @@ pub fn render_with_metrics_and_sink(
 ///
 /// golden path: `MC_RENDER_GOLDEN` env var > `./baseline/render_golden.toml`.
 /// When golden is not found, prints a SKIP (a visible skip, not a false green).
+///
+/// With `MC_RENDER_GOLDEN_SAVE` set the same path is **written** instead of read
+/// (see [`crate::viz::metrics::renderdiff::RenderGolden::save`]), and the report
+/// is skipped in that run — generating a baseline and comparing against it in one
+/// run would make every criterion green by construction.
 pub fn renderdiff_report(
     metrics: &crate::viz::metrics::MetricsAccumulator,
 ) -> Option<Vec<crate::viz::metrics::renderdiff::LayerDiff>> {
@@ -181,6 +190,26 @@ pub fn renderdiff_report(
             .to_string_lossy()
             .into_owned()
     });
+    use crate::viz::metrics::renderdiff::RenderGolden;
+    if RenderGolden::save_requested() {
+        let golden = RenderGolden::from_readings(&metrics.renderdiff_layers);
+        // Printed rather than vlogged: this line reports a file the run changed,
+        // so it has to be visible without MC_VIZ_DUMP (the same reason regress.sh
+        // echoes "UPDATED:").
+        match golden.save(std::path::Path::new(&path)) {
+            Ok(()) => eprintln!(
+                "[renderdiff] WROTE baseline {path} ({} layers) — this run judged nothing",
+                golden.layer.len()
+            ),
+            // Loud on purpose: a silent failure here would leave the caller
+            // believing a baseline now exists when it does not.
+            Err(e) => eprintln!("[renderdiff] FAILED to write {path} ({e})"),
+        }
+        for v in RenderGolden::invariant_violations(&metrics.renderdiff_layers) {
+            eprintln!("[renderdiff]   invariant: {v}");
+        }
+        return None;
+    }
     let golden =
         match crate::viz::metrics::renderdiff::RenderGolden::load(std::path::Path::new(&path)) {
             Ok(g) => g,
