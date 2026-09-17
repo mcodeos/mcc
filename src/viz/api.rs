@@ -64,11 +64,56 @@ pub fn render_with(graph: McVecGraph, opts: RenderOpts) -> VizDocument {
     render_with_metrics(graph, opts).0
 }
 
+/// One layer exactly as the renderer received it.
+///
+/// [`render_layer_recursive`] consumes the graph it has just laid out — the
+/// layer's SVG is all that survives the call — so a caller that wants to read
+/// the laid-out *structure* has nothing left to read. This is that structure,
+/// handed back at the point the renderer is given it: the same value, after
+/// layout, routing, label placement and wire hops.
+///
+/// A stage view reads this rather than the SVG on purpose (design §11.1 / M5:
+/// compare structure, not drawing — a segment's coordinates are a path between
+/// two endpoints, so a change of drawing style would read as a change of
+/// circuit).
+#[derive(Debug, Clone)]
+pub struct RenderedLayer {
+    /// The post-layout graph. `graph.layer_style` says whether this layer was
+    /// drawn as a block diagram or as a device schematic.
+    pub graph: McVecGraph,
+    /// The enclosing layer's `bid`; `None` for the root.
+    pub parent: Option<i64>,
+    /// The layer's canvas `(width, height)` — the space its coordinates are in.
+    /// A position without it cannot be read.
+    pub canvas: (f64, f64),
+    /// Whether the pipeline *audited* this layer, i.e. whether it was one of the
+    /// layers [`crate::viz::metrics::MetricsAccumulator::accumulate_layer`] ran
+    /// on. A device layer is not audited (F2: it skips route and audit and wires
+    /// itself through the equipotential trees instead), so a consumer reading the
+    /// accumulated `fidelity` / `truth` / `visual` numbers has no way to know how
+    /// much of the drawing they cover unless the layer says so itself.
+    pub audited: bool,
+}
+
 /// Render and return metrics accumulator (build report not yet merged; dropped/partial
 /// merged by caller at finish time).
 pub fn render_with_metrics(
+    graph: McVecGraph,
+    opts: RenderOpts,
+) -> (VizDocument, crate::viz::metrics::MetricsAccumulator) {
+    render_with_metrics_and_sink(graph, opts, None)
+}
+
+/// [`render_with_metrics`] with an optional observation sink.
+///
+/// The sink receives every layer's post-layout graph in pre-order (a layer
+/// before its sub-layers). Passing `None` is the normal path and costs nothing:
+/// the graph is simply dropped where it always was, so no existing call site
+/// changes.
+pub fn render_with_metrics_and_sink(
     mut graph: McVecGraph,
     opts: RenderOpts,
+    sink: Option<&mut Vec<RenderedLayer>>,
 ) -> (VizDocument, crate::viz::metrics::MetricsAccumulator) {
     crate::vlog!(
         "[DEBUG api] render_with_metrics: graph.is_root={} name={} boxes={} nets={}",
@@ -103,6 +148,7 @@ pub fn render_with_metrics(
         &*opts.sub_layouter,
         &*opts.renderer,
         &mut metrics,
+        sink,
     );
 
     crate::vlog!(
@@ -172,6 +218,7 @@ fn render_layer_recursive(
     sub_layouter: &dyn Layouter,
     renderer: &dyn Renderer,
     metrics: &mut crate::viz::metrics::MetricsAccumulator,
+    mut sink: Option<&mut Vec<RenderedLayer>>,
 ) {
     let bid = graph.bid;
     let name = graph.name.clone();
@@ -447,6 +494,9 @@ fn render_layer_recursive(
         label_report.labels_hidden,
     );
 
+    // Recorded before the report is consumed: the sink hands the layer back with
+    // this flag, so a reader of the accumulated numbers can see their scope.
+    let audited = audit.is_some();
     if let Some(rep) = audit {
         metrics.accumulate_layer(&graph, &rep, canvas);
     }
@@ -553,6 +603,17 @@ fn render_layer_recursive(
     layer.clickable_subs = clickable_subs;
     doc.add_layer(layer);
 
+    // Last use of `graph` is behind us (render, connectivity, renderdiff all
+    // borrow it), so the sink takes it by move: observing a run costs no clone.
+    if let Some(sink) = sink.as_deref_mut() {
+        sink.push(RenderedLayer {
+            graph,
+            parent,
+            canvas,
+            audited,
+        });
+    }
+
     for mut sub in sub_graphs {
         // ★ F2: sub-layers use Device pipeline
         sub.layer_style = crate::vector::graph::LayerStyle::Device;
@@ -565,6 +626,7 @@ fn render_layer_recursive(
             sub_layouter,
             renderer,
             metrics,
+            sink.as_deref_mut(),
         );
     }
 }

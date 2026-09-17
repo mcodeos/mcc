@@ -34,6 +34,7 @@
 
 pub mod p2;
 pub mod vec;
+pub mod viz;
 pub mod world_ver;
 
 use serde_json::{json, Value};
