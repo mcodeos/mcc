@@ -139,6 +139,12 @@ pub struct CommandResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view: Option<ViewData>,
 
+    /// Stage readout (`mcc show stage`). Its own sibling key rather than a
+    /// reuse of `view`: a stage view is a pipeline segment, not one of the
+    /// read-side projections `ViewData` carries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<StageViewData>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viz: Option<VizData>,
 
@@ -408,6 +414,36 @@ pub struct ViewData {
     /// "ast" | "tree" | "hierarchy" | "schematic"
     pub target: String,
     pub data: serde_json::Value,
+}
+
+/// Stage readout — `mcc show stage <p1|p2|vec|viz>`
+/// (design `mcd/doc/pipeline/stage-readout-design.md` §3 / §5.3 ①).
+///
+/// This is the **minimal projection envelope**: the six fields of
+/// `projection-schema-design.md` §1, carried as one more `view` value on the
+/// existing envelope rather than as a second envelope format (law B). `view` is
+/// `stage.<seg>` and names a *pipeline stage*, which is why it does not
+/// impersonate one of the six read-side projections of the frozen world.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StageViewData {
+    /// Envelope schema version (`proj.1.0`).
+    pub schema_version: String,
+    /// Root token: the loaded world's source set as a deterministic hash, or
+    /// null when it cannot be fingerprinted. See `mcc::stages::world_ver`.
+    pub world_ver: Option<String>,
+    /// The compiler that produced this view.
+    pub mcc_version: String,
+    /// `stage.p1` | `stage.p2` | `stage.vec` | `stage.viz`.
+    pub view: String,
+    /// The resolved top module this view is scoped to.
+    pub top: String,
+    /// Sorted by `(class, key)`. Every item carries its run-local key
+    /// (`point`) *and* its cross-build `canon_key` — a view carrying only the
+    /// former is invalidated by the next compiler change (design §3).
+    pub items: serde_json::Value,
+    /// Per-class item counts plus the diagnostic base. A count in the header
+    /// line, never a gate (law C).
+    pub counts: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

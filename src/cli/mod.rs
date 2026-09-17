@@ -565,6 +565,16 @@ pub enum ShowTarget {
     Lapper,
     // Print AST tree for a file
     Ast,
+    // One segment of the compile pipeline as data (stage-readout-design.md
+    // §5.3): `mcc show stage <p1|p2|vec|viz>` — the `<name>` positional is the
+    // segment, not an entity. Emits the projection envelope (`view` =
+    // "stage.<seg>") with one sorted `items` array rendered to both faces; the
+    // three views supersede the `MC_VEC_DUMP` / `MC_VIZ_DUMP` stderr prose,
+    // which keep working. `p1` is a reserved placeholder (the Pass1 view is
+    // not adjudicated yet), so the command family does not change shape when
+    // it lands. Local-only, like `lapper` / `ast`: with a running `mcc start`
+    // service pass `-L`, or the readout is delegated and prints nothing.
+    Stage,
 
     // Entity internals drill-down (<name> = owning entity, required)
     // Pins of a component / interface

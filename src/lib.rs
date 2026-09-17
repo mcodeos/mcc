@@ -87,6 +87,11 @@ pub mod eval;
 pub mod export;
 pub mod fmt;
 pub mod refdef;
+// ── Stage readout (stage-readout-design.md §3/§5.3): `stage.p2` / `stage.vec`
+// / `stage.viz` as data instead of `MC_*_DUMP` stderr prose. Lives in the
+// library, not the binary, because a view's `world_ver` and `loc` line numbers
+// read the loaded source set (`WORKSPACE.mcodes`), which is crate-internal.
+pub mod stages;
 pub use ast::error::*;
 pub use ast::macros::*;
 pub use ast::sem::{
