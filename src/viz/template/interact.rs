@@ -292,7 +292,9 @@ function updateStats() {
         '<span>Layer: ' + escapeHtml(cur.name) + ' (#' + cur.bid + ')</span>' +
         '<span>Sub-modules: ' + subs + '</span>' +
         '<span>Total layers: ' + Object.keys(DOC.layers).length + '</span>' +
-        '<span>Current SVG: ' + svgKb + ' KB</span>';
+        '<span>Current SVG: ' + svgKb + ' KB</span>' +
+        '<span class="hint" id="hint"></span>';
+    updateHint();
 }
 
 function escapeHtml(text) {
@@ -335,10 +337,53 @@ window.addEventListener('resize', function () { applyZoom(zoomLevel); });
 // bubble-phase one would run too late, since the box's inline handler fires on
 // the way up through the inner <g> before the event reaches #canvas.
 //
-// With no host — a standalone circuit.html opened in a browser — the
-// coordinate is shown and copied rather than followed (design §3.4; the
-// vscode://file form needs line/col, which only the writing side has: D3).
+// With no host — a standalone circuit.html opened in a browser — a link is
+// followed instead, when the writer left one. `mcc build --viz` converts each
+// byte offset into a `vscode://file/<abs>:<line>:<col>` and stamps it as
+// data-src-vscode (viz::sourcelink); line/column need the file's contents, so
+// only the writing side can produce them. A page with neither a host nor a link
+// — an older artifact, or a source file that has since moved — shows and copies
+// the raw coordinate rather than doing nothing at all (design §3.4).
 const mcodeHost = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+
+// Discoverability (design §4 D5). Holding the modifier is the whole gesture and
+// nothing announces it, so the status line states it, and the wording follows
+// what a click would really do on *this* page: a host to open the file, a
+// stamped link to hand to the OS, or nothing but the coordinate to copy.
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
+const MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl';
+
+function hintText() {
+    const gesture = MOD_LABEL + ' + click a box or pin: ';
+    if (mcodeHost) return gesture + 'open its source';
+    if (document.querySelector('#canvas [data-src-vscode]')) {
+        return gesture + 'open its source in VS Code';
+    }
+    return gesture + 'copy its source coordinate';
+}
+
+// Empty when the layer on screen holds nothing jumpable — a hint for a gesture
+// that would do nothing is worse than no hint.
+function updateHint() {
+    const el = document.getElementById('hint');
+    if (!el) return;
+    const jumpable = document.querySelectorAll('#canvas [data-src-uri]').length;
+    el.textContent = jumpable ? hintText() : '';
+}
+
+// While the modifier is down, the CSS outlines every element the gesture would
+// act on (theme.rs). blur is disarmed too: a modifier held as the window loses
+// focus never delivers its keyup, and a highlight stuck on is worse than none.
+function setNavArmed(on) {
+    document.body.classList.toggle('nav-armed', on);
+}
+window.addEventListener('keydown', function (e) {
+    if (e.key === 'Meta' || e.key === 'Control') setNavArmed(true);
+});
+window.addEventListener('keyup', function (e) {
+    if (e.key === 'Meta' || e.key === 'Control') setNavArmed(false);
+});
+window.addEventListener('blur', function () { setNavArmed(false); });
 
 function sourceCoordOf(ev) {
     if (!(ev.metaKey || ev.ctrlKey)) return null;
@@ -347,7 +392,7 @@ function sourceCoordOf(ev) {
     const uri = el.getAttribute('data-src-uri');
     const offset = Number(el.getAttribute('data-src-offset'));
     if (!uri || !Number.isFinite(offset)) return null;
-    return { uri: uri, offset: offset };
+    return { uri: uri, offset: offset, link: el.getAttribute('data-src-vscode') };
 }
 
 function copySourceCoord(coord) {
@@ -374,6 +419,10 @@ document.getElementById('canvas').addEventListener('click', function (ev) {
     ev.stopPropagation();
     if (mcodeHost) {
         mcodeHost.postMessage({ type: 'openSource', uri: coord.uri, offset: coord.offset });
+    } else if (coord.link) {
+        // Hand the URI to the OS. Only ever on this modifier-click, so merely
+        // opening the file never launches anything.
+        window.location.href = coord.link;
     } else {
         copySourceCoord(coord);
     }
@@ -408,5 +457,51 @@ mod tests {
         );
         assert!(js.contains("acquireVsCodeApi"), "no webview host acquisition");
         assert!(js.contains("'openSource'"), "no host message type");
+    }
+
+    /// Three rungs, in order: a host to post to, a `vscode://` link the writer
+    /// stamped, and finally the copy-the-coordinate fallback. Losing the middle
+    /// rung sends every standalone click back to a fallback no editor accepts;
+    /// losing the last one makes a click do nothing at all, which is worse than
+    /// showing a coordinate nobody can use.
+    #[test]
+    fn source_navigation_falls_back_host_then_link_then_copy() {
+        let js = js();
+        // Only the click handler's own rungs count: `copySourceCoord`'s
+        // *definition* sits above it and would otherwise pass as the last rung.
+        let handler = &js[js
+            .find("addEventListener('click', function (ev)")
+            .expect("click handler")..];
+        let host = handler.find("mcodeHost.postMessage").expect("host rung");
+        let link = handler.find("coord.link").expect("vscode:// rung");
+        let copy = handler.find("copySourceCoord(coord)").expect("copy rung");
+        assert!(host < link && link < copy, "the fallback rungs are out of order");
+        assert!(js.contains("data-src-vscode"), "the link attribute is never read");
+    }
+
+    /// D5's two halves: the status line announces the gesture (and goes quiet
+    /// when the layer on screen holds nothing jumpable, so the page never
+    /// advertises a click that would do nothing), and holding the modifier arms
+    /// the CSS that outlines the jumpable set.
+    #[test]
+    fn the_gesture_is_announced_and_armed_by_the_modifier() {
+        let js = js();
+        assert!(
+            js.contains(r#"class="hint" id="hint""#),
+            "the status row has no hint element to fill"
+        );
+        assert!(
+            js.matches("updateHint").count() >= 2,
+            "the hint is defined but never filled in"
+        );
+        assert!(js.contains("nav-armed"), "the modifier never arms the outline");
+        assert!(
+            js.contains("e.key === 'Meta' || e.key === 'Control'"),
+            "wrong modifier keys: the outline would arm on an unrelated key"
+        );
+        assert!(
+            js.contains("'blur'"),
+            "a highlight stuck on after focus loss is never disarmed"
+        );
     }
 }
