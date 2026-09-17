@@ -2757,6 +2757,29 @@ fn final_box_bottom(
     ic_top + box_h
 }
 
+/// Row the South edge rail (a layer's ground bus) sits on: one [`RAIL_GAP`]
+/// below the lowest band row, never above the anchor box's final bottom.
+///
+/// M16.2 read only the FREE rows, which covers a component whose nets were split
+/// onto the lanes below the anchor (mic `MIC.P`/`MIC.N`) — but a member hangs off
+/// an anchor-pinned band the same way, and its reach is exactly `RAIL_GAP`
+/// (`CORRIDOR_DEMAND` = `LEAD` + a two-pin body). `DCDC`'s `C2`/`R3`/`C5` hang
+/// under the EN/FB bands, so a rail fixed at `box_bottom + RAIL_GAP` landed
+/// across their bodies with their far pins below it: the tap to the ground bus
+/// then ran back UP through the part (A7). Counting every band row puts the rail
+/// on those pins instead.
+fn south_rail_base(
+    n: usize,
+    net_band: &[Option<usize>],
+    band_y: &[f64],
+    box_bottom: f64,
+) -> f64 {
+    let lowest_row = (0..n)
+        .filter_map(|i| net_band[i].map(|b| band_y[b]))
+        .fold(box_bottom, f64::max);
+    lowest_row + RAIL_GAP
+}
+
 /// ★ M2 P0: assign a row (trunk y) to every trunk-bearing net. Pure topology —
 /// reads regions, the layer anchor's pin order, member counts and mount
 /// directions; never a rect. This is the single authority for trunk y: the
@@ -3173,16 +3196,7 @@ pub(crate) fn assign_rows(
                 continue;
             };
             let base = if region == Region::South {
-                // ★ M16.2: the South rail must clear the free-net rows below
-                // the box. M16.1 can split a component's nets onto separate
-                // lanes below the anchor (mic MIC.P/MIC.N) — a rail fixed at
-                // `box_bottom + RAIL_GAP` would land BETWEEN those lanes,
-                // invert an ESD clamp hanging on them, and read as a short.
-                let free_max = (0..n)
-                    .filter(|&i| is_free[i])
-                    .filter_map(|i| net_band[i].map(|b| band_y[b]))
-                    .fold(box_bottom, f64::max);
-                free_max + RAIL_GAP
+                south_rail_base(n, &net_band, &band_y, box_bottom)
             } else {
                 ic_top - RAIL_GAP
             };
@@ -3256,14 +3270,7 @@ pub(crate) fn assign_rows(
             continue;
         };
         let base = if region == Region::South {
-            // ★ M16.2: same as the fixed-point pass — rail clears the free
-            // rows below the box so a split differential pair (mic) keeps its
-            // ESD clamps clamped to GND below both lanes.
-            let free_max = (0..n)
-                .filter(|&i| is_free[i])
-                .filter_map(|i| net_band[i].map(|b| band_y[b]))
-                .fold(box_bottom, f64::max);
-            free_max + RAIL_GAP
+            south_rail_base(n, &net_band, &band_y, box_bottom)
         } else {
             ic_top - RAIL_GAP
         };
