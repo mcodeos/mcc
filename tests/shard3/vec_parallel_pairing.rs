@@ -25,12 +25,27 @@
 //! Verified identical pre- and post-S1 by running this file against the stashed
 //! (pre-S1) sources: the same verdicts in both trees.
 //!
-//! Every cell below reads quiet, and the parallel shape mismatch (E4005) has no
-//! trigger in this frame: the code reports it for a `+` whose paired faces
-//! really disagree in width, and no form written here presents such a pair. The
-//! form closest to one — `R101 - A + R102` — pairs instead, because a `-`
-//! chain's written end is a face of the operand (`R101 - A` ends on the net
-//! `A`): Pass1 reads that face off the phrase accessors, and Pass2 agrees.
+//! Most cells below read quiet; the three list-operand cells read E4005 — see
+//! the correction note at the end of this header. The parallel shape mismatch
+//! (E4005) fires for a `+` whose paired faces really disagree in width. The
+//! form closest to a mismatch without being one — `R101 - A + R102` — pairs
+//! instead, because a `-` chain's written end is a face of the operand
+//! (`R101 - A` ends on the net `A`): Pass1 reads that face off the phrase
+//! accessors, and Pass2 agrees.
+//!
+//! **2026-09-17 correction (three cells).** `[A, B] + R101`,
+//! `R101 - R102 + [A, B]` and `[A, B] - [A, B] + [B, C, A]` used to read quiet
+//! here, and that quiescence was *not* a rule: the list `[A, B]` presented an
+//! empty (unknown-width) shape because its elements (`io A`, `io B`) are
+//! shape-by-use ports (vec-dianlu.md §8.9.6.3), so the paired sides came out
+//! unmeasurable and `check_parallel` wildcard-passed them. R4 forbids reading a
+//! list that way — a written element occupies one column whatever its
+//! declaration pinned down (vec-arch.md §4.1.1, the declared-scalar element
+//! row), and the
+//! same three forms written with **bare** names have always reported E4005.
+//! The declared spelling now agrees with the bare one: unequal paired rows,
+//! illegal, no broadcast carve-out for parallel (§5.1). The cells are updated
+//! deliberately, as this fence requires, rather than silently.
 //!
 //! The real-board no-regression evidence lives in the `pwrint` / `hbl` netdiff
 //! goldens (design doc §6 item 5); this file covers the grammar forms those
@@ -53,16 +68,31 @@ fn header(body: &str) -> String {
     )
 }
 
-/// Build `main` from `body` and return the emitted diagnostic codes, sorted.
-fn codes_of(body: &str, uri: &str) -> Vec<u32> {
+/// The same module without the `io A` / `io B` / `io C` declarations: the
+/// elements of `[A, B]` are then bare names, i.e. *not* shape-by-use ports.
+/// Used to check that a list's verdict does not depend on whether its elements
+/// are declared (correction note, 2026-09-17).
+fn header_bare(body: &str) -> String {
+    format!("{RES2}module main {{\n    RES2 R101\n    RES2 R102\n{body}\n}}\n")
+}
+
+/// Build `main` from a full source and return the emitted diagnostic codes,
+/// sorted.
+fn codes_of_src(src: &str, uri: &str) -> Vec<u32> {
     let _lock = common::lock();
     common::reset();
     let u = McURI::from(uri);
-    mcc::mcc_load_from_string(&u, &header(body));
+    mcc::mcc_load_from_string(&u, src);
     let _ = mcc::mcc_build(&McIds::from("main"), &u);
     let mut codes: Vec<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
     codes.sort_unstable();
     codes
+}
+
+/// Build `main` from `body` (with the declared-port header) and return the
+/// emitted diagnostic codes, sorted.
+fn codes_of(body: &str, uri: &str) -> Vec<u32> {
+    codes_of_src(&header(body), uri)
 }
 
 fn has_e4005(codes: &[u32]) -> bool {
@@ -99,26 +129,38 @@ fn fence__point_plus_row_quiet() {
     assert!(!has_e4005(&codes), "got {codes:?}");
 }
 
-/// `[A, B] + R101` — a list operand on the left of `+`: quiet in both trees
-/// (this form does not reach the parallel shape check).
+/// `[A, B] + R101` — a list operand on the left of `+`: **E4005**, see the
+/// header's note on the 2026-09-17 correction.
 #[test]
-fn fence__list_plus_row_quiet() {
+fn fence__list_plus_row_mismatch() {
     let codes = codes_of("    [A, B] + R101", "/mcc/par-cr.mc");
-    assert!(!has_e4005(&codes), "got {codes:?}");
+    assert!(has_e4005(&codes), "got {codes:?}");
 }
 
-/// `R101 - R102 + [A, B]` — a list operand on the right of `+`: likewise quiet.
+/// `R101 - R102 + [A, B]` — a list operand on the right of `+`: likewise
+/// **E4005**.
 #[test]
-fn fence__row_plus_list_quiet() {
+fn fence__row_plus_list_mismatch() {
     let codes = codes_of("    R101 - R102 + [A, B]", "/mcc/par-rc.mc");
-    assert!(!has_e4005(&codes), "got {codes:?}");
+    assert!(has_e4005(&codes), "got {codes:?}");
 }
 
-/// `[A, B] - [A, B] + [B, C, A]` — a 2-row and a 3-row column: quiet.
+/// `[A, B] - [A, B] + [B, C, A]` — a 2-row and a 3-row column: **E4005**.
 #[test]
-fn fence__column_plus_wider_column_quiet() {
+fn fence__column_plus_wider_column_mismatch() {
     let codes = codes_of("    [A, B] - [A, B] + [B, C, A]", "/mcc/par-c3.mc");
-    assert!(!has_e4005(&codes), "got {codes:?}");
+    assert!(has_e4005(&codes), "got {codes:?}");
+}
+
+/// A list's verdict may not depend on whether its elements are declared: with
+/// **bare** names `[A, B] + R101` has always read E4005, so the declared
+/// spelling above must too. This is the assertion the 2026-09-17 correction
+/// rests on — the quiescence it removed was the declared/bare divergence
+/// itself, not a rule about lists.
+#[test]
+fn fence__list_plus_row_agrees_with_the_bare_spelling() {
+    let codes = codes_of_src(&header_bare("    [A, B] + R101"), "/mcc/par-cr-bare.mc");
+    assert!(has_e4005(&codes), "got {codes:?}");
 }
 
 /// `R101 - A + R102` — quiet: the two branches pair on both faces. A `-`

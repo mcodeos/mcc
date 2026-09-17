@@ -33,3 +33,4 @@ mod vec_caret_reverse;
 mod vec_degenerate_side_face;
 mod vec_p25_expansion_equivalence;
 mod vec_r4_column_width;
+mod vec_r4_element_row;
