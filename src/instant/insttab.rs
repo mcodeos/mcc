@@ -2206,6 +2206,14 @@ impl InstTable {
                 inst.def_uri.to_string(),
             );
 
+            // Declared power face of a module-scope bus — same rule the label loop
+            // below applies: this module's own def space answers for its own name.
+            if let Some(pi) = self.power_decls.get(&my_id) {
+                if let Some(member) = pwrid::member_of_module(pi, bus_name) {
+                    self.set_pwr_member(bus_id, member);
+                }
+            }
+
             // Expand bus members with the inherited IO type
             let member_decl_span = Self::port_decl_span_of(inst, bus_name);
             for member in &bus_inst.members {
