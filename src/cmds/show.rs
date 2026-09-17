@@ -73,6 +73,13 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
             // local-only: read file, call internal sem, dump lapper / AST tree
             return None;
         }
+        ShowTarget::Stage => {
+            // local-only: a stage view is built from a live Pass2 flatten and
+            // needs the loaded source set for `world_ver` and `loc` line
+            // numbers. Same trap as lapper/ast: with a server running, pass
+            // `-L` or the readout is delegated and prints nothing.
+            return None;
+        }
 
         // entity detail (name required)
         ShowTarget::Component | ShowTarget::Module | ShowTarget::Interface | ShowTarget::Enum => {
@@ -172,6 +179,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Dianlu => show_dianlu(args),
         ShowTarget::Pwr => show_pwr(args),
         ShowTarget::Pwrflow => show_pwrflow(args),
+        ShowTarget::Stage => show_stage(args),
 
         // drill-down
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -1217,6 +1225,137 @@ fn show_pwrflow(args: &ShowArgs) -> Result<()> {
 
     let data = pwrflow_json(&flow);
     output(&data, args.span)
+}
+
+// `show stage` — one pipeline segment as data (stage-readout-design §5.3 ①)
+
+/// Render `mcc show stage <p1|p2|vec|viz>`: one segment of the compile
+/// pipeline, read out as a projection envelope.
+///
+/// The `<name>` positional is the **segment**, not an entity — which is why
+/// [`target_path`] deliberately does not list `Stage`: the file comes from
+/// `-F`, or from the current directory's project manifest, the same way it does
+/// for `show all` / `show dianlu`.
+///
+/// Two faces from one `items` (design §5.3 ruling ③): `-f text` prints the
+/// fixed-width table, and every machine format prints the envelope. The text
+/// face obeys §5.3's four prohibitions — no ANSI, no box drawing, no
+/// tab-delimited columns, and a missing value printed as `-`; and it is a
+/// **readout**: the diagnostics count is a number in the header, never a gate,
+/// so the exit code stays 0 (law C).
+fn show_stage(args: &ShowArgs) -> Result<()> {
+    let seg_name = args.name.as_deref().unwrap_or("p2");
+    let Some(seg) = mcc::stages::StageSeg::parse(seg_name) else {
+        // A bad *argument* is not a judged readout: this one may fail loudly.
+        error!(
+            target: "mcc::show",
+            "unknown stage segment '{seg_name}'\nexpected one of: p1 | p2 | vec | viz"
+        );
+        std::process::exit(2);
+    };
+
+    // The file: `-F` wins, else the cwd manifest that `prepare` already loaded
+    // through. A directory resolves to its manifest entry file.
+    let target = crate::cmds::manifest::effective_target(args.file.as_deref());
+    let (mut entry_uri, resolved_top) = crate::cmds::common::load_target(
+        target.as_deref(),
+        mcc::cli::globals().top.as_deref(),
+        mcc::cli::globals().entry.as_deref(),
+    )?;
+    if entry_uri.is_empty() {
+        // Nothing loaded from a path: use the URI of the module that is loaded.
+        entry_uri = mcc::mcb_iter_modules()
+            .iter()
+            .find(|(n, _)| Some(n.clone()) == resolved_top.clone())
+            .map(|(_, u)| u.to_string())
+            .or_else(|| mcc::mcb_iter_modules().first().map(|(_, u)| u.to_string()))
+            .unwrap_or_default();
+    }
+    let top = resolved_top
+        .or_else(|| crate::cmds::common::resolve_top_module(&entry_uri, mcc::cli::globals().top.clone()))
+        .unwrap_or_else(|| {
+            error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
+            std::process::exit(1);
+        });
+
+    // `build_tree_diags` rather than `build_tree`: its diagnostics feed the
+    // text face's second line as a *count*. Walking in through the shared
+    // export entry gets the panic guard and the top-module resolution for free.
+    let (_tree, table, _arena, _store, diags) = match mcc::export::build_tree_diags(
+        &entry_uri,
+        Some(top.as_str()),
+        &mcc::cli::globals().lib,
+    ) {
+        Ok(quint) => quint,
+        Err(e) => {
+            error!(target: "mcc::show", "stage: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // `stage.p1` is the reserved slot: the command family is fixed now so the
+    // Pass1 view (design §8 O2/O3) can land without reshaping it. Its body stays
+    // empty rather than reusing `show ast`'s output, which carries none of the
+    // chain's keys (design §5.2 ①: the chain's identity starts at Pass2).
+    let view = match seg {
+        mcc::stages::StageSeg::P1 => mcc::stages::StageView::new(seg, &top, Vec::new(), diags.len()),
+        mcc::stages::StageSeg::P2 => mcc::stages::p2::build_p2(&table, &top, diags.len()),
+        mcc::stages::StageSeg::Vec | mcc::stages::StageSeg::Viz => {
+            error!(
+                target: "mcc::show",
+                "stage.{seg_name} is not landed yet (planned: phase two, batches 2b/2c)"
+            );
+            std::process::exit(2);
+        }
+    };
+
+    if matches!(mcc::cli::globals().format, OutputFormat::Text | OutputFormat::Csv) {
+        // CSV falls back to the text face on purpose: `emit_envelope` has no
+        // CSV arm either, and a fixed-width readout is not CSV-safe (a path may
+        // contain a comma), so a real CSV face would be a separate decision
+        // rather than something to fake here.
+        let rendered = match seg {
+            mcc::stages::StageSeg::P2 => mcc::stages::p2::render_p2_text(&view),
+            _ => format!("{}\n{}", view.header_line(), view.counts_line(seg)),
+        };
+        return write_stage_text(&rendered);
+    }
+    emit_stage_envelope(&view)
+}
+
+/// Write the stage text face to `--output` or stdout, the same way
+/// [`show_pwrflow`] does: this face is ours, so it does not go through
+/// [`crate::output::emit_envelope`]'s prose renderer.
+fn write_stage_text(rendered: &str) -> Result<()> {
+    if let Some(path) = &mcc::cli::globals().output {
+        std::fs::write(path, format!("{rendered}\n"))?;
+    } else {
+        println!("{rendered}");
+    }
+    Ok(())
+}
+
+/// Emit the stage view through the standard envelope channel.
+///
+/// A new `view` value on the existing envelope, not a second envelope format
+/// (design §3 law B / §5.3 ruling 2).
+///
+/// law C holds mechanically here: [`crate::output::emit_envelope`] is a pure
+/// serializer and never touches the exit code, so a view's diagnostic count
+/// cannot veto the readout.
+fn emit_stage_envelope(view: &mcc::stages::StageView) -> Result<()> {
+    let mut builder = crate::output::builder::ResultBuilder::start("mcc show stage");
+    builder.set_stage(crate::output::envelope::StageViewData {
+        schema_version: view.schema_version.to_string(),
+        world_ver: view.world_ver.clone(),
+        mcc_version: view.mcc_version.clone(),
+        view: view.view.to_string(),
+        top: view.top.clone(),
+        items: Value::Array(view.items.clone()),
+        counts: view.counts.clone(),
+    });
+    let env = crate::output::envelope::Envelope::ok(builder.finish());
+    crate::output::emit_envelope(&env, mcc::cli::globals().format, None, true)
 }
 
 /// §5 three-section text projection. Section order and column meaning follow

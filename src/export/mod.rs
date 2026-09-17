@@ -58,6 +58,33 @@ pub fn build_tree(
     top: Option<&str>,
     libs: &[String],
 ) -> Result<(McModuleInst, InstTable, NodeArena, InstanceStore), String> {
+    build_tree_diags(file, top, libs).map(|(tree, table, arena, store, _diags)| (tree, table, arena, store))
+}
+
+/// [`build_tree`], plus the net-check diagnostics the flatten returns.
+///
+/// A file-generation surface (netlist / BOM / drawing) has no use for the
+/// diagnostics and calls [`build_tree`]; a **readout** does, because its header
+/// reports how many the segment produced. Returning them here rather than
+/// re-running the check keeps both consumers on one computation.
+///
+/// The diagnostics are a **count in a header line**, never a gate: the caller
+/// decides whether they mean anything, and for a stage view they do not
+/// (law C — a readout does not judge).
+pub fn build_tree_diags(
+    file: &str,
+    top: Option<&str>,
+    libs: &[String],
+) -> Result<
+    (
+        McModuleInst,
+        InstTable,
+        NodeArena,
+        InstanceStore,
+        Vec<crate::db::diagnostic::diagnostic::Diagnostic>,
+    ),
+    String,
+> {
     let _ = libs;
     let _ = crate::mcc_load_project(&McURI::from(file));
 
@@ -79,14 +106,14 @@ pub fn build_tree(
         // the shared Problems store. The arena + store ride along for the
         // exporters.
         let mut dl = crate::mcc_build_dianlu(&ident, &uri, 0)?;
-        let _diags = dl.flatten_with_prefix(None);
+        let diags = dl.flatten_with_prefix(None);
         let arena = dl.arena().clone();
         let store = dl.store().clone();
         let (tree, table) = dl.into_parts();
-        Ok::<_, Box<dyn std::error::Error>>((tree, table, arena, store))
+        Ok::<_, Box<dyn std::error::Error>>((tree, table, arena, store, diags))
     }));
     match built {
-        Ok(Ok(quad)) => Ok(quad),
+        Ok(Ok(quint)) => Ok(quint),
         Ok(Err(e)) => Err(format!("build failed: {}", e)),
         Err(_) => Err("build panicked (engine Pass2 bug)".into()),
     }

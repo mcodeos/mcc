@@ -71,6 +71,12 @@ impl ResultBuilder {
         self
     }
 
+    /// Attach the stage readout (`mcc show stage`, stage-readout-design §5.3 ①).
+    pub fn set_stage(&mut self, s: StageViewData) -> &mut Self {
+        self.result.stage = Some(s);
+        self
+    }
+
     pub fn set_query(&mut self, q: QueryData) -> &mut Self {
         self.result.query = Some(q);
         self
