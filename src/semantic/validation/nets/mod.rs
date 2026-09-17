@@ -2619,11 +2619,10 @@ pub(super) struct DeclEdge {
     b: String,
     /// The same two endpoints resolved in the owning module's def space
     /// ([`endpoint_identity`]), sorted by identity. 6022 pairs a leg's pads
-    /// against these **or** against the written `a`/`b` — a bare `GND` a module
-    /// declares as a DC port member denotes `DC:GND`, the identity its pad net
-    /// carries, while a copper the module declares nothing under only ever meets
-    /// the written spelling. PI-2 / SN-2 resolve the written `a`/`b` against
-    /// their own scope tables and read those.
+    /// against these — a bare `GND` a module declares as a DC port member denotes
+    /// `DC:GND`, the identity its pad net carries, and a name the module declares
+    /// nothing under degrades to the written spelling. PI-2 / SN-2 resolve the
+    /// written `a`/`b` against their own scope tables and read those.
     ident_a: String,
     ident_b: String,
     lo: usize,
@@ -2641,9 +2640,8 @@ pub(super) struct DeclEdge {
 /// Each endpoint is also resolved in the owning module's own def space
 /// ([`endpoint_identity`]): a bare `GND` the module declares as a DC port member
 /// denotes that member, so the pair also carries the identity `DC:GND` its pad
-/// net carries. PI-2 / SN-2 keep the written spelling; 6022 pairs on the identity
-/// **or** the spelling ([`pair_matches`]), since neither key alone reaches every
-/// leg the corpus writes.
+/// net carries. PI-2 / SN-2 keep the written spelling; 6022 pairs on the
+/// identity ([`pair_matches`]).
 pub(super) fn declared_dc_edges(
     table: &InstTable,
 ) -> std::collections::HashMap<u32, Vec<DeclEdge>> {
@@ -2709,21 +2707,22 @@ fn endpoint_identity(pi: &McPowerDecls, name: &str) -> String {
 }
 
 /// Every key a flat net answers to in 6022's pair match: the declared identities
-/// its points carry, plus the net's own name. Only module-level port and label
+/// its points carry, plus the net's own name, which is what a copper the module
+/// declares nothing under answers by. Only module-level port, label and bus
 /// entries contribute an identity — their `pwr_member` is written from the
 /// module's own declarations alone, while a component pin's belongs to that
-/// component's def — and the name is kept unconditionally rather than only as a
-/// fallback, because the two keys cover different legs: a copper the module
-/// declares nothing under still compares by spelling (`GND` on the golden
-/// boards), and a member the module renamed always compares by identity
-/// (`dc.VDD_3V3`).
+/// component's def. A module-scope bus counts because a conductor can be spelled
+/// as a numbered bus, whose declaration sits on the bus and not on the member
+/// labels hanging off it.
 fn net_identities(table: &InstTable, module: u32, net: &NetEntry) -> Vec<String> {
     let mut out: Vec<String> = net
         .points
         .iter()
         .filter_map(|p| {
             let e = table.get_entry(*p)?;
-            if e.parent_id != Some(module) || !matches!(e.kind, InstKind::Port | InstKind::Label) {
+            if e.parent_id != Some(module)
+                || !matches!(e.kind, InstKind::Port | InstKind::Label | InstKind::Bus)
+            {
                 return None;
             }
             e.rail_identity()
@@ -2736,24 +2735,15 @@ fn net_identities(table: &InstTable, module: u32, net: &NetEntry) -> Vec<String>
 }
 
 /// Do two pad key sets name the clause's two endpoints? The clause carries the
-/// same pair twice — as written, and as the identities the declaring module
-/// resolves its own names to — and **either** naming answers: the identity is
-/// what reaches a pad the module declared under another spelling (`dc.VDD_3V3`
-/// for a clause naming `VDD_3V3`), the written spelling is what reaches a pad
-/// whose net no declaration of that module names at all (a bare conduit copper,
-/// where the clause's `GND` resolves to a member while the net only carries its
-/// own name). A pair is a set, so the two members are compared unordered.
+/// pair as the identities the declaring module resolves its own names to
+/// ([`endpoint_identity`] degrades to the written spelling there for a name the
+/// module declares nothing under), and a pad answers with the identities its net
+/// carries plus the net's own name. A pair is a set, so the two members are
+/// compared unordered.
 fn pair_matches(d: &DeclEdge, ia: &[String], ib: &[String]) -> bool {
-    let keys = [
-        (d.ident_a.as_str(), d.ident_b.as_str()),
-        (d.a.as_str(), d.b.as_str()),
-    ];
     ia.iter().any(|a| {
-        ib.iter().any(|b| {
-            let (a, b) = (a.as_str(), b.as_str());
-            keys.iter()
-                .any(|(x, y)| (a == *x && b == *y) || (a == *y && b == *x))
-        })
+        ib.iter()
+            .any(|b| (a == &d.ident_a && b == &d.ident_b) || (a == &d.ident_b && b == &d.ident_a))
     })
 }
 
