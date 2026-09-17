@@ -1,0 +1,398 @@
+// Copyright (c) 2026 MCode
+//
+// Licensed under either of Apache License, Version 2.0 or MIT License at your option.
+
+//! `stage.vec` — the vector graph as a stage view.
+//!
+//! The segment between Pass2 and the renderer. Two things make it worth reading
+//! as data rather than as a dump:
+//!
+//! - **It is the first segment whose objects are not all instances.** A layer is
+//!   a `bid`, a box is an instance, an endpoint is a pin, a net is a member set
+//!   and a trunk has no id at all (design §2.4). Each class therefore carries
+//!   exactly the key its kind owns, and nothing is invented for the kinds that
+//!   own none.
+//! - **It is where nets are projected, and the projection already keeps a
+//!   record.** [`crate::viz::project::ProjectionLog`] holds one row per layer
+//!   (net count before → after) and one row per action (merge / dedup /
+//!   removal). Publishing that log is what lets a reader answer "why does
+//!   `verify` count 19 nets here and this view 14" from the *same*
+//!   computation instead of from a second derivation that happens to agree.
+//!
+//! Everything is read from the graph, never from the rendered SVG: the design is
+//! explicit that a stage view compares structure, not drawing (§11.1, M5).
+
+use serde_json::{json, Value};
+
+use crate::instant::insttab::InstTable;
+use crate::vector::graph::boxdef::McVecBox;
+use crate::vector::graph::graphdef::{LayerStyle, McVecGraph};
+use crate::vector::graph::netdef::EndpointRef;
+use crate::vector::model::trunk::Trunk;
+use crate::viz::project::ProjectionLog;
+
+use super::{canon_instance, loc_cell, loc_of, render_table, SourceText, StageSeg, StageView};
+
+/// Build the `stage.vec` view over a graph and the projection log that produced
+/// it.
+///
+/// The log is passed in rather than recomputed: it is the projection's own
+/// account of what it did, and re-deriving the same numbers here would make the
+/// two agree by coincidence instead of by construction.
+pub fn build_vec(
+    graph: &McVecGraph,
+    log: &ProjectionLog,
+    table: &InstTable,
+    top: &str,
+    diagnostics: usize,
+) -> StageView {
+    let mut sources = SourceText::new();
+    let mut items: Vec<Value> = Vec::new();
+    walk(graph, table, "", &mut sources, &mut items);
+
+    // The projection's own account: one row per layer, then one per action.
+    // `before` / `after` are the only place the *net count change* is visible —
+    // a view that reported one number could never explain the other.
+    for (layer, before, after) in &log.per_layer {
+        items.push(json!({
+            "class": "projection",
+            "key": Value::Null,
+            "point": Value::Null,
+            "path": format!("{layer}/nets"),
+            "canon_key": Value::Null,
+            "layer": layer,
+            "rule": "-",
+            "before": before,
+            "after": after,
+            "note": "-",
+            "loc": Value::Null,
+        }));
+    }
+    for r in &log.records {
+        items.push(json!({
+            "class": "projection",
+            "key": Value::Null,
+            "point": Value::Null,
+            "path": format!("{}/{}/{}", r.layer, r.net, r.endpoint),
+            "canon_key": Value::Null,
+            "layer": r.layer,
+            "rule": r.rule,
+            "before": Value::Null,
+            "after": Value::Null,
+            "note": r.note,
+            "loc": Value::Null,
+        }));
+    }
+
+    StageView::new(StageSeg::Vec, top, items, diagnostics)
+}
+
+/// Walk one layer: emit its row and its objects, then recurse into its
+/// sub-graphs. `parent` is the enclosing layer's canonical path, used only as
+/// the fallback when a layer's `bid` names no `InstTable` row.
+fn walk(
+    graph: &McVecGraph,
+    table: &InstTable,
+    parent: &str,
+    sources: &mut SourceText,
+    items: &mut Vec<Value>,
+) {
+    let path = layer_path(graph, table, parent);
+    let has_row = graph.bid >= 0 && table.get_entry(graph.bid as u32).is_some();
+
+    items.push(json!({
+        "class": "layer",
+        "key": if has_row { Value::String(format!("D{}", graph.bid)) } else { Value::Null },
+        "point": Value::Null,
+        "path": path,
+        "canon_key": if has_row {
+            canon_instance(table, graph.bid as u32)
+        } else {
+            json!({ "path": path, "def": Value::Null })
+        },
+        "name": graph.name,
+        "style": match graph.layer_style {
+            LayerStyle::Block => "block",
+            LayerStyle::Device => "device",
+        },
+        "boxes": graph.boxes.len(),
+        "nets": graph.nets.len(),
+        "root": graph.is_root,
+        "loc": Value::Null,
+    }));
+
+    for b in &graph.boxes {
+        items.push(box_item(b, table, &path, sources));
+    }
+    for t in &graph.port_trunks {
+        items.push(trunk_item(t, table, &path));
+    }
+    for net in &graph.nets {
+        // A net is keyed by its name only when that name is the *source's* — the
+        // thing a reader can compare across builds. A name the compiler minted
+        // belongs to this build's segmentation, not to the circuit, so the net
+        // keeps its member set as its handle instead (§2.4).
+        let origin = net_origin(&net.name);
+        let mut members: Vec<String> = net
+            .endpoints
+            .iter()
+            .filter_map(|e| endpoint_path(e, table))
+            .collect();
+        members.sort();
+        items.push(json!({
+            "class": "net",
+            "key": if origin == NetOrigin::Source {
+                Value::String(format!("net:{}", net.name))
+            } else {
+                Value::Null
+            },
+            "point": Value::Null,
+            "path": Value::Null,
+            "canon_key": Value::Null,
+            "name": net.name,
+            "origin": origin.as_str(),
+            "kind": net.kind.to_string(),
+            "role": format!("{:?}", net.role).to_lowercase(),
+            "nid": net.nid,
+            "members": members,
+            "endpoints": net.endpoints.len(),
+            "layer": path,
+            "loc": loc_of(net.source_span.as_ref(), sources),
+        }));
+
+        for e in &net.endpoints {
+            items.push(endpoint_item(e, table, &path, &net.name));
+        }
+    }
+
+    for sub in &graph.sub_graphs {
+        walk(sub, table, &path, sources, items);
+    }
+}
+
+/// A layer's canonical path: its `InstTable` row when it has one, else the
+/// enclosing path plus its own name.
+fn layer_path(graph: &McVecGraph, table: &InstTable, parent: &str) -> String {
+    if graph.bid >= 0 {
+        if let Some(e) = table.get_entry(graph.bid as u32) {
+            if !e.path.is_empty() {
+                return e.path.clone();
+            }
+        }
+    }
+    if parent.is_empty() {
+        graph.name.clone()
+    } else {
+        format!("{parent}.{}", graph.name)
+    }
+}
+
+fn box_item(b: &McVecBox, table: &InstTable, layer: &str, sources: &mut SourceText) -> Value {
+    let has_row = b.id >= 0 && table.get_entry(b.id as u32).is_some();
+    json!({
+        "class": "box",
+        // A synthesized box (a `PowerLabel` the builder invented, a port
+        // terminal) has no instance, so it gets no key rather than a made-up
+        // one; `inst_path` is still what a human recognizes it by.
+        "key": if has_row { Value::String(format!("D{}", b.id)) } else { Value::Null },
+        "point": Value::Null,
+        "path": b.inst_path,
+        "canon_key": if has_row {
+            canon_instance(table, b.id as u32)
+        } else {
+            json!({ "path": b.inst_path, "def": Value::Null })
+        },
+        "name": b.name,
+        "class_name": b.class_name,
+        "kind": b.kind.to_string(),
+        "pins": b.pins.len(),
+        "layer": layer,
+        "loc": loc_of(b.source_span.as_ref(), sources),
+    })
+}
+
+fn endpoint_item(e: &EndpointRef, table: &InstTable, layer: &str, net: &str) -> Value {
+    let canon = endpoint_canon(e, table);
+    json!({
+        "class": "endpoint",
+        // The identity half. `pin_id` is an `InstTable` row number — an index
+        // inside this build, never a key — so it is not published as one.
+        "key": e.point.map(|p| Value::String(p.to_string())).unwrap_or(Value::Null),
+        "point": e.point.map(|p| p.to_string()),
+        "path": endpoint_path(e, table).map(Value::String).unwrap_or(Value::Null),
+        "canon_key": canon,
+        "pin": e.pin_name,
+        "io": format!("{:?}", e.io_type).to_lowercase(),
+        "net": net,
+        "layer": layer,
+        "loc": Value::Null,
+    })
+}
+
+fn trunk_item(t: &Trunk, table: &InstTable, layer: &str) -> Value {
+    let mut lanes: Vec<Value> = t
+        .members
+        .iter()
+        .map(|m| {
+            json!({
+                "member": m.member,
+                "lane": m.lane,
+                "left": pin_path(table, m.left_pin),
+                "right": pin_path(table, m.right_pin),
+            })
+        })
+        .collect();
+    lanes.sort_by_key(|l| l["lane"].as_u64());
+    json!({
+        "class": "trunk",
+        // §2.4: a trunk owns no id. Its name and its lanes are what it is.
+        "key": Value::Null,
+        "point": Value::Null,
+        "path": format!("{layer}.{}", t.name),
+        "canon_key": Value::Null,
+        "name": t.name,
+        "kind": t.kind.label(),
+        "op": match t.op {
+            Some(crate::semantic::common::ConnOp::Series) => "series",
+            Some(crate::semantic::common::ConnOp::Parallel) => "parallel",
+            None => "-",
+        },
+        "dir": t.dir.to_string(),
+        "lanes": lanes,
+        "loc": Value::Null,
+    })
+}
+
+/// An endpoint's canonical key: the pin's `InstTable` path plus its owner's def
+/// — the same spelling `stage.p2` gives the same pin, which is what makes the
+/// two views joinable at all.
+///
+/// `pin_id < 0` marks the endpoints the viz layer invents (rail-synth, the
+/// synthetic `PowerLabel` box), and those get `null`: they are not physical
+/// points, so a key would be a fabricated one.
+fn endpoint_canon(e: &EndpointRef, table: &InstTable) -> Value {
+    if endpoint_path(e, table).is_none() {
+        return Value::Null;
+    }
+    canon_instance(table, e.pin_id as u32)
+}
+
+/// The pin's canonical path, when it has an `InstTable` row.
+fn endpoint_path(e: &EndpointRef, table: &InstTable) -> Option<String> {
+    pin_path(table, e.pin_id)
+}
+
+/// Where a net's name came from, which is what decides whether the name may
+/// stand as a key.
+///
+/// Three families, and only the first is the *source's*:
+///
+/// - `Source` — the name is written in the `.mc` (a label, a port). Two builds
+///   of the same source agree on it, so it can key an item.
+/// - `Segment` — the builder split one chain and minted `<base>~<k>` for the
+///   pieces ([`crate::vector::builder::visit`]'s `segment_net_name`, which
+///   states the name is "unique across the chain and never collides with the
+///   original whole-chain name"). Unique to *this* build's segmentation, so
+///   keying on it would claim a stability the name does not have.
+/// - `Anonymous` — `_net<k>`, minted per build by a counter.
+///
+/// A `Segment` or `Anonymous` net is not left unidentifiable: its `members` list
+/// is the recomputable handle §2.4 prescribes for objects that own no key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NetOrigin {
+    Source,
+    Segment,
+    Anonymous,
+}
+
+impl NetOrigin {
+    fn as_str(self) -> &'static str {
+        match self {
+            NetOrigin::Source => "source",
+            NetOrigin::Segment => "segment",
+            NetOrigin::Anonymous => "anonymous",
+        }
+    }
+}
+
+/// Classify a net name. `~` cannot occur in an MCode identifier, so its presence
+/// means the builder minted the name rather than the source writing it.
+fn net_origin(name: &str) -> NetOrigin {
+    if crate::instant::mc_net::is_anon_net_name(name) {
+        NetOrigin::Anonymous
+    } else if name.contains('~') {
+        NetOrigin::Segment
+    } else {
+        NetOrigin::Source
+    }
+}
+
+fn pin_path(table: &InstTable, pin_id: i64) -> Option<String> {
+    if pin_id < 0 {
+        return None;
+    }
+    let p = table.get_entry(pin_id as u32)?.path.clone();
+    if p.is_empty() {
+        None
+    } else {
+        Some(p)
+    }
+}
+
+/// Render the `stage.vec` text face from the *same* items the JSON face uses
+/// (design §5.3 ruling ③). Columns: key, path-or-name, detail, loc — first
+/// column always the key, last always `loc` (§5.3 ①).
+pub fn render_vec_text(view: &StageView) -> String {
+    let rows: Vec<Vec<String>> = view
+        .items
+        .iter()
+        .map(|item| {
+            let key = item["key"].as_str().unwrap_or("-").to_string();
+            let class = item["class"].as_str().unwrap_or("");
+            let second = match class {
+                "net" => item["name"].as_str().unwrap_or("-").to_string(),
+                "trunk" => item["path"].as_str().unwrap_or("-").to_string(),
+                _ => item["path"].as_str().unwrap_or("-").to_string(),
+            };
+            let third = match class {
+                "layer" => format!(
+                    "boxes={} nets={}",
+                    item["boxes"].as_u64().unwrap_or(0),
+                    item["nets"].as_u64().unwrap_or(0)
+                ),
+                "box" => item["class_name"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| item["kind"].as_str().unwrap_or("-"))
+                    .to_string(),
+                // The origin is in the row on purpose: a keyless net's cell then
+                // says *why* it is keyless, on the face a reader reads by
+                // default, instead of leaving `-` to look like missing data.
+                "net" => format!(
+                    "{}/{}/{}",
+                    item["kind"].as_str().unwrap_or("-"),
+                    item["role"].as_str().unwrap_or("-"),
+                    item["origin"].as_str().unwrap_or("-")
+                ),
+                "endpoint" => item["net"].as_str().unwrap_or("-").to_string(),
+                "trunk" => format!(
+                    "trunk:{} lanes={}",
+                    item["kind"].as_str().unwrap_or("-"),
+                    item["lanes"].as_array().map(|l| l.len()).unwrap_or(0)
+                ),
+                // One shape for both projection rows: a per-layer net count, or
+                // one action rule.
+                "projection" => match item["before"].as_u64() {
+                    Some(b) => format!("nets {b}->{}", item["after"].as_u64().unwrap_or(0)),
+                    None => format!("rule {}", item["rule"].as_str().unwrap_or("-")),
+                },
+                _ => "-".to_string(),
+            };
+            vec![key, second, third, loc_cell(&item["loc"]).to_string()]
+        })
+        .collect();
+
+    let mut out = vec![view.header_line(), view.counts_line(StageSeg::Vec)];
+    render_table(&rows, &mut out);
+    out.join("\n")
+}

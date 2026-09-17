@@ -27,6 +27,7 @@ mod point_identity_stage_key;
 mod port_row_with_connection;
 mod pwrflow_l1;
 mod stage_p2_view;
+mod stage_vec_view;
 mod tablea_dispatch_regression;
 mod u54_parameter_default;
 mod vec_group_expansion_equivalence;

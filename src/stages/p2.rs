@@ -45,7 +45,7 @@ use serde_json::{json, Value};
 
 use crate::instant::insttab::{InstKind, InstTable};
 
-use super::{loc_cell, loc_value, render_table, StageSeg, StageView};
+use super::{def_of, loc_cell, loc_of, render_table, SourceText, StageSeg, StageView};
 
 /// Build the `stage.p2` view over a flattened instance table.
 ///
@@ -101,23 +101,8 @@ pub fn build_p2(table: &InstTable, top: &str, diagnostics: usize) -> StageView {
             ),
         };
 
-        let loc = loc_value(
-            entry
-                .src_pos
-                .as_ref()
-                .or(entry.fallback_pos.as_ref())
-                .map(|p| p.uri.as_str()),
-            entry
-                .src_pos
-                .as_ref()
-                .or(entry.fallback_pos.as_ref())
-                .map(|p| p.offset),
-            entry
-                .src_pos
-                .as_ref()
-                .or(entry.fallback_pos.as_ref())
-                .and_then(|p| sources.text(&p.uri)),
-        );
+        let pos = entry.src_pos.as_ref().or(entry.fallback_pos.as_ref());
+        let loc = loc_of(pos, &mut sources);
 
         items.push(json!({
             "class": class,
@@ -209,26 +194,6 @@ pub fn render_p2_text(view: &StageView) -> String {
     out.join("\n")
 }
 
-/// Walk `parent_id` up from `id` to the first ancestor that declares a def, and
-/// spell that def as `{uri, ident}` — the half of the canonical key that a pin
-/// or port row does not carry itself.
-fn def_of(table: &InstTable, id: u32) -> Option<Value> {
-    let mut cur = table.get_entry(id).and_then(|e| e.parent_id);
-    // Bounded by the table's depth: `parent_id` strictly decreases towards the
-    // root, so this cannot loop.
-    while let Some(pid) = cur {
-        let e = table.get_entry(pid)?;
-        if let Some(sn) = &e.class_def {
-            return Some(json!({
-                "uri": sn.uri.as_uri().to_string(),
-                "ident": sn.ident.to_string(),
-            }));
-        }
-        cur = e.parent_id;
-    }
-    None
-}
-
 /// entry id -> name of the net that owns it. Built once, in one pass.
 fn net_names(table: &InstTable) -> HashMap<u32, String> {
     let mut out = HashMap::new();
@@ -240,35 +205,3 @@ fn net_names(table: &InstTable) -> HashMap<u32, String> {
     out
 }
 
-/// Source text per URI, read at most once.
-///
-/// Needed to turn a byte offset into the line number the text face prints. An
-/// unreadable file yields no text, and the line renders as unknown rather than
-/// as a wrong number — the same choice [`super::world_ver`] makes, for the same
-/// reason.
-#[derive(Default)]
-struct SourceText {
-    cache: HashMap<String, Option<String>>,
-}
-
-impl SourceText {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn text(&mut self, uri: &str) -> Option<&str> {
-        if !self.cache.contains_key(uri) {
-            // In-memory content first (a source loaded from a string was parsed
-            // from exactly this text); a project loaded from disk leaves it
-            // empty, so the filesystem read is the normal path here too.
-            let from_workspace = crate::db::cmie::tables::WORKSPACE
-                .mcodes
-                .get(uri)
-                .map(|c| c.content.clone())
-                .filter(|c| !c.is_empty());
-            let text = from_workspace.or_else(|| std::fs::read_to_string(uri).ok());
-            self.cache.insert(uri.to_string(), text);
-        }
-        self.cache.get(uri).and_then(|t| t.as_deref())
-    }
-}
