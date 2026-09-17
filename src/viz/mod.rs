@@ -65,7 +65,10 @@ pub static SYNTHETIC_PIN_COUNT: std::sync::atomic::AtomicUsize =
 
 // Top-level re-exports
 
-pub use api::{render, render_to_html, render_with, render_with_metrics, RenderOpts};
+pub use api::{
+    render, render_to_html, render_with, render_with_metrics, render_with_metrics_and_sink,
+    RenderOpts, RenderedLayer,
+};
 pub use doc::VizDocument;
 pub use layer::VizLayer;
 

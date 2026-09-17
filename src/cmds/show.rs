@@ -1310,11 +1310,20 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
             mcc::stages::vec::build_vec(&graph, &log, &table, &top, diags.len())
         }
         mcc::stages::StageSeg::Viz => {
-            error!(
-                target: "mcc::show",
-                "stage.{seg_name} is not landed yet (planned: phase two, batch 2c)"
+            // The render pipeline consumes the graph it lays out, so the view
+            // reads it back through the observation sink: this is the one
+            // segment whose objects have positions, and they exist nowhere but
+            // in that graph (never in the SVG — design §11.1 / M5).
+            let block = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
+            let graph = mcc::vector::graph::build_mc_vec_graph(&block, &table);
+            let mut layers = Vec::new();
+            let (_doc, metrics) = mcc::viz::api::render_with_metrics_and_sink(
+                graph,
+                mcc::viz::api::RenderOpts::default(),
+                Some(&mut layers),
             );
-            std::process::exit(2);
+            let quality = metrics.finish_quality(None);
+            mcc::stages::viz::build_viz(&layers, &quality, &table, &top, diags.len())
         }
     };
 
@@ -1326,6 +1335,7 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
         let rendered = match seg {
             mcc::stages::StageSeg::P2 => mcc::stages::p2::render_p2_text(&view),
             mcc::stages::StageSeg::Vec => mcc::stages::vec::render_vec_text(&view),
+            mcc::stages::StageSeg::Viz => mcc::stages::viz::render_viz_text(&view),
             _ => format!("{}\n{}", view.header_line(), view.counts_line(seg)),
         };
         return write_stage_text(&rendered);
