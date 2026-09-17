@@ -157,7 +157,7 @@ def is_bare_rule(content):
 #                   (src/cmds/verify.rs:822) — `used to <verb>` means "employed
 #                   for", which is PRESENT purpose, not history.
 #   `no longer`     states a current fact: "USB/LDO/DCDC are no longer islands"
-#                   (tests/rail_rules.rs:9).
+#                   (tests/shard3/rail_rules.rs:9).
 #   `now also`, `at one point`, `once was`
 #                   no validating hits, and each has a benign reading
 #                   ("at one point the wire crosses the box" is locational).

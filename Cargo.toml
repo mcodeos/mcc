@@ -27,7 +27,7 @@ edition = "2021"
 default-run = "mcc"
 
 [lib]
-name = "mcc" 
+name = "mcc"
 path = "src/lib.rs"
 
 [[bin]]
