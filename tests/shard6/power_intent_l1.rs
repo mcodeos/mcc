@@ -3300,6 +3300,65 @@ fn series_element_bypassing_itself_fires_6033() {
     );
 }
 
+/// The ordering half (design §8.3), firing shape: an ordinary pass element in
+/// parallel with the declared one carries the same current, so the supply
+/// reaches both terminals *without* the declaration — the element is bypassed,
+/// not in line between a source and a load. The same law as the "both ends on
+/// one net" bypass above, one step further out.
+#[test]
+fn series_element_with_a_parallel_copper_path_fires_6033() {
+    let src = format!(
+        "{PROT_FUSE}{PROT_TWOPIN}{SRC_CAP}{SNK_AMP3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC_CAP s\n    SNK_AMP3 a\n    FUSE.PROT f\n    TWOPIN.PLAIN t\n    \
+         s.OUT -> V33\n    s.GND -> GND\n    f.A -> V33\n    f.B -> VLOAD\n    \
+         t.A -> V33\n    t.B -> VLOAD\n    a.VDD -> VLOAD\n    a.GND -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH, &src);
+    assert!(
+        msgs.iter().any(|m| m.contains("bypassed")),
+        "a paralleled plain pass carries the current around the declaration — the element is \
+         bypassed, not in line; got messages: {msgs:?}"
+    );
+}
+
+/// The ordering half, same verdict one scope out: the parallel path runs through
+/// a child module's copper, so the removal walk has to cross the module boundary
+/// to find the second feed (the boundary arm of the same walk).
+#[test]
+fn series_element_bypassed_through_a_child_module_fires_6033() {
+    let src = format!(
+        "{PROT_FUSE}{PROT_TWOPIN}{SRC_CAP}{SNK_AMP3}\n\
+         module LEAF {{\n    io P1\n    io P2\n    TWOPIN.PLAIN t\n    t.A -> P1\n    t.B -> P2\n}}\n\
+         module main {{\n    conduit GND @role(main)\n    SRC_CAP s\n    SNK_AMP3 a\n    \
+         FUSE.PROT f\n    LEAF u\n    \
+         s.OUT -> V33\n    s.GND -> GND\n    f.A -> V33\n    f.B -> VLOAD\n    \
+         u.P1 -> V33\n    u.P2 -> VLOAD\n    a.VDD -> VLOAD\n    a.GND -> GND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH, &src);
+    assert!(
+        msgs.iter().any(|m| m.contains("bypassed")),
+        "a parallel path routed through a child module is the same bypass; got messages: {msgs:?}"
+    );
+}
+
+/// The ordering half, silent shape: two declared elements in series. Each is a
+/// genuine cut — remove either one and the far side (or the node between them)
+/// loses its feed — so both read as in line between a source and a load.
+#[test]
+fn series_elements_in_a_daisy_chain_are_silent_6033() {
+    let src = format!(
+        "{PROT_FUSE}{SRC_CAP}{SNK_AMP3}\nmodule main {{\n    conduit GND @role(main)\n    \
+         SRC_CAP s\n    SNK_AMP3 a\n    FUSE.PROT f1\n    FUSE.PROT f2\n    \
+         s.OUT -> V33\n    s.GND -> GND\n    f1.A -> V33\n    f1.B -> VMID\n    \
+         f2.A -> VMID\n    f2.B -> VLOAD\n    a.VDD -> VLOAD\n    a.GND -> GND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::PROTECT_SERIES_NOT_IN_PATH),
+        "each element of a series pair is the cut between its own two sides; got codes: {codes:?}"
+    );
+}
+
 /// The oracle is the *fed* face (6019), not the 6021 budget root: a
 /// capacity-less source is a source boundary — deliberately Opaque to the budget
 /// walk — so a fuse downstream of it must stay silent. Reading the budget root
@@ -5457,5 +5516,125 @@ fn board_with_no_supply_filter_leg_is_not_judged_6042() {
     assert!(
         msgs.is_empty(),
         "no supply filter leg means no subface to have drawn from; got codes: {codes:?}"
+    );
+}
+
+// ── PWR-6 pin-row host (exposed-protection-design.md §2/§8.4, R8) ──
+//
+// The language spells a declared transient boundary on two hosts: a module port
+// row (`io DP @exposed(...)`) and a component pin row (`io 1 = IO @exposed(...)`).
+// One word on one kind of declaration, so PWR-6's two halves read one seed list
+// and both hosts are judged alike. Before this carrier the pin row had no home
+// in the flat layer at all: its words lived in the definition table, where no
+// rule can see them.
+
+/// A TVS-like device whose **pin row** carries the boundary word.
+const TV_PIN_EXPOSED: &str = "component TVP {\n    pins = [\n        io 1 = IO @exposed(esd_contact)\n        psnk 2 = G\n    ]\n}\n";
+
+/// The pin-row host is judged exactly as the port-row host: an undeclared clamp
+/// leaves the boundary uncovered, and the message names the pin's own path.
+#[test]
+fn pin_row_exposed_without_clamp_fires_6031() {
+    let src = format!(
+        "{TV_PIN_EXPOSED}module main {{\n    conduit ESDGND @role(protective)\n    io DPN\n    \
+         TVP tv\n    tv.IO -> DPN\n    tv.G -> ESDGND\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::EXPOSED_NET_NO_CLAMP, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a pin row declaring @exposed is a boundary host; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.tv.1") && msgs[0].contains("esd_contact"),
+        "6031 must name the pin's path and its declared levels: {msgs:?}"
+    );
+}
+
+/// The positive control for the same host: the device's own dump leg lands on a
+/// reference the scope declares `@clamp` on → covered, silent.
+#[test]
+fn pin_row_exposed_with_declared_clamp_is_silent_6031() {
+    let src = format!(
+        "{TV_PIN_EXPOSED}module main {{\n    conduit ESDGND @role(protective)\n    io DPN\n    \
+         TVP tv\n    tv.IO -> DPN\n    tv.G -> ESDGND @clamp(ESDGND)\n}}\n"
+    );
+    let codes = build_codes(&src);
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_NO_CLAMP),
+        "a declared clamp covers the pin-declared boundary too; got codes: {codes:?}"
+    );
+}
+
+/// The two hosts are one predicate: both spelled on one board, both uncovered,
+/// both on the same copper — one report each, because the host is the
+/// declaration and each declaration answers for itself.
+#[test]
+fn port_row_and_pin_row_hosts_fire_alike_6031() {
+    let src = format!(
+        "{TV_PIN_EXPOSED}{TV}module main {{\n    conduit ESDGND @role(protective)\n    \
+         io DP @exposed(esd_contact)\n    \
+         TVP tvp\n    tvp.IO -> DP\n    tvp.G -> ESDGND\n    \
+         TV tva\n    tva.IO -> DP\n    tva.G -> ESDGND\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::EXPOSED_NET_NO_CLAMP, &src);
+    assert_eq!(
+        msgs.len(),
+        2,
+        "one report per uncovered host, whichever way the row spells it: {msgs:?}"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("'main.DP'"))
+            && msgs.iter().any(|m| m.contains("'main.tvp.1'")),
+        "both the port host and the pin host are named: {msgs:?}"
+    );
+}
+
+/// A pin-row host inside a `func` (the pass-2 flatten site) is the same host —
+/// the carrier is decoded at both flatten sites, so neither placement is blind.
+#[test]
+fn pin_row_exposed_host_inside_a_func_is_judged_too_6031() {
+    let src = format!(
+        "{TV_PIN_EXPOSED}module main {{\n    conduit ESDGND @role(protective)\n    io DPN\n    \
+         func M() {{\n        TVP tv\n        tv.IO -> DPN\n        tv.G -> ESDGND\n    }}\n}}\n"
+    );
+    let msgs = msgs_of(mcc::errcodes::EXPOSED_NET_NO_CLAMP, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "a func-placed component is a declared host too: {msgs:?}"
+    );
+    assert!(
+        msgs[0].contains("1") && msgs[0].contains("esd_contact"),
+        "6031 must name the func-placed pin: {msgs:?}"
+    );
+}
+
+/// The two halves do not stack on the pin host either: covered on its own net
+/// (6031 silent), the flood past an ordinary pass still reaches an unclamped
+/// quiet face → 6044 alone, exactly as for a port host.
+#[test]
+fn pin_row_exposed_host_does_not_stack_the_two_halves() {
+    let src = format!(
+        "{TV_PIN_EXPOSED}{PROT_TWOPIN}module main {{\n    {DOWNSTREAM_QUIET_BOARD}\
+         io DPN\n    \
+         TVP tv\n    tv.IO -> DPN\n    tv.G -> ESDGND @clamp(ESDGND)\n    \
+         TWOPIN.PLAIN r\n    r.A -> DPN\n    r.B -> VDDA\n}}\n"
+    );
+    let codes = build_codes(&src);
+    let msgs = msgs_of(mcc::errcodes::EXPOSED_NET_DOWNSTREAM_UNPROTECTED, &src);
+    assert_eq!(
+        msgs.len(),
+        1,
+        "the downstream half judges the pin host too; got codes: {codes:?}"
+    );
+    assert!(
+        msgs[0].contains("main.tv.1") && msgs[0].contains("VDDA"),
+        "6044 must name the func-host path and the uncovered face: {msgs:?}"
+    );
+    assert!(
+        !codes.contains(&mcc::errcodes::EXPOSED_NET_NO_CLAMP),
+        "the clamp on the pin's net covers it — 6031 stays silent; got codes: {codes:?}"
     );
 }

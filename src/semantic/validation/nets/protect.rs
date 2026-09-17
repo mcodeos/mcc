@@ -22,11 +22,15 @@
 //!   single-point) stays PWR-7/PWR-8's verdict and is not repeated here.
 //! * **series** (`PROTECT_SERIES_NOT_IN_PATH` = 6033) — the device says it
 //!   carries the supply through itself, so it must be a two-terminal element
-//!   with no DC row whose ends sit on two different nets, both on a supply tree.
-//!   A DC row means it is a power face rather than raw copper; two ends on one
-//!   net means it bypasses itself; an end off every supply tree means it
-//!   protects nothing. The declared *order* (which side of the protected device
-//!   the fuse sits on) is deferred — design §6 R4 owns it.
+//!   with no DC row whose ends sit on two different nets, both on a supply tree,
+//!   and it must actually *be* the cut between them (design §8.3). A DC row
+//!   means it is a power face rather than raw copper; two ends on one net means
+//!   it bypasses itself; an end off every supply tree means it protects
+//!   nothing; and if the supply still reaches **both** ends once the element is
+//!   removed, a parallel path carries the current around the declaration — the
+//!   same bypass one step further out. The other ordering half, "on the exposed
+//!   side, before the protected device", is 6044's, read as reachability from
+//!   the exposed port (that rule's flood stops at a declared series gate).
 //!
 //! Not adjudicated, never guessed: a leg whose class does not resolve in its own
 //! scope, and a series device with an end on a return/reference net (a
@@ -253,6 +257,28 @@ pub(crate) fn check_protect_series_path(table: &InstTable, results: &mut Vec<Net
                 .collect();
             if !unfed.is_empty() {
                 reason = Some(format!("end '{}' is on no supply tree", unfed.join("', '")));
+            }
+        }
+
+        // The declared *order* half of PWR-5 (design §8.3): the element must sit
+        // **between a source and a load**, and no direction word carries that —
+        // removal does. Cut the element out of the copper and ask each end
+        // again: exactly one side losing its feed is the in-line shape (the side
+        // that stays fed is the source side, so the order holds by construction);
+        // both sides keeping their feed means the supply reaches both terminals
+        // *without* the element, i.e. a parallel path around the declaration —
+        // the non-degenerate form of the "both ends on one net" bypass judged
+        // above, and the same law: a declaration means it carries the current.
+        // Two net entries per terminal (a module-boundary co-segment) leave the
+        // two sides unidentified, so the question is not asked there.
+        if reason.is_none() && ends.len() == 2 {
+            let (a, b) = (ends[0], ends[1]);
+            if reach.fed_without(a, comp.id) && reach.fed_without(b, comp.id) {
+                reason = Some(
+                    "the supply still reaches both of its terminals with the element removed, \
+                     so it is bypassed rather than in line between a source and a load"
+                        .to_string(),
+                );
             }
         }
 

@@ -800,8 +800,11 @@ pub struct L1Edge {
     pub span: Span,
 }
 
-/// Text values of every attribute whose key is `key` (`role`, …).
-fn attr_texts(attrs: &McAttributes, key: &str) -> Vec<String> {
+/// Text values of every attribute whose key is `key` (`role`, …). One reader
+/// for both projections of a declaration row: the L1 identity face below and
+/// the flat pin-row carry (`instant::insttab::exposed_of_pin`), so a key's
+/// spelling has exactly one decoder.
+pub(crate) fn attr_texts(attrs: &McAttributes, key: &str) -> Vec<String> {
     attrs
         .iter()
         .filter(|a| a.id.to_string() == key)

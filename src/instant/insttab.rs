@@ -276,6 +276,33 @@ pub(crate) fn protection_of(
     }
 }
 
+/// The declared transient boundary of one component pin, read from the pin's
+/// own declaration row (`io 3 = D+ @exposed(esd_contact)` → `["esd_contact"]`).
+/// See [`InstEntry::exposed`] — the pin-level spelling of the same word the
+/// module port row spells, decoded by the same key reader as the L1 port
+/// projection so the two hosts cannot drift apart.
+///
+/// A row that carries no trailing `@attr` leaves its pins' attrs empty, and a
+/// pin id the def's table does not hold (a materialized dynamic bank pin) has
+/// no row here at all — both answer "undeclared", and PWR-6 then says nothing
+/// about that pin.
+pub(crate) fn exposed_of_pin(
+    comp: &crate::instant::mc_comp::McComponentInst,
+    pin_name: &str,
+) -> Vec<String> {
+    comp.def
+        .pins
+        .pins
+        .get(pin_name)
+        .map(|p| {
+            crate::semantic::module::pi::attr_texts(
+                &p.attrs,
+                crate::semantic::basic::attr_keys::KEY_EXPOSED,
+            )
+        })
+        .unwrap_or_default()
+}
+
 /// What this component **is**, as its own `spec` table declares it — the flat
 /// carry [`InstEntry::element_class`] and the power-quality axis's answer to
 /// "a decoupling capacitor? a filter? a series pass?" (power-quality-design.md
@@ -591,6 +618,20 @@ pub struct InstEntry {
     /// `None` = ordinary pass element (the unmarked default), which no PWR-5
     /// half adjudicates.
     pub protection: Option<ProtectionKind>,
+    /// ★ PWR-6 (exposed-protection-design.md §8.4): the declared transient
+    /// boundary of this endpoint — the `@exposed(<level>)` levels its own
+    /// declaration row carries. Non-empty on exactly two kinds of entry: a
+    /// module port row (`io USB_DP @exposed(esd_contact)`, decoded by the rule
+    /// from the L1 port projection) and a component pin row (`io 3 = D+
+    /// @exposed(esd_contact)`, carried here — the pin-level spelling, whose
+    /// only home before this field was the definition table, where no rule can
+    /// see it).
+    ///
+    /// A declaration-face carry, like [`Self::pwr_member`]: the words are the
+    /// author's, copied at flatten time and never inferred from a pin shape or
+    /// a class name. Empty means the author declared no boundary — which is a
+    /// real answer, not a missing one.
+    pub exposed: Vec<String>,
     /// ★ PI axis (power-quality-design.md §1.2): the element class this
     /// component's own `spec` table declares it to be — decoupling capacitor,
     /// filter magnetics, or a dissipating pass — so a rule can ask "is this a
@@ -1050,6 +1091,7 @@ impl InstTable {
             nc_marked: false,
             unselected: false,
             protection: None,
+            exposed: Vec::new(),
             element_class: None,
             resistance_ohm: None,
             power_rated_w: None,
@@ -1097,6 +1139,14 @@ impl InstTable {
     pub fn set_pwr_dir(&mut self, id: u32, dir: PwrDir) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.pwr_dir = Some(dir);
+        }
+    }
+
+    /// Set the declared transient-boundary levels of a component pin by ID
+    /// (see [`InstEntry::exposed`]). Component flatten sites only.
+    pub fn set_exposed(&mut self, id: u32, levels: Vec<String>) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.exposed = levels;
         }
     }
 
@@ -1907,6 +1957,14 @@ impl InstTable {
                         self.mark_nc(pin_id);
                     }
 
+                    // ★ PWR-6: the pin row's own `@exposed` words ride the flat
+                    // pin entry — the second host of a declared transient
+                    // boundary (exposed-protection-design.md §2/§8.4).
+                    let exposed = exposed_of_pin(comp, pin_name);
+                    if !exposed.is_empty() {
+                        self.set_exposed(pin_id, exposed);
+                    }
+
                     // ── Fallback position for unconnected pins ──
                     // An unconnected pin never appears in a net, so `flatten_nets`
                     // can't back-fill a wiring site into `src_pos`. Anchor the
@@ -2115,6 +2173,12 @@ impl InstTable {
                     // ★ U48: per-pin NC marker (same lookup as pass 1).
                     if comp.nc_pins.contains(pin_name) {
                         self.mark_nc(pin_id);
+                    }
+
+                    // ★ PWR-6: pin-row `@exposed` carry (same as pass 1).
+                    let exposed = exposed_of_pin(comp, pin_name);
+                    if !exposed.is_empty() {
+                        self.set_exposed(pin_id, exposed);
                     }
 
                     let (role, _inferred) = infer_member_role(

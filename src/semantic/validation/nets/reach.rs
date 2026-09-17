@@ -135,6 +135,105 @@ impl<'a> ReachScan<'a> {
         r
     }
 
+    /// The *removal* question PWR-5's series half asks (exposed-protection-design
+    /// §8.3): is `net_id` still governed by a supply root once the component
+    /// `skip` is cut out of the copper? Same walk as [`Self::resolve_rootless`]
+    /// — a root on the net, transparent two-pin copper, module-boundary
+    /// co-segments, return/reference copper never climbed — with one part
+    /// removed and no memo (the memo answers the *intact* graph).
+    ///
+    /// The declared placement order of a current-limit element needs no
+    /// direction word; removal gives it. Cut such an element out and ask each of
+    /// its two ends: if exactly one loses its feed, the element really is the cut
+    /// between a source and that side — and the side that stays fed is the
+    /// source side, so the order holds. If both keep their feed, the supply
+    /// reaches both terminals without the element: it is bypassed rather than in
+    /// line between a source and a load (the non-degenerate form of the "both
+    /// ends on one net" bypass `protect.rs` judges).
+    pub(crate) fn fed_without(&self, net_id: u32, skip: u32) -> bool {
+        let mut seen: HashSet<u32> = HashSet::new();
+        self.fed_walk(net_id, skip, &mut seen)
+    }
+
+    /// One removal-aware fed walk. `seen` is per-query (no memo, no stack
+    /// guard): the query is asked once per end of one element, so a plain
+    /// visited set bounds it, and an unfed verdict here is never cached.
+    fn fed_walk(&self, net_id: u32, skip: u32, seen: &mut HashSet<u32>) -> bool {
+        if !seen.insert(net_id) {
+            return false;
+        }
+        let Some(net) = self.table.get_net(net_id) else {
+            return false;
+        };
+        if self.role_excluded(net_id) {
+            return false;
+        }
+        if self.scan.rail_face(net).is_some() || self.scan.has_source_root(self.table, net) {
+            return true;
+        }
+        // Copper arm — every transparent two-pin pass *except the removed part*.
+        for &pid in &net.points {
+            let Some(entry) = self.table.get_entry(pid) else {
+                continue;
+            };
+            if !matches!(entry.kind, InstKind::Pin) {
+                continue;
+            }
+            let Some(cid) = entry.parent_id else {
+                continue;
+            };
+            if cid == skip {
+                continue;
+            }
+            let Some(def) = self.scan.def_arc(cid) else {
+                continue;
+            };
+            if !def.pins.pwr.is_empty() {
+                continue; // has DC rows → a power face, not raw copper
+            }
+            if self.fed_walk_pin(cid, net.id, skip, seen) {
+                return true;
+            }
+        }
+        // Module-boundary arm: the same physical copper across a submodule port
+        // is a second NetEntry (both share the junction point id).
+        if let Some(m) = net.module {
+            for &pid in &net.points {
+                for &cid in self.table.nets_of(pid) {
+                    if cid == net.id {
+                        continue;
+                    }
+                    let Some(co) = self.table.get_net(cid) else {
+                        continue;
+                    };
+                    if co.module.is_none() || co.module == Some(m) {
+                        continue; // same-scope segment, not a module boundary
+                    }
+                    if self.fed_walk(cid, skip, seen) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Does the pass element `cid` forward `from_net`'s region into a fed net?
+    fn fed_walk_pin(&self, cid: u32, from_net: u32, skip: u32, seen: &mut HashSet<u32>) -> bool {
+        for pin in self.table.get_pins_of(cid) {
+            let Some(pnet) = self.table.get_net_of(pin.id) else {
+                continue;
+            };
+            if pnet.id == from_net {
+                continue;
+            }
+            if self.fed_walk(pnet.id, skip, seen) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// §7 L4 priority resolution for one net.
     fn resolve_net(&mut self, net: &NetEntry) -> Reach {
         // 1. a handwritten supply root on the net — rail guarantee face or a
