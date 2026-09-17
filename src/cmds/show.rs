@@ -1281,7 +1281,7 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
     // `build_tree_diags` rather than `build_tree`: its diagnostics feed the
     // text face's second line as a *count*. Walking in through the shared
     // export entry gets the panic guard and the top-module resolution for free.
-    let (_tree, table, _arena, _store, diags) = match mcc::export::build_tree_diags(
+    let (tree, table, arena, store, diags) = match mcc::export::build_tree_diags(
         &entry_uri,
         Some(top.as_str()),
         &mcc::cli::globals().lib,
@@ -1300,10 +1300,19 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
     let view = match seg {
         mcc::stages::StageSeg::P1 => mcc::stages::StageView::new(seg, &top, Vec::new(), diags.len()),
         mcc::stages::StageSeg::P2 => mcc::stages::p2::build_p2(&table, &top, diags.len()),
-        mcc::stages::StageSeg::Vec | mcc::stages::StageSeg::Viz => {
+        mcc::stages::StageSeg::Vec => {
+            // The vec block is the builder's own output; the graph is what the
+            // projection turns it into. `with_log` hands back the projection's
+            // own record of what it changed — the same computation the graph
+            // came from, not a second derivation of it.
+            let block = mcc::build_mc_vec_with_arena(&tree, &table, &arena, &store);
+            let (graph, log) = mcc::vector::graph::build_mc_vec_graph_with_log(&block, &table);
+            mcc::stages::vec::build_vec(&graph, &log, &table, &top, diags.len())
+        }
+        mcc::stages::StageSeg::Viz => {
             error!(
                 target: "mcc::show",
-                "stage.{seg_name} is not landed yet (planned: phase two, batches 2b/2c)"
+                "stage.{seg_name} is not landed yet (planned: phase two, batch 2c)"
             );
             std::process::exit(2);
         }
@@ -1316,6 +1325,7 @@ fn show_stage(args: &ShowArgs) -> Result<()> {
         // rather than something to fake here.
         let rendered = match seg {
             mcc::stages::StageSeg::P2 => mcc::stages::p2::render_p2_text(&view),
+            mcc::stages::StageSeg::Vec => mcc::stages::vec::render_vec_text(&view),
             _ => format!("{}\n{}", view.header_line(), view.counts_line(seg)),
         };
         return write_stage_text(&rendered);

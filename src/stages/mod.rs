@@ -33,9 +33,13 @@
 //!   §2.4, §3.7 discipline 2/3). Every item therefore carries **both**.
 
 pub mod p2;
+pub mod vec;
 pub mod world_ver;
 
 use serde_json::{json, Value};
+
+use crate::instant::insttab::InstTable;
+use crate::semantic::common::SourcePos;
 
 /// Which segment of the chain a view reads. `p1` is a placeholder: the command
 /// surface is fixed now so that the Pass1 view (design §8 O2/O3) can land
@@ -201,15 +205,32 @@ fn sort_items(items: &mut [Value]) {
     });
 }
 
-/// A sortable string for one item: its key if it has one, else its canonical
-/// path, else its `loc`. Never empty, so the ordering is total.
+/// A sortable string for one item: the **canonical** key first, then the
+/// handles that may disambiguate it.
+///
+/// Why canonical and not the run-local `key`: the ruling (design §7 O15) fixes
+/// the sort key as the canonical key, and the reason is that the *sequence*
+/// has to survive a rebuild as well as the keys do. A `NodeId` is the ordinal
+/// of first interning, so ordering by it means inserting one instance reshuffles
+/// the whole artifact — the diff a reader sees would be pure noise. Ordering by
+/// canonical path keeps the sequence stable and, as a side effect, prints a
+/// layer's rows in the order a human reads them.
+///
+/// The trailing components only break ties (one pin appears once per net), so a
+/// tie is settled by data rather than by which item happened to be pushed
+/// first; the sort is stable regardless.
 fn sort_key(item: &Value) -> String {
-    let s = item["key"]
+    let s = item["canon_key"]["path"]
         .as_str()
-        .or_else(|| item["canon_key"]["path"].as_str())
         .or_else(|| item["path"].as_str())
+        .or_else(|| item["key"].as_str())
         .unwrap_or("");
-    format!("{s}\u{1}{}", item["path"].as_str().unwrap_or(""))
+    format!(
+        "{s}\u{1}{}\u{1}{}\u{1}{}",
+        item["key"].as_str().unwrap_or(""),
+        item["path"].as_str().unwrap_or(""),
+        item["net"].as_str().unwrap_or("")
+    )
 }
 
 /// Render one item's `loc` field: the source site a reader can jump back to.
@@ -302,4 +323,84 @@ pub fn render_table(rows: &[Vec<String>], out: &mut Vec<String>) {
 /// is what stops a cell from silently turning one item into two rows.
 fn cell(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The def half of an object's canonical key, spelled `{uri, ident}`.
+///
+/// A component / module row carries its own `class_def`; a pin, port or net
+/// row has none, so it is recovered from the nearest ancestor that declares
+/// one. Walking `parent_id` is a read of a value the build already computed,
+/// not a second identity system — `parent_id` strictly decreases towards the
+/// root, so the walk terminates.
+pub fn def_of(table: &InstTable, id: u32) -> Option<Value> {
+    let mut cur = Some(id);
+    while let Some(cid) = cur {
+        let e = table.get_entry(cid)?;
+        if let Some(sn) = &e.class_def {
+            return Some(json!({
+                "uri": sn.uri.as_uri().to_string(),
+                "ident": sn.ident.to_string(),
+            }));
+        }
+        cur = e.parent_id;
+    }
+    None
+}
+
+/// The canonical key of an instance, from its `InstTable` row: the canonical
+/// path plus the def it instantiates.
+///
+/// This is the one form that survives a rebuild, so every class that names an
+/// instance — a Pass2 row, a vec box — spells it through here and the two views
+/// cannot drift apart.
+pub fn canon_instance(table: &InstTable, id: u32) -> Value {
+    let path = table
+        .get_entry(id)
+        .map(|e| e.path.clone())
+        .unwrap_or_default();
+    json!({ "path": path, "def": def_of(table, id) })
+}
+
+/// One `loc` value from a source position, with the line number resolved from
+/// the source text. `null` when there is no position — a readout prints `-`
+/// rather than a plausible-looking wrong line.
+pub fn loc_of(pos: Option<&SourcePos>, sources: &mut SourceText) -> Value {
+    let Some(p) = pos else {
+        return Value::Null;
+    };
+    let text = sources.text(&p.uri).map(|t| t.to_string());
+    loc_value(Some(p.uri.as_str()), Some(p.offset), text.as_deref())
+}
+
+/// Source text per URI, read at most once.
+///
+/// Needed to turn a byte offset into the line number a text face prints. An
+/// unreadable file yields no text, and the line renders as unknown rather than
+/// as a wrong number — the same choice [`world_ver`] makes, for the same
+/// reason.
+#[derive(Default)]
+pub struct SourceText {
+    cache: std::collections::HashMap<String, Option<String>>,
+}
+
+impl SourceText {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn text(&mut self, uri: &str) -> Option<&str> {
+        if !self.cache.contains_key(uri) {
+            // In-memory content first (a source loaded from a string was parsed
+            // from exactly this text); a project loaded from disk leaves it
+            // empty, so the filesystem read is the normal path here too.
+            let from_workspace = crate::db::cmie::tables::WORKSPACE
+                .mcodes
+                .get(uri)
+                .map(|c| c.content.clone())
+                .filter(|c| !c.is_empty());
+            let text = from_workspace.or_else(|| std::fs::read_to_string(uri).ok());
+            self.cache.insert(uri.to_string(), text);
+        }
+        self.cache.get(uri).and_then(|t| t.as_deref())
+    }
 }

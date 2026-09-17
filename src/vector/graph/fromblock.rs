@@ -465,6 +465,24 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
 /// (`is_top_level = false`) doesn't synthesize, avoiding adding a set of power symbols out of
 /// thin air at every layer.
 pub fn build_mc_vec_graph(block: &McVecBlock, table: &InstTable) -> McVecGraph {
+    build_mc_vec_graph_with_log(block, table).0
+}
+
+/// [`build_mc_vec_graph`], plus the projection's own audit log.
+///
+/// The projection layer already records every merge / dedup / removal it
+/// performs ([`crate::viz::project::ProjectionLog`]), but the only mandatory
+/// entry used to drop it. A **readout** wants it: `stage.vec` publishes the
+/// actions as items so that "why does `verify` count 19 nets and this view 14"
+/// is answered by the same computation rather than by a second derivation that
+/// merely agrees by luck.
+///
+/// Callers that do not read the log keep calling [`build_mc_vec_graph`]; the
+/// graph half is identical either way.
+pub fn build_mc_vec_graph_with_log(
+    block: &McVecBlock,
+    table: &InstTable,
+) -> (McVecGraph, crate::viz::project::ProjectionLog) {
     // ── ★ P7-2: pass2 → viz projection layer (viz/project.rs, the single mandatory gateway for all
     // callers) ──
     // Cleanses three classes of netlist noise (scalar stub ∪ member nets /
@@ -472,9 +490,9 @@ pub fn build_mc_vec_graph(block: &McVecBlock, table: &InstTable) -> McVecGraph {
     // This is the only vector→viz reverse dependency: projection is a viz-side
     // policy and must take effect uniformly at the boundary.
     // Audit log: baseline/render_projection.md.
-    let (projected, _projection_log) = crate::viz::project::project_block_tree(block, table);
+    let (projected, projection_log) = crate::viz::project::project_block_tree(block, table);
     let graph = build_mc_vec_graph_inner(&projected, table, /*is_top_level=*/ true);
-    graph
+    (graph, projection_log)
 }
 
 fn build_mc_vec_graph_inner(

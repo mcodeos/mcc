@@ -63,7 +63,7 @@ pub use detect::{
     compute_io, compute_scope_chain, detect_kind, extract_last_segment, is_power_label,
     is_signal_like, DetectedKind,
 };
-pub use fromblock::build_mc_vec_graph;
+pub use fromblock::{build_mc_vec_graph, build_mc_vec_graph_with_log};
 pub use promote::{
     apply_promote_in_place, apply_promote_recursive, lift_endpoints_to_layer_boxes,
     promote_to_inter_box_only, PromoteResult,
