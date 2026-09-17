@@ -39,9 +39,13 @@
   change can actually affect (`cargo test --test <target> --test <target> …` in
   `mcc` / `mcs`). A whole-workspace `cargo test` (or `cargo nextest run` with no
   filter) is run **only when the user explicitly asks for it**. Compiling the
-  ~85 `mcc` test targets plus `mcs`'s suites dominates the wall-clock, and an
+  `mcc` test targets plus `mcs`'s suites dominates the wall-clock, and an
   unintended full run also drags in the known-red `repro_*` family and its
   poisoned-lock cascade, drowning the signal from the suites that matter.
+  `mcc`'s integration tests are grouped into eight targets, `tests/shard0` …
+  `tests/shard7`; a former `tests/<file>.rs` is now the module `<file>` inside
+  one of them, so reach it by name — `cargo test --test shard3 rail_rules` —
+  and read `tests/shard*/main.rs` to find which shard holds a given file.
   Pick the targets from the code you touched; if you are unsure which those are,
   say so and run the nearest family rather than everything.
 - **Parsing derives structure from the AST, never from string re-parsing.**
