@@ -168,10 +168,23 @@ impl RpcServer {
                         registry2.call(&method2, params)
                     })
                     .await
-                    .unwrap_or_else(|_| {
+                    .unwrap_or_else(|err| {
+                        if !err.is_panic() {
+                            return Err(JsonRpcError::custom(
+                                -32603,
+                                "Internal error: handler cancelled",
+                            ));
+                        }
+                        // `into_panic` panics on a cancelled task, hence the check above.
+                        let payload = err.into_panic();
+                        let detail = payload
+                            .downcast_ref::<&str>()
+                            .map(|s| (*s).to_string())
+                            .or_else(|| payload.downcast_ref::<String>().cloned())
+                            .unwrap_or_else(|| "non-string panic payload".to_string());
                         Err(JsonRpcError::custom(
                             -32603,
-                            "Internal error: handler panicked",
+                            &format!("Internal error: handler panicked: {detail}"),
                         ))
                     });
                     let elapsed_ms = t0.elapsed().as_millis();
