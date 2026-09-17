@@ -1336,6 +1336,7 @@ mod tests {
             io: crate::vector::graph::netdef::IoDirection::Unknown,
             port_dir: crate::vector::graph::boxdef::PortDir::None,
             src_span: None,
+            point: None,
         });
     }
 

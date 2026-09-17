@@ -504,8 +504,19 @@ fn resolve_point(
 /// re-parses, so a mid-table pin insert across def edits never shifts later
 /// pins' `PointId`s (invariant C).
 fn resolve_comp_pin(comp: &McComponentInst, p: &NetPoint) -> Option<PointId> {
-    let node = comp.node_id?;
     let pin_name = p.path.rsplit('.').next().unwrap_or(&p.path);
+    point_of_comp_pin(comp, pin_name)
+}
+
+/// Component pin → `PointId`, from the pin's own member name.
+///
+/// The single authority for "which physical point is this component pin":
+/// both the net layer here and the flat table's pin rows (`insttab`) resolve
+/// through it, so a pin's `PointId` is computed one way in the whole build.
+/// `None` when the component owns no arena node or the pin is not a live
+/// ledger member.
+pub(crate) fn point_of_comp_pin(comp: &McComponentInst, pin_name: &str) -> Option<PointId> {
+    let node = comp.node_id?;
     let pin = comp_pin_member_id(comp, pin_name)?;
     Some(PointId { node, pin })
 }
@@ -566,7 +577,7 @@ fn vector_member(
 /// registered identity (func-expanded synthetic modules) or its ledger was
 /// never synced (defect/error paths) — on a fresh registration the ledger id
 /// equals that ordinal, so the fallback is behavior-neutral.
-fn resolve_port_ordinal(
+pub(crate) fn resolve_port_ordinal(
     module: &McModuleInst,
     port_name: &str,
     positional_boundary: bool,

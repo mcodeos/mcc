@@ -25,6 +25,7 @@
 //! ```
 
 use super::kinds::NetKind;
+use crate::instant::lane::PointId;
 use crate::vector::model::trunk::TrunkRef;
 use std::fmt;
 
@@ -271,6 +272,24 @@ pub struct EndpointRef {
     pub io_type: IoDirection,
     /// ★ P01: physical pin number (1, 2, ..., used for IC marking), None if not available
     pub pin_number: Option<u32>,
+    /// ★ Stage-readout design §2.1 / §2.2 ②: the endpoint's **stage-comparable
+    /// key** — the `PointId` (arena node + stable def-member ordinal) the net
+    /// layer derives, i.e. the same value `InstEntry::point` records for this
+    /// pin. `pin_id` stays what it always was — a segment-local `InstTable` row
+    /// number — and `point` is the identity a cross-segment join reads.
+    ///
+    /// `None` means "this endpoint is not a physical point", not "not filled
+    /// in": it covers the endpoints the viz layer *invents* (the synthetic
+    /// `PowerLabel` box `wire_label_split` builds, and the copies
+    /// `viz/connectivity/model.rs` makes from an `EntryPoint` that carries no
+    /// `InstTable` row) — the same family `is_synthetic()` names.
+    ///
+    /// ⚠ The `NodeId` half is the ordinal of first interning, i.e. **a position
+    /// in the build walk**. It is identical for two builds of the same source,
+    /// but inserting one instance ahead of another shifts every later number
+    /// (`stage-readout-design.md` §1.2 ② ⚠, measured). Anything crossing builds
+    /// must compare the *canonical* form, never this.
+    pub point: Option<PointId>,
 }
 
 impl EndpointRef {
@@ -284,6 +303,7 @@ impl EndpointRef {
             pin_name: pin_name.into(),
             io_type: IoDirection::Unknown,
             pin_number: None,
+            point: None,
         }
     }
 
@@ -300,6 +320,7 @@ impl EndpointRef {
             pin_name: pin_name.into(),
             io_type,
             pin_number: None,
+            point: None,
         }
     }
 
@@ -318,7 +339,20 @@ impl EndpointRef {
             pin_name: pin_name.into(),
             io_type,
             pin_number,
+            point: None,
         }
+    }
+
+    /// ★ Stage-readout §2.1: attach the endpoint's stage key.
+    ///
+    /// A separate step rather than a sixth positional argument on `full`, so
+    /// the ~30 existing construction sites keep reading as they did and only
+    /// the one site that actually holds an `InstTable` (`fromblock`'s endpoint
+    /// builders) has to say anything.
+    #[must_use]
+    pub fn with_point(mut self, point: Option<PointId>) -> Self {
+        self.point = point;
+        self
     }
 
     /// Whether this is a rail-synth synthesized endpoint

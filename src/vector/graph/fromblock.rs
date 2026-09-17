@@ -116,6 +116,10 @@ fn build_box_pins(entries: &[&InstEntry], owner_class: &str) -> Vec<BoxPin> {
                 io: translate_io_type(&e.io_type),
                 port_dir: PortDir::None,
                 src_span: e.src_pos.clone().or_else(|| e.fallback_pos.clone()),
+                // Stage-readout §2.1: the pin's stage key, taken from the same row
+                // we are already reading — the net layer's own value, not a
+                // second computation of it.
+                point: e.point,
             }
         })
         .collect()
@@ -143,6 +147,9 @@ fn placeholder_pins(box_id: i64, pin_count: usize) -> Vec<BoxPin> {
                 io: IoDirection::Unknown,
                 port_dir: PortDir::None,
                 src_span: None,
+                // Fabricated pins exist only to draw a shape: they are not
+                // `InstTable` rows, so they have no point to name.
+                point: None,
             }
         })
         .collect()
@@ -1482,25 +1489,28 @@ fn generate_viznets_from_block(
         None
     }
 
-    // Endpoint construction helper (from point_id get box / pin name / io / pin number).
+    // Endpoint construction helper (from point_id get box / pin name / io / pin
+    // number, and the endpoint's stage key).
     let make_endpoint = |pid: i64| -> Option<EndpointRef> {
         if pid < 0 {
             return None;
         }
         let u = pid as u32;
         let box_id = point_to_box.get(&u).map(|&bid| bid as i64)?;
-        let (pin_name, io_type, pin_number) = match table.get_entry(u) {
+        // The stage key rides along on the row we are already reading: it is
+        // `InstEntry.point`, the very value the net layer derived for this pin,
+        // so the flat table's row and this endpoint name one point by one
+        // computation rather than by two agreeing ones (design §2.2 ②, A6).
+        let (pin_name, io_type, pin_number, point) = match table.get_entry(u) {
             Some(e) => {
                 let n = extract_last_segment(&e.path);
                 let io = translate_io_type(&e.io_type);
                 let pn = parse_pin_number(&n);
-                (n, io, pn)
+                (n, io, pn, e.point)
             }
-            None => (String::new(), IoDirection::Unknown, None),
+            None => (String::new(), IoDirection::Unknown, None, None),
         };
-        Some(EndpointRef::full(
-            box_id, pid, pin_name, io_type, pin_number,
-        ))
+        Some(EndpointRef::full(box_id, pid, pin_name, io_type, pin_number).with_point(point))
     };
 
     // ★ SPI expansion: construct port's child members (SCLK/MOSI/...) as endpoints, box reuses
@@ -1514,15 +1524,15 @@ fn generate_viznets_from_block(
     //   be 4 independent endpoints at the main layer, and this expansion branch
     //   is no longer needed.
     let make_child_endpoint = |child_id: i64, box_id: i64| -> EndpointRef {
-        let (name, io, pn) = match table.get_entry(child_id as u32) {
+        let (name, io, pn, point) = match table.get_entry(child_id as u32) {
             Some(e) => {
                 let n = extract_last_segment(&e.path);
                 let pn = parse_pin_number(&n);
-                (n, translate_io_type(&e.io_type), pn)
+                (n, translate_io_type(&e.io_type), pn, e.point)
             }
-            None => (String::new(), IoDirection::Unknown, None),
+            None => (String::new(), IoDirection::Unknown, None, None),
         };
-        EndpointRef::full(box_id, child_id, name, io, pn)
+        EndpointRef::full(box_id, child_id, name, io, pn).with_point(point)
     };
 
     // Split-out member nets need unique nids -> increment from above all original nids, avoiding
@@ -2132,6 +2142,7 @@ mod tests {
             alias_of: None,
             node_id: None,
             class_def: None,
+            point: None,
         }
     }
 

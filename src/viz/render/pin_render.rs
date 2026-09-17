@@ -265,11 +265,29 @@ pub fn render_pin_named(
         None => String::new(),
     };
 
+    // Stage-readout §2.1: the pin's **stage key**, beside `data-pin-id`.
+    //
+    // The two are deliberately separate attributes rather than one redefined
+    // one: `data-pin-id` is the `InstTable` row number — a segment-local index
+    // that a sibling insertion renumbers (design §2 form (3)) — while
+    // `data-point` is the `(node, def-member)` key the net layer derives, which
+    // is what a cross-segment join reads (form (1)) and what a canonical-form
+    // comparison is derived from. Emitting only the key would leave the
+    // existing draw→route lookups with nothing to match on; emitting only the
+    // row number is what the stage readout exists to fix.
+    //
+    // Absent when the pin has no point (placeholder pins, module boundaries),
+    // so a reader can tell "no key" from "key zero".
+    let point_attr = match pin.and_then(|p| p.point) {
+        Some(p) => format!(r##" data-point="{}""##, escape_xml(&p.to_string())),
+        None => String::new(),
+    };
+
     format!(
-        r##"    <g class="pin" data-pin-id="{}"{}>{}{}{}{}
+        r##"    <g class="pin" data-pin-id="{}"{}{}>{}{}{}{}
     </g>
 "##,
-        ep.pin_id, src_attrs, marker, number_svg, name_svg, io_svg
+        ep.pin_id, point_attr, src_attrs, marker, number_svg, name_svg, io_svg
     )
 }
 
@@ -456,11 +474,18 @@ pub fn render_nc_pin(
         String::new()
     };
 
+    // Stage-readout §2.1: same key as a drawn pin gets — an NC pin is still a
+    // real point, it just has no wire on it.
+    let point_attr = match pin.point {
+        Some(p) => format!(r##" data-point="{}""##, escape_xml(&p.to_string())),
+        None => String::new(),
+    };
+
     format!(
-        r##"    <g class="pin nc" data-pin-id="{}">{}{}{}
+        r##"    <g class="pin nc" data-pin-id="{}"{}{}{}{}
     </g>
 "##,
-        pin.id, nc_mark, number_svg, name_svg
+        pin.id, point_attr, nc_mark, number_svg, name_svg
     )
 }
 
