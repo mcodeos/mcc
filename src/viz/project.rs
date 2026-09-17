@@ -45,7 +45,7 @@ use std::collections::{BTreeSet, HashMap};
 use crate::instant::insttab::{InstKind, InstTable, MemberRole};
 use crate::vector::graph::naming;
 use crate::vector::graph::netdef::IoDirection;
-use crate::vector::model::{BoundaryInfo, McVec, McVecBlock, McVecNet};
+use crate::vector::model::{BoundaryInfo, McVec, McVecBlock, McVecNet, PortFlow};
 
 /// One projection action record (rule a=merge / b=endpoint dedup / c=pseudo endpoint removal)
 #[derive(Debug, Clone)]
@@ -207,6 +207,42 @@ fn port_group_of<'a>(
                 && e.path.as_bytes()[g.path.len()] == b'.'
         })
         .max_by_key(|g| g.path.len())
+}
+
+/// ★ Module-port drawing: the side a port's own declaration names.
+///
+/// `in` / `out` say it directly. `psrc` / `psnk` cannot — the flat io axis folds
+/// both into `IOType::Power` — so the side is read off the module's own
+/// `pwr_ports` row, matched by the declared hot member this endpoint spells
+/// (`POWER_LDO.vin.V5V` ↔ `hot = V5V`): exact identity on a declared name, the
+/// same read `is_child_module_psrc_port` makes. A `ret` member is deliberately
+/// not matched — every power port of a module returns to the same `GND`, so a
+/// ret names no single row. `psbi` names no side, and neither does a port the
+/// module body did not declare as a power row; both leave `None`.
+fn port_flow(
+    e: &crate::instant::insttab::InstEntry,
+    bid: i64,
+    table: &InstTable,
+) -> Option<PortFlow> {
+    match e.io_type {
+        crate::semantic::common::IOType::In => Some(PortFlow::In),
+        crate::semantic::common::IOType::Out => Some(PortFlow::Out),
+        crate::semantic::common::IOType::Power => {
+            let leaf = last_segment(&e.path);
+            table
+                .power_decls()
+                .get(&(bid as u32))?
+                .pwr_ports
+                .iter()
+                .find(|p| p.hot == leaf)
+                .and_then(|p| match p.dir {
+                    PwrDir::Snk => Some(PortFlow::In),
+                    PwrDir::Src => Some(PortFlow::Out),
+                    PwrDir::Bi => None,
+                })
+        }
+        _ => None,
+    }
 }
 
 fn project_nets(
@@ -524,6 +560,7 @@ fn project_nets(
                         port_group_id: ancestor.id as i64,
                         port_name,
                         io,
+                        flow: port_flow(e, bid, table),
                         is_supply: group_is_rail,
                     });
                 }

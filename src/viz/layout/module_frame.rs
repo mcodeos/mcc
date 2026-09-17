@@ -13,11 +13,14 @@
 //!
 //! Everything here is structural. The rect is the content's bbox; the ports are
 //! the nets carrying a `BoundaryInfo` marker, and each anchor is that net's own
-//! terminal symbol projected onto the nearest frame edge. No name is consulted,
-//! and the renderer recomputes nothing — it draws the rect and the labels as
-//! written.
+//! terminal symbol placed on the frame edge the port's declaration names — an
+//! `in` / `psnk` port on the left, an `out` / `psrc` port on the right, and only
+//! a port that declares no side on the edge its crossing points at. No name is
+//! consulted, and the renderer recomputes nothing — it draws the rect and the
+//! labels as written.
 
 use crate::vector::graph::{EntrySide, FramePort, McVecGraph, ModuleFrame};
+use crate::vector::model::PortFlow;
 
 use super::equipotential_tree::{build_all_trees, content_bbox};
 
@@ -142,6 +145,12 @@ pub fn layout_module_frame(
 /// The crossing is read from the nets: a net whose `boundary` marker names the
 /// port, and whose own terminal symbol gives the point the lead leaves through.
 /// The marker is what makes it a port — never the net's or the port's name.
+///
+/// The edge is the declaration's, not the geometry's: a port that declares a
+/// side — `in` / `psnk` left, `out` / `psrc` right — is drawn there, so the net
+/// it carries stays inside the frame and the reader meets the terminal where the
+/// module's own contract says it is. Only a port that declares no side falls
+/// back to the dominant axis of its crossing.
 fn frame_ports(
     graph: &McVecGraph,
     trees: &[crate::viz::layout::equipotential_tree::EquiTree],
@@ -154,14 +163,13 @@ fn frame_ports(
 
     // One anchor per port group: several nets cross the same port (`vin.V5V`,
     // `vin.GND`), and the frame shows the port once, where it actually leaves.
-    let mut seen: Vec<(i64, f64, f64, String, bool)> = Vec::new();
+    // The group's nets are not interchangeable: the one whose marker carries the
+    // declared side is the port's own face, so it wins the anchor its lead.
+    let mut seen: Vec<(i64, f64, f64, String, bool, Option<PortFlow>)> = Vec::new();
     for net in &graph.nets {
         let Some(bi) = net.boundary.as_ref() else {
             continue;
         };
-        if seen.iter().any(|(id, ..)| *id == bi.port_group_id) {
-            continue;
-        }
         // The lead's own terminal: the outermost symbol of this net, i.e. the one
         // farthest from the content centre. That symbol IS the boundary crossing.
         let Some(p) = trees
@@ -177,43 +185,63 @@ fn frame_ports(
         else {
             continue;
         };
+        if let Some(slot) = seen.iter_mut().find(|(id, ..)| *id == bi.port_group_id) {
+            if slot.5.is_none() && bi.flow.is_some() {
+                *slot = (
+                    bi.port_group_id,
+                    p.0,
+                    p.1,
+                    bi.port_name.clone(),
+                    bi.is_supply,
+                    bi.flow,
+                );
+            }
+            continue;
+        }
         seen.push((
             bi.port_group_id,
             p.0,
             p.1,
             bi.port_name.clone(),
             bi.is_supply,
+            bi.flow,
         ));
     }
 
     // Project each crossing onto the frame edge it leaves through, then spread
     // the anchors on each edge so two labels cannot land on top of each other.
     let mut out: Vec<FramePort> = Vec::with_capacity(seen.len());
-    for (_, px, py, name, is_supply) in seen {
-        let dx = (px - cx) / ((max_x - min_x) / 2.0).max(1.0);
-        let dy = (py - cy) / ((max_y - min_y) / 2.0).max(1.0);
-        let (side, x, y) = if dx.abs() >= dy.abs() {
-            let x = if dx < 0.0 { min_x } else { max_x };
-            (
-                if dx < 0.0 {
-                    EntrySide::Left
+    for (_, px, py, name, is_supply, flow) in seen {
+        let (side, x, y) = match flow {
+            Some(PortFlow::In) => (EntrySide::Left, min_x, py),
+            Some(PortFlow::Out) => (EntrySide::Right, max_x, py),
+            None => {
+                let dx = (px - cx) / ((max_x - min_x) / 2.0).max(1.0);
+                let dy = (py - cy) / ((max_y - min_y) / 2.0).max(1.0);
+                if dx.abs() >= dy.abs() {
+                    let x = if dx < 0.0 { min_x } else { max_x };
+                    (
+                        if dx < 0.0 {
+                            EntrySide::Left
+                        } else {
+                            EntrySide::Right
+                        },
+                        x,
+                        py,
+                    )
                 } else {
-                    EntrySide::Right
-                },
-                x,
-                py,
-            )
-        } else {
-            let y = if dy < 0.0 { min_y } else { max_y };
-            (
-                if dy < 0.0 {
-                    EntrySide::Top
-                } else {
-                    EntrySide::Bottom
-                },
-                px,
-                y,
-            )
+                    let y = if dy < 0.0 { min_y } else { max_y };
+                    (
+                        if dy < 0.0 {
+                            EntrySide::Top
+                        } else {
+                            EntrySide::Bottom
+                        },
+                        px,
+                        y,
+                    )
+                }
+            }
         };
         out.push(FramePort {
             name,
