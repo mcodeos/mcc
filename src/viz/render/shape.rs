@@ -368,4 +368,30 @@ mod tests {
         assert!(svg.contains(">TP3</text>"), "{svg}");
         assert!(!svg.contains("u_1"), "{svg}");
     }
+
+    /// A box that knows where it was declared carries that coordinate into the
+    /// drawing, so the viewer can jump from the glyph back to the `.mc` line.
+    #[test]
+    fn box_with_source_span_stamps_its_coordinate() {
+        let mut b = mk(Symbol::Resistor, BoxKind::TwoPin);
+        b.source_span = Some(crate::semantic::common::SourcePos::new(
+            "/p/power.mc",
+            1727,
+        ));
+        let svg = render_box(&b, false);
+        assert!(svg.contains(r#"data-src-uri="/p/power.mc""#), "{svg}");
+        assert!(svg.contains(r#"data-src-offset="1727""#), "{svg}");
+    }
+
+    /// No coordinate is invented for a synthesized box: the attribute is simply
+    /// absent, and the viewer reads that absence as "not jumpable" rather than
+    /// falling back to some guessed position.
+    #[test]
+    fn box_without_source_span_stamps_nothing() {
+        let b = mk(Symbol::Resistor, BoxKind::TwoPin);
+        assert!(b.source_span.is_none());
+        let svg = render_box(&b, false);
+        assert!(!svg.contains("data-src-uri"), "{svg}");
+        assert!(!svg.contains("data-src-offset"), "{svg}");
+    }
 }

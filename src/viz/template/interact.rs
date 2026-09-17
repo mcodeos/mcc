@@ -322,6 +322,63 @@ document.getElementById('zoom-out').addEventListener('click', zoomOut);
 document.getElementById('zoom-reset').addEventListener('click', zoomReset);
 window.addEventListener('resize', function () { applyZoom(zoomLevel); });
 
+// Source navigation
+// The Rust renderer stamps every box and pin that has a real source position
+// with data-src-uri + data-src-offset (a byte offset into the .mc file). A
+// modifier-click hands that coordinate to the host, which opens the file and
+// reveals it.
+//
+// Gesture: Cmd/Ctrl + click only. A plain click is never intercepted — a
+// sub-module box still drills down through its own onclick="expandSubModule",
+// a component box still does nothing — so the existing interactions are
+// untouched. The listener is therefore registered in the *capture* phase: a
+// bubble-phase one would run too late, since the box's inline handler fires on
+// the way up through the inner <g> before the event reaches #canvas.
+//
+// With no host — a standalone circuit.html opened in a browser — the
+// coordinate is shown and copied rather than followed (design §3.4; the
+// vscode://file form needs line/col, which only the writing side has: D3).
+const mcodeHost = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+
+function sourceCoordOf(ev) {
+    if (!(ev.metaKey || ev.ctrlKey)) return null;
+    const el = ev.target && ev.target.closest ? ev.target.closest('[data-src-uri]') : null;
+    if (!el) return null;
+    const uri = el.getAttribute('data-src-uri');
+    const offset = Number(el.getAttribute('data-src-offset'));
+    if (!uri || !Number.isFinite(offset)) return null;
+    return { uri: uri, offset: offset };
+}
+
+function copySourceCoord(coord) {
+    const text = coord.uri + ':' + coord.offset;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () {});
+    }
+    const note = document.createElement('div');
+    note.textContent = 'source coordinate copied: ' + text;
+    note.style.cssText =
+        'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);' +
+        'background:#333;color:#fff;padding:6px 12px;border-radius:4px;' +
+        'font:12px monospace;z-index:9999;pointer-events:none';
+    document.body.appendChild(note);
+    setTimeout(function () { note.remove(); }, 2500);
+}
+
+// #canvas persists across layer switches (only its innerHTML is replaced), so
+// this listener survives navigation, like the zoom handlers above.
+document.getElementById('canvas').addEventListener('click', function (ev) {
+    const coord = sourceCoordOf(ev);
+    if (!coord) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (mcodeHost) {
+        mcodeHost.postMessage({ type: 'openSource', uri: coord.uri, offset: coord.offset });
+    } else {
+        copySourceCoord(coord);
+    }
+}, true);
+
 // Startup
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -329,4 +386,27 @@ if (document.readyState === 'loading') {
     init();
 }
 "##
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The page's source-navigation bridge. Two halves must survive a refactor
+    /// together: the modifier gate (a plain click has to stay with
+    /// `expandSubModule`, so the handler may only consume modified clicks) and
+    /// the `data-src-*` stamp the Rust renderer writes onto boxes and pins.
+    /// Dropping either silently downgrades every click to nothing.
+    #[test]
+    fn source_navigation_js_gates_on_the_modifier_and_reads_the_stamp() {
+        let js = js();
+        assert!(js.contains("data-src-uri"), "no source stamp lookup");
+        assert!(js.contains("data-src-offset"), "no source stamp lookup");
+        assert!(
+            js.contains("ev.metaKey || ev.ctrlKey"),
+            "no modifier gate: a plain click must keep its existing meaning"
+        );
+        assert!(js.contains("acquireVsCodeApi"), "no webview host acquisition");
+        assert!(js.contains("'openSource'"), "no host message type");
+    }
 }
