@@ -45,7 +45,7 @@ use super::budget::{BudgetRoot, BudgetScan};
 use super::window::{classify_supply_def, SupplyClass};
 use super::{entry_pos, sink_contract_for, source_contract_for};
 use crate::instant::insttab::{InstKind, InstTable};
-use crate::instant::island::{NetIslandIndex, NetRole};
+use crate::instant::island::NetIslandIndex;
 use crate::semantic::common::IOType;
 use crate::semantic::module::pi::decode_pwr_pin;
 use std::collections::{HashMap, HashSet};
@@ -178,69 +178,29 @@ impl<'a> BudgetLoadScan<'a> {
     /// Island-role exclusion: `Ret`/`Reference` copper never carries hot-side
     /// demand, so a region neither starts on it nor floods through it.
     fn role_excluded(&self, net_id: u32) -> bool {
-        self.idx
-            .get(net_id)
-            .is_some_and(|a| matches!(a.role, NetRole::Ret | NetRole::Reference))
+        super::role_excluded(&self.idx, net_id)
     }
 
-    /// Flood-fill the current-transparent copper body of `net_id`: every
-    /// two-pin io-only element (fuse/inductor/ferrite) forwards to its other
-    /// net, and module-boundary co-segments (the same junction point id in a
-    /// different scope) join. Stops before return/reference copper.
+    /// Flood-fill the current-transparent copper body of `net_id` — the walk
+    /// itself lives in `super::copper_region_into` (one copy, shared with PWR-6's
+    /// downstream-chain half); this is the budget's predicate over it: a
+    /// component is a bridge when it carries **no DC rows** (`pins.pwr` empty —
+    /// fuse/inductor/ferrite/decoupling cap at the flat layer), and the budget
+    /// axis declares no gates, so nothing else stops the flood.
     fn fill_region(&self, net_id: u32, seen: &mut HashSet<u32>, out: &mut Vec<u32>) {
-        if !seen.insert(net_id) {
-            return;
-        }
-        if self.role_excluded(net_id) {
-            return;
-        }
-        let Some(net) = self.table.get_net(net_id) else {
-            return;
-        };
-        out.push(net_id);
-        // Transparent-copper arm (mirrors reach.rs / budget.rs §6.3).
-        for &pid in &net.points {
-            let Some(entry) = self.table.get_entry(pid) else {
-                continue;
-            };
-            if !matches!(entry.kind, InstKind::Pin) {
-                continue;
-            }
-            let Some(cid) = entry.parent_id else {
-                continue;
-            };
-            let Some(def) = self.budget.scan.def_of(cid) else {
-                continue;
-            };
-            if !def.pins.pwr.is_empty() {
-                continue; // has DC rows → a power face, not raw copper
-            }
-            for pin in self.table.get_pins_of(cid) {
-                let Some(pnet) = self.table.get_net_of(pin.id) else {
-                    continue;
-                };
-                if pnet.id != net.id {
-                    self.fill_region(pnet.id, seen, out);
-                }
-            }
-        }
-        // Module-boundary arm (mirrors reach.rs §6.6).
-        if let Some(m) = net.module {
-            for &pid in &net.points {
-                for &cid in self.table.nets_of(pid) {
-                    if cid == net.id {
-                        continue;
-                    }
-                    let Some(co) = self.table.get_net(cid) else {
-                        continue;
-                    };
-                    if co.module.is_none() || co.module == Some(m) {
-                        continue;
-                    }
-                    self.fill_region(cid, seen, out);
-                }
-            }
-        }
+        super::copper_region_into(
+            self.table,
+            &self.idx,
+            &|cid| {
+                self.budget
+                    .scan
+                    .def_of(cid)
+                    .is_some_and(|d| d.pins.pwr.is_empty())
+            },
+            net_id,
+            seen,
+            out,
+        );
     }
 
     /// Declared `amp` on one net: the sinks of plain `Load` defs only. Input

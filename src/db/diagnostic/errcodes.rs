@@ -1921,6 +1921,42 @@ pub const SHARED_RETURN_BRIDGE: u32 = 6040;
 /// supply pair and is not this rule's object.
 pub const FILTER_SUBFACE_OVERREACH: u32 = 6042;
 
+/// PWR-6 **downstream chain** (exposed-protection-design.md §3.1, the upgrade
+/// half; six rulings 2026-09-17): the exposed port's own copper is clamped
+/// (`6031` silent), but an **unprotected quiet/sensitive face** is reachable
+/// from it through transparent copper without crossing a declared series gate —
+/// the transient the `@exposed` declares takes the branch the clamp does not
+/// cover.
+///
+/// The read is a **region existence** test, not a path search
+/// (`exposed-protection-design.md` §3.1.4): flood the current-transparent
+/// copper body of the exposed port's own segments (the same walk `reach.rs` /
+/// `budget.rs` / `budget_derive.rs` / `window.rs` each carry, here one shared
+/// helper), stopping before `Ret`/`Reference` copper and **stopping at every
+/// declared gate** (`InstEntry.protection == Some(Series)` — a fuse / PTC /
+/// ferrite is the current-limit chain the canon's "already past a clamp or
+/// current-limit chain" names).
+/// Report when some net of that region, other than the port's own copper,
+///
+/// ```text
+/// is a quiet/sensitive face   (the §1.4 read, via eff_class worlds)
+/// and carries no declared clamp of its own.
+/// ```
+///
+/// A gate is only ever a **declaration** (`protect = series`), never a shape:
+/// an unmarked two-terminal pass element is ordinary copper and does not stop
+/// the flood — the same "a declaration is the contract" rule PWR-5's
+/// classification rests on.
+///
+/// Not judged, never guessed: a port whose segments do not resolve in its own
+/// scope; a region net with no owning layer, no resolvable class or no declared
+/// face (silence, never a guess — §1.3); a region net that is itself clamped
+/// (its own `6031`-shaped coverage); and a board declaring no faces at all.
+/// **Never stacked with `6031`**: that rule's object is the exposed net itself
+/// and this one's is the region *minus* it, so an exposed net carrying no clamp
+/// fires `6031` alone (object disjointness, §3.1.6).
+pub const EXPOSED_NET_DOWNSTREAM_UNPROTECTED: u32 = 6044;
+
 static ALL_CODES: &[ErrorCodeInfo] = &[
     // section
     entry!(DUP_INTERFACE, "An interface with the same name already exists in this file.", "Duplicate interface"),
@@ -2350,6 +2386,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ANALOG_RETURN_MISMATCH, "A part supplied from a declared analog face returns over a reference the face and the scope's analog port agree on.", "part '{0}' draws from the analog face {1} but its return member lands on '{2}', while the face's rail and the analog port of scope '{3}' both name the reference as {4} — a face's declared reference is the plane its protected parts are measured against, so the returns they actually close over must be that reference: land this return on {4}, or correct the rail's return member if the face really closes over '{2}' (power-quality-design.md §3.1, SN-1). Only the declared half is judged: a port stating no @return, and one whose reference names no face of its own scope, are not adjudicated (the source→sink chain has no carrier — §6 R3)"),
     entry!(SHARED_RETURN_BRIDGE, "A DC ground bridge joins a noisy face's return to a quiet/sensitive face's return with no filtering element on the leg.", "the ground bridge {0} puts the noisy face {1} and the quiet/sensitive face {2} on one copper, {3} — a filter is what lets a quiet face keep its own reference while the two coppers meet, so without one the plane the protected parts are measured against sits straight on the noise source's return: carry this leg with a ferrite/inductor (a declared filter, whose completeness PI-2 then judges — 6037), or keep the two returns apart and tie them only where the design declares the crossing (power-quality-design.md §3.2, SN-2)"),
     entry!(FILTER_SUBFACE_OVERREACH, "A sink drawing from a declared filter leg's load-side subface declares a supply pair other than the quiet domain's own.", "sink '{0}' declares the supply pair {1}, and that pair draws from the load side of the declared filter leg {3} — but the subface that leg protects is {4}, the {2} domain's own pair, so only a part declaring {4} is inside the domain the filter was declared for: declare this terminal's pair as {4}, or feed it from the rail its own domain declares and leave this filter's load side to the domain it protects (power-quality-design.md §2.4, PI-4)"),
+    entry!(EXPOSED_NET_DOWNSTREAM_UNPROTECTED, "An @exposed port's clamp leaves an unprotected quiet/sensitive face downstream.", "port '{0}' declares @exposed({1}) and is clamped, but net '{2}' — the quiet/sensitive face {3} — is reachable from it through transparent copper without crossing a declared series gate, and '{2}' carries no declared clamp of its own: a clamp covers its own side of every branch, so the transient the @exposed declares still pours into the quiet face. Clamp '{2}' as well, put a declared gate on this branch (protect = series on the fuse/ferrite it should pass), or drop the @exposed when this port is not the boundary the threat enters from (exposed-protection-design.md §3.1, PWR-6)"),
     // section
     entry!(GATE_LITERAL_POINT, "R01 — a vector reference reached the netlist unexpanded (literal braces).", "unexpanded vector reference: {0}"),
     entry!(GATE_SHORT_PASSIVE, "R02 — both terminals of a two-terminal device land on the same net.", "two-terminal device short circuit: {0}"),
