@@ -1759,6 +1759,7 @@ mod tests {
                 io: IoDirection::Bidir,
                 port_dir: PortDir::None,
                 src_span: None,
+                point: None,
             },
             BoxPin {
                 id: 2,
@@ -1767,6 +1768,7 @@ mod tests {
                 io: IoDirection::Bidir,
                 port_dir: PortDir::None,
                 src_span: None,
+                point: None,
             },
             BoxPin {
                 id: 3,
@@ -1775,6 +1777,7 @@ mod tests {
                 io: IoDirection::Bidir,
                 port_dir: PortDir::None,
                 src_span: None,
+                point: None,
             },
             BoxPin {
                 id: 4,
@@ -1783,6 +1786,7 @@ mod tests {
                 io: IoDirection::Unknown,
                 port_dir: PortDir::None,
                 src_span: None,
+                point: None,
             },
         ]);
         b.set_layout_hint(PinLayout {
@@ -1851,6 +1855,7 @@ mod tests {
                     io: IoDirection::Unknown,
                     port_dir: PortDir::None,
                     src_span: None,
+                    point: None,
                 })
                 .collect(),
         );

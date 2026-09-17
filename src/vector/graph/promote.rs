@@ -257,6 +257,11 @@ pub fn lift_endpoints_to_layer_boxes(
                                 pin_name: e.pin_name.clone(),
                                 io_type: e.io_type, // P03: inherit io_type from original endpoint
                                 pin_number: e.pin_number, // P01: inherit pin_number
+                                // Stage-readout §2.1: the endpoint is the *same*
+                                // physical point, only named at a further-out
+                                // layer — so the key carries through unchanged
+                                // rather than being left behind.
+                                point: e.point,
                             });
                         }
                         cur = parent_id;

@@ -1376,6 +1376,7 @@ mod m11_diagnostic_tests {
                     pin_name: pin_id.to_string(),
                     io_type: IoDirection::Unknown,
                     pin_number: None,
+                    point: None,
                 })
                 .collect(),
             kind: NetKind::Signal,

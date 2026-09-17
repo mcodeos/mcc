@@ -23,6 +23,7 @@ mod module_port_interface_ref;
 mod net_island_l1;
 mod param_call_site_key_binding;
 mod param_group_prefix;
+mod point_identity_stage_key;
 mod port_row_with_connection;
 mod pwrflow_l1;
 mod tablea_dispatch_regression;

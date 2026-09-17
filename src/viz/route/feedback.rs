@@ -745,6 +745,7 @@ mod tests {
             pin_name: String::new(),
             io_type: IoDirection::Unknown,
             pin_number: None,
+            point: None,
         }
     }
 

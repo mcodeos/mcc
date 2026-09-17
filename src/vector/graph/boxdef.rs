@@ -158,6 +158,19 @@ pub struct BoxPin {
     /// ★ G16: source position of this pin in the .mc source (None for
     /// placeholder / synthesized pins).
     pub src_span: Option<crate::semantic::common::SourcePos>,
+    /// ★ Stage-readout design §2.1 / §2.2 ②: the pin's **stage-comparable key**
+    /// — the `PointId` (arena node + stable def-member ordinal) that the net
+    /// layer derives and `InstEntry::point` records. `id` above stays what it
+    /// always was, a segment-local `InstTable` row number; this is the identity
+    /// a cross-segment join reads, and it is what the rendered pin element
+    /// publishes as `data-point`.
+    ///
+    /// It lives on the pin (not on `EntryPoint`) because it is the pin's
+    /// *identity*, not its placement: `EntryPoint` carries where the lead
+    /// attaches (side + offset), and several entry points may name one pin.
+    /// `None` covers placeholder pins (fabricated from a declared count, never
+    /// in `InstTable`) and boundaries whose crossings are nets rather than pins.
+    pub point: Option<crate::instant::lane::PointId>,
 }
 
 // ★ M0-3: PinConstraint — pin placement constraint level

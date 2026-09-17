@@ -845,6 +845,7 @@ mod tests {
             io,
             port_dir: PortDir::None,
             src_span: None,
+            point: None,
         });
     }
 

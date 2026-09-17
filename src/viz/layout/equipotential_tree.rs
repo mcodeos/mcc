@@ -7272,6 +7272,7 @@ mod tests {
                 io: IoDirection::Unknown,
                 port_dir: PortDir::None,
                 src_span: None,
+                point: None,
             });
         }
         b
@@ -7299,6 +7300,7 @@ mod tests {
                 io: IoDirection::Unknown,
                 port_dir: PortDir::None,
                 src_span: None,
+                point: None,
             });
         }
         b

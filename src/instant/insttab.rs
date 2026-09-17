@@ -687,6 +687,23 @@ pub struct InstEntry {
     /// keeps its own declaring uri here. `None` for entries that name no def
     /// (pins, ports, labels, nets).
     pub class_def: Option<McSpaceName>,
+    /// ★ Stage-readout §2.1: the endpoint's **stage-comparable key** — the
+    /// `PointId` (arena node + stable def-member ordinal) the net layer itself
+    /// derives, recorded here so the pin-level bridge reaches the flat table.
+    ///
+    /// `node_id` above bridges *instances*; this bridges *pins*, and it is the
+    /// key every downstream segment aligns on (`stage-readout-design.md` §2).
+    /// `Some` for the two kinds that name a physical point — a component pin
+    /// (`InstKind::Pin`) and a module port (`InstKind::Port`). `None` for
+    /// entries that own no point: labels, bus members, and the synthetic
+    /// endpoints the router invents (they have no pin to name).
+    ///
+    /// The whole `PointId` is stored rather than a bare member ordinal beside
+    /// `node_id` on purpose: world axiom A6 forbids a second authority, so the
+    /// node half and the member half must be written by one call and never
+    /// maintained separately. Consumers read the two halves back together, as
+    /// one value, and never re-derive either from the path string.
+    pub point: Option<crate::instant::lane::PointId>,
 }
 
 impl InstEntry {
@@ -1100,6 +1117,7 @@ impl InstTable {
             alias_of: None,
             node_id: None,
             class_def: None,
+            point: None,
         };
 
         self.entries.insert(id, entry);
@@ -1131,6 +1149,21 @@ impl InstTable {
             if class_def.is_some() {
                 entry.class_def = class_def;
             }
+        }
+    }
+
+    /// Thread the stage-comparable pin key onto an entry (see
+    /// [`InstEntry::point`]). The pin sites call this immediately after
+    /// registering the entry, so `pin_id` (the entry's own row number, a
+    /// segment-local index) and `point` (the key) are born in the same step
+    /// and can never drift apart.
+    ///
+    /// `None` never clears a value already recorded — a later, better-informed
+    /// site (the back-fill pass in `flatten_nets`) may supply what an earlier
+    /// one could not, but no site unsays one.
+    pub fn set_point(&mut self, id: u32, point: Option<crate::instant::lane::PointId>) {
+        if let (Some(entry), Some(point)) = (self.entries.get_mut(&id), point) {
+            entry.point = Some(point);
         }
     }
 
@@ -1585,6 +1618,16 @@ impl InstTable {
                 inst.def_uri.to_string(),
             );
             self.set_identity(port_id, port.node_id, None);
+            // ★ Stage-readout §2.1: the port's own point — the module node plus
+            // the port's id in the module def's registry-owned port ledger,
+            // resolved by the net layer's single authority so both segments
+            // name the port the same way. The root module's ports are the
+            // circuit boundary, where a rename is a pure label change
+            // (world-equivalence §10.3), so they stay positionally anchored.
+            self.set_point(
+                port_id,
+                crate::instant::lane::resolve_port_ordinal(inst, &port.name, parent_id.is_none()),
+            );
             // Signature interface params (e.g. `[VDD_3V3, GND]::DC(3.3V)`)
             // are declared in `def.params`, not `def.insts` — when the body
             // instance lookup misses, fall back to the param declaration span
@@ -1949,6 +1992,13 @@ impl InstTable {
                         net_point.src_pos.clone(),
                         inst.def_uri.to_string(),
                     );
+                    // ★ Stage-readout §2.1: the pin's stage-comparable key.
+                    // Resolved by the net layer's single authority — the very
+                    // call that gives the lane its `PointId` — so this segment
+                    // and the net layer name the pin identically by
+                    // construction, not by two agreeing implementations.
+                    let point = crate::instant::lane::point_of_comp_pin(comp, pin_name);
+                    self.set_point(pin_id, point);
 
                     // ★ U48: the per-pin NC marker of the declaration line
                     // (`CHIP d1 @ncpin(1,3)`), already resolved to pin ids at
@@ -2169,6 +2219,13 @@ impl InstTable {
                         net_point.src_pos.clone(),
                         inst.def_uri.to_string(),
                     );
+                    // ★ Stage-readout §2.1: the pin's stage-comparable key.
+                    // Resolved by the net layer's single authority — the very
+                    // call that gives the lane its `PointId` — so this segment
+                    // and the net layer name the pin identically by
+                    // construction, not by two agreeing implementations.
+                    let point = crate::instant::lane::point_of_comp_pin(comp, pin_name);
+                    self.set_point(pin_id, point);
 
                     // ★ U48: per-pin NC marker (same lookup as pass 1).
                     if comp.nc_pins.contains(pin_name) {

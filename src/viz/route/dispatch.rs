@@ -404,6 +404,7 @@ mod tests {
             pin_name: String::new(),
             io_type: io,
             pin_number: None,
+            point: None,
         }
     }
 
